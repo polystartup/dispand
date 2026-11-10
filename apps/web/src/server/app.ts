@@ -45,6 +45,8 @@ async function start(): Promise<App> {
   // Job's session gets Dispand's own tools, called in process (the app is read at call time).
   const app = {} as App;
   const engine = getEngine(db, hub, secrets, dataEvents, { connector: tools, tools: platformToolCaller(() => app) });
+  // Filled before anything can call a tool: recovery below may already need it.
+  Object.assign(app, { db, auth, hub, engine, dataEvents, secrets, tools, setupCode: config.setupCode, filesDir: config.filesDir, gitFileUrls: config.gitFileUrls });
   // Before any runner can connect (the upgrade handler waits for this app); cloud sessions go on.
   await engine.recover();
   // Fires what fell due while the app was down (once per schedule, for the latest time), then every 15 s.
@@ -54,7 +56,7 @@ async function start(): Promise<App> {
   const sweep = () => void sweepAttachments(db, config.filesDir, new Date()).catch((err: unknown) => logError("files.sweep failed", err));
   sweep();
   setInterval(sweep, SWEEP_EVERY_MS).unref();
-  return Object.assign(app, { db, auth, hub, engine, dataEvents, secrets, tools, setupCode: config.setupCode, filesDir: config.filesDir, gitFileUrls: config.gitFileUrls });
+  return app;
 }
 
 /** The database and auth, opened once per server process. A failed start is retried on the next call. */
