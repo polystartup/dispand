@@ -186,7 +186,7 @@ export function sessionOutcome(
 /** The tool an agent asks an approval with, in its own words. */
 export const REQUEST_APPROVAL = "request_approval";
 export const REQUEST_APPROVAL_DESCRIPTION =
-  'Ask the owner to approve something before you do it, in your own words (for example: "Send this draft to the client?"). They answer yes or no; a no may come with a reason. Use it before an action that matters and can\'t be undone.';
+  'Ask the owner to approve something before you do it, in your own words (for example: "Send this draft to the client?"). They answer yes or no; a no may come with a reason. Use it before an action that matters and can\'t be undone, and wait for the answer before acting.';
 /** The most characters the request's words may hold: the owner reads them whole. */
 const MAX_APPROVAL_MESSAGE = 4000;
 

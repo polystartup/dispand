@@ -103,7 +103,7 @@ export function outputValues(args: unknown, fields: OutputField[]): { values: Re
 export const requestApprovalSpec: ToolSpec = {
   name: REQUEST_APPROVAL,
   description:
-    "Ask the owner to approve something before you do it, in your own words (for example: \"Send this draft to the client?\"). They answer yes or no; a no may come with a reason. Use it before an action that matters and can't be undone.",
+    "Ask the owner to approve something before you do it, in your own words (for example: \"Send this draft to the client?\"). They answer yes or no; a no may come with a reason. Use it before an action that matters and can't be undone, and wait for the answer before acting.",
   inputSchema: strictObject({ message: { type: "string", description: "What you ask to be approved, as one clear question" } }),
 };
 
@@ -111,12 +111,13 @@ export const requestApprovalSpec: ToolSpec = {
 export function approvalMessage(args: unknown): { message: string } | { error: string } {
   const message = (args as { message?: unknown } | null)?.message;
   if (typeof message !== "string" || message.trim() === "") return { error: "request_approval needs a message: what you ask to be approved." };
-  if (message.length > MAX_APPROVAL_MESSAGE) return { error: `The message is too long to show whole (at most ${MAX_APPROVAL_MESSAGE} characters): shorten it.` };
+  if (message.trim().length > MAX_APPROVAL_MESSAGE) return { error: `The message is too long to show whole (at most ${MAX_APPROVAL_MESSAGE} characters): shorten it.` };
   return { message: storableText(message.trim()) };
 }
 
 export const TEXTS = {
   approved: "Approved.",
+  notRunAfterDenial: "Not run: the owner denied the approval you asked for in the same turn.",
   confirmed: "confirmed",
   notConfirmed: "The owner did not confirm these values.",
   denied: "The owner denied this.",

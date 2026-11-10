@@ -472,7 +472,13 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     }
     if (call.name === REQUEST_APPROVAL && answer.kind === "permission" && answer.decision === "deny") {
       // Said in words: some providers don't carry a tool result's error flag to the model.
-      return reply(cut(answer.message ? `Denied: ${answer.message}` : "Denied.", SHORT), true);
+      const denied: ChatItem = { role: "tool", callId: call.id, name: call.name, result: `Denied${answer.message ? `: ${cut(answer.message, SHORT)}` : "."}`, isError: true };
+      // The "no" covers what the model asked in the same turn: its other calls are not run.
+      const turn = row.items.findLast((x) => x.role === "assistant");
+      const answered = new Set(row.items.flatMap((x) => (x.role === "tool" ? [x.callId] : [])));
+      const others = (turn?.role === "assistant" ? turn.toolCalls : []).filter((c) => c.id !== call.id && !answered.has(c.id));
+      const skipped: ChatItem[] = others.map((c) => ({ role: "tool", callId: c.id, name: c.name, result: TEXTS.notRunAfterDenial, isError: true }));
+      return this.emit(id, { items: [...row.items, denied, ...skipped], pending: null, status: "running" }, { type: "tool", name: label, status: "done" });
     }
     if (answer.kind !== "permission" || answer.decision === "deny") {
       return reply(cut((answer.kind === "permission" && answer.message) || TEXTS.denied, SHORT), true);

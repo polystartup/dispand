@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { type Answer, type QuestionPayload } from "@dispand/runner-protocol";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { Engine } from "../engine/engine.ts";
+import { answerText, Engine } from "../engine/engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "../engine/harness.ts";
 import { questions, stepRuns } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
@@ -321,4 +321,12 @@ test("a Job's item names its trigger, and stays listed without one when the trig
   expect((await all(context)).find((q) => q.run.id !== runId)).toMatchObject({ trigger: null });
   await call(router.triggers.delete, { id: trigger.id }, { context });
   expect(await mine()).toMatchObject({ agent: { name: "Writer" }, trigger: null });
+});
+
+test("an approval asked in words is told back in words to a session that was restarted", () => {
+  const payload: QuestionPayload = { kind: "permission", toolName: "request_approval", input: { message: "Send this draft?" }, canAlwaysAllow: false };
+  expect(answerText({ payload, answer: { kind: "permission", decision: "allow" } })).toBe("The owner approved your request (“Send this draft?”).");
+  expect(answerText({ payload, answer: { kind: "permission", decision: "deny", message: "Not yet." } })).toBe("The owner denied your request (“Send this draft?”): Not yet.");
+  // A tool permission keeps its wording.
+  expect(answerText({ payload: permission, answer: { kind: "permission", decision: "allow" } })).toBe("The owner allowed Bash.");
 });
