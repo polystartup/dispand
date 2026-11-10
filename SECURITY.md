@@ -126,7 +126,12 @@ changes it updates this file.
   (as given, as its real path, and wherever a symlink inside it leads, followed transitively),
   denied outright, so a session reads neither the runner's
   token nor the CLIs' config or credentials (Claude's allowlist is narrower; Codex can't express
-  one, and those paths are what its reads must never reach). The rest of the machine (other
+  one, and those paths are what its reads must never reach). The sandbox is asked to hide only
+  what it can mount over, or it fails the session: an entry inside another one is covered by the
+  outer one; a socket or a device holds no config or credential and isn't listed (Codex hides
+  its own daemon folder itself, checked with a real session: it can't be listed or connected
+  to); the Codex executable, which a running Codex links to from its home, isn't a secret and
+  must stay runnable. File changes are still refused against the whole list. The rest of the machine (other
   repositories, `~/.ssh`) stays readable, and Codex's known-safe read-only commands run without
   a question: accepted, the price of Codex's own
   sandbox; writes, only the run folder, minus
