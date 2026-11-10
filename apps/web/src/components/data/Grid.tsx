@@ -1,7 +1,7 @@
 import type { Cell, FieldSchema } from "@dispand/domain/data/fields";
 import type { RowQuery } from "@dispand/domain/data/query";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ColumnDef, flexRender, getCoreRowModel, type RowSelectionState, useReactTable } from "@tanstack/react-table";
+import { type ColumnDef, flexRender, type RowSelectionState, rowSelectionFeature, tableFeatures, useTable } from "@tanstack/react-table";
 import { Maximize2, Plus, Trash2 } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,8 @@ type Row = Page["rows"][number];
 const MOVES: ReadonlySet<string> = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab"]);
 /** Types whose editor is a text box, so typing a character starts editing with it. */
 const TYPED: ReadonlySet<FieldSchema["type"]> = new Set(["text", "long-text", "number", "url", "date"]);
+/** The only table feature the grid uses: the server sorts, filters and pages the rows. */
+const features = tableFeatures({ rowSelectionFeature });
 
 
 const same = (a: Cell | undefined, b: Cell) => JSON.stringify(a ?? null) === JSON.stringify(b);
@@ -145,7 +147,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
     onError: (err) => setError(`Could not delete the rows: ${err.message}`),
   });
 
-  const columns = useMemo<ColumnDef<Row>[]>(
+  const columns = useMemo<ColumnDef<typeof features, Row>[]>(
     () => [
       {
         id: "select",
@@ -168,7 +170,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
         ),
       },
       ...fields.map(
-        (field): ColumnDef<Row> => ({
+        (field): ColumnDef<typeof features, Row> => ({
           id: field.id,
           accessorFn: (r) => r.values[field.id] ?? null,
         }),
@@ -177,14 +179,11 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
     [fields, onOpenRow],
   );
 
-  const table = useReactTable({
+  const table = useTable({
+    features,
     data: rows,
     columns,
     getRowId: (r) => r.id,
-    getCoreRowModel: getCoreRowModel(),
-    manualSorting: true,
-    manualFiltering: true,
-    manualPagination: true,
     state: { rowSelection: selection },
     onRowSelectionChange: setSelection,
     enableRowSelection: true,
@@ -309,7 +308,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
           <tbody>
             {table.getRowModel().rows.map((row, r) => (
               <tr key={row.id} className="group">
-                {row.getVisibleCells().map((cell, i) => {
+                {row.getAllCells().map((cell, i) => {
                   if (i === 0) {
                     return (
                       <td key={cell.id} className="sticky left-0 z-[5] h-10 w-[4.5rem] border-b border-line bg-surface px-2 group-hover:bg-hover">
