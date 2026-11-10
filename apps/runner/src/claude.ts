@@ -242,16 +242,23 @@ export function startClaudeSession(
   /** False when the turn's approval request was denied (true when there is none, or it was approved). */
   const turnApproved = () => approval?.answered ?? Promise.resolve(true);
 
-  const requestApprovalTool = tool(REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, { message: z.string().describe("What you ask to be approved, as one clear question") }, async (args, extra) => {
+  const requestApprovalTool = tool(
+    REQUEST_APPROVAL,
+    REQUEST_APPROVAL_DESCRIPTION,
+    // Anything is let through to the tool, which says in words what is wrong with it: a call the
+    // CLI rejected before it ran would leave the turn's other calls waiting for an answer that never comes.
+    { message: z.unknown().describe("What you ask to be approved, as one clear question (text)") },
+    async (args, extra) => {
     const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
     const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
     expectApproval();
     const waiting = approval;
     const outcome = await requestApproval(ask, args as Record<string, unknown>, signal);
-    waiting?.settle(outcome.approved);
-    if (approval === waiting) approval = null;
-    return { content: [{ type: "text", text: outcome.text }] };
-  });
+      waiting?.settle(outcome.approved);
+      if (approval === waiting) approval = null;
+      return { content: [{ type: "text", text: outcome.text }] };
+    },
+  );
 
   const canUseTool: CanUseTool = async (toolName, toolInput, { signal, suggestions }): Promise<PermissionResult> => {
     if (toolName !== REQUEST_APPROVAL_TOOL && !(await turnApproved())) return { behavior: "deny", message: TURN_DENIED };
@@ -404,6 +411,9 @@ export function startClaudeSession(
   }
 
   function turnEnded(msg: Extract<SDKMessage, { type: "result" }>) {
+    // A turn's end leaves nothing pending for the next one.
+    approval?.settle(false);
+    approval = null;
     const wasInterrupted = interrupted;
     interrupted = false;
     answered(msg);
