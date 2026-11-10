@@ -12,6 +12,7 @@ export {
   parseRunnerMessage,
   parseServerMessage,
   JOB_SERVER_NAME,
+  JOB_TOOLS_SERVER,
   PROTOCOL_VERSION,
   ProtocolError,
   RunnerToServer,

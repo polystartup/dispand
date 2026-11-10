@@ -346,6 +346,8 @@ test("a start's Job token is a short token, never a URL or a header", () => {
   for (const name of ["github", "my_server", "a-b_c", "jobs", "job-2"]) {
     expect(() => parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, mcpServers: [{ name, type: "runner", tool: "fetch" }] } }))).not.toThrow();
   }
+  // Nor the name of the Job's tools server.
+  expect(() => parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, mcpServers: [{ name: "job_tools", type: "runner", tool: "fetch" }] } }))).toThrow(ProtocolError);
   // The Job server's name is the runner's to give.
   expect(() => parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, mcpServers: [{ name: "job", type: "runner", tool: "fetch" }] } }))).toThrow(ProtocolError);
 });

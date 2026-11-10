@@ -76,3 +76,8 @@ test("server names are unambiguous and never reserved", () => {
   expect(new Set(names).size).toBe(names.length);
   for (const name of names) expect(McpServerRef.safeParse({ name, type: "runner", tool: "fetch" }).success, name).toBe(true);
 });
+
+test("a tool is never named like the Job's tools server", () => {
+  const taken = new Set<string>();
+  expect(["Job Tools", "job_tools", "job-tools"].map((n) => serverName(n, taken))).toEqual(["job_tools_2", "job_tools_3", "job-tools"]);
+});

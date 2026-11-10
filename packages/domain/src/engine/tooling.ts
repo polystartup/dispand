@@ -1,4 +1,4 @@
-import { JOB_SERVER_NAME } from "@dispand/runner-protocol";
+import { JOB_SERVER_NAME, JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
 import { and, eq, inArray } from "drizzle-orm";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import type { Db } from "../db/client.ts";
@@ -46,7 +46,7 @@ export async function toolingOf(db: Db, run: { ownerId: string; snapshot: AgentS
   };
 }
 
-const RESERVED = new Set(["dispand", JOB_SERVER_NAME]);
+const RESERVED = new Set(["dispand", JOB_SERVER_NAME, JOB_TOOLS_SERVER]);
 
 /**
  * A session server name for a tool, added to `taken`: lowercase words joined by single `_`

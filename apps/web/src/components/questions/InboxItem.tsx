@@ -4,18 +4,18 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { type api, orpc } from "../../lib/api.ts";
 import { when } from "../workflow/Runs.tsx";
-import { approvalWords, QuestionForm } from "./QuestionForm.tsx";
+import { type About, approvalWords, QuestionForm } from "./QuestionForm.tsx";
 
 export type InboxEntry = Awaited<ReturnType<typeof api.questions.list>>[number];
 
 /** What was asked, in a line or two, for an item that is done. */
-function askedText(payload: QuestionPayload): string {
+function askedText(payload: QuestionPayload, about?: About | null): string {
   if (payload.kind === "choice") return payload.questions.map((q) => q.question).join(" · ");
   const words = approvalWords(payload);
   if (words !== null) return `Asked: ${words}`;
   if (payload.kind === "permission") {
     const input = typeof payload.input === "string" ? payload.input : JSON.stringify(payload.input);
-    return `Wanted to use ${payload.toolName}${input && input !== "{}" ? `: ${input}` : ""}`;
+    return `Wanted to use ${about ? `${about.tool}: ${about.action}` : payload.toolName}${input && input !== "{}" ? `: ${input}` : ""}`;
   }
   return "Asked to confirm its values";
 }
@@ -90,7 +90,7 @@ export function InboxItem({ item }: { item: InboxEntry }) {
         <QuestionForm question={item} busy={answer.isPending} error={answer.error?.message ?? null} onAnswer={(a) => answer.mutate({ questionId: item.id, answer: a })} />
       ) : (
         <div className="space-y-2 text-[14px]">
-          <p className="whitespace-pre-wrap break-words text-muted">{askedText(item.payload)}</p>
+          <p className="whitespace-pre-wrap break-words text-muted">{askedText(item.payload, item.about)}</p>
           {item.status === "answered" && item.answer ? (
             <>
               <p className="font-medium">{answerLine(item.answer, item.payload)}</p>

@@ -42,6 +42,7 @@ import { toolIdsOf, validateToolSteps } from "../workflows/tool-steps.ts";
 import type { CloudKind } from "../harnesses/cloud.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, isCloud, type StartParams } from "./harness.ts";
 import { runDataStep } from "./data-step.ts";
+import { aboutExposed } from "../platform/exposed.ts";
 import { issueJobToken } from "../platform/token.ts";
 import type { SecretBox } from "../secrets.ts";
 import { jobDef } from "./job-def.ts";
@@ -84,8 +85,8 @@ export function messageView(m: MessageRow) {
   return { id, runId, stepRunId, role, text, createdAt };
 }
 export function questionView(q: QuestionRow) {
-  const { id, runId, stepRunId, placement, payload, status, answer, createdAt } = q;
-  return { id, runId, stepRunId, placement, payload, status, answer, createdAt };
+  const { id, runId, stepRunId, placement, payload, status, answer, createdAt, about } = q;
+  return { id, runId, stepRunId, placement, payload, status, answer, createdAt, about };
 }
 
 /** What `runs.stream` forwards: each carries the whole row as it is now (upserts by id). */
@@ -721,6 +722,12 @@ export class Engine {
         return null;
       }
       case "question": {
+        // A call of one of the Job's exposed tools is asked under a short name: say which tool and action it is.
+        const [asking] =
+          event.payload.kind === "permission"
+            ? await tx.select({ id: runs.id, ownerId: runs.ownerId, agentId: runs.agentId }).from(runs).where(eq(runs.id, step.runId))
+            : [];
+        const about = asking?.agentId && event.payload.kind === "permission" ? await aboutExposed(tx as unknown as Db, { runId: asking.id, ownerId: asking.ownerId, agentId: asking.agentId }, event.payload.toolName) : null;
         const [row] = await tx
           .insert(questions)
           .values({
@@ -732,6 +739,7 @@ export class Engine {
             runnerQuestionId: event.questionId,
             placement: step.start?.interactive ? "chat" : "notifications",
             kind: event.payload.kind === "permission" ? "approval" : "question",
+            about,
             payload: event.payload,
             status: "pending",
           })

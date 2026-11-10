@@ -4,8 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
+/** For a call of one of an agent's tools: the tool and the action it is for, in full (the name it is asked under is cut short). */
+export type About = { tool: string; action: string; description: string };
+
 export type QuestionFormProps = {
-  question: { payload: QuestionPayload; orphaned?: boolean };
+  question: { payload: QuestionPayload; orphaned?: boolean; about?: About | null };
   onAnswer: (answer: Answer) => void;
   /** An answer is being sent: the form can't be submitted again. */
   busy?: boolean;
@@ -23,7 +26,7 @@ export function QuestionForm({ question, onAnswer, busy, error }: QuestionFormPr
         </p>
       )}
       {payload.kind === "choice" && <Choice payload={payload} onAnswer={onAnswer} busy={busy} />}
-      {payload.kind === "permission" && <Permission payload={payload} onAnswer={onAnswer} busy={busy} />}
+      {payload.kind === "permission" && <Permission payload={payload} about={question.about ?? null} onAnswer={onAnswer} busy={busy} />}
       {payload.kind === "confirm-outputs" && <Confirm payload={payload} onAnswer={onAnswer} busy={busy} />}
       {error && (
         <p role="alert" className="text-[13px] text-danger">
@@ -126,7 +129,7 @@ function readable(input: unknown): string {
   return JSON.stringify(input, null, 2) ?? "";
 }
 
-function Permission({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { kind: "permission" }>>) {
+function Permission({ payload, about, onAnswer, busy }: Part<Extract<QuestionPayload, { kind: "permission" }>> & { about: About | null }) {
   const [message, setMessage] = useState("");
   const send = (decision: "allow" | "allow-always" | "deny") => onAnswer({ kind: "permission", decision, ...(message.trim() ? { message: message.trim() } : {}) });
   const input = readable(payload.input);
@@ -138,9 +141,18 @@ function Permission({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, {
         <p className="whitespace-pre-wrap break-words text-[15px]">{asked}</p>
       ) : (
         <>
-          <p className="text-[15px]">
-            The agent wants to use <code className="rounded bg-hover px-1.5 py-0.5 font-mono text-[13px]">{payload.toolName}</code>.
-          </p>
+          {about ? (
+            <div className="text-[15px]">
+              <p>
+                The agent wants to use <span className="font-medium">{about.tool}</span>: <code className="rounded bg-hover px-1.5 py-0.5 font-mono text-[13px]">{about.action}</code>
+              </p>
+              {about.description && <p className="mt-1 text-[13px] text-muted">{about.description}</p>}
+            </div>
+          ) : (
+            <p className="text-[15px]">
+              The agent wants to use <code className="rounded bg-hover px-1.5 py-0.5 font-mono text-[13px]">{payload.toolName}</code>.
+            </p>
+          )}
           {input && (
             <pre aria-label="Tool input" className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-hover p-3 font-mono text-[12.5px]">
               {input}

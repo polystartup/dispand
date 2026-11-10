@@ -13,8 +13,11 @@ const TOKEN_TTL_S = 3600;
 
 const jobOf = (auth: AuthInfo | undefined) => (auth?.extra as { job?: JobIdentity } | undefined)?.job;
 
-/** Answers one request to the Job endpoint. */
-export async function handleJobMcp(request: Request, app: PlatformApp): Promise<Response> {
+/**
+ * The Job a request is made for, from its bearer token (a Job still going), with the SDK's auth
+ * info to hand to the handler; or the 401 to answer with.
+ */
+export async function jobOfRequest(request: Request, app: PlatformApp): Promise<{ job: JobIdentity; auth: AuthInfo } | Response> {
   const gate = requireBearerAuth({
     verifier: {
       async verifyAccessToken(token) {
@@ -26,10 +29,17 @@ export async function handleJobMcp(request: Request, app: PlatformApp): Promise<
   });
   const auth = await gate(request);
   if (auth instanceof Response) return auth;
-  const job = jobOf(auth)!;
+  return { job: jobOf(auth)!, auth };
+}
+
+/** Answers one request to the Job endpoint. */
+export async function handleJobMcp(request: Request, app: PlatformApp): Promise<Response> {
+  const found = await jobOfRequest(request, app);
+  if (found instanceof Response) return found;
+  const { job, auth } = found;
   const handler = createMcpHandler(
     async () => {
-      const server = new McpServer({ name: "dispand", version: VERSION });
+      const server = new McpServer({ name: "dispand", version: VERSION }, { capabilities: { tools: {} } });
       for (const tool of await toolsOf(app.db, job)) {
         // The schema is the procedure's own Zod input; the SDK's overloads can't follow a schema known only at run time.
         const register = server.registerTool.bind(server) as (name: string, config: { description: string; inputSchema: unknown }, cb: (input: unknown) => Promise<unknown>) => unknown;

@@ -18,3 +18,4 @@ export { guardedFetch, ownAddresses } from "./tools/network.ts";
 export { packageForRunner } from "./skills/runner-access.ts";
 export { platformToolCaller } from "./platform/cloud.ts";
 export { handleJobMcp } from "./platform/mcp.ts";
+export { handleJobToolsMcp } from "./platform/tools-mcp.ts";
