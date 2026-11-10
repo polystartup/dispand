@@ -2,7 +2,8 @@ import { ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agents as agentsTable, agentSkills, agentTools, harnesses, plugins, runs, skillPackages, tools as toolsTable } from "../db/schema.ts";
+import { agents as agentsTable, agentSkills, agentTools, harnesses, plugins, skillPackages, tools as toolsTable } from "../db/schema.ts";
+import { lockAgentsForDelete } from "../jobs/active.ts";
 import { ModelName } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -150,14 +151,11 @@ const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input,
   if (await agentInUse(context.db, context.ownerId, input.id)) {
     throw new ORPCError("CONFLICT", { message: "A workflow uses this agent" });
   }
-  const [job] = await context.db
-    .select({ id: runs.id })
-    .from(runs)
-    .where(and(eq(runs.agentId, input.id), inArray(runs.status, ["running", "waiting"])))
-    .limit(1);
-  if (job) throw new ORPCError("CONFLICT", { message: "A Job of this agent is still going" });
-  // Its triggers and its finished Jobs go with it.
-  await context.db.delete(agentsTable).where(eq(agentsTable.id, input.id));
+  await context.db.transaction(async (tx) => {
+    if (await lockAgentsForDelete(tx, [input.id])) throw new ORPCError("CONFLICT", { message: "A Job of this agent is still going" });
+    // Its triggers and its finished Jobs go with it.
+    await tx.delete(agentsTable).where(eq(agentsTable.id, input.id));
+  });
 });
 
 const list = owner.handler(async ({ context }) => {

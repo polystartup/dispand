@@ -50,10 +50,12 @@ function Card({ q }: { q: Item }) {
       onSuccess: refresh,
     }),
   );
+  // A workflow run's question names its workflow, a Job's its agent.
+  const from = (q.workflow ?? q.agent)?.name ?? "Run";
   return (
-    <article aria-label={`Question from ${q.workflow.name}`} className="rounded-2xl bg-surface p-5 shadow-card">
+    <article aria-label={`Question from ${from}`} className="rounded-2xl bg-surface p-5 shadow-card">
       <p className="mb-4 text-[13px] text-muted">
-        {q.workflow.name} <span aria-hidden>·</span> run {q.run.id.slice(-6)} <span aria-hidden>·</span> {q.step.name}
+        {from} <span aria-hidden>·</span> run {q.run.id.slice(-6)} <span aria-hidden>·</span> {q.step.name}
         {q.placement === "chat" && (
           <>
             {" "}

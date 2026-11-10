@@ -3,10 +3,10 @@ import { Answer, type QuestionPayload, storable, TEXT } from "@dispand/runner-pr
 import { and, count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { questions as questionsTable, runs, stepRuns, workflows, workflowVersions } from "../db/schema.ts";
+import { agents, questions as questionsTable, runs, stepRuns, workflows, workflowVersions } from "../db/schema.ts";
 import { answerText, EngineError, questionView } from "../engine/engine.ts";
 import { authed, base } from "../rpc/context.ts";
-import { nodesOf } from "../workflows/model.ts";
+import { nodesOf, type WorkflowDef } from "../workflows/model.ts";
 
 const owner = base.use(authed);
 
@@ -55,31 +55,51 @@ function check(payload: QuestionPayload, answer: Answer): Answer {
 }
 
 const list = owner.input(z.object({ status: z.literal("pending") })).handler(async ({ context }) => {
+  // A workflow run has its workflow, a Job its agent: neither join may drop the other's questions.
   const rows = await context.db
-    .select({ q: questionsTable, workflowId: workflows.id, workflowName: workflows.name, version: runs.version, nodeId: stepRuns.nodeId })
+    .select({
+      q: questionsTable,
+      workflowId: workflows.id,
+      workflowName: workflows.name,
+      agentId: agents.id,
+      agentName: agents.name,
+      version: runs.version,
+      def: runs.def,
+      nodeId: stepRuns.nodeId,
+    })
     .from(questionsTable)
     .innerJoin(runs, eq(runs.id, questionsTable.runId))
-    .innerJoin(workflows, eq(workflows.id, runs.workflowId))
+    .leftJoin(workflows, eq(workflows.id, runs.workflowId))
+    .leftJoin(agents, eq(agents.id, runs.agentId))
     .innerJoin(stepRuns, eq(stepRuns.id, questionsTable.stepRunId))
     .where(waiting(context.ownerId))
     .orderBy(desc(questionsTable.createdAt), desc(questionsTable.id));
-  const stepNames = new Map<string, string>();
-  for (const r of rows) {
+  const versions = new Map<string, Map<string, string>>();
+  const names = (def: WorkflowDef | undefined) => new Map((def ? nodesOf(def) : []).map((n) => [n.id, n.name]));
+  const stepName = async (r: (typeof rows)[number]) => {
+    if (r.def || !r.workflowId) return names(r.def ?? undefined).get(r.nodeId);
     const key = `${r.workflowId}:${r.version}`;
-    if (stepNames.has(`${key}:${r.nodeId}`)) continue;
-    const [v] = await context.db
-      .select({ def: workflowVersions.def })
-      .from(workflowVersions)
-      .where(and(eq(workflowVersions.workflowId, r.workflowId), eq(workflowVersions.version, r.version)));
-    for (const n of v ? nodesOf(v.def) : []) stepNames.set(`${key}:${n.id}`, n.name);
+    if (!versions.has(key)) {
+      const [v] = await context.db
+        .select({ def: workflowVersions.def })
+        .from(workflowVersions)
+        .where(and(eq(workflowVersions.workflowId, r.workflowId), eq(workflowVersions.version, r.version)));
+      versions.set(key, names(v?.def));
+    }
+    return versions.get(key)!.get(r.nodeId);
+  };
+  const out = [];
+  for (const r of rows) {
+    out.push({
+      ...questionView(r.q),
+      orphaned: r.q.orphaned,
+      workflow: r.workflowId ? { id: r.workflowId, name: r.workflowName! } : null,
+      agent: r.agentId ? { id: r.agentId, name: r.agentName! } : null,
+      run: { id: r.q.runId },
+      step: { name: (await stepName(r)) ?? r.nodeId },
+    });
   }
-  return rows.map((r) => ({
-    ...questionView(r.q),
-    orphaned: r.q.orphaned,
-    workflow: { id: r.workflowId, name: r.workflowName },
-    run: { id: r.q.runId },
-    step: { name: stepNames.get(`${r.workflowId}:${r.version}:${r.nodeId}`) ?? r.nodeId },
-  }));
+  return out;
 });
 
 const countPending = owner.handler(({ context }) => pendingCount(context.db, context.ownerId));

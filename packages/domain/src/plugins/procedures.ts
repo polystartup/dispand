@@ -21,6 +21,7 @@ import { authed, base } from "../rpc/context.ts";
 import { MAX_DESCRIPTION, PackageError, SKILL_NAME, validatePackage } from "../skills/package.ts";
 import { store, type Tx } from "../skills/procedures.ts";
 import { HeaderValue, insertTool, refreshActions, retarget } from "../tools/procedures.ts";
+import { lockAgentsForDelete } from "../jobs/active.ts";
 import { agentInUse } from "../workflows/procedures.ts";
 import { agentName, hasPlaceholder, httpTool, pluginHolder, toolName } from "./components.ts";
 import { fetchGit, GitError } from "./git.ts";
@@ -490,6 +491,11 @@ const uninstall = owner.input(Id).handler(async ({ input, context }) => {
     await tx.select({ id: toolsTable.id }).from(toolsTable).where(eq(toolsTable.pluginId, row.id)).for("update");
     const holder = await pluginHolder(tx, context.ownerId, row);
     if (holder) throw new ORPCError("CONFLICT", { message: holder });
+    const busy = await lockAgentsForDelete(
+      tx,
+      agents.map((a) => a.id),
+    );
+    if (busy) throw new ORPCError("CONFLICT", { message: `A Job of ${plugin.name}'s agent “${busy}” is still going` });
     // Its agents first: they hold its package and tools, which the plugin's cascade removes.
     await tx.delete(agentsTable).where(eq(agentsTable.pluginId, row.id));
     await tx.delete(pluginsTable).where(eq(pluginsTable.id, row.id));
