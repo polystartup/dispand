@@ -23,6 +23,9 @@ test("starts a Job from a button trigger", async () => {
   expect(started).toEqual({ runId: expect.stringMatching(/^run_/) });
   const { run } = await call(router.runs.get, { runId: started.runId }, { context });
   expect(run).toMatchObject({ source: "agent", workflowId: null, agentId: agent.id, triggerId: button.id, status: "running" });
+  // A Job's definition is its own (a workflow run's is its workflow version's).
+  expect(await call(router.jobs.def, { runId: started.runId }, { context })).toMatchObject({ steps: [{ id: "job", name: "Clerk", prompt: "Sort the mail." }] });
+  await expect(call(router.jobs.def, { runId: "run_nobody" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
 test("starts a chat Job and gives its session", async () => {

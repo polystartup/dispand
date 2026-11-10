@@ -21,6 +21,8 @@ function RunPage() {
     enabled: !!run?.workflowId,
     staleTime: Infinity,
   });
+  // A Job has no workflow: its definition is its own, and it goes back to its agent.
+  const job = useQuery({ ...orpc.jobs.def.queryOptions({ input: { runId } }), enabled: run?.source === "agent", staleTime: Infinity });
   const agents = useQuery(orpc.agents.list.queryOptions());
 
   if (check.error && !state) return <p role="alert" className="text-[14px] text-danger">Could not load this run.</p>;
@@ -30,7 +32,7 @@ function RunPage() {
 
   return (
     <>
-      {run.workflowId && (
+      {run.workflowId ? (
         <Link
           to="/settings/workflows/$id/runs"
           params={{ id: run.workflowId }}
@@ -38,13 +40,23 @@ function RunPage() {
         >
           <ChevronLeft size={15} aria-hidden /> Runs
         </Link>
+      ) : (
+        run.agentId && (
+          <Link
+            to="/settings/agents/$id"
+            params={{ id: run.agentId }}
+            className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted transition hover:text-fg"
+          >
+            <ChevronLeft size={15} aria-hidden /> {agentNames.get(run.agentId) ?? "Agent"}
+          </Link>
+        )
       )}
       <header className="mb-6">
-        <h1 className="truncate text-[28px] font-semibold leading-tight tracking-tight">{workflow.data?.name ?? "Run"}</h1>
+        <h1 className="truncate text-[28px] font-semibold leading-tight tracking-tight">{workflow.data?.name ?? job.data?.trigger.field.label ?? "Run"}</h1>
         <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[14px] text-muted">
           <Status status={run.status} />
           <span>
-            · Version {run.version} · Started {when.format(run.createdAt)} · {run.finishedAt ? `took ${duration(run.createdAt, run.finishedAt)}` : "still going"}
+            {run.workflowId ? ` · Version ${run.version}` : ""} · Started {when.format(run.createdAt)} · {run.finishedAt ? `took ${duration(run.createdAt, run.finishedAt)}` : "still going"}
           </span>
         </p>
         {run.error && (
@@ -53,7 +65,7 @@ function RunPage() {
           </p>
         )}
       </header>
-      <RunSteps state={state} def={workflow.data?.def} agentNames={agentNames} />
+      <RunSteps state={state} def={workflow.data?.def ?? job.data} agentNames={agentNames} />
     </>
   );
 }

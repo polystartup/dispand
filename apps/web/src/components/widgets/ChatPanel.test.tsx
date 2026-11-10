@@ -9,6 +9,7 @@ import type { RunSnapshot } from "../../lib/run-state.ts";
 const fake = vi.hoisted(() => ({
   runs: { start: vi.fn(), sendChat: vi.fn(), stream: vi.fn(), list: vi.fn() },
   workflows: { get: vi.fn() },
+  jobs: { start: vi.fn(), def: vi.fn() },
   questions: { answer: vi.fn() },
 }));
 vi.mock("../../lib/api.ts", async () => {

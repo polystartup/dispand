@@ -6,6 +6,7 @@ import { afterEach, expect, test, vi } from "vitest";
 const fake = vi.hoisted(() => ({
   runs: { start: vi.fn(), sendChat: vi.fn(), stream: vi.fn(), list: vi.fn(), get: vi.fn() },
   workflows: { get: vi.fn() },
+  jobs: { start: vi.fn(), def: vi.fn() },
   widgets: { update: vi.fn(), delete: vi.fn() },
   questions: { answer: vi.fn() },
 }));

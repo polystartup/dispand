@@ -183,6 +183,13 @@
       "when": 1794313751877,
       "tag": "0025_jobs_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794316045964,
+      "tag": "0026_trigger_widgets",
+      "breakpoints": true
     }
   ]
 }

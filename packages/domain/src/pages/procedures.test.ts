@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { fields as fieldsTable, pages, tables, user, widgets, workflows, workflowVersions } from "../db/schema.ts";
+import { agents as agentsTable, fields as fieldsTable, harnesses as harnessesTable, pages, tables, triggers as triggersTable, user, widgets, workflows, workflowVersions } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 
@@ -267,4 +267,33 @@ test("old workflow widgets still read", async () => {
   ]);
   // The database refuses a widget that has neither or both targets.
   await expect(context.db.insert(widgets).values({ id: "widget_bad", ownerId: context.ownerId, pageId: home.id, type: "grid", title: "x", workflowId: wf.id, layout })).rejects.toThrow();
+});
+
+test("creates a trigger-form widget titled after the trigger and refuses another owner's trigger", async () => {
+  const context = await ownerContext();
+  const home = await call(router.pages.home, undefined, { context });
+  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
+  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "" }, { context });
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Ask the clerk", config: { kind: "manual", placement: "chat" } }, { context });
+
+  const widget = await call(router.widgets.create, { pageId: home.id, type: "trigger-form", triggerId: trigger.id }, { context });
+  expect(widget).toMatchObject({ id: expect.stringMatching(/^widget_/), pageId: home.id, type: "trigger-form", title: "Ask the clerk", triggerId: trigger.id });
+  // One per trigger on a page: asking again returns it.
+  expect((await call(router.widgets.create, { pageId: home.id, type: "trigger-form", triggerId: trigger.id, title: "Other" }, { context })).id).toBe(widget.id);
+  expect((await call(router.pages.home, undefined, { context })).widgets).toEqual([widget]);
+
+  // Only a manual trigger has a form.
+  const schedule = await call(router.triggers.create, { agentId: agent.id, name: "Daily", config: { kind: "schedule", cron: "0 9 * * *", timezone: "Europe/Paris" } }, { context });
+  await expect(call(router.widgets.create, { pageId: home.id, type: "trigger-form", triggerId: schedule.id }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+  await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
+  await context.db.insert(harnessesTable).values({ id: "harness_other", ownerId: "user_other", name: "Eve's", runnerId, kind: "claude-code", permissionMode: "default" });
+  await context.db.insert(agentsTable).values({ id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
+  await context.db.insert(triggersTable).values({ id: "trigger_other", ownerId: "user_other", agentId: "agent_other", kind: "manual", name: "T", config: { kind: "manual", placement: "button" } });
+  await expect(call(router.widgets.create, { pageId: home.id, type: "trigger-form", triggerId: "trigger_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+  // The widget goes with its trigger.
+  await call(router.triggers.delete, { id: trigger.id }, { context });
+  expect((await call(router.pages.home, undefined, { context })).widgets).toEqual([]);
 });
