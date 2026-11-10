@@ -230,3 +230,19 @@ test("ownAddresses covers loopback, link-local and the app's own subnets only", 
   for (const ip of ["::1", "fe80::1", "::ffff:127.0.0.1"]) expect(blocked.check(ip, "ipv6"), ip).toBe(true);
   for (const ip of ["10.1.2.3", "192.168.1.10", "140.82.112.3"]) expect(blocked.check(ip, "ipv4"), ip).toBe(false);
 });
+
+test("an action its server marks read-only is listed as such, and only then", async () => {
+  const server = await fake([
+    { ...echo, name: "search", annotations: { readOnlyHint: true } },
+    { ...echo, name: "send", annotations: { readOnlyHint: false } },
+    { ...echo, name: "plain" },
+    { ...echo, name: "odd", annotations: { title: "Odd" } },
+  ]);
+  const actions = await connector.listActions({ url: server.url, transport: "streamable-http", headers: {} });
+  expect(actions.map((a) => [a.name, a.readOnly])).toEqual([
+    ["search", true],
+    ["send", undefined],
+    ["plain", undefined],
+    ["odd", undefined],
+  ]);
+});

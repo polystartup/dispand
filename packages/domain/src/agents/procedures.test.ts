@@ -1,6 +1,7 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
-import { harnesses, tables as tablesTable, tools, user } from "../db/schema.ts";
+import { and, eq } from "drizzle-orm";
+import { agentTools, harnesses, tables as tablesTable, tools, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 
@@ -233,4 +234,27 @@ test("an agent keeps its bundles and its tables; another owner's table is never 
   expect(await call(router.agents.update, { ...base, id: created.id, dataTables: ["table_other", table.id, "table_nobody"] }, { context })).toMatchObject({ dataTables: [table.id] });
   expect(await call(router.agents.create, { ...base, name: "Other", dataTables: ["table_nobody"] }, { context })).toMatchObject({ dataTables: [] });
   await expect(call(router.agents.create, { ...base, bundles: ["admin"] as never }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+});
+
+test("a tool added to an agent starts with its read-only actions unasked, and only a person's change moves that", async () => {
+  const { context, harness } = await setup();
+  await withTools(context);
+  const action = (name: string, readOnly?: true) => ({ name, description: "", inputSchema: { type: "object" }, ...(readOnly ? { readOnly } : {}) });
+  await context.db.update(tools).set({ actions: [action("search", true), action("send")] }).where(eq(tools.id, "tool_gh"));
+  const agent = await call(router.agents.create, { name: "Reviewer", harnessId: harness.id, systemPrompt: "", toolIds: ["tool_gh"] }, { context });
+  const unasked = async (toolId: string) =>
+    (await context.db.select({ unasked: agentTools.unasked }).from(agentTools).where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, toolId))))[0]?.unasked;
+  expect(await unasked("tool_gh")).toEqual(["search"]);
+
+  // The owner's list is kept when the agent is saved again, and a tool added then starts on its own.
+  await context.db.update(agentTools).set({ unasked: [] }).where(eq(agentTools.agentId, agent.id));
+  const { id, name, harnessId, systemPrompt } = agent;
+  await call(router.agents.update, { id, name, harnessId, systemPrompt, toolIds: ["tool_gh", "tool_fc"] }, { context });
+  expect(await unasked("tool_gh")).toEqual([]);
+  expect(await unasked("tool_fc")).toEqual([]);
+
+  // The tool's server now calls `send` read-only: its claim grants nothing on an agent that has the tool.
+  await context.db.update(tools).set({ actions: [action("search", true), action("send", true)] }).where(eq(tools.id, "tool_gh"));
+  await call(router.agents.update, { id, name, harnessId, systemPrompt, toolIds: ["tool_gh"] }, { context });
+  expect(await unasked("tool_gh")).toEqual([]);
 });

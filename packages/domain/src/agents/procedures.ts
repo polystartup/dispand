@@ -106,7 +106,7 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
   if (pkgs.length !== packageIds.length) throw new ORPCError("NOT_FOUND", { message: "Skill not found" });
   const found = toolIds.length
     ? await tx
-        .select({ id: toolsTable.id })
+        .select({ id: toolsTable.id, actions: toolsTable.actions })
         .from(toolsTable)
         .where(and(inArray(toolsTable.id, toolIds), eq(toolsTable.ownerId, ownerId)))
         .for("share")
@@ -125,9 +125,19 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
     if (tool.runnerId !== harnessRunnerId) throw new ORPCError("BAD_REQUEST", { message: `The tool “${tool.name}” runs on another runner than the agent's harness` });
   }
   await tx.delete(agentSkills).where(eq(agentSkills.agentId, agentId));
-  await tx.delete(agentTools).where(eq(agentTools.agentId, agentId));
+  // A tool the agent keeps keeps its unasked actions; one added now starts with the actions its
+  // server calls read-only. Only here is that claim read: later, it changes nothing by itself.
+  const kept = new Map((await tx.delete(agentTools).where(eq(agentTools.agentId, agentId)).returning()).map((t) => [t.toolId, t.unasked]));
   if (packageIds.length) await tx.insert(agentSkills).values(packageIds.map((packageId) => ({ agentId, packageId })));
-  if (toolIds.length) await tx.insert(agentTools).values(toolIds.map((toolId) => ({ agentId, toolId })));
+  if (toolIds.length) {
+    await tx.insert(agentTools).values(
+      toolIds.map((toolId) => ({
+        agentId,
+        toolId,
+        unasked: kept.get(toolId) ?? found.find((t) => t.id === toolId)!.actions.flatMap((a) => (a.readOnly ? [a.name] : [])),
+      })),
+    );
+  }
 }
 
 /** The agent with its skill packages and the tools it gets: explicit ones, and the ones its packages require (locked). */

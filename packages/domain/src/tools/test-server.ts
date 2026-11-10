@@ -10,6 +10,7 @@ export type FakeAction = {
   description?: string;
   inputSchema?: Record<string, unknown>;
   outputSchema?: Record<string, unknown>;
+  annotations?: Record<string, unknown>;
   call?: (args: Record<string, unknown>) => CallToolResult | Promise<CallToolResult>;
 };
 
@@ -45,6 +46,7 @@ function mcpServer(actions: FakeAction[], options: Options, pages: { count: numb
       ...(a.description === undefined ? {} : { description: a.description }),
       inputSchema: (a.inputSchema ?? { type: "object" }) as { type: "object" },
       ...(a.outputSchema ? { outputSchema: a.outputSchema as { type: "object" } } : {}),
+      ...(a.annotations ? { annotations: a.annotations } : {}),
     })),
     };
   });

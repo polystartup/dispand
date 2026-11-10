@@ -28,8 +28,12 @@ export type ToolTarget = {
   urlSecrets?: string[];
 };
 
-/** One action of a tool. `outputSchema`, when the server gives one, names the fields of a structured result. */
-export type ToolAction = McpAction & { outputSchema?: Record<string, unknown> };
+/**
+ * One action of a tool. `outputSchema`, when the server gives one, names the fields of a
+ * structured result. `readOnly` is the server's own claim (`readOnlyHint`): it decides nothing
+ * by itself, and only fills an agent's unasked actions when a person adds the tool to it.
+ */
+export type ToolAction = McpAction & { outputSchema?: Record<string, unknown>; readOnly?: true };
 
 export type ToolResult = { text: string; structured?: Record<string, unknown>; isError: boolean };
 
@@ -57,7 +61,7 @@ const MAX_DESCRIPTION = 4000;
 /** Pages of `tools/list` read at most (each page counts towards the same byte budget). */
 const MAX_PAGES = 64;
 
-const Action = McpAction.extend({ outputSchema: McpAction.shape.inputSchema.optional() });
+const Action = McpAction.extend({ outputSchema: McpAction.shape.inputSchema.optional(), readOnly: z.literal(true).optional() });
 
 /** NUL and lone surrogates become U+FFFD, so the value fits Postgres text and JSONB. */
 function storable<T>(value: T): T {
@@ -210,6 +214,7 @@ export function createMcpConnector(opts: { fetch?: typeof fetch } = {}): ToolCon
           description: clean(tool.description ?? "").slice(0, MAX_DESCRIPTION),
           inputSchema: clean(tool.inputSchema),
           ...(tool.outputSchema ? { outputSchema: clean(tool.outputSchema) } : {}),
+          ...(tool.annotations?.readOnlyHint === true ? { readOnly: true as const } : {}),
         };
         const name = candidate.name.slice(0, 100);
         for (const schema of [candidate.inputSchema, candidate.outputSchema]) {
