@@ -3,12 +3,14 @@ import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { ProposalItems, type ProposalView } from "./ProposalItems.tsx";
 
 /** For a call of one of an agent's tools: the tool and the action it is for, in full (the name it is asked under is cut short). */
 export type About = { tool: string; action: string; description: string };
 
 export type QuestionFormProps = {
-  question: { payload: QuestionPayload; orphaned?: boolean; about?: About | null };
+  /** `proposalId`: the Approval is for a proposal; `proposal`: that proposal as its owner reads it (the Inbox loads it). */
+  question: { payload: QuestionPayload; orphaned?: boolean; about?: About | null; proposalId?: string | null; proposal?: ProposalView | null };
   onAnswer: (answer: Answer) => void;
   /** An answer is being sent: the form can't be submitted again. */
   busy?: boolean;
@@ -26,7 +28,9 @@ export function QuestionForm({ question, onAnswer, busy, error }: QuestionFormPr
         </p>
       )}
       {payload.kind === "choice" && <Choice payload={payload} onAnswer={onAnswer} busy={busy} />}
-      {payload.kind === "permission" && <Permission payload={payload} about={question.about ?? null} onAnswer={onAnswer} busy={busy} />}
+      {payload.kind === "permission" && (
+        <Permission payload={payload} about={question.about ?? null} proposalId={question.proposalId ?? null} proposal={question.proposal ?? null} onAnswer={onAnswer} busy={busy} />
+      )}
       {payload.kind === "confirm-outputs" && <Confirm payload={payload} onAnswer={onAnswer} busy={busy} />}
       {error && (
         <p role="alert" className="text-[13px] text-danger">
@@ -129,14 +133,50 @@ function readable(input: unknown): string {
   return JSON.stringify(input, null, 2) ?? "";
 }
 
-function Permission({ payload, about, onAnswer, busy }: Part<Extract<QuestionPayload, { kind: "permission" }>> & { about: About | null }) {
+function Permission({
+  payload,
+  about,
+  proposalId,
+  proposal,
+  onAnswer,
+  busy,
+}: Part<Extract<QuestionPayload, { kind: "permission" }>> & { about: About | null; proposalId: string | null; proposal: ProposalView | null }) {
   const [message, setMessage] = useState("");
   const send = (decision: "allow" | "allow-always" | "deny") => onAnswer({ kind: "permission", decision, ...(message.trim() ? { message: message.trim() } : {}) });
   const input = readable(payload.input);
   // An approval the agent asked for in its own words (`request_approval`): the words, not a tool call.
   const asked = approvalWords(payload);
+  // For a proposal, a yes approves its listed writes: never answered where they aren't shown.
+  if (proposalId && !proposal) {
+    return (
+      <div className="flex flex-col gap-2 text-[15px]">
+        {asked !== null && <p className="whitespace-pre-wrap break-words">{asked}</p>}
+        <p className="rounded-lg bg-hover px-3 py-2 text-[13px] text-muted">
+          This asks you to approve a proposal: changes to what agents may do.{" "}
+          <a href="/inbox" className="text-accent underline">
+            Read and answer it in the Inbox
+          </a>
+          .
+        </p>
+      </div>
+    );
+  }
+  // The agent named a proposal, but none is attached to this request (not its own, already asked, or no such one).
+  const unattached = asked !== null && !proposalId && (payload.input as { proposal?: unknown } | null)?.proposal !== undefined;
   return (
     <div className="flex flex-col gap-3">
+      {proposal && (
+        <>
+          <p className="text-[15px]">The agent asks you to approve these changes. Approving lets it make exactly these, once each.</p>
+          <ProposalItems proposal={proposal} />
+          <p className="text-[13px] text-muted">The agent says:</p>
+        </>
+      )}
+      {unattached && (
+        <p role="alert" className="rounded-lg bg-hover px-3 py-2 text-[13px] text-danger">
+          This request names a proposal that isn't attached to it. Approving approves these words only: no listed change.
+        </p>
+      )}
       {asked !== null ? (
         <p className="whitespace-pre-wrap break-words text-[15px]">{asked}</p>
       ) : (

@@ -60,8 +60,19 @@ changes it updates this file.
   checked first and as they are at the call, so an approval never brings back a bundle taken
   since, and the procedure's own checks still apply (what isn't the owner's stays refused). A
   person may approve more than the proposing agent holds: that is what a grant is, and why
-  the owner is shown every item whole. Until the Approval that carries a proposal exists
-  (the next change), no proposal can be approved, so these writes are always refused.
+  the owner is shown every item whole.
+- **A proposal is approved by a person, on what the server shows, never on the agent's words.**
+  The agent asks with `request_approval`, naming the proposal's id. The server attaches a
+  draft of that same run to the question with one conditional update (so a proposal has one
+  question and one answer), and the owner's answer to that question, given through
+  `questions.answer` as a signed-in person, approves it; a denial declines it for good. The
+  Inbox reads the items from the server's row and shows each whole, with a name for every id
+  an item points at (the agent changed, the harness, tools, skills, tables) as resolved for
+  that owner; an id that names nothing of theirs is flagged. A question for a proposal is not
+  answerable where its items aren't shown (the chat sends the owner to the Inbox). A request
+  naming a proposal that isn't attached (another run's, one already asked, none) is words only,
+  and says so. A `proposal` argument that isn't an id is refused as a bad call by the runner
+  and by cloud sessions, so it never becomes a request in words in its place.
 - **Which actions of a tool run without asking is the owner's choice, per agent, and only a
   person changes it.** Each agent keeps, for each tool it chose, the actions that run unasked
   (`agent_tools.unasked`); every other action asks as above, in a cloud session and at the

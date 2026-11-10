@@ -297,7 +297,13 @@
   that tool and canonically equal input (`canonical`, `platform/approvals.ts`). `propose`, a
   tool with no router path (`PROPOSE`, handled in `callPlatformTool`), stores a draft through
   `createProposal`: grant tools of the Job's bundles only, inputs parsed by the tool's schema
-  and stored as parsed, storable text, at most 20 items and 64 KiB.
+  and stored as parsed, storable text, at most 20 items and 64 KiB. `request_approval` takes
+  an optional `proposal` id (cloud: `approvalMessage`; runner: `requestApproval`), kept in the
+  question's input. When the engine records such a question it calls `attachProposal` (draft
+  to `asked`, with the question's id; `questions.proposal_id`, migration 0035), and
+  `Engine.answer` calls `settleProposal` in the answer's transaction (`approved` on a
+  person's yes, `declined` on a no). `questions.list` adds `proposal` (`proposalView`: the
+  items and the names of the ids they point at); the web shows it with `ProposalItems`.
 - **Inbox:** every question a session asks is a row of `questions` with a `kind`: a permission
   is an `approval`, a choice or a confirmation a `question` (set when it is asked; migration
   `0030` moved the existing ones). An answer records who gave it (`answered_by`, a user for

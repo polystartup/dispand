@@ -91,6 +91,7 @@ export function InboxItem({ item }: { item: InboxEntry }) {
       ) : (
         <div className="space-y-2 text-[14px]">
           <p className="whitespace-pre-wrap break-words text-muted">{askedText(item.payload, item.about)}</p>
+          {item.proposal && <ProposalItems proposal={item.proposal} />}
           {item.status === "answered" && item.answer ? (
             <>
               <p className="font-medium">{answerLine(item.answer, item.payload)}</p>

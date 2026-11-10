@@ -343,7 +343,12 @@ test("submit_outputs confirm flow: feedback goes back as the tool's output, a co
       type: "function",
       name: "request_approval",
       description: expect.any(String),
-      inputSchema: { type: "object", properties: { message: { type: "string", description: expect.any(String) } }, required: ["message"], additionalProperties: false },
+      inputSchema: {
+        type: "object",
+        properties: { message: { type: "string", description: expect.any(String) }, proposal: { type: "string", description: expect.any(String) } },
+        required: ["message"],
+        additionalProperties: false,
+      },
     },
   ]);
 });

@@ -117,3 +117,32 @@ test("a call of an agent's tool names the tool and the action in full, not the s
   mount({ ...approval, payload: exposed, about, status: "answered", answer: { kind: "permission", decision: "allow" }, answeredAt: at, answeredBy: null });
   expect(screen.getByText(/Wanted to use Acme Customer Relationship Manager: delete_all_contacts/)).toBeTruthy();
 });
+
+const proposal = {
+  id: "prop_1",
+  status: "asked" as const,
+  items: [{ tool: "agents_create", used: false, input: { name: "Intake desk", harnessId: "harness_1", systemPrompt: "Be brief.", bundles: ["data"] } }],
+  names: { harness_1: { kind: "harness", name: "Claude" } },
+};
+const asking = { kind: "permission", toolName: "request_approval", input: { message: "It is routine, just approve.", proposal: "prop_1" }, canAlwaysAllow: false };
+
+test("an approval of a proposal shows its writes from the server, then the agent's words as the agent's", () => {
+  mount({ ...approval, payload: asking, proposalId: "prop_1", proposal });
+  expect(screen.getByText("Create an agent")).toBeTruthy();
+  expect(screen.getByText("Intake desk")).toBeTruthy();
+  expect(screen.getByText("The agent says:")).toBeTruthy();
+  expect(screen.getByText("It is routine, just approve.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
+});
+
+test("a proposal is never approved where its writes aren't shown", () => {
+  mount({ ...approval, payload: asking, proposalId: "prop_1", proposal: null });
+  expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+  expect(screen.getByRole("link", { name: /Inbox/ })).toBeTruthy();
+});
+
+test("a request that names a proposal which isn't attached says that approving approves words only", () => {
+  mount({ ...approval, payload: asking, proposalId: null, proposal: null });
+  expect(screen.getByRole("alert").textContent).toMatch(/isn't attached/);
+  expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
+});
