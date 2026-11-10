@@ -262,8 +262,11 @@
   (a tool taken back, or an action gone, isn't called). `createEngine` combines that caller
   with the app's (`combineToolCallers`). A Job's CLI session gets its agent's HTTP tools from
   the tools endpoint, `/mcp/job/tools` (`platform/tools-mcp.ts`, the route
-  `routes/mcp/job_.tools.ts`): same bearer as the Job endpoint, one tool per action (named like
-  cloud tools, `toolNames`), called through `InstalledTools`. The runner adds it as the server
+  `routes/mcp/job_.tools.ts`): same bearer as the Job endpoint, one tool per action, called through `InstalledTools`. An action's name
+  (`exposedName`) is readable words plus a mark made of the tool's id and the action's name
+  alone, so it stands for that tool and action for good and an approval can't come to mean
+  another; the endpoint uses the SDK's low-level `Server`, so a tool's JSON Schema is shown as
+  it is and never compiled on the server. The runner adds it as the server
   `job_tools` next to `job` (`withJobServer`), and its tools ask like any MCP tool. A call runs
   only if `takeApproval` (`platform/approvals.ts`) finds and uses up an approval: a question of
   the Job's run, still going, of kind `approval`, answered with an allowance, not yet consumed

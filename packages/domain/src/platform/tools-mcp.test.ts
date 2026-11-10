@@ -17,7 +17,7 @@ afterEach(async () => {
 const SECRET = "Bearer s3cret-value";
 
 /** A CLI agent with the HTTP tool "GitHub", a Job of it still going, and an MCP client on the tools endpoint with the Job's token. */
-async function setup(withTool = true) {
+async function setup(withTool = true, extraTools: (context: Awaited<ReturnType<typeof ownerContext>>) => Promise<string[]> = async () => []) {
   const context = await ownerContext();
   const calls: [string, Record<string, unknown>][] = [];
   const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
@@ -30,7 +30,7 @@ async function setup(withTool = true) {
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const tool = await call(router.tools.create, { name: "GitHub", url: server.url, transport: "streamable-http", headers: { Authorization: SECRET } }, { context });
   const fields = { name: "Clerk", harnessId: harness.id, systemPrompt: "" };
-  const agent = await call(router.agents.create, { ...fields, toolIds: withTool ? [tool.id] : [] }, { context });
+  const agent = await call(router.agents.create, { ...fields, toolIds: [...(withTool ? [tool.id] : []), ...(await extraTools(context))] }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
   const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
@@ -56,16 +56,21 @@ async function setup(withTool = true) {
   return { context, server, calls, tool, agent, fields, runId, token, approve, client };
 }
 
+/** The exposed name of an action: its readable part, then a mark of the tool and action it stands for. */
+const named = async (client: Client, readable: string) => (await client.listTools()).tools.find((t) => t.name.startsWith(`${readable}_`))!.name;
+
 const textOf = (result: unknown) => (result as { content: { text: string }[] }).content[0]!.text;
 const NEEDS = /needs the owner's approval/;
 
 test("lists the agent's HTTP tools' actions and runs an approved call, with the secret reaching only the tool", async () => {
   const s = await setup();
   const { tools } = await s.client.listTools();
-  expect(tools.map((t) => t.name).sort()).toEqual(["GitHub_create_issue", "GitHub_list_issues"]);
-  expect(tools.find((t) => t.name === "GitHub_create_issue")).toMatchObject({ description: "Create an issue", inputSchema: { required: ["title"] } });
-  await s.approve("mcp__job_tools__GitHub_create_issue", { title: "Bug" });
-  const result = await s.client.callTool({ name: "GitHub_create_issue", arguments: { title: "Bug" } });
+  expect(tools.map((t) => t.name.replace(/_[0-9a-f]{8}$/, "")).sort()).toEqual(["github_create_issue", "github_list_issues"]);
+  for (const t of tools) expect(t.name).toMatch(/^[a-z0-9_-]{1,64}$/);
+  const create = await named(s.client, "github_create_issue");
+  expect(tools.find((t) => t.name === create)).toMatchObject({ description: "Create an issue", inputSchema: { required: ["title"] } });
+  await s.approve(`mcp__job_tools__${create}`, { title: "Bug" });
+  const result = await s.client.callTool({ name: create, arguments: { title: "Bug" } });
   expect(result.isError).toBeFalsy();
   expect(textOf(result)).toBe("created #1");
   expect(s.calls).toEqual([["create_issue", { title: "Bug" }]]);
@@ -75,28 +80,31 @@ test("lists the agent's HTTP tools' actions and runs an approved call, with the 
 
 test("refuses a call nobody approved, a denied one, and one whose arguments changed", async () => {
   const s = await setup();
+  const create = await named(s.client, "github_create_issue");
+  const list = await named(s.client, "github_list_issues");
   const refused = async (args: Record<string, unknown>) => {
-    const result = await s.client.callTool({ name: "GitHub_create_issue", arguments: args });
+    const result = await s.client.callTool({ name: create, arguments: args });
     expect(result.isError).toBe(true);
     expect(textOf(result)).toMatch(NEEDS);
   };
   await refused({ title: "Bug" });
-  await s.approve("mcp__job_tools__GitHub_create_issue", { title: "Bug" }, "deny");
+  await s.approve(`mcp__job_tools__${create}`, { title: "Bug" }, "deny");
   await refused({ title: "Bug" });
-  await s.approve("mcp__job_tools__GitHub_create_issue", { title: "Bug" });
+  await s.approve(`mcp__job_tools__${create}`, { title: "Bug" });
   await refused({ title: "Another" });
   // An approval for Dispand's own server, or for another action, is not this call's.
-  await s.approve("mcp__job__GitHub_create_issue", { title: "Other" });
-  await s.approve("mcp__job_tools__GitHub_list_issues", { title: "Other" });
+  await s.approve(`mcp__job__${create}`, { title: "Other" });
+  await s.approve(`mcp__job_tools__${list}`, { title: "Other" });
   await refused({ title: "Other" });
   expect(s.calls).toEqual([]);
 });
 
 test("an approval runs one call", async () => {
   const s = await setup();
-  await s.approve("mcp__job_tools__GitHub_list_issues", {});
-  expect((await s.client.callTool({ name: "GitHub_list_issues", arguments: {} })).isError).toBeFalsy();
-  const again = await s.client.callTool({ name: "GitHub_list_issues", arguments: {} });
+  const list = await named(s.client, "github_list_issues");
+  await s.approve(`mcp__job_tools__${list}`, {});
+  expect((await s.client.callTool({ name: list, arguments: {} })).isError).toBeFalsy();
+  const again = await s.client.callTool({ name: list, arguments: {} });
   expect(again.isError).toBe(true);
   expect(textOf(again)).toMatch(NEEDS);
   expect(s.calls).toHaveLength(1);
@@ -104,9 +112,10 @@ test("an approval runs one call", async () => {
 
 test("a tool taken back, or an action gone, is refused and the approval is kept", async () => {
   const s = await setup();
-  const id = await s.approve("mcp__job_tools__GitHub_create_issue", { title: "Bug" });
+  const create = await named(s.client, "github_create_issue");
+  const id = await s.approve(`mcp__job_tools__${create}`, { title: "Bug" });
   await s.context.db.update(toolsTable).set({ actions: [] }).where(eq(toolsTable.id, s.tool.id));
-  const gone = await s.client.callTool({ name: "GitHub_create_issue", arguments: { title: "Bug" } }).catch((err: unknown) => ({ isError: true, content: [{ text: String(err) }] }));
+  const gone = await s.client.callTool({ name: create, arguments: { title: "Bug" } }).catch((err: unknown) => ({ isError: true, content: [{ text: String(err) }] }));
   expect(gone.isError).toBe(true);
   await call(router.agents.update, { ...s.fields, id: s.agent.id, toolIds: [] }, { context: s.context });
   expect((await s.client.listTools()).tools).toEqual([]);
@@ -132,4 +141,44 @@ test("401 without a Job's token, and after the Job ended; a Job with no HTTP too
   expect((await post({ authorization: `Bearer ${s.token}` })).status).toBe(200);
   await s.context.engine.stopRun(s.runId);
   expect((await post({ authorization: `Bearer ${s.token}` })).status).toBe(401);
+});
+
+test("a name stands for one tool and one action for good: an approval never moves to another that looks alike", async () => {
+  // A second tool whose name and action read the same once written as a tool name.
+  const other: string[] = [];
+  const twin = await startFakeMcp([{ name: "create.issue", description: "Theirs", inputSchema: { type: "object", properties: {} }, call: () => (other.push("called"), { content: [{ type: "text", text: "theirs" }] }) }]);
+  servers.push(twin);
+  let secondId = "";
+  const s = await setup(true, async (context) => {
+    secondId = (await call(router.tools.create, { name: "GitHub!", url: twin.url, transport: "streamable-http", headers: {} }, { context })).id;
+    return [secondId];
+  });
+  const before = (await s.client.listTools()).tools;
+  const alike = before.filter((t) => t.name.startsWith("github_create_issue_"));
+  expect(alike).toHaveLength(2);
+  const ours = alike.find((t) => t.description === "Create an issue")!.name;
+  const theirs = alike.find((t) => t.description === "Theirs")!.name;
+  await s.approve(`mcp__job_tools__${ours}`, { title: "Bug" });
+  // The approved tool is taken back: the other's name doesn't change, and nothing takes the first one's.
+  await call(router.agents.update, { ...s.fields, id: s.agent.id, toolIds: [secondId] }, { context: s.context });
+  expect((await s.client.listTools()).tools.map((t) => t.name)).toEqual([theirs]);
+  for (const name of [ours, theirs]) {
+    const result = await s.client.callTool({ name, arguments: { title: "Bug" } }).catch(() => ({ isError: true }));
+    expect(result.isError).toBe(true);
+  }
+  expect(s.calls).toEqual([]);
+  expect(other).toEqual([]);
+});
+
+test("a tool's schema is shown as it is and never compiled: an odd one can't break the endpoint", async () => {
+  const s = await setup();
+  const odd = { type: "object", $async: true, required: ["title"], properties: { title: { type: "string" } } };
+  await s.context.db.update(toolsTable).set({ actions: [{ name: "odd", description: "Odd", inputSchema: odd }] }).where(eq(toolsTable.id, s.tool.id));
+  const name = await named(s.client, "github_odd");
+  expect((await s.client.listTools()).tools.find((t) => t.name === name)!.inputSchema).toMatchObject({ $async: true, required: ["title"] });
+  // Not approved: refused in words, and the endpoint still answers afterwards.
+  const result = await s.client.callTool({ name, arguments: {} });
+  expect(result.isError).toBe(true);
+  expect(textOf(result)).toMatch(NEEDS);
+  expect((await s.client.listTools()).tools).toHaveLength(1);
 });

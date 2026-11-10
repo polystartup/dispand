@@ -43,7 +43,9 @@ changes it updates this file.
   runs a call only when it finds, in its own records, an approval of that Job for that tool and
   those arguments (key order aside), answered with an allowance and not used yet, and uses it
   up: it never takes the runner's word that the owner said yes, an approval allows one call,
-  and "always allow" doesn't exist for these tools. A session in `bypassPermissions` mode asks
+  and "always allow" doesn't exist for these tools. The name a tool is asked and called under
+  is derived from the tool's id and the action's name alone, so an approval can't move to
+  another tool or action; a tool's schema is passed on as data and never compiled. A session in `bypassPermissions` mode asks
   nothing, so its calls of these tools are refused.
 - **A Job's token is the only way into the Job endpoint (`/mcp/job`), and it dies with the
   Job.** It is 32 random bytes, made when the Job is created. The database keeps its SHA-256 (to
