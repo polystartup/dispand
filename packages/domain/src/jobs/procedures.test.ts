@@ -109,3 +109,17 @@ test("an agent with a Job still going cannot be deleted", async () => {
     message: "A Job of this agent is still going",
   });
 });
+
+test("runs.stop ends a Job, after which its agent can be deleted", async () => {
+  const { context, agent, trigger } = await setup();
+  const chat = await trigger({ kind: "manual", placement: "chat" });
+  const { runId } = await call(router.jobs.start, { triggerId: chat.id }, { context });
+  await expect(call(router.agents.delete, { id: agent.id }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
+
+  await call(router.runs.stop, { runId }, { context });
+  expect((await call(router.runs.get, { runId }, { context })).run).toMatchObject({ status: "failed", error: "Stopped" });
+  // Stopped once: a second stop says the run is over; someone else's run isn't found.
+  await expect(call(router.runs.stop, { runId }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
+  await expect(call(router.runs.stop, { runId: "run_nobody" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await call(router.agents.delete, { id: agent.id }, { context });
+});

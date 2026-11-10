@@ -298,6 +298,12 @@ const sendChat = owner
     await context.engine.sendChat(input.runId, input.text).catch(engineError);
   });
 
+/** Stops a run or a Job still going: its open steps fail with "Stopped" and its sessions end. */
+const stop = owner.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
+  await requireRun(context.db, context.ownerId, input.runId);
+  await context.engine.stopRun(input.runId).catch(engineError);
+});
+
 const getRun = owner.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
   await requireRun(context.db, context.ownerId, input.runId);
   return snapshot(context.db, input.runId);
@@ -372,4 +378,4 @@ const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agent
   return rows.map(runView);
 });
 
-export const runs = { start, sendChat, get: getRun, stream, list: listRuns };
+export const runs = { start, sendChat, stop, get: getRun, stream, list: listRuns };

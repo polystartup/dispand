@@ -24,6 +24,9 @@ class FakeAdapter implements HarnessAdapter {
     this.answers.push([sessionId, questionId, answer]);
     return true;
   }
+  async stop() {
+    return true;
+  }
 }
 
 /** A run of a one-step workflow whose session asked `payload` (the question is the run's first). */
