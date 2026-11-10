@@ -106,8 +106,9 @@ test("questions of three kinds reach the Inbox and the answers reach their sessi
   await expect(page.getByText("Nothing waits for you")).toBeVisible();
   // What was answered stays, under Done, with the answer.
   const done = page.getByRole("region", { name: "Done" });
-  await expect(done.getByRole("article")).toHaveCount(3);
-  await expect(done.getByText("Denied")).toBeVisible();
-  await expect(done.getByText("Not confirmed: Name the day")).toBeVisible();
+  // Earlier specs share this database: only this test's own answers are looked for.
+  await expect(done.getByRole("article").filter({ hasText: "Which tone should the post have?" }).getByText(/Casual/)).toBeVisible();
+  await expect(done.getByRole("article").filter({ hasText: "Not confirmed: Name the day" })).toHaveCount(1);
+  await expect(done.getByRole("article").filter({ hasText: /^.*Denied$/ }).first()).toBeVisible();
   await expect(page.getByTestId("pending-badge")).toHaveCount(0);
 });
