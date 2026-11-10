@@ -10,6 +10,9 @@ import { logError } from "../log.ts";
 import { SecretError, type SecretBox } from "../secrets.ts";
 import {
   ASK_USER,
+  REQUEST_APPROVAL,
+  approvalMessage,
+  requestApprovalSpec,
   askUserPayload,
   askUserSpec,
   outputValues,
@@ -323,7 +326,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     let turn: ModelTurn;
     try {
       const { specs, names } = await this.specs(row.id);
-      const tools = [askUserSpec, submitOutputsSpec(start.expectedOutputs), ...specs.map((s) => ({ ...s.spec, name: names.toName(s.key) }))];
+      const tools = [askUserSpec, submitOutputsSpec(start.expectedOutputs), requestApprovalSpec, ...specs.map((s) => ({ ...s.spec, name: names.toName(s.key) }))];
       turn = await this.client(harness).turn({
         system: [harness.systemPrompt, start.systemPrompt].filter(Boolean).join("\n\n"),
         items,
@@ -359,7 +362,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   private async handleCall(row: Row, call: ToolCall) {
     const id = row.id;
     const items = (text: string, isError: boolean): ChatItem[] => [...row.items, { role: "tool", callId: call.id, name: call.name, result: text, isError }];
-    const builtin = call.name === ASK_USER || call.name === SUBMIT_OUTPUTS;
+    const builtin = call.name === ASK_USER || call.name === SUBMIT_OUTPUTS || call.name === REQUEST_APPROVAL;
     const { specs, names } = await this.specs(row.id);
     const key = builtin ? undefined : names.fromName(call.name);
     const label = cut(specs.find((s) => s.key === key)?.label ?? call.name, ID);
@@ -387,6 +390,13 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       if (call.name === ASK_USER) {
         const asked = askUserPayload(args);
         await ("error" in asked ? done(asked.error, true) : ask(asked.payload));
+        return null;
+      }
+      if (call.name === REQUEST_APPROVAL) {
+        // Each request waits for its own answer: nothing here is ever allowed for the session.
+        if (approved) return (await done(TEXTS.approved, false, { approvedCall: null, approvedKey: null }), null);
+        const words = approvalMessage(args);
+        await ("error" in words ? done(words.error, true) : ask({ kind: "permission", toolName: REQUEST_APPROVAL, input: { message: words.message }, canAlwaysAllow: false }));
         return null;
       }
       if (call.name === SUBMIT_OUTPUTS) {

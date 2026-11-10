@@ -89,7 +89,7 @@ test("a session starts a thread with Dispand's profile and instructions, streams
     approvalsReviewer: "user",
     developerInstructions: "You write summaries.",
     config: { default_permissions: "dispand", shell_environment_policy: { exclude: ["DISPAND_*"] } },
-    dynamicTools: [{ type: "function", name: "submit_outputs" }],
+    dynamicTools: [{ type: "function", name: "submit_outputs" }, { type: "function", name: "request_approval" }],
   });
   expect(JSON.stringify(thread)).not.toContain("trust_level");
   const [turn] = await s.sent("turn/start");
@@ -339,6 +339,12 @@ test("submit_outputs confirm flow: feedback goes back as the tool's output, a co
       description: expect.any(String),
       inputSchema: { type: "object", properties: { summary: { type: "string", description: "One line" } }, required: ["summary"], additionalProperties: false },
     },
+    {
+      type: "function",
+      name: "request_approval",
+      description: expect.any(String),
+      inputSchema: { type: "object", properties: { message: { type: "string", description: expect.any(String) } }, required: ["message"], additionalProperties: false },
+    },
   ]);
 });
 
@@ -446,4 +452,21 @@ test("Codex's approval request for the Job server's tool is accepted without a q
   expect(questions(s.events).map((q) => (q.payload as { toolName: string }).toolName)).toEqual(["mcp__github__delete_repo"]);
   expect(await s.replyTo("r0")).toEqual({ action: "accept", content: {}, _meta: null });
   expect(await s.replyTo("r1")).toEqual({ action: "decline", content: null, _meta: null });
+});
+
+test("request_approval on Codex asks the owner in the agent's words and answers Approved or the denial", async () => {
+  const ask = (message: string) => request("item/tool/call", { callId: `c_${message.length}`, namespace: null, tool: "request_approval", arguments: { message } });
+  const answers: Answer[] = [
+    { kind: "permission", decision: "allow" },
+    { kind: "permission", decision: "deny" },
+  ];
+  const s = await run({ turns: [[ask("Send this draft?"), ask("Delete the folder?"), ask(""), message("Done")]], answer: () => answers.shift() });
+  await s.ended();
+  expect(questions(s.events).map((q) => q.payload)).toEqual([
+    { kind: "permission", toolName: "request_approval", input: { message: "Send this draft?" }, canAlwaysAllow: false },
+    { kind: "permission", toolName: "request_approval", input: { message: "Delete the folder?" }, canAlwaysAllow: false },
+  ]);
+  expect(await s.replyTo("r0")).toEqual({ contentItems: [{ type: "inputText", text: "Approved." }], success: true });
+  expect(await s.replyTo("r1")).toEqual({ contentItems: [{ type: "inputText", text: "Denied." }], success: true });
+  expect(await s.replyTo("r2")).toMatchObject({ success: false });
 });
