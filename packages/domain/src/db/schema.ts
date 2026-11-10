@@ -169,10 +169,29 @@ export const workflowVersions = pgTable(
   (t) => [primaryKey({ columns: [t.workflowId, t.version] })],
 );
 
+export type RunSource = "workflow" | "agent";
 export type RunStatus = "running" | "waiting" | "succeeded" | "failed";
 /** What started a run: the owner, or a schedule's fire for `scheduledFor` (ISO 8601, UTC). */
 export type RunTrigger = { type: "manual" } | { type: "schedule"; scheduledFor: string };
 export type StepStatus = "pending" | "running" | "waiting" | "succeeded" | "failed" | "skipped";
+
+/** The agent as it was when its Job was created: the Job's sessions read it, not the `agents` row. */
+export type AgentSnapshot = {
+  id: string;
+  name: string;
+  harnessId: string;
+  systemPrompt: string;
+  model?: string;
+  skills: { packageId: string; name: string }[];
+  tools: { toolId: string; name: string }[];
+};
+/** What made a Job, and how many Jobs deep its chain is (0 for a user or a schedule). */
+export type JobCause = (
+  | { kind: "user" }
+  | { kind: "schedule"; scheduledFor: string }
+  | { kind: "event"; eventId: string; jobId?: string }
+  | { kind: "poll"; triggerId: string; itemId: string }
+) & { depth: number };
 
 export const runs = pgTable(
   "runs",
@@ -181,17 +200,84 @@ export const runs = pgTable(
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    workflowId: text("workflow_id")
-      .notNull()
-      .references(() => workflows.id, { onDelete: "cascade" }),
+    // A workflow run has its workflow and version; a Job (`source: "agent"`) has its agent, its
+    // trigger and its own definition.
+    source: text("source").$type<RunSource>().notNull().default("workflow"),
+    workflowId: text("workflow_id").references(() => workflows.id, { onDelete: "cascade" }),
     version: integer("version").notNull(),
+    agentId: text("agent_id").references(() => agents.id, { onDelete: "cascade" }),
+    triggerId: text("trigger_id").references((): AnyPgColumn => triggers.id, { onDelete: "set null" }),
+    def: jsonb("def").$type<WorkflowDef>(),
+    snapshot: jsonb("snapshot").$type<AgentSnapshot>(),
+    cause: jsonb("cause").$type<JobCause>(),
     status: text("status").$type<RunStatus>().notNull(),
     trigger: jsonb("trigger").$type<RunTrigger>().notNull().default({ type: "manual" }),
     error: text("error"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     finishedAt: timestamp("finished_at"),
   },
-  (t) => [index("runs_workflow_idx").on(t.workflowId, t.createdAt), index("runs_status_idx").on(t.status)],
+  (t) => [
+    index("runs_workflow_idx").on(t.workflowId, t.createdAt),
+    index("runs_agent_idx").on(t.agentId, t.createdAt),
+    index("runs_status_idx").on(t.status),
+  ],
+);
+
+export type ScheduleFireStatus = "started" | "skipped-overlap" | "refused";
+export type TriggerKind = "manual" | "schedule";
+export type TriggerConcurrency = "parallel" | "one-at-a-time";
+export type TriggerConfig =
+  | { kind: "manual"; placement: "chat" | "button" }
+  | { kind: "schedule"; cron: string; timezone: string };
+
+/** What makes an agent work: each firing creates a Job. A schedule's next fire is claimed by the scheduler. */
+export const triggers = pgTable(
+  "triggers",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<TriggerKind>().notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    name: text("name").notNull(),
+    // Added to the Job's prompt for this trigger.
+    instructions: text("instructions").notNull().default(""),
+    concurrency: text("concurrency").$type<TriggerConcurrency>().notNull().default("parallel"),
+    config: jsonb("config").$type<TriggerConfig>().notNull(),
+    // Set for schedules only, with the meaning they have on `schedules`.
+    nextFireAt: timestamp("next_fire_at", { withTimezone: true }),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("triggers_agent_idx").on(t.agentId),
+    index("triggers_due_idx").on(t.nextFireAt).where(sql`${t.enabled}`),
+  ],
+);
+
+/** One due time of a schedule trigger, once, like `schedule_fires` for workflows. */
+export const triggerFires = pgTable(
+  "trigger_fires",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    triggerId: text("trigger_id")
+      .notNull()
+      .references(() => triggers.id, { onDelete: "cascade" }),
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
+    status: text("status").$type<ScheduleFireStatus>().notNull(),
+    runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
+    message: text("message"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.triggerId, t.scheduledFor)],
 );
 
 /** A schedule-triggered workflow's next fire; the scheduler claims due rows. */
@@ -213,8 +299,6 @@ export const schedules = pgTable(
   },
   (t) => [index("schedules_due_idx").on(t.nextFireAt)],
 );
-
-export type ScheduleFireStatus = "started" | "skipped-overlap" | "refused";
 
 /** One due time of a schedule, once: what it did (the unique key keeps a time from firing twice). */
 export const scheduleFires = pgTable(

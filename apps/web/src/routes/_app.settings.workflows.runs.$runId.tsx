@@ -18,7 +18,7 @@ function RunPage() {
   const run = state?.run;
   const workflow = useQuery({
     ...orpc.workflows.get.queryOptions({ input: { id: run?.workflowId ?? "", version: run?.version ?? 0 } }),
-    enabled: !!run,
+    enabled: !!run?.workflowId,
     staleTime: Infinity,
   });
   const agents = useQuery(orpc.agents.list.queryOptions());
@@ -30,13 +30,15 @@ function RunPage() {
 
   return (
     <>
-      <Link
-        to="/settings/workflows/$id/runs"
-        params={{ id: run.workflowId }}
-        className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted transition hover:text-fg"
-      >
-        <ChevronLeft size={15} aria-hidden /> Runs
-      </Link>
+      {run.workflowId && (
+        <Link
+          to="/settings/workflows/$id/runs"
+          params={{ id: run.workflowId }}
+          className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted transition hover:text-fg"
+        >
+          <ChevronLeft size={15} aria-hidden /> Runs
+        </Link>
+      )}
       <header className="mb-6">
         <h1 className="truncate text-[28px] font-semibold leading-tight tracking-tight">{workflow.data?.name ?? "Run"}</h1>
         <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[14px] text-muted">

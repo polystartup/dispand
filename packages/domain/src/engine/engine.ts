@@ -627,7 +627,7 @@ export class Engine {
     for (;;) {
       const [run] = await this.db.select().from(runs).where(eq(runs.id, runId));
       if (!run || !ACTIVE_RUN.includes(run.status)) return;
-      const def = await this.defOf(run.workflowId, run.version);
+      const def = await this.defOf(run);
       const steps = await this.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
       const nodes = new Map(nodesOf(def).map((n) => [n.id, n]));
       let changed = false;
@@ -735,7 +735,7 @@ export class Engine {
   private async failInterruptedTools(runId: string) {
     const [run] = await this.db.select().from(runs).where(eq(runs.id, runId));
     if (!run) return;
-    const def = await this.defOf(run.workflowId, run.version);
+    const def = await this.defOf(run);
     const running = await this.db
       .select()
       .from(stepRuns)
@@ -965,8 +965,11 @@ export class Engine {
     out.push({ type: "step", step: stepView(row) });
     // A failed iteration fails its loop too: nothing else would close the loop's row.
     if (step.iteration > 0) {
-      const [run] = await tx.select({ workflowId: runs.workflowId, version: runs.version }).from(runs).where(eq(runs.id, step.runId));
-      const loopId = run && loopOf(await this.defOf(run.workflowId, run.version, tx), step.nodeId);
+      const [run] = await tx
+        .select({ workflowId: runs.workflowId, version: runs.version, def: runs.def })
+        .from(runs)
+        .where(eq(runs.id, step.runId));
+      const loopId = run && loopOf(await this.defOf(run, tx), step.nodeId);
       const [loop] = loopId
         ? await tx
             .update(stepRuns)
@@ -1019,11 +1022,18 @@ export class Engine {
     if (run) out.push({ type: "run", run: runView(run) });
   }
 
-  private async defOf(workflowId: string, version: number, db: Tx | Db = this.db): Promise<WorkflowDef> {
-    const [row] = await db
-      .select({ def: workflowVersions.def })
-      .from(workflowVersions)
-      .where(and(eq(workflowVersions.workflowId, workflowId), eq(workflowVersions.version, version)));
+  /** A Job carries its own definition; a workflow run reads the version it started on. */
+  private async defOf(
+    run: Pick<typeof runs.$inferSelect, "workflowId" | "version" | "def">,
+    db: Tx | Db = this.db,
+  ): Promise<WorkflowDef> {
+    if (run.def) return run.def;
+    const [row] = run.workflowId
+      ? await db
+          .select({ def: workflowVersions.def })
+          .from(workflowVersions)
+          .where(and(eq(workflowVersions.workflowId, run.workflowId), eq(workflowVersions.version, run.version)))
+      : [];
     if (!row) throw new EngineError("NOT_FOUND", "Workflow version not found");
     return row.def;
   }
