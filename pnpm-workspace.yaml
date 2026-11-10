@@ -21,3 +21,11 @@ minimumReleaseAgeExclude:
   - tailwindcss@4.3.4
 allowBuilds:
   esbuild: true
+overrides:
+  # drizzle-kit 0.31 still pulls esbuild ~0.18 through @esbuild-kit/core-utils (GHSA-67mh-4wv8-2f99).
+  # Remove once drizzle-kit no longer depends on @esbuild-kit/esm-loader.
+  '@esbuild-kit/core-utils>esbuild': ^0.25.12
+  # eslint, @eslint/config-array and @typescript-eslint/typescript-estree still ask for minimatch ^10
+  # (GHSA-g3hv-75wg-m249, fixed in 11.0.1); they only use new Minimatch() and match(), which 11 keeps.
+  # Remove once they depend on minimatch ^11.
+  minimatch: ^11.0.1
