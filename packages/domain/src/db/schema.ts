@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { type AnyPgColumn, bigint, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uniqueIndex } from "drizzle-orm/pg-core";
 import type { Harness, StartParams } from "../engine/harness.ts";
 import type { Cell, Choice, FieldType } from "../data/fields.ts";
+import type { TriggerConfig } from "../triggers/model.ts";
 import type { WidgetConfig } from "../pages/config.ts";
 import type { WidgetLayout } from "../pages/layout.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
@@ -226,9 +227,6 @@ export const runs = pgTable(
 export type ScheduleFireStatus = "started" | "skipped-overlap" | "refused";
 export type TriggerKind = "manual" | "schedule";
 export type TriggerConcurrency = "parallel" | "one-at-a-time";
-export type TriggerConfig =
-  | { kind: "manual"; placement: "chat" | "button" }
-  | { kind: "schedule"; cron: string; timezone: string };
 
 /** What makes an agent work: each firing creates a Job. A schedule's next fire is claimed by the scheduler. */
 export const triggers = pgTable(
