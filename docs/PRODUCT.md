@@ -36,6 +36,9 @@ Status: Prototype
     data** (rows of all tables, or of chosen ones) and **Change tables and fields**. Within a
     bundle a Job asks nothing; outside it, it is refused. Taking a bundle or a table back
     applies to Jobs already running. Deleting a table or a field stays the owner's.
+  - A session gets the skills and tools of its agent: skills and the runner's own tools on a
+    CLI session, tools reached by URL on a cloud session (the other two combinations come
+    later). Every call of such a tool asks first.
   - A button or schedule trigger must say what the agent does (its instructions); a chat starts
     with the owner's words.
   - A Tool step cut by a restart **fails and is never called again**: the owner checks the tool

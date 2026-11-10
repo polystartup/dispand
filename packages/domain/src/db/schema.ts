@@ -411,9 +411,12 @@ export const cloudSessions = pgTable("cloud_sessions", {
   // Chat messages that arrived during a turn: they join the history before the next model call.
   queued: jsonb("queued").$type<string[]>().notNull().default([]),
   // The question the session waits on, for the tool call `callId` of the last assistant item.
-  pending: jsonb("pending").$type<{ questionId: string; callId: string; payload: QuestionPayload } | null>(),
+  // `key`: the tool a permission question is about, so its answer stays with that tool.
+  pending: jsonb("pending").$type<{ questionId: string; callId: string; payload: QuestionPayload; key?: string } | null>(),
   // The tool call the owner allowed once, run next.
   approvedCall: text("approved_call"),
+  // The tool that call was approved for: a name that now maps to another tool isn't run.
+  approvedKey: text("approved_key"),
   // The tool call running now: a restart doesn't run it again.
   inFlight: jsonb("in_flight").$type<{ callId: string; key: string } | null>(),
   // Tool keys "Always allow"ed in this session.

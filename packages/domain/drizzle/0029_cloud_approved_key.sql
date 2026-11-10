@@ -1,0 +1,1 @@
+ALTER TABLE "cloud_sessions" ADD COLUMN "approved_key" text;

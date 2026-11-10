@@ -28,6 +28,12 @@ changes it updates this file.
   identity is set only by the authorizing function, never from a request. These calls ask the
   owner no question: the bundles are the permission. `configure` changes fields, not the rows
   under them: a Job can't remove a choice of a field, since that clears the rows that use it.
+- **A session gets its agent's skills and tools, and no more.** For a Job, what its snapshot
+  holds and the agent still has; for a workflow run, the agent's as they are. A tool reached by
+  URL is called on the server only, for cloud sessions, with its sealed headers opened for that
+  call: a session start never carries a tool's address or headers, only the names of the
+  runner's own MCP servers the agent was given (and only those of the harness's runner). Every
+  call of such a tool asks the owner first, in a cloud session as on a runner.
 - **A Job's token is the only way into the Job endpoint (`/mcp/job`), and it dies with the
   Job.** It is 32 random bytes, made when the Job is created. The database keeps its SHA-256 (to
   find the Job) and its sealed form (to hand it to the Job's CLI sessions at each start), never

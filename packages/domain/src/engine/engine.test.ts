@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { type Answer, parseServerMessage, type ServerToRunner, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING, TEXT } from "@dispand/runner-protocol";
 import { and, eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { messages, questions, runners, runs, stepRuns, tools } from "../db/schema.ts";
+import { harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { ArgValue } from "../tools/arguments.ts";
@@ -13,6 +13,7 @@ import { CloudRunner, noTools } from "../cloud/runner.ts";
 import { CliHarnessAdapter } from "./cli-harness.ts";
 import { RoutingAdapter } from "./routing-adapter.ts";
 import { jobTokenOf } from "../platform/token.ts";
+import { packageForRunner } from "../skills/runner-access.ts";
 import { Engine, RESUME_PROMPT, TOOL_RESTARTED } from "./engine.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, type StartParams } from "./harness.ts";
 
@@ -1443,4 +1444,86 @@ test("a Job's CLI session start carries the Job's token; a workflow run's has no
   const params: StartParams = { sessionId: "ses_x", runKey: "run_1", systemPrompt: "S", prompt: "P", expectedOutputs: [], interactive: false };
   await adapter.start({ ...harness, kind: "claude-code" }, params);
   expect((sent[2] as { start: Record<string, unknown> }).start).not.toHaveProperty("jobToken");
+});
+
+// Sessions get their agent's skills and runner tools.
+
+async function toolingSetup() {
+  const s = await setup(buttonThenStep);
+  const { context, runnerId, agent } = s;
+  await context.db.insert(tools).values({ id: "tool_fetch", ownerId: context.ownerId, name: "Fetch", kind: "runner", runnerId, runnerTool: "fetch" });
+  const { packageId } = await call(router.skills.create, { name: "review", description: "Reviews.", instructions: "x", requiredToolIds: [] }, { context });
+  const withTooling = { ...agent, skillPackageIds: [packageId], toolIds: ["tool_fetch", "tool_gh"] };
+  await call(router.agents.update, withTooling, { context });
+  const sent: ServerToRunner[] = [];
+  const hub = { send: async (_id: string, msg: ServerToRunner) => (sent.push(msg), true) };
+  const adapter = new CliHarnessAdapter(context.db, hub as unknown as RunnerHub, context.secrets);
+  const engine = new Engine(context.db, adapter, undefined, undefined, undefined, context.secrets);
+  onTestFinished(() => engine.stop());
+  const starts = () => sent.flatMap((m) => (m.type === "session.start" ? [m.start] : []));
+  return { ...s, engine, packageId, withTooling, starts };
+}
+
+test("a Job's CLI start carries its agent's skill packages and runner tools, and never an HTTP tool", async () => {
+  const { context, engine, agent, packageId, starts } = await toolingSetup();
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(() => expect(starts()).toHaveLength(1));
+  expect(starts()[0]).toMatchObject({
+    skills: [{ packageId, name: "review" }],
+    // The HTTP tool (GitHub) stays on the server: its address and headers never travel.
+    mcpServers: [{ name: "fetch", type: "runner", tool: "fetch" }],
+  });
+  expect(JSON.stringify(starts()[0])).not.toContain("mcp.example.com");
+});
+
+test("a workflow step's CLI start carries its agent's skills and runner tools too", async () => {
+  const { engine, workflow, packageId, starts } = await toolingSetup();
+  await engine.startRun(workflow.id);
+  await vi.waitFor(() => expect(starts()).toHaveLength(1));
+  expect(starts()[0]).toMatchObject({ skills: [{ packageId, name: "review" }], mcpServers: [{ name: "fetch", type: "runner", tool: "fetch" }] });
+  expect(starts()[0]).not.toHaveProperty("jobToken");
+});
+
+test("a tool of another runner than the harness's is not sent", async () => {
+  const { context, engine, workflow, harness, starts } = await toolingSetup();
+  // The harness moved to another runner since the tool was attached.
+  const other = await call(router.runners.create, { name: "Laptop" }, { context });
+  await context.db.update(harnessesTable).set({ runnerId: other.runnerId }).where(eq(harnessesTable.id, harness.id));
+  await engine.startRun(workflow.id);
+  await vi.waitFor(() => expect(starts()).toHaveLength(1));
+  expect(starts()[0]!.mcpServers).toEqual([]);
+});
+
+test("a resume carries the tooling as it is then", async () => {
+  const { context, engine, workflow, runnerId, withTooling, starts } = await toolingSetup();
+  const runId = await engine.startRun(workflow.id);
+  await vi.waitFor(() => expect(starts()).toHaveLength(1));
+  const [step] = await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, "n_note")));
+  await vi.waitFor(async () => expect((await context.db.select().from(stepRuns).where(eq(stepRuns.id, step!.id)))[0]!.startDeliveredAt).toBeInstanceOf(Date));
+  // The skill and the tool are taken back, then the runner loses the session.
+  await call(router.agents.update, { ...withTooling, skillPackageIds: [], toolIds: [] }, { context });
+  await engine.reconcile(runnerId, []);
+  await vi.waitFor(() => expect(starts()).toHaveLength(2));
+  expect(starts()[1]).toMatchObject({ skills: [], mcpServers: [] });
+  // Nothing of the tooling is kept with the step.
+  expect(JSON.stringify(step!.start)).not.toMatch(/review|fetch/);
+});
+
+test("a start only carries the skill packages its runner may fetch", async () => {
+  const { context, engine, agent, packageId, withTooling, runnerId, starts } = await toolingSetup();
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  // The Job is created, then its agent moves to a harness on another runner: the Job still
+  // starts on the runner of its snapshot's harness, which is no longer served the package.
+  const runId = await engine.db.transaction((tx) =>
+    engine.createJob(tx, { ownerId: context.ownerId, agentId: agent.id, triggerId: trigger.id, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } }),
+  );
+  expect(await packageForRunner(context.db, runnerId, packageId)).not.toBeNull();
+  const other = await call(router.runners.create, { name: "Laptop" }, { context });
+  const elsewhere = await call(router.harnesses.create, { name: "Elsewhere", runnerId: other.runnerId, kind: "claude-code", permissionMode: "default" }, { context });
+  await call(router.agents.update, { ...withTooling, harnessId: elsewhere.id, toolIds: ["tool_gh"] }, { context });
+  expect(await packageForRunner(context.db, runnerId, packageId)).toBeNull();
+  await engine.continueRun(runId);
+  await vi.waitFor(() => expect(starts()).toHaveLength(1));
+  expect(starts()[0]).toMatchObject({ skills: [], mcpServers: [] });
 });
