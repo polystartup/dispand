@@ -15,7 +15,7 @@ const TOKEN_TTL_S = 3600;
  * updated: without this, a session that meets it takes its tools for gone and gives up.
  */
 export const RESTART_HINT =
-  "If a call to these tools fails with a gateway or connection error (502, 503, connection refused), Dispand is restarting: wait about ten seconds and make the same call again, up to three times, before you report a failure.";
+  "If a call to these tools fails with a gateway or connection error (502, 503, connection refused), Dispand is restarting: wait about ten seconds and try again, up to three times, before you report a failure. A call that only reads can be made again as it is. A call that creates or changes something may have gone through before the error: read first to see whether it did, and make it again only if it did not.";
 
 export const jobOf = (auth: AuthInfo | undefined) => (auth?.extra as { job?: JobIdentity } | undefined)?.job;
 

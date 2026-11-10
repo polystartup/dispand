@@ -136,6 +136,8 @@ test("both endpoints tell the session what to do when Dispand restarts under it"
   const client = await connect(context, token);
   expect(client.getInstructions()).toMatch(/restart/i);
   expect(client.getInstructions()).toMatch(/wait/i);
+  // A write isn't blindly made twice: it may have gone through before the error.
+  expect(client.getInstructions()).toMatch(/read first/i);
   const tools = new Client({ name: "test", version: "1.0.0" });
   await tools.connect(
     new StreamableHTTPClientTransport(new URL("https://dispand.test/mcp/job/tools"), {
