@@ -15,7 +15,8 @@ vi.mock("@dispand/domain", () => ({
   platformToolCaller: (app: () => unknown) => ({ app }),
   getEngine: (_db: unknown, _hub: unknown, _secrets: unknown, _events: unknown, deps: { tools: { app: () => { db?: unknown; engine?: unknown } } }) => ({
     recover: async () => {
-      seenAtRecovery.push(deps.tools.app());
+      // A copy: the app as it is at this moment, not as it is filled later.
+      seenAtRecovery.push({ ...deps.tools.app() });
     },
   }),
   getScheduler: () => ({ start: () => {}, stop: async () => {} }),
