@@ -1,9 +1,9 @@
 import { ORPCError } from "@orpc/server";
 import { Answer, type QuestionPayload, storable, TEXT } from "@dispand/runner-protocol";
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agents, questions as questionsTable, runs, stepRuns, workflows, workflowVersions } from "../db/schema.ts";
+import { agents, questions as questionsTable, runs, stepRuns, triggers, workflows, workflowVersions } from "../db/schema.ts";
 import { answerText, EngineError, questionView } from "../engine/engine.ts";
 import { authed, base } from "../rpc/context.ts";
 import { nodesOf, type WorkflowDef } from "../workflows/model.ts";
@@ -54,26 +54,44 @@ function check(payload: QuestionPayload, answer: Answer): Answer {
   return delivered;
 }
 
-const list = owner.input(z.object({ status: z.literal("pending") })).handler(async ({ context }) => {
+/** The most done items the Inbox lists (every open one is listed). */
+export const MAX_DONE = 100;
+
+/**
+ * The Inbox. `pending`: what waits, newest first. `all`: what waits, then the latest done items
+ * (answered or expired), each with its answer, who gave it and when.
+ */
+const list = owner.input(z.object({ status: z.enum(["pending", "all"]) })).handler(async ({ input, context }) => {
   // A workflow run has its workflow, a Job its agent: neither join may drop the other's questions.
-  const rows = await context.db
-    .select({
-      q: questionsTable,
-      workflowId: workflows.id,
-      workflowName: workflows.name,
-      agentId: agents.id,
-      agentName: agents.name,
-      version: runs.version,
-      def: runs.def,
-      nodeId: stepRuns.nodeId,
-    })
-    .from(questionsTable)
-    .innerJoin(runs, eq(runs.id, questionsTable.runId))
-    .leftJoin(workflows, eq(workflows.id, runs.workflowId))
-    .leftJoin(agents, eq(agents.id, runs.agentId))
-    .innerJoin(stepRuns, eq(stepRuns.id, questionsTable.stepRunId))
-    .where(waiting(context.ownerId))
-    .orderBy(desc(questionsTable.createdAt), desc(questionsTable.id));
+  const select = () =>
+    context.db
+      .select({
+        q: questionsTable,
+        workflowId: workflows.id,
+        workflowName: workflows.name,
+        agentId: agents.id,
+        agentName: agents.name,
+        triggerId: triggers.id,
+        triggerName: triggers.name,
+        version: runs.version,
+        def: runs.def,
+        nodeId: stepRuns.nodeId,
+      })
+      .from(questionsTable)
+      .innerJoin(runs, eq(runs.id, questionsTable.runId))
+      .leftJoin(workflows, eq(workflows.id, runs.workflowId))
+      .leftJoin(agents, eq(agents.id, runs.agentId))
+      .leftJoin(triggers, eq(triggers.id, runs.triggerId))
+      .innerJoin(stepRuns, eq(stepRuns.id, questionsTable.stepRunId));
+  const open = await select().where(waiting(context.ownerId)).orderBy(desc(questionsTable.createdAt), desc(questionsTable.id));
+  const done =
+    input.status === "all"
+      ? await select()
+          .where(and(eq(questionsTable.ownerId, context.ownerId), ne(questionsTable.status, "pending")))
+          .orderBy(desc(sql`coalesce(${questionsTable.answeredAt}, ${questionsTable.createdAt})`), desc(questionsTable.id))
+          .limit(MAX_DONE)
+      : [];
+  const rows = [...open, ...done];
   const versions = new Map<string, Map<string, string>>();
   const names = (def: WorkflowDef | undefined) => new Map((def ? nodesOf(def) : []).map((n) => [n.id, n.name]));
   const stepName = async (r: (typeof rows)[number]) => {
@@ -95,6 +113,10 @@ const list = owner.input(z.object({ status: z.literal("pending") })).handler(asy
       orphaned: r.q.orphaned,
       workflow: r.workflowId ? { id: r.workflowId, name: r.workflowName! } : null,
       agent: r.agentId ? { id: r.agentId, name: r.agentName! } : null,
+      trigger: r.triggerId ? { id: r.triggerId, name: r.triggerName! } : null,
+      kind: r.q.kind,
+      answeredAt: r.q.answeredAt,
+      answeredBy: r.q.answeredBy,
       run: { id: r.q.runId },
       step: { name: (await stepName(r)) ?? r.nodeId },
     });
@@ -129,7 +151,7 @@ const answer = owner.input(z.object({ questionId: z.string(), answer: Answer }))
     throw new ORPCError("BAD_REQUEST", { message: `The answer is too long (at most about ${TEXT - 100} characters)` });
   }
   // The engine's pending → answered update is the atomic step: a second answer finds nothing pending.
-  await context.engine.answer(q.id, delivered).catch((err: unknown) => {
+  await context.engine.answer(q.id, delivered, { type: "user", userId: context.ownerId }).catch((err: unknown) => {
     if (err instanceof EngineError && err.code === "NOT_PENDING") throw new ORPCError("CONFLICT", { message: err.message });
     throw err;
   });

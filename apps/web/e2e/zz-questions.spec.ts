@@ -27,7 +27,7 @@ async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
 let runner: FakeRunner | undefined;
 test.afterAll(() => runner?.close());
 
-test("questions of three kinds reach Notifications and the answers reach their sessions", async ({ page }) => {
+test("questions of three kinds reach the Inbox and the answers reach their sessions", async ({ page }) => {
   await signIn(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Asker" });
   runner = await FakeRunner.pair(SERVER, created.pairingCode.toLowerCase());
@@ -76,13 +76,16 @@ test("questions of three kinds reach Notifications and the answers reach their s
   }
 
   await page.goto("/notifications");
+  // The earlier address leads to the Inbox.
+  await expect(page).toHaveURL(/\/inbox$/);
+  const waiting = page.getByRole("region", { name: "Waiting for you" });
   await page.setViewportSize({ width: 1100, height: 1500 });
-  await expect(page.getByRole("article")).toHaveCount(3);
+  await expect(waiting.getByRole("article")).toHaveCount(3);
   await expect(page.getByTestId("pending-badge").first()).toHaveText("3");
   await page.screenshot({ path: test.info().outputPath("task-9-notifications-light.png"), fullPage: true });
 
   // Answer the choice question: the answer reaches its session and the badge counts down.
-  const choice = page.getByRole("article").filter({ hasText: "Which tone" });
+  const choice = waiting.getByRole("article").filter({ hasText: "Which tone" });
   await choice.getByRole("radio", { name: /Casual/ }).click();
   await choice.getByRole("button", { name: "Send answer" }).click();
   const { answer, questionId, sessionId } = await runner.waitFor("session.answer");
@@ -91,15 +94,21 @@ test("questions of three kinds reach Notifications and the answers reach their s
     questionId: "rq_0",
     answer: { kind: "choice", answers: { "Which tone should the post have?": "Casual" } },
   });
-  await expect(page.getByRole("article")).toHaveCount(2);
+  await expect(waiting.getByRole("article")).toHaveCount(2);
   await expect(page.getByTestId("pending-badge").first()).toHaveText("2");
 
-  const confirm = page.getByRole("article").filter({ hasText: "A weekly newsletter" });
+  const confirm = waiting.getByRole("article").filter({ hasText: "A weekly newsletter" });
   await confirm.getByLabel("Feedback").fill("Name the day");
   await confirm.getByRole("button", { name: "Not yet" }).click();
   expect((await runner.waitFor("session.answer")).answer).toEqual({ kind: "confirm-outputs", confirmed: false, feedback: "Name the day" });
-  await page.getByRole("article").getByRole("button", { name: "Deny" }).click();
+  await waiting.getByRole("article").getByRole("button", { name: "Deny" }).click();
   expect((await runner.waitFor("session.answer")).answer).toEqual({ kind: "permission", decision: "deny" });
   await expect(page.getByText("Nothing waits for you")).toBeVisible();
+  // What was answered stays, under Done, with the answer.
+  const done = page.getByRole("region", { name: "Done" });
+  // Earlier specs share this database: only this test's own answers are looked for.
+  await expect(done.getByRole("article").filter({ hasText: "Which tone should the post have?" }).getByText(/Casual/)).toBeVisible();
+  await expect(done.getByRole("article").filter({ hasText: "Not confirmed: Name the day" })).toHaveCount(1);
+  await expect(done.getByText("Denied", { exact: true }).first()).toBeVisible();
   await expect(page.getByTestId("pending-badge")).toHaveCount(0);
 });

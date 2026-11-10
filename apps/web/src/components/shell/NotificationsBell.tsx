@@ -79,9 +79,9 @@ export function NotificationsBell({ onNavigate }: { onNavigate: () => void }) {
       type="button"
       onClick={() => {
         onNavigate();
-        void navigate({ to: "/notifications" });
+        void navigate({ to: "/inbox" });
       }}
-      aria-label={unknown ? "Notifications (couldn't load what's waiting)" : pending > 0 ? `Notifications, ${pending} waiting` : "Notifications"}
+      aria-label={unknown ? "Inbox (couldn't load what's waiting)" : pending > 0 ? `Inbox, ${pending} waiting` : "Inbox"}
       title={unknown ? "Couldn't load what's waiting" : undefined}
       className="relative grid size-8 place-items-center rounded-lg text-muted transition hover:bg-hover hover:text-fg"
     >

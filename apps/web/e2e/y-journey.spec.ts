@@ -99,7 +99,7 @@ test("a chat widget on Home: inline question, confirmation, then the next step's
     },
   });
   await expect(chat.getByRole("radio", { name: /Makers/ })).toBeVisible();
-  // Also counted in Notifications.
+  // Also counted in the Inbox.
   await expect(page.getByTestId("pending-badge").first()).toHaveText("1");
   await page.screenshot({ path: test.info().outputPath("task-10-home-chat-light.png"), animations: "disabled" });
   await page.emulateMedia({ colorScheme: "dark" });

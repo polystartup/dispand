@@ -14,6 +14,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppHelpRouteImport } from './routes/_app.help'
+import { Route as AppInboxRouteImport } from './routes/_app.inbox'
 import { Route as AppNotificationsRouteImport } from './routes/_app.notifications'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as FilesIdRouteImport } from './routes/files/$id'
@@ -62,6 +63,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
 const AppHelpRoute = AppHelpRouteImport.update({
   id: '/help',
   path: '/help',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInboxRoute = AppInboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
   getParentRoute: () => AppRoute,
 } as any)
 const AppNotificationsRoute = AppNotificationsRouteImport.update({
@@ -202,6 +208,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
   '/help': typeof AppHelpRoute
+  '/inbox': typeof AppInboxRoute
   '/notifications': typeof AppNotificationsRoute
   '/api/health': typeof ApiHealthRoute
   '/files/$id': typeof FilesIdRoute
@@ -232,6 +239,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
   '/help': typeof AppHelpRoute
+  '/inbox': typeof AppInboxRoute
   '/notifications': typeof AppNotificationsRoute
   '/api/health': typeof ApiHealthRoute
   '/files/$id': typeof FilesIdRoute
@@ -265,6 +273,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
   '/_app/help': typeof AppHelpRoute
+  '/_app/inbox': typeof AppInboxRoute
   '/_app/notifications': typeof AppNotificationsRoute
   '/api/health': typeof ApiHealthRoute
   '/files/$id': typeof FilesIdRoute
@@ -299,6 +308,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/setup'
     | '/help'
+    | '/inbox'
     | '/notifications'
     | '/api/health'
     | '/files/$id'
@@ -329,6 +339,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/setup'
     | '/help'
+    | '/inbox'
     | '/notifications'
     | '/api/health'
     | '/files/$id'
@@ -361,6 +372,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/setup'
     | '/_app/help'
+    | '/_app/inbox'
     | '/_app/notifications'
     | '/api/health'
     | '/files/$id'
@@ -437,6 +449,13 @@ declare module '@tanstack/react-router' {
       path: '/help'
       fullPath: '/help'
       preLoaderRoute: typeof AppHelpRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/inbox': {
+      id: '/_app/inbox'
+      path: '/inbox'
+      fullPath: '/inbox'
+      preLoaderRoute: typeof AppInboxRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/notifications': {
@@ -619,6 +638,7 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppHelpRoute: typeof AppHelpRoute
+  AppInboxRoute: typeof AppInboxRoute
   AppNotificationsRoute: typeof AppNotificationsRoute
   AppIndexRoute: typeof AppIndexRoute
   AppPPageIdRoute: typeof AppPPageIdRoute
@@ -642,6 +662,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppHelpRoute: AppHelpRoute,
+  AppInboxRoute: AppInboxRoute,
   AppNotificationsRoute: AppNotificationsRoute,
   AppIndexRoute: AppIndexRoute,
   AppPPageIdRoute: AppPPageIdRoute,
