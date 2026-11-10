@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { type api, orpc } from "../../lib/api.ts";
 import { when } from "../workflow/Runs.tsx";
+import { ProposalItems } from "./ProposalItems.tsx";
 import { type About, approvalWords, QuestionForm } from "./QuestionForm.tsx";
 
 export type InboxEntry = Awaited<ReturnType<typeof api.questions.list>>[number];
