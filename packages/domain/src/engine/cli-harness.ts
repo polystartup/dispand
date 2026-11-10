@@ -5,6 +5,7 @@ import type { Db } from "../db/client.ts";
 import { runs, stepRuns } from "../db/schema.ts";
 import { usedOnRunner } from "../skills/runner-access.ts";
 import { serverName, sessionTooling } from "./tooling.ts";
+import { exposedName } from "../platform/exposed.ts";
 import { jobTokenOf } from "../platform/token.ts";
 import type { RunnerHub } from "../runners/hub.ts";
 import { Engine } from "./engine.ts";
@@ -42,7 +43,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
    * like the token: a resume carries them as they are then. HTTP tools never travel: their
    * address and headers stay on the server. Only a tool of the harness's own runner is sent.
    */
-  private async tooling(sessionId: string, runnerId: string): Promise<Pick<SessionStart, "skills" | "mcpServers">> {
+  private async tooling(sessionId: string, runnerId: string): Promise<Pick<SessionStart, "skills" | "mcpServers"> & { unasked: string[] }> {
     const tooling = await sessionTooling(this.db, sessionId);
     const taken = new Set<string>();
     // Only the packages this runner is served (`usedOnRunner`): one it would be refused, as when
@@ -57,13 +58,20 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
         .filter((t) => t.runnerId === runnerId)
         .slice(0, 20)
         .map((t) => ({ name: serverName(t.name, taken), type: "runner" as const, tool: t.tool })),
+      // The actions the agent lets run unasked, under the names the tools endpoint lists them:
+      // the CLI doesn't prompt for these. As many as the protocol carries; it prompts for the
+      // rest, and the endpoint, which decides alone, runs them all the same.
+      unasked: tooling.httpTools
+        .flatMap((tool) => tool.actions.filter((a) => tool.unasked.includes(a.name)).map((a) => exposedName(tool, a.name)))
+        .sort()
+        .slice(0, 500),
     };
   }
 
   async start(harness: CliHarness, params: StartParams): Promise<boolean> {
     const { runKey, ...start } = params;
     const jobToken = await this.jobToken(params.sessionId);
-    const tooling = await this.tooling(params.sessionId, harness.runnerId);
+    const { unasked, ...tooling } = await this.tooling(params.sessionId, harness.runnerId);
     return this.deliver(harness.runnerId, {
       type: "session.start",
       start: {
@@ -73,7 +81,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
         permissionMode: harness.permissionMode,
         ...(harness.model ? { model: harness.model } : {}),
         ...tooling,
-        ...(jobToken ? { jobToken } : {}),
+        ...(jobToken ? { jobToken, ...(unasked.length ? { unasked } : {}) } : {}),
         // The harness's kind and permission mode go together: the procedures only store matching ones.
       } as SessionStart,
     });

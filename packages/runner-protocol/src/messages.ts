@@ -6,7 +6,7 @@ import { Answer, HarnessEvent, OutputField } from "./harness.ts";
  * Sent by the runner as the `Dispand-Protocol` header when it connects. Bumped by every
  * change a runner of the previous version can't parse or honor; the hub turns older runners away.
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -84,6 +84,20 @@ const StartFields = {
    */
   jobToken: id()
     .regex(/^[A-Za-z0-9_-]+$/)
+    .optional(),
+  /**
+   * With a Job token: the tools of the Job's tools server (`job_tools`) that run without a
+   * question, by their name there. The runner makes the CLI's names itself
+   * (`mcp__job_tools__<name>`), so nothing here can name a command, a file tool or another
+   * server's tool. It only spares prompts: the server decides alone whether a call runs.
+   */
+  unasked: z
+    .array(
+      id()
+        .regex(/^[a-z0-9_-]{1,48}$/)
+        .refine((n) => !n.includes("__"), "no double underscore"),
+    )
+    .max(500)
     .optional(),
 };
 

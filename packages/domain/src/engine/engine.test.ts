@@ -12,6 +12,7 @@ import type { RunnerHub } from "../runners/hub.ts";
 import { CloudRunner, noTools } from "../cloud/runner.ts";
 import { CliHarnessAdapter } from "./cli-harness.ts";
 import { RoutingAdapter } from "./routing-adapter.ts";
+import { exposedName } from "../platform/exposed.ts";
 import { jobTokenOf } from "../platform/token.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
 import { Engine, RESUME_PROMPT, TOOL_RESTARTED } from "./engine.ts";
@@ -1526,4 +1527,39 @@ test("a start only carries the skill packages its runner may fetch", async () =>
   await engine.continueRun(runId);
   await vi.waitFor(() => expect(starts()).toHaveLength(1));
   expect(starts()[0]).toMatchObject({ skills: [], mcpServers: [] });
+});
+
+test("a Job's CLI session start names the actions that run unasked, at most 500; a workflow run's names none", async () => {
+  const { context, harness, agent } = await setup(buttonThenStep);
+  const sent: ServerToRunner[] = [];
+  const hub = { send: async (_id: string, msg: ServerToRunner) => (sent.push(msg), true) };
+  const adapter = new CliHarnessAdapter(context.db, hub as unknown as RunnerHub, context.secrets);
+  const engine = new Engine(context.db, adapter, undefined, undefined, undefined, context.secrets);
+  onTestFinished(() => engine.stop());
+  const action = (name: string) => ({ name, description: "", inputSchema: { type: "object" }, readOnly: true as const });
+  const toolIds = ["tool_a", "tool_b", "tool_c"];
+  for (const id of toolIds) {
+    await context.db.insert(tools).values({ id, ownerId: context.ownerId, name: id, kind: "http", url: "https://example.com/mcp", transport: "streamable-http", actions: Array.from({ length: 200 }, (_, i) => action(`read_${i}`)) });
+  }
+  const fields = { id: agent.id, name: agent.name, harnessId: agent.harnessId, systemPrompt: agent.systemPrompt };
+  await call(router.agents.update, { ...fields, toolIds: ["tool_a"] }, { context });
+  await call(router.agents.setToolAsk, { agentId: agent.id, toolId: "tool_a", action: "read_7", ask: true }, { context });
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(() => expect(sent).toHaveLength(1));
+  const unasked = (i: number) => (sent[i] as { start: { unasked?: string[] } }).start.unasked;
+  expect(unasked(0)).toHaveLength(199);
+  expect(unasked(0)).toContain(exposedName({ id: "tool_a", name: "tool_a" }, "read_8"));
+  expect(unasked(0)).not.toContain(exposedName({ id: "tool_a", name: "tool_a" }, "read_7"));
+
+  // More than the protocol carries: the start still goes, with 500 names (the CLI prompts for the rest).
+  await call(router.agents.update, { ...fields, toolIds }, { context });
+  await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(() => expect(sent).toHaveLength(2));
+  expect(unasked(1)).toHaveLength(500);
+  expect(() => parseServerMessage(JSON.stringify(sent[1]))).not.toThrow();
+
+  const params: StartParams = { sessionId: "ses_x", runKey: "run_1", systemPrompt: "S", prompt: "P", expectedOutputs: [], interactive: false };
+  await adapter.start({ ...harness, kind: "claude-code" }, params);
+  expect((sent[2] as { start: Record<string, unknown> }).start).not.toHaveProperty("unasked");
 });

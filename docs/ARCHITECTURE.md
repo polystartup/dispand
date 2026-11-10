@@ -12,7 +12,7 @@
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with
-  `Authorization: Bearer <token>` and `Dispand-Protocol: 6` (`PROTOCOL_VERSION`, bumped by
+  `Authorization: Bearer <token>` and `Dispand-Protocol: 7` (`PROTOCOL_VERSION`, bumped by
   every change an older runner can't parse or honor). An older runner is refused with 426 "update
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
@@ -281,7 +281,10 @@
   the list is filled from the actions' `readOnly` (the server's `readOnlyHint`, kept at
   listing) when `agents.create` or `agents.update` adds the tool, kept as it is for a tool
   the agent already had, and changed by `agents.setToolAsk` only (`agents.toolAsk` reads it;
-  neither is a platform tool). Workflow runs' CLI sessions have no Job token, so
+  neither is a platform tool). A Job's session start names those actions (`unasked`, their
+  exposed names, at most 500; protocol 7), and the runner lets `mcp__job_tools__<name>` run
+  without a question for them (`isJobTool` on Claude Code, the elicitation on Codex): the CLI
+  prompts for the others, and for all of them on a start that names none. Workflow runs' CLI sessions have no Job token, so
   no such tools; cloud sessions don't get skills yet.
 - **Inbox:** every question a session asks is a row of `questions` with a `kind`: a permission
   is an `approval`, a choice or a confirmation a `question` (set when it is asked; migration
