@@ -31,7 +31,7 @@ type Listed = { name: string; toolId: string; action: string; description: strin
  * another action (two that read alike, a refresh that reorders them, one taken back).
  */
 export function exposedName(tool: { id: string; name: string }, action: string): string {
-  const mark = createHash("sha256").update(`${tool.id}\n${action}`).digest("hex").slice(0, 8);
+  const mark = createHash("sha256").update(`${tool.id}\n${action}`).digest("hex").slice(0, 16);
   const words =
     `${tool.name} ${action}`
       .toLowerCase()
@@ -50,9 +50,11 @@ async function listed(db: Db, job: JobIdentity): Promise<Listed[]> {
     .where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId), eq(runs.agentId, job.agentId)));
   if (!run) return [];
   const { httpTools } = await toolingOf(db, run, job.agentId);
-  return httpTools.flatMap((tool) =>
+  const all = httpTools.flatMap((tool) =>
     tool.actions.map((action) => ({ name: exposedName(tool, action.name), toolId: tool.id, action: action.name, description: action.description, inputSchema: action.inputSchema })),
   );
+  // A name must stand for one action: should two ever share one, neither is offered.
+  return all.filter((item) => all.filter((other) => other.name === item.name).length === 1);
 }
 
 const text = (t: string, isError = false) => ({ content: [{ type: "text" as const, text: t }], ...(isError ? { isError: true } : {}) });

@@ -7,7 +7,7 @@ import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp, type FakeMcp } from "../tools/test-server.ts";
 import { jobTokenOf } from "./token.ts";
-import { handleJobToolsMcp } from "./tools-mcp.ts";
+import { exposedName, handleJobToolsMcp } from "./tools-mcp.ts";
 
 const servers: FakeMcp[] = [];
 afterEach(async () => {
@@ -65,7 +65,7 @@ const NEEDS = /needs the owner's approval/;
 test("lists the agent's HTTP tools' actions and runs an approved call, with the secret reaching only the tool", async () => {
   const s = await setup();
   const { tools } = await s.client.listTools();
-  expect(tools.map((t) => t.name.replace(/_[0-9a-f]{8}$/, "")).sort()).toEqual(["github_create_issue", "github_list_issues"]);
+  expect(tools.map((t) => t.name.replace(/_[0-9a-f]{16}$/, "")).sort()).toEqual(["github_create_issue", "github_list_issues"]);
   for (const t of tools) expect(t.name).toMatch(/^[a-z0-9_-]{1,64}$/);
   const create = await named(s.client, "github_create_issue");
   expect(tools.find((t) => t.name === create)).toMatchObject({ description: "Create an issue", inputSchema: { required: ["title"] } });
@@ -181,4 +181,16 @@ test("a tool's schema is shown as it is and never compiled: an odd one can't bre
   expect(result.isError).toBe(true);
   expect(textOf(result)).toMatch(NEEDS);
   expect((await s.client.listTools()).tools).toHaveLength(1);
+});
+
+test("two actions never share a name, however alike they read", () => {
+  const tool = { id: "tool_01J00000000000000000000000", name: "GitHub" };
+  const a = exposedName(tool, "create_issue_in_repository_with_a_long_common_prefix_15389");
+  const b = exposedName(tool, "create_issue_in_repository_with_a_long_common_prefix_28192");
+  expect(a).not.toBe(b);
+  for (const name of [a, b, exposedName(tool, "x"), exposedName({ id: "t", name: "é" }, "!")]) expect(name).toMatch(/^[a-z0-9_-]{1,64}_?[0-9a-f]{16}$|^[a-z0-9_-]{1,64}$/);
+  expect(a.length).toBeLessThanOrEqual(64);
+  // The same tool and action always give the same name; another tool's same action doesn't.
+  expect(exposedName(tool, "x")).toBe(exposedName({ ...tool, name: "GitHub" }, "x"));
+  expect(exposedName(tool, "x")).not.toBe(exposedName({ id: "tool_other", name: "GitHub" }, "x"));
 });
