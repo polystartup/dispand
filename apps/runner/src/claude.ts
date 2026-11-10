@@ -15,7 +15,7 @@ import {
 import type { ClaudeSessionStart, HarnessEvent, QuestionPayload } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
-import { askChoices, MAX_WAITING, MAX_WAITING_BYTES, BypassRefused, type ChoiceQuestion, type HarnessSession, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "./outcome.ts";
+import { askChoices, MAX_WAITING, MAX_WAITING_BYTES, BypassRefused, type ChoiceQuestion, type HarnessSession, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome, TURN_DENIED } from "./outcome.ts";
 import { fitsWhole } from "./sanitize.ts";
 import { PLANS_DIR } from "./workdir.ts";
 
@@ -216,13 +216,52 @@ export function startClaudeSession(
   /** A tool of Dispand's Job server: Dispand authorizes each of its calls itself, so the owner isn't asked. */
   const isJobTool = (name: string) => deps.jobServer !== undefined && name.startsWith(`mcp__${deps.jobServer}__`);
 
-  const requestApprovalTool = tool(REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, { message: z.string().describe("What you ask to be approved, as one clear question") }, async (args, extra) => {
+  /**
+   * The approval the turn waits on, from the moment the CLI is about to call `request_approval`:
+   * a model may send other calls in the same turn, and those that run unasked (Dispand's own
+   * tools) would act before the owner answered. They wait for the answer, and aren't run after
+   * a "no". Settled by the tool; a turn that ends first settles it as not approved.
+   */
+  let approval: { answered: Promise<boolean>; settle: (approved: boolean) => void } | null = null;
+  const expectApproval = () => {
+    if (approval) return;
+    let settle!: (approved: boolean) => void;
+    const mine = { answered: new Promise<boolean>((resolve) => (settle = resolve)), settle };
+    approval = mine;
+    // A turn that ends before the tool answered (the call never ran, or was cut): its other
+    // calls aren't run, and the next turn starts with nothing pending.
+    turnAbort.signal.addEventListener(
+      "abort",
+      () => {
+        settle(false);
+        if (approval === mine) approval = null;
+      },
+      { once: true },
+    );
+  };
+  /** False when the turn's approval request was denied (true when there is none, or it was approved). */
+  const turnApproved = () => approval?.answered ?? Promise.resolve(true);
+
+  const requestApprovalTool = tool(
+    REQUEST_APPROVAL,
+    REQUEST_APPROVAL_DESCRIPTION,
+    // Anything is let through to the tool, which says in words what is wrong with it: a call the
+    // CLI rejected before it ran would leave the turn's other calls waiting for an answer that never comes.
+    { message: z.unknown().describe("What you ask to be approved, as one clear question (text)") },
+    async (args, extra) => {
     const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
     const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
-    return { content: [{ type: "text", text: (await requestApproval(ask, args as Record<string, unknown>, signal)).text }] };
-  });
+    expectApproval();
+    const waiting = approval;
+    const outcome = await requestApproval(ask, args as Record<string, unknown>, signal);
+      waiting?.settle(outcome.approved);
+      if (approval === waiting) approval = null;
+      return { content: [{ type: "text", text: outcome.text }] };
+    },
+  );
 
   const canUseTool: CanUseTool = async (toolName, toolInput, { signal, suggestions }): Promise<PermissionResult> => {
+    if (toolName !== REQUEST_APPROVAL_TOOL && !(await turnApproved())) return { behavior: "deny", message: TURN_DENIED };
     // `request_approval` asks the owner itself, in the agent's words: no second question about calling it.
     if (toolName === SUBMIT_OUTPUTS || toolName === REQUEST_APPROVAL_TOOL || isJobTool(toolName)) return { behavior: "allow", updatedInput: toolInput };
     // canUseTool doesn't learn the CLI's current directory: relative paths are the owner's call.
@@ -301,6 +340,11 @@ export function startClaudeSession(
                 const call = hookInput as PreToolUseHookInput;
                 const toolInput = (call.tool_input ?? {}) as Record<string, unknown>;
                 if (call.hook_event_name !== "PreToolUse") return {};
+                // The other calls of a turn that asks for an approval wait for its answer.
+                if (call.tool_name === REQUEST_APPROVAL_TOOL) expectApproval();
+                else if (!(await turnApproved())) {
+                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: TURN_DENIED } };
+                }
                 // Relative paths are against the CLI's own current directory (after any `cd`).
                 const current = typeof call.cwd === "string" ? call.cwd : null;
                 const edit = boundary.editDecision(call.tool_name, toolInput, current);
@@ -367,6 +411,9 @@ export function startClaudeSession(
   }
 
   function turnEnded(msg: Extract<SDKMessage, { type: "result" }>) {
+    // A turn's end leaves nothing pending for the next one.
+    approval?.settle(false);
+    approval = null;
     const wasInterrupted = interrupted;
     interrupted = false;
     answered(msg);

@@ -292,7 +292,9 @@
   (`cloud/builtins.ts`); on a runner it is a tool of the runner's own `dispand` server (Claude
   Code) or a dynamic tool (Codex), which asks the owner itself (`requestApproval` in
   `apps/runner/src/outcome.ts`) in every permission mode, bypass included, and is never
-  allowed for the session.
+  allowed for the session. On Claude Code, the other tool calls of a turn that asks for an
+  approval wait for the answer (from the moment the CLI is about to call the tool), and aren't
+  run after a "no"; a cloud session refuses them the same way.
 - **Stopping a run:** `runs.stop` (`Engine.stopRun`) fails every step of the run still open
   with "Stopped" (a step that never started too), expires its pending questions and fails the
   run, in one transaction, then cuts what the run was doing: a Tool step's call under way is

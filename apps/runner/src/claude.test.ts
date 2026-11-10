@@ -1245,3 +1245,74 @@ test("the Job's tools server asks before each call, even though it is Dispand's:
   ]);
   expect(outputs).toEqual([ask, {}]);
 });
+
+test("a tool called in the same turn as a pending approval waits for the answer, and isn't run after a no", async () => {
+  const order: string[] = [];
+  const hookOf = (options: Options) => options.hooks!.PreToolUse!.flatMap((m) => m.hooks)[0]!;
+  const pre = (options: Options, tool_name: string) =>
+    hookOf(options)({ hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal });
+  const fake = fakeQuery(async function* ({ next, options, callTool }) {
+    await next();
+    // One turn: the request, and a write the model sent along with it.
+    const asked = pre(options, "mcp__dispand__request_approval").then(() => callTool("request_approval", { message: "Add Ada?" }));
+    const write = pre(options, "mcp__job__rows_create").then((out) => (order.push("write decided"), out));
+    const allowed = options.canUseTool!("mcp__job__rows_create", { tableId: "t" }, ctx()).then((d) => (order.push("canUseTool decided"), d));
+    results.push(await asked, await write, await allowed);
+    // The next request is approved: what comes with it runs.
+    const again = pre(options, "mcp__dispand__request_approval").then(() => callTool("request_approval", { message: "Add Grace?" }));
+    results.push(await again, await pre(options, "mcp__job__rows_create"));
+    // And with nothing pending, nothing waits.
+    results.push(await pre(options, "mcp__job__rows_create"));
+    yield result();
+  });
+  const results: unknown[] = [];
+  const answers: Answer[] = [
+    { kind: "permission", decision: "deny", message: "No." },
+    { kind: "permission", decision: "allow" },
+  ];
+  const events: HarnessEvent[] = [];
+  const session: ClaudeSession = startClaudeSession(start, "/work", (e) => {
+    events.push(e);
+    if (e.type === "question") {
+      order.push("asked");
+      setTimeout(() => {
+        order.push("answered");
+        session.answer(e.questionId, answers.shift()!);
+      }, 20);
+    }
+  }, { query: fake.query, jobServer: "job" });
+  await session.done;
+  const denied = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: expect.stringContaining("denied the approval") } };
+  expect(results).toEqual(["Denied: No.", denied, { behavior: "deny", message: expect.stringContaining("denied the approval") }, "Approved.", {}, {}]);
+  // The write was decided only once the owner had answered.
+  expect(order.indexOf("write decided")).toBeGreaterThan(order.indexOf("answered"));
+  expect(order.indexOf("canUseTool decided")).toBeGreaterThan(order.indexOf("answered"));
+});
+
+test("a request for approval that can't be asked never leaves the turn's other calls waiting", async () => {
+  const pre = (options: Options, tool_name: string) =>
+    options.hooks!.PreToolUse!.flatMap((m) => m.hooks)[0]!({ hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal });
+  const results: unknown[] = [];
+  let schema: unknown;
+  const fake = fakeQuery(async function* ({ next, options, callTool }) {
+    await next();
+    schema = (options.mcpServers as unknown as { dispand: { tools: { name: string; inputSchema: Record<string, { safeParse(v: unknown): { success: boolean } }> }[] } }).dispand.tools.find((t) => t.name === "request_approval")!.inputSchema;
+    // The model sends a message that isn't text, with another call: the tool answers at once, and the other call gets its answer too.
+    const asked = pre(options, "mcp__dispand__request_approval").then(() => callTool("request_approval", { message: 123 as never }));
+    const other = pre(options, "mcp__job__rows_create");
+    results.push(await asked, await other);
+    // Nothing is left pending for what comes next.
+    results.push(await pre(options, "mcp__job__rows_create"));
+    yield result();
+  });
+  const events: HarnessEvent[] = [];
+  const session: ClaudeSession = startClaudeSession(start, "/work", (e) => events.push(e), { query: fake.query, jobServer: "job" });
+  await session.done;
+  expect(results[0]).toMatch(/needs a message/);
+  expect(results[1]).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+  expect(results[2]).toEqual({});
+  expect(events.filter((e) => e.type === "question")).toEqual([]);
+  // Whatever the model sends as the message reaches the tool, which answers in words: the CLI never rejects the call before it.
+  const message = (schema as { message: { safeParse(v: unknown): { success: boolean } } }).message;
+  for (const value of [123, null, undefined, { a: 1 }, "ok"]) expect(message.safeParse(value).success).toBe(true);
+});
