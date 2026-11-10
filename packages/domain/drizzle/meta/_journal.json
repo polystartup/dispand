@@ -218,6 +218,13 @@
       "when": 1794333537639,
       "tag": "0030_inbox",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794337657389,
+      "tag": "0031_approval_consumed",
+      "breakpoints": true
     }
   ]
 }

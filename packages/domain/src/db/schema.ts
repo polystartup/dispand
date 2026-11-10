@@ -460,6 +460,8 @@ export const questions = pgTable(
     answeredAt: timestamp("answered_at"),
     // Who answered; null for answers given before this was recorded.
     answeredBy: jsonb("answered_by").$type<AnsweredBy>(),
+    // When a server-side call used this approval up (`platform/approvals.ts`): one approval, one call.
+    consumedAt: timestamp("consumed_at"),
     // When the answer reached the session (null while answered: resent when the runner is back).
     deliveredAt: timestamp("delivered_at"),
     // Asked by a session the runner lost and resumed since: its answer goes as a chat message.
