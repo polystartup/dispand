@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
 import { RunSteps } from "../components/runs/RunSteps.tsx";
+import { StopRun } from "../components/runs/StopRun.tsx";
 import { duration, Status, when } from "../components/workflow/Runs.tsx";
 import { orpc } from "../lib/api.ts";
 import { useRun } from "../lib/run-watch.ts";
@@ -59,6 +60,9 @@ function RunPage() {
             {run.workflowId ? ` · Version ${run.version}` : ""} · Started {when.format(run.createdAt)} · {run.finishedAt ? `took ${duration(run.createdAt, run.finishedAt)}` : "still going"}
           </span>
         </p>
+        <div className="mt-3">
+          <StopRun runId={run.id} status={run.status} />
+        </div>
         {run.error && (
           <p role="alert" className="mt-3 whitespace-pre-wrap rounded-xl bg-surface px-4 py-3 text-[14px] text-danger shadow-card">
             {run.error}

@@ -20,6 +20,9 @@ class FakeAdapter implements HarnessAdapter {
   async answer() {
     return true;
   }
+  async stop() {
+    return true;
+  }
 }
 
 type Ids = { agentId: string; tableId: string; nameId: string; priceId: string };

@@ -57,6 +57,7 @@ const serverMessages: ServerToRunner[] = [
     answer: { kind: "confirm-outputs", confirmed: false, feedback: "shorter" },
   },
   { type: "session.interrupt", sessionId: "ses_1" },
+  { type: "session.stop", sessionId: "ses_1" },
   { type: "ack", seq: 42 },
 ];
 

@@ -133,6 +133,12 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     return true;
   }
 
+  /** Ends the session without an event (its run was stopped): the loop stops before its next model or tool call. */
+  async stop(sessionId: string): Promise<boolean> {
+    await this.locked(sessionId, () => this.db.update(cloudSessions).set({ status: "done" }).where(eq(cloudSessions.id, sessionId)));
+    return true;
+  }
+
   async send(sessionId: string, text: string): Promise<boolean> {
     const known = await this.locked(sessionId, async () => {
       const [row] = await this.db.select().from(cloudSessions).where(eq(cloudSessions.id, sessionId));

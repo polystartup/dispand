@@ -12,7 +12,7 @@
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with
-  `Authorization: Bearer <token>` and `Dispand-Protocol: 3` (`PROTOCOL_VERSION`, bumped by
+  `Authorization: Bearer <token>` and `Dispand-Protocol: 4` (`PROTOCOL_VERSION`, bumped by
   every change an older runner can't parse or honor). An older runner is refused with 426 "update
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
@@ -216,6 +216,15 @@
   on a page as a `trigger-form` widget (`widgets.trigger_id`, one per trigger and page):
   `TriggerWidget` shows its button or its chat (`ChatPanel` with `jobs.start`). A Job's
   questions are listed in Notifications with its agent.
+- **Stopping a run:** `runs.stop` (`Engine.stopRun`) fails every step of the run still open
+  with "Stopped" (a step that never started too), expires its pending questions and fails the
+  run, in one transaction, then tells each session's harness to end (`HarnessAdapter.stop`): a
+  CLI session gets `session.stop` (protocol 4; the runner stops its CLI and says nothing for a
+  session it doesn't run), a cloud session is marked done, so its loop stops before its next
+  model or tool call. Events a stopped session still sends find their step closed and change
+  nothing. A stop that didn't reach its runner is sent again when the runner comes back still
+  running the session: `reconcile` ends every live session whose step is over. The run page
+  has the Stop button (`components/runs/StopRun.tsx`), behind a confirmation.
 - **Home and widgets:** `pages.home` returns the owner's home page with its widgets, creating
   it on the first call (a partial unique index keeps one per owner); it can't be renamed or deleted and is listed first. Other pages (`kind: "page"`, `pages.create`, `rename`, `delete`; at most 50 per owner, titles 1-100 characters, duplicates allowed) are listed under Home in the sidebar and shown at `/p/<id>` by the same `PageView`; deleting one deletes its widgets (cascade). A
   widget is a workflow form (`type: "workflow-form"`) with a layout per breakpoint (`lg`, `md`,

@@ -345,3 +345,21 @@ test("text pushed while a delta is being written goes out too", async () => {
   await stream.done();
   expect(sent.join("")).toBe("abc");
 });
+
+test("stopping a run whose cloud session waits for an answer ends the session: no model call follows", async () => {
+  const questionsAsked = { questions: [{ question: "Which stack?", header: "Stack", options: [{ label: "Node", description: "" }, { label: "Go", description: "" }], multiSelect: false }] };
+  const model = fakeModel(use("ask_user", questionsAsked), say("Node it is."));
+  const { engine, workflow } = await setup(buttonStep, { client: model.client });
+  const runId = await engine.startRun(workflow.id);
+  const q = await pendingQuestion(engine, runId);
+  await engine.stopRun(runId);
+  const step = await stepOf(engine, runId, "n_note");
+  await vi.waitFor(async () => {
+    const [session] = await engine.db.select().from(cloudSessions).where(eq(cloudSessions.id, step.sessionId!));
+    expect(session!.status).toBe("done");
+  });
+  // A late answer finds the question expired, and the model is never called again.
+  await expect(engine.answer(q.id, { kind: "choice", answers: { "Which stack?": "Node" } })).rejects.toThrow();
+  expect(model.inputs).toHaveLength(1);
+  expect(await runStatus(engine, runId)).toMatchObject({ status: "failed", error: "Stopped" });
+});

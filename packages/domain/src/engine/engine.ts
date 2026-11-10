@@ -60,6 +60,9 @@ const OPEN_STEP: StepStatus[] = ["pending", "running", "waiting"];
 /** Why a Tool step that was calling its tool when Dispand stopped fails (it is never called again). */
 export const TOOL_RESTARTED = "Dispand restarted during this tool call: check the tool before running again";
 
+/** Why the steps of a run stopped by hand failed, and the run with them. */
+export const STOPPED = "Stopped";
+
 /** Sent as the first message of a session resumed after its runner lost it. */
 export const RESUME_PROMPT = "Dispand reconnected after an interruption. Continue where you left off.";
 
@@ -337,6 +340,41 @@ export class Engine {
     return runId;
   }
 
+  /**
+   * Stops a run by hand: every step still open fails with `STOPPED` (a step that never started
+   * too, so nothing of the run is left open), its pending questions expire, the run fails, and
+   * its sessions are told to end. A stop that doesn't reach a runner is sent again when the
+   * runner is back with the session (`reconcile`).
+   */
+  async stopRun(runId: string): Promise<void> {
+    const out: RunEvent[] = [];
+    const sessions = await this.db.transaction(async (tx) => {
+      const [run] = await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).for("update");
+      if (!run) throw new EngineError("NOT_FOUND", "Run not found");
+      if (!ACTIVE_RUN.includes(run.status)) throw new EngineError("CLOSED", "This run is over");
+      const open = await tx
+        .select()
+        .from(stepRuns)
+        .where(and(eq(stepRuns.runId, runId), inArray(stepRuns.status, OPEN_STEP)));
+      for (const step of open) await this.fail(tx, step, STOPPED, out);
+      // A run with no step open (between two steps) is closed here.
+      await this.finishRun(tx, runId, "failed", STOPPED, out);
+      return open.flatMap((s) => (s.sessionId && ACTIVE_STEP.includes(s.status) ? [s.sessionId] : []));
+    });
+    this.publish(runId, out);
+    for (const sessionId of sessions) this.stopSession(sessionId);
+  }
+
+  /** Tells the harness to end a session, without waiting for it. */
+  private stopSession(sessionId: string) {
+    this.keep(
+      this.adapter
+        .stop(sessionId)
+        .then(() => undefined)
+        .catch((err: unknown) => logError("session stop failed", err, { ref: sessionId })),
+    );
+  }
+
   /** Runs what is ready in the run (the trigger completes, first steps start). */
   async continueRun(runId: string): Promise<void> {
     await this.advance(runId);
@@ -498,6 +536,14 @@ export class Engine {
           for (const m of await this.undeliveredMessages(step.id)) this.deliverMessage(sessionId, m);
         }
       }
+      // Sessions the runner still runs for steps that are over (a stop that never reached it): ended now.
+      const over = liveSessions.length
+        ? await this.db
+            .select({ sessionId: stepRuns.sessionId })
+            .from(stepRuns)
+            .where(and(eq(stepRuns.runnerId, runnerId), inArray(stepRuns.sessionId, liveSessions), inArray(stepRuns.status, ["succeeded", "failed", "skipped"])))
+        : [];
+      for (const { sessionId } of over) this.stopSession(sessionId!);
     });
   }
 
