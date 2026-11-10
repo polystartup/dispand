@@ -1,6 +1,7 @@
 import { expect, test, vi } from "vitest";
 
 const createDb = vi.fn();
+const seenAtRecovery: { db?: unknown; engine?: unknown }[] = [];
 vi.mock("@dispand/domain", () => ({
   createDb,
   createAuth: () => ({}),
@@ -10,7 +11,14 @@ vi.mock("@dispand/domain", () => ({
   createMcpConnector: () => ({}),
   guardedFetch: () => fetch,
   ownAddresses: () => ({}),
-  getEngine: () => ({ recover: async () => {} }),
+  // Recovery may already need a tool (a cloud session cut during a tool call): it reads the app then.
+  platformToolCaller: (app: () => unknown) => ({ app }),
+  getEngine: (_db: unknown, _hub: unknown, _secrets: unknown, _events: unknown, deps: { tools: { app: () => { db?: unknown; engine?: unknown } } }) => ({
+    recover: async () => {
+      // A copy: the app as it is at this moment, not as it is filled later.
+      seenAtRecovery.push({ ...deps.tools.app() });
+    },
+  }),
   getScheduler: () => ({ start: () => {}, stop: async () => {} }),
   sweepAttachments: async () => ({ removed: 0 }),
   logError: () => {},
@@ -23,4 +31,8 @@ test("getApp retries after a failed start instead of caching the failure", async
   await expect(getApp()).rejects.toThrow("database unavailable");
   await expect(getApp()).resolves.toMatchObject({ db: {} });
   expect(createDb).toHaveBeenCalledTimes(2);
+  // The app Dispand's tools read was already filled when recovery ran.
+  expect(seenAtRecovery).toHaveLength(1);
+  expect(seenAtRecovery[0]!.db).toEqual({});
+  expect(seenAtRecovery[0]!.engine).toBeDefined();
 });

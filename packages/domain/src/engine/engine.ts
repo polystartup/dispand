@@ -322,6 +322,8 @@ export class Engine {
       ...(agent.model ? { model: agent.model } : {}),
       skills,
       tools: tools.map(({ toolId, name }) => ({ toolId, name })),
+      bundles: agent.bundles,
+      tables: agent.dataTables,
     };
     const def = jobDef({ agent: snapshot, trigger });
     const runId = newId("run");

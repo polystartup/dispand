@@ -216,6 +216,24 @@
   on a page as a `trigger-form` widget (`widgets.trigger_id`, one per trigger and page):
   `TriggerWidget` shows its button or its chat (`ChatPanel` with `jobs.start`). A Job's
   questions are listed in Notifications with its agent.
+- **Platform tools:** a Job's session gets some of Dispand's own procedures as tools.
+  `platform/tools.ts` is the registry: each tool names its procedure (`rows.create` is the tool
+  `rows_create`), its bundle (`data`: `tables.list`, `tables.get` and the rows procedures;
+  `configure`: creating and renaming tables, creating, changing and ordering fields), what the
+  agent reads about it, and how to find the tables a call touches from its input (a row or a
+  field gives its table). Every other procedure is listed there as not a tool, and a test walks
+  the router and fails on a procedure that is in neither list, so adding one never hands it to
+  agents unnoticed. An agent has `bundles` and `dataTables` (all tables, or a list), copied into
+  its Jobs' snapshot. `callPlatformTool` (`platform/call.ts`) is the one path a call takes: the
+  Job must still be going, the tool's bundle and every table touched must be in the Job's
+  snapshot and still on the agent (rights shrink with the agent at once and never grow after the
+  Job was created), an id that names nothing is answered like a table out of scope ("Not
+  found"), and the procedure then runs in process as the Job's owner (`InitialContext.job`,
+  which only that function sets; `authed` reads it instead of a session). Refusals and
+  procedure errors come back as words, any other failure as "The tool failed". Cloud sessions
+  get these tools through `platformToolCaller` (`platform/cloud.ts`), the engine's `ToolCaller`
+  in the app: the tools of the session's Job, with their JSON Schema, marked `ask: false`, so
+  the cloud runner asks no permission question for them; a workflow run's session gets none.
 - **Stopping a run:** `runs.stop` (`Engine.stopRun`) fails every step of the run still open
   with "Stopped" (a step that never started too), expires its pending questions and fails the
   run, in one transaction, then cuts what the run was doing: a Tool step's call under way is

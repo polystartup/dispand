@@ -12,6 +12,7 @@ import {
   getScheduler,
   logError,
   ownAddresses,
+  platformToolCaller,
   sweepAttachments,
   type Auth,
   type DataEvents,
@@ -40,8 +41,12 @@ async function start(): Promise<App> {
   const dataEvents = getDataEvents();
   // Tool calls never reach the app's own addresses in production; development reaches local fakes (e2e).
   const tools = createMcpConnector(config.mode === "production" ? { fetch: guardedFetch(ownAddresses()) } : {});
-  // Tool steps call installed tools through the same connector as Settings → Tools.
-  const engine = getEngine(db, hub, secrets, dataEvents, { connector: tools });
+  // Tool steps call installed tools through the same connector as Settings → Tools. A cloud
+  // Job's session gets Dispand's own tools, called in process (the app is read at call time).
+  const app = {} as App;
+  const engine = getEngine(db, hub, secrets, dataEvents, { connector: tools, tools: platformToolCaller(() => app) });
+  // Filled before anything can call a tool: recovery below may already need it.
+  Object.assign(app, { db, auth, hub, engine, dataEvents, secrets, tools, setupCode: config.setupCode, filesDir: config.filesDir, gitFileUrls: config.gitFileUrls });
   // Before any runner can connect (the upgrade handler waits for this app); cloud sessions go on.
   await engine.recover();
   // Fires what fell due while the app was down (once per schedule, for the latest time), then every 15 s.
@@ -51,7 +56,7 @@ async function start(): Promise<App> {
   const sweep = () => void sweepAttachments(db, config.filesDir, new Date()).catch((err: unknown) => logError("files.sweep failed", err));
   sweep();
   setInterval(sweep, SWEEP_EVERY_MS).unref();
-  return { db, auth, hub, engine, dataEvents, secrets, tools, setupCode: config.setupCode, filesDir: config.filesDir, gitFileUrls: config.gitFileUrls };
+  return app;
 }
 
 /** The database and auth, opened once per server process. A failed start is retried on the next call. */

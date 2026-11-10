@@ -2,8 +2,9 @@ import { ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agents as agentsTable, agentSkills, agentTools, harnesses, plugins, skillPackages, tools as toolsTable } from "../db/schema.ts";
+import { agents as agentsTable, agentSkills, agentTools, harnesses, plugins, skillPackages, tables as tablesTable, tools as toolsTable } from "../db/schema.ts";
 import { lockAgentsForDelete } from "../jobs/active.ts";
+import { BUNDLES, type TableScope } from "../platform/bundles.ts";
 import { ModelName } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -32,11 +33,29 @@ const Fields = z.object({
   skillPackageIds: Ids,
   /** Tools chosen for the agent itself, besides the ones its packages require. */
   toolIds: Ids,
+  /** What its Jobs may do through Dispand's own tools; left out of an update, they stay as they are. */
+  bundles: z
+    .array(z.enum(BUNDLES))
+    .max(BUNDLES.length)
+    .transform((b) => [...new Set(b)])
+    .optional(),
+  /** The tables its Jobs may work on: all, or these. */
+  dataTables: z.union([z.literal("all"), z.array(z.string().max(64)).max(100)]).optional(),
 });
 
+/** Every table of a list must be the owner's. */
+async function requireTables(db: Db, ownerId: string, scope: TableScope | undefined) {
+  if (scope === undefined || scope === "all" || scope.length === 0) return;
+  const found = await db
+    .select({ id: tablesTable.id })
+    .from(tablesTable)
+    .where(and(inArray(tablesTable.id, scope), eq(tablesTable.ownerId, ownerId)));
+  if (found.length !== new Set(scope).size) throw new ORPCError("NOT_FOUND", { message: "Table not found" });
+}
+
 function toAgent(row: typeof agentsTable.$inferSelect) {
-  const { id, ownerId, name, harnessId, systemPrompt, model } = row;
-  return { id, ownerId, name, harnessId, systemPrompt, ...(model === null ? {} : { model }) };
+  const { id, ownerId, name, harnessId, systemPrompt, model, bundles, dataTables } = row;
+  return { id, ownerId, name, harnessId, systemPrompt, ...(model === null ? {} : { model }), bundles, dataTables };
 }
 
 type Row = typeof agentsTable.$inferSelect;
@@ -114,12 +133,13 @@ async function withSkillsAndTools(db: Db, row: Row) {
 }
 
 const create = owner.input(Fields).handler(async ({ input, context }) => {
-  const { skillPackageIds, toolIds, ...fields } = input;
+  const { skillPackageIds, toolIds, bundles, dataTables, ...fields } = input;
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
+  await requireTables(context.db, context.ownerId, dataTables);
   const row = await context.db.transaction(async (tx) => {
     const [row] = await tx
       .insert(agentsTable)
-      .values({ ...fields, model: fields.model ?? null, id: newId("agent"), ownerId: context.ownerId })
+      .values({ ...fields, model: fields.model ?? null, bundles: bundles ?? [], dataTables: dataTables ?? "all", id: newId("agent"), ownerId: context.ownerId })
       .returning();
     await attach(tx, context.ownerId, row!.id, skillPackageIds, toolIds, harness.runnerId);
     return row!;
@@ -128,13 +148,14 @@ const create = owner.input(Fields).handler(async ({ input, context }) => {
 });
 
 const update = owner.input(Fields.extend({ id: z.string() })).handler(async ({ input, context }) => {
-  const { id, skillPackageIds, toolIds, ...fields } = input;
+  const { id, skillPackageIds, toolIds, bundles, dataTables, ...fields } = input;
   await find(context.db, context.ownerId, id);
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
+  await requireTables(context.db, context.ownerId, dataTables);
   const row = await context.db.transaction(async (tx) => {
     const [row] = await tx
       .update(agentsTable)
-      .set({ ...fields, model: fields.model ?? null })
+      .set({ ...fields, model: fields.model ?? null, ...(bundles ? { bundles } : {}), ...(dataTables ? { dataTables } : {}) })
       .where(and(eq(agentsTable.id, id), eq(agentsTable.ownerId, context.ownerId)))
       .returning();
     if (!row) throw new ORPCError("NOT_FOUND");

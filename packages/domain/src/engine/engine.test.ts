@@ -1206,7 +1206,7 @@ test("a manual button Job runs the agent and finishes", async () => {
     cause: { kind: "user", depth: 0 },
     trigger: { type: "manual" },
   });
-  expect(run.snapshot).toEqual({ id: agent.id, name: "Writer", harnessId: agent.harnessId, systemPrompt: "Be brief.", skills: [], tools: [] });
+  expect(run.snapshot).toEqual({ id: agent.id, name: "Writer", harnessId: agent.harnessId, systemPrompt: "Be brief.", skills: [], tools: [], bundles: [], tables: "all" });
   expect(steps.job).toMatchObject({ status: "succeeded", outputs: { result: "Sorted." } });
 });
 
@@ -1406,3 +1406,12 @@ test("a session being resumed when its run is stopped is not started again", asy
   expect(adapter.starts).toHaveLength(1);
 });
 
+
+test("a Job's snapshot keeps the agent's bundles and tables as they were", async () => {
+  const { context, engine, agent, trigger } = await jobSetup();
+  const table = await call(router.tables.create, { name: "Clients" }, { context });
+  await call(router.agents.update, { ...agent, bundles: ["data"], dataTables: [table.id] }, { context });
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  await call(router.agents.update, { ...agent, bundles: [], dataTables: "all" }, { context });
+  expect((await runOf(engine, runId)).run.snapshot).toMatchObject({ bundles: ["data"], tables: [table.id] });
+});

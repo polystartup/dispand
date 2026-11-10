@@ -16,3 +16,4 @@ export { logError } from "./log.ts";
 export { createMcpConnector, type ToolConnector } from "./tools/mcp.ts";
 export { guardedFetch, ownAddresses } from "./tools/network.ts";
 export { packageForRunner } from "./skills/runner-access.ts";
+export { platformToolCaller } from "./platform/cloud.ts";
