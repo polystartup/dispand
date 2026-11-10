@@ -40,6 +40,8 @@ import { toolIdsOf, validateToolSteps } from "../workflows/tool-steps.ts";
 import type { CloudKind } from "../harnesses/cloud.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, isCloud, type StartParams } from "./harness.ts";
 import { runDataStep } from "./data-step.ts";
+import { issueJobToken } from "../platform/token.ts";
+import type { SecretBox } from "../secrets.ts";
 import { jobDef } from "./job-def.ts";
 import { nextActions, outputsFor, toolValues, valuesFor } from "./next-actions.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
@@ -241,6 +243,8 @@ export class Engine {
     private readonly dataEvents?: DataEvents,
     /** Runs Tool steps (`connectorToolExecutor`); without one, they fail. */
     private readonly toolSteps: ToolExecutor = noToolSteps,
+    /** Seals each Job's token; without one, Jobs get no token (and no Job endpoint). */
+    private readonly secrets?: SecretBox,
   ) {}
 
   /** Starts a run of the workflow's current version and returns its id. */
@@ -327,10 +331,12 @@ export class Engine {
     };
     const def = jobDef({ agent: snapshot, trigger });
     const runId = newId("run");
+    const token = this.secrets ? issueJobToken(this.secrets, runId) : undefined;
     await tx.insert(runs).values({
       id: runId,
       ownerId,
       source: "agent",
+      ...(token ? { tokenHash: token.hash, tokenSealed: token.sealed } : {}),
       version: 0,
       agentId,
       triggerId,

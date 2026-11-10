@@ -77,6 +77,7 @@ export function createEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEve
     cloud,
     dataEvents,
     installed ? connectorToolExecutor(installed) : undefined,
+    secrets,
   );
   hub.onEvent((runnerId, sessionId, event, seq) => engine.onHarnessEvent(sessionId, event, { runnerId, seq }));
   hub.onCaughtUp((runnerId, liveSessions) => engine.reconcile(runnerId, liveSessions));

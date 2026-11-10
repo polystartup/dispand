@@ -20,9 +20,10 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",
+    "@dispand/runner-protocol": "workspace:*",
     "@electric-sql/pglite": "^0.5.15",
     "@modelcontextprotocol/client": "^2.4.0",
-    "@dispand/runner-protocol": "workspace:*",
+    "@modelcontextprotocol/server": "^2.4.0",
     "@orpc/server": "^1.16.1",
     "better-auth": "^1.7.15",
     "cron-parser": "^5.10.3",
@@ -37,7 +38,6 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/node": "^2.1.2",
-    "@modelcontextprotocol/server": "^2.4.0",
     "@types/node": "^26.6.6",
     "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.2",
