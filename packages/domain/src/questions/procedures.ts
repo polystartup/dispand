@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents, questions as questionsTable, runs, stepRuns, triggers, workflows, workflowVersions } from "../db/schema.ts";
 import { answerText, EngineError, questionView } from "../engine/engine.ts";
+import { proposalView } from "../platform/proposals.ts";
 import { authed, base } from "../rpc/context.ts";
 import { nodesOf, type WorkflowDef } from "../workflows/model.ts";
 
@@ -119,6 +120,8 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]) })).handl
       answeredBy: r.q.answeredBy,
       run: { id: r.q.runId },
       step: { name: (await stepName(r)) ?? r.nodeId },
+      // What the owner approves when the Approval is for a proposal: its items, from the server's row.
+      proposal: r.q.proposalId ? await proposalView(context.db, context.ownerId, r.q.proposalId) : null,
     });
   }
   return out;

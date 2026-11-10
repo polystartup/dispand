@@ -43,6 +43,8 @@ import type { CloudKind } from "../harnesses/cloud.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, isCloud, type StartParams } from "./harness.ts";
 import { runDataStep } from "./data-step.ts";
 import { aboutExposed, isExposedName, stopAsking } from "../platform/exposed.ts";
+import { REQUEST_APPROVAL } from "../cloud/builtins.ts";
+import { attachProposal, settleProposal } from "../platform/proposals.ts";
 import { issueJobToken } from "../platform/token.ts";
 import type { SecretBox } from "../secrets.ts";
 import { jobDef } from "./job-def.ts";
@@ -85,8 +87,8 @@ export function messageView(m: MessageRow) {
   return { id, runId, stepRunId, role, text, createdAt };
 }
 export function questionView(q: QuestionRow) {
-  const { id, runId, stepRunId, placement, payload, status, answer, createdAt, about } = q;
-  return { id, runId, stepRunId, placement, payload, status, answer, createdAt, about };
+  const { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId } = q;
+  return { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId };
 }
 
 /** What `runs.stream` forwards: each carries the whole row as it is now (upserts by id). */
@@ -455,6 +457,10 @@ export class Engine {
           .returning();
         Object.assign(q, settled);
       }
+      // The Approval of a proposal: a person's yes approves its items, a no declines it, once.
+      if (q.proposalId && answer.kind === "permission" && (answer.decision === "deny" || by?.type === "user")) {
+        await settleProposal(tx as unknown as Db, q.id, answer.decision !== "deny");
+      }
       out.push({ type: "question", question: questionView(q) });
       await this.syncWaiting(tx, q.stepRunId, q.runId, out);
       return q;
@@ -761,6 +767,11 @@ export class Engine {
           .onConflictDoNothing()
           .returning();
         if (row) {
+          // A request for approval that names a proposal of this run: the question is for that proposal.
+          if (event.payload.kind === "permission" && event.payload.toolName === REQUEST_APPROVAL) {
+            row.proposalId = await attachProposal(tx as unknown as Db, { runId: step.runId, ownerId: step.ownerId }, row.id, event.payload.input);
+            if (row.proposalId) await tx.update(questions).set({ proposalId: row.proposalId }).where(eq(questions.id, row.id));
+          }
           out.push({ type: "question", question: questionView(row) });
           // The resumed session asks for itself now: questions of the session it replaced expire.
           const expired = await tx

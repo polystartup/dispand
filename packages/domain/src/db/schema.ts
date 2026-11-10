@@ -492,6 +492,8 @@ export const questions = pgTable(
     answeredBy: jsonb("answered_by").$type<AnsweredBy>(),
     // For a permission about one of a Job's exposed tools: the tool and action it is for, in full.
     about: jsonb("about").$type<{ tool: string; action: string; description: string }>(),
+    // The proposal this Approval is for (`platform/proposals.ts`): what the owner approves is its items, not the agent's words.
+    proposalId: text("proposal_id"),
     // When a server-side call used this approval up (`platform/approvals.ts`): one approval, one call.
     consumedAt: timestamp("consumed_at"),
     // When the answer reached the session (null while answered: resent when the runner is back).
