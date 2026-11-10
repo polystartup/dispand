@@ -13,6 +13,7 @@ import {
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { ClaudeSessionStart, HarnessEvent, QuestionPayload } from "@dispand/runner-protocol";
+import { JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
 import { askChoices, MAX_WAITING, MAX_WAITING_BYTES, BypassRefused, type ChoiceQuestion, type HarnessSession, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome, TURN_DENIED } from "./outcome.ts";
@@ -36,6 +37,8 @@ export type ClaudeDeps = {
   mcpServers?: Record<string, McpServerConfig>;
   /** The name of Dispand's Job server among them, when the session has one: its tools run without a question. */
   jobServer?: string;
+  /** With `jobServer`: the tools of the Job's tools server that run without a question, by their name there. */
+  unasked?: string[];
 };
 
 /**
@@ -213,8 +216,12 @@ export function startClaudeSession(
     },
   );
 
-  /** A tool of Dispand's Job server: Dispand authorizes each of its calls itself, so the owner isn't asked. */
-  const isJobTool = (name: string) => deps.jobServer !== undefined && name.startsWith(`mcp__${deps.jobServer}__`);
+  /**
+   * A tool of Dispand's Job server, or an action of the agent's tools that it lets run unasked:
+   * Dispand authorizes each of their calls itself, so the owner isn't asked.
+   */
+  const unasked = new Set((deps.jobServer === undefined ? [] : (deps.unasked ?? [])).map((name) => `mcp__${JOB_TOOLS_SERVER}__${name}`));
+  const isJobTool = (name: string) => deps.jobServer !== undefined && (name.startsWith(`mcp__${deps.jobServer}__`) || unasked.has(name));
 
   /**
    * The approval the turn waits on, from the moment the CLI is about to call `request_approval`:

@@ -1,6 +1,7 @@
 // One Codex session: a `codex app-server` of its own, confined by Dispand's permission profile.
 import { join } from "node:path";
 import type { HarnessEvent, QuestionPayload, SessionStart } from "@dispand/runner-protocol";
+import { JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
 import { codexDenied, codexDeniedEdit, sandboxDenied } from "../boundary.ts";
 import { askChoices, BypassRefused, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "../outcome.ts";
 import { fitsWhole } from "../sanitize.ts";
@@ -32,6 +33,8 @@ export type CodexDeps = {
   mcp?: { servers: Record<string, JsonValue>; env: Record<string, string> };
   /** The name of Dispand's Job server among them, when the session has one: its tools run without a question. */
   jobServer?: string;
+  /** With `jobServer`: the tools of the Job's tools server that run without a question, by their name there. */
+  unasked?: string[];
 };
 
 const SUBMIT_OUTPUTS = "submit_outputs";
@@ -244,6 +247,8 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         // Dispand's own tools: authorized by Dispand on every call, so the owner isn't asked.
         if (deps.jobServer !== undefined && p.serverName === deps.jobServer) return { action: "accept" as const, content: {}, _meta: null };
         const tool = typeof meta.tool_name === "string" ? meta.tool_name : "";
+        // An action the agent lets run unasked: the server runs it without an approval.
+        if (deps.jobServer !== undefined && p.serverName === JOB_TOOLS_SERVER && deps.unasked?.includes(tool)) return { action: "accept" as const, content: {}, _meta: null };
         const input = isObject(meta.tool_params) ? meta.tool_params : {};
         // Each call asks: Codex's "for the session" and "always" would persist beyond what the owner sees.
         const decision = await approve({ kind: "permission", toolName: `mcp__${p.serverName}__${tool}`, input, canAlwaysAllow: false }, signal);

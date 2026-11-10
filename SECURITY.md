@@ -63,6 +63,15 @@ changes it updates this file.
   a fetch) can carry in its arguments what the Job read; the owner keeps such actions asking
   on agents that read confidential tables. An unasked action also runs for a session in
   `bypassPermissions` mode.
+- **The runner is told which of the Job's tools run unasked, and that only spares prompts.**
+  A Job's session start may carry `unasked`: names of the tools endpoint's tools (at most 500,
+  each at most 48 characters of `a-z0-9_-` with no `__`). The runner makes the CLI's tool names
+  itself, `mcp__job_tools__<name>`, and lets those run without a question, on a session that
+  has a Job token only. So the message can't name a command, a file tool, a runner's own MCP
+  server or any other server's tool: those questions stay out of the server's reach. Whether
+  a call runs is still the endpoint's decision alone, from the agent's list at that moment: a
+  name the runner was told but the owner put back since is refused there for lack of an
+  approval, and asks again from the session's next start.
 - **A Job's token is the only way into the Job endpoint (`/mcp/job`), and it dies with the
   Job.** It is 32 random bytes, made when the Job is created. The database keeps its SHA-256 (to
   find the Job) and its sealed form (to hand it to the Job's CLI sessions at each start), never

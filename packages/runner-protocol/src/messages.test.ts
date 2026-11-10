@@ -351,3 +351,12 @@ test("a start's Job token is a short token, never a URL or a header", () => {
   // The Job server's name is the runner's to give.
   expect(() => parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, mcpServers: [{ name: "job", type: "runner", tool: "fetch" }] } }))).toThrow(ProtocolError);
 });
+
+test("a start's unasked names are exposed tool names only: nothing in them can name another server's tool", () => {
+  const withUnasked = (unasked: unknown) => () => parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, jobToken: "dj_abc", unasked } }));
+  expect(withUnasked(["github_list_issues_0123456789abcdef", "a"])).not.toThrow();
+  expect(withUnasked(Array.from({ length: 500 }, (_, i) => `n${i}`))).not.toThrow();
+  for (const bad of [["a__b"], ["Bash"], ["x".repeat(49)], [""], ["a b"], ["a/b"], [3], "a", Array.from({ length: 501 }, (_, i) => `n${i}`)]) {
+    expect(withUnasked(bad)).toThrow(ProtocolError);
+  }
+});

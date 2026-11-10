@@ -1316,3 +1316,30 @@ test("a request for approval that can't be asked never leaves the turn's other c
   const message = (schema as { message: { safeParse(v: unknown): { success: boolean } } }).message;
   for (const value of [123, null, undefined, { a: 1 }, "ok"]) expect(message.safeParse(value).success).toBe(true);
 });
+
+test("an action the agent lets run unasked isn't asked about; the Job's other tools and look-alikes still ask", async () => {
+  const decisions: unknown[] = [];
+  const outputs: unknown[] = [];
+  const names = ["mcp__job_tools__github_list_0123456789abcdef", "mcp__job_tools__github_send_0123456789abcdef", "mcp__other__github_list_0123456789abcdef", "github_list_0123456789abcdef"];
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    for (const name of names) decisions.push(((await options.canUseTool!(name, {}, ctx())) as { behavior: string }).behavior);
+    const hooks = options.hooks!.PreToolUse!.flatMap((m) => m.hooks);
+    for (const tool_name of names.slice(0, 2)) {
+      for (const hook of hooks) {
+        outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
+      }
+    }
+    yield result();
+  });
+  const events: HarnessEvent[] = [];
+  const session: ClaudeSession = startClaudeSession(start, "/work", (e) => {
+    events.push(e);
+    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "deny" }));
+  }, { query: fake.query, jobServer: "job", unasked: ["github_list_0123456789abcdef"] });
+  await session.done;
+  expect(decisions).toEqual(["allow", "deny", "deny", "deny"]);
+  expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: { toolName: string } }).payload.toolName)).toEqual(names.slice(1));
+  expect(outputs[0]).toEqual({});
+  expect(outputs[1]).toMatchObject({ hookSpecificOutput: { permissionDecision: "ask" } });
+});

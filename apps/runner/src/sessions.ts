@@ -279,7 +279,7 @@ export class Sessions {
         cleanUp();
         return emit({ type: "error", message: this.stops !== stops ? this.stopMessage : refusal });
       }
-      const jobServer = start.jobToken === undefined ? {} : { jobServer: JOB_SERVER_NAME };
+      const jobServer = start.jobToken === undefined ? {} : { jobServer: JOB_SERVER_NAME, ...(start.unasked ? { unasked: start.unasked } : {}) };
       const session =
         start.harness === "codex"
           ? startCodexSession(start, cwd, emit, {

@@ -454,6 +454,30 @@ test("Codex's approval request for the Job server's tool is accepted without a q
   expect(await s.replyTo("r1")).toEqual({ action: "decline", content: null, _meta: null });
 });
 
+test("on Codex, an action the agent lets run unasked isn't asked about; the Job's other tools and look-alikes still ask", async () => {
+  const approval = (serverName: string, tool: string) => ({
+    request: "mcpServer/elicitation/request",
+    params: {
+      threadId: "$THREAD",
+      turnId: "$TURN",
+      serverName,
+      mode: "form",
+      message: `Allow the ${serverName} MCP server to run tool "${tool}"?`,
+      requestedSchema: { type: "object", properties: {} },
+      _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_name: tool, tool_params: {} },
+    },
+  });
+  const s = await run({
+    turns: [[approval("job_tools", "list_0123456789abcdef"), approval("job_tools", "send_0123456789abcdef"), approval("other", "list_0123456789abcdef"), message("Done")]],
+    deps: { jobServer: "job", unasked: ["list_0123456789abcdef"] },
+    answer: () => ({ kind: "permission", decision: "deny" }),
+  });
+  await s.ended();
+  expect(questions(s.events).map((q) => (q.payload as { toolName: string }).toolName)).toEqual(["mcp__job_tools__send_0123456789abcdef", "mcp__other__list_0123456789abcdef"]);
+  expect(await s.replyTo("r0")).toEqual({ action: "accept", content: {}, _meta: null });
+  expect(await s.replyTo("r1")).toEqual({ action: "decline", content: null, _meta: null });
+});
+
 test("request_approval on Codex asks the owner in the agent's words and answers Approved or the denial", async () => {
   const ask = (message: string) => request("item/tool/call", { callId: `c_${message.length}`, namespace: null, tool: "request_approval", arguments: { message } });
   const answers: Answer[] = [
