@@ -162,3 +162,21 @@ test("the session cookie path is unchanged: without a job, authed still needs a 
   const { context } = await setup();
   await expect(call(router.tables.list, undefined, { context: { ...context, headers: new Headers() } })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });
+
+test("a Job can add or relabel a field's choices, never remove one: removing clears the rows that use it", async () => {
+  const { context, t1, r1, tool } = await setup(["configure"], () => "all");
+  const choices = [{ id: "open", label: "Open" }, { id: "closed", label: "Closed" }];
+  const status = await call(router.fields.create, { tableId: t1.id, name: "Status", type: "single-select", choices }, { context });
+  await call(router.rows.update, { id: r1.id, values: { [status.id]: "closed" } }, { context });
+
+  const refusal = { ok: false, error: "Removing a choice clears the rows that use it: only the owner does that" };
+  expect(await tool("fields_update", { id: status.id, choices: [choices[0]] })).toEqual(refusal);
+  expect(await tool("fields_update", { id: status.id, choices: [] })).toEqual(refusal);
+  expect(await call(router.rows.get, { id: r1.id }, { context })).toMatchObject({ values: { [status.id]: "closed" } });
+  // Adding one and relabelling another keep every row as it is.
+  expect(await tool("fields_update", { id: status.id, choices: [{ id: "open", label: "To do" }, choices[1], { id: "late", label: "Late" }] })).toMatchObject({ ok: true });
+  expect(await call(router.rows.get, { id: r1.id }, { context })).toMatchObject({ values: { [status.id]: "closed" } });
+  // The owner still can.
+  await call(router.fields.update, { id: status.id, choices: [choices[0]!] }, { context });
+  expect((await call(router.rows.get, { id: r1.id }, { context })).values[status.id]).toBeNull();
+});

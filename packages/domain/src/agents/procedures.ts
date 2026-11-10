@@ -43,14 +43,18 @@ const Fields = z.object({
   dataTables: z.union([z.literal("all"), z.array(z.string().max(64)).max(100)]).optional(),
 });
 
-/** Every table of a list must be the owner's. */
-async function requireTables(db: Db, ownerId: string, scope: TableScope | undefined) {
-  if (scope === undefined || scope === "all" || scope.length === 0) return;
+/**
+ * The list with only the owner's own tables, in the order given: an id that names none (a table
+ * deleted since, or someone else's) is left out, never granted and never an error, so an agent
+ * whose list outlived a table can still be saved.
+ */
+async function ownTables(db: Db, ownerId: string, scope: TableScope | undefined): Promise<TableScope | undefined> {
+  if (scope === undefined || scope === "all" || scope.length === 0) return scope;
   const found = await db
     .select({ id: tablesTable.id })
     .from(tablesTable)
     .where(and(inArray(tablesTable.id, scope), eq(tablesTable.ownerId, ownerId)));
-  if (found.length !== new Set(scope).size) throw new ORPCError("NOT_FOUND", { message: "Table not found" });
+  return [...new Set(scope)].filter((id) => found.some((t) => t.id === id));
 }
 
 function toAgent(row: typeof agentsTable.$inferSelect) {
@@ -133,9 +137,9 @@ async function withSkillsAndTools(db: Db, row: Row) {
 }
 
 const create = owner.input(Fields).handler(async ({ input, context }) => {
-  const { skillPackageIds, toolIds, bundles, dataTables, ...fields } = input;
+  const { skillPackageIds, toolIds, bundles, ...fields } = input;
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
-  await requireTables(context.db, context.ownerId, dataTables);
+  const dataTables = await ownTables(context.db, context.ownerId, input.dataTables);
   const row = await context.db.transaction(async (tx) => {
     const [row] = await tx
       .insert(agentsTable)
@@ -148,10 +152,10 @@ const create = owner.input(Fields).handler(async ({ input, context }) => {
 });
 
 const update = owner.input(Fields.extend({ id: z.string() })).handler(async ({ input, context }) => {
-  const { id, skillPackageIds, toolIds, bundles, dataTables, ...fields } = input;
+  const { id, skillPackageIds, toolIds, bundles, ...fields } = input;
   await find(context.db, context.ownerId, id);
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
-  await requireTables(context.db, context.ownerId, dataTables);
+  const dataTables = await ownTables(context.db, context.ownerId, input.dataTables);
   const row = await context.db.transaction(async (tx) => {
     const [row] = await tx
       .update(agentsTable)

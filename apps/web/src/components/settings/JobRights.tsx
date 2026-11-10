@@ -10,7 +10,7 @@ const BUNDLE_TEXT: [Bundle, string, string][] = [
 
 const box = "mt-1 size-4 accent-[var(--color-accent)]";
 
-/** The agent's bundles and, when it works on data, its tables: all of them or a chosen list. */
+/** The agent's bundles and, once it has one, the tables they apply to: all of them or a chosen list. */
 export function JobRights({ rights, tables, onChange }: { rights: Rights; tables: { id: string; name: string }[]; onChange: (rights: Rights) => void }) {
   const { bundles, dataTables } = rights;
   const toggleBundle = (bundle: Bundle, on: boolean) =>
@@ -31,7 +31,7 @@ export function JobRights({ rights, tables, onChange }: { rights: Rights; tables
           </span>
         </label>
       ))}
-      {bundles.includes("data") && (
+      {bundles.length > 0 && (
         <div className="ml-7 space-y-2 text-[14px]">
           <label className="flex items-center gap-2">
             <input type="radio" name="job-tables" className="size-4 accent-[var(--color-accent)]" checked={dataTables === "all"} onChange={() => onChange({ ...rights, dataTables: "all" })} />

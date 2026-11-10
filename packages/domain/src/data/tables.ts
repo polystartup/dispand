@@ -206,6 +206,8 @@ const updateField = owner
           const kept = new Set(input.choices.map((c) => c.id));
           const removed = field.choices.filter((c) => !kept.has(c.id)).map((c) => c.id);
           if (removed.length > 0) {
+            // A Job changes fields, not the rows under them: what clears values stays the owner's.
+            if (context.job) throw new ORPCError("BAD_REQUEST", { message: "Removing a choice clears the rows that use it: only the owner does that" });
             const changed = await tx
               .update(rowsTable)
               .set({ values: sql`jsonb_set(${rowsTable.values}, array[${field.id}]::text[], 'null'::jsonb)`, updatedAt: sql`now()` })

@@ -35,7 +35,7 @@ test("JobRights shows an agent's bundles as they are, with all tables by default
   mount({ bundles: [], dataTables: "all" });
   expect((screen.getByRole("checkbox", { name: /Work on data/ }) as HTMLInputElement).checked).toBe(false);
   expect((screen.getByRole("checkbox", { name: /Change tables and fields/ }) as HTMLInputElement).checked).toBe(false);
-  // Which tables only matters once the agent works on data.
+  // Which tables only matters once the agent has a bundle; both bundles are limited to them.
   expect(screen.queryByRole("radio", { name: "All tables" })).toBeNull();
 });
 
@@ -61,4 +61,11 @@ test("JobRights keeps a table that no longer exists visible, so it can be untick
   expect((screen.getByRole("checkbox", { name: "Clients" }) as HTMLInputElement).checked).toBe(true);
   expect((screen.getByRole("checkbox", { name: "A deleted table" }) as HTMLInputElement).checked).toBe(true);
   expect((screen.getByRole("checkbox", { name: "Matters" }) as HTMLInputElement).checked).toBe(false);
+});
+
+test("JobRights offers the tables to an agent that only changes tables and fields", async () => {
+  const { user, seen } = mount({ bundles: [], dataTables: ["t_gone"] });
+  await user.click(screen.getByRole("checkbox", { name: /Change tables and fields/ }));
+  await user.click(screen.getByRole("checkbox", { name: "A deleted table" }));
+  expect(seen).toHaveBeenLastCalledWith({ bundles: ["configure"], dataTables: [] });
 });
