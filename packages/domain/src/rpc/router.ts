@@ -9,12 +9,14 @@ import { files } from "../data/files.ts";
 import { rows } from "../data/rows.ts";
 import { fields, tables } from "../data/tables.ts";
 import { onboarding } from "../onboarding.ts";
+import { jobs } from "../jobs/procedures.ts";
 import { harnesses } from "../harnesses/procedures.ts";
 import { pages, widgets } from "../pages/procedures.ts";
 import { questions } from "../questions/procedures.ts";
 import { runners } from "../runners/procedures.ts";
 import { marketplaces, plugins, seedMarketplaces } from "../plugins/procedures.ts";
 import { tools } from "../tools/procedures.ts";
+import { triggers } from "../triggers/procedures.ts";
 import { skills } from "../skills/procedures.ts";
 import { runs, workflows } from "../workflows/procedures.ts";
 import { authed, base } from "./context.ts";
@@ -74,6 +76,8 @@ export const router = {
   runners,
   harnesses,
   agents,
+  triggers,
+  jobs,
   skills,
   marketplaces,
   plugins,

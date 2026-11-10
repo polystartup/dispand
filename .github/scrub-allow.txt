@@ -15,3 +15,5 @@ packages/domain/src/tools/mcp.test.ts:    eth0: [{ address: "172.18.0.3", netmas
 packages/domain/src/tools/mcp.test.ts:  for (const ip of ["127.0.0.1", "169.254.169.254", "0.0.0.0", "172.18.0.2"]) expect(blocked.check(ip, "ipv4"), ip).toBe(true);
 packages/domain/src/tools/mcp.test.ts:  for (const ip of ["10.1.2.3", "192.168.1.10", "140.82.112.3"]) expect(blocked.check(ip, "ipv4"), ip).toBe(false);
 packages/runner-protocol/src/messages.test.ts:    const msg = { type: "session.start", start: { ...start, cwd: { mode: "fixed", path: "/home/me/work" } } };
+apps/web/src/components/agents/TriggerList.test.tsx:  fake.pages.home.mockResolvedValue({ id: "page_home", widgets: [] });
+apps/web/src/components/agents/TriggerList.tsx:  const home = useQuery(orpc.pages.home.queryOptions());

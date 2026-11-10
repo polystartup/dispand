@@ -12,7 +12,7 @@
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with
-  `Authorization: Bearer <token>` and `Dispand-Protocol: 3` (`PROTOCOL_VERSION`, bumped by
+  `Authorization: Bearer <token>` and `Dispand-Protocol: 4` (`PROTOCOL_VERSION`, bumped by
   every change an older runner can't parse or honor). An older runner is refused with 426 "update
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
@@ -188,6 +188,47 @@
   succeeds); if the process stops first, the next boot's `recover()` does. The schedule trigger completes with `scheduled_for` (ISO 8601
   with the schedule's offset; the run's start time for a manual start). Sessions of runs fired at
   boot start when their runner says hello.
+- **Jobs and triggers:** an agent owns `triggers` rows (`triggers/`): `manual` (a chat or a
+  button) or `schedule` (cron and timezone, checked by `cronProblem`), each with a name,
+  instructions added to the prompt, a concurrency (`parallel` or `one-at-a-time`) and, for a
+  schedule, `next_fire_at` and `last_checked_at` with the meaning they have on `schedules`
+  (reset only when the cron or timezone changed or the trigger is enabled again; a trigger keeps
+  its kind). Each firing creates a Job: a row of `runs` with `source: "agent"`, no workflow, its
+  `agent_id` and `trigger_id`, a `cause` (who or what made it, and its depth in a chain of Jobs;
+  deeper than 10 is refused) and its own definition in `def`, built by the pure `jobDef`
+  (`engine/job-def.ts`): the trigger as the firing, then one agent step whose prompt is the
+  trigger's instructions (a chat trigger has no step: the conversation is the Job). The engine's
+  `defOf` returns `run.def` when it is set and the workflow version otherwise, so sessions,
+  questions, recovery and reconcile are the same code for both. A Job also keeps a `snapshot`
+  of its agent (system prompt, model, harness, skills, tools) taken in `Engine.createJob`; its
+  sessions read the snapshot, so editing the agent or the trigger never changes a Job already
+  created. `jobs.start` starts a manual trigger's Job, `jobs.def` gives a Job's definition, and
+  `runs.list` takes an `agentId` or a `triggerId`. An agent is never deleted under a Job still going, by itself or
+  with its plugin: both paths lock its triggers and the agent in the deleting transaction
+  (`jobs/active.ts`; `createJob` and the scheduler take them in the same order), so a Job being created at that moment is seen; finished Jobs and triggers
+  go with the agent (cascade). The scheduler's tick makes a second claim in the same
+  transaction, for due enabled schedule triggers, with the rules of workflow schedules: one
+  fire per due time in `trigger_fires` (unique on `(trigger_id, scheduled_for)`),
+  `skipped-overlap` when the trigger is one at a time and one of its Jobs is going, `refused`
+  with the engine's message, otherwise `started` with the Job. The agent's page
+  (`/settings/agents/<id>`) has three tabs: Settings, Triggers (`components/agents/TriggerList`,
+  `TriggerSheet`, which reuses the schedule panel) and Jobs (`JobList`). A manual trigger goes
+  on a page as a `trigger-form` widget (`widgets.trigger_id`, one per trigger and page):
+  `TriggerWidget` shows its button or its chat (`ChatPanel` with `jobs.start`). A Job's
+  questions are listed in Notifications with its agent.
+- **Stopping a run:** `runs.stop` (`Engine.stopRun`) fails every step of the run still open
+  with "Stopped" (a step that never started too), expires its pending questions and fails the
+  run, in one transaction, then cuts what the run was doing: a Tool step's call under way is
+  aborted (each call has its own signal), and each session's harness is told to end it
+  (`HarnessAdapter.stop`). A CLI session gets `session.stop` (protocol 4; the runner stops its
+  CLI and says nothing for a session it doesn't run); a cloud session is marked done and its
+  tool call under way aborted, and a call being prepared re-reads the session under its lock
+  before it runs. Events a stopped session still sends find their step closed and change
+  nothing, and a session being resumed re-reads its step right before its start is sent, so a
+  stopped run never starts again. A stop that didn't reach its runner is sent when the runner
+  comes back: `reconcile` ends every session the runner still runs that no step still going is
+  waiting on, whether its rows are still there or went with a deleted workflow or agent. The run page
+  has the Stop button (`components/runs/StopRun.tsx`), behind a confirmation.
 - **Home and widgets:** `pages.home` returns the owner's home page with its widgets, creating
   it on the first call (a partial unique index keeps one per owner); it can't be renamed or deleted and is listed first. Other pages (`kind: "page"`, `pages.create`, `rename`, `delete`; at most 50 per owner, titles 1-100 characters, duplicates allowed) are listed under Home in the sidebar and shown at `/p/<id>` by the same `PageView`; deleting one deletes its widgets (cascade). A
   widget is a workflow form (`type: "workflow-form"`) with a layout per breakpoint (`lg`, `md`,

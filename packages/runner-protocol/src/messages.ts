@@ -6,7 +6,7 @@ import { Answer, HarnessEvent, OutputField } from "./harness.ts";
  * Sent by the runner as the `Dispand-Protocol` header when it connects. Bumped by every
  * change a runner of the previous version can't parse or honor; the hub turns older runners away.
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -82,6 +82,8 @@ export const ServerToRunner = z.discriminatedUnion("type", [
   z.object({ type: z.literal("session.send"), sessionId: id(), text: text() }),
   z.object({ type: z.literal("session.answer"), sessionId: id(), questionId: id(), answer: Answer }),
   z.object({ type: z.literal("session.interrupt"), sessionId: id() }),
+  /** Ends the session now (its run was stopped): the CLI is stopped, and nothing is said back for a session that isn't running. */
+  z.object({ type: z.literal("session.stop"), sessionId: id() }),
   z.object({ type: z.literal("ack"), seq: z.int().min(0).max(MAX_SEQ) }),
   /** Lists a runner tool's actions (not numbered, not acked: a lost reply times out on the server). */
   z.object({ type: z.literal("tool.discover"), requestId: id().min(1), tool: McpServerName }),

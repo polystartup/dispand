@@ -1,6 +1,7 @@
 # Dependabot version updates, weekly. Updates wait 7 days after a release (cooldown), so a
-# compromised or broken release is usually pulled before it reaches us. Minor and patch updates
-# come grouped, one pull request per ecosystem; each major update comes alone.
+# compromised or broken release is usually pulled before it reaches us. Updates come grouped, one
+# pull request per ecosystem. Only a major update of an npm package comes alone: each one is its
+# own migration.
 # Add an entry when the product gets a new kind of dependency file (a Dockerfile...).
 version: 2
 updates:
@@ -28,12 +29,11 @@ updates:
     cooldown:
       default-days: 7
     groups:
-      actions-minor-and-patch:
+      actions:
         patterns: ["*"]
-        update-types: [minor, patch]
 
   - package-ecosystem: docker-compose
-    directory: /
+    directories: ["/", "/deploy"]
     schedule:
       interval: weekly
       day: monday
@@ -41,16 +41,9 @@ updates:
       timezone: Etc/UTC
     cooldown:
       default-days: 7
-
-  - package-ecosystem: docker-compose
-    directory: /deploy
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: Etc/UTC
-    cooldown:
-      default-days: 7
+    groups:
+      compose:
+        patterns: ["*"]
 
   - package-ecosystem: docker
     directory: /
@@ -61,3 +54,6 @@ updates:
       timezone: Etc/UTC
     cooldown:
       default-days: 7
+    groups:
+      docker:
+        patterns: ["*"]

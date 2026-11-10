@@ -18,8 +18,11 @@ import {
   questions,
   runs,
   stepRuns,
+  triggers,
   workflows,
   workflowVersions,
+  type AgentSnapshot,
+  type JobCause,
   type RunStatus,
   type RunTrigger,
   type StepStatus,
@@ -37,13 +40,18 @@ import { toolIdsOf, validateToolSteps } from "../workflows/tool-steps.ts";
 import type { CloudKind } from "../harnesses/cloud.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, isCloud, type StartParams } from "./harness.ts";
 import { runDataStep } from "./data-step.ts";
+import { jobDef } from "./job-def.ts";
 import { nextActions, outputsFor, toolValues, valuesFor } from "./next-actions.ts";
+import { skillsAndTools } from "../agents/skills-and-tools.ts";
 
 type RunRow = typeof runs.$inferSelect;
 type StepRow = typeof stepRuns.$inferSelect;
 type MessageRow = typeof messages.$inferSelect;
 type QuestionRow = typeof questions.$inferSelect;
 type RunnerRow = typeof runners.$inferSelect;
+
+/** How many Jobs deep a chain of Jobs causing Jobs may go. */
+const MAX_CHAIN_DEPTH = 10;
 
 const ACTIVE_RUN: RunStatus[] = ["running", "waiting"];
 const ACTIVE_STEP: StepStatus[] = ["running", "waiting"];
@@ -52,12 +60,15 @@ const OPEN_STEP: StepStatus[] = ["pending", "running", "waiting"];
 /** Why a Tool step that was calling its tool when Dispand stopped fails (it is never called again). */
 export const TOOL_RESTARTED = "Dispand restarted during this tool call: check the tool before running again";
 
+/** Why the steps of a run stopped by hand failed, and the run with them. */
+export const STOPPED = "Stopped";
+
 /** Sent as the first message of a session resumed after its runner lost it. */
 export const RESUME_PROMPT = "Dispand reconnected after an interruption. Continue where you left off.";
 
 export function runView(r: RunRow) {
-  const { id, workflowId, version, status, trigger, error, createdAt, finishedAt } = r;
-  return { id, workflowId, version, status, trigger, error, createdAt, finishedAt };
+  const { id, source, workflowId, version, agentId, triggerId, status, trigger, error, createdAt, finishedAt } = r;
+  return { id, source, workflowId, version, agentId, triggerId, status, trigger, error, createdAt, finishedAt };
 }
 export function stepView(s: StepRow) {
   const { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt } = s;
@@ -218,6 +229,8 @@ export class Engine {
   private readonly background = new Set<Promise<void>>();
   /** Aborted by `stop()`: tool calls under way are cut, and their steps left for `recover` to fail. */
   private readonly stopping = new AbortController();
+  /** The Tool step calls under way, by step id: `stopRun` cuts its run's. */
+  private readonly toolCalls = new Map<string, AbortController>();
 
   constructor(
     readonly db: Db,
@@ -258,6 +271,114 @@ export class Engine {
     const top = nodesOf(def).filter((n) => n.loopId === undefined);
     await tx.insert(stepRuns).values(top.map((n) => ({ id: newId("step"), ownerId: workflow.ownerId, runId, nodeId: n.id, status: "pending" as const })));
     return runId;
+  }
+
+  /** Starts a Job of the owner's trigger (a manual start) and returns its id. */
+  async startJob(triggerId: string, ownerId: string): Promise<string> {
+    const runId = await this.db.transaction(async (tx) => {
+      const [trigger] = await tx
+        .select({ agentId: triggers.agentId })
+        .from(triggers)
+        .where(and(eq(triggers.id, triggerId), eq(triggers.ownerId, ownerId)));
+      if (!trigger) throw new EngineError("NOT_FOUND", "Trigger not found");
+      return this.createJob(tx, { ownerId, agentId: trigger.agentId, triggerId, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } });
+    });
+    await this.continueRun(runId);
+    return runId;
+  }
+
+  /**
+   * Inserts a Job (a run of the agent, for one firing of its trigger) and its steps, in `tx`,
+   * without starting anything, like `createRun`. The Job keeps the agent and the trigger as
+   * they are now: later edits don't change it.
+   */
+  async createJob(
+    tx: Tx,
+    input: { ownerId: string; agentId: string; triggerId: string; cause: JobCause; firing: RunTrigger },
+  ): Promise<string> {
+    const { ownerId, agentId, triggerId, cause, firing } = input;
+    if (cause.depth > MAX_CHAIN_DEPTH) throw new EngineError("INVALID", "Chain limit reached");
+    // Shared with other starts, exclusive with a delete: the Job never outlives its agent. The
+    // trigger first, then the agent: the order the scheduler and a delete take them in
+    // (`jobs/active.ts`), so none of them waits on another.
+    const [trigger] = await tx
+      .select()
+      .from(triggers)
+      .where(and(eq(triggers.id, triggerId), eq(triggers.agentId, agentId), eq(triggers.ownerId, ownerId)))
+      .for("share");
+    const [agent] = await tx
+      .select()
+      .from(agents)
+      .where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)))
+      .for("share");
+    if (!agent) throw new EngineError("NOT_FOUND", "Agent not found");
+    if (!trigger || !trigger.enabled) throw new EngineError("NOT_FOUND", "Trigger not found");
+    const { skills, tools } = await skillsAndTools(tx, agentId);
+    const snapshot: AgentSnapshot = {
+      id: agent.id,
+      name: agent.name,
+      harnessId: agent.harnessId,
+      systemPrompt: agent.systemPrompt,
+      ...(agent.model ? { model: agent.model } : {}),
+      skills,
+      tools: tools.map(({ toolId, name }) => ({ toolId, name })),
+    };
+    const def = jobDef({ agent: snapshot, trigger });
+    const runId = newId("run");
+    await tx.insert(runs).values({
+      id: runId,
+      ownerId,
+      source: "agent",
+      version: 0,
+      agentId,
+      triggerId,
+      def,
+      snapshot,
+      cause,
+      status: "running",
+      trigger: firing,
+    });
+    await tx.insert(stepRuns).values(nodesOf(def).map((n) => ({ id: newId("step"), ownerId, runId, nodeId: n.id, status: "pending" as const })));
+    return runId;
+  }
+
+  /**
+   * Stops a run by hand: every step still open fails with `STOPPED` (a step that never started
+   * too, so nothing of the run is left open), its pending questions expire, the run fails, and
+   * its sessions are told to end. A stop that doesn't reach a runner is sent again when the
+   * runner is back with the session (`reconcile`).
+   */
+  async stopRun(runId: string): Promise<void> {
+    const out: RunEvent[] = [];
+    const sessions = await this.db.transaction(async (tx) => {
+      const [run] = await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).for("update");
+      if (!run) throw new EngineError("NOT_FOUND", "Run not found");
+      if (!ACTIVE_RUN.includes(run.status)) throw new EngineError("CLOSED", "This run is over");
+      const open = await tx
+        .select()
+        .from(stepRuns)
+        .where(and(eq(stepRuns.runId, runId), inArray(stepRuns.status, OPEN_STEP)));
+      for (const step of open) await this.fail(tx, step, STOPPED, out);
+      // A run with no step open (between two steps) is closed here.
+      await this.finishRun(tx, runId, "failed", STOPPED, out);
+      return open;
+    });
+    this.publish(runId, out);
+    for (const step of sessions) {
+      // A Tool step's call under way is cut: it must not act after the stop.
+      this.toolCalls.get(step.id)?.abort();
+      if (step.sessionId && step.runnerId && ACTIVE_STEP.includes(step.status)) this.stopSession(step.sessionId, step.runnerId);
+    }
+  }
+
+  /** Tells the harness to end a session, without waiting for it. */
+  private stopSession(sessionId: string, source: string) {
+    this.keep(
+      this.adapter
+        .stop(sessionId, source)
+        .then(() => undefined)
+        .catch((err: unknown) => logError("session stop failed", err, { ref: sessionId })),
+    );
   }
 
   /** Runs what is ready in the run (the trigger completes, first steps start). */
@@ -421,6 +542,13 @@ export class Engine {
           for (const m of await this.undeliveredMessages(step.id)) this.deliverMessage(sessionId, m);
         }
       }
+      // Sessions it still runs that no step still going is waiting on are ended: a stop that
+      // never reached it, or a run deleted since (with its workflow or its agent). Decided from
+      // the steps as they are now, not from the rows of the finished ones, which may be gone.
+      const going = new Set(steps.map(({ step }) => step.sessionId));
+      for (const sessionId of liveSessions) {
+        if (!going.has(sessionId) && !this.inFlight.has(`start:${sessionId}`)) this.stopSession(sessionId, runnerId);
+      }
     });
   }
 
@@ -470,6 +598,10 @@ export class Engine {
     }
     // What the prompt carries is held, so no separate delivery sends it too.
     const held = [...answers.map((q) => `q:${q.id}`), ...carried.map((m) => `m:${m.id}`)];
+    // Its run may have been stopped since the step was read: a stopped run never starts again.
+    // Read right before the launch, so a stop is either seen here or sent after this start.
+    const [now] = await this.db.select({ status: stepRuns.status }).from(stepRuns).where(eq(stepRuns.id, step.id));
+    if (!now || !ACTIVE_STEP.includes(now.status)) return;
     this.launch(step.harness!, start, step, held, async () => {
       const now = new Date();
       if (answers.length) await this.db.update(questions).set({ deliveredAt: now }).where(inArray(questions.id, answers.map((q) => q.id)));
@@ -627,7 +759,7 @@ export class Engine {
     for (;;) {
       const [run] = await this.db.select().from(runs).where(eq(runs.id, runId));
       if (!run || !ACTIVE_RUN.includes(run.status)) return;
-      const def = await this.defOf(run.workflowId, run.version);
+      const def = await this.defOf(run);
       const steps = await this.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
       const nodes = new Map(nodesOf(def).map((n) => [n.id, n]));
       let changed = false;
@@ -713,7 +845,10 @@ export class Engine {
     if (!claimed) return;
     out.push({ type: "step", step: stepView(claimed) });
     const values = toolValues(def, steps, step.nodeId, step.iteration);
-    const signal = this.stopping.signal;
+    // Cut by `stop()` (the process ends) or by `stopRun` (this run only).
+    const cut = new AbortController();
+    this.toolCalls.set(claimed.id, cut);
+    const signal = AbortSignal.any([this.stopping.signal, cut.signal]);
     const call = this.track(`tool:${claimed.id}`, async () => {
       const result = await this.toolSteps.run(run.ownerId, node, values, signal).catch((err: unknown) => {
         logError("tool step failed", err, { ref: claimed.id });
@@ -727,7 +862,9 @@ export class Engine {
       });
       this.publish(run.id, settled);
       if (result.ok) await this.advance(run.id);
-    }).catch((err: unknown) => logError("tool step failed", err, { ref: claimed.id }));
+    })
+      .catch((err: unknown) => logError("tool step failed", err, { ref: claimed.id }))
+      .finally(() => this.toolCalls.delete(claimed.id));
     this.keep(call);
   }
 
@@ -735,7 +872,7 @@ export class Engine {
   private async failInterruptedTools(runId: string) {
     const [run] = await this.db.select().from(runs).where(eq(runs.id, runId));
     if (!run) return;
-    const def = await this.defOf(run.workflowId, run.version);
+    const def = await this.defOf(run);
     const running = await this.db
       .select()
       .from(stepRuns)
@@ -783,18 +920,26 @@ export class Engine {
   }
 
   private async startSession(run: RunRow, def: WorkflowDef, steps: StepRow[], node: WorkflowNode, step: StepRow) {
-    const [found] = await this.db
-      .select({ agent: agents, harness: harnesses })
-      .from(agents)
-      .innerJoin(harnesses, eq(harnesses.id, agents.harnessId))
-      .where(and(eq(agents.id, node.agentId ?? ""), eq(agents.ownerId, run.ownerId)));
-    if (!found) {
+    // A Job runs the agent as it was when the Job was created; a workflow run, as it is now.
+    const [stored] = run.snapshot
+      ? []
+      : await this.db
+          .select({ systemPrompt: agents.systemPrompt, model: agents.model, harnessId: agents.harnessId })
+          .from(agents)
+          .where(and(eq(agents.id, node.agentId ?? ""), eq(agents.ownerId, run.ownerId)));
+    const agent = run.snapshot ? { ...run.snapshot, model: run.snapshot.model ?? null } : stored;
+    const [h] = agent
+      ? await this.db
+          .select()
+          .from(harnesses)
+          .where(and(eq(harnesses.id, agent.harnessId), eq(harnesses.ownerId, run.ownerId)))
+      : [];
+    if (!agent || !h) {
       const out: RunEvent[] = [];
       await this.db.transaction((tx) => this.fail(tx, step, "The step's agent no longer exists", out));
       this.publish(run.id, out);
       return;
     }
-    const { agent, harness: h } = found;
     const model = agent.model ?? h.model;
     let harness: Harness;
     if (h.type === "cloud") {
@@ -965,8 +1110,11 @@ export class Engine {
     out.push({ type: "step", step: stepView(row) });
     // A failed iteration fails its loop too: nothing else would close the loop's row.
     if (step.iteration > 0) {
-      const [run] = await tx.select({ workflowId: runs.workflowId, version: runs.version }).from(runs).where(eq(runs.id, step.runId));
-      const loopId = run && loopOf(await this.defOf(run.workflowId, run.version, tx), step.nodeId);
+      const [run] = await tx
+        .select({ workflowId: runs.workflowId, version: runs.version, def: runs.def })
+        .from(runs)
+        .where(eq(runs.id, step.runId));
+      const loopId = run && loopOf(await this.defOf(run, tx), step.nodeId);
       const [loop] = loopId
         ? await tx
             .update(stepRuns)
@@ -1019,11 +1167,18 @@ export class Engine {
     if (run) out.push({ type: "run", run: runView(run) });
   }
 
-  private async defOf(workflowId: string, version: number, db: Tx | Db = this.db): Promise<WorkflowDef> {
-    const [row] = await db
-      .select({ def: workflowVersions.def })
-      .from(workflowVersions)
-      .where(and(eq(workflowVersions.workflowId, workflowId), eq(workflowVersions.version, version)));
+  /** A Job carries its own definition; a workflow run reads the version it started on. */
+  private async defOf(
+    run: Pick<typeof runs.$inferSelect, "workflowId" | "version" | "def">,
+    db: Tx | Db = this.db,
+  ): Promise<WorkflowDef> {
+    if (run.def) return run.def;
+    const [row] = run.workflowId
+      ? await db
+          .select({ def: workflowVersions.def })
+          .from(workflowVersions)
+          .where(and(eq(workflowVersions.workflowId, run.workflowId), eq(workflowVersions.version, run.version)))
+      : [];
     if (!row) throw new EngineError("NOT_FOUND", "Workflow version not found");
     return row.def;
   }

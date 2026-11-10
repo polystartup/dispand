@@ -2,7 +2,7 @@ import { ORPCError } from "@orpc/server";
 import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { fields as fieldsTable, pages as pagesTable, tables as tablesTable, widgets as widgetsTable, workflows, workflowVersions } from "../db/schema.ts";
+import { fields as fieldsTable, pages as pagesTable, tables as tablesTable, triggers, widgets as widgetsTable, workflows, workflowVersions } from "../db/schema.ts";
 import { queryProblem } from "../data/query.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -14,11 +14,12 @@ const owner = base.use(authed);
 
 const Title = z.string().trim().min(1).max(100);
 
-/** A widget as the client sees it: a workflow form, or a Grid or Table widget with its table and fields. */
+/** A widget as the client sees it: a workflow form, an agent trigger's form, or a Grid or Table widget with its table and fields. */
 function toWidget(w: typeof widgetsTable.$inferSelect) {
   const { id, pageId, title, layout } = w;
   const base = { id, pageId, title, layout };
   if (w.type === "workflow-form") return { ...base, type: "workflow-form" as const, workflowId: w.workflowId! };
+  if (w.type === "trigger-form") return { ...base, type: "trigger-form" as const, triggerId: w.triggerId! };
   if (w.type === "grid") return { ...base, type: "grid" as const, tableId: w.tableId!, config: w.config as GridConfig };
   return { ...base, type: "table" as const, tableId: w.tableId!, config: w.config as TableConfig };
 }
@@ -113,6 +114,7 @@ const removePage = owner.input(z.object({ id: z.string() })).handler(async ({ in
 export const pages = { home, list, get, create: createPage, rename: renamePage, delete: removePage };
 
 const createForm = z.object({ pageId: z.string(), type: z.literal("workflow-form"), workflowId: z.string(), title: Title.optional() });
+const createTriggerForm = z.object({ pageId: z.string(), type: z.literal("trigger-form"), triggerId: z.string(), title: Title.optional() });
 const createGrid = z.object({ pageId: z.string(), type: z.literal("grid"), tableId: z.string(), config: GridConfig, title: Title.optional() });
 const createTable = z.object({ pageId: z.string(), type: z.literal("table"), tableId: z.string(), config: TableConfig, title: Title.optional() });
 
@@ -138,8 +140,41 @@ async function checkConfig(db: Db, ownerId: string, tableId: string, config: Gri
   return table;
 }
 
-const create = owner.input(z.discriminatedUnion("type", [createForm, createGrid, createTable])).handler(async ({ input, context }) => {
+const create = owner.input(z.discriminatedUnion("type", [createForm, createTriggerForm, createGrid, createTable])).handler(async ({ input, context }) => {
   await requirePage(context.db, context.ownerId, input.pageId);
+  if (input.type === "trigger-form") {
+    const [trigger] = await context.db
+      .select({ name: triggers.name, config: triggers.config })
+      .from(triggers)
+      .where(and(eq(triggers.id, input.triggerId), eq(triggers.ownerId, context.ownerId)));
+    if (!trigger) throw new ORPCError("NOT_FOUND", { message: "Trigger not found" });
+    const { config } = trigger;
+    if (config.kind !== "manual") throw new ORPCError("BAD_REQUEST", { message: "Only a manual trigger can have a form" });
+    // One form per trigger on a page, serialized per page like workflow forms.
+    const row = await context.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`dispand:widgets:${input.pageId}`}))`);
+      const existing = await tx.select().from(widgetsTable).where(eq(widgetsTable.pageId, input.pageId));
+      const already = existing.find((w) => w.triggerId === input.triggerId);
+      if (already) return already;
+      const [inserted] = await tx
+        .insert(widgetsTable)
+        .values({
+          id: newId("widget"),
+          ownerId: context.ownerId,
+          pageId: input.pageId,
+          type: "trigger-form",
+          title: input.title ?? trigger.name,
+          triggerId: input.triggerId,
+          layout: placeBelow(
+            existing.map((w) => w.layout),
+            config.placement,
+          ),
+        })
+        .returning();
+      return inserted!;
+    });
+    return toWidget(row);
+  }
   if (input.type !== "workflow-form") {
     const table = await checkConfig(context.db, context.ownerId, input.tableId, input.config);
     const existing = await context.db.select({ layout: widgetsTable.layout }).from(widgetsTable).where(eq(widgetsTable.pageId, input.pageId));
@@ -204,7 +239,7 @@ const update = owner
     const widget = await requireWidget(context.db, context.ownerId, input.id);
     let config: GridConfig | TableConfig | undefined;
     if (input.config) {
-      if (widget.type === "workflow-form") throw new ORPCError("BAD_REQUEST", { message: "A workflow form has no fields to choose" });
+      if (widget.type === "workflow-form" || widget.type === "trigger-form") throw new ORPCError("BAD_REQUEST", { message: "A form has no fields to choose" });
       // Only what the widget's type keeps: a Grid has a cover, a Table a sort.
       const { fieldIds, coverFieldId, sort } = input.config;
       config = widget.type === "grid" ? { fieldIds, coverFieldId } : { fieldIds, sort };

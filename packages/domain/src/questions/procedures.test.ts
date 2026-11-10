@@ -24,6 +24,9 @@ class FakeAdapter implements HarnessAdapter {
     this.answers.push([sessionId, questionId, answer]);
     return true;
   }
+  async stop() {
+    return true;
+  }
 }
 
 /** A run of a one-step workflow whose session asked `payload` (the question is the run's first). */
@@ -223,4 +226,27 @@ test("labels that differ only by spaces stay distinct and exact", async () => {
   await call(router.questions.answer, { questionId: question.id, answer: { kind: "choice", answers: { "Which files?": ["a.txt ", "a.txt"] } } }, { context });
   await vi.waitFor(() => expect(adapter.answers).toHaveLength(1));
   expect(adapter.answers[0]![2]).toEqual({ kind: "choice", answers: { "Which files?": ["a.txt ", "a.txt"] } });
+});
+
+test("a Job's question is listed with its agent and is answerable", async () => {
+  const { context, adapter } = await asked(choice);
+  const [agent] = await call(router.agents.list, undefined, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent!.id, name: "Mail", instructions: "Sort.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
+  const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
+  const sessionId = adapter.sessions[1]!;
+  const [runner] = await call(router.runners.list, undefined, { context });
+  await context.engine.onHarnessEvent(sessionId, { type: "question", questionId: "rq_job", payload: { kind: "confirm-outputs", values: {} } }, { runnerId: runner!.id, seq: 1 });
+
+  expect(await call(router.questions.count, undefined, { context })).toEqual({ count: 2 });
+  const listed = await call(router.questions.list, { status: "pending" }, { context });
+  expect(listed).toHaveLength(2);
+  const mine = listed.find((q) => q.run.id === runId)!;
+  expect(mine).toMatchObject({ workflow: null, agent: { id: agent!.id, name: "Writer" }, step: { name: "Writer" } });
+  expect(listed.find((q) => q.run.id !== runId)).toMatchObject({ workflow: { name: "Ship" }, agent: null });
+  await call(router.questions.answer, { questionId: mine.id, answer: { kind: "confirm-outputs", confirmed: true } }, { context });
+  expect(adapter.answers).toEqual([[sessionId, "rq_job", { kind: "confirm-outputs", confirmed: true }]]);
 });

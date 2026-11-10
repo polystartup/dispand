@@ -14,7 +14,7 @@ afterEach(() => {
 
 const at = new Date(0);
 const snap = (id: string): RunSnapshot => ({
-  run: { id, workflowId: "wf", version: 1, status: "running", trigger: { type: "manual" }, error: null, createdAt: at, finishedAt: null },
+  run: { id, source: "workflow" as const, workflowId: "wf", agentId: null, triggerId: null, version: 1, status: "running", trigger: { type: "manual" }, error: null, createdAt: at, finishedAt: null },
   steps: [],
   messages: [],
   questions: [],

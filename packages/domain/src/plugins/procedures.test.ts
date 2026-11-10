@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { skillFiles, skillPackages, tools } from "../db/schema.ts";
+import { runs as runsTable, skillFiles, skillPackages, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { BUILT_IN_MARKETPLACES } from "./marketplace.ts";
@@ -460,6 +460,11 @@ test("uninstall removes its tools and agents; refused while something outside th
   await call(router.workflows.update, { id: wf.id, name: "Review", def }, { context: ctx });
   await expect(call(router.plugins.uninstall, { id: pluginId }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("A workflow uses") });
   await call(router.workflows.delete, { id: wf.id }, { context: ctx });
+  // A Job of its agent still going.
+  const trigger = await call(router.triggers.create, { agentId: agentIds[0]!, name: "Review", instructions: "Do it.", config: { kind: "manual", placement: "button" } }, { context: ctx });
+  const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context: ctx });
+  await expect(call(router.plugins.uninstall, { id: pluginId }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("A Job of") });
+  await ctx.db.update(runsTable).set({ status: "failed" }).where(eq(runsTable.id, runId));
 
   await call(router.plugins.uninstall, { id: pluginId }, { context: ctx });
   expect(await call(router.tools.list, undefined, { context: ctx })).toEqual([]);

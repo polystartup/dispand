@@ -92,6 +92,9 @@ class ResumeMap {
 }
 
 /** The sessions running on this machine, driven by the server's messages. */
+/** The error a session ends with when Dispand stops it. */
+export const STOPPED = "Stopped";
+
 export class Sessions {
   private readonly live = new Map<string, HarnessSession>();
   // No parameter properties: `node src/main.ts` runs this file with type stripping only.
@@ -187,7 +190,9 @@ export class Sessions {
     const session = this.live.get(msg.sessionId);
     // Not running (ended, stopped, never started here): said once per session per connection,
     // which is what lets Dispand resume a lost session; nothing while the backlog is full.
-    if (!session) return this.notRunning(msg.sessionId);
+    // A stop for a session that isn't here has nothing to end, and nothing for Dispand to resume.
+    if (!session) return msg.type === "session.stop" ? undefined : this.notRunning(msg.sessionId);
+    if (msg.type === "session.stop") return session.stop(STOPPED);
     if (msg.type === "session.send") session.send(msg.text);
     else if (msg.type === "session.answer") session.answer(msg.questionId, msg.answer);
     else await session.interrupt();

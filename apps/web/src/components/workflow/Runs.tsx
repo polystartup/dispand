@@ -69,7 +69,7 @@ export function RunList({ workflowId }: { workflowId?: string }) {
           >
             <span className="flex min-w-0 items-center gap-3">
               <Status status={r.status} />
-              {!workflowId && <span className="truncate text-[15px] font-medium">{names.get(r.workflowId) ?? "Workflow"}</span>}
+              {!workflowId && <span className="truncate text-[15px] font-medium">{r.workflowId ? (names.get(r.workflowId) ?? "Workflow") : "Job"}</span>}
               <span className="text-[13px] text-muted">{triggerText(r.trigger)}</span>
             </span>
             <span className="shrink-0 text-[13px] text-muted">

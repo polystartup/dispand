@@ -1,11 +1,11 @@
 import { call } from "@orpc/server";
 import { asc, eq } from "drizzle-orm";
-import { expect, onTestFinished, test } from "vitest";
-import { runs, scheduleFires, schedules, stepRuns } from "../db/schema.ts";
+import { expect, onTestFinished, test, vi } from "vitest";
+import { runs, scheduleFires, schedules, stepRuns, triggerFires } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
-import { Engine } from "./engine.ts";
+import { Engine, EngineError } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { Scheduler } from "./scheduler.ts";
 
@@ -22,6 +22,9 @@ class FakeAdapter implements HarnessAdapter {
   }
   async answer() {
     return this.online;
+  }
+  async stop() {
+    return true;
   }
 }
 
@@ -194,4 +197,140 @@ test("a fire that failed is tried again on the next tick, for the same time", as
   expect(await scheduler.tick()).toHaveLength(1);
   expect((await runsOf()).map((r) => r.trigger)).toEqual([{ type: "schedule", scheduledFor: "2026-11-05T10:00:00.000Z" }]);
   expect((await firesOf()).map((f) => f.status)).toEqual(["started"]);
+});
+
+// Schedule triggers: the same rules, on an agent's trigger, each fire a Job.
+
+/** An agent's schedule trigger (hourly by default), saved at 10:05 Paris on 5 Nov 2026. */
+async function triggerSetup(cron = "0 * * * *", at = "2026-11-05T10:05:00+01:00", concurrency: "parallel" | "one-at-a-time" = "one-at-a-time") {
+  const s = await setup();
+  await call(router.workflows.delete, { id: s.workflow.id }, { context: s.context });
+  s.time.set(at);
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: s.agent.id, name: "Hourly", instructions: "Report for {{trigger.scheduled_for}}.", concurrency, config: { kind: "schedule", cron, timezone: "Europe/Paris" } },
+    { context: s.ctx },
+  );
+  const jobsOf = () => s.context.db.select().from(runs).where(eq(runs.triggerId, trigger.id)).orderBy(asc(runs.createdAt));
+  const firesOf = () => s.context.db.select().from(triggerFires).where(eq(triggerFires.triggerId, trigger.id)).orderBy(asc(triggerFires.scheduledFor));
+  return { ...s, trigger, jobsOf, firesOf };
+}
+
+test("fires a due schedule trigger once and records the fire", async () => {
+  const { ctx, time, scheduler, adapter, agent, trigger, jobsOf, firesOf } = await triggerSetup();
+  expect(await scheduler.tick()).toEqual([]);
+  time.set("2026-11-05T11:00:10+01:00");
+  const started = await scheduler.tick();
+  expect(started).toHaveLength(1);
+  const [job] = await jobsOf();
+  expect(job).toMatchObject({
+    id: started[0],
+    source: "agent",
+    agentId: agent.id,
+    trigger: { type: "schedule", scheduledFor: "2026-11-05T10:00:00.000Z" },
+    cause: { kind: "schedule", scheduledFor: "2026-11-05T10:00:00.000Z", depth: 0 },
+  });
+  expect(adapter.starts).toHaveLength(1);
+  expect(adapter.starts[0]!.start.prompt).toBe("Report for 2026-11-05T11:00:00+01:00.");
+  expect(await firesOf()).toMatchObject([{ status: "started", runId: job!.id, scheduledFor: new Date("2026-11-05T10:00:00Z") }]);
+  expect((await call(router.triggers.get, { id: trigger.id }, { context: ctx })).lastFires).toMatchObject([
+    { status: "started", runId: job!.id },
+  ]);
+  // The same time never fires again.
+  expect(await scheduler.tick()).toEqual([]);
+  expect(await jobsOf()).toHaveLength(1);
+});
+
+test("coalesces missed times into one fire for the latest", async () => {
+  const { time, scheduler, jobsOf, firesOf } = await triggerSetup();
+  time.set("2026-11-05T14:20:00+01:00");
+  expect(await scheduler.tick()).toHaveLength(1);
+  expect(await jobsOf()).toMatchObject([{ trigger: { type: "schedule", scheduledFor: "2026-11-05T13:00:00.000Z" } }]);
+  expect(await firesOf()).toHaveLength(1);
+});
+
+test("one-at-a-time skips while the trigger's Job is running; parallel doesn't", async () => {
+  const one = await triggerSetup();
+  one.time.set("2026-11-05T11:00:10+01:00");
+  expect(await one.scheduler.tick()).toHaveLength(1);
+  one.time.set("2026-11-05T12:00:10+01:00");
+  expect(await one.scheduler.tick()).toEqual([]);
+  expect(await one.firesOf()).toMatchObject([{ status: "started" }, { status: "skipped-overlap", runId: null }]);
+  expect(await one.jobsOf()).toHaveLength(1);
+
+  const many = await triggerSetup("0 * * * *", "2026-11-05T10:05:00+01:00", "parallel");
+  many.time.set("2026-11-05T11:00:10+01:00");
+  expect(await many.scheduler.tick()).toHaveLength(1);
+  many.time.set("2026-11-05T12:00:10+01:00");
+  expect(await many.scheduler.tick()).toHaveLength(1);
+  expect(await many.firesOf()).toMatchObject([{ status: "started" }, { status: "started" }]);
+});
+
+test("a fire the engine refuses is recorded with its message, and the next time fires", async () => {
+  const { time, scheduler, engine, jobsOf, firesOf } = await triggerSetup();
+  time.set("2026-11-05T11:00:10+01:00");
+  const create = vi.spyOn(engine, "createJob").mockRejectedValueOnce(new EngineError("NOT_FOUND", "Agent not found"));
+  expect(await scheduler.tick()).toEqual([]);
+  expect(await firesOf()).toMatchObject([{ status: "refused", message: "Agent not found", runId: null }]);
+  create.mockRestore();
+  // Not left due forever: the refused time is done, the next one fires.
+  expect(await scheduler.tick()).toEqual([]);
+  time.set("2026-11-05T12:00:10+01:00");
+  expect(await scheduler.tick()).toHaveLength(1);
+  expect(await jobsOf()).toHaveLength(1);
+});
+
+test("a trigger whose agent is gone is gone with it: nothing fires, nothing throws", async () => {
+  const { context, time, scheduler, agent } = await triggerSetup();
+  await call(router.agents.delete, { id: agent.id }, { context });
+  time.set("2026-11-05T11:00:10+01:00");
+  expect(await scheduler.tick()).toEqual([]);
+  expect(await context.db.select().from(triggerFires)).toEqual([]);
+});
+
+test("a disabled trigger is not claimed", async () => {
+  const { ctx, time, scheduler, trigger, firesOf } = await triggerSetup();
+  await call(router.triggers.update, { id: trigger.id, enabled: false }, { context: ctx });
+  time.set("2026-11-05T11:00:10+01:00");
+  expect(await scheduler.tick()).toEqual([]);
+  expect(await firesOf()).toEqual([]);
+});
+
+test("a manual trigger is never claimed", async () => {
+  const { ctx, time, scheduler, agent, context } = await triggerSetup();
+  await call(router.triggers.create, { agentId: agent.id, name: "Ask", instructions: "Do it.", config: { kind: "manual", placement: "button" } }, { context: ctx });
+  time.set("2026-11-05T11:00:10+01:00");
+  expect(await scheduler.tick()).toHaveLength(1);
+  expect(await context.db.select().from(runs)).toHaveLength(1);
+});
+
+test("a daily 02:30 trigger fires once on the day 02:30 comes twice, and at most once on the day it never comes", async () => {
+  // 25 Oct 2026: clocks go back at 03:00, so 02:30 comes twice in Paris.
+  const back = await triggerSetup("30 2 * * *", "2026-10-24T12:00:00+02:00", "parallel");
+  back.time.set("2026-10-25T02:31:00+02:00");
+  expect(await back.scheduler.tick()).toHaveLength(1);
+  back.time.set("2026-10-25T02:31:00+01:00");
+  expect(await back.scheduler.tick()).toEqual([]);
+  back.time.set("2026-10-25T23:00:00+01:00");
+  expect(await back.scheduler.tick()).toEqual([]);
+  expect(await back.jobsOf()).toHaveLength(1);
+
+  // 28 Mar 2027: clocks go forward at 02:00, so 02:30 never comes.
+  const forward = await triggerSetup("30 2 * * *", "2027-03-27T12:00:00+01:00", "parallel");
+  for (const at of ["2027-03-28T01:59:00+01:00", "2027-03-28T03:01:00+02:00", "2027-03-28T03:31:00+02:00", "2027-03-28T23:00:00+02:00"]) {
+    forward.time.set(at);
+    await forward.scheduler.tick();
+  }
+  expect((await forward.jobsOf()).length).toBeLessThanOrEqual(1);
+});
+
+test("a fire that failed is tried again on the next tick, for the same time, on a trigger", async () => {
+  const { time, scheduler, engine, jobsOf, firesOf } = await triggerSetup();
+  time.set("2026-11-05T11:00:10+01:00");
+  const create = vi.spyOn(engine, "createJob").mockRejectedValueOnce(new Error("database hiccup"));
+  expect(await scheduler.tick()).toEqual([]);
+  expect(await firesOf()).toEqual([]);
+  create.mockRestore();
+  expect(await scheduler.tick()).toHaveLength(1);
+  expect(await jobsOf()).toMatchObject([{ trigger: { type: "schedule", scheduledFor: "2026-11-05T10:00:00.000Z" } }]);
 });

@@ -11,6 +11,7 @@ import {
   scheduleFires,
   schedules,
   stepRuns,
+  triggers,
   workflows as workflowsTable,
   workflowVersions,
 } from "../db/schema.ts";
@@ -269,7 +270,7 @@ async function snapshot(db: Db, runId: string) {
   };
 }
 
-function engineError(err: unknown): never {
+export function engineError(err: unknown): never {
   if (!(err instanceof EngineError)) throw err;
   const code = { NOT_FOUND: "NOT_FOUND", INVALID: "BAD_REQUEST", CLOSED: "CONFLICT", NOT_PENDING: "CONFLICT" }[err.code];
   throw new ORPCError(code, { message: err.message });
@@ -296,6 +297,12 @@ const sendChat = owner
     await requireRun(context.db, context.ownerId, input.runId);
     await context.engine.sendChat(input.runId, input.text).catch(engineError);
   });
+
+/** Stops a run or a Job still going: its open steps fail with "Stopped" and its sessions end. */
+const stop = owner.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
+  await requireRun(context.db, context.ownerId, input.runId);
+  await context.engine.stopRun(input.runId).catch(engineError);
+});
 
 const getRun = owner.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
   await requireRun(context.db, context.ownerId, input.runId);
@@ -338,16 +345,37 @@ const stream = owner.input(z.object({ runId: z.string() })).handler(async functi
 /** How many changes a run stream holds for a slow client before it resynchronizes it. */
 export const STREAM_BUFFER = 1000;
 
-/** The latest runs of one workflow, or of all the owner's workflows when none is given. */
-const listRuns = owner.input(z.object({ workflowId: z.string().optional() })).handler(async ({ input, context }) => {
+/** The latest runs of one workflow, the latest Jobs of one agent or of one trigger, or the owner's latest runs of both kinds when none is given. */
+const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agentId: z.string().optional(), triggerId: z.string().optional() })).handler(async ({ input, context }) => {
+  if (input.triggerId) {
+    const [trigger] = await context.db
+      .select({ id: triggers.id })
+      .from(triggers)
+      .where(and(eq(triggers.id, input.triggerId), eq(triggers.ownerId, context.ownerId)));
+    if (!trigger) throw new ORPCError("NOT_FOUND");
+  }
   if (input.workflowId) await find(context.db, context.ownerId, input.workflowId);
+  if (input.agentId) {
+    const [agent] = await context.db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(and(eq(agents.id, input.agentId), eq(agents.ownerId, context.ownerId)));
+    if (!agent) throw new ORPCError("NOT_FOUND");
+  }
   const rows = await context.db
     .select()
     .from(runsTable)
-    .where(and(eq(runsTable.ownerId, context.ownerId), input.workflowId ? eq(runsTable.workflowId, input.workflowId) : undefined))
+    .where(
+      and(
+        eq(runsTable.ownerId, context.ownerId),
+        input.workflowId ? eq(runsTable.workflowId, input.workflowId) : undefined,
+        input.agentId ? eq(runsTable.agentId, input.agentId) : undefined,
+        input.triggerId ? eq(runsTable.triggerId, input.triggerId) : undefined,
+      ),
+    )
     .orderBy(desc(runsTable.createdAt), desc(runsTable.id))
     .limit(50);
   return rows.map(runView);
 });
 
-export const runs = { start, sendChat, get: getRun, stream, list: listRuns };
+export const runs = { start, sendChat, stop, get: getRun, stream, list: listRuns };

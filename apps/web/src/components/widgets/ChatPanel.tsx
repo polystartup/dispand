@@ -14,23 +14,33 @@ type Question = RunSnapshot["questions"][number];
 type Step = RunSnapshot["steps"][number];
 
 type Props = {
-  workflowId: string;
+  /** The workflow whose Chat field this is; absent for an agent's chat trigger, whose Job has its own definition. */
+  workflowId?: string;
+  /** Starts the conversation's run (default: a run of `workflowId`). */
+  start?: () => Promise<{ runId: string }>;
   /** The conversation shown; null: a new one starts with the first message. */
   runId: string | null;
   onRunStarted: (runId: string) => void;
   onNewConversation: () => void;
 };
 
-/** A workflow's Chat field: the conversation with its agent, then the progress of the steps after it. */
-export function ChatPanel({ workflowId, runId, onRunStarted, onNewConversation }: Props) {
+/** A workflow's Chat field or an agent's chat trigger: the conversation with the agent, then the progress of the steps after it. */
+export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConversation }: Props) {
   const run = useRun(runId);
   // Names and nodes as the run's version had them: the workflow may have changed since.
   const version = run?.run.version;
-  const runDef = useQuery({
-    ...orpc.workflows.get.queryOptions({ input: { id: workflowId, version: version ?? 0 } }),
-    enabled: version !== undefined,
+  const versionDef = useQuery({
+    ...orpc.workflows.get.queryOptions({ input: { id: workflowId ?? "", version: version ?? 0 } }),
+    enabled: !!workflowId && version !== undefined,
     staleTime: Infinity,
   }).data?.def;
+  // A Job keeps its own definition.
+  const jobDef = useQuery({
+    ...orpc.jobs.def.queryOptions({ input: { runId: runId ?? "" } }),
+    enabled: !workflowId && !!runId,
+    staleTime: Infinity,
+  }).data;
+  const runDef = workflowId ? versionDef : jobDef;
   const queryClient = useQueryClient();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +60,7 @@ export function ChatPanel({ workflowId, runId, onRunStarted, onNewConversation }
     try {
       let id = runId;
       if (!id) {
-        id = (await api.runs.start({ workflowId })).runId;
+        id = (await (start ? start() : api.runs.start({ workflowId: workflowId ?? "" }))).runId;
         onRunStarted(id);
         void queryClient.invalidateQueries({ queryKey: orpc.runs.list.key() });
       }
