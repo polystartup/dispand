@@ -291,3 +291,11 @@ test("always allow changes no flag when the question isn't about one of the agen
   await s.approve(`mcp__job_tools__${create}`, { title: "Bug" }, "deny");
   expect(await flags()).toEqual([true, true]);
 });
+
+test("an always allow that comes after another answer grants nothing", async () => {
+  const s = await setup();
+  const create = await named(s.client, "github_create_issue");
+  const id = await s.approve(`mcp__job_tools__${create}`, { title: "Bug" }, "deny");
+  await expect(s.context.engine.answer(id, { kind: "permission", decision: "allow-always" }, { type: "user", userId: s.context.ownerId })).rejects.toMatchObject({ code: "NOT_PENDING" });
+  expect((await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.map((a) => a.ask)).toEqual([true, true]);
+});
