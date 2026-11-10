@@ -470,6 +470,10 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         { type: "outputs-accepted", values: payload.values },
       );
     }
+    if (call.name === REQUEST_APPROVAL && answer.kind === "permission" && answer.decision === "deny") {
+      // Said in words: some providers don't carry a tool result's error flag to the model.
+      return reply(cut(answer.message ? `Denied: ${answer.message}` : "Denied.", SHORT), true);
+    }
     if (answer.kind !== "permission" || answer.decision === "deny") {
       return reply(cut((answer.kind === "permission" && answer.message) || TEXTS.denied, SHORT), true);
     }

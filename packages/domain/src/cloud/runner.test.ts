@@ -358,7 +358,7 @@ test("request_approval denied gives the model the owner's words, and asks again 
   const runId = await engine.startRun(workflow.id);
   const first = await pendingQuestion(engine, runId);
   await engine.answer(first.id, { kind: "permission", decision: "deny", message: "Never delete." });
-  expect(lastTool((await vi.waitFor(() => (model.inputs[1] ? model.inputs[1] : Promise.reject(new Error("no second turn"))))).items)).toMatchObject({ result: "Never delete.", isError: true });
+  expect(lastTool((await vi.waitFor(() => (model.inputs[1] ? model.inputs[1] : Promise.reject(new Error("no second turn"))))).items)).toMatchObject({ result: "Denied: Never delete.", isError: true });
   // An approval is for one request: the next one waits for its own answer.
   const second = await vi.waitFor(async () => {
     const rows = await engine.db.select().from(questions).where(eq(questions.runId, runId));
