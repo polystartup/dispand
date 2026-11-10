@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PermissionUpdate } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, expect, test } from "vitest";
-import { codexDenied, codexDeniedEdit, permissionBoundary, TOOL_SHAPES } from "./boundary.ts";
+import { createServer } from "node:net";
+import { codexDenied, codexDeniedEdit, permissionBoundary, sandboxDenied, TOOL_SHAPES } from "./boundary.ts";
 
 const made: string[] = [];
 afterEach(async () => {
@@ -344,4 +345,41 @@ test("a Codex session is denied the machine's config, and wherever symlinks insi
   const denied = codexDenied([join(home, ".codex")]);
   expect(denied).toEqual(expect.arrayContaining([join(home, ".codex"), join(outside, "vault"), join(outside, "token")]));
   expect(denied).not.toContain(outside);
+});
+
+test("what the sandbox is asked to hide is only what it can hide: no entry inside another, no socket, never the Codex binary", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "sandbox-denied-")));
+  made.push(base);
+  const home = join(base, "home");
+  const outside = join(base, "outside");
+  await mkdir(join(home, ".codex", "releases", "1.0"), { recursive: true });
+  await mkdir(join(home, ".codex", "tmp", "arg0"), { recursive: true });
+  await mkdir(join(outside, "bin"), { recursive: true });
+  await mkdir(join(outside, "vault"));
+  await writeFile(join(outside, "vault", "auth.json"), "{}");
+  await writeFile(join(outside, "bin", "codex"), "");
+  // A link back into the home, a socket elsewhere linked from the home, and the running Codex's link to its own binary.
+  await symlink(join(home, ".codex", "releases", "1.0"), join(home, ".codex", "current"));
+  const socket = join(outside, "daemon.sock");
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(socket, resolve));
+  await symlink(socket, join(home, ".codex", "control.sock"));
+  await symlink(join(outside, "bin", "codex"), join(home, ".codex", "tmp", "arg0", "codex-linux-sandbox"));
+  // A credential kept outside the home stays hidden.
+  await symlink(join(outside, "vault"), join(home, ".codex", "keys"));
+  try {
+    const denied = codexDenied([join(home, ".codex"), join(base, "missing-config")]);
+    // The full list still names everything: file changes are checked against it.
+    expect(denied).toEqual(expect.arrayContaining([socket, join(outside, "bin", "codex"), join(home, ".codex", "releases", "1.0")]));
+    const hidden = sandboxDenied(denied, join(outside, "bin", "codex"));
+    expect(hidden.sort()).toEqual([join(base, "missing-config"), join(home, ".codex"), join(outside, "vault")].sort());
+    // Whatever the binary's own path is given as (a link to it too).
+    await symlink(join(outside, "bin", "codex"), join(base, "codex-link"));
+    expect(sandboxDenied(denied, join(base, "codex-link")).sort()).toEqual(hidden.sort());
+    // Another binary than the one in the list changes nothing.
+    expect(sandboxDenied(denied, "/usr/bin/true")).toEqual(expect.arrayContaining([join(outside, "bin", "codex")]));
+    for (const a of hidden) for (const b of hidden) if (a !== b) expect(a.startsWith(`${b}/`), `${a} inside ${b}`).toBe(false);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });

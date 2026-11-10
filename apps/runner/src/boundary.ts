@@ -311,6 +311,35 @@ export function codexDenied(secrets: string[]): string[] {
   return [...new Set([...secrets, ...protectedLocations(secrets, Infinity)!])];
 }
 
+/**
+ * The part of `denied` (`codexDenied`) Codex's sandbox is asked to hide. The sandbox mounts an
+ * empty read-only folder or file over each entry, and fails the whole session on one it can't
+ * mount, so the list is cut to what it can and needs to hide:
+ * - an entry inside another entry is left out: the outer one hides it already, and nothing can
+ *   be mounted inside a folder that was just made read-only (a link inside Codex's home that
+ *   points back into it);
+ * - only folders, regular files and paths that don't exist are kept: a socket or a device holds
+ *   no config and no credential, and Codex keeps its own sockets in a folder it hides itself;
+ * - the Codex executable is left out (a running Codex links to itself from its home): it isn't a
+ *   secret, and the sandbox must be able to run it.
+ * File changes are still checked against the whole list (`codexDeniedEdit`).
+ */
+export function sandboxDenied(denied: string[], codexPath: string): string[] {
+  const executable = realOf(codexPath);
+  const real = new Map(denied.map((path) => [path, realOf(path)]));
+  const mountable = (path: string) => {
+    try {
+      const entry = lstatSync(real.get(path)!);
+      return entry.isDirectory() || entry.isFile();
+    } catch {
+      // Doesn't exist (yet): hidden by name.
+      return true;
+    }
+  };
+  const kept = denied.filter((path) => real.get(path) !== executable && mountable(path));
+  return kept.filter((path) => !kept.some((other) => other !== path && real.get(other) !== real.get(path) && inside(real.get(path)!, real.get(other)!)));
+}
+
 /** What a Codex session's folder holds that decides how later Codex sessions there behave: its config, skills and instructions. */
 const CODEX_CONFIG = new Set([".codex", ".agents", "AGENTS.md", "AGENTS.override.md"]);
 
