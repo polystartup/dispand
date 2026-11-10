@@ -23,6 +23,9 @@ class FakeAdapter implements HarnessAdapter {
   async answer() {
     return this.online;
   }
+  async stop() {
+    return true;
+  }
 }
 
 /** A clock the test moves. */

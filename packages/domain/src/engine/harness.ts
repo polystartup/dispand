@@ -43,4 +43,9 @@ export interface HarnessAdapter<H extends Harness = Harness> {
   start(harness: H, start: StartParams): Promise<boolean>;
   send(sessionId: string, text: string): Promise<boolean>;
   answer(sessionId: string, questionId: string, answer: Answer): Promise<boolean>;
+  /**
+   * Ends the session now, whatever it is doing; true once the harness was told (or has no such
+   * session). `source` is where it runs (a runner id, or `CLOUD_SOURCE`): its step may be gone.
+   */
+  stop(sessionId: string, source: string): Promise<boolean>;
 }

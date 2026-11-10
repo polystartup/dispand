@@ -444,3 +444,40 @@ test.each([
   expect(events).toEqual([["ses_1", { type: "error", message: expect.stringContaining(message) }]]);
   await expect(stat(join(base, "root", "runs", "run_a"))).rejects.toThrow();
 });
+
+test("session.stop ends that session alone, with one error, and stops its CLI; a session that isn't running is left quiet", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "sessions-")));
+  made.push(base);
+  const events: [string, HarnessEvent][] = [];
+  const calls: Options[] = [];
+  // A CLI that keeps running until it is aborted.
+  const hanging = (({ prompt, options }: { prompt: AsyncIterable<SDKUserMessage>; options?: Options }) => {
+    calls.push(options!);
+    async function* script(): AsyncGenerator<SDKMessage> {
+      await prompt[Symbol.asyncIterator]().next();
+      yield { type: "system", subtype: "init", session_id: "cli-h" } as SDKMessage;
+      await new Promise((resolve) => options!.abortController!.signal.addEventListener("abort", resolve));
+    }
+    return Object.assign(script(), { interrupt: vi.fn(async () => undefined) });
+  }) as unknown as typeof query;
+  const sessions = new Sessions(
+    { server: "https://dispand.test", roots: [join(base, "root")], allowBypass: false },
+    (sessionId, event) => events.push([sessionId, event]),
+    { claude: { query: hanging }, resumeMap: join(base, "sessions.json"), claudeVersion: "2.1.311" },
+  );
+  await sessions.handle({ type: "session.start", start: start("ses_1", "run_a") });
+  await sessions.handle({ type: "session.start", start: start("ses_2", "run_b") });
+  await vi.waitFor(() => expect(events.filter(([, e]) => e.type === "cli-session")).toHaveLength(2));
+
+  await sessions.handle({ type: "session.stop", sessionId: "ses_1" });
+  await vi.waitFor(() => expect(sessions.ids()).toEqual(["ses_2"]));
+  expect(events.filter(([id, e]) => id === "ses_1" && e.type === "error")).toEqual([["ses_1", { type: "error", message: "Stopped" }]]);
+  expect(calls.map((o) => o.abortController!.signal.aborted)).toEqual([true, false]);
+
+  // Stopped already, or never here: nothing to say (Dispand closed it on its side).
+  const before = events.length;
+  await sessions.handle({ type: "session.stop", sessionId: "ses_1" });
+  await sessions.handle({ type: "session.stop", sessionId: "ses_never" });
+  expect(events).toHaveLength(before);
+  await sessions.shutdown();
+});

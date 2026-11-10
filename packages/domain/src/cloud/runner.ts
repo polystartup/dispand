@@ -82,6 +82,8 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   private handler: Handler = async () => {};
   private readonly locks = new Map<string, Promise<void>>();
   private readonly driving = new Set<string>();
+  /** The tool call under way of each session, so a stop can cut it. */
+  private readonly calls = new Map<string, AbortController>();
   private readonly again = new Set<string>();
   private readonly client: (h: ClientHarness) => ModelClient;
   private readonly tools: ToolCaller;
@@ -130,6 +132,14 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       await this.write(id, { items, pending: null, queued: [...row.queued, start.prompt], status: "running" });
     });
     this.kick(id);
+    return true;
+  }
+
+  /** Ends the session without an event (its run was stopped): the loop stops before its next model or tool call. */
+  async stop(sessionId: string): Promise<boolean> {
+    await this.locked(sessionId, () => this.db.update(cloudSessions).set({ status: "done" }).where(eq(cloudSessions.id, sessionId)));
+    // Its tool call under way is cut; one not dispatched yet finds the session done.
+    this.calls.get(sessionId)?.abort();
     return true;
   }
 
@@ -343,6 +353,9 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     const done = (text: string, isError: boolean, extra: Patch = {}) =>
       this.emit(id, { items: items(text, isError), ...extra }, { type: "tool", name: label, status: "done" });
     const run = await this.locked(id, async (): Promise<string | null> => {
+      // Stopped while this call was being prepared: nothing more is asked, written or run.
+      const [now] = await this.db.select({ status: cloudSessions.status }).from(cloudSessions).where(eq(cloudSessions.id, id));
+      if (now?.status !== "running") return null;
       // Shown once per call: not again when it runs after the owner allowed it.
       if (!approved) await this.emit(id, {}, { type: "tool", name: label, status: "started" });
       const ask = async (payload: QuestionPayload) => {
@@ -383,12 +396,18 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     });
     if (run === null) return;
     let outcome: { text: string; isError: boolean };
+    const stopped = new AbortController();
+    this.calls.set(id, stopped);
     try {
-      outcome = await this.tools.call(run, call.args, new AbortController().signal);
+      outcome = await this.tools.call(run, call.args, stopped.signal);
     } catch (err) {
       logError("cloud tool call failed", err, { ref: id });
       outcome = { text: "The tool call failed.", isError: true };
+    } finally {
+      this.calls.delete(id);
     }
+    // A stopped session keeps its state as the stop left it.
+    if (stopped.signal.aborted) return;
     await this.locked(id, () => done(outcome.text, outcome.isError, { inFlight: null }));
   }
 

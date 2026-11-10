@@ -45,6 +45,10 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
     return this.deliver(await this.runnerOf(sessionId), { type: "session.answer", sessionId, questionId, answer });
   }
 
+  stop(sessionId: string, runnerId: string): Promise<boolean> {
+    return this.deliver(runnerId, { type: "session.stop", sessionId });
+  }
+
   private deliver(runnerId: string, msg: ServerToRunner): Promise<boolean> {
     return this.hub.send(runnerId, msg);
   }

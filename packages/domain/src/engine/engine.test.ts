@@ -36,14 +36,24 @@ class FakeAdapter implements HarnessAdapter {
     this.answers.push([sessionId, questionId, answer]);
     return this.online;
   }
+  stops: string[] = [];
+  stopSources: string[] = [];
+  async stop(sessionId: string, source: string) {
+    this.stops.push(sessionId);
+    this.stopSources.push(source);
+    return this.online;
+  }
 }
 
 /** Records each Tool step call; answers with `answer`, or, without one, only when the engine stops (a call under way). */
 class FakeTools implements ToolExecutor {
   calls: { step: ToolStep; values: Map<string, ArgValue> }[] = [];
+  /** The signal each call got: aborted when its call is cut. */
+  signals: AbortSignal[] = [];
   constructor(private readonly answer?: (values: Map<string, ArgValue>) => Awaited<ReturnType<ToolExecutor["run"]>>) {}
   run(_ownerId: string, step: ToolStep, values: Map<string, ArgValue>, signal: AbortSignal): ReturnType<ToolExecutor["run"]> {
     this.calls.push({ step, values });
+    this.signals.push(signal);
     if (this.answer) return Promise.resolve(this.answer(values));
     return new Promise((resolve) => signal.addEventListener("abort", () => resolve({ ok: false, error: "cancelled" })));
   }
@@ -1292,3 +1302,107 @@ test("deleting an agent deletes its finished Jobs", async () => {
   await call(router.agents.delete, { id: agent.id }, { context });
   expect(await engine.db.select().from(runs)).toEqual([]);
 });
+
+// Stopping a run by hand.
+
+test("stopping a run fails its open steps and the run, expires its questions and stops its session", async () => {
+  const { context, adapter, engine, emit, workflow } = await setup(chatThenStep);
+  const runId = await engine.startRun(workflow.id);
+  const session = adapter.starts[0]!.start.sessionId;
+  await startDelivered(engine, session);
+  await emit(session, { type: "question", questionId: "rq_1", payload: { kind: "confirm-outputs", values: { idea: "notes", audience: "me" } } });
+
+  await engine.stopRun(runId);
+  const { run, steps } = await runOf(engine, runId);
+  expect(run).toMatchObject({ status: "failed", error: "Stopped" });
+  expect(run.finishedAt).toBeInstanceOf(Date);
+  expect(steps.n_chat).toMatchObject({ status: "failed", error: "Stopped" });
+  // A step that never started is closed too: nothing of the run is left open.
+  expect(steps.n_plan).toMatchObject({ status: "failed", error: "Stopped" });
+  expect(await context.db.select({ status: questions.status }).from(questions).where(eq(questions.runId, runId))).toEqual([{ status: "expired" }]);
+  await vi.waitFor(() => expect(adapter.stops).toEqual([session]));
+
+  // What the session still says changes nothing, and the chat is over.
+  await emit(session, { type: "outputs-accepted", values: { idea: "notes", audience: "me" } });
+  await emit(session, { type: "error", message: "Stopped" });
+  expect((await runOf(engine, runId)).run).toMatchObject({ status: "failed", error: "Stopped" });
+  expect(adapter.starts).toHaveLength(1);
+  await expect(engine.sendChat(runId, "hello?")).rejects.toMatchObject({ code: "CLOSED" });
+  await expect(engine.stopRun(runId)).rejects.toMatchObject({ code: "CLOSED" });
+  await expect(engine.stopRun("run_nobody")).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("stopping a chat Job ends it", async () => {
+  const { context, adapter, engine, trigger } = await jobSetup("chat");
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  await engine.stopRun(runId);
+  expect((await runOf(engine, runId)).run).toMatchObject({ status: "failed", error: "Stopped" });
+  await vi.waitFor(() => expect(adapter.stops).toEqual([adapter.starts[0]!.start.sessionId]));
+});
+
+test("a stop that didn't reach the runner is sent again when the runner is back with the session", async () => {
+  const { adapter, engine, workflow, runnerId } = await setup(buttonThenStep);
+  const runId = await engine.startRun(workflow.id);
+  const session = adapter.starts[0]!.start.sessionId;
+  await startDelivered(engine, session);
+  adapter.online = false;
+  await engine.stopRun(runId);
+  await vi.waitFor(() => expect(adapter.stops).toEqual([session]));
+
+  adapter.online = true;
+  // The runner comes back still running it, and a session whose run is gone (its workflow or
+  // agent deleted since): no step of Dispand's is waiting on either, so both are ended.
+  await engine.reconcile(runnerId, [session, "ses_gone"]);
+  await vi.waitFor(() => expect(adapter.stops).toEqual([session, session, "ses_gone"]));
+  expect(adapter.stopSources).toEqual([runnerId, runnerId, runnerId]);
+  // Nothing is resumed or started again.
+  expect(adapter.starts).toHaveLength(1);
+});
+
+test("a reconcile leaves the sessions of steps still going alone", async () => {
+  const { adapter, engine, workflow, runnerId } = await setup(buttonThenStep);
+  await engine.startRun(workflow.id);
+  const session = adapter.starts[0]!.start.sessionId;
+  await startDelivered(engine, session);
+  await engine.reconcile(runnerId, [session]);
+  expect(adapter.stops).toEqual([]);
+});
+
+test("stopping a run cuts its Tool step's call, and only that run's", async () => {
+  const fake = new FakeTools();
+  const { adapter, engine, emit, workflow } = await setup(chatToolAgent, fake);
+  const first = await engine.startRun(workflow.id);
+  const second = await engine.startRun(workflow.id);
+  await emit(adapter.starts[0]!.start.sessionId, { type: "outputs-accepted", values: { name: "acme" } });
+  await emit(adapter.starts[1]!.start.sessionId, { type: "outputs-accepted", values: { name: "other" } });
+  expect(fake.calls).toHaveLength(2);
+
+  await engine.stopRun(first);
+  expect(fake.signals.map((s) => s.aborted)).toEqual([true, false]);
+  const state = await runOf(engine, first);
+  expect(state.steps.n_repo).toMatchObject({ status: "failed", error: "Stopped" });
+  expect(state.run).toMatchObject({ status: "failed", error: "Stopped" });
+  expect((await runOf(engine, second)).steps.n_repo!.status).toBe("running");
+});
+
+test("a session being resumed when its run is stopped is not started again", async () => {
+  const { adapter, engine, workflow, runnerId } = await setup(buttonThenStep);
+  const runId = await engine.startRun(workflow.id);
+  const session = adapter.starts[0]!.start.sessionId;
+  await startDelivered(engine, session);
+  await engine.onHarnessEvent(session, { type: "cli-session", cliSessionId: "cli_1" }, { runnerId, seq: 1 });
+  // The runner comes back without the session, and the owner's stop lands after the reconcile
+  // read the step as still going, right before it is resumed.
+  const internals = engine as unknown as { resume(step: unknown): Promise<void> };
+  const resume = internals.resume.bind(engine);
+  internals.resume = async (step) => {
+    await engine.stopRun(runId);
+    await resume(step);
+  };
+  await engine.reconcile(runnerId, []);
+  await engine.stop();
+  // No start follows the stop: a stopped run is never resumed.
+  expect((await runOf(engine, runId)).run).toMatchObject({ status: "failed", error: "Stopped" });
+  expect(adapter.starts).toHaveLength(1);
+});
+
