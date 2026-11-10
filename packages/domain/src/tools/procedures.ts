@@ -4,7 +4,7 @@ import { z } from "zod";
 import { toolHolder } from "../agents/usage.ts";
 import type { Db, Tx } from "../db/client.ts";
 import { McpServerName } from "@dispand/runner-protocol";
-import { plugins, runners, tools as toolsTable } from "../db/schema.ts";
+import { agentTools, plugins, runners, tools as toolsTable } from "../db/schema.ts";
 import { isLoopback } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
 import { logError } from "../log.ts";
@@ -235,6 +235,14 @@ export async function insertTool(db: Db | Tx, secrets: SecretBox, ownerId: strin
   return row!;
 }
 
+/**
+ * The tool now stands for another server: the actions its agents let run unasked were the old
+ * server's, so every action asks again, whatever it is called there.
+ */
+async function askAgain(db: Db | Tx, toolId: string) {
+  await db.update(agentTools).set({ unasked: [] }).where(eq(agentTools.toolId, toolId));
+}
+
 /** Points the tool at a new (plain) URL, under the same rules as `update`; its actions are listed again afterwards. */
 export async function retarget(db: Db | Tx, row: Row, url: string, transport: ToolTransport): Promise<Row> {
   if (!Url.safeParse(url).success) bad("Not an http(s) URL");
@@ -245,6 +253,7 @@ export async function retarget(db: Db | Tx, row: Row, url: string, transport: To
     .where(and(eq(toolsTable.id, row.id), eq(toolsTable.ownerId, row.ownerId)))
     .returning();
   if (!updated) throw new ORPCError("NOT_FOUND");
+  await askAgain(db, updated.id);
   return updated;
 }
 
@@ -379,6 +388,7 @@ const update = owner
       .returning()
       .catch((e: unknown) => nameTaken(e, input.name ?? current.name));
     if (!row) throw new ORPCError("NOT_FOUND");
+    if (moved) await askAgain(context.db, row.id);
     const changed = moved || (input.headers !== undefined && Object.keys(input.headers).length > 0);
     return view(context.db, changed ? await refreshActions(context.db, context.secrets, context.tools, row) : row);
   });

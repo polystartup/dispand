@@ -41,7 +41,9 @@ Status: Prototype
     cloud sessions come later). A call of such a tool asks first, and on a CLI session an
     approval allows exactly the call that was shown, once. An agent whose harness bypasses
     permissions asks nothing, so it can only use the actions that run without asking.
-  - Each action of a tool an agent chose either asks before use or runs without asking. When
+  - Each action of a tool reached by URL that an agent chose either asks before use or runs
+    without asking (a runner's own tools ask as their CLI does, and changing a tool's address
+    makes all its actions ask again). When
     a tool is added to an agent, the actions the tool calls read-only start without asking
     and the others ask; after that only the owner changes it, action by action, on the
     agent's page (under each tool) or by answering "Always allow" to an approval of that action. An action
