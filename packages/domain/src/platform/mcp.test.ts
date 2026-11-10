@@ -1,11 +1,12 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { expect, onTestFinished, test } from "vitest";
+import { expect, onTestFinished, test, vi } from "vitest";
 import { runs } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { handleJobMcp } from "./mcp.ts";
+import { handleJobToolsMcp } from "./tools-mcp.ts";
 import { jobTokenOf } from "./token.ts";
 
 type Ctx = Awaited<ReturnType<typeof ownerContext>>;
@@ -106,4 +107,25 @@ test("a Job whose agent has no bundle lists no tool, without an error", async ()
   await call(router.agents.update, { name: agent.name, harnessId: agent.harnessId, systemPrompt: "", id: agent.id, bundles: [] }, { context });
   const client = await connect(context, token);
   expect((await client.listTools()).tools).toEqual([]);
+});
+
+test("the endpoints are built once per app, not once per request", async () => {
+  const { context, job } = await setup();
+  const { token } = await job("Clients");
+  const built = vi.spyOn(console, "warn").mockImplementation(() => {});
+  onTestFinished(() => built.mockRestore());
+  for (let i = 0; i < 3; i++) {
+    expect((await post(context, { authorization: `Bearer ${token}` })).status).toBe(200);
+    const res = await handleJobToolsMcp(
+      new Request("https://dispand.test/mcp/job/tools", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      }),
+      context,
+    );
+    expect(res.status).toBe(200);
+  }
+  // The SDK says once, when a handler is built, that JSON responses drop notifications: at most once per endpoint.
+  expect(built.mock.calls.filter((c) => String(c[0]).includes("responseMode")).length).toBeLessThanOrEqual(2);
 });
