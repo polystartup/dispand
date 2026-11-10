@@ -54,8 +54,8 @@ test("TriggerWidget with a button placement starts a Job on click", async () => 
   await user.click(await screen.findByRole("button", { name: "Sort the mail" }));
   expect(fake.jobs.start.mock.calls[0]![0]).toEqual({ triggerId: "trigger_1" });
   expect(fake.runs.start).not.toHaveBeenCalled();
-  // Only this agent's Jobs of this trigger are followed.
-  expect(fake.runs.list.mock.calls[0]![0]).toEqual({ agentId: "agent_1" });
+  // Only this trigger's Jobs are followed.
+  expect(fake.runs.list.mock.calls[0]![0]).toEqual({ triggerId: "trigger_1" });
 });
 
 test("TriggerWidget with a chat placement starts the Job with the first message", async () => {
@@ -81,4 +81,14 @@ test("TriggerWidget says when its trigger is disabled or gone", async () => {
   fake.triggers.get.mockRejectedValue(Object.assign(new Error("gone"), { code: "NOT_FOUND" }));
   mount();
   expect(await screen.findByText("This trigger is no longer available.")).toBeTruthy();
+});
+
+test("a chat Job stays a chat after its trigger became a button", async () => {
+  fake.triggers.get.mockResolvedValue(trigger("button"));
+  fake.runs.list.mockResolvedValue([{ id: "run_1", triggerId: "trigger_1" }]);
+  fake.jobs.def.mockResolvedValue({ trigger: { type: "manual", field: { id: "trigger_1", key: "trigger", type: "chat", label: "Mail", agentId: "agent_1", prompt: "" } }, steps: [], edges: [] });
+  fake.runs.stream.mockImplementation(idle);
+  mount();
+  expect(await screen.findByLabelText("Message")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Sort the mail" })).toBeNull();
 });

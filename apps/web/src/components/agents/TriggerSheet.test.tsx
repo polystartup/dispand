@@ -13,6 +13,7 @@ const { TriggerSheet } = await import("./TriggerSheet.tsx");
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.resetAllMocks();
 });
 
@@ -80,4 +81,28 @@ test("TriggerSheet edits a trigger without changing its kind, and deletes it", a
   });
   await user.click(screen.getByRole("button", { name: "Delete trigger" }));
   expect(fake.triggers.delete.mock.calls[0]![0]).toEqual({ id: "trigger_1" });
+});
+
+test("TriggerSheet doesn't save while the schedule shown can't be saved", async () => {
+  const { user } = mount();
+  await user.type(screen.getByLabelText("Name"), "Morning mail");
+  await user.click(screen.getByRole("radio", { name: "Schedule" }));
+  await user.click(screen.getByRole("radio", { name: "Custom" }));
+  await user.clear(screen.getByLabelText("Cron"));
+  await user.type(screen.getByLabelText("Cron"), "invalid");
+  await user.click(screen.getByRole("button", { name: "Create trigger" }));
+  expect(fake.triggers.create).not.toHaveBeenCalled();
+  expect(screen.getByText("Fix the schedule first")).toBeTruthy();
+});
+
+test("TriggerSheet starts a schedule in a timezone schedules accept, whatever the browser's", async () => {
+  // A browser set to UTC: schedules take IANA zones only.
+  vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({ timeZone: "UTC" } as Intl.ResolvedDateTimeFormatOptions);
+  fake.triggers.create.mockResolvedValue({});
+  const { user } = mount();
+  await user.type(screen.getByLabelText("Name"), "Morning mail");
+  await user.click(screen.getByRole("radio", { name: "Schedule" }));
+  expect(screen.queryByText("Unknown timezone")).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Create trigger" }));
+  expect(fake.triggers.create.mock.calls[0]![0]).toMatchObject({ config: { kind: "schedule", timezone: "Europe/Paris" } });
 });

@@ -1,6 +1,7 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
-import { account, user } from "../db/schema.ts";
+import { eq } from "drizzle-orm";
+import { account, runs as runsTable, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
@@ -84,8 +85,16 @@ test("runs.list filters by agentId and by workflowId", async () => {
   const job = await call(router.jobs.start, { triggerId: button.id }, { context });
   const run = await call(router.runs.start, { workflowId: workflow.id }, { context });
 
-  const ids = async (input: { agentId?: string; workflowId?: string }) => (await call(router.runs.list, input, { context })).map((r) => r.id);
+  const ids = async (input: { agentId?: string; workflowId?: string; triggerId?: string }) => (await call(router.runs.list, input, { context })).map((r) => r.id);
   expect(await ids({ agentId: agent.id })).toEqual([job.runId]);
+  // By trigger: another trigger of the same agent has its own Jobs.
+  const other = await trigger({ kind: "manual", placement: "button" });
+  const second = await call(router.jobs.start, { triggerId: other.id }, { context });
+  expect(await ids({ triggerId: button.id })).toEqual([job.runId]);
+  expect(await ids({ triggerId: other.id })).toEqual([second.runId]);
+  await expect(ids({ triggerId: "trigger_nobody" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await call(router.triggers.delete, { id: other.id }, { context });
+  await context.db.delete(runsTable).where(eq(runsTable.id, second.runId));
   expect(await ids({ workflowId: workflow.id })).toEqual([run.runId]);
   expect((await ids({})).sort()).toEqual([job.runId, run.runId].sort());
   await expect(ids({ agentId: "agent_nobody" })).rejects.toMatchObject({ code: "NOT_FOUND" });

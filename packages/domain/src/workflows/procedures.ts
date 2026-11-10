@@ -11,6 +11,7 @@ import {
   scheduleFires,
   schedules,
   stepRuns,
+  triggers,
   workflows as workflowsTable,
   workflowVersions,
 } from "../db/schema.ts";
@@ -338,8 +339,15 @@ const stream = owner.input(z.object({ runId: z.string() })).handler(async functi
 /** How many changes a run stream holds for a slow client before it resynchronizes it. */
 export const STREAM_BUFFER = 1000;
 
-/** The latest runs of one workflow, the latest Jobs of one agent, or the owner's latest runs of both kinds when neither is given. */
-const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agentId: z.string().optional() })).handler(async ({ input, context }) => {
+/** The latest runs of one workflow, the latest Jobs of one agent or of one trigger, or the owner's latest runs of both kinds when none is given. */
+const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agentId: z.string().optional(), triggerId: z.string().optional() })).handler(async ({ input, context }) => {
+  if (input.triggerId) {
+    const [trigger] = await context.db
+      .select({ id: triggers.id })
+      .from(triggers)
+      .where(and(eq(triggers.id, input.triggerId), eq(triggers.ownerId, context.ownerId)));
+    if (!trigger) throw new ORPCError("NOT_FOUND");
+  }
   if (input.workflowId) await find(context.db, context.ownerId, input.workflowId);
   if (input.agentId) {
     const [agent] = await context.db
@@ -356,6 +364,7 @@ const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agent
         eq(runsTable.ownerId, context.ownerId),
         input.workflowId ? eq(runsTable.workflowId, input.workflowId) : undefined,
         input.agentId ? eq(runsTable.agentId, input.agentId) : undefined,
+        input.triggerId ? eq(runsTable.triggerId, input.triggerId) : undefined,
       ),
     )
     .orderBy(desc(runsTable.createdAt), desc(runsTable.id))

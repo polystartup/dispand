@@ -12,13 +12,16 @@ type Props = { widget: TriggerFormWidget; editing: boolean };
 /** An agent's manual trigger on a page: its button starts a Job, its chat holds the conversation. */
 export function TriggerWidget({ widget, editing }: Props) {
   const trigger = useQuery({ ...orpc.triggers.get.queryOptions({ input: { id: widget.triggerId } }), retry: false });
-  const agentId = trigger.data?.agentId;
-  const jobs = useQuery({ ...orpc.runs.list.queryOptions({ input: { agentId: agentId ?? "" } }), enabled: !!agentId });
+  const jobs = useQuery(orpc.runs.list.queryOptions({ input: { triggerId: widget.triggerId } }));
   // undefined: follow the trigger's latest Job; null: a new conversation that hasn't started yet.
   const [chosen, setChosen] = useState<string | null | undefined>(undefined);
-  const runId = chosen === undefined ? (jobs.data?.find((r) => r.triggerId === widget.triggerId)?.id ?? null) : chosen;
+  const runId = chosen === undefined ? (jobs.data?.[0]?.id ?? null) : chosen;
+  // A Job keeps the placement it started with: a chat stays a chat after the trigger became a button.
+  const jobDef = useQuery({ ...orpc.jobs.def.queryOptions({ input: { runId: runId ?? "" } }), enabled: !!runId, staleTime: Infinity });
   const start = () => api.jobs.start({ triggerId: widget.triggerId });
   const config = trigger.data?.config;
+  const placement = runId ? (jobDef.data ? (jobDef.data.trigger.field.type === "chat" ? "chat" : "button") : jobDef.error ? undefined : null) : undefined;
+  const shown = placement === undefined ? (config?.kind === "manual" ? config.placement : null) : placement;
 
   return (
     <section aria-label={widget.title} className="flex h-full flex-col overflow-hidden rounded-2xl bg-surface shadow-card">
@@ -31,11 +34,11 @@ export function TriggerWidget({ widget, editing }: Props) {
         <p role="alert" className="px-5 pb-5 text-[14px] text-muted">
           Could not load this trigger's Jobs.
         </p>
-      ) : !trigger.data || !jobs.data || config?.kind !== "manual" ? (
+      ) : !trigger.data || !jobs.data || !shown ? (
         <p className="px-5 pb-5 text-[14px] text-faint">Loading…</p>
       ) : !trigger.data.enabled ? (
         <p className="px-5 pb-5 text-[14px] text-muted">This trigger is disabled.</p>
-      ) : config.placement === "chat" ? (
+      ) : shown === "chat" ? (
         <ChatPanel start={start} runId={runId} onRunStarted={setChosen} onNewConversation={() => setChosen(null)} />
       ) : (
         <StartButton label={trigger.data.name} runId={runId} start={start} onRunStarted={setChosen} />

@@ -203,9 +203,9 @@
   of its agent (system prompt, model, harness, skills, tools) taken in `Engine.createJob`; its
   sessions read the snapshot, so editing the agent or the trigger never changes a Job already
   created. `jobs.start` starts a manual trigger's Job, `jobs.def` gives a Job's definition, and
-  `runs.list` takes an `agentId`. An agent is never deleted under a Job still going, by itself or
+  `runs.list` takes an `agentId` or a `triggerId`. An agent is never deleted under a Job still going, by itself or
   with its plugin: both paths lock its triggers and the agent in the deleting transaction
-  (`jobs/active.ts`), so a Job being created at that moment is seen; finished Jobs and triggers
+  (`jobs/active.ts`; `createJob` and the scheduler take them in the same order), so a Job being created at that moment is seen; finished Jobs and triggers
   go with the agent (cascade). The scheduler's tick makes a second claim in the same
   transaction, for due enabled schedule triggers, with the rules of workflow schedules: one
   fire per due time in `trigger_fires` (unique on `(trigger_id, scheduled_for)`),

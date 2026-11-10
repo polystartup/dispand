@@ -18,12 +18,10 @@ const STARTS: [Starts, string, string][] = [
   ["schedule", "Schedule", "The Job starts by itself, on a schedule."],
 ];
 
+/** The browser's timezone when schedules accept it (they take IANA zones: not "UTC"), else the default. */
 function localTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_TIMEZONE;
-  } catch {
-    return DEFAULT_TIMEZONE;
-  }
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return Intl.supportedValuesOf("timeZone").includes(zone) ? zone : DEFAULT_TIMEZONE;
 }
 
 type Props = {
@@ -57,8 +55,10 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
   // A trigger keeps its kind: a manual one moves between chat and button only.
   const choices = STARTS.filter(([s]) => !trigger || (trigger.kind === "schedule" ? s === "schedule" : s !== "schedule"));
 
-  function save() {
+  function save(form: HTMLFormElement) {
     if (!name.trim()) return setProblem("Give the trigger a name");
+    // The schedule panel keeps what is typed while it can't be saved: never save another schedule than the one shown.
+    if (form.querySelector('[aria-invalid="true"]')) return setProblem("Fix the schedule first");
     setProblem(null);
     const fields = {
       name: name.trim(),
@@ -82,7 +82,7 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
           noValidate
           onSubmit={(e) => {
             e.preventDefault();
-            save();
+            save(e.currentTarget);
           }}
         >
           <FormField label="Name" htmlFor="trigger-name">
