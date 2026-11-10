@@ -1232,12 +1232,12 @@ test("the Job's tools server asks before each call, even though it is Dispand's:
   const events: HarnessEvent[] = [];
   const session: ClaudeSession = startClaudeSession(start, "/work", (e) => {
     events.push(e);
-    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "allow-always" }));
+    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "allow" }));
   }, { query: fake.query, jobServer: "job" });
   await session.done;
-  // Asked with the call shown whole, and never allowed for the session.
+  // Asked with the call shown whole; an allowance is for that call ("always" has its own test).
   expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: unknown }).payload)).toEqual([
-    { kind: "permission", toolName: "mcp__job_tools__GitHub_create_issue", input: { title: "Bug" }, canAlwaysAllow: false },
+    { kind: "permission", toolName: "mcp__job_tools__GitHub_create_issue", input: { title: "Bug" }, canAlwaysAllow: true },
   ]);
   expect(decisions).toEqual([
     { behavior: "allow", updatedInput: { title: "Bug" } },
@@ -1342,4 +1342,39 @@ test("an action the agent lets run unasked isn't asked about; the Job's other to
   expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: { toolName: string } }).payload.toolName)).toEqual(names.slice(1));
   expect(outputs[0]).toEqual({});
   expect(outputs[1]).toMatchObject({ hookSpecificOutput: { permissionDecision: "ask" } });
+});
+
+test("always allow on one of the Job's tools stops the questions for that action in the session, and for nothing else", async () => {
+  const decisions: string[] = [];
+  const a = "mcp__job_tools__github_send_0123456789abcdef";
+  const b = "mcp__job_tools__github_delete_0123456789abcdef";
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    for (const name of [a, a, b]) decisions.push(((await options.canUseTool!(name, {}, ctx())) as { behavior: string }).behavior);
+    yield result();
+  });
+  const events: HarnessEvent[] = [];
+  const session: ClaudeSession = startClaudeSession(start, "/work", (e) => {
+    events.push(e);
+    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: (e.payload as { toolName: string }).toolName === a ? "allow-always" : "deny" }));
+  }, { query: fake.query, jobServer: "job" });
+  await session.done;
+  expect(decisions).toEqual(["allow", "allow", "deny"]);
+  const asked = events.flatMap((e) => (e.type === "question" ? [e.payload as { toolName: string; canAlwaysAllow: boolean }] : []));
+  expect(asked.map((q) => [q.toolName, q.canAlwaysAllow])).toEqual([[a, true], [b, true]]);
+});
+
+test("without a Job, a tool named like one of its tools offers no always allow", async () => {
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    await options.canUseTool!("mcp__job_tools__x_0123456789abcdef", {}, ctx());
+    yield result();
+  });
+  const events: HarnessEvent[] = [];
+  const session: ClaudeSession = startClaudeSession(start, "/work", (e) => {
+    events.push(e);
+    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "deny" }));
+  }, { query: fake.query });
+  await session.done;
+  expect(events.flatMap((e) => (e.type === "question" ? [(e.payload as { canAlwaysAllow: boolean }).canAlwaysAllow] : []))).toEqual([false]);
 });

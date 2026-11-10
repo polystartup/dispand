@@ -43,7 +43,8 @@ changes it updates this file.
   runs a call only when it finds, in its own records, an approval of that Job for that tool and
   those arguments (key order aside), answered with an allowance and not used yet, and uses it
   up: it never takes the runner's word that the owner said yes, an approval allows one call,
-  and "always allow" doesn't exist for these tools. The name a tool is asked and called under
+  and "always allow" is no approval of later calls: it is the owner taking that action off
+  the agent's asking ones (below), and the answer itself is used up as it is given. The name a tool is asked and called under
   is derived from the tool's id and the action's name alone, so an approval can't move to
   another tool or action; a tool's schema is passed on as data and never compiled. That name
   is words cut short and a mark, so the question the owner answers also carries, from the
@@ -58,8 +59,12 @@ changes it updates this file.
   server's claim and is read only then: a server that later calls another action read-only
   gains nothing, an action that appears later asks, and a tool that only comes with a skill
   asks for everything. The list changes in two ways, both a person's: the procedure for it,
-  which is not one of a Job's tools, and the answer "always allow" to a cloud session's
-  approval of that action. So no agent removes its own questions. Accepted: an unasked action that reaches outside (a search,
+  which is not one of a Job's tools, and the answer "always allow" to an approval of that
+  action, in a cloud session or a Job's CLI session. For a CLI session the server resolves
+  the name the question was asked under (which stands for one tool and action for good) on
+  the run's own agent; a name that stands for nothing the agent chose grants nothing, and the
+  runner is then told "allow", once. On "always", the runner only stops asking about that
+  name of the Job's tools server in the session that asked. So no agent removes its own questions. Accepted: an unasked action that reaches outside (a search,
   a fetch) can carry in its arguments what the Job read; the owner keeps such actions asking
   on agents that read confidential tables. An unasked action also runs for a session in
   `bypassPermissions` mode.

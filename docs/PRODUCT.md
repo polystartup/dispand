@@ -44,8 +44,7 @@ Status: Prototype
   - Each action of a tool an agent chose either asks before use or runs without asking. When
     a tool is added to an agent, the actions the tool calls read-only start without asking
     and the others ask; after that only the owner changes it, action by action, on the
-    agent's page (under each tool) or by answering "Always allow" to an approval in a cloud
-    session. An action
+    agent's page (under each tool) or by answering "Always allow" to an approval of that action. An action
     that reaches outside can carry what the agent read, so it is worth keeping it asking on
     an agent that reads confidential data.
   - Nothing answers a Question or an Approval for the owner: no timeout, no default. What was

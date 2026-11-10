@@ -284,7 +284,11 @@
   neither is a platform tool). A Job's session start names those actions (`unasked`, their
   exposed names, at most 500; protocol 7), and the runner lets `mcp__job_tools__<name>` run
   without a question for them (`isJobTool` on Claude Code, the elicitation on Codex): the CLI
-  prompts for the others, and for all of them on a start that names none. Workflow runs' CLI sessions have no Job token, so
+  prompts for the others, and for all of them on a start that names none. "Always allow" on such a
+  prompt: `Engine.answer` takes the action off the agent's asking ones (`stopAsking`,
+  `platform/exposed.ts`) and marks the answer consumed, or brings the answer down to "allow"
+  when the name stands for nothing the agent chose; the runner adds the name to the session's
+  unasked ones. Workflow runs' CLI sessions have no Job token, so
   no such tools; cloud sessions don't get skills yet.
 - **Inbox:** every question a session asks is a row of `questions` with a `kind`: a permission
   is an `approval`, a choice or a confirmation a `question` (set when it is asked; migration

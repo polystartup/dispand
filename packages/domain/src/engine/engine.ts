@@ -42,7 +42,7 @@ import { toolIdsOf, validateToolSteps } from "../workflows/tool-steps.ts";
 import type { CloudKind } from "../harnesses/cloud.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, isCloud, type StartParams } from "./harness.ts";
 import { runDataStep } from "./data-step.ts";
-import { aboutExposed } from "../platform/exposed.ts";
+import { aboutExposed, isExposedName, stopAsking } from "../platform/exposed.ts";
 import { issueJobToken } from "../platform/token.ts";
 import type { SecretBox } from "../secrets.ts";
 import { jobDef } from "./job-def.ts";
@@ -440,6 +440,21 @@ export class Engine {
         .where(and(eq(questions.id, questionId), eq(questions.status, "pending")))
         .returning();
       if (!q) return null;
+      // A person's "always allow" to a CLI session's approval of one of its agent's tools: that
+      // action stops asking on the agent, with the answer that was just taken (an answer that
+      // came second grants nothing). The answer is used up as it is given: the call it is for
+      // needs no approval any more, and it must not stay for a later one. When the name stands
+      // for nothing the agent chose, nothing is granted and the answer allows this call only:
+      // the runner must not stop prompting for a call the endpoint would still refuse.
+      if (by?.type === "user" && answer.kind === "permission" && answer.decision === "allow-always" && q.payload.kind === "permission" && isExposedName(q.payload.toolName)) {
+        const stopped = await stopAsking(tx as unknown as Db, q.runId, q.payload.toolName);
+        const [settled] = await tx
+          .update(questions)
+          .set(stopped ? { consumedAt: new Date() } : { answer: { ...answer, decision: "allow" } })
+          .where(eq(questions.id, q.id))
+          .returning();
+        Object.assign(q, settled);
+      }
       out.push({ type: "question", question: questionView(q) });
       await this.syncWaiting(tx, q.stepRunId, q.runId, out);
       return q;

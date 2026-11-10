@@ -1,6 +1,7 @@
 import { JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
 import { createHash } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
+import { setAsk } from "../agents/tool-ask.ts";
 import type { Db } from "../db/client.ts";
 import { runs } from "../db/schema.ts";
 import { toolingOf } from "../engine/tooling.ts";
@@ -61,4 +62,20 @@ export async function aboutExposed(db: Db, job: { runId: string; ownerId: string
   if (!toolName.startsWith(PREFIX)) return null;
   const item = (await exposedTools(db, job)).find((t) => askedName(t.name) === toolName);
   return item ? { tool: item.tool, action: item.action, description: item.description } : null;
+}
+
+/** Whether a tool name is one of the Job's tools server's, whatever it stands for. */
+export const isExposedName = (toolName: string) => toolName.startsWith(PREFIX);
+
+/**
+ * The owner's "always allow" to a CLI session's approval: the action the name stands for, on
+ * the run's agent, stops asking. False when the name stands for no action the agent chose (one
+ * that is gone, a tool that only comes with a skill, a run that ended): nothing was granted.
+ */
+export async function stopAsking(db: Db, runId: string, toolName: string): Promise<boolean> {
+  if (!isExposedName(toolName)) return false;
+  const [run] = await db.select({ ownerId: runs.ownerId, agentId: runs.agentId }).from(runs).where(eq(runs.id, runId));
+  if (!run?.agentId) return false;
+  const item = (await exposedTools(db, { runId, ownerId: run.ownerId, agentId: run.agentId })).find((t) => askedName(t.name) === toolName);
+  return item ? setAsk(db, run.ownerId, { agentId: run.agentId, toolId: item.toolId, action: item.action, ask: false }) : false;
 }

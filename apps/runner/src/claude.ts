@@ -298,7 +298,10 @@ export function startClaudeSession(
     }
     // An MCP call is approved one at a time: no rule may let the next ones through.
     const updates = isMcpTool(toolName) ? [] : boundary.sessionUpdates(suggestions);
-    const canAlwaysAllow = updates.length > 0;
+    // One of the Job's tools: "always" is the owner taking that action off the agent's asking
+    // ones, on the server. Here it only means this session stops asking about it too.
+    const jobTool = deps.jobServer !== undefined && toolName.startsWith(`mcp__${JOB_TOOLS_SERVER}__`);
+    const canAlwaysAllow = updates.length > 0 || jobTool;
     const payload: QuestionPayload = { kind: "permission", toolName, input: toolInput, canAlwaysAllow };
     // The owner approves exactly what they see: an input that can't be shown whole isn't asked about.
     if (!fitsWhole({ type: "question", questionId: "", payload })) {
@@ -307,6 +310,10 @@ export function startClaudeSession(
     const answer = await ask(payload, signal);
     if (answer?.kind !== "permission" || answer.decision === "deny") {
       return { behavior: "deny", message: (answer?.kind === "permission" && answer.message) || "The owner denied this." };
+    }
+    if (answer.decision === "allow-always" && jobTool) {
+      unasked.add(toolName);
+      return { behavior: "allow", updatedInput: toolInput };
     }
     if (answer.decision === "allow-always" && canAlwaysAllow) {
       return { behavior: "allow", updatedInput: toolInput, updatedPermissions: updates };

@@ -478,6 +478,35 @@ test("on Codex, an action the agent lets run unasked isn't asked about; the Job'
   expect(await s.replyTo("r1")).toEqual({ action: "decline", content: null, _meta: null });
 });
 
+test("on Codex, always allow on one of the Job's tools stops the questions for that action in the session only", async () => {
+  const approval = (serverName: string, tool: string) => ({
+    request: "mcpServer/elicitation/request",
+    params: {
+      threadId: "$THREAD",
+      turnId: "$TURN",
+      serverName,
+      mode: "form",
+      message: `Allow the ${serverName} MCP server to run tool "${tool}"?`,
+      requestedSchema: { type: "object", properties: {} },
+      _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_name: tool, tool_params: {} },
+    },
+  });
+  const s = await run({
+    turns: [[approval("job_tools", "send_0123456789abcdef"), approval("job_tools", "send_0123456789abcdef"), approval("job_tools", "delete_0123456789abcdef"), approval("other", "send_0123456789abcdef"), message("Done")]],
+    deps: { jobServer: "job" },
+    answer: (q) => ({ kind: "permission", decision: (q.payload as { toolName: string }).toolName.endsWith("send_0123456789abcdef") ? "allow-always" : "deny" }),
+  });
+  await s.ended();
+  expect(questions(s.events).map((q) => [(q.payload as { toolName: string }).toolName, (q.payload as { canAlwaysAllow: boolean }).canAlwaysAllow])).toEqual([
+    ["mcp__job_tools__send_0123456789abcdef", true],
+    ["mcp__job_tools__delete_0123456789abcdef", true],
+    // Another server's tool of the same name: asked, with no "always".
+    ["mcp__other__send_0123456789abcdef", false],
+  ]);
+  expect(await s.replyTo("r1")).toEqual({ action: "accept", content: {}, _meta: null });
+  expect(await s.replyTo("r2")).toEqual({ action: "decline", content: null, _meta: null });
+});
+
 test("request_approval on Codex asks the owner in the agent's words and answers Approved or the denial", async () => {
   const ask = (message: string) => request("item/tool/call", { callId: `c_${message.length}`, namespace: null, tool: "request_approval", arguments: { message } });
   const answers: Answer[] = [
