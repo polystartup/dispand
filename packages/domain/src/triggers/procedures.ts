@@ -21,6 +21,12 @@ async function requireAgent(db: Db, ownerId: string, agentId: string) {
   if (!row) throw new ORPCError("NOT_FOUND", { message: "Agent not found" });
 }
 
+/** A chat starts with the owner's words; a button or a schedule has only its instructions to go on. */
+function checkInstructions(config: TriggerConfig, instructions: string) {
+  if (config.kind === "manual" && config.placement === "chat") return;
+  if (!instructions.trim()) throw new ORPCError("BAD_REQUEST", { message: "Say what the agent does when this trigger fires" });
+}
+
 function checkConfig(config: TriggerConfig) {
   if (config.kind !== "schedule") return;
   const problem = cronProblem(config.cron, config.timezone);
@@ -83,6 +89,7 @@ async function find(db: Db, ownerId: string, id: string) {
 const create = owner.input(TriggerFields.extend({ agentId: z.string() })).handler(async ({ input, context }) => {
   await requireAgent(context.db, context.ownerId, input.agentId);
   checkConfig(input.config);
+  checkInstructions(input.config, input.instructions);
   const now = (context.now ?? (() => new Date()))();
   const { agentId, name, instructions, concurrency, config } = input;
   const [row] = await context.db
@@ -126,6 +133,7 @@ const update = owner
       const config = input.config ?? previous.config;
       if (config.kind !== previous.kind) throw new ORPCError("BAD_REQUEST", { message: "A trigger's kind can't change" });
       checkConfig(config);
+      checkInstructions(config, input.instructions ?? previous.instructions);
       const enabled = input.enabled ?? previous.enabled;
       const [updated] = await tx
         .update(triggersTable)

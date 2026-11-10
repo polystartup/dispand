@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import type { Tx } from "../db/client.ts";
-import { agents, runs } from "../db/schema.ts";
+import { agents, runs, triggers } from "../db/schema.ts";
 
 /**
  * Before agents are deleted, in the transaction that deletes them: locks them, so a Job being
@@ -10,6 +10,8 @@ import { agents, runs } from "../db/schema.ts";
  */
 export async function lockAgentsForDelete(tx: Tx, agentIds: string[]): Promise<string | undefined> {
   if (agentIds.length === 0) return undefined;
+  // Triggers first, then agents: the order the scheduler takes them in, so neither waits on the other.
+  await tx.select({ id: triggers.id }).from(triggers).where(inArray(triggers.agentId, agentIds)).for("update");
   await tx.select({ id: agents.id }).from(agents).where(inArray(agents.id, agentIds)).for("update");
   const [busy] = await tx
     .select({ name: agents.name })

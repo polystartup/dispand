@@ -1,10 +1,10 @@
 import { and, asc, eq, inArray, lte } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { runs, scheduleFires, schedules, workflows, workflowVersions, type ScheduleFireStatus } from "../db/schema.ts";
+import { runs, scheduleFires, schedules, triggerFires, triggers, workflows, workflowVersions, type ScheduleFireStatus } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { logError } from "../log.ts";
 import { latestFireBetween, nextFireAfter } from "../workflows/schedule.ts";
-import { runIssues, type Engine } from "./engine.ts";
+import { EngineError, runIssues, type Engine } from "./engine.ts";
 
 /** How often the scheduler looks for due schedules. */
 export const SCHEDULER_TICK_MS = 15_000;
@@ -12,7 +12,8 @@ export const SCHEDULER_TICK_MS = 15_000;
 const BATCH = 20;
 
 /**
- * Fires schedules, once per due time across restarts and processes. A tick claims due rows
+ * Fires schedules (a workflow's, and an agent's schedule triggers, whose fires are Jobs recorded
+ * in `trigger_fires`), once per due time across restarts and processes. A tick claims due rows
  * (`FOR UPDATE SKIP LOCKED`), records each fire under the unique `(workflow_id, scheduled_for)`
  * and creates its run in the same transaction; runs go on after the commit, or on the next boot's
  * `recover()` if the process stops first. After downtime, missed times coalesce into one fire for
@@ -102,8 +103,78 @@ export class Scheduler {
           .set({ nextFireAt: nextFireAfter(s.cron, s.timezone, now), lastCheckedAt: now })
           .where(eq(schedules.workflowId, s.workflowId));
       }
+      // An agent's schedule triggers, under the same rules; each fire is a Job.
+      const dueTriggers = await tx
+        .select()
+        .from(triggers)
+        .where(and(eq(triggers.kind, "schedule"), eq(triggers.enabled, true), lte(triggers.nextFireAt, now)))
+        .orderBy(asc(triggers.nextFireAt))
+        .limit(BATCH)
+        .for("update", { skipLocked: true });
+      for (const t of dueTriggers) {
+        if (t.config.kind !== "schedule" || !t.lastCheckedAt) continue;
+        const { cron, timezone } = t.config;
+        const at = latestFireBetween(cron, timezone, t.lastCheckedAt, now);
+        if (at) {
+          try {
+            const runId = await tx.transaction((sp) => this.fireTrigger(sp, t, at));
+            if (runId) started.push(runId);
+          } catch (err) {
+            logError("scheduler.fireTrigger failed", err);
+            continue;
+          }
+        }
+        await tx
+          .update(triggers)
+          .set({ nextFireAt: nextFireAfter(cron, timezone, now), lastCheckedAt: now })
+          .where(eq(triggers.id, t.id));
+      }
       return started;
     });
+  }
+
+  /** Records the trigger's fire for `at` (once) and creates its Job, unless one is going (one at a time) or the engine refuses it. */
+  private async fireTrigger(tx: Tx, trigger: typeof triggers.$inferSelect, at: Date): Promise<string | null> {
+    const id = newId("fire");
+    const [fire] = await tx
+      .insert(triggerFires)
+      .values({ id, ownerId: trigger.ownerId, triggerId: trigger.id, scheduledFor: at, status: "started" })
+      .onConflictDoNothing()
+      .returning({ id: triggerFires.id });
+    // Already fired for this time (another process, or before a restart).
+    if (!fire) return null;
+    const record = (status: ScheduleFireStatus, set: { runId?: string; message?: string }) =>
+      tx.update(triggerFires).set({ status, ...set }).where(eq(triggerFires.id, id));
+    if (trigger.concurrency === "one-at-a-time") {
+      const [active] = await tx
+        .select({ id: runs.id })
+        .from(runs)
+        .where(and(eq(runs.triggerId, trigger.id), inArray(runs.status, ["running", "waiting"])))
+        .limit(1);
+      if (active) {
+        await record("skipped-overlap", {});
+        return null;
+      }
+    }
+    const scheduledFor = at.toISOString();
+    try {
+      // In its own savepoint: a refusal leaves nothing of the Job behind, and the fire is kept.
+      const runId = await tx.transaction((sp) =>
+        this.engine.createJob(sp, {
+          ownerId: trigger.ownerId,
+          agentId: trigger.agentId,
+          triggerId: trigger.id,
+          cause: { kind: "schedule", scheduledFor, depth: 0 },
+          firing: { type: "schedule", scheduledFor },
+        }),
+      );
+      await record("started", { runId });
+      return runId;
+    } catch (err) {
+      if (!(err instanceof EngineError)) throw err;
+      await record("refused", { message: err.message });
+      return null;
+    }
   }
 
   /** Records the fire for `at` (once) and creates its run unless one is going or the workflow can't run. */

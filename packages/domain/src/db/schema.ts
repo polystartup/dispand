@@ -472,10 +472,12 @@ export const widgets = pgTable(
     pageId: text("page_id")
       .notNull()
       .references(() => pages.id, { onDelete: "cascade" }),
-    type: text("type").$type<"workflow-form" | "grid" | "table">().notNull(),
+    type: text("type").$type<"workflow-form" | "trigger-form" | "grid" | "table">().notNull(),
     title: text("title").notNull(),
-    // A workflow form has a workflow; a Grid or Table widget a table and its config.
+    // A workflow form has a workflow; a trigger form an agent's manual trigger; a Grid or Table
+    // widget a table and its config.
     workflowId: text("workflow_id").references(() => workflows.id, { onDelete: "cascade" }),
+    triggerId: text("trigger_id").references(() => triggers.id, { onDelete: "cascade" }),
     tableId: text("table_id").references(() => tables.id, { onDelete: "cascade" }),
     config: jsonb("config").$type<WidgetConfig>(),
     layout: jsonb("layout").$type<WidgetLayout>().notNull(),
@@ -485,10 +487,11 @@ export const widgets = pgTable(
   (t) => [
     index("widgets_page_idx").on(t.pageId),
     index("widgets_page_workflow_idx").on(t.pageId, t.workflowId),
+    index("widgets_trigger_idx").on(t.triggerId),
     index("widgets_table_idx").on(t.tableId),
     check(
       "widgets_target_check",
-      sql`(${t.type} = 'workflow-form' and ${t.workflowId} is not null and ${t.tableId} is null and ${t.config} is null) or (${t.type} in ('grid', 'table') and ${t.workflowId} is null and ${t.tableId} is not null and ${t.config} is not null)`,
+      sql`(${t.type} = 'workflow-form' and ${t.workflowId} is not null and ${t.triggerId} is null and ${t.tableId} is null and ${t.config} is null) or (${t.type} = 'trigger-form' and ${t.triggerId} is not null and ${t.workflowId} is null and ${t.tableId} is null and ${t.config} is null) or (${t.type} in ('grid', 'table') and ${t.workflowId} is null and ${t.triggerId} is null and ${t.tableId} is not null and ${t.config} is not null)`,
     ),
   ],
 );

@@ -188,6 +188,34 @@
   succeeds); if the process stops first, the next boot's `recover()` does. The schedule trigger completes with `scheduled_for` (ISO 8601
   with the schedule's offset; the run's start time for a manual start). Sessions of runs fired at
   boot start when their runner says hello.
+- **Jobs and triggers:** an agent owns `triggers` rows (`triggers/`): `manual` (a chat or a
+  button) or `schedule` (cron and timezone, checked by `cronProblem`), each with a name,
+  instructions added to the prompt, a concurrency (`parallel` or `one-at-a-time`) and, for a
+  schedule, `next_fire_at` and `last_checked_at` with the meaning they have on `schedules`
+  (reset only when the cron or timezone changed or the trigger is enabled again; a trigger keeps
+  its kind). Each firing creates a Job: a row of `runs` with `source: "agent"`, no workflow, its
+  `agent_id` and `trigger_id`, a `cause` (who or what made it, and its depth in a chain of Jobs;
+  deeper than 10 is refused) and its own definition in `def`, built by the pure `jobDef`
+  (`engine/job-def.ts`): the trigger as the firing, then one agent step whose prompt is the
+  trigger's instructions (a chat trigger has no step: the conversation is the Job). The engine's
+  `defOf` returns `run.def` when it is set and the workflow version otherwise, so sessions,
+  questions, recovery and reconcile are the same code for both. A Job also keeps a `snapshot`
+  of its agent (system prompt, model, harness, skills, tools) taken in `Engine.createJob`; its
+  sessions read the snapshot, so editing the agent or the trigger never changes a Job already
+  created. `jobs.start` starts a manual trigger's Job, `jobs.def` gives a Job's definition, and
+  `runs.list` takes an `agentId` or a `triggerId`. An agent is never deleted under a Job still going, by itself or
+  with its plugin: both paths lock its triggers and the agent in the deleting transaction
+  (`jobs/active.ts`; `createJob` and the scheduler take them in the same order), so a Job being created at that moment is seen; finished Jobs and triggers
+  go with the agent (cascade). The scheduler's tick makes a second claim in the same
+  transaction, for due enabled schedule triggers, with the rules of workflow schedules: one
+  fire per due time in `trigger_fires` (unique on `(trigger_id, scheduled_for)`),
+  `skipped-overlap` when the trigger is one at a time and one of its Jobs is going, `refused`
+  with the engine's message, otherwise `started` with the Job. The agent's page
+  (`/settings/agents/<id>`) has three tabs: Settings, Triggers (`components/agents/TriggerList`,
+  `TriggerSheet`, which reuses the schedule panel) and Jobs (`JobList`). A manual trigger goes
+  on a page as a `trigger-form` widget (`widgets.trigger_id`, one per trigger and page):
+  `TriggerWidget` shows its button or its chat (`ChatPanel` with `jobs.start`). A Job's
+  questions are listed in Notifications with its agent.
 - **Home and widgets:** `pages.home` returns the owner's home page with its widgets, creating
   it on the first call (a partial unique index keeps one per owner); it can't be renamed or deleted and is listed first. Other pages (`kind: "page"`, `pages.create`, `rename`, `delete`; at most 50 per owner, titles 1-100 characters, duplicates allowed) are listed under Home in the sidebar and shown at `/p/<id>` by the same `PageView`; deleting one deletes its widgets (cascade). A
   widget is a workflow form (`type: "workflow-form"`) with a layout per breakpoint (`lg`, `md`,

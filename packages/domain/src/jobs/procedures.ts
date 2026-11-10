@@ -1,7 +1,7 @@
 import { ORPCError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { stepRuns, triggers } from "../db/schema.ts";
+import { runs, stepRuns, triggers } from "../db/schema.ts";
 import { authed, base } from "../rpc/context.ts";
 import { engineError } from "../workflows/procedures.ts";
 
@@ -25,4 +25,14 @@ const start = owner.input(z.object({ triggerId: z.string() })).handler(async ({ 
   return { runId, ...(chat?.sessionId ? { chatSessionId: chat.sessionId } : {}) };
 });
 
-export const jobs = { start };
+/** A Job's definition, as it was created: what its run page and its conversation name the steps from. */
+const def = owner.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
+  const [run] = await context.db
+    .select({ def: runs.def })
+    .from(runs)
+    .where(and(eq(runs.id, input.runId), eq(runs.ownerId, context.ownerId)));
+  if (!run?.def) throw new ORPCError("NOT_FOUND");
+  return run.def;
+});
+
+export const jobs = { start, def };

@@ -35,7 +35,7 @@ function timezones(): string[] {
 }
 
 /** "Thu 5 Nov, 09:00" in `timezone`. */
-function at(date: Date, timezone: string): string {
+export function at(date: Date, timezone: string): string {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat("en-GB", { timeZone: timezone, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
       .formatToParts(date)

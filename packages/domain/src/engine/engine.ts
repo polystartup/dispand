@@ -293,17 +293,20 @@ export class Engine {
   ): Promise<string> {
     const { ownerId, agentId, triggerId, cause, firing } = input;
     if (cause.depth > MAX_CHAIN_DEPTH) throw new EngineError("INVALID", "Chain limit reached");
-    // Shared with other starts, exclusive with a delete: the Job never outlives its agent.
+    // Shared with other starts, exclusive with a delete: the Job never outlives its agent. The
+    // trigger first, then the agent: the order the scheduler and a delete take them in
+    // (`jobs/active.ts`), so none of them waits on another.
+    const [trigger] = await tx
+      .select()
+      .from(triggers)
+      .where(and(eq(triggers.id, triggerId), eq(triggers.agentId, agentId), eq(triggers.ownerId, ownerId)))
+      .for("share");
     const [agent] = await tx
       .select()
       .from(agents)
       .where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)))
       .for("share");
     if (!agent) throw new EngineError("NOT_FOUND", "Agent not found");
-    const [trigger] = await tx
-      .select()
-      .from(triggers)
-      .where(and(eq(triggers.id, triggerId), eq(triggers.agentId, agentId), eq(triggers.ownerId, ownerId)));
     if (!trigger || !trigger.enabled) throw new EngineError("NOT_FOUND", "Trigger not found");
     const { skills, tools } = await skillsAndTools(tx, agentId);
     const snapshot: AgentSnapshot = {

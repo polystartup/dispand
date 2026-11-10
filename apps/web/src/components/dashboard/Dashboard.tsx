@@ -6,6 +6,7 @@ import { type Layout, type ResponsiveLayouts, Responsive, useContainerWidth } fr
 import { orpc } from "../../lib/api.ts";
 import { GridWidget } from "../widgets/GridWidget.tsx";
 import { TableWidget } from "../widgets/TableWidget.tsx";
+import { TriggerWidget } from "../widgets/TriggerWidget.tsx";
 import { type Widget, WorkflowFormWidget } from "../widgets/WorkflowFormWidget.tsx";
 
 type Props = { pageId: string; widgets: Widget[]; editing: boolean };
@@ -84,7 +85,7 @@ export function Dashboard({ pageId, widgets, editing }: Props) {
         >
           {widgets.map((w) => (
             <div key={w.id}>
-              {w.type === "grid" ? <GridWidget widget={w} editing={editing} /> : w.type === "table" ? <TableWidget widget={w} editing={editing} /> : <WorkflowFormWidget widget={w} editing={editing} />}
+              {w.type === "grid" ? <GridWidget widget={w} editing={editing} /> : w.type === "table" ? <TableWidget widget={w} editing={editing} /> : w.type === "trigger-form" ? <TriggerWidget widget={w} editing={editing} /> : <WorkflowFormWidget widget={w} editing={editing} />}
             </div>
           ))}
         </Responsive>

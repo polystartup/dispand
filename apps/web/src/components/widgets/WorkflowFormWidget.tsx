@@ -60,24 +60,29 @@ export function WorkflowFormWidget({ widget, editing }: Props) {
 const runStatus = { running: "Running…", waiting: "Waiting for you", succeeded: "Done", failed: "Failed" } as const;
 
 function ButtonField({ workflowId, def, runId, onRunStarted }: { workflowId: string; def: WorkflowDef; runId: string | null; onRunStarted: (id: string) => void }) {
+  const start = useMutation(orpc.runs.start.mutationOptions());
+  return <StartButton label={def.trigger.field.label} runId={runId} start={() => start.mutateAsync({ workflowId })} onRunStarted={onRunStarted} />;
+}
+
+/** A button that starts a run (a workflow's, or an agent's Job) and says how the latest one went. */
+export function StartButton({ label, runId, start, onRunStarted }: { label: string; runId: string | null; start: () => Promise<{ runId: string }>; onRunStarted: (id: string) => void }) {
   const queryClient = useQueryClient();
   const run = useRun(runId);
-  const start = useMutation(
-    orpc.runs.start.mutationOptions({
-      onSuccess: ({ runId }) => {
-        onRunStarted(runId);
-        void queryClient.invalidateQueries({ queryKey: orpc.runs.list.key() });
-      },
-    }),
-  );
+  const starting = useMutation({
+    mutationFn: start,
+    onSuccess: ({ runId }) => {
+      onRunStarted(runId);
+      void queryClient.invalidateQueries({ queryKey: orpc.runs.list.key() });
+    },
+  });
   const status = run?.run.status;
   return (
     <div className="flex flex-1 flex-col justify-center gap-3 px-5 pb-5">
-      <Button className="self-start" disabled={start.isPending} onClick={() => start.mutate({ workflowId })}>
+      <Button className="self-start" disabled={starting.isPending} onClick={() => starting.mutate()}>
         <Play aria-hidden />
-        {def.trigger.field.label}
+        {label}
       </Button>
-      {start.error && <p role="alert" className="text-[13px] text-danger">{start.error.message}</p>}
+      {starting.error && <p role="alert" className="text-[13px] text-danger">{starting.error.message}</p>}
       {status && (
         <p role="status" className="text-[13px] text-muted">
           Last run: {runStatus[status]}
