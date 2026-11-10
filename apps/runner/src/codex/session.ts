@@ -309,7 +309,15 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         type: "function" as const,
         name: REQUEST_APPROVAL,
         description: REQUEST_APPROVAL_DESCRIPTION,
-        inputSchema: { type: "object", properties: { message: { type: "string", description: "What you ask to be approved, as one clear question" } }, required: ["message"], additionalProperties: false },
+        inputSchema: {
+          type: "object",
+          properties: {
+            message: { type: "string", description: "What you ask to be approved, as one clear question" },
+            proposal: { type: "string", description: "The id propose gave you, when you ask for a proposal: the owner then approves its listed writes" },
+          },
+          required: ["message"],
+          additionalProperties: false,
+        },
       };
       const spec = {
         type: "function" as const,

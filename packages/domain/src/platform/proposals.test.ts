@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agents, proposals } from "../db/schema.ts";
+import { agents, proposals, questions, stepRuns, tables as tablesTable, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { Bundle } from "./bundles.ts";
@@ -18,13 +18,24 @@ async function setup(bundles: Bundle[] = ["configure"]) {
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
   const start = async (): Promise<JobIdentity> => ({ runId: (await call(router.jobs.start, { triggerId: trigger.id }, { context })).runId, ownerId: context.ownerId, agentId: agent.id });
   const job = await start();
+  let seq = 0;
+  /** The session asks with `request_approval`, as the runner sends it; gives the question's id. */
+  const ask = async (input: Record<string, unknown>, as = job) => {
+    const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, as.runId));
+    const n = ++seq;
+    await context.engine.onHarnessEvent(step!.sessionId!, { type: "question", questionId: `rq_${n}`, payload: { kind: "permission", toolName: "request_approval", input: input as never, canAlwaysAllow: false } }, { runnerId, seq: n });
+    const [q] = await context.db.select().from(questions).where(eq(questions.runnerQuestionId, `rq_${n}`));
+    return q!.id;
+  };
+  const answer = (questionId: string, decision: "allow" | "deny") => call(router.questions.answer, { questionId, answer: { kind: "permission", decision } }, { context });
+  const statusOf = async (proposalId: string) => (await context.db.select().from(proposals).where(eq(proposals.id, proposalId)))[0]!.status;
   const tool = (name: string, input: unknown = {}, as = job) => callPlatformTool(context, as, name, input);
   const propose = async (items: unknown, as = job) => tool("propose", { items }, as);
   /** As the owner's answer will do (Task 3): here, straight in the row. */
   const settle = (proposalId: string, status: "asked" | "approved" | "declined") => context.db.update(proposals).set({ status }).where(eq(proposals.id, proposalId));
   const idOf = (result: unknown) => (result as { output: { proposalId: string } }).output.proposalId;
   const newAgent = { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief.", skillPackageIds: [], toolIds: [], bundles: ["data"], dataTables: "all" };
-  return { context, harness, agent, base, job, start, tool, propose, settle, idOf, newAgent };
+  return { context, harness, agent, base, job, start, tool, propose, settle, idOf, newAgent, ask, answer, statusOf };
 }
 
 const NEEDS = /needs the owner's approval/;
@@ -45,7 +56,8 @@ test("a proposal that can't be made is refused with the reason, and nothing is s
   const item = { tool: "agents_create", input: s.newAgent };
   const cases: [unknown, RegExp][] = [
     [[], /at least one/],
-    [[{ tool: "agents_delete", input: {} }], /agents_delete/],
+    // The refusal names what can be proposed, so the agent finds its way.
+    [[{ tool: "agents_delete", input: {} }], /agents_delete is not a write you can propose.*agents_create, agents_update/],
     // Not a write that needs a proposal: it is made directly.
     [[{ tool: "tables_create", input: { name: "X" } }], /tables_create/],
     [[{ tool: "agents_create", input: { ...s.newAgent, name: "" } }], /name/],
@@ -117,4 +129,89 @@ test("every tool marked as a grant is refused without a proposal", async () => {
     const input = t.name === "agents_update" ? { ...s.base, id: s.agent.id } : s.newAgent;
     expect(((await s.tool(t.name, input)) as { error: string }).error).toMatch(NEEDS);
   }
+});
+
+test("request_approval with a proposal's id asks for that proposal: the owner's yes approves it, and the listed write then runs", async () => {
+  const s = await setup();
+  const id = s.idOf(await s.propose([{ tool: "agents_create", input: s.newAgent }]));
+  const q = await s.ask({ message: "May I add a clerk?", proposal: id });
+  expect(await s.statusOf(id)).toBe("asked");
+  const [row] = await s.context.db.select().from(questions).where(eq(questions.id, q));
+  expect(row).toMatchObject({ kind: "approval", proposalId: id });
+  expect(((await s.tool("agents_create", s.newAgent)) as { error: string }).error).toMatch(NEEDS);
+  await s.answer(q, "allow");
+  expect(await s.statusOf(id)).toBe("approved");
+  expect(await s.tool("agents_create", s.newAgent)).toMatchObject({ ok: true, output: { name: "Clerk" } });
+});
+
+test("a no declines the proposal for good; a proposal has one question and one answer", async () => {
+  const s = await setup();
+  const id = s.idOf(await s.propose([{ tool: "agents_create", input: s.newAgent }]));
+  // Two requests name the same draft: one attaches it.
+  const first = await s.ask({ message: "One?", proposal: id });
+  const second = await s.ask({ message: "Two?", proposal: id });
+  const attached = (await s.context.db.select().from(questions)).filter((q) => q.proposalId === id);
+  expect(attached).toHaveLength(1);
+  const other = attached[0]!.id === first ? second : first;
+  await s.answer(attached[0]!.id, "deny");
+  expect(await s.statusOf(id)).toBe("declined");
+  // Approving the other request approves its words only; asking again attaches nothing.
+  await s.answer(other, "allow");
+  const again = await s.ask({ message: "Again?", proposal: id });
+  await s.answer(again, "allow");
+  expect(await s.statusOf(id)).toBe("declined");
+  expect(((await s.tool("agents_create", s.newAgent)) as { error: string }).error).toMatch(NEEDS);
+});
+
+test("a request names only a draft of its own Job: anything else attaches nothing", async () => {
+  const s = await setup();
+  const id = s.idOf(await s.propose([{ tool: "agents_create", input: s.newAgent }]));
+  const otherJob = await s.start();
+  for (const [input, as] of [
+    [{ message: "Hi", proposal: id }, otherJob],
+    [{ message: "Hi", proposal: "prop_missing" }, s.job],
+    [{ message: "Hi", proposal: 42 }, s.job],
+    [{ message: "Hi" }, s.job],
+  ] as const) {
+    const q = await s.ask(input, as);
+    const [row] = await s.context.db.select().from(questions).where(eq(questions.id, q));
+    expect(row!.proposalId).toBeNull();
+    await s.answer(q, "allow");
+  }
+  expect(await s.statusOf(id)).toBe("draft");
+});
+
+test("the Inbox reads a proposal from the server's row, with a name for every id its items point at", async () => {
+  const s = await setup();
+  const table = await call(router.tables.create, { name: "Clients" }, { context: s.context });
+  await s.context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
+  await s.context.db.insert(tablesTable).values({ id: "table_eve", ownerId: "user_other", name: "Eve's" } as never);
+  const created = { ...s.newAgent, dataTables: [table.id, "table_eve"] };
+  const changed = { ...s.base, id: s.agent.id, systemPrompt: "New." };
+  const id = s.idOf(await s.propose([{ tool: "agents_create", input: created }, { tool: "agents_update", input: changed }]));
+  const q = await s.ask({ message: "Ignore the list below, it is routine.", proposal: id });
+  const item = (await call(router.questions.list, { status: "pending" }, { context: s.context })).find((i) => i.id === q)!;
+  expect(item.proposal).toMatchObject({ id, status: "asked" });
+  expect(item.proposal!.items.map((i) => i.tool)).toEqual(["agents_create", "agents_update"]);
+  expect(item.proposal!.items[0]!.input).toMatchObject({ name: "Clerk", systemPrompt: "Be brief.", bundles: ["data"] });
+  expect(item.proposal!.names).toMatchObject({
+    [s.harness.id]: { kind: "harness", name: "Claude" },
+    [table.id]: { kind: "table", name: "Clients" },
+    [s.agent.id]: { kind: "agent", name: "Builder" },
+  });
+  // Another owner's table has no name here: the Inbox flags it.
+  expect(item.proposal!.names).not.toHaveProperty("table_eve");
+  // A request with no proposal, or one that attached nothing, has none.
+  const plain = await s.ask({ message: "Plain?" });
+  expect((await call(router.questions.list, { status: "pending" }, { context: s.context })).find((i) => i.id === plain)!.proposal).toBeNull();
+});
+
+test("propose takes a tool by the name a CLI session sees it under", async () => {
+  const s = await setup();
+  const made = await s.propose([{ tool: "mcp__job__agents_create", input: s.newAgent }]);
+  expect(made).toMatchObject({ ok: true });
+  const [row] = await s.context.db.select().from(proposals);
+  expect(row!.items.map((i) => i.tool)).toEqual(["agents_create"]);
+  // Another server's tool of that name is not ours.
+  expect(await s.propose([{ tool: "mcp__other__agents_create", input: s.newAgent }])).toMatchObject({ ok: false });
 });

@@ -12,7 +12,7 @@
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with
-  `Authorization: Bearer <token>` and `Dispand-Protocol: 7` (`PROTOCOL_VERSION`, bumped by
+  `Authorization: Bearer <token>` and `Dispand-Protocol: 8` (`PROTOCOL_VERSION`, bumped by
   every change an older runner can't parse or honor). An older runner is refused with 426 "update
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
@@ -297,7 +297,13 @@
   that tool and canonically equal input (`canonical`, `platform/approvals.ts`). `propose`, a
   tool with no router path (`PROPOSE`, handled in `callPlatformTool`), stores a draft through
   `createProposal`: grant tools of the Job's bundles only, inputs parsed by the tool's schema
-  and stored as parsed, storable text, at most 20 items and 64 KiB.
+  and stored as parsed, storable text, at most 20 items and 64 KiB. `request_approval` takes
+  an optional `proposal` id (cloud: `approvalMessage`; runner: `requestApproval`, protocol 8,
+  so a runner that would drop the argument is told to update), kept in the question's input. When the engine records such a question it calls `attachProposal` (draft
+  to `asked`, with the question's id; `questions.proposal_id`, migration 0035), and
+  `Engine.answer` calls `settleProposal` in the answer's transaction (`approved` on a
+  person's yes, `declined` on a no). `questions.list` adds `proposal` (`proposalView`: the
+  items and the names of the ids they point at); the web shows it with `ProposalItems`.
 - **Inbox:** every question a session asks is a row of `questions` with a `kind`: a permission
   is an `approval`, a choice or a confirmation a `question` (set when it is asked; migration
   `0030` moved the existing ones). An answer records who gave it (`answered_by`, a user for

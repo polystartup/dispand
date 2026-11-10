@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { type api, orpc } from "../../lib/api.ts";
 import { when } from "../workflow/Runs.tsx";
+import { ProposalItems } from "./ProposalItems.tsx";
 import { type About, approvalWords, QuestionForm } from "./QuestionForm.tsx";
 
 export type InboxEntry = Awaited<ReturnType<typeof api.questions.list>>[number];
@@ -91,6 +92,7 @@ export function InboxItem({ item }: { item: InboxEntry }) {
       ) : (
         <div className="space-y-2 text-[14px]">
           <p className="whitespace-pre-wrap break-words text-muted">{askedText(item.payload, item.about)}</p>
+          {item.proposal && <ProposalItems proposal={item.proposal} />}
           {item.status === "answered" && item.answer ? (
             <>
               <p className="font-medium">{answerLine(item.answer, item.payload)}</p>

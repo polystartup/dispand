@@ -254,7 +254,10 @@ export function startClaudeSession(
     REQUEST_APPROVAL_DESCRIPTION,
     // Anything is let through to the tool, which says in words what is wrong with it: a call the
     // CLI rejected before it ran would leave the turn's other calls waiting for an answer that never comes.
-    { message: z.unknown().describe("What you ask to be approved, as one clear question (text)") },
+    {
+      message: z.unknown().describe("What you ask to be approved, as one clear question (text)"),
+      proposal: z.unknown().optional().describe("The id propose gave you, when you ask for a proposal: the owner then approves its listed writes"),
+    },
     async (args, extra) => {
     const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
     const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;

@@ -104,15 +104,28 @@ export const requestApprovalSpec: ToolSpec = {
   name: REQUEST_APPROVAL,
   description:
     "Ask the owner to approve something before you do it, in your own words (for example: \"Send this draft to the client?\"). They answer yes or no; a no may come with a reason. Use it before an action that matters and can't be undone, and wait for the answer before acting.",
-  inputSchema: strictObject({ message: { type: "string", description: "What you ask to be approved, as one clear question" } }),
+  // `proposal` is optional, so the schema isn't sent as strict: the arguments are checked here (`approvalMessage`).
+  inputSchema: {
+    type: "object",
+    properties: {
+      message: { type: "string", description: "What you ask to be approved, as one clear question" },
+      proposal: { type: "string", description: "The id propose gave you, when you ask for a proposal: the owner then approves its listed writes" },
+    },
+    required: ["message"],
+    additionalProperties: false,
+  },
 };
 
-/** `request_approval` arguments as the words to show, or the error the model gets back. */
-export function approvalMessage(args: unknown): { message: string } | { error: string } {
-  const message = (args as { message?: unknown } | null)?.message;
+/** What an id of a proposal looks like: anything else given as one is a bad call, never a request without a proposal. */
+const PROPOSAL_ID = /^[A-Za-z0-9_]{1,64}$/;
+
+/** `request_approval` arguments as the words to show (and the proposal they ask for), or the error the model gets back. */
+export function approvalMessage(args: unknown): { message: string; proposal?: string } | { error: string } {
+  const { message, proposal } = (args ?? {}) as { message?: unknown; proposal?: unknown };
   if (typeof message !== "string" || message.trim() === "") return { error: "request_approval needs a message: what you ask to be approved." };
   if (message.trim().length > MAX_APPROVAL_MESSAGE) return { error: `The message is too long to show whole (at most ${MAX_APPROVAL_MESSAGE} characters): shorten it.` };
-  return { message: storableText(message.trim()) };
+  if (proposal !== undefined && (typeof proposal !== "string" || !PROPOSAL_ID.test(proposal))) return { error: "proposal must be the id propose gave you; leave it out to ask in words only." };
+  return { message: storableText(message.trim()), ...(proposal === undefined ? {} : { proposal }) };
 }
 
 export const TEXTS = {

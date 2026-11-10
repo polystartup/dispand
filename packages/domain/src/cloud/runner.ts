@@ -407,7 +407,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         // Each request waits for its own answer: nothing here is ever allowed for the session.
         if (approved) return (await done(TEXTS.approved, false, { approvedCall: null, approvedKey: null }), null);
         const words = approvalMessage(args);
-        await ("error" in words ? done(words.error, true) : ask({ kind: "permission", toolName: REQUEST_APPROVAL, input: { message: words.message }, canAlwaysAllow: false }));
+        await ("error" in words ? done(words.error, true) : ask({ kind: "permission", toolName: REQUEST_APPROVAL, input: words, canAlwaysAllow: false }));
         return null;
       }
       if (call.name === SUBMIT_OUTPUTS) {
