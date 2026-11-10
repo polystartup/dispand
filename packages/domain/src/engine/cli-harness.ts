@@ -2,7 +2,9 @@ import type { Answer, ServerToRunner, SessionStart } from "@dispand/runner-proto
 import { and, eq, inArray } from "drizzle-orm";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
-import { runs, stepRuns } from "../db/schema.ts";
+import { runs, stepRuns, workflowVersions } from "../db/schema.ts";
+import { nodesOf } from "../workflows/model.ts";
+import { serverName, toolingOf } from "./tooling.ts";
 import { jobTokenOf } from "../platform/token.ts";
 import type { RunnerHub } from "../runners/hub.ts";
 import { Engine } from "./engine.ts";
@@ -34,9 +36,46 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
     return run ? jobTokenOf(this.secrets, run) : null;
   }
 
+  /**
+   * The session's agent's skill packages and runner tools (`tooling.ts`), read at each start
+   * like the token: a resume carries them as they are then. HTTP tools never travel: their
+   * address and headers stay on the server. Only a tool of the harness's own runner is sent.
+   */
+  private async tooling(sessionId: string, runnerId: string): Promise<Pick<SessionStart, "skills" | "mcpServers">> {
+    const [found] = await this.db
+      .select({ nodeId: stepRuns.nodeId, run: runs })
+      .from(stepRuns)
+      .innerJoin(runs, eq(runs.id, stepRuns.runId))
+      .where(eq(stepRuns.sessionId, sessionId));
+    if (!found) return { skills: [], mcpServers: [] };
+    const { run, nodeId } = found;
+    const agentId = run.agentId ?? (await this.stepAgent(run, nodeId));
+    if (!agentId) return { skills: [], mcpServers: [] };
+    const tooling = await toolingOf(this.db, run, agentId);
+    const taken = new Set<string>();
+    return {
+      skills: tooling.skills.slice(0, 50),
+      mcpServers: tooling.runnerTools
+        .filter((t) => t.runnerId === runnerId)
+        .slice(0, 20)
+        .map((t) => ({ name: serverName(t.name, taken), type: "runner" as const, tool: t.tool })),
+    };
+  }
+
+  /** The agent of a workflow run's node, from the version the run started on. */
+  private async stepAgent(run: { workflowId: string | null; version: number }, nodeId: string): Promise<string | undefined> {
+    if (!run.workflowId) return undefined;
+    const [version] = await this.db
+      .select({ def: workflowVersions.def })
+      .from(workflowVersions)
+      .where(and(eq(workflowVersions.workflowId, run.workflowId), eq(workflowVersions.version, run.version)));
+    return version ? nodesOf(version.def).find((n) => n.id === nodeId)?.agentId || undefined : undefined;
+  }
+
   async start(harness: CliHarness, params: StartParams): Promise<boolean> {
     const { runKey, ...start } = params;
     const jobToken = await this.jobToken(params.sessionId);
+    const tooling = await this.tooling(params.sessionId, harness.runnerId);
     return this.deliver(harness.runnerId, {
       type: "session.start",
       start: {
@@ -45,8 +84,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
         cwd: { mode: "per-run", runKey },
         permissionMode: harness.permissionMode,
         ...(harness.model ? { model: harness.model } : {}),
-        skills: [],
-        mcpServers: [],
+        ...tooling,
         ...(jobToken ? { jobToken } : {}),
         // The harness's kind and permission mode go together: the procedures only store matching ones.
       } as SessionStart,
