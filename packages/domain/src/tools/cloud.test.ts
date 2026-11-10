@@ -158,3 +158,17 @@ test("an approval is for the tool it was asked about: it never moves to another 
   expect(other).toEqual([]);
   expect(lastTool(s.model.inputs[1]!.items)).toMatchObject({ isError: true });
 });
+
+test("an action the owner took off the asking ones runs unasked; the others still ask", async () => {
+  const s = await setup([use("GitHub_list_repos", {}), use("GitHub_create_repository", { name: "acme" }, "c2"), say("Done.")]);
+  await call(router.agents.setToolAsk, { agentId: s.agent.id, toolId: s.tool.id, action: "list_repos", ask: false }, { context: s.context });
+  const runId = await s.start();
+  const q = await s.pending(runId);
+  // Only the flagged action asked: the other already ran.
+  expect(q.payload).toMatchObject({ toolName: "GitHub create_repository" });
+  expect(await s.context.db.select().from(questions)).toHaveLength(1);
+  expect(s.calls).toEqual([["list_repos", {}]]);
+  await s.engine.answer(q.id, { kind: "permission", decision: "allow" });
+  await s.until(runId, "succeeded");
+  expect(s.calls).toEqual([["list_repos", {}], ["create_repository", { name: "acme" }]]);
+});

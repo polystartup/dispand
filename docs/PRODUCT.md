@@ -38,9 +38,14 @@ Status: Prototype
     applies to Jobs already running. Deleting a table or a field stays the owner's.
   - A session gets the skills and tools of its agent: skills and the runner's own tools on a
     CLI session, tools reached by URL on a cloud session and on a Job's CLI session (skills on
-    cloud sessions come later). Every call of such a tool asks first, and on a CLI session an
+    cloud sessions come later). A call of such a tool asks first, and on a CLI session an
     approval allows exactly the call that was shown, once. An agent whose harness bypasses
-    permissions asks nothing, so it can't use tools reached by URL.
+    permissions asks nothing, so it can only use the actions that run without asking.
+  - Each action of a tool an agent chose either asks before use or runs without asking. When
+    a tool is added to an agent, the actions the tool calls read-only start without asking
+    and the others ask; after that only the owner changes it, action by action. An action
+    that reaches outside can carry what the agent read, so it is worth keeping it asking on
+    an agent that reads confidential data.
   - Nothing answers a Question or an Approval for the owner: no timeout, no default. What was
     answered stays in the Inbox, with who answered and when.
   - An agent can ask for an approval in its own words before it acts; each request waits for

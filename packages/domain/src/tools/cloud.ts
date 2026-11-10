@@ -10,7 +10,7 @@ const GONE = { text: "This tool is not available.", isError: true };
  * An agent's HTTP tools for its cloud sessions: each action of each tool the session's agent
  * gives it (`sessionTooling`) is one tool for the model. A call runs on the server through
  * `InstalledTools`, where the tool's sealed headers are opened for that call only; the cloud
- * runner asks the owner before each one. What the session may call is read again at call
+ * runner asks the owner before each one, but for the actions the agent lets run unasked. What the session may call is read again at call
  * time: a tool taken back from the agent, or an action it no longer lists, isn't called.
  */
 export function installedToolCaller(db: Db, installed: InstalledTools): ToolCaller {
@@ -22,6 +22,7 @@ export function installedToolCaller(db: Db, installed: InstalledTools): ToolCall
           key: `${PREFIX}${tool.id}:${action.name}`,
           label: `${tool.name} ${action.name}`,
           spec: { name: "", description: action.description, inputSchema: action.inputSchema },
+          ...(tool.unasked.includes(action.name) ? { ask: false as const } : {}),
         })),
       );
     },

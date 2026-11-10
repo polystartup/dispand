@@ -274,7 +274,12 @@
   the Job's run, still going, of kind `approval`, answered with an allowance, not yet consumed
   (`questions.consumed_at`), for the tool name the CLI asked about
   (`mcp__job_tools__<name>`) and canonically equal arguments. What may be called is read again
-  at call time, before an approval is used. Workflow runs' CLI sessions have no Job token, so
+  at call time, before an approval is used. An action in the agent's `agent_tools.unasked`
+  for that tool needs no approval, there and in a cloud session (`ask: false` on its spec):
+  the list is filled from the actions' `readOnly` (the server's `readOnlyHint`, kept at
+  listing) when `agents.create` or `agents.update` adds the tool, kept as it is for a tool
+  the agent already had, and changed by `agents.setToolAsk` only (`agents.toolAsk` reads it;
+  neither is a platform tool). Workflow runs' CLI sessions have no Job token, so
   no such tools; cloud sessions don't get skills yet.
 - **Inbox:** every question a session asks is a row of `questions` with a `kind`: a permission
   is an `approval`, a choice or a confirmation a `question` (set when it is asked; migration

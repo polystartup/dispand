@@ -49,6 +49,19 @@ changes it updates this file.
   is words cut short and a mark, so the question the owner answers also carries, from the
   server, the tool's name and the action's name and description in full. A session in `bypassPermissions` mode asks
   nothing, so its calls of these tools are refused.
+- **Which actions of a tool run without asking is the owner's choice, per agent, and only a
+  person changes it.** Each agent keeps, for each tool it chose, the actions that run unasked
+  (`agent_tools.unasked`); every other action asks as above, in a cloud session and at the
+  tools endpoint, which read the list at each call (an action put back asks from its next
+  call on, in Jobs already running). The list starts with the actions the tool's server calls
+  read-only (`readOnlyHint`) when a person adds the tool to the agent. That hint is the
+  server's claim and is read only then: a server that later calls another action read-only
+  gains nothing, an action that appears later asks, and a tool that only comes with a skill
+  asks for everything. The procedure that changes the list is not one of a Job's tools, so no
+  agent removes its own questions. Accepted: an unasked action that reaches outside (a search,
+  a fetch) can carry in its arguments what the Job read; the owner keeps such actions asking
+  on agents that read confidential tables. An unasked action also runs for a session in
+  `bypassPermissions` mode.
 - **A Job's token is the only way into the Job endpoint (`/mcp/job`), and it dies with the
   Job.** It is 32 random bytes, made when the Job is created. The database keeps its SHA-256 (to
   find the Job) and its sealed form (to hand it to the Job's CLI sessions at each start), never
