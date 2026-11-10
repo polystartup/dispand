@@ -802,7 +802,7 @@ test("a runner last seen before protocol 2 is outdated", async () => {
 
 test("an unknown protocol version is refused with 400", async () => {
   const { token, url } = await pairedRunner();
-  for (const protocol of ["4", "x", ""]) {
+  for (const protocol of [String(PROTOCOL_VERSION + 1), "x", ""]) {
     expect(await upgradeStatus(url, { authorization: `Bearer ${token}`, "dispand-protocol": protocol })).toBe(400);
   }
 });

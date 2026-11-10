@@ -229,6 +229,8 @@ export class Engine {
   private readonly background = new Set<Promise<void>>();
   /** Aborted by `stop()`: tool calls under way are cut, and their steps left for `recover` to fail. */
   private readonly stopping = new AbortController();
+  /** The Tool step calls under way, by step id: `stopRun` cuts its run's. */
+  private readonly toolCalls = new Map<string, AbortController>();
 
   constructor(
     readonly db: Db,
@@ -359,17 +361,21 @@ export class Engine {
       for (const step of open) await this.fail(tx, step, STOPPED, out);
       // A run with no step open (between two steps) is closed here.
       await this.finishRun(tx, runId, "failed", STOPPED, out);
-      return open.flatMap((s) => (s.sessionId && ACTIVE_STEP.includes(s.status) ? [s.sessionId] : []));
+      return open;
     });
     this.publish(runId, out);
-    for (const sessionId of sessions) this.stopSession(sessionId);
+    for (const step of sessions) {
+      // A Tool step's call under way is cut: it must not act after the stop.
+      this.toolCalls.get(step.id)?.abort();
+      if (step.sessionId && step.runnerId && ACTIVE_STEP.includes(step.status)) this.stopSession(step.sessionId, step.runnerId);
+    }
   }
 
   /** Tells the harness to end a session, without waiting for it. */
-  private stopSession(sessionId: string) {
+  private stopSession(sessionId: string, source: string) {
     this.keep(
       this.adapter
-        .stop(sessionId)
+        .stop(sessionId, source)
         .then(() => undefined)
         .catch((err: unknown) => logError("session stop failed", err, { ref: sessionId })),
     );
@@ -536,14 +542,13 @@ export class Engine {
           for (const m of await this.undeliveredMessages(step.id)) this.deliverMessage(sessionId, m);
         }
       }
-      // Sessions the runner still runs for steps that are over (a stop that never reached it): ended now.
-      const over = liveSessions.length
-        ? await this.db
-            .select({ sessionId: stepRuns.sessionId })
-            .from(stepRuns)
-            .where(and(eq(stepRuns.runnerId, runnerId), inArray(stepRuns.sessionId, liveSessions), inArray(stepRuns.status, ["succeeded", "failed", "skipped"])))
-        : [];
-      for (const { sessionId } of over) this.stopSession(sessionId!);
+      // Sessions it still runs that no step still going is waiting on are ended: a stop that
+      // never reached it, or a run deleted since (with its workflow or its agent). Decided from
+      // the steps as they are now, not from the rows of the finished ones, which may be gone.
+      const going = new Set(steps.map(({ step }) => step.sessionId));
+      for (const sessionId of liveSessions) {
+        if (!going.has(sessionId) && !this.inFlight.has(`start:${sessionId}`)) this.stopSession(sessionId, runnerId);
+      }
     });
   }
 
@@ -593,6 +598,10 @@ export class Engine {
     }
     // What the prompt carries is held, so no separate delivery sends it too.
     const held = [...answers.map((q) => `q:${q.id}`), ...carried.map((m) => `m:${m.id}`)];
+    // Its run may have been stopped since the step was read: a stopped run never starts again.
+    // Read right before the launch, so a stop is either seen here or sent after this start.
+    const [now] = await this.db.select({ status: stepRuns.status }).from(stepRuns).where(eq(stepRuns.id, step.id));
+    if (!now || !ACTIVE_STEP.includes(now.status)) return;
     this.launch(step.harness!, start, step, held, async () => {
       const now = new Date();
       if (answers.length) await this.db.update(questions).set({ deliveredAt: now }).where(inArray(questions.id, answers.map((q) => q.id)));
@@ -836,7 +845,10 @@ export class Engine {
     if (!claimed) return;
     out.push({ type: "step", step: stepView(claimed) });
     const values = toolValues(def, steps, step.nodeId, step.iteration);
-    const signal = this.stopping.signal;
+    // Cut by `stop()` (the process ends) or by `stopRun` (this run only).
+    const cut = new AbortController();
+    this.toolCalls.set(claimed.id, cut);
+    const signal = AbortSignal.any([this.stopping.signal, cut.signal]);
     const call = this.track(`tool:${claimed.id}`, async () => {
       const result = await this.toolSteps.run(run.ownerId, node, values, signal).catch((err: unknown) => {
         logError("tool step failed", err, { ref: claimed.id });
@@ -850,7 +862,9 @@ export class Engine {
       });
       this.publish(run.id, settled);
       if (result.ok) await this.advance(run.id);
-    }).catch((err: unknown) => logError("tool step failed", err, { ref: claimed.id }));
+    })
+      .catch((err: unknown) => logError("tool step failed", err, { ref: claimed.id }))
+      .finally(() => this.toolCalls.delete(claimed.id));
     this.keep(call);
   }
 

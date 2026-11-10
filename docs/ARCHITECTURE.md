@@ -218,12 +218,16 @@
   questions are listed in Notifications with its agent.
 - **Stopping a run:** `runs.stop` (`Engine.stopRun`) fails every step of the run still open
   with "Stopped" (a step that never started too), expires its pending questions and fails the
-  run, in one transaction, then tells each session's harness to end (`HarnessAdapter.stop`): a
-  CLI session gets `session.stop` (protocol 4; the runner stops its CLI and says nothing for a
-  session it doesn't run), a cloud session is marked done, so its loop stops before its next
-  model or tool call. Events a stopped session still sends find their step closed and change
-  nothing. A stop that didn't reach its runner is sent again when the runner comes back still
-  running the session: `reconcile` ends every live session whose step is over. The run page
+  run, in one transaction, then cuts what the run was doing: a Tool step's call under way is
+  aborted (each call has its own signal), and each session's harness is told to end it
+  (`HarnessAdapter.stop`). A CLI session gets `session.stop` (protocol 4; the runner stops its
+  CLI and says nothing for a session it doesn't run); a cloud session is marked done and its
+  tool call under way aborted, and a call being prepared re-reads the session under its lock
+  before it runs. Events a stopped session still sends find their step closed and change
+  nothing, and a session being resumed re-reads its step right before its start is sent, so a
+  stopped run never starts again. A stop that didn't reach its runner is sent when the runner
+  comes back: `reconcile` ends every session the runner still runs that no step still going is
+  waiting on, whether its rows are still there or went with a deleted workflow or agent. The run page
   has the Stop button (`components/runs/StopRun.tsx`), behind a confirmation.
 - **Home and widgets:** `pages.home` returns the owner's home page with its widgets, creating
   it on the first call (a partial unique index keeps one per owner); it can't be renamed or deleted and is listed first. Other pages (`kind: "page"`, `pages.create`, `rename`, `delete`; at most 50 per owner, titles 1-100 characters, duplicates allowed) are listed under Home in the sidebar and shown at `/p/<id>` by the same `PageView`; deleting one deletes its widgets (cascade). A
