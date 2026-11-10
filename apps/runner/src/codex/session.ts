@@ -1,7 +1,7 @@
 // One Codex session: a `codex app-server` of its own, confined by Dispand's permission profile.
 import { join } from "node:path";
 import type { HarnessEvent, QuestionPayload, SessionStart } from "@dispand/runner-protocol";
-import { codexDenied, codexDeniedEdit } from "../boundary.ts";
+import { codexDenied, codexDeniedEdit, sandboxDenied } from "../boundary.ts";
 import { askChoices, BypassRefused, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "../outcome.ts";
 import { fitsWhole } from "../sanitize.ts";
 import { BYPASS_PROFILE, codexConfig, PROFILE } from "./config.ts";
@@ -290,7 +290,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         model: start.model ?? null,
         approvalPolicy: bypass ? ("never" as const) : ("untrusted" as const),
         approvalsReviewer: "user" as const,
-        config: codexConfig({ denied, ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}), bypass, ...(deps.mcp ? { mcpServers: deps.mcp.servers } : {}) }),
+        config: codexConfig({ denied: sandboxDenied(denied, deps.codexPath), ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}), bypass, ...(deps.mcp ? { mcpServers: deps.mcp.servers } : {}) }),
         developerInstructions: start.systemPrompt || null,
       };
       const approvalSpec = {
