@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
+import { ToolAsk } from "./ToolAsk.tsx";
 import { JobRights, type Rights } from "./JobRights.tsx";
 import { BannerSlot, Empty, FormField, NextStep } from "./parts.tsx";
 
@@ -28,6 +29,10 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
   const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.agents.key() });
   const create = useMutation(orpc.agents.create.mutationOptions({ onSuccess: invalidate }));
   const update = useMutation(orpc.agents.update.mutationOptions({ onSuccess: invalidate }));
+  // Which actions of the agent's own tools ask before use: saved one by one, apart from the form.
+  const toolAsk = useQuery({ ...orpc.agents.toolAsk.queryOptions({ input: { id: agent?.id ?? "" } }), enabled: agent !== undefined });
+  const asks = new Map((toolAsk.data ?? []).map((t) => [t.toolId, t.actions]));
+  const setAsk = useMutation(orpc.agents.setToolAsk.mutationOptions({ onSuccess: invalidate }));
   const [name, setName] = useState(agent?.name ?? "");
   const [harnessId, setHarnessId] = useState(agent?.harnessId ?? defaultHarnessId ?? "");
   const [systemPrompt, setSystemPrompt] = useState(agent?.systemPrompt ?? "");
@@ -183,7 +188,8 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
           ) : (
             <ul className="divide-y divide-line rounded-xl border border-line">
               {agentTools.map((t) => (
-                <li key={t.toolId} className="flex items-center justify-between gap-3 px-3 py-2 text-[14px]">
+                <li key={t.toolId} className="space-y-1.5 px-3 py-2 text-[14px]">
+                  <div className="flex items-center justify-between gap-3">
                   <span className="min-w-0 truncate">{t.name}</span>
                   {t.lockedBy.length > 0 ? (
                     <span className="flex shrink-0 items-center gap-1.5 text-[13px] text-muted">
@@ -199,6 +205,17 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
                     >
                       <X className="size-3.5" />
                     </button>
+                  )}
+                  </div>
+                  {asks.get(t.toolId) ? (
+                    <ToolAsk
+                      tool={t.name}
+                      actions={asks.get(t.toolId)!}
+                      busy={setAsk.isPending}
+                      onChange={(action, ask) => setAsk.mutate({ agentId: agent!.id, toolId: t.toolId, action, ask })}
+                    />
+                  ) : (
+                    t.lockedBy.length === 0 && agent && toolAsk.isSuccess && <p className="text-[12px] text-faint">Save the agent to choose which of its actions ask before use.</p>
                   )}
                 </li>
               ))}
