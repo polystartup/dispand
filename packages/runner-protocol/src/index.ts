@@ -11,6 +11,7 @@ export {
   McpServerRef,
   parseRunnerMessage,
   parseServerMessage,
+  JOB_SERVER_NAME,
   PROTOCOL_VERSION,
   ProtocolError,
   RunnerToServer,

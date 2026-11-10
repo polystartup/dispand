@@ -6,7 +6,7 @@ import { Answer, HarnessEvent, OutputField } from "./harness.ts";
  * Sent by the runner as the `Dispand-Protocol` header when it connects. Bumped by every
  * change a runner of the previous version can't parse or honor; the hub turns older runners away.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -19,10 +19,13 @@ const MAX_SEQ = Number.MAX_SAFE_INTEGER;
 /** The most sessions a runner runs at once: `hello` lists them all. */
 export const MAX_LIVE_SESSIONS = 1000;
 
-/** An MCP server name: one key of the CLI's `mcpServers`, never the runner's own `dispand` (submit_outputs). */
+/** The name the runner gives Dispand's Job server among a session's MCP servers: its tools are `mcp__job__<tool>`. */
+export const JOB_SERVER_NAME = "job";
+
+/** An MCP server name: one key of the CLI's `mcpServers`, never the runner's own `dispand` (submit_outputs) or `job` (the Job server). */
 export const McpServerName = id()
   .regex(/^[a-zA-Z0-9_-]{1,64}$/)
-  .refine((n) => n !== "dispand", "reserved name");
+  .refine((n) => n !== "dispand" && n !== JOB_SERVER_NAME, "reserved name");
 
 /** An MCP server a session gets: by URL (with its headers), or one of the runner's own (`mcpServers` in its config). */
 export const McpServerRef = z.discriminatedUnion("type", [
@@ -64,6 +67,14 @@ const StartFields = {
   /** Skill packages the runner fetches from Dispand, by id; each name is one path segment. */
   skills: z.array(z.object({ packageId: id().min(1), name: id().regex(/^[a-zA-Z0-9_-]{1,64}$/) })).max(50),
   mcpServers: z.array(McpServerRef).max(20),
+  /**
+   * The session works for a Job: the runner gives it Dispand's Job server (`/mcp/job` of the
+   * runner's own configured server, never an address from this message) with this token, and
+   * lets that server's tools run without a question. A token is all the server can say here.
+   */
+  jobToken: id()
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .optional(),
 };
 
 export const ClaudePermissionMode = z.enum(["default", "acceptEdits", "plan", "bypassPermissions"]);

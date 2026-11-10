@@ -423,3 +423,27 @@ test("a Codex that exits mid-session ends it with an error", async () => {
   expect(s.events.at(-1)).toMatchObject({ type: "error" });
   await s.session.done;
 });
+
+test("Codex's approval request for the Job server's tool is accepted without a question; another server's is asked", async () => {
+  const approval = (serverName: string, tool: string) => ({
+    request: "mcpServer/elicitation/request",
+    params: {
+      threadId: "$THREAD",
+      turnId: "$TURN",
+      serverName,
+      mode: "form",
+      message: `Allow the ${serverName} MCP server to run tool "${tool}"?`,
+      requestedSchema: { type: "object", properties: {} },
+      _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_name: tool, tool_params: {} },
+    },
+  });
+  const s = await run({
+    turns: [[approval("job", "rows_create"), approval("github", "delete_repo"), message("Done")]],
+    deps: { jobServer: "job" },
+    answer: () => ({ kind: "permission", decision: "deny" }),
+  });
+  await s.ended();
+  expect(questions(s.events).map((q) => (q.payload as { toolName: string }).toolName)).toEqual(["mcp__github__delete_repo"]);
+  expect(await s.replyTo("r0")).toEqual({ action: "accept", content: {}, _meta: null });
+  expect(await s.replyTo("r1")).toEqual({ action: "decline", content: null, _meta: null });
+});

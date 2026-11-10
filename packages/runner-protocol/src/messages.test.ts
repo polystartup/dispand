@@ -36,6 +36,7 @@ const serverMessages: ServerToRunner[] = [
   { type: "session.start", start },
   { type: "session.start", start: { ...start, expectedOutputs: [] } },
   { type: "session.start", start: codexStart },
+  { type: "session.start", start: { ...start, jobToken: "dj_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ" } },
   { type: "tool.discover", requestId: "req_1", tool: "fetch" },
   { type: "session.send", sessionId: "ses_1", text: "more" },
   {
@@ -331,4 +332,12 @@ describe("output names", () => {
   test.each(["", "1st", "has space", "dash-ed", "a.b", "A".repeat(65), "__proto__", "constructor", "prototype", "é"])("%s is refused", (name) => {
     expect(OutputField.safeParse({ name, type: "string" }).success).toBe(false);
   });
+});
+
+test("a start's Job token is a short token, never a URL or a header", () => {
+  const withToken = (jobToken: unknown) => () => parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, jobToken } }));
+  expect(withToken("dj_abc-DEF_123")).not.toThrow();
+  for (const bad of ["", "has space", "https://evil.test/mcp/job", "a\nb", "x".repeat(201), 3, { token: "x" }]) expect(withToken(bad)).toThrow(ProtocolError);
+  // The Job server's name is the runner's to give.
+  expect(() => parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, mcpServers: [{ name: "job", type: "runner", tool: "fetch" }] } }))).toThrow(ProtocolError);
 });

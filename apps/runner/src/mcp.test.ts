@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
-import { codexMcpServers, discoverTool, mcpConfigFor, ToolRefused } from "./mcp.ts";
+import { codexMcpServers, discoverTool, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
 
 const echo = { command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")] };
 
@@ -95,4 +95,17 @@ test("discover past its timeout replies with an error", async () => {
 
 test("a command that doesn't start is an error in the runner's own words", async () => {
   await expect(discoverTool("gone", { command: "/nonexistent/mcp-server" })).rejects.toThrow("the MCP server gone didn't start or failed while listing its actions");
+});
+
+test("the Job server is this runner's own server at /mcp/job, with the Job's token: the start names no address", () => {
+  const github = { name: "github", type: "http" as const, url: "https://api.example.test/mcp", transport: "streamable-http" as const, headers: {} };
+  expect(withJobServer([github], "https://dispand.test", "dj_token")).toEqual([
+    github,
+    { name: "job", type: "http", url: "https://dispand.test/mcp/job", transport: "streamable-http", headers: { authorization: "Bearer dj_token" } },
+  ]);
+  // Whatever the configured server's path or trailing slash.
+  expect(withJobServer([], "https://dispand.test/", "t")[0]).toMatchObject({ url: "https://dispand.test/mcp/job" });
+  expect(withJobServer([], "http://localhost:3000", "t")[0]).toMatchObject({ url: "http://localhost:3000/mcp/job" });
+  // Without a token, nothing is added.
+  expect(withJobServer([github], "https://dispand.test", undefined)).toEqual([github]);
 });

@@ -1,8 +1,9 @@
 import type { Answer, ServerToRunner, SessionStart } from "@dispand/runner-protocol";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
-import { stepRuns } from "../db/schema.ts";
+import { runs, stepRuns } from "../db/schema.ts";
+import { jobTokenOf } from "../platform/token.ts";
 import type { RunnerHub } from "../runners/hub.ts";
 import { Engine } from "./engine.ts";
 import { CloudRunner, noTools, type ToolCaller } from "../cloud/runner.ts";
@@ -18,10 +19,24 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
   constructor(
     private readonly db: Db,
     private readonly hub: RunnerHub,
+    /** Opens a Job's token for its sessions' starts; without one, sessions get no Job server. */
+    private readonly secrets?: SecretBox,
   ) {}
 
-  start(harness: CliHarness, params: StartParams): Promise<boolean> {
+  /** The token of the Job the session works for, read at each start (a resume gets it too): it is never kept with the step. */
+  private async jobToken(sessionId: string): Promise<string | null> {
+    if (!this.secrets) return null;
+    const [run] = await this.db
+      .select({ id: runs.id, tokenSealed: runs.tokenSealed })
+      .from(stepRuns)
+      .innerJoin(runs, eq(runs.id, stepRuns.runId))
+      .where(and(eq(stepRuns.sessionId, sessionId), eq(runs.source, "agent"), inArray(runs.status, ["running", "waiting"])));
+    return run ? jobTokenOf(this.secrets, run) : null;
+  }
+
+  async start(harness: CliHarness, params: StartParams): Promise<boolean> {
     const { runKey, ...start } = params;
+    const jobToken = await this.jobToken(params.sessionId);
     return this.deliver(harness.runnerId, {
       type: "session.start",
       start: {
@@ -32,6 +47,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
         ...(harness.model ? { model: harness.model } : {}),
         skills: [],
         mcpServers: [],
+        ...(jobToken ? { jobToken } : {}),
         // The harness's kind and permission mode go together: the procedures only store matching ones.
       } as SessionStart,
     });
@@ -73,7 +89,7 @@ export function createEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEve
   const installed = deps.connector ? new InstalledTools(db, secrets, deps.connector) : undefined;
   const engine = new Engine(
     db,
-    new RoutingAdapter(db, new CliHarnessAdapter(db, hub), cloud),
+    new RoutingAdapter(db, new CliHarnessAdapter(db, hub, secrets), cloud),
     cloud,
     dataEvents,
     installed ? connectorToolExecutor(installed) : undefined,

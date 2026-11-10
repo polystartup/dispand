@@ -34,6 +34,8 @@ export type ClaudeDeps = {
   pluginRoots?: string[];
   /** The session's MCP servers (`mcp.ts` `mcpConfigFor`): each must connect before the first turn. */
   mcpServers?: Record<string, McpServerConfig>;
+  /** The name of Dispand's Job server among them, when the session has one: its tools run without a question. */
+  jobServer?: string;
 };
 
 /**
@@ -210,8 +212,11 @@ export function startClaudeSession(
     },
   );
 
+  /** A tool of Dispand's Job server: Dispand authorizes each of its calls itself, so the owner isn't asked. */
+  const isJobTool = (name: string) => deps.jobServer !== undefined && name.startsWith(`mcp__${deps.jobServer}__`);
+
   const canUseTool: CanUseTool = async (toolName, toolInput, { signal, suggestions }): Promise<PermissionResult> => {
-    if (toolName === SUBMIT_OUTPUTS) return { behavior: "allow", updatedInput: toolInput };
+    if (toolName === SUBMIT_OUTPUTS || isJobTool(toolName)) return { behavior: "allow", updatedInput: toolInput };
     // canUseTool doesn't learn the CLI's current directory: relative paths are the owner's call.
     const edit = boundary.editDecision(toolName, toolInput, null);
     const read = boundary.readDecision(toolName, toolInput, null);
@@ -311,7 +316,7 @@ export function startClaudeSession(
                   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: SHELL_ASK } };
                 }
                 // Even where a rule (the user's settings) would allow it.
-                if (isMcpTool(call.tool_name) && start.permissionMode !== "bypassPermissions") {
+                if (isMcpTool(call.tool_name) && !isJobTool(call.tool_name) && start.permissionMode !== "bypassPermissions") {
                   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: MCP_ASK } };
                 }
                 return {};

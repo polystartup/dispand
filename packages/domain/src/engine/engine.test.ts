@@ -12,6 +12,7 @@ import type { RunnerHub } from "../runners/hub.ts";
 import { CloudRunner, noTools } from "../cloud/runner.ts";
 import { CliHarnessAdapter } from "./cli-harness.ts";
 import { RoutingAdapter } from "./routing-adapter.ts";
+import { jobTokenOf } from "../platform/token.ts";
 import { Engine, RESUME_PROMPT, TOOL_RESTARTED } from "./engine.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, type StartParams } from "./harness.ts";
 
@@ -1414,4 +1415,32 @@ test("a Job's snapshot keeps the agent's bundles and tables as they were", async
   const runId = await engine.startJob(trigger.id, context.ownerId);
   await call(router.agents.update, { ...agent, bundles: [], dataTables: "all" }, { context });
   expect((await runOf(engine, runId)).run.snapshot).toMatchObject({ bundles: ["data"], tables: [table.id] });
+});
+
+test("a Job's CLI session start carries the Job's token; a workflow run's has none, and the token is never stored with the step", async () => {
+  const { context, harness, runnerId, agent } = await setup(buttonThenStep);
+  const sent: ServerToRunner[] = [];
+  const hub = { send: async (_id: string, msg: ServerToRunner) => (sent.push(msg), true) };
+  const adapter = new CliHarnessAdapter(context.db, hub as unknown as RunnerHub, context.secrets);
+  const engine = new Engine(context.db, adapter, undefined, undefined, undefined, context.secrets);
+  onTestFinished(() => engine.stop());
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(() => expect(sent).toHaveLength(1));
+  const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
+  const token = jobTokenOf(context.secrets, run!)!;
+  expect(sent[0]).toMatchObject({ type: "session.start", start: { jobToken: token, mcpServers: [] } });
+  const [step] = await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, "job")));
+  expect(JSON.stringify(step)).not.toContain(token);
+
+  // The runner lost the session: the resumed start carries the token again.
+  await vi.waitFor(async () => expect((await context.db.select().from(stepRuns).where(eq(stepRuns.id, step!.id)))[0]!.startDeliveredAt).toBeInstanceOf(Date));
+  await engine.reconcile(runnerId, []);
+  await vi.waitFor(() => expect(sent).toHaveLength(2));
+  expect(sent[1]).toMatchObject({ type: "session.start", start: { jobToken: token } });
+
+  // A workflow run's session has no Job, so no token.
+  const params: StartParams = { sessionId: "ses_x", runKey: "run_1", systemPrompt: "S", prompt: "P", expectedOutputs: [], interactive: false };
+  await adapter.start({ ...harness, kind: "claude-code" }, params);
+  expect((sent[2] as { start: Record<string, unknown> }).start).not.toHaveProperty("jobToken");
 });
