@@ -4,8 +4,8 @@
 # package.json's `packageManager`, checked against its published SHA-512 before it runs.
 
 FROM node:26-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS build
-ARG PNPM_VERSION=12.14.0
-ARG PNPM_SHA512=c18ba6d87993d3d164cb5e8948f32b2c06ee854487e06cd8d86781342fb3e5bb4634367034711e86802baa9c37bea906ce1929ad08d70884c97d801df13389a6
+ARG PNPM_VERSION=12.17.0
+ARG PNPM_SHA512=b8d223ebec04b580a89ed206daa71d1bccb6a1ee1d52efa95cc3b0db75271561df8f0d8e2c43add39c5ec08018af7a8a95108e7090f95a29f88727b7a40fd53d
 RUN cd /tmp \
  && npm pack --silent "pnpm@${PNPM_VERSION}" \
  && echo "${PNPM_SHA512}  pnpm-${PNPM_VERSION}.tgz" | sha512sum -c - \
