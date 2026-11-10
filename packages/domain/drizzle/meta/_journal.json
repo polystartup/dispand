@@ -176,6 +176,13 @@
       "when": 1794066544697,
       "tag": "0024_runner_tools",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794313751877,
+      "tag": "0025_jobs_triggers",
+      "breakpoints": true
     }
   ]
 }

@@ -3,11 +3,13 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents as agentsTable, agentSkills, agentTools, harnesses, plugins, skillPackages, tools as toolsTable } from "../db/schema.ts";
+import { lockAgentsForDelete } from "../jobs/active.ts";
 import { ModelName } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { StorableText } from "../workflows/model.ts";
 import { agentInUse } from "../workflows/procedures.ts";
+import { skillsAndTools } from "./skills-and-tools.ts";
 import { effectiveTools } from "./tools.ts";
 
 const owner = base.use(authed);
@@ -107,34 +109,8 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
 
 /** The agent with its skill packages and the tools it gets: explicit ones, and the ones its packages require (locked). */
 async function withSkillsAndTools(db: Db, row: Row) {
-  const pkgs = await db
-    .select({ packageId: skillPackages.id, name: skillPackages.name, requiredToolIds: skillPackages.requiredToolIds })
-    .from(agentSkills)
-    .innerJoin(skillPackages, eq(skillPackages.id, agentSkills.packageId))
-    .where(eq(agentSkills.agentId, row.id))
-    .orderBy(asc(skillPackages.name));
-  const explicit = await db.select({ toolId: agentTools.toolId }).from(agentTools).where(eq(agentTools.agentId, row.id));
-  const effective = effectiveTools(
-    explicit.map((t) => t.toolId),
-    pkgs,
-  );
-  const toolRows = effective.length
-    ? await db
-        .select({ id: toolsTable.id, name: toolsTable.name, kind: toolsTable.kind })
-        .from(toolsTable)
-        .where(inArray(
-          toolsTable.id,
-          effective.map((t) => t.toolId),
-        ))
-    : [];
-  const tools = effective
-    .flatMap((t) => {
-      const tool = toolRows.find((r) => r.id === t.toolId);
-      return tool ? [{ ...t, name: tool.name, kind: tool.kind }] : [];
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
   const [agent] = await withPlugins(db, [row]);
-  return { ...agent!, skills: pkgs.map(({ packageId, name }) => ({ packageId, name })), tools };
+  return { ...agent!, ...(await skillsAndTools(db, row.id)) };
 }
 
 const create = owner.input(Fields).handler(async ({ input, context }) => {
@@ -175,7 +151,11 @@ const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input,
   if (await agentInUse(context.db, context.ownerId, input.id)) {
     throw new ORPCError("CONFLICT", { message: "A workflow uses this agent" });
   }
-  await context.db.delete(agentsTable).where(eq(agentsTable.id, input.id));
+  await context.db.transaction(async (tx) => {
+    if (await lockAgentsForDelete(tx, [input.id])) throw new ORPCError("CONFLICT", { message: "A Job of this agent is still going" });
+    // Its triggers and its finished Jobs go with it.
+    await tx.delete(agentsTable).where(eq(agentsTable.id, input.id));
+  });
 });
 
 const list = owner.handler(async ({ context }) => {
