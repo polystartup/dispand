@@ -56,7 +56,8 @@ test("a proposal that can't be made is refused with the reason, and nothing is s
   const item = { tool: "agents_create", input: s.newAgent };
   const cases: [unknown, RegExp][] = [
     [[], /at least one/],
-    [[{ tool: "agents_delete", input: {} }], /agents_delete/],
+    // The refusal names what can be proposed, so the agent finds its way.
+    [[{ tool: "agents_delete", input: {} }], /agents_delete is not a write you can propose.*agents_create, agents_update/],
     // Not a write that needs a proposal: it is made directly.
     [[{ tool: "tables_create", input: { name: "X" } }], /tables_create/],
     [[{ tool: "agents_create", input: { ...s.newAgent, name: "" } }], /name/],
@@ -203,4 +204,14 @@ test("the Inbox reads a proposal from the server's row, with a name for every id
   // A request with no proposal, or one that attached nothing, has none.
   const plain = await s.ask({ message: "Plain?" });
   expect((await call(router.questions.list, { status: "pending" }, { context: s.context })).find((i) => i.id === plain)!.proposal).toBeNull();
+});
+
+test("propose takes a tool by the name a CLI session sees it under", async () => {
+  const s = await setup();
+  const made = await s.propose([{ tool: "mcp__job__agents_create", input: s.newAgent }]);
+  expect(made).toMatchObject({ ok: true });
+  const [row] = await s.context.db.select().from(proposals);
+  expect(row!.items.map((i) => i.tool)).toEqual(["agents_create"]);
+  // Another server's tool of that name is not ours.
+  expect(await s.propose([{ tool: "mcp__other__agents_create", input: s.newAgent }])).toMatchObject({ ok: false });
 });

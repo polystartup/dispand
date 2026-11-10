@@ -1,4 +1,4 @@
-import { storable } from "@dispand/runner-protocol";
+import { JOB_SERVER_NAME, storable } from "@dispand/runner-protocol";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
@@ -17,10 +17,12 @@ import type { PlatformTool } from "./tools.ts";
 export const MAX_ITEMS = 20;
 export const MAX_BYTES = 64 * 1024;
 
+const CLI_PREFIX = `mcp__${JOB_SERVER_NAME}__`;
+
 export const ProposeInput = z.object({
   items: z
     .array(z.object({ tool: z.string(), input: z.record(z.string(), z.unknown()) }))
-    .describe("The writes to approve: each a tool's name and the exact input you will call it with"),
+    .describe("The writes to approve: each a tool's name (such as agents_create) and the exact input you will call it with"),
 });
 
 const everyString = (value: unknown, ok: (s: string) => boolean): boolean =>
@@ -38,8 +40,13 @@ export async function createProposal(db: Db, job: JobIdentity, tools: PlatformTo
   if (parsed.data.items.length > MAX_ITEMS) return { error: `A proposal lists at most ${MAX_ITEMS} writes: make several` };
   const items: ProposalItem[] = [];
   for (const [i, item] of parsed.data.items.entries()) {
-    const tool = tools.find((t) => t.name === item.tool && t.grant);
-    if (!tool) return { error: `Item ${i + 1}: ${item.tool} is not a write you can propose` };
+    // A CLI session sees the Job server's tools as `mcp__job__<name>`: either name is that tool.
+    const name = item.tool.startsWith(CLI_PREFIX) ? item.tool.slice(CLI_PREFIX.length) : item.tool;
+    const tool = tools.find((t) => t.name === name && t.grant);
+    if (!tool) {
+      const proposable = tools.filter((t) => t.grant).map((t) => t.name);
+      return { error: `Item ${i + 1}: ${item.tool} is not a write you can propose. What you can propose: ${proposable.join(", ") || "nothing"}. Other tools are called directly.` };
+    }
     const given = tool.input.safeParse(item.input);
     if (!given.success) return { error: `Item ${i + 1} (${item.tool}): ${given.error.issues.map((e) => `${e.path.join(".") || "input"}: ${e.message}`).join("; ")}` };
     items.push({ tool: tool.name, input: given.data });
