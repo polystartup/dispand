@@ -8,34 +8,9 @@ import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { TEXTS } from "./builtins.ts";
-import { type ChatItem, type ClientHarness, createModelClient, type ModelTurn, type TurnInput } from "./model-client.ts";
+import { type ChatItem, createModelClient } from "./model-client.ts";
+import { fakeModel, say, use, type Script } from "./test-model.ts";
 import { textStream, type ToolCaller } from "./runner.ts";
-
-type Script = (input: TurnInput) => Partial<ModelTurn> | Promise<Partial<ModelTurn>>;
-
-/** A model that answers each call with the next scripted turn, and keeps what it was sent. */
-function fakeModel(...script: Script[]) {
-  const inputs: TurnInput[] = [];
-  const harnesses: ClientHarness[] = [];
-  const client = (h: ClientHarness) => {
-    harnesses.push(h);
-    return {
-      async turn(input: TurnInput): Promise<ModelTurn> {
-        inputs.push({ ...input, items: structuredClone(input.items) });
-        const next = script.shift();
-        if (!next) throw Object.assign(new Error("no turn left"), { status: 500 });
-        const t = await next(input);
-        if (t.text) input.onText(t.text);
-        const toolCalls = t.toolCalls ?? [];
-        return { text: t.text ?? "", toolCalls, raw: { fake: true }, stop: t.stop ?? (toolCalls.length > 0 ? "tool_use" : "end") };
-      },
-    };
-  };
-  return { client, inputs, harnesses };
-}
-
-const say = (text: string): Script => () => ({ text });
-const use = (name: string, args: unknown, id = `call_${name}`): Script => () => ({ toolCalls: [{ id, name, args }] });
 
 /** Two MCP-like tools; `hold` keeps calls of `create_repo` running. */
 function fakeTools(hold = false) {
@@ -45,7 +20,7 @@ function fakeTools(hold = false) {
       { key: "t1:create_repo", label: "GitHub create_repo", spec: { name: "", description: "Create a repository", inputSchema: { type: "object" } } },
       { key: "t1:list_repos", label: "GitHub list_repos", spec: { name: "", description: "List repositories", inputSchema: { type: "object" } } },
     ],
-    call: async (key, args) => {
+    call: async (_session, key, args) => {
       calls.push([key, args]);
       if (hold && key === "t1:create_repo") await new Promise(() => {});
       return { text: `ran ${key}`, isError: false };

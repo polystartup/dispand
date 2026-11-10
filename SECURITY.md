@@ -17,6 +17,16 @@ changes it updates this file.
 
 - **Every API procedure checks authorization**, and only the procedures meant to be public are
   exposed through OpenAPI.
+- **An agent's Job reaches the workspace's data only through declared tools, within what its
+  agent was given.** A procedure is a tool only when the registry names it under a bundle
+  (`data` or `configure`); every other procedure is declared "not a tool", and a test fails on
+  one that is in neither list. No tool exposes secrets, runner pairing, user or session
+  management, or anything that deletes a table or a field. Every call is authorized in one
+  place: the Job must still be going, and the tool's bundle and every table the call touches
+  must be in the Job's snapshot and still on the agent, so a right taken back applies at once
+  and a right added later never reaches a running Job. A call then runs as the Job's owner; that
+  identity is set only by the authorizing function, never from a request. These calls ask the
+  owner no question: the bundles are the permission.
 - **Only the owner has a session.** Sign-up is disabled; `auth.setup` (public) creates the
   owner only while no user exists, and only with the one-time code from the server's settings
   (`DISPAND_SETUP_CODE`), so the first-run window can't be claimed from the network.

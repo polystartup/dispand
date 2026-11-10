@@ -25,8 +25,9 @@ import { toolNames } from "./tool-names.ts";
 
 /** The agent's tools (MCP), by key. The MCP-backed one is `mcpToolCaller`. */
 export interface ToolCaller {
-  specs(toolIds: string[]): Promise<{ key: string; label: string; spec: ToolSpec }[]>;
-  call(key: string, args: unknown, signal: AbortSignal): Promise<{ text: string; isError: boolean }>;
+  /** The tools of a session. `ask: false` marks one that runs without a permission question (Dispand's own, authorized per call). */
+  specs(sessionId: string): Promise<{ key: string; label: string; spec: ToolSpec; ask?: false }[]>;
+  call(sessionId: string, key: string, args: unknown, signal: AbortSignal): Promise<{ text: string; isError: boolean }>;
 }
 
 /** Until agents get tools: none. */
@@ -190,7 +191,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         if (s.inFlight) {
           const call = nextCall(s.items);
           const items: ChatItem[] = call?.id === s.inFlight.callId ? [...s.items, { role: "tool", callId: call.id, name: call.name, result: TEXTS.restarted, isError: true }] : s.items;
-          await this.emit(s.id, { items, inFlight: null, approvedCall: null }, { type: "tool", name: await this.labelOf(s.inFlight.key), status: "done" });
+          await this.emit(s.id, { items, inFlight: null, approvedCall: null }, { type: "tool", name: await this.labelOf(s.id, s.inFlight.key), status: "done" });
         }
       });
       if (s.status === "running") this.kick(s.id);
@@ -266,14 +267,14 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     }
   }
 
-  private async specs() {
-    const specs = await this.tools.specs([]);
+  private async specs(sessionId: string) {
+    const specs = await this.tools.specs(sessionId);
     const names = toolNames(specs.map(({ key, label }) => ({ key, label })));
     return { specs, names };
   }
 
-  private async labelOf(key: string) {
-    const { specs } = await this.specs();
+  private async labelOf(sessionId: string, key: string) {
+    const { specs } = await this.specs(sessionId);
     return cut(specs.find((s) => s.key === key)?.label ?? key, ID);
   }
 
@@ -308,7 +309,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     const text = textStream((delta) => this.locked(id, () => this.emit(id, {}, { type: "text", delta })));
     let turn: ModelTurn;
     try {
-      const { specs, names } = await this.specs();
+      const { specs, names } = await this.specs(row.id);
       const tools = [askUserSpec, submitOutputsSpec(start.expectedOutputs), ...specs.map((s) => ({ ...s.spec, name: names.toName(s.key) }))];
       turn = await this.client(harness).turn({
         system: [harness.systemPrompt, start.systemPrompt].filter(Boolean).join("\n\n"),
@@ -346,7 +347,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     const id = row.id;
     const items = (text: string, isError: boolean): ChatItem[] => [...row.items, { role: "tool", callId: call.id, name: call.name, result: text, isError }];
     const builtin = call.name === ASK_USER || call.name === SUBMIT_OUTPUTS;
-    const { specs, names } = await this.specs();
+    const { specs, names } = await this.specs(row.id);
     const key = builtin ? undefined : names.fromName(call.name);
     const label = cut(specs.find((s) => s.key === key)?.label ?? call.name, ID);
     const approved = row.approvedCall === call.id;
@@ -386,7 +387,9 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         await done(TEXTS.unknownTool(call.name), true);
         return null;
       }
-      if (!approved && !row.allowedKeys.includes(key)) {
+      // Dispand's own tools are authorized on every call: the owner isn't asked.
+      const asks = specs.find((s) => s.key === key)?.ask !== false;
+      if (asks && !approved && !row.allowedKeys.includes(key)) {
         await ask({ kind: "permission", toolName: label, input: args, canAlwaysAllow: true });
         return null;
       }
@@ -399,7 +402,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     const stopped = new AbortController();
     this.calls.set(id, stopped);
     try {
-      outcome = await this.tools.call(run, call.args, stopped.signal);
+      outcome = await this.tools.call(id, run, call.args, stopped.signal);
     } catch (err) {
       logError("cloud tool call failed", err, { ref: id });
       outcome = { text: "The tool call failed.", isError: true };
@@ -414,7 +417,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   /** The owner answered the question the session waits on, for `call`. Call it locked. */
   private async resolve(row: Row, call: ToolCall, payload: QuestionPayload, answer: Answer) {
     const id = row.id;
-    const { specs, names } = await this.specs();
+    const { specs, names } = await this.specs(row.id);
     const key = names.fromName(call.name);
     const label = cut(key ? (specs.find((s) => s.key === key)?.label ?? call.name) : call.name, ID);
     const reply = (text: string, isError: boolean, extra: Patch = {}) =>

@@ -1,5 +1,6 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
+import { z } from "zod";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { NOT_TOOLS, PLATFORM_TOOLS, procedureOf, procedurePaths } from "./tools.ts";
@@ -81,4 +82,10 @@ test("tables.list's filter keeps only the tables in scope; \"all\" keeps everyth
   expect(list.filter!(output, ["t2"])).toEqual([{ id: "t2", name: "B" }]);
   expect(list.filter!(output, "all")).toEqual(output);
   expect(list.filter!(output, [])).toEqual([]);
+});
+
+test("every tool's input has a JSON Schema an MCP client or a model can read", () => {
+  for (const tool of PLATFORM_TOOLS) {
+    expect(z.toJSONSchema(tool.input, { io: "input" }), tool.name).toMatchObject({ type: "object" });
+  }
 });
