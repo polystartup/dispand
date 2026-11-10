@@ -1,0 +1,17 @@
+apps/runner/src/claude.test.ts:      ["MultiEdit", { file_path: "/home/me/.claude/settings.json", edits: [] }],
+apps/runner/src/config.test.ts:  expect(runnerStateDir({}, "/home/me")).toBe("/home/me/.local/state/dispand-runner");
+apps/runner/src/config.test.ts:  expect(runnerStateDir({ XDG_STATE_HOME: "relative" }, "/home/me")).toBe("/home/me/.local/state/dispand-runner");
+apps/runner/src/config.test.ts:  expect(machineConfigPaths("/cfg", env, "/home/me")).toContain(join(base, "real"));
+apps/runner/src/config.test.ts:  expect(machineConfigPaths("/cfg", {}, "/home/me")).toContain("/home/me/.codex");
+apps/runner/src/mcp.test.ts:const fromHome = (command: string, ...args: string[]) => ["-c", 'cd "$1" && shift && exec "$@"', "sh", "/home/me", command, ...args];
+apps/runner/src/mcp.test.ts:  const config = mcpConfigFor([{ name: "search", type: "runner", tool: "brave" }], { brave: { command: "npx", args: ["-y", "brave"], env: { BRAVE_API_KEY: "k" } } }, "/home/me");
+apps/runner/src/mcp.test.ts:    "/home/me",
+apps/web/src/lib/auth-call.test.ts:    throw new Error("connect ECONNREFUSED 10.0.0.5");
+apps/web/src/routes/_app.index.tsx:  const home = useQuery(orpc.pages.home.queryOptions());
+apps/web/src/routes/_app.settings.workflows.$id.tsx:  const home = useQuery(orpc.pages.home.queryOptions());
+apps/web/src/routes/_app.settings.workflows.$id.tsx:        await queryClient.invalidateQueries({ queryKey: orpc.pages.home.key() });
+apps/web/src/server/safe.test.ts:  await expect(safe(async () => Promise.reject(new ORPCError("INTERNAL_SERVER_ERROR", { message: "db at 10.0.0.5" })))()).rejects.toThrow(
+packages/domain/src/tools/mcp.test.ts:    eth0: [{ address: "172.18.0.3", netmask: "255.255.0.0", family: "IPv4", mac: "", internal: false, cidr: "172.18.0.3/16" }],
+packages/domain/src/tools/mcp.test.ts:  for (const ip of ["127.0.0.1", "169.254.169.254", "0.0.0.0", "172.18.0.2"]) expect(blocked.check(ip, "ipv4"), ip).toBe(true);
+packages/domain/src/tools/mcp.test.ts:  for (const ip of ["10.1.2.3", "192.168.1.10", "140.82.112.3"]) expect(blocked.check(ip, "ipv4"), ip).toBe(false);
+packages/runner-protocol/src/messages.test.ts:    const msg = { type: "session.start", start: { ...start, cwd: { mode: "fixed", path: "/home/me/work" } } };

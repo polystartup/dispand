@@ -1,0 +1,51 @@
+{
+  "plugins": [
+    {
+      "name": "superpowers",
+      "path": "/STATE/plugins/superpowers",
+      "source": "superpowers@inline"
+    },
+    {
+      "name": "hello",
+      "path": "/STATE/plugins/hello",
+      "source": "hello@inline"
+    },
+    {
+      "name": "cc-plugin-sec-default",
+      "path": "builtin",
+      "source": "cc-plugin-sec-default@builtin"
+    },
+    {
+      "name": "cc-plugin-agents-md",
+      "path": "builtin",
+      "source": "cc-plugin-agents-md@builtin"
+    },
+    {
+      "name": "cc-plugin-telemetry",
+      "path": "builtin",
+      "source": "cc-plugin-telemetry@builtin"
+    },
+    {
+      "name": "cc-plugin-plugin-authoring",
+      "path": "builtin",
+      "source": "cc-plugin-plugin-authoring@builtin"
+    }
+  ],
+  "plugin_errors": [
+    {
+      "plugin": "inline[0]",
+      "type": "path-not-found",
+      "message": "Path not found: /STATE/plugins/missing",
+      "path": "/STATE/plugins/missing"
+    }
+  ],
+  "skills": [
+    "superpowers:hello-check",
+    "hello:hello-check"
+  ],
+  "slash": [
+    "superpowers:hello-check",
+    "hello:hello-check"
+  ],
+  "claude_code_version": "2.1.316"
+}

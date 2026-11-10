@@ -1,0 +1,194 @@
+import { ORPCError } from "@orpc/server";
+import { and, asc, eq, inArray } from "drizzle-orm";
+import { z } from "zod";
+import type { Db } from "../db/client.ts";
+import { agents as agentsTable, agentSkills, agentTools, harnesses, plugins, skillPackages, tools as toolsTable } from "../db/schema.ts";
+import { ModelName } from "../harnesses/procedures.ts";
+import { newId } from "../ids.ts";
+import { authed, base } from "../rpc/context.ts";
+import { StorableText } from "../workflows/model.ts";
+import { agentInUse } from "../workflows/procedures.ts";
+import { effectiveTools } from "./tools.ts";
+
+const owner = base.use(authed);
+
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+const Ids = z
+  .array(z.string().max(64))
+  .max(50)
+  .default([])
+  .transform((ids) => [...new Set(ids)]);
+
+const Fields = z.object({
+  name: StorableText(100).trim().min(1),
+  harnessId: z.string(),
+  systemPrompt: StorableText(100_000),
+  /** Overrides the harness's model; absent, the harness's (or the CLI's default) is used. */
+  model: ModelName.optional(),
+  /** The agent's skill packages; each brings the tools it requires, locked. */
+  skillPackageIds: Ids,
+  /** Tools chosen for the agent itself, besides the ones its packages require. */
+  toolIds: Ids,
+});
+
+function toAgent(row: typeof agentsTable.$inferSelect) {
+  const { id, ownerId, name, harnessId, systemPrompt, model } = row;
+  return { id, ownerId, name, harnessId, systemPrompt, ...(model === null ? {} : { model }) };
+}
+
+type Row = typeof agentsTable.$inferSelect;
+
+/** The agents with the plugin each came from (`null` for the owner's own). */
+async function withPlugins(db: Db, rows: Row[]) {
+  const ids = [...new Set(rows.flatMap((r) => (r.pluginId ? [r.pluginId] : [])))];
+  const found = ids.length ? await db.select({ id: plugins.id, name: plugins.name }).from(plugins).where(inArray(plugins.id, ids)) : [];
+  return rows.map((r) => ({ ...toAgent(r), plugin: found.find((p) => p.id === r.pluginId) ?? null }));
+}
+
+/** The harness, with the runner it runs on (none for a cloud harness). */
+async function requireHarness(db: Db, ownerId: string, harnessId: string): Promise<{ runnerId: string | null }> {
+  const [row] = await db
+    .select({ id: harnesses.id, runnerId: harnesses.runnerId })
+    .from(harnesses)
+    .where(and(eq(harnesses.id, harnessId), eq(harnesses.ownerId, ownerId)));
+  if (!row) throw new ORPCError("NOT_FOUND", { message: "Harness not found" });
+  return row;
+}
+
+async function find(db: Db, ownerId: string, id: string) {
+  const [row] = await db
+    .select()
+    .from(agentsTable)
+    .where(and(eq(agentsTable.id, id), eq(agentsTable.ownerId, ownerId)));
+  if (!row) throw new ORPCError("NOT_FOUND");
+  return row;
+}
+
+/**
+ * Replaces the agent's skill packages and explicit tools. Each id must be the owner's; the rows
+ * are locked (shared) so a package or tool can't be deleted while it is being attached. Every
+ * runner tool it gets, a skill's required ones included, must run on the harness's runner.
+ */
+async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: string[], toolIds: string[], harnessRunnerId: string | null) {
+  const pkgs = packageIds.length
+    ? await tx
+        .select({ id: skillPackages.id, name: skillPackages.name, requiredToolIds: skillPackages.requiredToolIds })
+        .from(skillPackages)
+        .where(and(inArray(skillPackages.id, packageIds), eq(skillPackages.ownerId, ownerId)))
+        .for("share")
+    : [];
+  if (pkgs.length !== packageIds.length) throw new ORPCError("NOT_FOUND", { message: "Skill not found" });
+  const found = toolIds.length
+    ? await tx
+        .select({ id: toolsTable.id })
+        .from(toolsTable)
+        .where(and(inArray(toolsTable.id, toolIds), eq(toolsTable.ownerId, ownerId)))
+        .for("share")
+    : [];
+  if (found.length !== toolIds.length) throw new ORPCError("NOT_FOUND", { message: "Tool not found" });
+  const effective = effectiveTools(toolIds, pkgs).map((t) => t.toolId);
+  const runnerTools = effective.length
+    ? await tx
+        .select({ name: toolsTable.name, runnerId: toolsTable.runnerId })
+        .from(toolsTable)
+        .where(and(inArray(toolsTable.id, effective), eq(toolsTable.ownerId, ownerId), eq(toolsTable.kind, "runner")))
+        .orderBy(asc(toolsTable.name))
+    : [];
+  for (const tool of runnerTools) {
+    if (harnessRunnerId === null) throw new ORPCError("BAD_REQUEST", { message: `Runner tools only work with CLI harnesses: “${tool.name}” runs on a runner` });
+    if (tool.runnerId !== harnessRunnerId) throw new ORPCError("BAD_REQUEST", { message: `The tool “${tool.name}” runs on another runner than the agent's harness` });
+  }
+  await tx.delete(agentSkills).where(eq(agentSkills.agentId, agentId));
+  await tx.delete(agentTools).where(eq(agentTools.agentId, agentId));
+  if (packageIds.length) await tx.insert(agentSkills).values(packageIds.map((packageId) => ({ agentId, packageId })));
+  if (toolIds.length) await tx.insert(agentTools).values(toolIds.map((toolId) => ({ agentId, toolId })));
+}
+
+/** The agent with its skill packages and the tools it gets: explicit ones, and the ones its packages require (locked). */
+async function withSkillsAndTools(db: Db, row: Row) {
+  const pkgs = await db
+    .select({ packageId: skillPackages.id, name: skillPackages.name, requiredToolIds: skillPackages.requiredToolIds })
+    .from(agentSkills)
+    .innerJoin(skillPackages, eq(skillPackages.id, agentSkills.packageId))
+    .where(eq(agentSkills.agentId, row.id))
+    .orderBy(asc(skillPackages.name));
+  const explicit = await db.select({ toolId: agentTools.toolId }).from(agentTools).where(eq(agentTools.agentId, row.id));
+  const effective = effectiveTools(
+    explicit.map((t) => t.toolId),
+    pkgs,
+  );
+  const toolRows = effective.length
+    ? await db
+        .select({ id: toolsTable.id, name: toolsTable.name, kind: toolsTable.kind })
+        .from(toolsTable)
+        .where(inArray(
+          toolsTable.id,
+          effective.map((t) => t.toolId),
+        ))
+    : [];
+  const tools = effective
+    .flatMap((t) => {
+      const tool = toolRows.find((r) => r.id === t.toolId);
+      return tool ? [{ ...t, name: tool.name, kind: tool.kind }] : [];
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const [agent] = await withPlugins(db, [row]);
+  return { ...agent!, skills: pkgs.map(({ packageId, name }) => ({ packageId, name })), tools };
+}
+
+const create = owner.input(Fields).handler(async ({ input, context }) => {
+  const { skillPackageIds, toolIds, ...fields } = input;
+  const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
+  const row = await context.db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(agentsTable)
+      .values({ ...fields, model: fields.model ?? null, id: newId("agent"), ownerId: context.ownerId })
+      .returning();
+    await attach(tx, context.ownerId, row!.id, skillPackageIds, toolIds, harness.runnerId);
+    return row!;
+  });
+  return (await withPlugins(context.db, [row]))[0]!;
+});
+
+const update = owner.input(Fields.extend({ id: z.string() })).handler(async ({ input, context }) => {
+  const { id, skillPackageIds, toolIds, ...fields } = input;
+  await find(context.db, context.ownerId, id);
+  const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
+  const row = await context.db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(agentsTable)
+      .set({ ...fields, model: fields.model ?? null })
+      .where(and(eq(agentsTable.id, id), eq(agentsTable.ownerId, context.ownerId)))
+      .returning();
+    if (!row) throw new ORPCError("NOT_FOUND");
+    await attach(tx, context.ownerId, id, skillPackageIds, toolIds, harness.runnerId);
+    return row;
+  });
+  return (await withPlugins(context.db, [row]))[0]!;
+});
+
+const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+  const [agent] = await withPlugins(context.db, [await find(context.db, context.ownerId, input.id)]);
+  // A plugin's agent goes with its plugin.
+  if (agent!.plugin) throw new ORPCError("FORBIDDEN", { message: `Remove the plugin ${agent!.plugin.name} instead` });
+  if (await agentInUse(context.db, context.ownerId, input.id)) {
+    throw new ORPCError("CONFLICT", { message: "A workflow uses this agent" });
+  }
+  await context.db.delete(agentsTable).where(eq(agentsTable.id, input.id));
+});
+
+const list = owner.handler(async ({ context }) => {
+  const rows = await context.db
+    .select()
+    .from(agentsTable)
+    .where(eq(agentsTable.ownerId, context.ownerId))
+    .orderBy(asc(agentsTable.createdAt), asc(agentsTable.id));
+  return withPlugins(context.db, rows);
+});
+
+const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+  return withSkillsAndTools(context.db, await find(context.db, context.ownerId, input.id));
+});
+
+export const agents = { create, update, delete: remove, list, get };

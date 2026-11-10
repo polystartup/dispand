@@ -1,0 +1,63 @@
+# Reference Compose project for a self-hosted Dispand; see README.md for the variables and the
+# reverse proxy it needs. HTTPS is done by your reverse proxy, which forwards to the app's port
+# 3000: nothing but that proxy may reach it. PostgreSQL stays on the internal network.
+name: dispand
+
+services:
+  app:
+    image: ghcr.io/polystartup/dispand:${DISPAND_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    # The app exits in well under a second; the margin is for long-lived streams and the database.
+    stop_grace_period: 20s
+    environment:
+      DATABASE_URL: postgres://dispand:${DISPAND_POSTGRES_PASSWORD:?}@postgres:5432/dispand
+      BETTER_AUTH_URL: https://${DISPAND_HOST:?}
+      BETTER_AUTH_SECRET: ${DISPAND_AUTH_SECRET:?}
+      DISPAND_SETUP_CODE: ${DISPAND_SETUP_CODE:?}
+      DISPAND_SECRET_KEY: ${DISPAND_SECRET_KEY:?}
+      DISPAND_FILES_DIR: /data/files
+    volumes:
+      # Attachments, in /data/files. The volume is mounted on /data, which the image owns as the
+      # app's user, so a new volume starts writable by it.
+      - dispand-files:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  postgres:
+    image: postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dispand
+      POSTGRES_PASSWORD: ${DISPAND_POSTGRES_PASSWORD:?}
+      POSTGRES_DB: dispand
+      # Text sorts in code-point order, as on PGlite in the tests. Read only when the data
+      # directory is empty, on the first start.
+      POSTGRES_INITDB_ARGS: --locale-provider=builtin --locale=C.UTF-8
+    volumes:
+      - dispand-postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dispand -d dispand"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  dispand-files:
+  dispand-postgres:

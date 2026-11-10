@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: dispand
+      POSTGRES_PASSWORD: dispand
+      POSTGRES_DB: dispand
+      POSTGRES_INITDB_ARGS: --locale-provider=builtin --locale=C.UTF-8 # as in deploy/compose.yaml
+    ports:
+      - "127.0.0.1:5432:5432" # loopback only: the dev credentials are fixed
+    volumes:
+      - pgdata:/var/lib/postgresql
+
+volumes:
+  pgdata:

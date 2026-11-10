@@ -1,0 +1,151 @@
+// The MCP servers a session gets: by URL from Dispand, or the runner's own (runner tools).
+import { homedir } from "node:os";
+import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
+import { Client, type Tool } from "@modelcontextprotocol/client";
+import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { McpAction, type McpServerRef, SHORT } from "@dispand/runner-protocol";
+import type { RunnerConfig } from "./config.ts";
+import type { JsonValue } from "./codex/protocol/serde_json/JsonValue.ts";
+import { cleanJson, FRAME_BUDGET, protocolString } from "./sanitize.ts";
+
+export type LocalServer = NonNullable<RunnerConfig["mcpServers"]>[string];
+
+/** A session's MCP server the runner won't give it: the session ends before its CLI starts. */
+export class ToolRefused extends Error {
+  override name = "ToolRefused";
+}
+
+/**
+ * The CLI's MCP servers for `refs`, in the SDK's shapes. A runner tool is the machine's own
+ * server of that name (`mcpServers` in its config): the server names one, and never says what
+ * it runs. It starts from `dir` (the home folder), never the CLI's working directory, where the
+ * agent can write files its command would load (`.npmrc`, `package.json`): `sh` changes to it
+ * and runs the command. An unknown one, or a name given twice, throws `ToolRefused`.
+ */
+export function mcpConfigFor(refs: McpServerRef[], local: RunnerConfig["mcpServers"], dir = homedir()): Record<string, McpServerConfig> {
+  const out: Record<string, McpServerConfig> = {};
+  for (const ref of refs) {
+    if (ref.name in out) throw new ToolRefused(`the MCP server name ${ref.name} is given twice`);
+    if (ref.type === "http") {
+      out[ref.name] = { type: ref.transport === "sse" ? "sse" : "http", url: ref.url, headers: ref.headers };
+      continue;
+    }
+    const server = Object.hasOwn(local ?? {}, ref.tool) ? local![ref.tool] : undefined;
+    if (!server) throw new ToolRefused(`this runner has no MCP server ${ref.tool} in its config`);
+    out[ref.name] = { type: "stdio", command: "/bin/sh", args: ["-c", 'cd "$1" && shift && exec "$@"', "sh", dir, server.command, ...(server.args ?? [])], env: server.env ?? {} };
+  }
+  return out;
+}
+
+/**
+ * The same servers as Codex's `mcp_servers`, and the environment their header values go in: an
+ * HTTP server's headers are named in `env_http_headers` (`DISPAND_MCP_<i>_<j>`), so the
+ * values travel in the app-server's environment, never in `thread/start`, and Codex keeps
+ * `DISPAND_*` out of shells. Codex has no SSE transport: such a server is refused.
+ */
+export function codexMcpServers(refs: McpServerRef[], local: RunnerConfig["mcpServers"], dir = homedir()): { servers: Record<string, JsonValue>; env: Record<string, string> } {
+  const servers: Record<string, JsonValue> = {};
+  const env: Record<string, string> = {};
+  Object.entries(mcpConfigFor(refs, local, dir)).forEach(([name, config], i) => {
+    if (config.type === "sse") throw new ToolRefused(`Codex can't use the MCP server ${name}: it only speaks SSE`);
+    if (config.type === "http") {
+      const names: Record<string, string> = {};
+      Object.entries(config.headers ?? {}).forEach(([header, value], j) => {
+        names[header] = `DISPAND_MCP_${i}_${j}`;
+        env[`DISPAND_MCP_${i}_${j}`] = value;
+      });
+      servers[name] = { url: config.url, env_http_headers: names };
+    } else if (config.type === "stdio" || config.type === undefined) {
+      servers[name] = { command: config.command, args: config.args ?? [], env: config.env ?? {} };
+    }
+  });
+  return { servers, env };
+}
+
+export const DISCOVER_TIMEOUT_MS = 30_000;
+/** As Dispand's own listing of HTTP tools (`packages/domain/src/tools/mcp.ts`). */
+const MAX_ACTIONS = 200;
+const MAX_PAGES = 64;
+const MAX_SCHEMA_BYTES = 64 * 1024;
+/** What `tool.discovered` may hold, well inside a frame. */
+const MAX_REPLY_BYTES = FRAME_BUDGET - 64 * 1024;
+
+/** A failed listing, with the runner's own words: never the server's output, which may quote its keys. */
+export class DiscoverFailed extends Error {
+  override name = "DiscoverFailed";
+}
+
+/**
+ * `value` with each of `secrets` (the server's `env` values, 4 characters or more) replaced by
+ * "••••" in every string and key: the server has them, and may echo them in what it lists.
+ */
+function redact<T>(value: T, secrets: string[]): T {
+  if (secrets.length === 0) return value;
+  const clean = (v: unknown): unknown => {
+    if (typeof v === "string") return secrets.reduce((text, secret) => text.replaceAll(secret, "••••"), v);
+    if (Array.isArray(v)) return v.map(clean);
+    if (typeof v === "object" && v !== null) return Object.fromEntries(Object.entries(v).map(([k, item]) => [clean(k), clean(item)]));
+    return v;
+  };
+  return clean(value) as T;
+}
+
+/** One listed tool as an action, each field redacted on its own (the envelope keeps its keys). */
+function action(tool: Tool, secrets: string[]): McpAction {
+  const name = protocolString(redact(tool.name, secrets), Infinity);
+  const inputSchema = cleanJson(redact(tool.inputSchema, secrets), Infinity);
+  if (JSON.stringify(inputSchema).length > MAX_SCHEMA_BYTES) throw new DiscoverFailed(`the schema of the action ${name.slice(0, 100)} is larger than 64 KiB`);
+  const parsed = McpAction.safeParse({ name, description: protocolString(redact(tool.description ?? "", secrets), SHORT), inputSchema });
+  if (!parsed.success) throw new DiscoverFailed(`the action ${name.slice(0, 100)} isn't valid`);
+  return parsed.data;
+}
+
+/**
+ * Lists the actions of one of the machine's own MCP servers: starts it as its config says, with
+ * the environment an MCP client gives by default plus its `env`, its stderr dropped, and stops
+ * it again. The whole of it ends at `timeoutMs`.
+ */
+export async function discoverTool(name: string, server: LocalServer, timeoutMs = DISCOVER_TIMEOUT_MS): Promise<McpAction[]> {
+  const transport = new StdioClientTransport({
+    command: server.command,
+    args: server.args ?? [],
+    env: { ...getDefaultEnvironment(), ...server.env },
+    stderr: "ignore",
+    cwd: homedir(),
+  });
+  const client = new Client({ name: "dispand-runner", version: "1.0.0" });
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new DiscoverFailed(`the MCP server ${name} didn't answer in time`)), timeoutMs);
+  });
+  try {
+    const tools = await Promise.race([
+      (async () => {
+        await client.connect(transport, { timeout: timeoutMs });
+        const all: Tool[] = [];
+        let cursor: string | undefined;
+        for (let page = 0; page < MAX_PAGES; page++) {
+          const listed = await client.request({ method: "tools/list", params: cursor === undefined ? {} : { cursor } }, { timeout: timeoutMs });
+          all.push(...listed.tools);
+          if (all.length > MAX_ACTIONS) throw new DiscoverFailed(`the MCP server ${name} offers more than ${MAX_ACTIONS} actions`);
+          cursor = listed.nextCursor;
+          if (!cursor) return all;
+        }
+        throw new DiscoverFailed(`the MCP server ${name} lists its actions on more than ${MAX_PAGES} pages`);
+      })(),
+      deadline,
+    ]);
+    // Redacted before anything reads them, error messages included.
+    const secrets = [...new Set(Object.values(server.env ?? {}).filter((v) => v.length >= 4))].sort((a, b) => b.length - a.length);
+    const actions = tools.map((tool) => action(tool, secrets));
+    if (Buffer.byteLength(JSON.stringify(actions)) > MAX_REPLY_BYTES) throw new DiscoverFailed(`the actions of the MCP server ${name} are too large to send`);
+    return actions;
+  } catch (error) {
+    if (error instanceof DiscoverFailed) throw error;
+    throw new DiscoverFailed(`the MCP server ${name} didn't start or failed while listing its actions`);
+  } finally {
+    clearTimeout(timer);
+    await client.close().catch(() => undefined);
+    await transport.close().catch(() => undefined);
+  }
+}

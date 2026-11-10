@@ -1,0 +1,27 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./styles/tokens.css";
+
+/* React Flow on the shell's tokens, in light and dark. */
+.react-flow {
+  --xy-background-color: transparent;
+  --xy-edge-stroke: var(--faint);
+  --xy-attribution-background-color: transparent;
+}
+.react-flow__attribution a {
+  color: var(--faint);
+}
+
+/* react-grid-layout on the shell's tokens. */
+.react-grid-item.react-grid-placeholder {
+  background: var(--accent);
+  opacity: 0.12;
+  border-radius: 16px;
+}
+.react-grid-item > .react-resizable-handle::after {
+  border-color: var(--faint);
+}
+.dashboard-editing .react-grid-item > section {
+  outline: 1px dashed var(--line);
+  outline-offset: 4px;
+}

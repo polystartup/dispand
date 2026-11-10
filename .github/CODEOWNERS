@@ -1,0 +1,5 @@
+# Changes to these files need a code owner's approval: they decide how pull requests are checked
+# and what agents may do, so a pull request can't loosen its own checks.
+/.github/CODEOWNERS  @politician
+/.github/workflows/  @politician
+AGENTS*.md           @politician

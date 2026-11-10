@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+.next/
+.astro/
+coverage/
+playwright-report/
+test-results/
+.env
+.env.*
+!.env.example
+.superpowers/
+apps/web/public/runner/
+.data/

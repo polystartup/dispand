@@ -1,0 +1,34 @@
+name: Node CI
+
+# Reusable CI, called from ci.yml. Its job is reported as "ci / Check", the required check.
+# Tool versions come from .mise.toml. The root package.json has the lint, typecheck, test and
+# build scripts (a missing one fails the check, so it can't be skipped silently).
+
+on:
+  workflow_call:
+    inputs:
+      e2e:
+        description: Also run the Playwright tests (script test:e2e)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm run typecheck
+      - run: pnpm run test
+      - run: pnpm run build
+      - name: End-to-end tests
+        if: inputs.e2e
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm run test:e2e

@@ -1,0 +1,110 @@
+import { HarnessEvent, type OutputField, type QuestionPayload, TEXT } from "@dispand/runner-protocol";
+import type { ToolSpec } from "./model-client.ts";
+
+// The tools a cloud session answers itself, with the shapes and texts of the runner's Claude
+// sessions (`apps/runner/src/claude.ts`), so both harnesses behave alike for the engine and the owner.
+
+export const ASK_USER = "ask_user";
+export const SUBMIT_OUTPUTS = "submit_outputs";
+
+/** Outputs travel in one event (outputs-accepted, and confirm-outputs), as on the runner. */
+const OUTPUTS_BYTES = 512 * 1024;
+
+const strictObject = (properties: Record<string, unknown>) => ({
+  type: "object",
+  properties,
+  required: Object.keys(properties),
+  additionalProperties: false,
+});
+
+/** Same shape as Claude Code's `AskUserQuestion`. */
+export const askUserSpec: ToolSpec = {
+  name: ASK_USER,
+  description:
+    "Ask the owner one or more questions, each with options to pick from (they may also answer in their own words). Use it when you need their decision.",
+  inputSchema: strictObject({
+    questions: {
+      type: "array",
+      items: strictObject({
+        question: { type: "string", description: "The question, ending with a question mark" },
+        header: { type: "string", description: "A short label for the question" },
+        options: {
+          type: "array",
+          items: strictObject({ label: { type: "string" }, description: { type: "string", description: "What this option means (may be empty)" } }),
+        },
+        multiSelect: { type: "boolean", description: "Whether several options may be picked" },
+      }),
+    },
+  }),
+};
+
+export function submitOutputsSpec(fields: OutputField[]): ToolSpec {
+  return {
+    name: SUBMIT_OUTPUTS,
+    description: "Hand your results back to Dispand. Call it once you have every value.",
+    inputSchema: strictObject(Object.fromEntries(fields.map((f) => [f.name, { type: "string", description: f.description ?? f.name }]))),
+  };
+}
+
+/** Makes text storable in Postgres (no U+0000, no lone surrogate), as the runner does with every protocol string. */
+export function storableText(s: string): string {
+  return s.replaceAll("\u0000", "�").toWellFormed();
+}
+
+/** A question event, if the protocol carries it as is (the owner sees exactly what was asked). */
+export function questionEvent(questionId: string, payload: QuestionPayload): HarnessEvent | null {
+  const parsed = HarnessEvent.safeParse({ type: "question", questionId, payload });
+  return parsed.success ? parsed.data : null;
+}
+
+const TOO_LONG_QUESTIONS = "These questions are too long to tell apart once shown to the owner: shorten them and ask again.";
+
+/** `ask_user` arguments as a choice question, or the error the model gets back. */
+export function askUserPayload(args: unknown): { payload: QuestionPayload } | { error: string } {
+  const questions = (args as { questions?: unknown })?.questions;
+  if (!Array.isArray(questions) || questions.length === 0) return { error: "ask_user needs at least one question." };
+  const shaped = questions.map((q: { question?: unknown; header?: unknown; options?: unknown; multiSelect?: unknown }) => ({
+    question: q?.question,
+    header: q?.header,
+    options: Array.isArray(q?.options)
+      ? q.options.map((o: { label?: unknown; description?: unknown }) => ({
+          label: o?.label,
+          ...(typeof o?.description === "string" && o.description !== "" ? { description: o.description } : {}),
+        }))
+      : q?.options,
+    multiSelect: q?.multiSelect ?? false,
+  }));
+  const payload = { kind: "choice", questions: shaped } as QuestionPayload;
+  if (!questionEvent("", payload)) return { error: TOO_LONG_QUESTIONS };
+  // Answers are keyed by question text, and options picked by label: both must be distinct.
+  const distinct = (texts: string[]) => new Set(texts).size === texts.length;
+  const choice = payload as Extract<QuestionPayload, { kind: "choice" }>;
+  if (!distinct(choice.questions.map((q) => q.question)) || choice.questions.some((q) => !distinct(q.options.map((o) => o.label)))) {
+    return { error: TOO_LONG_QUESTIONS };
+  }
+  return { payload };
+}
+
+/** `submit_outputs` arguments as the expected values, or the error the model gets back. */
+export function outputValues(args: unknown, fields: OutputField[]): { values: Record<string, string> } | { error: string } {
+  const given = (typeof args === "object" && args !== null ? args : {}) as Record<string, unknown>;
+  const missing = fields.filter((f) => typeof given[f.name] !== "string").map((f) => f.name);
+  if (missing.length > 0) return { error: `Missing outputs: ${missing.join(", ")}. Call submit_outputs again with every value, as text.` };
+  const raw = Object.fromEntries(fields.map((f) => [f.name, given[f.name] as string]));
+  if (Object.values(raw).some((v) => v.length > TEXT) || Buffer.byteLength(JSON.stringify(raw)) > OUTPUTS_BYTES) {
+    return { error: `The outputs are too large: at most ${TEXT} characters each and 512 KiB in all. Shorten them and call submit_outputs again.` };
+  }
+  return { values: Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, storableText(v)])) };
+}
+
+export const TEXTS = {
+  confirmed: "confirmed",
+  notConfirmed: "The owner did not confirm these values.",
+  denied: "The owner denied this.",
+  notAnswered: "The question was not answered.",
+  tooLargeToAsk: "The tool input is too large to show for approval (or holds characters that can't be shown): split it up.",
+  restarted: "Dispand restarted while this call was running: it may or may not have run. Check before retrying.",
+  invalidArgs: (name: string) => `The arguments for ${name} weren't valid JSON: call it again with valid JSON.`,
+  unknownTool: (name: string) => `There is no tool named ${name}.`,
+  reminder: (fields: OutputField[]) => `Call submit_outputs with: ${fields.map((f) => f.name).join(", ")}`,
+};

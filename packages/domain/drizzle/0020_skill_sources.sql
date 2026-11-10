@@ -1,0 +1,1 @@
+ALTER TABLE "marketplaces" ADD COLUMN "kind" text DEFAULT 'marketplace' NOT NULL;

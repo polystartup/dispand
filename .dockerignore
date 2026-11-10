@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+**/.env*
+!**/.env.example
+.git
+.worktrees
+.superpowers
+deploy
+docs
+apps/web/e2e
+apps/web/public/runner

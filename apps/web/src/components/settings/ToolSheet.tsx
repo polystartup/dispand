@@ -1,0 +1,267 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Plus, RefreshCw, X } from "lucide-react";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import type { api } from "../../lib/api.ts";
+import { orpc } from "../../lib/api.ts";
+import { FormField } from "./parts.tsx";
+
+export type Tool = Awaited<ReturnType<typeof api.tools.list>>[number];
+type Action = Tool["actions"][number];
+
+export const transportLabels = { "streamable-http": "Streamable HTTP", sse: "SSE" } as const;
+
+/** A header row: a stored one (`stored`) shows "Set" until it is replaced or removed. */
+type HeaderRow = { key: number; name: string; value: string; stored: boolean; removed: boolean };
+
+type Props = {
+  /** The tool being edited; absent when adding one. */
+  tool?: Tool;
+  onClose: () => void;
+  onSaved: (tool: Tool) => void;
+};
+
+export function errorMessage(e: unknown, fallback: string): string {
+  if (typeof e === "object" && e !== null && "code" in e && "message" in e && (e.code === "BAD_REQUEST" || e.code === "CONFLICT")) {
+    const message = String(e.message);
+    if (message !== "Input validation failed") return message;
+  }
+  return fallback;
+}
+
+/** "Add MCP server", or the editor of a tool with its actions. Mount it only while open. */
+export function ToolSheet({ tool, onClose, onSaved }: Props) {
+  const [name, setName] = useState(tool?.name ?? "");
+  const [url, setUrl] = useState(tool?.url ?? "");
+  const [transport, setTransport] = useState<keyof typeof transportLabels>(tool?.transport ?? "streamable-http");
+  const [headers, setHeaders] = useState<HeaderRow[]>(
+    tool?.headerNames.map((n, i) => ({ key: i, name: n, value: "", stored: true, removed: false })) ?? [],
+  );
+  const [nextKey, setNextKey] = useState(headers.length);
+  const [error, setError] = useState<string | null>(null);
+  const [current, setCurrent] = useState(tool);
+
+  const queryClient = useQueryClient();
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.tools.key() });
+  const create = useMutation(orpc.tools.create.mutationOptions({ onSuccess: invalidate }));
+  const update = useMutation(orpc.tools.update.mutationOptions({ onSuccess: invalidate }));
+  const refresh = useMutation(orpc.tools.refresh.mutationOptions({ onSuccess: invalidate }));
+  const del = useMutation(orpc.tools.delete.mutationOptions({ onSuccess: invalidate }));
+  const busy = create.isPending || update.isPending || del.isPending || refresh.isPending;
+
+  const setRow = (key: number, patch: Partial<HeaderRow>) => setHeaders((rows) => rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+
+  async function save() {
+    setError(null);
+    const sent: Record<string, string> = {};
+    for (const row of headers) {
+      const n = row.name.trim();
+      if (!n) continue;
+      if (row.removed) sent[n] = "";
+      else if (row.value.trim() || !row.stored) sent[n] = row.value.trim();
+    }
+    try {
+      const saved = current
+        ? await update.mutateAsync({ id: current.id, name, url: url.trim(), transport, headers: sent })
+        : await create.mutateAsync({ name, url: url.trim(), transport, headers: sent });
+      onSaved(saved);
+    } catch (e) {
+      setError(errorMessage(e, "Could not save the tool. Check the details and try again."));
+    }
+  }
+
+  async function reload() {
+    if (!current) return;
+    setError(null);
+    try {
+      setCurrent(await refresh.mutateAsync({ id: current.id }));
+    } catch {
+      setError("Could not refresh the actions.");
+    }
+  }
+
+  async function remove() {
+    if (!current) return;
+    setError(null);
+    try {
+      await del.mutateAsync({ id: current.id });
+      onClose();
+    } catch (e) {
+      // CONFLICT names the agent or skill that holds the tool.
+      setError(errorMessage(e, "Could not delete the tool."));
+    }
+  }
+
+  return (
+    <Sheet open onOpenChange={(open) => !open && onClose()}>
+      <SheetContent className="w-full overflow-y-auto bg-surface sm:max-w-lg">
+        <SheetHeader className="px-6 pt-6">
+          <SheetTitle className="text-[20px] tracking-tight">{current ? current.name : "Add MCP server"}</SheetTitle>
+          <SheetDescription>
+            An MCP server reached over HTTP. It acts as whatever account its headers authorize.
+            {current?.plugin && ` From the plugin ${current.plugin.name}: removed with it.`}
+          </SheetDescription>
+        </SheetHeader>
+        <div className="space-y-8 px-6 pb-6">
+          <form
+            className="space-y-5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void save();
+            }}
+          >
+            <FormField label="Name" htmlFor="tool-name">
+              <Input id="tool-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus={!current} />
+            </FormField>
+            <FormField
+              label="URL"
+              htmlFor="tool-url"
+              hint={
+                current?.urlSet && url === current.url
+                  ? "Set: the URL holds a secret, so its template is shown. Type a new URL to replace it."
+                  : "Headers are only sent to an https:// URL."
+              }
+            >
+              <Input id="tool-url" type="url" value={url} onChange={(e) => setUrl(e.target.value)} maxLength={2000} required placeholder="https://example.com/mcp" />
+            </FormField>
+            <FormField label="Transport" htmlFor="tool-transport">
+              <Select value={transport} onValueChange={(v) => setTransport(v as keyof typeof transportLabels)}>
+                <SelectTrigger id="tool-transport" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(transportLabels).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+
+            <fieldset className="space-y-2">
+              <legend className="mb-1.5 text-[13px] font-medium text-muted">Headers</legend>
+              {headers
+                .filter((r) => !r.removed)
+                .map((row) => (
+                  <div key={row.key} className="flex items-center gap-2">
+                    <Input
+                      aria-label="Header name"
+                      value={row.name}
+                      onChange={(e) => setRow(row.key, { name: e.target.value })}
+                      disabled={row.stored}
+                      placeholder="Authorization"
+                      maxLength={100}
+                      className="w-2/5"
+                    />
+                    <Input
+                      aria-label={`Value of ${row.name || "the header"}`}
+                      type="password"
+                      autoComplete="off"
+                      value={row.value}
+                      onChange={(e) => setRow(row.key, { value: e.target.value })}
+                      placeholder={row.stored ? "Set: leave empty to keep" : "Bearer …"}
+                      maxLength={4000}
+                      required={!row.stored}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Remove ${row.name || "header"}`}
+                      onClick={() => (row.stored ? setRow(row.key, { removed: true }) : setHeaders((rows) => rows.filter((r) => r.key !== row.key)))}
+                    >
+                      <X />
+                    </Button>
+                  </div>
+                ))}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={headers.filter((r) => !r.removed).length >= 20}
+                onClick={() => {
+                  setHeaders((rows) => [...rows, { key: nextKey, name: "", value: "", stored: false, removed: false }]);
+                  setNextKey((k) => k + 1);
+                }}
+              >
+                <Plus /> Add header
+              </Button>
+              <p className="text-[12px] text-faint">Values are stored encrypted and never shown again.</p>
+            </fieldset>
+
+            {error && (
+              <p role="alert" className="text-[13px] text-danger">
+                {error}
+              </p>
+            )}
+            <div className="flex items-center gap-2 pt-1">
+              <Button type="submit" disabled={busy || !name.trim() || !url.trim()}>
+                {current ? "Save" : "Add server"}
+              </Button>
+              <Button type="button" variant="ghost" onClick={onClose}>
+                {current ? "Close" : "Cancel"}
+              </Button>
+              {current && !current.plugin && (
+                <Button type="button" variant="ghost" className="ml-auto text-danger" disabled={busy} onClick={() => void remove()}>
+                  Delete
+                </Button>
+              )}
+            </div>
+          </form>
+
+          {current && (
+            <section aria-labelledby="tool-actions" className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h2 id="tool-actions" className="text-[15px] font-medium">
+                  Actions ({current.actions.length})
+                </h2>
+                <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void reload()}>
+                  <RefreshCw /> Refresh
+                </Button>
+              </div>
+              {current.actionsError && (
+                <p role="status" className="text-[13px] text-danger">
+                  {current.actionsError}
+                </p>
+              )}
+              <ul className="divide-y divide-line rounded-xl border border-line">
+                {current.actions.map((a) => (
+                  <ActionItem key={a.name} action={a} />
+                ))}
+                {current.actions.length === 0 && <li className="px-4 py-3 text-[13px] text-muted">No action listed.</li>}
+              </ul>
+            </section>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/** One action: its name, description and parameters (the top-level properties of its input schema). */
+export function ActionItem({ action }: { action: Action }) {
+  const properties = (action.inputSchema.properties ?? {}) as Record<string, { type?: unknown; description?: unknown }>;
+  const required = new Set(Array.isArray(action.inputSchema.required) ? (action.inputSchema.required as string[]) : []);
+  return (
+    <li className="space-y-1.5 px-4 py-3">
+      <p className="break-all font-mono text-[13px] font-medium">{action.name}</p>
+      {action.description && <p className="whitespace-pre-line text-[13px] text-muted">{action.description}</p>}
+      {Object.keys(properties).length > 0 && (
+        <ul className="space-y-0.5 text-[12.5px]">
+          {Object.entries(properties).map(([param, schema]) => (
+            <li key={param} className="text-muted">
+              <span className="font-mono text-fg">{param}</span>
+              {typeof schema.type === "string" && <span> · {schema.type}</span>}
+              {required.has(param) && <span> · required</span>}
+              {typeof schema.description === "string" && <span> — {schema.description}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}

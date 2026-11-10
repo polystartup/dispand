@@ -1,0 +1,17 @@
+# Installed by install.sh, which fills in @NODE@, @DEST@, @CONFIG@ and @PATH@.
+[Unit]
+Description=Dispand runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# What the runner and the CLI write stays the runner's user's own.
+UMask=0077
+ExecStart="@NODE@" "@DEST@/main.mjs" run --config "@CONFIG@"
+# The PATH of the shell that ran install.sh, so the runner finds `claude` as the user does.
+Environment="PATH=@PATH@"
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

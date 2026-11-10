@@ -1,0 +1,9 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_04","object":"response","status":"in_progress","model":"gpt-5.6","output":[]}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":1,"item_id":"fc_04","output_index":0,"delta":"{\"query\":\"unfinish"}
+
+event: response.incomplete
+data: {"type":"response.incomplete","sequence_number":2,"response":{"id":"resp_04","object":"response","status":"incomplete","model":"gpt-5.6","output":[{"type":"function_call","id":"fc_04","call_id":"call_04","name":"web_search","arguments":"{\"query\":\"unfinish","status":"incomplete"}],"incomplete_details":{"reason":"max_output_tokens"}}}
+

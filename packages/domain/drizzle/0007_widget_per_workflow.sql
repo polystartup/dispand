@@ -1,0 +1,1 @@
+CREATE INDEX "widgets_page_workflow_idx" ON "widgets" USING btree ("page_id","workflow_id");

@@ -1,0 +1,31 @@
+import { and, eq } from "drizzle-orm";
+import type { Db } from "../db/client.ts";
+import { agents, agentSkills, harnesses, runners, skillFiles, skillPackages } from "../db/schema.ts";
+
+/** Whether an agent whose harness is on `runnerId` uses the package. */
+async function usedOnRunner(db: Db, runnerId: string, packageId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ agentId: agentSkills.agentId })
+    .from(agentSkills)
+    .innerJoin(agents, eq(agents.id, agentSkills.agentId))
+    .innerJoin(harnesses, eq(harnesses.id, agents.harnessId))
+    .where(and(eq(agentSkills.packageId, packageId), eq(harnesses.runnerId, runnerId)))
+    .limit(1);
+  return row !== undefined;
+}
+
+/**
+ * A skill package as `GET /runner/packages/<id>` sends it to a runner: its name and files
+ * (base64). Only a package of the runner's owner that an agent on that runner uses; null
+ * (404) for anything else, so a runner learns nothing about other packages.
+ */
+export async function packageForRunner(db: Db, runnerId: string, packageId: string): Promise<{ name: string; files: { path: string; base64: string }[] } | null> {
+  const [pkg] = await db
+    .select({ id: skillPackages.id, name: skillPackages.name })
+    .from(skillPackages)
+    .innerJoin(runners, eq(runners.ownerId, skillPackages.ownerId))
+    .where(and(eq(skillPackages.id, packageId), eq(runners.id, runnerId)));
+  if (!pkg || !(await usedOnRunner(db, runnerId, pkg.id))) return null;
+  const files = await db.select({ path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(eq(skillFiles.packageId, pkg.id));
+  return { name: pkg.name, files: files.map((f) => ({ path: f.path, base64: Buffer.from(f.content).toString("base64") })) };
+}
