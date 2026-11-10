@@ -12,7 +12,7 @@
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with
-  `Authorization: Bearer <token>` and `Dispand-Protocol: 4` (`PROTOCOL_VERSION`, bumped by
+  `Authorization: Bearer <token>` and `Dispand-Protocol: 5` (`PROTOCOL_VERSION`, bumped by
   every change an older runner can't parse or honor). An older runner is refused with 426 "update
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
@@ -234,6 +234,20 @@
   get these tools through `platformToolCaller` (`platform/cloud.ts`), the engine's `ToolCaller`
   in the app: the tools of the session's Job, with their JSON Schema, marked `ask: false`, so
   the cloud runner asks no permission question for them; a workflow run's session gets none.
+  CLI sessions reach the same tools over MCP at the Job endpoint, `/mcp/job`
+  (`platform/mcp.ts`, the route `routes/mcp/job.ts`): one endpoint for every Job, stateless,
+  built with the MCP server SDK (`requireBearerAuth`, `createMcpHandler`, one
+  `McpServer.registerTool` per tool the Job may use now, each calling `callPlatformTool`). The
+  bearer is the Job's token (`platform/token.ts`): `dj_` and 32 random bytes, issued in
+  `Engine.createJob`, stored as its SHA-256 (`runs.token_hash`, how a request finds its Job)
+  and sealed (`runs.token_sealed`, opened by `CliHarnessAdapter.start` at each start, a resume
+  included); a token names its Job only while the Job is running or waiting. The start carries
+  it as `jobToken` (protocol 5) and no address: the runner adds the Job server to the
+  session's MCP servers itself (`withJobServer` in `apps/runner/src/mcp.ts`: `/mcp/job` of its
+  configured server, named `job`, a name starts can't use), and lets `mcp__job__*` tools run
+  without a question (Claude Code: `canUseTool` and the `PreToolUse` hook; Codex: its approval
+  request for that server is accepted); every other MCP tool asks as before. The agent's page
+  sets the bundles and tables (`components/settings/JobRights.tsx`).
 - **Stopping a run:** `runs.stop` (`Engine.stopRun`) fails every step of the run still open
   with "Stopped" (a step that never started too), expires its pending questions and fails the
   run, in one transaction, then cuts what the run was doing: a Tool step's call under way is

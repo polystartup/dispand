@@ -26,7 +26,20 @@ changes it updates this file.
   must be in the Job's snapshot and still on the agent, so a right taken back applies at once
   and a right added later never reaches a running Job. A call then runs as the Job's owner; that
   identity is set only by the authorizing function, never from a request. These calls ask the
-  owner no question: the bundles are the permission.
+  owner no question: the bundles are the permission. `configure` changes fields, not the rows
+  under them: a Job can't remove a choice of a field, since that clears the rows that use it.
+- **A Job's token is the only way into the Job endpoint (`/mcp/job`), and it dies with the
+  Job.** It is 32 random bytes, made when the Job is created. The database keeps its SHA-256 (to
+  find the Job) and its sealed form (to hand it to the Job's CLI sessions at each start), never
+  the token; it is not kept with the step, not in a run's view, and never sent to the browser.
+  The endpoint answers 401 without a valid token of a Job still going, and every tool call is
+  then authorized as above, so the token gives nothing the Job's bundles don't. A session start
+  carries the token and nothing else about the endpoint: **the runner builds the endpoint's
+  address itself**, as `/mcp/job` of its own configured server, under a reserved name, so the
+  server can't make a runner send the token, or run tools unasked, anywhere else. Only that
+  server's tools run without a question on a runner; every other MCP tool still asks. A CLI
+  names a tool `mcp__<server>__<tool>`, so the protocol only accepts session server names made of
+  words joined by single underscores: no other name can give tools that read as the Job server's.
 - **Only the owner has a session.** Sign-up is disabled; `auth.setup` (public) creates the
   owner only while no user exists, and only with the one-time code from the server's settings
   (`DISPAND_SETUP_CODE`), so the first-run window can't be claimed from the network.
@@ -166,8 +179,10 @@ changes it updates this file.
   with that type. Everything else, SVG and HTML included whatever their name or declared type,
   is a download (`application/octet-stream`). Every file gets `X-Content-Type-Options: nosniff`
   and `Content-Security-Policy: default-src 'none'; sandbox`. A cell only holds files uploaded to
-  its own table. Files are at most 10 MiB. Agents never get files: no tool, prompt or runner
-  message carries them.
+  its own table. Files are at most 10 MiB. Agents never get a file's content: no tool,
+  prompt or runner message carries it. A Job with the `data` bundle sees a row's file names and
+  ids, and can set a files cell to files already uploaded to that table (or empty it, after
+  which the unused files are swept), like any other value of the row.
 - **Skill files never name a path outside their skill.** Every file of a skill package, made in
   the app or imported from a plugin, passes `isSafeRelativePath` (`packages/runner-protocol/src/paths.ts`)
   before it is stored: relative POSIX paths only, no `..`, `.` or empty segment, no `\`, NUL or

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { Client, type Tool } from "@modelcontextprotocol/client";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import { McpAction, type McpServerRef, SHORT } from "@dispand/runner-protocol";
+import { JOB_SERVER_NAME, McpAction, type McpServerRef, SHORT } from "@dispand/runner-protocol";
 import type { RunnerConfig } from "./config.ts";
 import type { JsonValue } from "./codex/protocol/serde_json/JsonValue.ts";
 import { cleanJson, FRAME_BUDGET, protocolString } from "./sanitize.ts";
@@ -13,6 +13,18 @@ export type LocalServer = NonNullable<RunnerConfig["mcpServers"]>[string];
 /** A session's MCP server the runner won't give it: the session ends before its CLI starts. */
 export class ToolRefused extends Error {
   override name = "ToolRefused";
+}
+
+/**
+ * `refs` plus Dispand's Job server when the session has a Job token: always `/mcp/job` of this
+ * runner's own configured server, with the token as its bearer. The address is never the
+ * start's to give, so a start can't make the runner send the token, or the tools' unasked
+ * calls, anywhere else.
+ */
+export function withJobServer(refs: McpServerRef[], server: string, jobToken: string | undefined): McpServerRef[] {
+  if (jobToken === undefined) return refs;
+  const url = new URL("/mcp/job", server).href;
+  return [...refs, { name: JOB_SERVER_NAME, type: "http", url, transport: "streamable-http", headers: { authorization: `Bearer ${jobToken}` } }];
 }
 
 /**

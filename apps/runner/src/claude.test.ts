@@ -1135,3 +1135,47 @@ test("an MCP server that doesn't connect ends the session before the first turn,
   expect(read).toBe(false);
   expect(events).toEqual([{ type: "error", message: "the MCP server github didn't connect" }]);
 });
+
+test("the Job server's tools run without a question; another MCP server's tool still asks", async () => {
+  const decisions: unknown[] = [];
+  const outputs: unknown[] = [];
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    decisions.push(await options.canUseTool!("mcp__job__rows_create", { tableId: "t" }, ctx()));
+    decisions.push(await options.canUseTool!("mcp__github__delete_repo", { repo: "x" }, ctx()));
+    // A look-alike name is another server's tool.
+    decisions.push(await options.canUseTool!("mcp__jobs__rows_create", { tableId: "t" }, ctx()));
+    const hooks = options.hooks!.PreToolUse!.flatMap((m) => m.hooks);
+    for (const tool_name of ["mcp__job__rows_create", "mcp__github__delete_repo"]) {
+      for (const hook of hooks) {
+        outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
+      }
+    }
+    yield result();
+  });
+  const events: HarnessEvent[] = [];
+  const session: ClaudeSession = startClaudeSession(start, "/work", (e) => {
+    events.push(e);
+    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "allow" }));
+  }, { query: fake.query, jobServer: "job" });
+  await session.done;
+  expect(decisions).toEqual([
+    { behavior: "allow", updatedInput: { tableId: "t" } },
+    { behavior: "allow", updatedInput: { repo: "x" } },
+    { behavior: "allow", updatedInput: { tableId: "t" } },
+  ]);
+  // Only the other servers' tools were asked about.
+  expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: { toolName: string } }).payload.toolName)).toEqual(["mcp__github__delete_repo", "mcp__jobs__rows_create"]);
+  expect(outputs).toEqual([{}, ask]);
+});
+
+test("without a Job server, a tool named like one asks", async () => {
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    await options.canUseTool!("mcp__job__rows_create", { tableId: "t" }, ctx());
+    yield result();
+  });
+  const { events, session } = run(start, fake.query, () => ({ kind: "permission", decision: "deny" }));
+  await session.done;
+  expect(events.filter((e) => e.type === "question")).toHaveLength(1);
+});

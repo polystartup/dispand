@@ -481,3 +481,14 @@ test("session.stop ends that session alone, with one error, and stops its CLI; a
   expect(events).toHaveLength(before);
   await sessions.shutdown();
 });
+
+test("a start with a Job token gives the CLI the Job server at the runner's own server, and lets its tools run", async () => {
+  const { events, fake, sessions } = await setup();
+  await sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), jobToken: "dj_token" } });
+  await ended(events, "ses_1");
+  expect(fake.servers[0]).toMatchObject({ job: { type: "http", url: "https://dispand.test/mcp/job", headers: { authorization: "Bearer dj_token" } } });
+  // A start without one gets none.
+  await sessions.handle({ type: "session.start", start: start("ses_2", "run_b") });
+  await ended(events, "ses_2");
+  expect(Object.keys(fake.servers[1] ?? {})).not.toContain("job");
+});

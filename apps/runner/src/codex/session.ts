@@ -30,6 +30,8 @@ export type CodexDeps = {
   pluginRoots?: string[];
   /** The session's MCP servers (`mcp.ts` `codexMcpServers`): the config, and the header values for the app-server's environment. */
   mcp?: { servers: Record<string, JsonValue>; env: Record<string, string> };
+  /** The name of Dispand's Job server among them, when the session has one: its tools run without a question. */
+  jobServer?: string;
 };
 
 const SUBMIT_OUTPUTS = "submit_outputs";
@@ -239,6 +241,8 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         // Codex asks before each MCP tool call with an elicitation of no fields: it becomes a
         // permission question, as on Claude Code. Any other elicitation collects nothing.
         if (p.mode !== "form" || meta.codex_approval_kind !== "mcp_tool_call" || Object.keys(p.requestedSchema.properties).length > 0) return decline;
+        // Dispand's own tools: authorized by Dispand on every call, so the owner isn't asked.
+        if (deps.jobServer !== undefined && p.serverName === deps.jobServer) return { action: "accept" as const, content: {}, _meta: null };
         const tool = typeof meta.tool_name === "string" ? meta.tool_name : "";
         const input = isObject(meta.tool_params) ? meta.tool_params : {};
         // Each call asks: Codex's "for the session" and "always" would persist beyond what the owner sees.

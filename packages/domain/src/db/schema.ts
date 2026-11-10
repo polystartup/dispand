@@ -218,6 +218,9 @@ export const runs = pgTable(
     def: jsonb("def").$type<WorkflowDef>(),
     snapshot: jsonb("snapshot").$type<AgentSnapshot>(),
     cause: jsonb("cause").$type<JobCause>(),
+    // A Job's token for the Job endpoint (`platform/token.ts`): its hash and its sealed form, never the token.
+    tokenHash: text("token_hash").unique(),
+    tokenSealed: text("token_sealed"),
     status: text("status").$type<RunStatus>().notNull(),
     trigger: jsonb("trigger").$type<RunTrigger>().notNull().default({ type: "manual" }),
     error: text("error"),

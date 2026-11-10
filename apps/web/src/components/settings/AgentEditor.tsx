@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
+import { JobRights, type Rights } from "./JobRights.tsx";
 import { BannerSlot, Empty, FormField, NextStep } from "./parts.tsx";
 
 export type Agent = Awaited<ReturnType<typeof api.agents.get>>;
@@ -46,6 +47,8 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
     .map((t) => ({ ...t, name: tools.data?.find((row) => row.id === t.toolId)?.name ?? agent?.tools.find((row) => row.toolId === t.toolId)?.name ?? t.toolId }))
     .sort((a, b) => a.name.localeCompare(b.name));
   const addable = (tools.data ?? []).filter((t) => !agentTools.some((a) => a.toolId === t.id));
+  const tables = useQuery(orpc.tables.list.queryOptions());
+  const [rights, setRights] = useState<Rights>({ bundles: agent?.bundles ?? [], dataTables: agent?.dataTables ?? "all" });
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const busy = create.isPending || update.isPending;
@@ -66,7 +69,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
     setSaved(false);
     try {
       const model = modelChoice === HARNESS_DEFAULT ? undefined : modelChoice === OTHER ? otherModel.trim() : modelChoice;
-      const fields = { name, harnessId, systemPrompt, skillPackageIds, toolIds, ...(model ? { model } : {}) };
+      const fields = { name, harnessId, systemPrompt, skillPackageIds, toolIds, ...rights, ...(model ? { model } : {}) };
       if (!agent) {
         await create.mutateAsync(fields);
         await navigate({ to: "/settings/agents", search: { saved: true } });
@@ -226,6 +229,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
             </p>
           )}
         </section>
+        <JobRights rights={rights} tables={tables.data ?? []} onChange={setRights} />
         <FormField label="System prompt" htmlFor="agent-prompt" hint="What this agent is and how it works. Sent at the start of every session.">
           <Textarea
             id="agent-prompt"

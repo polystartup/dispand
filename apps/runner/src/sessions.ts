@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   type HarnessEvent,
+  JOB_SERVER_NAME,
   MAX_LIVE_SESSIONS,
   type ServerToRunner,
   SESSION_ALREADY_RUNNING,
@@ -14,7 +15,7 @@ import { codexRequired } from "./codex/version.ts";
 import { writeDurable } from "./durable.ts";
 import type { RunnerConfig } from "./config.ts";
 import type { HarnessSession } from "./outcome.ts";
-import { codexMcpServers, mcpConfigFor } from "./mcp.ts";
+import { codexMcpServers, mcpConfigFor, withJobServer } from "./mcp.ts";
 import { fetchPackages, removeSkills, sessionPluginsDir, writeSkills } from "./skills.ts";
 import { resolveWorkdir } from "./workdir.ts";
 
@@ -232,9 +233,10 @@ export class Sessions {
     let claudeMcp: ReturnType<typeof mcpConfigFor> = {};
     let codexMcp: ReturnType<typeof codexMcpServers> | undefined;
     try {
-      if (start.mcpServers.length > 0) {
-        if (start.harness === "codex") codexMcp = codexMcpServers(start.mcpServers, this.config.mcpServers);
-        else claudeMcp = mcpConfigFor(start.mcpServers, this.config.mcpServers);
+      const refs = withJobServer(start.mcpServers, this.config.server, start.jobToken);
+      if (refs.length > 0) {
+        if (start.harness === "codex") codexMcp = codexMcpServers(refs, this.config.mcpServers);
+        else claudeMcp = mcpConfigFor(refs, this.config.mcpServers);
       }
     } catch (err) {
       return emit({ type: "error", message: (err as Error).message });
@@ -277,6 +279,7 @@ export class Sessions {
         cleanUp();
         return emit({ type: "error", message: this.stops !== stops ? this.stopMessage : refusal });
       }
+      const jobServer = start.jobToken === undefined ? {} : { jobServer: JOB_SERVER_NAME };
       const session =
         start.harness === "codex"
           ? startCodexSession(start, cwd, emit, {
@@ -287,12 +290,14 @@ export class Sessions {
               ...(pluginsDir ? { pluginsDir } : {}),
               pluginRoots,
               ...(codexMcp ? { mcp: codexMcp } : {}),
+              ...jobServer,
             })
           : startClaudeSession(start, cwd, emit, {
               ...this.options.claude,
               allowBypass: this.config.allowBypass,
               pluginRoots,
               mcpServers: claudeMcp,
+              ...jobServer,
             });
       this.live.set(start.sessionId, session);
       this.toldNotRunning.delete(start.sessionId);

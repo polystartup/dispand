@@ -17,6 +17,7 @@ import { Route as AppHelpRouteImport } from './routes/_app.help'
 import { Route as AppNotificationsRouteImport } from './routes/_app.notifications'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as FilesIdRouteImport } from './routes/files/$id'
+import { Route as McpJobRouteImport } from './routes/mcp/job'
 import { Route as RunnerPairRouteImport } from './routes/runner/pair'
 import { Route as AppPPageIdRouteImport } from './routes/_app.p.$pageId'
 import { Route as AppSettingsSkillsRouteImport } from './routes/_app.settings.skills'
@@ -76,6 +77,11 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
 const FilesIdRoute = FilesIdRouteImport.update({
   id: '/files/$id',
   path: '/files/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const McpJobRoute = McpJobRouteImport.update({
+  id: '/mcp/job',
+  path: '/mcp/job',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RunnerPairRoute = RunnerPairRouteImport.update({
@@ -199,6 +205,7 @@ export interface FileRoutesByFullPath {
   '/notifications': typeof AppNotificationsRoute
   '/api/health': typeof ApiHealthRoute
   '/files/$id': typeof FilesIdRoute
+  '/mcp/job': typeof McpJobRoute
   '/runner/pair': typeof RunnerPairRoute
   '/p/$pageId': typeof AppPPageIdRoute
   '/settings/skills': typeof AppSettingsSkillsRoute
@@ -228,6 +235,7 @@ export interface FileRoutesByTo {
   '/notifications': typeof AppNotificationsRoute
   '/api/health': typeof ApiHealthRoute
   '/files/$id': typeof FilesIdRoute
+  '/mcp/job': typeof McpJobRoute
   '/runner/pair': typeof RunnerPairRoute
   '/': typeof AppIndexRoute
   '/p/$pageId': typeof AppPPageIdRoute
@@ -260,6 +268,7 @@ export interface FileRoutesById {
   '/_app/notifications': typeof AppNotificationsRoute
   '/api/health': typeof ApiHealthRoute
   '/files/$id': typeof FilesIdRoute
+  '/mcp/job': typeof McpJobRoute
   '/runner/pair': typeof RunnerPairRoute
   '/_app/': typeof AppIndexRoute
   '/_app/p/$pageId': typeof AppPPageIdRoute
@@ -293,6 +302,7 @@ export interface FileRouteTypes {
     | '/notifications'
     | '/api/health'
     | '/files/$id'
+    | '/mcp/job'
     | '/runner/pair'
     | '/p/$pageId'
     | '/settings/skills'
@@ -322,6 +332,7 @@ export interface FileRouteTypes {
     | '/notifications'
     | '/api/health'
     | '/files/$id'
+    | '/mcp/job'
     | '/runner/pair'
     | '/'
     | '/p/$pageId'
@@ -353,6 +364,7 @@ export interface FileRouteTypes {
     | '/_app/notifications'
     | '/api/health'
     | '/files/$id'
+    | '/mcp/job'
     | '/runner/pair'
     | '/_app/'
     | '/_app/p/$pageId'
@@ -383,6 +395,7 @@ export interface RootRouteChildren {
   SetupRoute: typeof SetupRoute
   ApiHealthRoute: typeof ApiHealthRoute
   FilesIdRoute: typeof FilesIdRoute
+  McpJobRoute: typeof McpJobRoute
   RunnerPairRoute: typeof RunnerPairRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiRpcSplatRoute: typeof ApiRpcSplatRoute
@@ -445,6 +458,13 @@ declare module '@tanstack/react-router' {
       path: '/files/$id'
       fullPath: '/files/$id'
       preLoaderRoute: typeof FilesIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mcp/job': {
+      id: '/mcp/job'
+      path: '/mcp/job'
+      fullPath: '/mcp/job'
+      preLoaderRoute: typeof McpJobRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/runner/pair': {
@@ -651,6 +671,7 @@ const rootRouteChildren: RootRouteChildren = {
   SetupRoute: SetupRoute,
   ApiHealthRoute: ApiHealthRoute,
   FilesIdRoute: FilesIdRoute,
+  McpJobRoute: McpJobRoute,
   RunnerPairRoute: RunnerPairRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiRpcSplatRoute: ApiRpcSplatRoute,
