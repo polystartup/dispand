@@ -284,13 +284,13 @@ test("creates a trigger-form widget titled after the trigger and refuses another
   expect((await call(router.pages.home, undefined, { context })).widgets).toEqual([widget]);
 
   // Only a manual trigger has a form.
-  const schedule = await call(router.triggers.create, { agentId: agent.id, name: "Daily", config: { kind: "schedule", cron: "0 9 * * *", timezone: "Europe/Paris" } }, { context });
+  const schedule = await call(router.triggers.create, { agentId: agent.id, name: "Daily", instructions: "Do it.", config: { kind: "schedule", cron: "0 9 * * *", timezone: "Europe/Paris" } }, { context });
   await expect(call(router.widgets.create, { pageId: home.id, type: "trigger-form", triggerId: schedule.id }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(harnessesTable).values({ id: "harness_other", ownerId: "user_other", name: "Eve's", runnerId, kind: "claude-code", permissionMode: "default" });
   await context.db.insert(agentsTable).values({ id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
-  await context.db.insert(triggersTable).values({ id: "trigger_other", ownerId: "user_other", agentId: "agent_other", kind: "manual", name: "T", config: { kind: "manual", placement: "button" } });
+  await context.db.insert(triggersTable).values({ id: "trigger_other", ownerId: "user_other", agentId: "agent_other", kind: "manual", name: "T", instructions: "Do it.", config: { kind: "manual", placement: "button" } });
   await expect(call(router.widgets.create, { pageId: home.id, type: "trigger-form", triggerId: "trigger_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
   // The widget goes with its trigger.

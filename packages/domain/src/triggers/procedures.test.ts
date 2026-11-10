@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import { agents, harnesses, triggers, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
+import type { TriggerConfig } from "./model.ts";
 
 const NOW = new Date("2026-11-05T08:00:00Z");
 
@@ -54,11 +55,11 @@ test("refuses another owner's agent", async () => {
   });
   await context.db.insert(agents).values({ id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
   const config = { kind: "manual", placement: "button" } as const;
-  await expect(call(router.triggers.create, { agentId: "agent_other", name: "T", config }, { context })).rejects.toMatchObject({
+  await expect(call(router.triggers.create, { agentId: "agent_other", name: "T", instructions: "Do it.", config }, { context })).rejects.toMatchObject({
     code: "NOT_FOUND",
   });
   // Another owner's trigger can't be read, changed or deleted either.
-  await context.db.insert(triggers).values({ id: "trigger_other", ownerId: "user_other", agentId: "agent_other", kind: "manual", name: "T", config });
+  await context.db.insert(triggers).values({ id: "trigger_other", ownerId: "user_other", agentId: "agent_other", kind: "manual", name: "T", instructions: "Do it.", config });
   await expect(call(router.triggers.get, { id: "trigger_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.triggers.update, { id: "trigger_other", name: "Mine" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.triggers.delete, { id: "trigger_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -69,17 +70,17 @@ test("refuses another owner's agent", async () => {
 test("refuses a cron the schedule helpers refuse", async () => {
   const { context, agent } = await setup();
   await expect(
-    call(router.triggers.create, { agentId: agent.id, name: "T", config: { kind: "schedule", cron: "H 9 * * *", timezone: "Europe/Paris" } }, { context }),
+    call(router.triggers.create, { agentId: agent.id, name: "T", instructions: "Do it.", config: { kind: "schedule", cron: "H 9 * * *", timezone: "Europe/Paris" } }, { context }),
   ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Use numbers, not H" });
   await expect(
-    call(router.triggers.create, { agentId: agent.id, name: "T", config: { kind: "schedule", cron: "0 9 * * *", timezone: "Mars/Olympus" } }, { context }),
+    call(router.triggers.create, { agentId: agent.id, name: "T", instructions: "Do it.", config: { kind: "schedule", cron: "0 9 * * *", timezone: "Mars/Olympus" } }, { context }),
   ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Unknown timezone" });
 });
 
 test("a schedule trigger gets its next fire and keeps it on rename", async () => {
   const { context, clock, agent } = await setup();
   const config = { kind: "schedule", cron: "0 10 * * *", timezone: "Europe/Paris" } as const;
-  const created = await call(router.triggers.create, { agentId: agent.id, name: "Morning", config }, { context });
+  const created = await call(router.triggers.create, { agentId: agent.id, name: "Morning", instructions: "Do it.", config }, { context });
   // 08:00Z is 09:00 in Paris: the next 10:00 is one hour away.
   expect(created.nextFireAt).toEqual(new Date("2026-11-05T09:00:00Z"));
 
@@ -98,7 +99,7 @@ test("a schedule trigger gets its next fire and keeps it on rename", async () =>
 test("pausing a schedule trigger keeps its times, and enabling it again starts from now", async () => {
   const { context, clock, agent } = await setup();
   const config = { kind: "schedule", cron: "0 10 * * *", timezone: "Europe/Paris" } as const;
-  const created = await call(router.triggers.create, { agentId: agent.id, name: "Morning", config }, { context });
+  const created = await call(router.triggers.create, { agentId: agent.id, name: "Morning", instructions: "Do it.", config }, { context });
   const paused = await call(router.triggers.update, { id: created.id, enabled: false }, { context });
   expect(paused).toMatchObject({ enabled: false, nextFireAt: created.nextFireAt });
 
@@ -112,7 +113,7 @@ test("pausing a schedule trigger keeps its times, and enabling it again starts f
 
 test("a trigger's kind can't change", async () => {
   const { context, agent } = await setup();
-  const created = await call(router.triggers.create, { agentId: agent.id, name: "T", config: { kind: "manual", placement: "button" } }, { context });
+  const created = await call(router.triggers.create, { agentId: agent.id, name: "T", instructions: "Do it.", config: { kind: "manual", placement: "button" } }, { context });
   await expect(
     call(router.triggers.update, { id: created.id, config: { kind: "schedule", cron: "0 9 * * *", timezone: "Europe/Paris" } }, { context }),
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
@@ -130,4 +131,18 @@ test("deleting an agent deletes its triggers", async () => {
   await call(router.triggers.create, { agentId: agent.id, name: "T", config: { kind: "manual", placement: "chat" } }, { context });
   await call(router.agents.delete, { id: agent.id }, { context });
   expect(await context.db.select().from(triggers)).toEqual([]);
+});
+
+test("a button or schedule trigger needs instructions; a chat doesn't", async () => {
+  const { context, agent } = await setup();
+  const create = (config: TriggerConfig, instructions?: string) =>
+    call(router.triggers.create, { agentId: agent.id, name: "T", config, ...(instructions === undefined ? {} : { instructions }) }, { context });
+  const refused = { code: "BAD_REQUEST", message: "Say what the agent does when this trigger fires" };
+  await expect(create({ kind: "manual", placement: "button" })).rejects.toMatchObject(refused);
+  await expect(create({ kind: "schedule", cron: "0 9 * * *", timezone: "Europe/Paris" }, "  ")).rejects.toMatchObject(refused);
+  const chat = await create({ kind: "manual", placement: "chat" });
+  // Nor can an edit leave a button without any.
+  await expect(call(router.triggers.update, { id: chat.id, config: { kind: "manual", placement: "button" } }, { context })).rejects.toMatchObject(refused);
+  const button = await create({ kind: "manual", placement: "button" }, "Sort the mail.");
+  await expect(call(router.triggers.update, { id: button.id, instructions: "" }, { context })).rejects.toMatchObject(refused);
 });

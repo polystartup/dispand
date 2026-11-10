@@ -295,7 +295,7 @@ test("a disabled trigger is not claimed", async () => {
 
 test("a manual trigger is never claimed", async () => {
   const { ctx, time, scheduler, agent, context } = await triggerSetup();
-  await call(router.triggers.create, { agentId: agent.id, name: "Ask", config: { kind: "manual", placement: "button" } }, { context: ctx });
+  await call(router.triggers.create, { agentId: agent.id, name: "Ask", instructions: "Do it.", config: { kind: "manual", placement: "button" } }, { context: ctx });
   time.set("2026-11-05T11:00:10+01:00");
   expect(await scheduler.tick()).toHaveLength(1);
   expect(await context.db.select().from(runs)).toHaveLength(1);

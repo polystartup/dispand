@@ -27,7 +27,12 @@ Status: Prototype
     skipped: an event must be handled.)
   - A Job runs the agent and the trigger **as they were when it was created**: editing either
     changes the next Job, never one already created.
-  - An agent can't be deleted while one of its Jobs is still going.
+  - An agent can't be deleted while one of its Jobs is still going. **Known limit:** a run can't
+    be stopped by hand yet, and a conversation started from a chat trigger stays open, so an
+    agent that has had one can't be deleted (as a workflow whose chat run never finished can't
+    be). Stopping a run or a Job is the next change planned here.
+  - A button or schedule trigger must say what the agent does (its instructions); a chat starts
+    with the owner's words.
   - A Tool step cut by a restart **fails and is never called again**: the owner checks the tool
     before running it again.
   - A for-each loop over a list longer than its cap **fails before its first iteration**.
