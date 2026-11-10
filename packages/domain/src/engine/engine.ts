@@ -143,7 +143,7 @@ export function answerText(q: Pick<QuestionRow, "payload" | "answer">): string {
   if (a.kind === "permission") {
     const asked = approvalWords(q.payload);
     // An approval the agent asked for in its own words: told back with those words.
-    if (asked !== null) return `The owner ${a.decision === "deny" ? "denied" : "approved"} your request (“${asked.slice(0, 500)}”)${a.message ? `: ${a.message}` : "."}`;
+    if (asked !== null) return `The owner ${a.decision === "deny" ? "denied" : "approved"} your request (“${asked.slice(0, 500).toWellFormed()}”)${a.message ? `: ${a.message}` : "."}`;
     const tool = q.payload.kind === "permission" ? q.payload.toolName : "the tool";
     const verdict = a.decision === "deny" ? "denied" : "allowed";
     return `The owner ${verdict} ${tool}${a.message ? `: ${a.message}` : "."}`;

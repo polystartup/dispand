@@ -327,6 +327,11 @@ test("an approval asked in words is told back in words to a session that was res
   const payload: QuestionPayload = { kind: "permission", toolName: "request_approval", input: { message: "Send this draft?" }, canAlwaysAllow: false };
   expect(answerText({ payload, answer: { kind: "permission", decision: "allow" } })).toBe("The owner approved your request (“Send this draft?”).");
   expect(answerText({ payload, answer: { kind: "permission", decision: "deny", message: "Not yet." } })).toBe("The owner denied your request (“Send this draft?”): Not yet.");
+  // Cut words stay storable, or the request could never be answered.
+  const long: QuestionPayload = { ...payload, input: { message: "a".repeat(499) + "😀 and more" } };
+  const told = answerText({ payload: long, answer: { kind: "permission", decision: "allow" } });
+  expect(told.isWellFormed()).toBe(true);
+  expect(told).toContain("a".repeat(499));
   // A tool permission keeps its wording.
   expect(answerText({ payload: permission, answer: { kind: "permission", decision: "allow" } })).toBe("The owner allowed Bash.");
 });
