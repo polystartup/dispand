@@ -37,14 +37,16 @@ test("tool names are unique, at most 64 characters, and their input is the proce
   }
 });
 
-test("the tools are exactly the data and configure ones, on tables, fields and rows only", () => {
+test("the tools are exactly the data and configure ones, on tables, fields, rows and agents only", () => {
   const of = (bundle: string) => PLATFORM_TOOLS.filter((t) => t.bundle === bundle).map((t) => t.name).sort();
   expect(of("data")).toEqual(["rows_create", "rows_delete", "rows_get", "rows_list", "rows_update", "tables_get", "tables_list"]);
-  expect(of("configure")).toEqual(["fields_create", "fields_reorder", "fields_update", "tables_create", "tables_rename"]);
-  expect(PLATFORM_TOOLS).toHaveLength(12);
-  expect(PLATFORM_TOOLS.every((t) => ["tables", "fields", "rows"].includes(t.path.split(".")[0]!))).toBe(true);
+  expect(of("configure")).toEqual(["agents_create", "agents_get", "agents_list", "agents_update", "fields_create", "fields_reorder", "fields_update", "tables_create", "tables_rename"]);
+  expect(PLATFORM_TOOLS).toHaveLength(16);
+  expect(PLATFORM_TOOLS.every((t) => ["tables", "fields", "rows", "agents"].includes(t.path.split(".")[0]!))).toBe(true);
+  // What changes what agents may do is marked: it runs only on a proposal a person approved.
+  expect(PLATFORM_TOOLS.filter((t) => t.grant).map((t) => t.name)).toEqual(["agents_create", "agents_update"]);
   // What needs a person, and what agents never touch, are named as not tools.
-  for (const path of ["tables.delete", "fields.delete", "fields.retype", "auth.setup", "runners.create", "tools.create", "agents.update", "files.upload"]) {
+  for (const path of ["tables.delete", "fields.delete", "fields.retype", "auth.setup", "runners.create", "tools.create", "agents.delete", "agents.setToolAsk", "files.upload"]) {
     expect(NOT_TOOLS).toContain(path);
   }
 });

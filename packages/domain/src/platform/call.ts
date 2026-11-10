@@ -6,7 +6,8 @@ import { logError } from "../log.ts";
 import type { InitialContext } from "../rpc/context.ts";
 import { router } from "../rpc/router.ts";
 import type { TableScope } from "./bundles.ts";
-import { PLATFORM_TOOLS, procedureOf, type PlatformTool } from "./tools.ts";
+import { createProposal, takeItem } from "./proposals.ts";
+import { PLATFORM_TOOLS, procedureOf, PROPOSE, type PlatformTool } from "./tools.ts";
 
 // The one way a Job's session calls Dispand's own procedures, for a cloud session (in process)
 // and for the Job endpoint alike: every call is authorized here, against the Job and against
@@ -20,6 +21,9 @@ export type PlatformApp = Omit<InitialContext, "headers" | "resHeaders" | "job">
 
 export type ToolResult = { ok: true; output: unknown } | { ok: false; error: string };
 
+const ALL = [...PLATFORM_TOOLS, PROPOSE];
+const NEEDS_PROPOSAL =
+  "This change needs the owner's approval: list it in a proposal (propose), ask for it (request_approval with the proposal's id), then make the call exactly as listed, once.";
 const OVER = "This Job is over";
 const NOT_FOUND = "Not found";
 
@@ -52,7 +56,7 @@ async function rightsOf(db: Db, job: JobIdentity): Promise<{ bundles: string[]; 
 /** The tools the Job may use now; none once it is over. */
 export async function toolsOf(db: Db, job: JobIdentity): Promise<PlatformTool[]> {
   const rights = await rightsOf(db, job);
-  return rights ? PLATFORM_TOOLS.filter((t) => rights.bundles.includes(t.bundle)) : [];
+  return rights ? ALL.filter((t) => rights.bundles.includes(t.bundle)) : [];
 }
 
 /**
@@ -62,7 +66,7 @@ export async function toolsOf(db: Db, job: JobIdentity): Promise<PlatformTool[]>
  * never as internals.
  */
 export async function callPlatformTool(app: PlatformApp, job: JobIdentity, name: string, input: unknown): Promise<ToolResult> {
-  const tool = PLATFORM_TOOLS.find((t) => t.name === name);
+  const tool = ALL.find((t) => t.name === name);
   if (!tool) return { ok: false, error: "Unknown tool" };
   try {
     const rights = await rightsOf(app.db, job);
@@ -74,6 +78,16 @@ export async function callPlatformTool(app: PlatformApp, job: JobIdentity, name:
     const touched = await tool.tables(app.db, job.ownerId, parsed.data);
     // Outside the Job's tables, or naming nothing: the same answer, so a Job learns nothing about what it can't reach.
     if (touched.some((id) => id === null || (scope !== "all" && !scope.includes(id)))) return { ok: false, error: NOT_FOUND };
+    if (tool === PROPOSE) {
+      const made = await createProposal(app.db, job, ALL.filter((t) => rights.bundles.includes(t.bundle)), parsed.data);
+      if ("error" in made) return { ok: false, error: made.error };
+      return {
+        ok: true,
+        output: { ...made, next: `Now call request_approval with a message saying what you propose and why, and proposal: "${made.proposalId}". Once approved, make each call exactly as listed.` },
+      };
+    }
+    // What changes what agents may do: only as a person approved it for this Job, and once.
+    if (tool.grant && !(await takeItem(app.db, job, tool.name, parsed.data))) return { ok: false, error: NEEDS_PROPOSAL };
     const output = await call(procedureOf(router, tool.path) as never, parsed.data as never, {
       context: { ...app, job, headers: new Headers(), resHeaders: new Headers() } as never,
     });

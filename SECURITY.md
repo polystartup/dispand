@@ -50,6 +50,18 @@ changes it updates this file.
   is words cut short and a mark, so the question the owner answers also carries, from the
   server, the tool's name and the action's name and description in full. A session in `bypassPermissions` mode asks
   nothing, so its calls of these tools are refused.
+- **An agent changes what agents may do only as a person approved it, write by write.** The
+  tools that create or change an agent are marked as grants in the one registry of Dispand's
+  tools, and `callPlatformTool`, the single way a Job calls them, runs a grant only when it
+  finds and uses up an item of a proposal of that same Job that the owner approved: the same
+  tool, the same input (key order aside), not used yet. A proposal is made by the agent
+  (`propose`: at most 20 writes and 64 KiB, each validated by its tool and kept as parsed), and
+  belongs to its Job: no other Job uses it, and it ends with the Job. The Job's rights are
+  checked first and as they are at the call, so an approval never brings back a bundle taken
+  since, and the procedure's own checks still apply (what isn't the owner's stays refused). A
+  person may approve more than the proposing agent holds: that is what a grant is, and why
+  the owner is shown every item whole. Until the Approval that carries a proposal exists
+  (the next change), no proposal can be approved, so these writes are always refused.
 - **Which actions of a tool run without asking is the owner's choice, per agent, and only a
   person changes it.** Each agent keeps, for each tool it chose, the actions that run unasked
   (`agent_tools.unasked`); every other action asks as above, in a cloud session and at the

@@ -431,6 +431,36 @@ export const cloudSessions = pgTable("cloud_sessions", {
 export type QuestionStatus = "pending" | "answered" | "expired";
 
 export type QuestionKind = "question" | "approval";
+/** One write of a proposal: a platform tool and its input as the tool parsed it; `usedAt` once the Job made that call. */
+export type ProposalItem = { tool: string; input: unknown; usedAt?: string };
+
+/**
+ * Proposals (`platform/proposals.ts`): the writes a Job's agent asks a person to approve
+ * before it makes them, for what changes what agents may do. `draft` until the agent asks for
+ * it (`asked`, with its question), then `approved` or `declined` by the owner's answer. It
+ * belongs to its Job: no other run uses its items.
+ */
+export const proposals = pgTable(
+  "proposals",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    agentId: text("agent_id").notNull(),
+    items: jsonb("items").$type<ProposalItem[]>().notNull(),
+    status: text("status").$type<"draft" | "asked" | "approved" | "declined">().notNull().default("draft"),
+    // The Approval it was asked with.
+    questionId: text("question_id"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    settledAt: timestamp("settled_at"),
+  },
+  (t) => [index("proposals_run_idx").on(t.runId)],
+);
+
 /** Who answered a question: a person, for now. */
 export type AnsweredBy = { type: "user"; userId: string };
 
