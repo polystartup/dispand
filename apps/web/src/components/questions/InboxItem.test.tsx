@@ -77,3 +77,28 @@ test("an expired item says so", () => {
   expect(screen.getByText(/Expired: its run ended before an answer/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
 });
+
+const request = { kind: "permission", toolName: "request_approval", input: { message: "Send this draft to the client?\nIt quotes the fee." }, canAlwaysAllow: false };
+
+test("an approval asked in words shows the agent's words, not a tool call", () => {
+  mount({ ...approval, payload: request });
+  expect(screen.getByText(/Send this draft to the client\?/)).toBeTruthy();
+  // The words as written: no tool name, no JSON.
+  expect(screen.queryByText(/request_approval/)).toBeNull();
+  expect(screen.queryByText(/"message"/)).toBeNull();
+  expect(screen.queryByLabelText("Tool input")).toBeNull();
+  expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Deny" })).toBeTruthy();
+});
+
+test("a done approval asked in words shows what was asked and the answer", () => {
+  mount({ ...approval, payload: request, status: "answered", answer: { kind: "permission", decision: "allow" }, answeredAt: at, answeredBy: { type: "user", userId: "u" } });
+  expect(screen.getByText(/Asked: Send this draft to the client\?/)).toBeTruthy();
+  expect(screen.queryByText(/request_approval/)).toBeNull();
+  expect(screen.getByText("Approved")).toBeTruthy();
+});
+
+test("an item expired because its agent was restarted and asked again says so", () => {
+  mount({ ...approval, status: "expired", orphaned: true });
+  expect(screen.getByText(/Expired: the agent was restarted and asked again/)).toBeTruthy();
+});

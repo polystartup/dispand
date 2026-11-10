@@ -1179,3 +1179,38 @@ test("without a Job server, a tool named like one asks", async () => {
   await session.done;
   expect(events.filter((e) => e.type === "question")).toHaveLength(1);
 });
+
+test("request_approval asks the owner in the agent's words and answers Approved or the denial, whatever the permission mode", async () => {
+  const results: string[] = [];
+  const decisions: unknown[] = [];
+  const outputs: unknown[] = [];
+  const fake = fakeQuery(async function* ({ next, options, callTool }) {
+    await next();
+    // The tool itself asks: the CLI's own permission step lets it through, in every mode.
+    decisions.push(await options.canUseTool!("mcp__dispand__request_approval", { message: "Send this draft?" }, ctx()));
+    for (const hook of options.hooks!.PreToolUse!.flatMap((m) => m.hooks)) {
+      outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name: "mcp__dispand__request_approval", tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
+    }
+    results.push(await callTool("request_approval", { message: "Send this draft?" }));
+    results.push(await callTool("request_approval", { message: "Delete the folder?" }));
+    results.push(await callTool("request_approval", { message: "   " }));
+    results.push(await callTool("request_approval", { message: "x".repeat(4001) }));
+    yield result();
+  });
+  const answers: Answer[] = [
+    { kind: "permission", decision: "allow" },
+    { kind: "permission", decision: "deny", message: "Never delete." },
+  ];
+  const { events, session } = run(start, fake.query, () => answers.shift()!);
+  await session.done;
+  expect(decisions).toEqual([{ behavior: "allow", updatedInput: { message: "Send this draft?" } }]);
+  expect(outputs).toEqual([{}]);
+  expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: unknown }).payload)).toEqual([
+    { kind: "permission", toolName: "request_approval", input: { message: "Send this draft?" }, canAlwaysAllow: false },
+    { kind: "permission", toolName: "request_approval", input: { message: "Delete the folder?" }, canAlwaysAllow: false },
+  ]);
+  expect(results[0]).toBe("Approved.");
+  expect(results[1]).toBe("Denied: Never delete.");
+  expect(results[2]).toMatch(/needs a message/);
+  expect(results[3]).toMatch(/too long/);
+});

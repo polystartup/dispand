@@ -34,6 +34,13 @@ export function QuestionForm({ question, onAnswer, busy, error }: QuestionFormPr
   );
 }
 
+/** The words of an approval an agent asked for with `request_approval`; null for any other question. */
+export function approvalWords(payload: QuestionPayload): string | null {
+  if (payload.kind !== "permission" || payload.toolName !== "request_approval") return null;
+  const message = (payload.input as { message?: unknown } | null)?.message;
+  return typeof message === "string" ? message : null;
+}
+
 type Part<P extends QuestionPayload> = { payload: P; onAnswer: (answer: Answer) => void; busy?: boolean };
 
 type Pick = { labels: string[]; other: boolean; text: string };
@@ -123,20 +130,28 @@ function Permission({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, {
   const [message, setMessage] = useState("");
   const send = (decision: "allow" | "allow-always" | "deny") => onAnswer({ kind: "permission", decision, ...(message.trim() ? { message: message.trim() } : {}) });
   const input = readable(payload.input);
+  // An approval the agent asked for in its own words (`request_approval`): the words, not a tool call.
+  const asked = approvalWords(payload);
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-[15px]">
-        The agent wants to use <code className="rounded bg-hover px-1.5 py-0.5 font-mono text-[13px]">{payload.toolName}</code>.
-      </p>
-      {input && (
-        <pre aria-label="Tool input" className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-hover p-3 font-mono text-[12.5px]">
-          {input}
-        </pre>
+      {asked !== null ? (
+        <p className="whitespace-pre-wrap break-words text-[15px]">{asked}</p>
+      ) : (
+        <>
+          <p className="text-[15px]">
+            The agent wants to use <code className="rounded bg-hover px-1.5 py-0.5 font-mono text-[13px]">{payload.toolName}</code>.
+          </p>
+          {input && (
+            <pre aria-label="Tool input" className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-hover p-3 font-mono text-[12.5px]">
+              {input}
+            </pre>
+          )}
+        </>
       )}
       <Textarea aria-label="Message to the agent" placeholder="Optional message to the agent" value={message} onChange={(e) => setMessage(e.target.value)} />
       <div className="flex flex-wrap gap-2">
         <Button disabled={busy} onClick={() => send("allow")}>
-          Allow
+          {asked !== null ? "Approve" : "Allow"}
         </Button>
         {payload.canAlwaysAllow && (
           <Button variant="outline" disabled={busy} onClick={() => send("allow-always")}>

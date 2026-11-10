@@ -38,7 +38,7 @@ describe("toolNames", () => {
     ]);
     const produced = ["a", "b", "c", "d"].map((k) => names.toName(k));
     for (const name of produced) {
-      expect(["ask_user", "submit_outputs", "read_skill"]).not.toContain(name);
+      expect(["ask_user", "submit_outputs", "request_approval", "read_skill"]).not.toContain(name);
       expect(name).toMatch(VALID);
     }
     expect(new Set(produced).size).toBe(4);

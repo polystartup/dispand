@@ -182,3 +182,29 @@ export function sessionOutcome(
     },
   };
 }
+
+/** The tool an agent asks an approval with, in its own words. */
+export const REQUEST_APPROVAL = "request_approval";
+export const REQUEST_APPROVAL_DESCRIPTION =
+  'Ask the owner to approve something before you do it, in your own words (for example: "Send this draft to the client?"). They answer yes or no; a no may come with a reason. Use it before an action that matters and can\'t be undone, and wait for the answer before acting.';
+/** The most characters the request's words may hold: the owner reads them whole. */
+const MAX_APPROVAL_MESSAGE = 4000;
+
+/**
+ * Asks the owner to approve `args.message` and gives the tool's answer: "Approved.", or the
+ * denial with the owner's reason. Each request asks: nothing is ever allowed for the session,
+ * whatever the permission mode. `ok: false` when the request itself can't be shown.
+ */
+export async function requestApproval(
+  ask: (payload: QuestionPayload, signal?: AbortSignal) => Promise<Answer | null>,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean; text: string }> {
+  const message = typeof args.message === "string" ? args.message.trim() : "";
+  if (!message) return { ok: false, text: "request_approval needs a message: what you ask to be approved." };
+  if (message.length > MAX_APPROVAL_MESSAGE) return { ok: false, text: `The message is too long to show whole (at most ${MAX_APPROVAL_MESSAGE} characters): shorten it.` };
+  const answer = await ask({ kind: "permission", toolName: REQUEST_APPROVAL, input: { message: protocolString(message, TEXT) }, canAlwaysAllow: false }, signal);
+  if (answer?.kind !== "permission") return { ok: false, text: "The request was not answered." };
+  if (answer.decision === "deny") return { ok: true, text: answer.message ? `Denied: ${answer.message}` : "Denied." };
+  return { ok: true, text: "Approved." };
+}

@@ -270,7 +270,15 @@
   workflow or its agent and trigger, its answer and its answerer. The page is `/inbox`
   (`routes/_app.inbox.tsx`, `components/questions/InboxItem.tsx`): "Waiting for you", where
   each item is answered in place, then "Done"; `/notifications` redirects there, and the bell
-  counts what waits. Nothing answers on the platform's behalf.
+  counts what waits. Nothing answers on the platform's behalf. An agent asks for an approval
+  in its own words with the tool `request_approval({ message })` (1 to 4000 characters): the
+  call is a permission question whose tool is `request_approval` and whose input is the
+  message, so it is an Approval like any other, answered "Approved." or with the denial and
+  the owner's reason. A cloud session has it as a built-in next to `ask_user`
+  (`cloud/builtins.ts`); on a runner it is a tool of the runner's own `dispand` server (Claude
+  Code) or a dynamic tool (Codex), which asks the owner itself (`requestApproval` in
+  `apps/runner/src/outcome.ts`) in every permission mode, bypass included, and is never
+  allowed for the session.
 - **Stopping a run:** `runs.stop` (`Engine.stopRun`) fails every step of the run still open
   with "Stopped" (a step that never started too), expires its pending questions and fails the
   run, in one transaction, then cuts what the run was doing: a Tool step's call under way is

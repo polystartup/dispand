@@ -83,7 +83,7 @@ test("a workflow run's cloud session gets no platform tool", async () => {
   );
   const { runId } = await call(router.runs.start, { workflowId: workflow.id }, { context: s.context });
   await s.until(runId, "succeeded");
-  expect(s.model.inputs[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "submit_outputs"]);
+  expect(s.model.inputs[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "submit_outputs", "request_approval"]);
 });
 
 test("a tool that isn't Dispand's own still asks before it runs", async () => {
@@ -100,4 +100,54 @@ test("a tool that isn't Dispand's own still asks before it runs", async () => {
   await s.until(runId, "waiting");
   expect(await s.context.db.select({ status: questions.status }).from(questions)).toEqual([{ status: "pending" }]);
   expect(calls).toEqual([]);
+});
+
+test("a denied approval stops the other calls the model made in the same turn", async () => {
+  const ids = { tableId: "", fieldId: "" };
+  const s = await setup(["data"], [
+    () => ({
+      toolCalls: [
+        { id: "a", name: "request_approval", args: { message: "Add Ada to the clients?" } },
+        { id: "b", name: "rows_create", args: { tableId: ids.tableId, values: { [ids.fieldId]: "Ada" } } },
+      ],
+    }),
+    say("Not added."),
+  ]);
+  Object.assign(ids, { tableId: s.table.id, fieldId: s.name.id });
+  const { runId } = await call(router.jobs.start, { triggerId: s.trigger.id }, { context: s.context });
+  const q = await vi.waitFor(async () => {
+    const [row] = await s.context.db.select().from(questions).where(eq(questions.runId, runId));
+    if (row?.status !== "pending") throw new Error("no pending question yet");
+    return row;
+  });
+  await s.engine.answer(q.id, { kind: "permission", decision: "deny" });
+  await s.until(runId, "succeeded");
+  // The row was not created: the "no" covers what was asked with it.
+  expect((await call(router.rows.list, { tableId: s.table.id }, { context: s.context })).rows).toEqual([]);
+  const results = s.model.inputs[1]!.items.filter((i) => i.role === "tool") as Extract<ChatItem, { role: "tool" }>[];
+  expect(results.map((r) => [r.callId, r.isError])).toEqual([["a", true], ["b", true]]);
+  expect(results[1]!.result).toMatch(/Not run/);
+});
+
+test("an approved request lets the turn's other calls run", async () => {
+  const ids = { tableId: "", fieldId: "" };
+  const s = await setup(["data"], [
+    () => ({
+      toolCalls: [
+        { id: "a", name: "request_approval", args: { message: "Add Ada to the clients?" } },
+        { id: "b", name: "rows_create", args: { tableId: ids.tableId, values: { [ids.fieldId]: "Ada" } } },
+      ],
+    }),
+    say("Added."),
+  ]);
+  Object.assign(ids, { tableId: s.table.id, fieldId: s.name.id });
+  const { runId } = await call(router.jobs.start, { triggerId: s.trigger.id }, { context: s.context });
+  const q = await vi.waitFor(async () => {
+    const [row] = await s.context.db.select().from(questions).where(eq(questions.runId, runId));
+    if (row?.status !== "pending") throw new Error("no pending question yet");
+    return row;
+  });
+  await s.engine.answer(q.id, { kind: "permission", decision: "allow" });
+  await s.until(runId, "succeeded");
+  expect((await call(router.rows.list, { tableId: s.table.id }, { context: s.context })).rows).toHaveLength(1);
 });

@@ -2,7 +2,7 @@
 import { join } from "node:path";
 import type { HarnessEvent, QuestionPayload, SessionStart } from "@dispand/runner-protocol";
 import { codexDenied, codexDeniedEdit } from "../boundary.ts";
-import { askChoices, BypassRefused, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, sessionOutcome } from "../outcome.ts";
+import { askChoices, BypassRefused, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "../outcome.ts";
 import { fitsWhole } from "../sanitize.ts";
 import { BYPASS_PROFILE, codexConfig, PROFILE } from "./config.ts";
 import type { JsonValue } from "./protocol/serde_json/JsonValue.ts";
@@ -251,6 +251,11 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       }
       case "item/tool/call": {
         const p = r.params;
+        if (p.tool === REQUEST_APPROVAL && p.namespace === null && p.threadId === threadId) {
+          const asked = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? (p.arguments as Record<string, unknown>) : {};
+          const outcome = await requestApproval(ask, asked, signal);
+          return { contentItems: [{ type: "inputText", text: outcome.text }], success: outcome.ok };
+        }
         if (p.tool !== SUBMIT_OUTPUTS || p.namespace !== null || p.threadId !== threadId) {
           return { contentItems: [{ type: "inputText", text: `unknown tool ${p.tool}` }], success: false };
         }
@@ -288,6 +293,12 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         config: codexConfig({ denied, ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}), bypass, ...(deps.mcp ? { mcpServers: deps.mcp.servers } : {}) }),
         developerInstructions: start.systemPrompt || null,
       };
+      const approvalSpec = {
+        type: "function" as const,
+        name: REQUEST_APPROVAL,
+        description: REQUEST_APPROVAL_DESCRIPTION,
+        inputSchema: { type: "object", properties: { message: { type: "string", description: "What you ask to be approved, as one clear question" } }, required: ["message"], additionalProperties: false },
+      };
       const spec = {
         type: "function" as const,
         name: SUBMIT_OUTPUTS,
@@ -302,7 +313,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       // `Sessions` passes a CLI session id only for a thread the runner recorded for this run folder.
       const opened = start.resumeCliSessionId
         ? await codex.request("thread/resume", { threadId: start.resumeCliSessionId, ...overrides })
-        : await codex.request("thread/start", { ...overrides, dynamicTools: [spec] });
+        : await codex.request("thread/start", { ...overrides, dynamicTools: [spec, approvalSpec] });
       // A `sandbox_mode` in the user's config.toml makes Codex ignore profiles: no turn runs then.
       if (opened.activePermissionProfile?.id !== (bypass ? BYPASS_PROFILE : PROFILE)) return finish({ type: "error", message: PROFILE_REFUSED });
       threadId = opened.thread.id;

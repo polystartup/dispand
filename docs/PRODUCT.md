@@ -39,6 +39,10 @@ Status: Prototype
   - A session gets the skills and tools of its agent: skills and the runner's own tools on a
     CLI session, tools reached by URL on a cloud session (the other two combinations come
     later). Every call of such a tool asks first.
+  - Nothing answers a Question or an Approval for the owner: no timeout, no default. What was
+    answered stays in the Inbox, with who answered and when.
+  - An agent can ask for an approval in its own words before it acts; each request waits for
+    its own answer, whatever the agent's permission mode.
   - A button or schedule trigger must say what the agent does (its instructions); a chat starts
     with the owner's words.
   - A Tool step cut by a restart **fails and is never called again**: the owner checks the tool

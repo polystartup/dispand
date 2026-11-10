@@ -4,13 +4,15 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { type api, orpc } from "../../lib/api.ts";
 import { when } from "../workflow/Runs.tsx";
-import { QuestionForm } from "./QuestionForm.tsx";
+import { approvalWords, QuestionForm } from "./QuestionForm.tsx";
 
 export type InboxEntry = Awaited<ReturnType<typeof api.questions.list>>[number];
 
 /** What was asked, in a line or two, for an item that is done. */
 function askedText(payload: QuestionPayload): string {
   if (payload.kind === "choice") return payload.questions.map((q) => q.question).join(" · ");
+  const words = approvalWords(payload);
+  if (words !== null) return `Asked: ${words}`;
   if (payload.kind === "permission") {
     const input = typeof payload.input === "string" ? payload.input : JSON.stringify(payload.input);
     return `Wanted to use ${payload.toolName}${input && input !== "{}" ? `: ${input}` : ""}`;
@@ -19,7 +21,9 @@ function askedText(payload: QuestionPayload): string {
 }
 
 /** The answer in the owner's words. */
-export function answerLine(answer: Answer): string {
+export function answerLine(answer: Answer, payload?: QuestionPayload): string {
+  // An approval asked in words is approved or denied; a tool call is allowed or denied.
+  if (payload && approvalWords(payload) !== null && answer.kind === "permission" && answer.decision !== "deny") return "Approved";
   if (answer.kind === "choice") {
     return Object.entries(answer.answers)
       .map(([question, given]) => `“${question}”: ${Array.isArray(given) ? given.join(", ") : given}`)
@@ -89,14 +93,14 @@ export function InboxItem({ item }: { item: InboxEntry }) {
           <p className="whitespace-pre-wrap break-words text-muted">{askedText(item.payload)}</p>
           {item.status === "answered" && item.answer ? (
             <>
-              <p className="font-medium">{answerLine(item.answer)}</p>
+              <p className="font-medium">{answerLine(item.answer, item.payload)}</p>
               <p className="text-[13px] text-faint">
                 Answered{item.answeredBy?.type === "user" ? " by you" : ""}
                 {item.answeredAt ? ` · ${when.format(item.answeredAt)}` : ""}
               </p>
             </>
           ) : (
-            <p className="text-[13px] text-faint">Expired: its run ended before an answer.</p>
+            <p className="text-[13px] text-faint">{item.orphaned ? "Expired: the agent was restarted and asked again." : "Expired: its run ended before an answer."}</p>
           )}
         </div>
       )}

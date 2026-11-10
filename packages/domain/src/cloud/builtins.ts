@@ -6,6 +6,9 @@ import type { ToolSpec } from "./model-client.ts";
 
 export const ASK_USER = "ask_user";
 export const SUBMIT_OUTPUTS = "submit_outputs";
+export const REQUEST_APPROVAL = "request_approval";
+/** The most characters an approval request's words may hold: the owner reads them whole. */
+export const MAX_APPROVAL_MESSAGE = 4000;
 
 /** Outputs travel in one event (outputs-accepted, and confirm-outputs), as on the runner. */
 const OUTPUTS_BYTES = 512 * 1024;
@@ -97,7 +100,24 @@ export function outputValues(args: unknown, fields: OutputField[]): { values: Re
   return { values: Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, storableText(v)])) };
 }
 
+export const requestApprovalSpec: ToolSpec = {
+  name: REQUEST_APPROVAL,
+  description:
+    "Ask the owner to approve something before you do it, in your own words (for example: \"Send this draft to the client?\"). They answer yes or no; a no may come with a reason. Use it before an action that matters and can't be undone, and wait for the answer before acting.",
+  inputSchema: strictObject({ message: { type: "string", description: "What you ask to be approved, as one clear question" } }),
+};
+
+/** `request_approval` arguments as the words to show, or the error the model gets back. */
+export function approvalMessage(args: unknown): { message: string } | { error: string } {
+  const message = (args as { message?: unknown } | null)?.message;
+  if (typeof message !== "string" || message.trim() === "") return { error: "request_approval needs a message: what you ask to be approved." };
+  if (message.trim().length > MAX_APPROVAL_MESSAGE) return { error: `The message is too long to show whole (at most ${MAX_APPROVAL_MESSAGE} characters): shorten it.` };
+  return { message: storableText(message.trim()) };
+}
+
 export const TEXTS = {
+  approved: "Approved.",
+  notRunAfterDenial: "Not run: the owner denied the approval you asked for in the same turn.",
   confirmed: "confirmed",
   notConfirmed: "The owner did not confirm these values.",
   denied: "The owner denied this.",

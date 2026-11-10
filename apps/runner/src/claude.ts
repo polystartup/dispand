@@ -15,7 +15,7 @@ import {
 import type { ClaudeSessionStart, HarnessEvent, QuestionPayload } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
-import { askChoices, MAX_WAITING, MAX_WAITING_BYTES, BypassRefused, type ChoiceQuestion, type HarnessSession, ownerQuestions, sessionOutcome } from "./outcome.ts";
+import { askChoices, MAX_WAITING, MAX_WAITING_BYTES, BypassRefused, type ChoiceQuestion, type HarnessSession, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "./outcome.ts";
 import { fitsWhole } from "./sanitize.ts";
 import { PLANS_DIR } from "./workdir.ts";
 
@@ -58,9 +58,10 @@ const SUBMIT_OUTPUTS = "mcp__dispand__submit_outputs";
 /** Tools that run commands or scripts (Monitor runs one and streams it; PowerShell is the Windows shell; Workflow runs scripts). */
 const SHELL_TOOLS = new Set(["Bash", "Monitor", "PowerShell", "Workflow"]);
 const SHELL_ASK = "Dispand asks the owner about every shell command.";
+const REQUEST_APPROVAL_TOOL = `mcp__dispand__${REQUEST_APPROVAL}`;
 const MCP_ASK = "Dispand asks the owner about every MCP tool call.";
 /** An MCP server's tool, Dispand's own `submit_outputs` aside: each call asks the owner. */
-const isMcpTool = (name: string) => name.startsWith("mcp__") && name !== SUBMIT_OUTPUTS;
+const isMcpTool = (name: string) => name.startsWith("mcp__") && name !== SUBMIT_OUTPUTS && name !== REQUEST_APPROVAL_TOOL;
 
 
 /**
@@ -215,8 +216,15 @@ export function startClaudeSession(
   /** A tool of Dispand's Job server: Dispand authorizes each of its calls itself, so the owner isn't asked. */
   const isJobTool = (name: string) => deps.jobServer !== undefined && name.startsWith(`mcp__${deps.jobServer}__`);
 
+  const requestApprovalTool = tool(REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, { message: z.string().describe("What you ask to be approved, as one clear question") }, async (args, extra) => {
+    const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
+    const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
+    return { content: [{ type: "text", text: (await requestApproval(ask, args as Record<string, unknown>, signal)).text }] };
+  });
+
   const canUseTool: CanUseTool = async (toolName, toolInput, { signal, suggestions }): Promise<PermissionResult> => {
-    if (toolName === SUBMIT_OUTPUTS || isJobTool(toolName)) return { behavior: "allow", updatedInput: toolInput };
+    // `request_approval` asks the owner itself, in the agent's words: no second question about calling it.
+    if (toolName === SUBMIT_OUTPUTS || toolName === REQUEST_APPROVAL_TOOL || isJobTool(toolName)) return { behavior: "allow", updatedInput: toolInput };
     // canUseTool doesn't learn the CLI's current directory: relative paths are the owner's call.
     const edit = boundary.editDecision(toolName, toolInput, null);
     const read = boundary.readDecision(toolName, toolInput, null);
@@ -260,7 +268,7 @@ export function startClaudeSession(
     return { behavior: "allow", updatedInput: toolInput };
   };
 
-  const sdkServers = { dispand: createSdkMcpServer({ name: "dispand", tools: [submitOutputs] }) };
+  const sdkServers = { dispand: createSdkMcpServer({ name: "dispand", tools: [submitOutputs, requestApprovalTool] }) };
   const queryAbort = new AbortController();
   const q = (deps.query ?? query)({
     prompt: input.iterable,

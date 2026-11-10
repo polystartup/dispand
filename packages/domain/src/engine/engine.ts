@@ -2,6 +2,7 @@ import { EventPublisher } from "@orpc/server";
 import {
   type Answer,
   type HarnessEvent,
+  type QuestionPayload,
   SESSION_ALREADY_RUNNING,
   SESSION_NOT_RUNNING,
   SessionStart,
@@ -126,6 +127,13 @@ export function cliProblem(kind: string, runner: Pick<RunnerRow, "name" | "clis"
 }
 
 /** An answer in words, for a session that can only get it as a message. */
+/** The words of an approval asked with `request_approval`; null for any other question. */
+function approvalWords(payload: QuestionPayload): string | null {
+  if (payload.kind !== "permission" || payload.toolName !== "request_approval") return null;
+  const message = (payload.input as { message?: unknown } | null)?.message;
+  return typeof message === "string" ? message : null;
+}
+
 export function answerText(q: Pick<QuestionRow, "payload" | "answer">): string {
   const a = q.answer!;
   if (a.kind === "choice") {
@@ -133,6 +141,9 @@ export function answerText(q: Pick<QuestionRow, "payload" | "answer">): string {
     return `The owner answered: ${parts.join("; ")}.`;
   }
   if (a.kind === "permission") {
+    const asked = approvalWords(q.payload);
+    // An approval the agent asked for in its own words: told back with those words.
+    if (asked !== null) return `The owner ${a.decision === "deny" ? "denied" : "approved"} your request (“${asked.slice(0, 500).toWellFormed()}”)${a.message ? `: ${a.message}` : "."}`;
     const tool = q.payload.kind === "permission" ? q.payload.toolName : "the tool";
     const verdict = a.decision === "deny" ? "denied" : "allowed";
     return `The owner ${verdict} ${tool}${a.message ? `: ${a.message}` : "."}`;
@@ -145,6 +156,7 @@ export function answerText(q: Pick<QuestionRow, "payload" | "answer">): string {
 function questionText(q: QuestionRow): string {
   const p = q.payload;
   if (p.kind === "choice") return p.questions.map((x) => `“${x.question}”`).join(", ");
+  if (approvalWords(p) !== null) return "your approval request";
   if (p.kind === "permission") return `permission to use ${p.toolName}`;
   return "confirmation of your values";
 }
