@@ -2,7 +2,8 @@ import { JOB_SERVER_NAME } from "@dispand/runner-protocol";
 import { and, eq, inArray } from "drizzle-orm";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import type { Db } from "../db/client.ts";
-import { agents, tools, type AgentSnapshot } from "../db/schema.ts";
+import { agents, runs, stepRuns, tools, workflowVersions, type AgentSnapshot } from "../db/schema.ts";
+import { nodesOf } from "../workflows/model.ts";
 
 // What a session's agent gives it: its skill packages and its tools. For a Job, what its
 // snapshot holds and the agent still has (rights shrink with the agent and never grow after
@@ -67,4 +68,36 @@ export function serverName(toolName: string, taken: Set<string>): string {
   }
   taken.add(name);
   return name;
+}
+
+const NONE: Tooling = { skills: [], runnerTools: [], httpTools: [] };
+
+/**
+ * What the session `sessionId` gets from its agent: the Job's agent, or the agent of the
+ * workflow run's node (from the version the run started on). Nothing for a session nobody
+ * started.
+ */
+export async function sessionTooling(db: Db, sessionId: string): Promise<Tooling> {
+  const [found] = await db
+    .select({ nodeId: stepRuns.nodeId, run: runs })
+    .from(stepRuns)
+    .innerJoin(runs, eq(runs.id, stepRuns.runId))
+    .where(eq(stepRuns.sessionId, sessionId));
+  if (!found) return NONE;
+  const { run, nodeId } = found;
+  let agentId = run.agentId ?? undefined;
+  if (!agentId) {
+    const def =
+      run.def ??
+      (run.workflowId
+        ? (
+            await db
+              .select({ def: workflowVersions.def })
+              .from(workflowVersions)
+              .where(and(eq(workflowVersions.workflowId, run.workflowId), eq(workflowVersions.version, run.version)))
+          )[0]?.def
+        : undefined);
+    agentId = def ? nodesOf(def).find((n) => n.id === nodeId)?.agentId || undefined : undefined;
+  }
+  return agentId ? toolingOf(db, run, agentId) : NONE;
 }

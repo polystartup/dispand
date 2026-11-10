@@ -2,13 +2,13 @@ import type { Answer, ServerToRunner, SessionStart } from "@dispand/runner-proto
 import { and, eq, inArray } from "drizzle-orm";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
-import { runs, stepRuns, workflowVersions } from "../db/schema.ts";
-import { nodesOf } from "../workflows/model.ts";
-import { serverName, toolingOf } from "./tooling.ts";
+import { runs, stepRuns } from "../db/schema.ts";
+import { serverName, sessionTooling } from "./tooling.ts";
 import { jobTokenOf } from "../platform/token.ts";
 import type { RunnerHub } from "../runners/hub.ts";
 import { Engine } from "./engine.ts";
-import { CloudRunner, noTools, type ToolCaller } from "../cloud/runner.ts";
+import { CloudRunner, combineToolCallers, noTools, type ToolCaller } from "../cloud/runner.ts";
+import { installedToolCaller } from "../tools/cloud.ts";
 import type { ClientHarness, ModelClient } from "../cloud/model-client.ts";
 import type { SecretBox } from "../secrets.ts";
 import { connectorToolExecutor, InstalledTools } from "../tools/executor.ts";
@@ -42,16 +42,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
    * address and headers stay on the server. Only a tool of the harness's own runner is sent.
    */
   private async tooling(sessionId: string, runnerId: string): Promise<Pick<SessionStart, "skills" | "mcpServers">> {
-    const [found] = await this.db
-      .select({ nodeId: stepRuns.nodeId, run: runs })
-      .from(stepRuns)
-      .innerJoin(runs, eq(runs.id, stepRuns.runId))
-      .where(eq(stepRuns.sessionId, sessionId));
-    if (!found) return { skills: [], mcpServers: [] };
-    const { run, nodeId } = found;
-    const agentId = run.agentId ?? (await this.stepAgent(run, nodeId));
-    if (!agentId) return { skills: [], mcpServers: [] };
-    const tooling = await toolingOf(this.db, run, agentId);
+    const tooling = await sessionTooling(this.db, sessionId);
     const taken = new Set<string>();
     return {
       skills: tooling.skills.slice(0, 50),
@@ -60,16 +51,6 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
         .slice(0, 20)
         .map((t) => ({ name: serverName(t.name, taken), type: "runner" as const, tool: t.tool })),
     };
-  }
-
-  /** The agent of a workflow run's node, from the version the run started on. */
-  private async stepAgent(run: { workflowId: string | null; version: number }, nodeId: string): Promise<string | undefined> {
-    if (!run.workflowId) return undefined;
-    const [version] = await this.db
-      .select({ def: workflowVersions.def })
-      .from(workflowVersions)
-      .where(and(eq(workflowVersions.workflowId, run.workflowId), eq(workflowVersions.version, run.version)));
-    return version ? nodesOf(version.def).find((n) => n.id === nodeId)?.agentId || undefined : undefined;
   }
 
   async start(harness: CliHarness, params: StartParams): Promise<boolean> {
@@ -123,8 +104,10 @@ export type EngineDeps = { connector?: ToolConnector; tools?: ToolCaller; client
  * installed tools through `deps.connector` (none: they fail).
  */
 export function createEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEvents: DataEvents, deps: EngineDeps = {}): Engine {
-  const cloud = new CloudRunner(db, secrets, { tools: deps.tools ?? noTools, ...(deps.client ? { client: deps.client } : {}) });
   const installed = deps.connector ? new InstalledTools(db, secrets, deps.connector) : undefined;
+  // A cloud session's tools: the caller's (Dispand's own, in the app) and its agent's HTTP tools, called through the connector.
+  const tools = installed ? combineToolCallers(deps.tools ?? noTools, installedToolCaller(db, installed)) : (deps.tools ?? noTools);
+  const cloud = new CloudRunner(db, secrets, { tools, ...(deps.client ? { client: deps.client } : {}) });
   const engine = new Engine(
     db,
     new RoutingAdapter(db, new CliHarnessAdapter(db, hub, secrets), cloud),

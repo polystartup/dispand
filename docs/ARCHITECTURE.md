@@ -248,6 +248,20 @@
   without a question (Claude Code: `canUseTool` and the `PreToolUse` hook; Codex: its approval
   request for that server is accepted); every other MCP tool asks as before. The agent's page
   sets the bundles and tables (`components/settings/JobRights.tsx`).
+- **Skills and tools in sessions:** `engine/tooling.ts` says what a session's agent gives it
+  (`sessionTooling`, from the session's step: the Job's agent, or the workflow node's): the
+  agent's skill packages and effective tools as they are now, kept, for a Job, to those of its
+  snapshot. A CLI start carries the skills (the runner fetches each package from
+  `/runner/packages/<id>`, which serves a package only to the runner of a harness whose agent
+  has it) and one `runner` MCP server per runner tool of the harness's own runner, named by
+  `serverName` (lowercase words joined by `_`, never `job` or `dispand`, distinct); they are
+  read at each start, so a resume carries them as they are then, and are never stored with the
+  step. HTTP tools never travel. A cloud session gets them through `installedToolCaller`
+  (`tools/cloud.ts`): one tool per action, called on the server through `InstalledTools`, asked
+  before each call like any tool that isn't Dispand's own, and checked again at call time
+  (a tool taken back, or an action gone, isn't called). `createEngine` combines that caller
+  with the app's (`combineToolCallers`). CLI sessions don't get HTTP tools yet, and cloud
+  sessions don't get skills yet.
 - **Stopping a run:** `runs.stop` (`Engine.stopRun`) fails every step of the run still open
   with "Stopped" (a step that never started too), expires its pending questions and fails the
   run, in one transaction, then cuts what the run was doing: a Tool step's call under way is

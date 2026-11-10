@@ -31,6 +31,19 @@ export interface ToolCaller {
 }
 
 /** Until agents get tools: none. */
+/** Several callers as one: their tools together; a call goes to the caller that offers its key. */
+export function combineToolCallers(...callers: ToolCaller[]): ToolCaller {
+  return {
+    specs: async (sessionId) => (await Promise.all(callers.map((c) => c.specs(sessionId)))).flat(),
+    async call(sessionId, key, args, signal) {
+      for (const caller of callers) {
+        if ((await caller.specs(sessionId)).some((s) => s.key === key)) return caller.call(sessionId, key, args, signal);
+      }
+      return { text: "This tool is not available.", isError: true };
+    },
+  };
+}
+
 export const noTools: ToolCaller = {
   specs: async () => [],
   call: async () => ({ text: "This tool is not available.", isError: true }),
