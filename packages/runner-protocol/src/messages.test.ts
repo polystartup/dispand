@@ -338,6 +338,10 @@ test("a start's Job token is a short token, never a URL or a header", () => {
   const withToken = (jobToken: unknown) => () => parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, jobToken } }));
   expect(withToken("dj_abc-DEF_123")).not.toThrow();
   for (const bad of ["", "has space", "https://evil.test/mcp/job", "a\nb", "x".repeat(201), 3, { token: "x" }]) expect(withToken(bad)).toThrow(ProtocolError);
+  // A server name can't hold `__`: `mcp__job__x__tool` would read as the Job server's tool `x__tool`.
+  for (const name of ["job__external", "a__b", "__job", "job__"]) {
+    expect(() => parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, mcpServers: [{ name, type: "runner", tool: "fetch" }] } }))).toThrow(ProtocolError);
+  }
   // The Job server's name is the runner's to give.
   expect(() => parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, mcpServers: [{ name: "job", type: "runner", tool: "fetch" }] } }))).toThrow(ProtocolError);
 });

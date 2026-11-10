@@ -27,16 +27,22 @@ export const McpServerName = id()
   .regex(/^[a-zA-Z0-9_-]{1,64}$/)
   .refine((n) => n !== "dispand" && n !== JOB_SERVER_NAME, "reserved name");
 
+/**
+ * The name a session's MCP server gets in the CLI. No `__` in it: a CLI names a tool
+ * `mcp__<server>__<tool>`, so a server `job__x` would have its tools read as the Job server's.
+ */
+const SessionServerName = McpServerName.refine((n) => !n.includes("__"), "a server name can't contain __");
+
 /** An MCP server a session gets: by URL (with its headers), or one of the runner's own (`mcpServers` in its config). */
 export const McpServerRef = z.discriminatedUnion("type", [
   z.object({
-    name: McpServerName,
+    name: SessionServerName,
     type: z.literal("http"),
     url: string(2048).url(),
     transport: z.enum(["streamable-http", "sse"]),
     headers: record(short(), 20),
   }),
-  z.object({ name: McpServerName, type: z.literal("runner"), tool: McpServerName }),
+  z.object({ name: SessionServerName, type: z.literal("runner"), tool: McpServerName }),
 ]);
 export type McpServerRef = z.infer<typeof McpServerRef>;
 
