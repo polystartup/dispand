@@ -419,7 +419,7 @@ export const cloudSessions = pgTable("cloud_sessions", {
   approvedKey: text("approved_key"),
   // The tool call running now: a restart doesn't run it again.
   inFlight: jsonb("in_flight").$type<{ callId: string; key: string } | null>(),
-  // Tool keys "Always allow"ed in this session.
+  // No longer read or written: "always allow" is kept on the agent (`agent_tools.unasked`).
   allowedKeys: jsonb("allowed_keys").$type<string[]>().notNull().default([]),
   reminded: boolean("reminded").notNull().default(false),
   // The last event's seq, and the event, handed to the engine again on boot (it drops it if handled).
@@ -764,6 +764,10 @@ export const agentTools = pgTable(
     toolId: text("tool_id")
       .notNull()
       .references(() => tools.id),
+    // The tool's actions that run without asking the owner, for this agent; every other one
+    // asks before use. Filled from the actions' read-only hints when a person adds the tool,
+    // then changed by a person only: taking an action off the asking ones is a grant.
+    unasked: jsonb("unasked").$type<string[]>().notNull().default([]),
   },
   (t) => [primaryKey({ columns: [t.agentId, t.toolId] }), index("agent_tools_tool_idx").on(t.toolId)],
 );

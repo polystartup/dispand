@@ -42,7 +42,7 @@ function toolsHandler(app: PlatformApp) {
           if (!job || !item || !tool) return text(GONE, true);
           const args = call.params.arguments ?? {};
           // The name the session's CLI asked the owner about: this server's tool, which stands for this tool and action only.
-          if (!(await takeApproval(app.db, job, askedName(item.name), args))) return text(NEEDS_APPROVAL, true);
+          if (item.ask && !(await takeApproval(app.db, job, askedName(item.name), args))) return text(NEEDS_APPROVAL, true);
           // Cut when the request is: a session that ended doesn't leave its call running.
           const called = await installed.call(tool, item.action, args, ctx.requestInfo?.signal ?? new AbortController().signal);
           return called.ok ? text(called.result.text, called.result.isError) : text(called.error, true);

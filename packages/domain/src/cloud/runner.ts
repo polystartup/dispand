@@ -28,9 +28,15 @@ import { toolNames } from "./tool-names.ts";
 
 /** The agent's tools (MCP), by key. The MCP-backed one is `mcpToolCaller`. */
 export interface ToolCaller {
-  /** The tools of a session. `ask: false` marks one that runs without a permission question (Dispand's own, authorized per call). */
-  specs(sessionId: string): Promise<{ key: string; label: string; spec: ToolSpec; ask?: false }[]>;
+  /**
+   * The tools of a session, read at every call. `ask: false` marks one that runs without a
+   * permission question (Dispand's own, authorized per call; an action its agent lets run
+   * unasked). `always: true` marks one whose question offers "always allow".
+   */
+  specs(sessionId: string): Promise<{ key: string; label: string; spec: ToolSpec; ask?: false; always?: true }[]>;
   call(sessionId: string, key: string, args: unknown, signal: AbortSignal): Promise<{ text: string; isError: boolean }>;
+  /** The owner answered "always allow" for this tool: the caller makes it `ask: false` from now on, where that is kept. */
+  allowAlways?(sessionId: string, key: string): Promise<void>;
 }
 
 /** Until agents get tools: none. */
@@ -43,6 +49,11 @@ export function combineToolCallers(...callers: ToolCaller[]): ToolCaller {
         if ((await caller.specs(sessionId)).some((s) => s.key === key)) return caller.call(sessionId, key, args, signal);
       }
       return { text: "This tool is not available.", isError: true };
+    },
+    async allowAlways(sessionId, key) {
+      for (const caller of callers) {
+        if ((await caller.specs(sessionId)).some((s) => s.key === key)) return caller.allowAlways?.(sessionId, key);
+      }
     },
   };
 }
@@ -411,15 +422,16 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         return null;
       }
       // Dispand's own tools are authorized on every call: the owner isn't asked.
-      const asks = specs.find((s) => s.key === key)?.ask !== false;
+      const spec = specs.find((s) => s.key === key);
+      const asks = spec?.ask !== false;
       // The model's names follow the session's tools as they are: a call approved for one tool
       // whose name now means another (the first was taken back) is not that approval's to run.
       if (approved && row.approvedKey && row.approvedKey !== key) {
         await done(TEXTS.unknownTool(call.name), true, { approvedCall: null, approvedKey: null });
         return null;
       }
-      if (asks && !approved && !row.allowedKeys.includes(key)) {
-        await ask({ kind: "permission", toolName: label, input: args, canAlwaysAllow: true }, key);
+      if (asks && !approved) {
+        await ask({ kind: "permission", toolName: label, input: args, canAlwaysAllow: spec?.always === true }, key);
         return null;
       }
       // Recorded before it runs: a restart meanwhile answers it instead of running it again.
@@ -486,9 +498,10 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     // The answer is for the tool the question was about: if the name means another tool by now, nothing is allowed.
     const asked = row.pending?.key;
     if (asked && asked !== key) return reply(TEXTS.unknownTool(call.name), true);
-    // Allowed: it runs next (the loop sees it approved), once or for the rest of the session.
-    const allowedKeys = answer.decision === "allow-always" && key && !row.allowedKeys.includes(key) ? [...row.allowedKeys, key] : row.allowedKeys;
-    await this.write(id, { pending: null, status: "running", approvedCall: call.id, approvedKey: key ?? null, allowedKeys });
+    // Allowed: it runs next (the loop sees it approved). "Always" is kept where the tool's asking is
+    // decided (its caller), never in the session: what asks is read there at every call.
+    if (answer.decision === "allow-always" && key) await this.tools.allowAlways?.(id, key);
+    await this.write(id, { pending: null, status: "running", approvedCall: call.id, approvedKey: key ?? null });
   }
 }
 

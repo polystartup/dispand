@@ -11,6 +11,7 @@ import { authed, base } from "../rpc/context.ts";
 import { StorableText } from "../workflows/model.ts";
 import { agentInUse } from "../workflows/procedures.ts";
 import { skillsAndTools } from "./skills-and-tools.ts";
+import { setAsk } from "./tool-ask.ts";
 import { effectiveTools } from "./tools.ts";
 
 const owner = base.use(authed);
@@ -106,7 +107,7 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
   if (pkgs.length !== packageIds.length) throw new ORPCError("NOT_FOUND", { message: "Skill not found" });
   const found = toolIds.length
     ? await tx
-        .select({ id: toolsTable.id })
+        .select({ id: toolsTable.id, actions: toolsTable.actions })
         .from(toolsTable)
         .where(and(inArray(toolsTable.id, toolIds), eq(toolsTable.ownerId, ownerId)))
         .for("share")
@@ -125,9 +126,19 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
     if (tool.runnerId !== harnessRunnerId) throw new ORPCError("BAD_REQUEST", { message: `The tool “${tool.name}” runs on another runner than the agent's harness` });
   }
   await tx.delete(agentSkills).where(eq(agentSkills.agentId, agentId));
-  await tx.delete(agentTools).where(eq(agentTools.agentId, agentId));
+  // A tool the agent keeps keeps its unasked actions; one added now starts with the actions its
+  // server calls read-only. Only here is that claim read: later, it changes nothing by itself.
+  const kept = new Map((await tx.delete(agentTools).where(eq(agentTools.agentId, agentId)).returning()).map((t) => [t.toolId, t.unasked]));
   if (packageIds.length) await tx.insert(agentSkills).values(packageIds.map((packageId) => ({ agentId, packageId })));
-  if (toolIds.length) await tx.insert(agentTools).values(toolIds.map((toolId) => ({ agentId, toolId })));
+  if (toolIds.length) {
+    await tx.insert(agentTools).values(
+      toolIds.map((toolId) => ({
+        agentId,
+        toolId,
+        unasked: kept.get(toolId) ?? found.find((t) => t.id === toolId)!.actions.flatMap((a) => (a.readOnly ? [a.name] : [])),
+      })),
+    );
+  }
 }
 
 /** The agent with its skill packages and the tools it gets: explicit ones, and the ones its packages require (locked). */
@@ -196,4 +207,32 @@ const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, co
   return withSkillsAndTools(context.db, await find(context.db, context.ownerId, input.id));
 });
 
-export const agents = { create, update, delete: remove, list, get };
+/**
+ * The actions of each tool the agent chose, with whether each asks the owner before use. A tool
+ * that only comes with a skill isn't here: all its actions ask.
+ */
+const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+  const agent = await find(context.db, context.ownerId, input.id);
+  const rows = await context.db
+    .select({ toolId: toolsTable.id, name: toolsTable.name, actions: toolsTable.actions, unasked: agentTools.unasked })
+    .from(agentTools)
+    .innerJoin(toolsTable, eq(toolsTable.id, agentTools.toolId))
+    .where(and(eq(agentTools.agentId, agent.id), eq(toolsTable.ownerId, context.ownerId)))
+    .orderBy(asc(toolsTable.name));
+  return rows.map(({ toolId, name, actions, unasked }) => ({
+    toolId,
+    name,
+    actions: actions.map((a) => ({ name: a.name, description: a.description, readOnly: a.readOnly === true, ask: !unasked.includes(a.name) })),
+  }));
+});
+
+/**
+ * Makes one action of an agent's tool ask before use, or run without asking. Taking the question
+ * away is a grant: a person does it, here. No Job reaches this procedure (it is not a platform tool).
+ */
+const setToolAsk = owner.input(z.object({ agentId: z.string(), toolId: z.string(), action: z.string(), ask: z.boolean() })).handler(async ({ input, context }) => {
+  if (!(await setAsk(context.db, context.ownerId, input))) throw new ORPCError("NOT_FOUND");
+  return { ok: true as const };
+});
+
+export const agents = { create, update, delete: remove, list, get, toolAsk, setToolAsk };

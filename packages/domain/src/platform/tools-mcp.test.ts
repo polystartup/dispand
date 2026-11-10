@@ -226,3 +226,35 @@ test("a long tool name never hides the action from the owner", async () => {
   expect(item!.about).toMatchObject({ tool: "Acme Customer Relationship Manager", action: expect.stringMatching(/^(list_contacts|delete_all_contacts)$/) });
   expect(new Set(names).size).toBe(2);
 });
+
+test("an action the owner took off the asking ones runs with no approval, until the owner puts it back", async () => {
+  const s = await setup();
+  const list = await named(s.client, "github_list_issues");
+  const create = await named(s.client, "github_create_issue");
+  const ask = (action: string, value: boolean) => call(router.agents.setToolAsk, { agentId: s.agent.id, toolId: s.tool.id, action, ask: value }, { context: s.context });
+  // An approval given earlier isn't used up by a call that needs none.
+  await s.approve(`mcp__job_tools__${list}`, {});
+  await ask("list_issues", false);
+  expect(textOf(await s.client.callTool({ name: list, arguments: {} }))).toBe("[]");
+  expect(textOf(await s.client.callTool({ name: list, arguments: {} }))).toBe("[]");
+  // The other action still asks.
+  expect(textOf(await s.client.callTool({ name: create, arguments: { title: "Bug" } }))).toMatch(NEEDS);
+  // Put back while the Job runs: asked again from the next call on (the earlier approval runs one).
+  await ask("list_issues", true);
+  expect(textOf(await s.client.callTool({ name: list, arguments: {} }))).toBe("[]");
+  expect(textOf(await s.client.callTool({ name: list, arguments: {} }))).toMatch(NEEDS);
+  expect(s.calls).toEqual([["list_issues", {}], ["list_issues", {}], ["list_issues", {}]]);
+});
+
+test("an action that runs unasked doesn't outlive its Job", async () => {
+  const s = await setup();
+  const list = await named(s.client, "github_list_issues");
+  await call(router.agents.setToolAsk, { agentId: s.agent.id, toolId: s.tool.id, action: "list_issues", ask: false }, { context: s.context });
+  const { exposedTools } = await import("./exposed.ts");
+  const job = { runId: s.runId, ownerId: s.context.ownerId, agentId: s.agent.id };
+  expect((await exposedTools(s.context.db, job)).map((t) => t.name)).toContain(list);
+  // The Job ended after the request was let in: nothing is offered or run for it any more.
+  await s.context.db.update(runs).set({ status: "failed" }).where(eq(runs.id, s.runId));
+  expect(await exposedTools(s.context.db, job)).toEqual([]);
+  expect(s.calls).toEqual([]);
+});

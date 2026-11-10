@@ -232,6 +232,13 @@
       "when": 1794339601293,
       "tag": "0032_question_about",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794344566431,
+      "tag": "0033_agent_tools_unasked",
+      "breakpoints": true
     }
   ]
 }

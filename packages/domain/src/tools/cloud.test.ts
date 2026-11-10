@@ -158,3 +158,43 @@ test("an approval is for the tool it was asked about: it never moves to another 
   expect(other).toEqual([]);
   expect(lastTool(s.model.inputs[1]!.items)).toMatchObject({ isError: true });
 });
+
+test("an action the owner took off the asking ones runs unasked; the others still ask", async () => {
+  const s = await setup([use("GitHub_list_repos", {}), use("GitHub_create_repository", { name: "acme" }, "c2"), say("Done.")]);
+  await call(router.agents.setToolAsk, { agentId: s.agent.id, toolId: s.tool.id, action: "list_repos", ask: false }, { context: s.context });
+  const runId = await s.start();
+  const q = await s.pending(runId);
+  // Only the flagged action asked: the other already ran.
+  expect(q.payload).toMatchObject({ toolName: "GitHub create_repository" });
+  expect(await s.context.db.select().from(questions)).toHaveLength(1);
+  expect(s.calls).toEqual([["list_repos", {}]]);
+  await s.engine.answer(q.id, { kind: "permission", decision: "allow" });
+  await s.until(runId, "succeeded");
+  expect(s.calls).toEqual([["list_repos", {}], ["create_repository", { name: "acme" }]]);
+});
+
+test("always allow takes the action off the asking ones on the agent; put back, it asks again in the same session", async () => {
+  // Before the model's third call, the owner puts the action back among the asking ones.
+  let ask: (value: boolean) => Promise<unknown> = async () => undefined;
+  const back: Script = async (input) => {
+    await ask(true);
+    return use("GitHub_list_repos", {}, "c3")(input);
+  };
+  const s = await setup([use("GitHub_list_repos", {}), use("GitHub_list_repos", {}, "c2"), back, say("Done.")]);
+  ask = (value) => call(router.agents.setToolAsk, { agentId: s.agent.id, toolId: s.tool.id, action: "list_repos", ask: value }, { context: s.context });
+  const asks = async () => (await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.find((a) => a.name === "list_repos")!.ask;
+  const runId = await s.start();
+  const first = await s.pending(runId);
+  expect(first.payload).toMatchObject({ canAlwaysAllow: true });
+  await s.engine.answer(first.id, { kind: "permission", decision: "allow-always" });
+  // The second call ran unasked, the third asks again.
+  const third = await vi.waitFor(async () => {
+    const all = await s.context.db.select().from(questions).where(eq(questions.runId, runId));
+    const q = all.find((x) => x.status === "pending");
+    if (!q) throw new Error("no new question yet");
+    return q;
+  });
+  expect(third.id).not.toBe(first.id);
+  expect(s.calls).toEqual([["list_repos", {}], ["list_repos", {}]]);
+  expect(await asks()).toBe(true);
+});

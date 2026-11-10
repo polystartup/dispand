@@ -137,6 +137,8 @@ export const NOT_TOOLS: string[] = [
   "agents.delete",
   "agents.list",
   "agents.get",
+  "agents.toolAsk",
+  "agents.setToolAsk",
   "triggers.create",
   "triggers.update",
   "triggers.delete",

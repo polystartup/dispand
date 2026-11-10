@@ -2,7 +2,7 @@ import { JOB_SERVER_NAME, JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
 import { and, eq, inArray } from "drizzle-orm";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import type { Db } from "../db/client.ts";
-import { agents, runs, stepRuns, tools, workflowVersions, type AgentSnapshot } from "../db/schema.ts";
+import { agents, agentTools, runs, stepRuns, tools, workflowVersions, type AgentSnapshot } from "../db/schema.ts";
 import { nodesOf } from "../workflows/model.ts";
 
 // What a session's agent gives it: its skill packages and its tools. For a Job, what its
@@ -15,8 +15,13 @@ export type Tooling = {
   skills: { packageId: string; name: string }[];
   /** Tools that run on a runner: `tool` is the name of the runner's own MCP server. */
   runnerTools: { name: string; tool: string; runnerId: string }[];
-  /** Tools reached by URL: called on the server only, where their sealed headers stay. */
-  httpTools: ToolRow[];
+  /**
+   * Tools reached by URL: called on the server only, where their sealed headers stay. `unasked`
+   * names the actions that run without asking the owner, as the agent has them now.
+   */
+  httpTools: (ToolRow & { unasked: string[]; chosen: boolean })[];
+  /** The agent they come from, when there is one. */
+  agentId?: string;
 };
 
 /** What a runner accepts as a skill's name (the protocol's rule): others are left out, or it would refuse the start. */
@@ -39,10 +44,16 @@ export async function toolingOf(db: Db, run: { ownerId: string; snapshot: AgentS
         .where(and(inArray(tools.id, toolIds), eq(tools.ownerId, run.ownerId)))
     : [];
   rows.sort((a, b) => a.name.localeCompare(b.name));
+  const chosen = await db.select({ toolId: agentTools.toolId, unasked: agentTools.unasked }).from(agentTools).where(eq(agentTools.agentId, agentId));
   return {
     skills,
     runnerTools: rows.flatMap((t) => (t.kind === "runner" && t.runnerId && t.runnerTool ? [{ name: t.name, tool: t.runnerTool, runnerId: t.runnerId }] : [])),
-    httpTools: rows.filter((t) => t.kind === "http"),
+    // `chosen`: the agent's own choice, which carries the unasked actions; a tool that only comes with a skill has none.
+    httpTools: rows.filter((t) => t.kind === "http").map((t) => {
+      const mine = chosen.find((c) => c.toolId === t.id);
+      return { ...t, unasked: mine?.unasked ?? [], chosen: mine !== undefined };
+    }),
+    agentId,
   };
 }
 

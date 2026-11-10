@@ -1,6 +1,6 @@
 import { JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
 import { createHash } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { runs } from "../db/schema.ts";
 import { toolingOf } from "../engine/tooling.ts";
@@ -13,7 +13,7 @@ import { toolingOf } from "../engine/tooling.ts";
 const PREFIX = `mcp__${JOB_TOOLS_SERVER}__`;
 const MAX_NAME = 64 - PREFIX.length;
 
-export type Exposed = { name: string; toolId: string; tool: string; action: string; description: string; inputSchema: Record<string, unknown> };
+export type Exposed = { name: string; toolId: string; tool: string; action: string; description: string; inputSchema: Record<string, unknown>; /** Whether a call needs the owner's approval. */ ask: boolean };
 
 /**
  * The name an action is exposed under: readable words, then a mark made of the tool's id and
@@ -38,11 +38,12 @@ export async function exposedTools(db: Db, job: { runId: string; ownerId: string
   const [run] = await db
     .select({ ownerId: runs.ownerId, snapshot: runs.snapshot })
     .from(runs)
-    .where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId), eq(runs.agentId, job.agentId)));
+    // A Job still going: one that ended is offered nothing, and an action that needs no approval doesn't outlive it.
+    .where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId), eq(runs.agentId, job.agentId), inArray(runs.status, ["running", "waiting"])));
   if (!run) return [];
   const { httpTools } = await toolingOf(db, run, job.agentId);
   const all = httpTools.flatMap((tool) =>
-    tool.actions.map((action) => ({ name: exposedName(tool, action.name), toolId: tool.id, tool: tool.name, action: action.name, description: action.description, inputSchema: action.inputSchema })),
+    tool.actions.map((action) => ({ name: exposedName(tool, action.name), toolId: tool.id, tool: tool.name, action: action.name, description: action.description, inputSchema: action.inputSchema, ask: !tool.unasked.includes(action.name) })),
   );
   const count = new Map<string, number>();
   for (const item of all) count.set(item.name, (count.get(item.name) ?? 0) + 1);

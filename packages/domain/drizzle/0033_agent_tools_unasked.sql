@@ -1,0 +1,1 @@
+ALTER TABLE "agent_tools" ADD COLUMN "unasked" jsonb DEFAULT '[]'::jsonb NOT NULL;
