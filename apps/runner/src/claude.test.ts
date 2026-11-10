@@ -1232,10 +1232,10 @@ test("the Job's tools server asks before each call, even though it is Dispand's:
   const events: HarnessEvent[] = [];
   const session: ClaudeSession = startClaudeSession(start, "/work", (e) => {
     events.push(e);
-    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "allow-always" }));
+    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "allow" }));
   }, { query: fake.query, jobServer: "job" });
   await session.done;
-  // Asked with the call shown whole, and never allowed for the session.
+  // Asked with the call shown whole; an allowance is for that call ("always" has its own test).
   expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: unknown }).payload)).toEqual([
     { kind: "permission", toolName: "mcp__job_tools__GitHub_create_issue", input: { title: "Bug" }, canAlwaysAllow: true },
   ]);
