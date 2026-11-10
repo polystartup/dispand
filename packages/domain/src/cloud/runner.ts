@@ -372,12 +372,12 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       if (now?.status !== "running") return null;
       // Shown once per call: not again when it runs after the owner allowed it.
       if (!approved) await this.emit(id, {}, { type: "tool", name: label, status: "started" });
-      const ask = async (payload: QuestionPayload) => {
+      const ask = async (payload: QuestionPayload, askedKey?: string) => {
         const questionId = newId("cq");
         const event = questionEvent(questionId, payload);
         // The owner approves exactly what they see: what the protocol can't carry whole isn't asked.
         if (!event) return done(payload.kind === "permission" ? TEXTS.tooLargeToAsk : "These values can't be shown to the owner.", true);
-        return this.emit(id, { status: "waiting", pending: { questionId, callId: call.id, payload } }, event);
+        return this.emit(id, { status: "waiting", pending: { questionId, callId: call.id, payload, ...(askedKey ? { key: askedKey } : {}) } }, event);
       };
       const args = call.args;
       if (typeof args === "object" && args !== null && "__invalid" in args) {
@@ -402,12 +402,18 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       }
       // Dispand's own tools are authorized on every call: the owner isn't asked.
       const asks = specs.find((s) => s.key === key)?.ask !== false;
+      // The model's names follow the session's tools as they are: a call approved for one tool
+      // whose name now means another (the first was taken back) is not that approval's to run.
+      if (approved && row.approvedKey && row.approvedKey !== key) {
+        await done(TEXTS.unknownTool(call.name), true, { approvedCall: null, approvedKey: null });
+        return null;
+      }
       if (asks && !approved && !row.allowedKeys.includes(key)) {
-        await ask({ kind: "permission", toolName: label, input: args, canAlwaysAllow: true });
+        await ask({ kind: "permission", toolName: label, input: args, canAlwaysAllow: true }, key);
         return null;
       }
       // Recorded before it runs: a restart meanwhile answers it instead of running it again.
-      await this.write(id, { inFlight: { callId: call.id, key }, approvedCall: null });
+      await this.write(id, { inFlight: { callId: call.id, key }, approvedCall: null, approvedKey: null });
       return key;
     });
     if (run === null) return;
@@ -457,9 +463,12 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     if (answer.kind !== "permission" || answer.decision === "deny") {
       return reply(cut((answer.kind === "permission" && answer.message) || TEXTS.denied, SHORT), true);
     }
+    // The answer is for the tool the question was about: if the name means another tool by now, nothing is allowed.
+    const asked = row.pending?.key;
+    if (asked && asked !== key) return reply(TEXTS.unknownTool(call.name), true);
     // Allowed: it runs next (the loop sees it approved), once or for the rest of the session.
     const allowedKeys = answer.decision === "allow-always" && key && !row.allowedKeys.includes(key) ? [...row.allowedKeys, key] : row.allowedKeys;
-    await this.write(id, { pending: null, status: "running", approvedCall: call.id, allowedKeys });
+    await this.write(id, { pending: null, status: "running", approvedCall: call.id, approvedKey: key ?? null, allowedKeys });
   }
 }
 

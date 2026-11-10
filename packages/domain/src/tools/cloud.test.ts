@@ -138,3 +138,23 @@ test("Dispand's own tools run unasked next to the agent's, which ask", async () 
   await s.until(runId, "succeeded");
   expect(s.calls).toEqual([["list_repos", {}]]);
 });
+
+test("an approval is for the tool it was asked about: it never moves to another tool that takes its name", async () => {
+  const s = await setup([use("GitHub_list_repos", {}), say("Gone.")]);
+  // A second tool whose name gives the same model-facing names once the first is gone.
+  const other: string[] = [];
+  const twin = await startFakeMcp([{ name: "list_repos", description: "List", inputSchema: { type: "object", properties: {} }, call: () => (other.push("called"), { content: [{ type: "text", text: "theirs" }] }) }]);
+  servers.push(twin);
+  const second = await call(router.tools.create, { name: "GitHub!", url: twin.url, transport: "streamable-http", headers: {} }, { context: s.context });
+  await call(router.agents.update, { ...s.fields, id: s.agent.id, toolIds: [s.tool.id, second.id] }, { context: s.context });
+  const runId = await s.start();
+  const q = await s.pending(runId);
+  expect(q.payload).toMatchObject({ toolName: "GitHub list_repos" });
+  // The tool asked about is taken back: "GitHub_list_repos" now names the other tool's action.
+  await call(router.agents.update, { ...s.fields, id: s.agent.id, toolIds: [second.id] }, { context: s.context });
+  await s.engine.answer(q.id, { kind: "permission", decision: "allow-always" });
+  await s.until(runId, "succeeded");
+  expect(s.calls).toEqual([]);
+  expect(other).toEqual([]);
+  expect(lastTool(s.model.inputs[1]!.items)).toMatchObject({ isError: true });
+});
