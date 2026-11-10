@@ -21,6 +21,8 @@ export const MAX_LIVE_SESSIONS = 1000;
 
 /** The name the runner gives Dispand's Job server among a session's MCP servers: its tools are `mcp__job__<tool>`. */
 export const JOB_SERVER_NAME = "job";
+/** The name of the second server a Job's session gets: its agent's tools reached by URL, called on Dispand's server. Their calls ask the owner. */
+export const JOB_TOOLS_SERVER = "job_tools";
 
 /** An MCP server name: one key of the CLI's `mcpServers`, never the runner's own `dispand` (submit_outputs) or `job` (the Job server). */
 export const McpServerName = id()

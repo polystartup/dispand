@@ -99,3 +99,11 @@ test("one Job's token never reaches another Job's tables", async () => {
   expect((await client.callTool({ name: "rows_create", arguments: { tableId: b.table.id } })).isError).toBe(true);
   expect((await call(router.rows.list, { tableId: b.table.id }, { context })).rows).toEqual([]);
 });
+
+test("a Job whose agent has no bundle lists no tool, without an error", async () => {
+  const { context, job } = await setup();
+  const { agent, token } = await job("Clients");
+  await call(router.agents.update, { name: agent.name, harnessId: agent.harnessId, systemPrompt: "", id: agent.id, bundles: [] }, { context });
+  const client = await connect(context, token);
+  expect((await client.listTools()).tools).toEqual([]);
+});
