@@ -148,7 +148,8 @@ test("an agent gets a skill with its tool locked, and another tool; neither tool
   // The tool the agent chose: its action asks before use until the owner says otherwise, and that is kept.
   const chosen = tools.getByRole("listitem").filter({ hasText: "Search" });
   await chosen.getByText("1 action, 1 asks before use").click();
-  const ask = chosen.getByRole("switch", { name: "Ask before Search append_note" });
+  // Whatever the one action the shared fake server lists is called.
+  const ask = chosen.getByRole("switch", { name: /^Ask before Search / });
   await expect(ask).toBeChecked();
   await ask.click();
   await expect(chosen.getByText("1 action, 0 ask before use")).toBeVisible();
