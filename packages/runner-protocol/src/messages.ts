@@ -28,10 +28,12 @@ export const McpServerName = id()
   .refine((n) => n !== "dispand" && n !== JOB_SERVER_NAME, "reserved name");
 
 /**
- * The name a session's MCP server gets in the CLI. No `__` in it: a CLI names a tool
- * `mcp__<server>__<tool>`, so a server `job__x` would have its tools read as the Job server's.
+ * The name a session's MCP server gets in the CLI: words joined by single `_`, so never `__`
+ * inside and never `_` at either end. A CLI names a tool `mcp__<server>__<tool>`: with such
+ * names, only the server `job` gives tools that start with `mcp__job__` (`job__x` and `job_`
+ * would too, and pass for the Job server's).
  */
-const SessionServerName = McpServerName.refine((n) => !n.includes("__"), "a server name can't contain __");
+const SessionServerName = McpServerName.regex(/^[a-zA-Z0-9-]+(?:_[a-zA-Z0-9-]+)*$/, "a server name is words joined by single underscores");
 
 /** An MCP server a session gets: by URL (with its headers), or one of the runner's own (`mcpServers` in its config). */
 export const McpServerRef = z.discriminatedUnion("type", [

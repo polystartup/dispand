@@ -36,7 +36,9 @@ changes it updates this file.
   carries the token and nothing else about the endpoint: **the runner builds the endpoint's
   address itself**, as `/mcp/job` of its own configured server, under a reserved name, so the
   server can't make a runner send the token, or run tools unasked, anywhere else. Only that
-  server's tools run without a question on a runner; every other MCP tool still asks.
+  server's tools run without a question on a runner; every other MCP tool still asks. A CLI
+  names a tool `mcp__<server>__<tool>`, so the protocol only accepts session server names made of
+  words joined by single underscores: no other name can give tools that read as the Job server's.
 - **Only the owner has a session.** Sign-up is disabled; `auth.setup` (public) creates the
   owner only while no user exists, and only with the one-time code from the server's settings
   (`DISPAND_SETUP_CODE`), so the first-run window can't be claimed from the network.
