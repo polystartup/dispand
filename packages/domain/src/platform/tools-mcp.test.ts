@@ -242,7 +242,10 @@ test("an action the owner took off the asking ones runs with no approval, until 
   // Put back while the Job runs: asked again from the next call on (the earlier approval runs one).
   await ask("list_issues", true);
   expect(textOf(await s.client.callTool({ name: list, arguments: {} }))).toBe("[]");
-  expect(textOf(await s.client.callTool({ name: list, arguments: {} }))).toMatch(NEEDS);
+  const refused = textOf(await s.client.callTool({ name: list, arguments: {} }));
+  expect(refused).toMatch(NEEDS);
+  // The agent is told why, and that a session which wasn't asked has to say so rather than retry.
+  expect(refused).toMatch(/asks before use/);
   expect(s.calls).toEqual([["list_issues", {}], ["list_issues", {}], ["list_issues", {}]]);
 });
 

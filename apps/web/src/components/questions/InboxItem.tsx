@@ -31,7 +31,7 @@ export function answerLine(answer: Answer, payload?: QuestionPayload): string {
   }
   if (answer.kind === "permission") {
     if (answer.decision === "deny") return answer.message ? `Denied: ${answer.message}` : "Denied";
-    return answer.decision === "allow-always" ? "Allowed, and not asked again" : "Allowed";
+    return answer.decision === "allow-always" ? "Allowed, always" : "Allowed";
   }
   return answer.confirmed ? "Confirmed" : answer.feedback ? `Not confirmed: ${answer.feedback}` : "Not confirmed";
 }

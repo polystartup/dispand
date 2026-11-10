@@ -58,7 +58,9 @@ changes it updates this file.
   read-only (`readOnlyHint`) when a person adds the tool to the agent. That hint is the
   server's claim and is read only then: a server that later calls another action read-only
   gains nothing, an action that appears later asks, and a tool that only comes with a skill
-  asks for everything. The list changes in two ways, both a person's: the procedure for it,
+  asks for everything. A tool pointed at another address or transport asks for everything
+  again on every agent: the list named the old server's actions. Only tools reached by URL
+  have this list; a runner's own tools ask as its CLI does. The list changes in two ways, both a person's: the procedure for it,
   which is not one of a Job's tools, and the answer "always allow" to an approval of that
   action, in a cloud session or a Job's CLI session. For a CLI session the server resolves
   the name the question was asked under (which stands for one tool and action for good) on

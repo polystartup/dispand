@@ -202,3 +202,33 @@ test("a runner tool has no URL or headers, and stays on its runner while an agen
   const http = await call(router.tools.create, { name: "Echo", url: server.url, transport: "streamable-http", headers: {} }, { context });
   await expect(call(router.tools.update, { id: http.id, runnerId, runnerTool: "fetch" }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });
+
+test("a tool pointed at another server asks again for everything: the unasked actions were the old server's", async () => {
+  const context = await ownerContext();
+  const first = await fake();
+  const tool = await call(router.tools.create, { name: "Echo", url: first.url, transport: "streamable-http", headers: {} }, { context });
+  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
+  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] }, { context });
+  await call(router.agents.setToolAsk, { agentId: agent.id, toolId: tool.id, action: "echo", ask: false }, { context });
+  const asks = async () => (await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions.map((a) => [a.name, a.ask]);
+  expect(await asks()).toEqual([["echo", false]]);
+  // Renaming it moves nothing.
+  await call(router.tools.update, { id: tool.id, name: "Echo 2" }, { context });
+  expect(await asks()).toEqual([["echo", false]]);
+  // Another server with an action of the same name: it is not the action the owner let run.
+  const second = await fake();
+  await call(router.tools.update, { id: tool.id, url: second.url }, { context });
+  expect(await asks()).toEqual([["echo", true]]);
+});
+
+test("only tools reached by URL have asking flags: a runner's own tool has none to set", async () => {
+  const context = await ownerContext();
+  const runnerId = await runnerWith(context, ["fetch"]);
+  const tool = await call(router.tools.create, { kind: "runner", name: "Fetch", runnerId, runnerTool: "fetch" }, { context });
+  await context.db.update(tools).set({ actions: [{ name: "get", description: "", inputSchema: { type: "object" } }] }).where(eq(tools.id, tool.id));
+  const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
+  const agent = await call(router.agents.create, { name: "Searcher", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] }, { context });
+  expect(await call(router.agents.toolAsk, { id: agent.id }, { context })).toEqual([]);
+  await expect(call(router.agents.setToolAsk, { agentId: agent.id, toolId: tool.id, action: "get", ask: false }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});

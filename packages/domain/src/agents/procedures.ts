@@ -208,8 +208,9 @@ const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, co
 });
 
 /**
- * The actions of each tool the agent chose, with whether each asks the owner before use. A tool
- * that only comes with a skill isn't here: all its actions ask.
+ * The actions of each tool reached by URL the agent chose, with whether each asks the owner
+ * before use. A tool that only comes with a skill isn't here (all its actions ask), nor a
+ * runner's own tool (its CLI asks for each call).
  */
 const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const agent = await find(context.db, context.ownerId, input.id);
@@ -217,7 +218,7 @@ const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input
     .select({ toolId: toolsTable.id, name: toolsTable.name, actions: toolsTable.actions, unasked: agentTools.unasked })
     .from(agentTools)
     .innerJoin(toolsTable, eq(toolsTable.id, agentTools.toolId))
-    .where(and(eq(agentTools.agentId, agent.id), eq(toolsTable.ownerId, context.ownerId)))
+    .where(and(eq(agentTools.agentId, agent.id), eq(toolsTable.ownerId, context.ownerId), eq(toolsTable.kind, "http")))
     .orderBy(asc(toolsTable.name));
   return rows.map(({ toolId, name, actions, unasked }) => ({
     toolId,

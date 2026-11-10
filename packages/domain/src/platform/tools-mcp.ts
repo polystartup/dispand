@@ -15,7 +15,7 @@ import { jobOf, jobOfRequest, RESTART_HINT } from "./mcp.ts";
 const VERSION = "1.0.0";
 const GONE = "This tool is not available.";
 const NEEDS_APPROVAL =
-  "This call needs the owner's approval. It is asked when the session's permission mode asks before using tools; it was not approved, or the arguments changed since.";
+  "This call needs the owner's approval: the action asks before use. It is asked when the session's permission mode asks before using tools; it was not approved, or the arguments changed since. If you were not asked, don't retry: say that the call needs the owner's approval.";
 
 const text = (t: string, isError = false) => ({ content: [{ type: "text" as const, text: t }], ...(isError ? { isError: true } : {}) });
 
