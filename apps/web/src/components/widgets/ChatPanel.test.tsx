@@ -28,7 +28,7 @@ afterEach(() => {
 const at = new Date(0);
 function snapshot(questions: RunSnapshot["questions"] = []): RunSnapshot {
   return {
-    run: { id: "run_1", workflowId: "wf_1", version: 1, status: questions.length ? "waiting" : "running", trigger: { type: "manual" }, error: null, createdAt: at, finishedAt: null },
+    run: { id: "run_1", source: "workflow" as const, workflowId: "wf_1", agentId: null, triggerId: null, version: 1, status: questions.length ? "waiting" : "running", trigger: { type: "manual" }, error: null, createdAt: at, finishedAt: null },
     steps: [
       { id: "s_chat", runId: "run_1", nodeId: "n_chat", iteration: 0, status: questions.length ? "waiting" : "running", outputs: null, error: null, startedAt: at, finishedAt: null, interactive: true, prompt: null },
     ],
