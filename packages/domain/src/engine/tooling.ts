@@ -19,7 +19,9 @@ export type Tooling = {
    * Tools reached by URL: called on the server only, where their sealed headers stay. `unasked`
    * names the actions that run without asking the owner, as the agent has them now.
    */
-  httpTools: (ToolRow & { unasked: string[] })[];
+  httpTools: (ToolRow & { unasked: string[]; chosen: boolean })[];
+  /** The agent they come from, when there is one. */
+  agentId?: string;
 };
 
 /** What a runner accepts as a skill's name (the protocol's rule): others are left out, or it would refuse the start. */
@@ -46,7 +48,12 @@ export async function toolingOf(db: Db, run: { ownerId: string; snapshot: AgentS
   return {
     skills,
     runnerTools: rows.flatMap((t) => (t.kind === "runner" && t.runnerId && t.runnerTool ? [{ name: t.name, tool: t.runnerTool, runnerId: t.runnerId }] : [])),
-    httpTools: rows.filter((t) => t.kind === "http").map((t) => ({ ...t, unasked: chosen.find((c) => c.toolId === t.id)?.unasked ?? [] })),
+    // `chosen`: the agent's own choice, which carries the unasked actions; a tool that only comes with a skill has none.
+    httpTools: rows.filter((t) => t.kind === "http").map((t) => {
+      const mine = chosen.find((c) => c.toolId === t.id);
+      return { ...t, unasked: mine?.unasked ?? [], chosen: mine !== undefined };
+    }),
+    agentId,
   };
 }
 

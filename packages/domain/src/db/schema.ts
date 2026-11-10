@@ -419,7 +419,7 @@ export const cloudSessions = pgTable("cloud_sessions", {
   approvedKey: text("approved_key"),
   // The tool call running now: a restart doesn't run it again.
   inFlight: jsonb("in_flight").$type<{ callId: string; key: string } | null>(),
-  // Tool keys "Always allow"ed in this session.
+  // No longer read or written: "always allow" is kept on the agent (`agent_tools.unasked`).
   allowedKeys: jsonb("allowed_keys").$type<string[]>().notNull().default([]),
   reminded: boolean("reminded").notNull().default(false),
   // The last event's seq, and the event, handed to the engine again on boot (it drops it if handled).

@@ -1,17 +1,17 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agents as agentsTable, agentSkills, agentTools, cloudSessions, harnesses, plugins, skillPackages, tables as tablesTable, tools as toolsTable } from "../db/schema.ts";
+import { agents as agentsTable, agentSkills, agentTools, harnesses, plugins, skillPackages, tables as tablesTable, tools as toolsTable } from "../db/schema.ts";
 import { lockAgentsForDelete } from "../jobs/active.ts";
 import { BUNDLES, type TableScope } from "../platform/bundles.ts";
 import { ModelName } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
-import { toolKey } from "../tools/cloud.ts";
 import { StorableText } from "../workflows/model.ts";
 import { agentInUse } from "../workflows/procedures.ts";
 import { skillsAndTools } from "./skills-and-tools.ts";
+import { setAsk } from "./tool-ask.ts";
 import { effectiveTools } from "./tools.ts";
 
 const owner = base.use(authed);
@@ -231,27 +231,7 @@ const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input
  * away is a grant: a person does it, here. No Job reaches this procedure (it is not a platform tool).
  */
 const setToolAsk = owner.input(z.object({ agentId: z.string(), toolId: z.string(), action: z.string(), ask: z.boolean() })).handler(async ({ input, context }) => {
-  await context.db.transaction(async (tx) => {
-    const [row] = await tx
-      .select({ actions: toolsTable.actions, unasked: agentTools.unasked })
-      .from(agentTools)
-      .innerJoin(agentsTable, eq(agentsTable.id, agentTools.agentId))
-      .innerJoin(toolsTable, eq(toolsTable.id, agentTools.toolId))
-      .where(and(eq(agentTools.agentId, input.agentId), eq(agentTools.toolId, input.toolId), eq(agentsTable.ownerId, context.ownerId), eq(toolsTable.ownerId, context.ownerId)))
-      .for("update", { of: agentTools });
-    if (!row?.actions.some((a) => a.name === input.action)) throw new ORPCError("NOT_FOUND");
-    // Only actions the tool still lists stay: one that is gone, should it come back, asks.
-    const unasked = row.actions.map((a) => a.name).filter((name) => (name === input.action ? !input.ask : row.unasked.includes(name)));
-    await tx.update(agentTools).set({ unasked }).where(and(eq(agentTools.agentId, input.agentId), eq(agentTools.toolId, input.toolId)));
-    // Asking again means from the next call on: a cloud session told to always allow the action forgets it.
-    if (input.ask) {
-      const key = toolKey(input.toolId, input.action);
-      await tx
-        .update(cloudSessions)
-        .set({ allowedKeys: sql`${cloudSessions.allowedKeys} - ${key}::text` })
-        .where(sql`${cloudSessions.allowedKeys} @> jsonb_build_array(${key}::text)`);
-    }
-  });
+  if (!(await setAsk(context.db, context.ownerId, input))) throw new ORPCError("NOT_FOUND");
   return { ok: true as const };
 });
 

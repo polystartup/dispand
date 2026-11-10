@@ -57,8 +57,9 @@ changes it updates this file.
   read-only (`readOnlyHint`) when a person adds the tool to the agent. That hint is the
   server's claim and is read only then: a server that later calls another action read-only
   gains nothing, an action that appears later asks, and a tool that only comes with a skill
-  asks for everything. The procedure that changes the list is not one of a Job's tools, so no
-  agent removes its own questions. Accepted: an unasked action that reaches outside (a search,
+  asks for everything. The list changes in two ways, both a person's: the procedure for it,
+  which is not one of a Job's tools, and the answer "always allow" to a cloud session's
+  approval of that action. So no agent removes its own questions. Accepted: an unasked action that reaches outside (a search,
   a fetch) can carry in its arguments what the Job read; the owner keeps such actions asking
   on agents that read confidential tables. An unasked action also runs for a session in
   `bypassPermissions` mode.
@@ -300,8 +301,10 @@ changes it updates this file.
   `cloud_sessions` row, event, step error or log carries it, and a failed call ends the step
   with a short reason (refused key, rate limit, status code, unreachable host), never the
   provider's body. A cloud agent's tool calls (other than `ask_user` and `submit_outputs`, which
-  Dispand answers itself) each need the owner's approval, shown whole, and "Always allow"
-  lasts only for that session.
+  Dispand answers itself) each need the owner's approval, shown whole, but for the actions the
+  agent lets run unasked (above). "Always allow" on such an approval is the owner taking that
+  action off the agent's asking ones: it holds for that agent from then on, until the owner
+  puts it back, and no session keeps an allowance of its own.
   A tool's headers go only to its URL, which must be `https://` when it has headers (plain
   http only to loopback) and can't carry credentials itself; MCP calls follow a redirect only
   within the tool's origin, and a failure reaches the owner as a short reason made by

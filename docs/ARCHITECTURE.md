@@ -62,8 +62,10 @@
   model gets the built-in `ask_user` (Claude Code's `AskUserQuestion` shape, a `choice`
   question) and `submit_outputs` (`builtins.ts`, the runner's rules and texts: `confirm-outputs`
   in a chat, one reminder elsewhere), and the agent's tools through a `ToolCaller` (none until
-  agents get tools); every other tool call asks a `permission` question, and "Always allow"
-  holds for that tool in that session only. Tool calls of a turn run one after another, and a
+  agents get tools); every other tool call asks a `permission` question, unless its spec says
+  `ask: false` (read at every call). "Always allow", offered for a tool the agent chose, is
+  handed to the tool's caller (`allowAlways`), which takes the action off the agent's asking
+  ones (`agents/tool-ask.ts`): nothing about it is kept in the session. Tool calls of a turn run one after another, and a
   turn makes at most 50 model calls. Each session is a `cloud_sessions` row: its history
   (append-only, the provider's raw assistant content replayed), what it waits on, the tool call
   in flight, its event seq and last event. Every state change is written with the seq of the

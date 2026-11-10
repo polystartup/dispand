@@ -15,16 +15,16 @@ import { textStream, type ToolCaller } from "./runner.ts";
 /** Two MCP-like tools; `hold` keeps calls of `create_repo` running. */
 function fakeTools(hold = false) {
   const calls: [string, unknown][] = [];
+  const unasked = new Set<string>();
+  const spec = (key: string, label: string, description: string) => ({ key, label, spec: { name: "", description, inputSchema: { type: "object" } }, always: true as const, ...(unasked.has(key) ? { ask: false as const } : {}) });
   const tools: ToolCaller = {
-    specs: async () => [
-      { key: "t1:create_repo", label: "GitHub create_repo", spec: { name: "", description: "Create a repository", inputSchema: { type: "object" } } },
-      { key: "t1:list_repos", label: "GitHub list_repos", spec: { name: "", description: "List repositories", inputSchema: { type: "object" } } },
-    ],
+    specs: async () => [spec("t1:create_repo", "GitHub create_repo", "Create a repository"), spec("t1:list_repos", "GitHub list_repos", "List repositories")],
     call: async (_session, key, args) => {
       calls.push([key, args]);
       if (hold && key === "t1:create_repo") await new Promise(() => {});
       return { text: `ran ${key}`, isError: false };
     },
+    allowAlways: async (_session, key) => void unasked.add(key),
   };
   return { tools, calls };
 }

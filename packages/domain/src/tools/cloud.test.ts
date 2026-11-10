@@ -173,25 +173,28 @@ test("an action the owner took off the asking ones runs unasked; the others stil
   expect(s.calls).toEqual([["list_repos", {}], ["create_repository", { name: "acme" }]]);
 });
 
-test("an action put back among the asking ones asks again, even in a session that was told to always allow it", async () => {
-  // Before the model's second call, the owner has let the action run unasked, then taken that back.
+test("always allow takes the action off the asking ones on the agent; put back, it asks again in the same session", async () => {
+  // Before the model's third call, the owner puts the action back among the asking ones.
   let ask: (value: boolean) => Promise<unknown> = async () => undefined;
-  const again: Script = async (input) => {
-    await ask(false);
+  const back: Script = async (input) => {
     await ask(true);
-    return use("GitHub_list_repos", {}, "c2")(input);
+    return use("GitHub_list_repos", {}, "c3")(input);
   };
-  const s = await setup([use("GitHub_list_repos", {}), again, say("Done.")]);
+  const s = await setup([use("GitHub_list_repos", {}), use("GitHub_list_repos", {}, "c2"), back, say("Done.")]);
   ask = (value) => call(router.agents.setToolAsk, { agentId: s.agent.id, toolId: s.tool.id, action: "list_repos", ask: value }, { context: s.context });
+  const asks = async () => (await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.find((a) => a.name === "list_repos")!.ask;
   const runId = await s.start();
   const first = await s.pending(runId);
+  expect(first.payload).toMatchObject({ canAlwaysAllow: true });
   await s.engine.answer(first.id, { kind: "permission", decision: "allow-always" });
-  const second = await vi.waitFor(async () => {
+  // The second call ran unasked, the third asks again.
+  const third = await vi.waitFor(async () => {
     const all = await s.context.db.select().from(questions).where(eq(questions.runId, runId));
     const q = all.find((x) => x.status === "pending");
-    if (!q) throw new Error("no second question yet");
+    if (!q) throw new Error("no new question yet");
     return q;
   });
-  expect(second.id).not.toBe(first.id);
-  expect(s.calls).toEqual([["list_repos", {}]]);
+  expect(third.id).not.toBe(first.id);
+  expect(s.calls).toEqual([["list_repos", {}], ["list_repos", {}]]);
+  expect(await asks()).toBe(true);
 });
