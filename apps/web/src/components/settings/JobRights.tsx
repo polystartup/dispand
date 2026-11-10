@@ -5,7 +5,7 @@ export type Rights = { bundles: Bundle[]; dataTables: TableScope };
 
 const BUNDLE_TEXT: [Bundle, string, string][] = [
   ["data", "Work on data", "Its Jobs can read, add, change and delete rows."],
-  ["configure", "Change tables and fields", "Its Jobs can create and rename tables, and add, change and order their fields. Deleting stays yours."],
+  ["configure", "Change tables and fields", "Its Jobs can create tables, change what they are called, and add, change and order their fields. Deleting stays yours."],
 ];
 
 const box = "mt-1 size-4 accent-[var(--color-accent)]";
