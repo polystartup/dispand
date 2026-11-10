@@ -265,7 +265,9 @@
   `routes/mcp/job_.tools.ts`): same bearer as the Job endpoint, one tool per action, called through `InstalledTools`. An action's name
   (`exposedName`) is readable words plus a mark made of the tool's id and the action's name
   alone, so it stands for that tool and action for good and an approval can't come to mean
-  another; the endpoint uses the SDK's low-level `Server`, so a tool's JSON Schema is shown as
+  another (`platform/exposed.ts`; when such a call is asked about, the engine records on the
+  question which tool and action it is, `questions.about`, shown in the Inbox and in a chat);
+  the endpoint uses the SDK's low-level `Server`, so a tool's JSON Schema is shown as
   it is and never compiled on the server. The runner adds it as the server
   `job_tools` next to `job` (`withJobServer`), and its tools ask like any MCP tool. A call runs
   only if `takeApproval` (`platform/approvals.ts`) finds and uses up an approval: a question of

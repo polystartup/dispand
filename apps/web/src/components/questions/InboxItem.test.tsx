@@ -102,3 +102,18 @@ test("an item expired because its agent was restarted and asked again says so", 
   mount({ ...approval, status: "expired", orphaned: true });
   expect(screen.getByText(/Expired: the agent was restarted and asked again/)).toBeTruthy();
 });
+
+const exposed = { kind: "permission", toolName: "mcp__job_tools__acme_customer_relationship_mana_ea34e2639679ef94", input: { all: true }, canAlwaysAllow: false };
+const about = { tool: "Acme Customer Relationship Manager", action: "delete_all_contacts", description: "Deletes every contact." };
+
+test("a call of an agent's tool names the tool and the action in full, not the short name it is asked under", () => {
+  mount({ ...approval, payload: exposed, about });
+  expect(screen.getByText("Acme Customer Relationship Manager")).toBeTruthy();
+  expect(screen.getByText("delete_all_contacts")).toBeTruthy();
+  expect(screen.getByText("Deletes every contact.")).toBeTruthy();
+  expect(screen.queryByText(/mcp__job_tools__/)).toBeNull();
+  expect(screen.getByLabelText("Tool input").textContent).toContain('"all": true');
+  cleanup();
+  mount({ ...approval, payload: exposed, about, status: "answered", answer: { kind: "permission", decision: "allow" }, answeredAt: at, answeredBy: null });
+  expect(screen.getByText(/Wanted to use Acme Customer Relationship Manager: delete_all_contacts/)).toBeTruthy();
+});

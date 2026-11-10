@@ -7,7 +7,8 @@ import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp, type FakeMcp } from "../tools/test-server.ts";
 import { jobTokenOf } from "./token.ts";
-import { exposedName, handleJobToolsMcp } from "./tools-mcp.ts";
+import { exposedName } from "./exposed.ts";
+import { handleJobToolsMcp } from "./tools-mcp.ts";
 
 const servers: FakeMcp[] = [];
 afterEach(async () => {
@@ -194,4 +195,34 @@ test("two actions never share a name, however alike they read", () => {
   // The same tool and action always give the same name; another tool's same action doesn't.
   expect(exposedName(tool, "x")).toBe(exposedName({ ...tool, name: "GitHub" }, "x"));
   expect(exposedName(tool, "x")).not.toBe(exposedName({ id: "tool_other", name: "GitHub" }, "x"));
+});
+
+test("the owner is told which tool and action a call is for, whatever the name it is asked under", async () => {
+  const s = await setup();
+  const create = await named(s.client, "github_create_issue");
+  await s.approve(`mcp__job_tools__${create}`, { title: "Bug" }, "deny");
+  const [item] = await call(router.questions.list, { status: "all" }, { context: s.context });
+  expect(item!.about).toEqual({ tool: "GitHub", action: "create_issue", description: "Create an issue" });
+  // The run's own view of the question (a chat shows it from there) says it too.
+  const { questions: asked } = await call(router.runs.get, { runId: s.runId }, { context: s.context });
+  expect(asked[0]!.about).toEqual({ tool: "GitHub", action: "create_issue", description: "Create an issue" });
+  // Any other permission has nothing to add; a name that stands for nothing either.
+  await s.approve("Bash", { command: "ls" }, "deny");
+  await s.approve("mcp__job_tools__nothing_0000000000000000", {}, "deny");
+  const all = await call(router.questions.list, { status: "all" }, { context: s.context });
+  expect(all.map((q) => q.about).filter(Boolean)).toHaveLength(1);
+});
+
+test("a long tool name never hides the action from the owner", async () => {
+  const s = await setup();
+  await s.context.db.update(toolsTable).set({ name: "Acme Customer Relationship Manager", actions: [
+    { name: "list_contacts", description: "List", inputSchema: { type: "object" } },
+    { name: "delete_all_contacts", description: "Delete everything", inputSchema: { type: "object" } },
+  ] }).where(eq(toolsTable.id, s.tool.id));
+  const names = (await s.client.listTools()).tools.map((t) => t.name);
+  expect(names).toHaveLength(2);
+  await s.approve(`mcp__job_tools__${names[1]}`, {}, "deny");
+  const [item] = await call(router.questions.list, { status: "all" }, { context: s.context });
+  expect(item!.about).toMatchObject({ tool: "Acme Customer Relationship Manager", action: expect.stringMatching(/^(list_contacts|delete_all_contacts)$/) });
+  expect(new Set(names).size).toBe(2);
 });

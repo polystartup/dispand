@@ -38,14 +38,16 @@ changes it updates this file.
   owner approved that exact call.** A Job's CLI session gets these tools from a second
   endpoint, `/mcp/job/tools` (same Job token, address built by the runner like the Job
   endpoint's, under the reserved name `job_tools`); it sees each action's name, description and
-  schema, never the tool's address or headers. The CLI asks the owner before each call, like
+  schema, never the tool's headers or full address (a failed call may name the tool's host). The CLI asks the owner before each call, like
   for any MCP tool, and that question and its answer are recorded on the server. The endpoint
   runs a call only when it finds, in its own records, an approval of that Job for that tool and
   those arguments (key order aside), answered with an allowance and not used yet, and uses it
   up: it never takes the runner's word that the owner said yes, an approval allows one call,
   and "always allow" doesn't exist for these tools. The name a tool is asked and called under
   is derived from the tool's id and the action's name alone, so an approval can't move to
-  another tool or action; a tool's schema is passed on as data and never compiled. A session in `bypassPermissions` mode asks
+  another tool or action; a tool's schema is passed on as data and never compiled. That name
+  is words cut short and a mark, so the question the owner answers also carries, from the
+  server, the tool's name and the action's name and description in full. A session in `bypassPermissions` mode asks
   nothing, so its calls of these tools are refused.
 - **A Job's token is the only way into the Job endpoint (`/mcp/job`), and it dies with the
   Job.** It is 32 random bytes, made when the Job is created. The database keeps its SHA-256 (to

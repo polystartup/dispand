@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { questions, runs } from "../db/schema.ts";
 import type { JobIdentity } from "./call.ts";
@@ -47,6 +47,8 @@ export async function takeApproval(db: Db, job: JobIdentity, toolName: string, i
         eq(questions.kind, "approval"),
         eq(questions.status, "answered"),
         isNull(questions.consumedAt),
+        // Only this tool's approvals are read: a long Job has many others.
+        sql`${questions.payload} ->> 'toolName' = ${toolName}`,
       ),
     )
     .orderBy(desc(questions.answeredAt), desc(questions.id));
