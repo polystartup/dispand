@@ -1,6 +1,6 @@
 import { JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
 import { createHash } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { runs } from "../db/schema.ts";
 import { toolingOf } from "../engine/tooling.ts";
@@ -38,7 +38,8 @@ export async function exposedTools(db: Db, job: { runId: string; ownerId: string
   const [run] = await db
     .select({ ownerId: runs.ownerId, snapshot: runs.snapshot })
     .from(runs)
-    .where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId), eq(runs.agentId, job.agentId)));
+    // A Job still going: one that ended is offered nothing, and an action that needs no approval doesn't outlive it.
+    .where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId), eq(runs.agentId, job.agentId), inArray(runs.status, ["running", "waiting"])));
   if (!run) return [];
   const { httpTools } = await toolingOf(db, run, job.agentId);
   const all = httpTools.flatMap((tool) =>

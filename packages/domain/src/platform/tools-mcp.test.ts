@@ -245,3 +245,16 @@ test("an action the owner took off the asking ones runs with no approval, until 
   expect(textOf(await s.client.callTool({ name: list, arguments: {} }))).toMatch(NEEDS);
   expect(s.calls).toEqual([["list_issues", {}], ["list_issues", {}], ["list_issues", {}]]);
 });
+
+test("an action that runs unasked doesn't outlive its Job", async () => {
+  const s = await setup();
+  const list = await named(s.client, "github_list_issues");
+  await call(router.agents.setToolAsk, { agentId: s.agent.id, toolId: s.tool.id, action: "list_issues", ask: false }, { context: s.context });
+  const { exposedTools } = await import("./exposed.ts");
+  const job = { runId: s.runId, ownerId: s.context.ownerId, agentId: s.agent.id };
+  expect((await exposedTools(s.context.db, job)).map((t) => t.name)).toContain(list);
+  // The Job ended after the request was let in: nothing is offered or run for it any more.
+  await s.context.db.update(runs).set({ status: "failed" }).where(eq(runs.id, s.runId));
+  expect(await exposedTools(s.context.db, job)).toEqual([]);
+  expect(s.calls).toEqual([]);
+});

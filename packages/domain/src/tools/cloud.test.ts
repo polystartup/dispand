@@ -172,3 +172,26 @@ test("an action the owner took off the asking ones runs unasked; the others stil
   await s.until(runId, "succeeded");
   expect(s.calls).toEqual([["list_repos", {}], ["create_repository", { name: "acme" }]]);
 });
+
+test("an action put back among the asking ones asks again, even in a session that was told to always allow it", async () => {
+  // Before the model's second call, the owner has let the action run unasked, then taken that back.
+  let ask: (value: boolean) => Promise<unknown> = async () => undefined;
+  const again: Script = async (input) => {
+    await ask(false);
+    await ask(true);
+    return use("GitHub_list_repos", {}, "c2")(input);
+  };
+  const s = await setup([use("GitHub_list_repos", {}), again, say("Done.")]);
+  ask = (value) => call(router.agents.setToolAsk, { agentId: s.agent.id, toolId: s.tool.id, action: "list_repos", ask: value }, { context: s.context });
+  const runId = await s.start();
+  const first = await s.pending(runId);
+  await s.engine.answer(first.id, { kind: "permission", decision: "allow-always" });
+  const second = await vi.waitFor(async () => {
+    const all = await s.context.db.select().from(questions).where(eq(questions.runId, runId));
+    const q = all.find((x) => x.status === "pending");
+    if (!q) throw new Error("no second question yet");
+    return q;
+  });
+  expect(second.id).not.toBe(first.id);
+  expect(s.calls).toEqual([["list_repos", {}]]);
+});

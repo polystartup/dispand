@@ -4,6 +4,8 @@ import { sessionTooling } from "../engine/tooling.ts";
 import type { InstalledTools } from "./executor.ts";
 
 const PREFIX = "tool:";
+/** What a cloud session calls an action of an agent's tool: the key its "always allow" is kept under. */
+export const toolKey = (toolId: string, action: string) => `${PREFIX}${toolId}:${action}`;
 const GONE = { text: "This tool is not available.", isError: true };
 
 /**
@@ -19,7 +21,7 @@ export function installedToolCaller(db: Db, installed: InstalledTools): ToolCall
       const { httpTools } = await sessionTooling(db, sessionId);
       return httpTools.flatMap((tool) =>
         tool.actions.map((action) => ({
-          key: `${PREFIX}${tool.id}:${action.name}`,
+          key: toolKey(tool.id, action.name),
           label: `${tool.name} ${action.name}`,
           spec: { name: "", description: action.description, inputSchema: action.inputSchema },
           ...(tool.unasked.includes(action.name) ? { ask: false as const } : {}),
