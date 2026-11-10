@@ -207,7 +207,7 @@ function Bubble({ role, text }: { role: "assistant" | "user" | "tool"; text: str
   );
 }
 
-/** A question of the chat, answered here or in Notifications (whichever comes first). */
+/** A question of the chat, answered here or in the Inbox (whichever comes first). */
 function InlineQuestion({ q }: { q: Question }) {
   const queryClient = useQueryClient();
   const [conflict, setConflict] = useState(false);
@@ -244,7 +244,7 @@ function answeredText(q: Question): string {
   return a.confirmed ? "You said go ahead" : "You said not yet";
 }
 
-const statusText = { pending: "Up next", running: "Working…", waiting: "Waiting for you in Notifications", succeeded: "Finished", failed: "Failed", skipped: "Skipped" };
+const statusText = { pending: "Up next", running: "Working…", waiting: "Waiting for you in the Inbox", succeeded: "Finished", failed: "Failed", skipped: "Skipped" };
 
 /** After the confirmation: the steps that follow, with their results. */
 function Progress({ run, steps, def }: { run: RunSnapshot; steps: Step[]; def: WorkflowDef | undefined }) {

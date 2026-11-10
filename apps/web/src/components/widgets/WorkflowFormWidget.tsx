@@ -90,8 +90,8 @@ export function StartButton({ label, runId, start, onRunStarted }: { label: stri
             <>
               {" "}
               in{" "}
-              <Link to="/notifications" className="text-accent hover:underline">
-                Notifications
+              <Link to="/inbox" className="text-accent hover:underline">
+                the Inbox
               </Link>
             </>
           )}

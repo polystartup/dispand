@@ -262,6 +262,15 @@
   (a tool taken back, or an action gone, isn't called). `createEngine` combines that caller
   with the app's (`combineToolCallers`). CLI sessions don't get HTTP tools yet, and cloud
   sessions don't get skills yet.
+- **Inbox:** every question a session asks is a row of `questions` with a `kind`: a permission
+  is an `approval`, a choice or a confirmation a `question` (set when it is asked; migration
+  `0030` moved the existing ones). An answer records who gave it (`answered_by`, a user for
+  now) and when. `questions.list` takes `status: "pending"` (what waits) or `"all"`: what
+  waits, newest first, then the 100 latest done items (answered or expired), each with its
+  workflow or its agent and trigger, its answer and its answerer. The page is `/inbox`
+  (`routes/_app.inbox.tsx`, `components/questions/InboxItem.tsx`): "Waiting for you", where
+  each item is answered in place, then "Done"; `/notifications` redirects there, and the bell
+  counts what waits. Nothing answers on the platform's behalf.
 - **Stopping a run:** `runs.stop` (`Engine.stopRun`) fails every step of the run still open
   with "Stopped" (a step that never started too), expires its pending questions and fails the
   run, in one transaction, then cuts what the run was doing: a Tool step's call under way is
