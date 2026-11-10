@@ -129,3 +129,20 @@ test("the endpoints are built once per app, not once per request", async () => {
   // The SDK says once, when a handler is built, that JSON responses drop notifications: at most once per endpoint.
   expect(built.mock.calls.filter((c) => String(c[0]).includes("responseMode")).length).toBeLessThanOrEqual(2);
 });
+
+test("both endpoints tell the session what to do when Dispand restarts under it", async () => {
+  const { context, job } = await setup();
+  const { token } = await job("Clients");
+  const client = await connect(context, token);
+  expect(client.getInstructions()).toMatch(/restart/i);
+  expect(client.getInstructions()).toMatch(/wait/i);
+  const tools = new Client({ name: "test", version: "1.0.0" });
+  await tools.connect(
+    new StreamableHTTPClientTransport(new URL("https://dispand.test/mcp/job/tools"), {
+      requestInit: { headers: { authorization: `Bearer ${token}` } },
+      fetch: (input, init) => handleJobToolsMcp(new Request(input as string | URL, init as RequestInit), context),
+    }),
+  );
+  onTestFinished(() => tools.close());
+  expect(tools.getInstructions()).toMatch(/restart/i);
+});

@@ -4,7 +4,7 @@ import { InstalledTools } from "../tools/executor.ts";
 import { takeApproval } from "./approvals.ts";
 import { askedName, exposedTools } from "./exposed.ts";
 import type { PlatformApp } from "./call.ts";
-import { jobOf, jobOfRequest } from "./mcp.ts";
+import { jobOf, jobOfRequest, RESTART_HINT } from "./mcp.ts";
 
 // The tools endpoint (`/mcp/job/tools`): a Job's agent's tools reached by URL, for its CLI
 // sessions. The call runs here, on the server, where the tool's sealed headers stay; the session
@@ -30,7 +30,7 @@ function toolsHandler(app: PlatformApp) {
       (ctx) => {
         // The low-level server: a tool's own JSON Schema is shown as it is and never compiled here
         // (it comes from a server the owner configured; the tool validates its own arguments).
-        const server = new Server({ name: "dispand-tools", version: VERSION }, { capabilities: { tools: {} } });
+        const server = new Server({ name: "dispand-tools", version: VERSION }, { capabilities: { tools: {} }, instructions: RESTART_HINT });
         const job = jobOf(ctx.authInfo);
         server.setRequestHandler("tools/list", async () => ({
           tools: (job ? await exposedTools(app.db, job) : []).map(({ name, description, inputSchema }) => ({ name, description, inputSchema: inputSchema as { type: "object" } })),

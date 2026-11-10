@@ -10,6 +10,12 @@ import { jobOfToken } from "./token.ts";
 const VERSION = "1.0.0";
 /** What the SDK's bearer check needs of a token's lifetime; the Job itself is checked on every request. */
 const TOKEN_TTL_S = 3600;
+/**
+ * Told to the session with both endpoints' tools. Dispand restarts for a few seconds when it is
+ * updated: without this, a session that meets it takes its tools for gone and gives up.
+ */
+export const RESTART_HINT =
+  "If a call to these tools fails with a gateway or connection error (502, 503, connection refused), Dispand is restarting: wait about ten seconds and make the same call again, up to three times, before you report a failure.";
 
 export const jobOf = (auth: AuthInfo | undefined) => (auth?.extra as { job?: JobIdentity } | undefined)?.job;
 
@@ -40,7 +46,7 @@ function jobHandler(app: PlatformApp) {
   if (!handler) {
     handler = createMcpHandler(
       async (ctx) => {
-        const server = new McpServer({ name: "dispand", version: VERSION }, { capabilities: { tools: {} } });
+        const server = new McpServer({ name: "dispand", version: VERSION }, { capabilities: { tools: {} }, instructions: RESTART_HINT });
         const job = jobOf(ctx.authInfo);
         if (!job) return server;
         for (const tool of await toolsOf(app.db, job)) {
