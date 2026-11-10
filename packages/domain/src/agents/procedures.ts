@@ -206,4 +206,44 @@ const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, co
   return withSkillsAndTools(context.db, await find(context.db, context.ownerId, input.id));
 });
 
-export const agents = { create, update, delete: remove, list, get };
+/**
+ * The actions of each tool the agent chose, with whether each asks the owner before use. A tool
+ * that only comes with a skill isn't here: all its actions ask.
+ */
+const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+  const agent = await find(context.db, context.ownerId, input.id);
+  const rows = await context.db
+    .select({ toolId: toolsTable.id, name: toolsTable.name, actions: toolsTable.actions, unasked: agentTools.unasked })
+    .from(agentTools)
+    .innerJoin(toolsTable, eq(toolsTable.id, agentTools.toolId))
+    .where(and(eq(agentTools.agentId, agent.id), eq(toolsTable.ownerId, context.ownerId)))
+    .orderBy(asc(toolsTable.name));
+  return rows.map(({ toolId, name, actions, unasked }) => ({
+    toolId,
+    name,
+    actions: actions.map((a) => ({ name: a.name, description: a.description, readOnly: a.readOnly === true, ask: !unasked.includes(a.name) })),
+  }));
+});
+
+/**
+ * Makes one action of an agent's tool ask before use, or run without asking. Taking the question
+ * away is a grant: a person does it, here. No Job reaches this procedure (it is not a platform tool).
+ */
+const setToolAsk = owner.input(z.object({ agentId: z.string(), toolId: z.string(), action: z.string(), ask: z.boolean() })).handler(async ({ input, context }) => {
+  await context.db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ actions: toolsTable.actions, unasked: agentTools.unasked })
+      .from(agentTools)
+      .innerJoin(agentsTable, eq(agentsTable.id, agentTools.agentId))
+      .innerJoin(toolsTable, eq(toolsTable.id, agentTools.toolId))
+      .where(and(eq(agentTools.agentId, input.agentId), eq(agentTools.toolId, input.toolId), eq(agentsTable.ownerId, context.ownerId), eq(toolsTable.ownerId, context.ownerId)))
+      .for("update", { of: agentTools });
+    if (!row?.actions.some((a) => a.name === input.action)) throw new ORPCError("NOT_FOUND");
+    // Only actions the tool still lists stay: one that is gone, should it come back, asks.
+    const unasked = row.actions.map((a) => a.name).filter((name) => (name === input.action ? !input.ask : row.unasked.includes(name)));
+    await tx.update(agentTools).set({ unasked }).where(and(eq(agentTools.agentId, input.agentId), eq(agentTools.toolId, input.toolId)));
+  });
+  return { ok: true as const };
+});
+
+export const agents = { create, update, delete: remove, list, get, toolAsk, setToolAsk };

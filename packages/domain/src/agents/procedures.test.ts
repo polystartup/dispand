@@ -1,7 +1,8 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { agentTools, harnesses, tables as tablesTable, tools, user } from "../db/schema.ts";
+import { agents as agentsTable, agentTools, harnesses, tables as tablesTable, tools, user } from "../db/schema.ts";
+import { NOT_TOOLS, PLATFORM_TOOLS } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 
@@ -257,4 +258,51 @@ test("a tool added to an agent starts with its read-only actions unasked, and on
   await context.db.update(tools).set({ actions: [action("search", true), action("send", true)] }).where(eq(tools.id, "tool_gh"));
   await call(router.agents.update, { id, name, harnessId, systemPrompt, toolIds: ["tool_gh"] }, { context });
   expect(await unasked("tool_gh")).toEqual([]);
+});
+
+test("the owner takes an action off the asking ones and puts it back; nothing else can", async () => {
+  const { context, harness } = await setup();
+  await withTools(context);
+  const action = (name: string, readOnly?: true) => ({ name, description: `Does ${name}`, inputSchema: { type: "object" }, ...(readOnly ? { readOnly } : {}) });
+  await context.db.update(tools).set({ actions: [action("search", true), action("send")] }).where(eq(tools.id, "tool_gh"));
+  const review = await skill(context, "review", ["tool_fc"]);
+  const agent = await call(router.agents.create, { name: "Reviewer", harnessId: harness.id, systemPrompt: "", skillPackageIds: [review], toolIds: ["tool_gh"] }, { context });
+  const asks = async () => (await call(router.agents.toolAsk, { id: agent.id }, { context })).find((t) => t.toolId === "tool_gh")!.actions;
+  expect(await asks()).toEqual([
+    { name: "search", description: "Does search", readOnly: true, ask: false },
+    { name: "send", description: "Does send", readOnly: false, ask: true },
+  ]);
+
+  await call(router.agents.setToolAsk, { agentId: agent.id, toolId: "tool_gh", action: "send", ask: false }, { context });
+  expect((await asks()).map((a) => a.ask)).toEqual([false, false]);
+  await call(router.agents.setToolAsk, { agentId: agent.id, toolId: "tool_gh", action: "search", ask: true }, { context });
+  expect((await asks()).map((a) => a.ask)).toEqual([true, false]);
+
+  // An action the tool doesn't list, a tool that only comes with a skill, a tool the agent doesn't have, another owner's agent.
+  for (const input of [
+    { agentId: agent.id, toolId: "tool_gh", action: "delete" },
+    { agentId: agent.id, toolId: "tool_fc", action: "search" },
+    { agentId: agent.id, toolId: "tool_missing", action: "search" },
+  ]) {
+    await expect(call(router.agents.setToolAsk, { ...input, ask: false }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  }
+  await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
+  await context.db.insert(agentsTable).values({ id: "agent_eve", ownerId: "user_other", name: "Eve's", harnessId: harness.id, systemPrompt: "" });
+  await context.db.insert(agentTools).values({ agentId: "agent_eve", toolId: "tool_gh" });
+  await expect(call(router.agents.setToolAsk, { agentId: "agent_eve", toolId: "tool_gh", action: "search", ask: false }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.agents.toolAsk, { id: "agent_eve" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+  // An action the tool no longer lists grants nothing, and leaves the list at the next change.
+  await context.db.update(tools).set({ actions: [action("search", true)] }).where(eq(tools.id, "tool_gh"));
+  expect(await asks()).toEqual([{ name: "search", description: "Does search", readOnly: true, ask: true }]);
+  await call(router.agents.setToolAsk, { agentId: agent.id, toolId: "tool_gh", action: "search", ask: false }, { context });
+  const [row] = await context.db.select({ unasked: agentTools.unasked }).from(agentTools).where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, "tool_gh")));
+  expect(row!.unasked).toEqual(["search"]);
+});
+
+test("no Job reaches the asking flags: they are not platform tools", () => {
+  for (const path of ["agents.setToolAsk", "agents.toolAsk"]) {
+    expect(NOT_TOOLS).toContain(path);
+    expect(PLATFORM_TOOLS.map((t) => t.path)).not.toContain(path);
+  }
 });
