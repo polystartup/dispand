@@ -5,6 +5,7 @@ import type { Db } from "../db/client.ts";
 import { fields, rows } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
+import { ProposeInput } from "./proposals.ts";
 
 export { BUNDLES, type Bundle, type TableScope } from "./bundles.ts";
 
@@ -29,6 +30,11 @@ export type PlatformTool = {
   tables(db: Db, ownerId: string, input: unknown): Promise<(string | null)[]>;
   /** Trims an output to the Job's tables. */
   filter?(output: unknown, scope: TableScope): unknown;
+  /**
+   * A write that changes what agents may do: it runs only on an item of a proposal a person
+   * approved for that Job (`platform/proposals.ts`), checked in `callPlatformTool`.
+   */
+  grant?: true;
 };
 
 type Leaf = { "~orpc": { inputSchema?: z.ZodType } };
@@ -75,7 +81,9 @@ async function tableOfField(db: Db, ownerId: string, input: unknown): Promise<(s
   return [field?.tableId ?? null];
 }
 
-function tool(path: string, bundle: Bundle, description: string, rest: Pick<PlatformTool, "tables" | "filter">): PlatformTool {
+const NEEDS_PROPOSAL = "Needs the owner's approval first: list the call with propose, ask with request_approval, then make it exactly as listed.";
+
+function tool(path: string, bundle: Bundle, description: string, rest: Pick<PlatformTool, "tables" | "filter" | "grant">): PlatformTool {
   return { path, name: path.replace(".", "_"), bundle, description, input: procedureOf(router, path)["~orpc"].inputSchema ?? z.object({}), ...rest };
 }
 
@@ -100,7 +108,25 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("fields.create", "configure", "Adds a field to a table: a name, a type and, for a choice field, its choices.", { tables: named("tableId") }),
   tool("fields.update", "configure", "Renames a field or changes its choices.", { tables: tableOfField }),
   tool("fields.reorder", "configure", "Sets the order of a table's fields: give every field id, in the new order.", { tables: named("tableId") }),
+  tool("agents.list", "configure", "Lists the agents, with their ids, harness, instructions and what their Jobs may do.", { tables: none }),
+  tool("agents.get", "configure", "Gives one agent by its id, with its skills and tools.", { tables: none }),
+  tool("agents.create", "configure", `Creates an agent. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool("agents.update", "configure", `Changes an agent: give every field, as agents_get shows them. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
 ];
+
+/**
+ * `propose`: not a procedure of the router (it works for a Job, not for an owner), so it is
+ * apart from the list above and handled by `callPlatformTool` itself.
+ */
+export const PROPOSE: PlatformTool = {
+  path: "",
+  name: "propose",
+  bundle: "configure",
+  description:
+    "Lists writes that need the owner's approval (the tools that say so), each with the exact input you will call it with. Then ask for it with request_approval, giving the proposal's id; once approved, make each call exactly as listed, once.",
+  input: ProposeInput,
+  tables: none,
+};
 
 /** Every other procedure: not a tool. A new procedure goes here or above, or the walk test fails. */
 export const NOT_TOOLS: string[] = [
@@ -132,11 +158,7 @@ export const NOT_TOOLS: string[] = [
   "tables.delete",
   "fields.retype",
   "fields.delete",
-  "agents.create",
-  "agents.update",
   "agents.delete",
-  "agents.list",
-  "agents.get",
   "agents.toolAsk",
   "agents.setToolAsk",
   "triggers.create",

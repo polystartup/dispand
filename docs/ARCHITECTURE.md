@@ -290,6 +290,14 @@
   when the name stands for nothing the agent chose; the runner adds the name to the session's
   unasked ones. Workflow runs' CLI sessions have no Job token, so
   no such tools; cloud sessions don't get skills yet.
+- **Proposals** (`platform/proposals.ts`, table `proposals`, migration 0034). A tool of the
+  registry marked `grant` (`agents.create`, `agents.update`) is refused by `callPlatformTool`
+  unless `takeItem` uses up a matching item of an approved proposal of the Job: one
+  transaction that locks the Job's approved proposals and marks the first unused item with
+  that tool and canonically equal input (`canonical`, `platform/approvals.ts`). `propose`, a
+  tool with no router path (`PROPOSE`, handled in `callPlatformTool`), stores a draft through
+  `createProposal`: grant tools of the Job's bundles only, inputs parsed by the tool's schema
+  and stored as parsed, storable text, at most 20 items and 64 KiB.
 - **Inbox:** every question a session asks is a row of `questions` with a `kind`: a permission
   is an `approval`, a choice or a confirmation a `question` (set when it is asked; migration
   `0030` moved the existing ones). An answer records who gave it (`answered_by`, a user for

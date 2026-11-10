@@ -129,7 +129,9 @@ test("invalid input is refused with the schema's message, and an unknown tool by
   expect(bad).toMatchObject({ ok: false });
   expect((bad as { error: string }).error).toMatch(/limit/);
   expect(await tool("rows_stream", { tableIds: [t1.id] })).toEqual({ ok: false, error: "Unknown tool" });
-  expect(await tool("agents_update", {})).toEqual({ ok: false, error: "Unknown tool" });
+  expect(await tool("agents_delete", {})).toEqual({ ok: false, error: "Unknown tool" });
+  // Changing an agent is a `configure` tool (and needs a proposal): not this Job's.
+  expect(await tool("agents_update", {})).toEqual({ ok: false, error: "This agent may not use agents_update" });
 });
 
 test("a configure Job creates a table and a field, and can't delete either", async () => {
