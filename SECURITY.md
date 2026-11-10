@@ -27,6 +27,16 @@ changes it updates this file.
   and a right added later never reaches a running Job. A call then runs as the Job's owner; that
   identity is set only by the authorizing function, never from a request. These calls ask the
   owner no question: the bundles are the permission.
+- **A Job's token is the only way into the Job endpoint (`/mcp/job`), and it dies with the
+  Job.** It is 32 random bytes, made when the Job is created. The database keeps its SHA-256 (to
+  find the Job) and its sealed form (to hand it to the Job's CLI sessions at each start), never
+  the token; it is not kept with the step, not in a run's view, and never sent to the browser.
+  The endpoint answers 401 without a valid token of a Job still going, and every tool call is
+  then authorized as above, so the token gives nothing the Job's bundles don't. A session start
+  carries the token and nothing else about the endpoint: **the runner builds the endpoint's
+  address itself**, as `/mcp/job` of its own configured server, under a reserved name, so the
+  server can't make a runner send the token, or run tools unasked, anywhere else. Only that
+  server's tools run without a question on a runner; every other MCP tool still asks.
 - **Only the owner has a session.** Sign-up is disabled; `auth.setup` (public) creates the
   owner only while no user exists, and only with the one-time code from the server's settings
   (`DISPAND_SETUP_CODE`), so the first-run window can't be claimed from the network.

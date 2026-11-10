@@ -32,6 +32,10 @@ Status: Prototype
   - A run or a Job still going can be **stopped** from its page: its open steps fail with
     "Stopped", its questions expire and its sessions end at once, whatever they were doing. A
     stopped run is never resumed.
+  - An agent's Jobs touch the workspace's data only if the agent was given a bundle: **Work on
+    data** (rows of all tables, or of chosen ones) and **Change tables and fields**. Within a
+    bundle a Job asks nothing; outside it, it is refused. Taking a bundle or a table back
+    applies to Jobs already running. Deleting a table or a field stays the owner's.
   - A button or schedule trigger must say what the agent does (its instructions); a chat starts
     with the owner's words.
   - A Tool step cut by a restart **fails and is never called again**: the owner checks the tool
