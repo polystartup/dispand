@@ -22,6 +22,9 @@ const GONE = "This tool is not available.";
 const NEEDS_APPROVAL =
   "This call needs the owner's approval. It is asked when the session's permission mode asks before using tools; it was not approved, or the arguments changed since.";
 
+/** A CLI names a tool `mcp__job_tools__<name>`, and a model's tool name holds at most 64 characters. */
+const MAX_NAME = 64 - `mcp__${JOB_TOOLS_SERVER}__`.length;
+
 type Listed = { name: string; toolId: string; action: string; description: string; inputSchema: Record<string, unknown> };
 
 /**
@@ -37,7 +40,7 @@ export function exposedName(tool: { id: string; name: string }, action: string):
       .toLowerCase()
       .replace(/[^a-z0-9-]+/g, "_")
       .replace(/^_+|_+$/g, "")
-      .slice(0, 64 - mark.length - 1)
+      .slice(0, MAX_NAME - mark.length - 1)
       .replace(/_+$/, "") || "tool";
   return `${words}_${mark}`;
 }

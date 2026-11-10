@@ -189,7 +189,8 @@ test("two actions never share a name, however alike they read", () => {
   const b = exposedName(tool, "create_issue_in_repository_with_a_long_common_prefix_28192");
   expect(a).not.toBe(b);
   for (const name of [a, b, exposedName(tool, "x"), exposedName({ id: "t", name: "é" }, "!")]) expect(name).toMatch(/^[a-z0-9_-]{1,64}_?[0-9a-f]{16}$|^[a-z0-9_-]{1,64}$/);
-  expect(a.length).toBeLessThanOrEqual(64);
+  // A CLI names it `mcp__job_tools__<name>`, and a model's tool name holds at most 64 characters.
+  expect(`mcp__job_tools__${a}`.length).toBeLessThanOrEqual(64);
   // The same tool and action always give the same name; another tool's same action doesn't.
   expect(exposedName(tool, "x")).toBe(exposedName({ ...tool, name: "GitHub" }, "x"));
   expect(exposedName(tool, "x")).not.toBe(exposedName({ id: "tool_other", name: "GitHub" }, "x"));
