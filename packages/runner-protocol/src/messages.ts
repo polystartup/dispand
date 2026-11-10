@@ -6,7 +6,7 @@ import { Answer, HarnessEvent, OutputField } from "./harness.ts";
  * Sent by the runner as the `Dispand-Protocol` header when it connects. Bumped by every
  * change a runner of the previous version can't parse or honor; the hub turns older runners away.
  */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -27,7 +27,7 @@ export const JOB_TOOLS_SERVER = "job_tools";
 /** An MCP server name: one key of the CLI's `mcpServers`, never the runner's own `dispand` (submit_outputs) or `job` (the Job server). */
 export const McpServerName = id()
   .regex(/^[a-zA-Z0-9_-]{1,64}$/)
-  .refine((n) => n !== "dispand" && n !== JOB_SERVER_NAME, "reserved name");
+  .refine((n) => n !== "dispand" && n !== JOB_SERVER_NAME && n !== JOB_TOOLS_SERVER, "reserved name");
 
 /**
  * The name a session's MCP server gets in the CLI: words joined by single `_`, so never `__`

@@ -1214,3 +1214,34 @@ test("request_approval asks the owner in the agent's words and answers Approved 
   expect(results[2]).toMatch(/needs a message/);
   expect(results[3]).toMatch(/too long/);
 });
+
+test("the Job's tools server asks before each call, even though it is Dispand's: only the Job server's own tools run unasked", async () => {
+  const decisions: unknown[] = [];
+  const outputs: unknown[] = [];
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    decisions.push(await options.canUseTool!("mcp__job_tools__GitHub_create_issue", { title: "Bug" }, ctx()));
+    decisions.push(await options.canUseTool!("mcp__job__rows_create", { tableId: "t" }, ctx()));
+    for (const tool_name of ["mcp__job_tools__GitHub_create_issue", "mcp__job__rows_create"]) {
+      for (const hook of options.hooks!.PreToolUse!.flatMap((m) => m.hooks)) {
+        outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
+      }
+    }
+    yield result();
+  });
+  const events: HarnessEvent[] = [];
+  const session: ClaudeSession = startClaudeSession(start, "/work", (e) => {
+    events.push(e);
+    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "allow-always" }));
+  }, { query: fake.query, jobServer: "job" });
+  await session.done;
+  // Asked with the call shown whole, and never allowed for the session.
+  expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: unknown }).payload)).toEqual([
+    { kind: "permission", toolName: "mcp__job_tools__GitHub_create_issue", input: { title: "Bug" }, canAlwaysAllow: false },
+  ]);
+  expect(decisions).toEqual([
+    { behavior: "allow", updatedInput: { title: "Bug" } },
+    { behavior: "allow", updatedInput: { tableId: "t" } },
+  ]);
+  expect(outputs).toEqual([ask, {}]);
+});

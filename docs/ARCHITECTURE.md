@@ -12,7 +12,7 @@
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with
-  `Authorization: Bearer <token>` and `Dispand-Protocol: 5` (`PROTOCOL_VERSION`, bumped by
+  `Authorization: Bearer <token>` and `Dispand-Protocol: 6` (`PROTOCOL_VERSION`, bumped by
   every change an older runner can't parse or honor). An older runner is refused with 426 "update
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
@@ -260,8 +260,17 @@
   (`tools/cloud.ts`): one tool per action, called on the server through `InstalledTools`, asked
   before each call like any tool that isn't Dispand's own, and checked again at call time
   (a tool taken back, or an action gone, isn't called). `createEngine` combines that caller
-  with the app's (`combineToolCallers`). CLI sessions don't get HTTP tools yet, and cloud
-  sessions don't get skills yet.
+  with the app's (`combineToolCallers`). A Job's CLI session gets its agent's HTTP tools from
+  the tools endpoint, `/mcp/job/tools` (`platform/tools-mcp.ts`, the route
+  `routes/mcp/job_.tools.ts`): same bearer as the Job endpoint, one tool per action (named like
+  cloud tools, `toolNames`), called through `InstalledTools`. The runner adds it as the server
+  `job_tools` next to `job` (`withJobServer`), and its tools ask like any MCP tool. A call runs
+  only if `takeApproval` (`platform/approvals.ts`) finds and uses up an approval: a question of
+  the Job's run, still going, of kind `approval`, answered with an allowance, not yet consumed
+  (`questions.consumed_at`), for the tool name the CLI asked about
+  (`mcp__job_tools__<name>`) and canonically equal arguments. What may be called is read again
+  at call time, before an approval is used. Workflow runs' CLI sessions have no Job token, so
+  no such tools; cloud sessions don't get skills yet.
 - **Inbox:** every question a session asks is a row of `questions` with a `kind`: a permission
   is an `approval`, a choice or a confirmation a `question` (set when it is asked; migration
   `0030` moved the existing ones). An answer records who gave it (`answered_by`, a user for

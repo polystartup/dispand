@@ -34,6 +34,17 @@ changes it updates this file.
   call: a session start never carries a tool's address or headers, only the names of the
   runner's own MCP servers the agent was given (and only those of the harness's runner). Every
   call of such a tool asks the owner first, in a cloud session as on a runner.
+- **An agent's tool reached by URL is called on the server, and on a runner only after the
+  owner approved that exact call.** A Job's CLI session gets these tools from a second
+  endpoint, `/mcp/job/tools` (same Job token, address built by the runner like the Job
+  endpoint's, under the reserved name `job_tools`); it sees each action's name, description and
+  schema, never the tool's address or headers. The CLI asks the owner before each call, like
+  for any MCP tool, and that question and its answer are recorded on the server. The endpoint
+  runs a call only when it finds, in its own records, an approval of that Job for that tool and
+  those arguments (key order aside), answered with an allowance and not used yet, and uses it
+  up: it never takes the runner's word that the owner said yes, an approval allows one call,
+  and "always allow" doesn't exist for these tools. A session in `bypassPermissions` mode asks
+  nothing, so its calls of these tools are refused.
 - **A Job's token is the only way into the Job endpoint (`/mcp/job`), and it dies with the
   Job.** It is 32 random bytes, made when the Job is created. The database keeps its SHA-256 (to
   find the Job) and its sealed form (to hand it to the Job's CLI sessions at each start), never

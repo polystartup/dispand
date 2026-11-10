@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { Client, type Tool } from "@modelcontextprotocol/client";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import { JOB_SERVER_NAME, McpAction, type McpServerRef, SHORT } from "@dispand/runner-protocol";
+import { JOB_SERVER_NAME, JOB_TOOLS_SERVER, McpAction, type McpServerRef, SHORT } from "@dispand/runner-protocol";
 import type { RunnerConfig } from "./config.ts";
 import type { JsonValue } from "./codex/protocol/serde_json/JsonValue.ts";
 import { cleanJson, FRAME_BUDGET, protocolString } from "./sanitize.ts";
@@ -16,15 +16,18 @@ export class ToolRefused extends Error {
 }
 
 /**
- * `refs` plus Dispand's Job server when the session has a Job token: always `/mcp/job` of this
- * runner's own configured server, with the token as its bearer. The address is never the
+ * `refs` plus Dispand's two servers when the session has a Job token: always `/mcp/job` and
+ * `/mcp/job/tools` of this runner's own configured server, with the token as their bearer. The address is never the
  * start's to give, so a start can't make the runner send the token, or the tools' unasked
  * calls, anywhere else.
  */
 export function withJobServer(refs: McpServerRef[], server: string, jobToken: string | undefined): McpServerRef[] {
   if (jobToken === undefined) return refs;
-  const url = new URL("/mcp/job", server).href;
-  return [...refs, { name: JOB_SERVER_NAME, type: "http", url, transport: "streamable-http", headers: { authorization: `Bearer ${jobToken}` } }];
+  const headers = { authorization: `Bearer ${jobToken}` };
+  const ours = (name: string, path: string): McpServerRef => ({ name, type: "http", url: new URL(path, server).href, transport: "streamable-http", headers });
+  // `job`: Dispand's own tools, which run unasked. `job_tools`: the agent's tools reached by URL,
+  // called on Dispand's server; each of their calls asks the owner, like any other MCP tool.
+  return [...refs, ours(JOB_SERVER_NAME, "/mcp/job"), ours(JOB_TOOLS_SERVER, "/mcp/job/tools")];
 }
 
 /**
