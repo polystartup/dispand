@@ -4,17 +4,13 @@ import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { fields, rows } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
+import type { Bundle, TableScope } from "./bundles.ts";
+
+export { BUNDLES, type Bundle, type TableScope } from "./bundles.ts";
 
 // Which of Dispand's procedures a Job's session gets as tools. By declaration, never by
 // omission: a procedure is a tool only when it is listed here under a bundle, every other one is
 // listed in NOT_TOOLS, and a test walks the router and fails on one that is in neither list.
-
-/** What an agent's Jobs may do: `data` works on rows, `configure` changes tables and fields. */
-export const BUNDLES = ["data", "configure"] as const;
-export type Bundle = (typeof BUNDLES)[number];
-
-/** The tables a Job may work on: all of the owner's, or these. */
-export type TableScope = "all" | string[];
 
 export type PlatformTool = {
   /** The procedure's path in the router: `rows.create`. */

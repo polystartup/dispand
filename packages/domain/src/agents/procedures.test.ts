@@ -1,6 +1,6 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
-import { harnesses, tools, user } from "../db/schema.ts";
+import { harnesses, tables as tablesTable, tools, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 
@@ -26,6 +26,8 @@ test("agent create, get, list, update, delete", async () => {
     name: "Writer",
     harnessId: harness.id,
     systemPrompt: "Be brief.",
+    bundles: [],
+    dataTables: "all",
     plugin: null,
   });
   expect(await call(router.agents.get, { id: created.id }, { context })).toEqual({ ...created, skills: [], tools: [] });
@@ -205,4 +207,28 @@ test("runner tool on a cloud harness, or on another runner than the harness's, r
   // Update too.
   const plain = await agent(cloud.id, {});
   await expect(call(router.agents.update, { ...plain, toolIds: ["tool_here"] }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+});
+
+test("an agent keeps its bundles and its tables; another owner's table is refused", async () => {
+  const { context, harness } = await setup();
+  const table = await call(router.tables.create, { name: "Clients" }, { context });
+  const base = { name: "Clerk", harnessId: harness.id, systemPrompt: "" };
+  const created = await call(router.agents.create, { ...base, bundles: ["data", "data"], dataTables: [table.id] }, { context });
+  expect(created).toMatchObject({ bundles: ["data"], dataTables: [table.id] });
+
+  const widened = await call(router.agents.update, { ...base, id: created.id, bundles: ["data", "configure"], dataTables: "all" }, { context });
+  expect(widened).toMatchObject({ bundles: ["data", "configure"], dataTables: "all" });
+  // An update that doesn't name them keeps them (the editor of an older client, a plugin update).
+  expect(await call(router.agents.update, { ...base, id: created.id, name: "Renamed" }, { context })).toMatchObject({
+    name: "Renamed",
+    bundles: ["data", "configure"],
+    dataTables: "all",
+  });
+  expect(await call(router.agents.get, { id: created.id }, { context })).toMatchObject({ bundles: ["data", "configure"], dataTables: "all" });
+
+  await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
+  await context.db.insert(tablesTable).values({ id: "table_other", ownerId: "user_other", name: "Eve's" });
+  await expect(call(router.agents.update, { ...base, id: created.id, dataTables: ["table_other"] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND", message: "Table not found" });
+  await expect(call(router.agents.create, { ...base, dataTables: ["table_nobody"] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.agents.create, { ...base, bundles: ["admin"] as never }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });
