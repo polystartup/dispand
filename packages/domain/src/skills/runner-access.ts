@@ -2,8 +2,11 @@ import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { agents, agentSkills, harnesses, runners, skillFiles, skillPackages } from "../db/schema.ts";
 
-/** Whether an agent whose harness is on `runnerId` uses the package. */
-async function usedOnRunner(db: Db, runnerId: string, packageId: string): Promise<boolean> {
+/**
+ * Whether an agent whose harness is on `runnerId` uses the package: the rule a runner's fetch
+ * is served by, and so the rule a start follows before it names a package to that runner.
+ */
+export async function usedOnRunner(db: Db, runnerId: string, packageId: string): Promise<boolean> {
   const [row] = await db
     .select({ agentId: agentSkills.agentId })
     .from(agentSkills)

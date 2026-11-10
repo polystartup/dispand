@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
 import { runs, stepRuns } from "../db/schema.ts";
+import { usedOnRunner } from "../skills/runner-access.ts";
 import { serverName, sessionTooling } from "./tooling.ts";
 import { jobTokenOf } from "../platform/token.ts";
 import type { RunnerHub } from "../runners/hub.ts";
@@ -44,8 +45,14 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
   private async tooling(sessionId: string, runnerId: string): Promise<Pick<SessionStart, "skills" | "mcpServers">> {
     const tooling = await sessionTooling(this.db, sessionId);
     const taken = new Set<string>();
+    // Only the packages this runner is served (`usedOnRunner`): one it would be refused, as when
+    // the agent moved to a harness elsewhere since the Job was created, would fail the start.
+    const skills: typeof tooling.skills = [];
+    for (const skill of tooling.skills) {
+      if (skills.length < 50 && (await usedOnRunner(this.db, runnerId, skill.packageId))) skills.push(skill);
+    }
     return {
-      skills: tooling.skills.slice(0, 50),
+      skills,
       mcpServers: tooling.runnerTools
         .filter((t) => t.runnerId === runnerId)
         .slice(0, 20)

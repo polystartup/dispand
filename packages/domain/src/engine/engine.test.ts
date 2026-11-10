@@ -13,6 +13,7 @@ import { CloudRunner, noTools } from "../cloud/runner.ts";
 import { CliHarnessAdapter } from "./cli-harness.ts";
 import { RoutingAdapter } from "./routing-adapter.ts";
 import { jobTokenOf } from "../platform/token.ts";
+import { packageForRunner } from "../skills/runner-access.ts";
 import { Engine, RESUME_PROMPT, TOOL_RESTARTED } from "./engine.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, type StartParams } from "./harness.ts";
 
@@ -1507,4 +1508,22 @@ test("a resume carries the tooling as it is then", async () => {
   expect(starts()[1]).toMatchObject({ skills: [], mcpServers: [] });
   // Nothing of the tooling is kept with the step.
   expect(JSON.stringify(step!.start)).not.toMatch(/review|fetch/);
+});
+
+test("a start only carries the skill packages its runner may fetch", async () => {
+  const { context, engine, agent, packageId, withTooling, runnerId, starts } = await toolingSetup();
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  // The Job is created, then its agent moves to a harness on another runner: the Job still
+  // starts on the runner of its snapshot's harness, which is no longer served the package.
+  const runId = await engine.db.transaction((tx) =>
+    engine.createJob(tx, { ownerId: context.ownerId, agentId: agent.id, triggerId: trigger.id, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } }),
+  );
+  expect(await packageForRunner(context.db, runnerId, packageId)).not.toBeNull();
+  const other = await call(router.runners.create, { name: "Laptop" }, { context });
+  const elsewhere = await call(router.harnesses.create, { name: "Elsewhere", runnerId: other.runnerId, kind: "claude-code", permissionMode: "default" }, { context });
+  await call(router.agents.update, { ...withTooling, harnessId: elsewhere.id, toolIds: ["tool_gh"] }, { context });
+  expect(await packageForRunner(context.db, runnerId, packageId)).toBeNull();
+  await engine.continueRun(runId);
+  await vi.waitFor(() => expect(starts()).toHaveLength(1));
+  expect(starts()[0]).toMatchObject({ skills: [], mcpServers: [] });
 });
