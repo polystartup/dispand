@@ -183,6 +183,9 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   }
 
   /** Asks a permission question, unless the owner couldn't see it whole: null then, as when it is withdrawn or denied. */
+  /** The tools of the Job's tools server that run without a question: the start's, and those the owner always allowed since. */
+  const unasked = new Set(deps.unasked ?? []);
+
   async function approve(payload: Extract<QuestionPayload, { kind: "permission" }>, signal: AbortSignal) {
     if (!fitsWhole({ type: "question", questionId: "", payload })) return null;
     const answer = await ask(payload, signal);
@@ -248,10 +251,14 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         if (deps.jobServer !== undefined && p.serverName === deps.jobServer) return { action: "accept" as const, content: {}, _meta: null };
         const tool = typeof meta.tool_name === "string" ? meta.tool_name : "";
         // An action the agent lets run unasked: the server runs it without an approval.
-        if (deps.jobServer !== undefined && p.serverName === JOB_TOOLS_SERVER && deps.unasked?.includes(tool)) return { action: "accept" as const, content: {}, _meta: null };
+        const jobTool = deps.jobServer !== undefined && p.serverName === JOB_TOOLS_SERVER;
+        if (jobTool && unasked.has(tool)) return { action: "accept" as const, content: {}, _meta: null };
         const input = isObject(meta.tool_params) ? meta.tool_params : {};
         // Each call asks: Codex's "for the session" and "always" would persist beyond what the owner sees.
-        const decision = await approve({ kind: "permission", toolName: `mcp__${p.serverName}__${tool}`, input, canAlwaysAllow: false }, signal);
+        // For one of the Job's tools, "always" is the owner taking that action off the agent's asking
+        // ones, on the server: here it only means this session stops asking about it too.
+        const decision = await approve({ kind: "permission", toolName: `mcp__${p.serverName}__${tool}`, input, canAlwaysAllow: jobTool }, signal);
+        if (decision === "allow-always" && jobTool) unasked.add(tool);
         return decision ? { action: "accept" as const, content: {}, _meta: null } : decline;
       }
       case "item/tool/call": {

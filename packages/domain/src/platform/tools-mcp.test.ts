@@ -39,9 +39,9 @@ async function setup(withTool = true, extraTools: (context: Awaited<ReturnType<t
   const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
   let seq = 0;
   /** The session asks permission for a call, as the runner does before an MCP tool, and the owner answers. */
-  const approve = async (toolName: string, input: Record<string, unknown>, decision: "allow" | "deny" = "allow") => {
+  const approve = async (toolName: string, input: Record<string, unknown>, decision: "allow" | "allow-always" | "deny" = "allow") => {
     const n = ++seq;
-    await context.engine.onHarnessEvent(step!.sessionId!, { type: "question", questionId: `rq_${n}`, payload: { kind: "permission", toolName, input, canAlwaysAllow: false } }, { runnerId, seq: n });
+    await context.engine.onHarnessEvent(step!.sessionId!, { type: "question", questionId: `rq_${n}`, payload: { kind: "permission", toolName, input, canAlwaysAllow: decision === "allow-always" } }, { runnerId, seq: n });
     const [q] = await context.db.select().from(questions).where(eq(questions.runnerQuestionId, `rq_${n}`));
     await call(router.questions.answer, { questionId: q!.id, answer: { kind: "permission", decision } }, { context });
     return q!.id;
@@ -257,4 +257,37 @@ test("an action that runs unasked doesn't outlive its Job", async () => {
   await s.context.db.update(runs).set({ status: "failed" }).where(eq(runs.id, s.runId));
   expect(await exposedTools(s.context.db, job)).toEqual([]);
   expect(s.calls).toEqual([]);
+});
+
+test("always allow on a CLI session's approval takes the action off the asking ones, and is used up by that answer", async () => {
+  const s = await setup();
+  const create = await named(s.client, "github_create_issue");
+  const asks = async () => Object.fromEntries((await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.map((a) => [a.name, a.ask]));
+  expect(await asks()).toEqual({ create_issue: true, list_issues: true });
+  const id = await s.approve(`mcp__job_tools__${create}`, { title: "Bug" }, "allow-always");
+  expect(await asks()).toEqual({ create_issue: false, list_issues: true });
+  // The runner is told "always": it stops prompting for that action in the session that asked.
+  const [answered] = await s.context.db.select().from(questions).where(eq(questions.id, id));
+  expect(answered!.answer).toMatchObject({ decision: "allow-always" });
+  // This call and the next ones run with no approval.
+  expect(textOf(await s.client.callTool({ name: create, arguments: { title: "Bug" } }))).toBe("created #1");
+  expect(textOf(await s.client.callTool({ name: create, arguments: { title: "Other" } }))).toBe("created #1");
+  // Put back: the answer doesn't linger as an approval for one more identical call.
+  await call(router.agents.setToolAsk, { agentId: s.agent.id, toolId: s.tool.id, action: "create_issue", ask: true }, { context: s.context });
+  expect(textOf(await s.client.callTool({ name: create, arguments: { title: "Bug" } }))).toMatch(NEEDS);
+});
+
+test("always allow changes no flag when the question isn't about one of the agent's own tools, or when it is denied", async () => {
+  const s = await setup();
+  const create = await named(s.client, "github_create_issue");
+  const flags = async () => (await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.map((a) => a.ask);
+  // A command, Dispand's own server, a name that stands for nothing: the answer stays what the runner makes of it.
+  for (const toolName of ["Bash", "mcp__job__rows_create", "mcp__job_tools__github_create_issue_0000000000000000", `mcp__other__${create}`]) {
+    const id = await s.approve(toolName, {}, "allow-always");
+    const [q] = await s.context.db.select().from(questions).where(eq(questions.id, id));
+    // Only a name of the Job's tools server that stands for nothing is brought down to a single allowance.
+    expect(q!.answer).toMatchObject({ decision: toolName.startsWith("mcp__job_tools__") ? "allow" : "allow-always" });
+  }
+  await s.approve(`mcp__job_tools__${create}`, { title: "Bug" }, "deny");
+  expect(await flags()).toEqual([true, true]);
 });

@@ -42,7 +42,7 @@ import { toolIdsOf, validateToolSteps } from "../workflows/tool-steps.ts";
 import type { CloudKind } from "../harnesses/cloud.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, isCloud, type StartParams } from "./harness.ts";
 import { runDataStep } from "./data-step.ts";
-import { aboutExposed } from "../platform/exposed.ts";
+import { aboutExposed, isExposedName, stopAsking } from "../platform/exposed.ts";
 import { issueJobToken } from "../platform/token.ts";
 import type { SecretBox } from "../secrets.ts";
 import { jobDef } from "./job-def.ts";
@@ -427,16 +427,26 @@ export class Engine {
   /** Records the owner's answer (once) and sends it to the session. */
   async answer(questionId: string, answer: Answer, by?: AnsweredBy): Promise<void> {
     // Any answer may have to go as words (its session lost and resumed): those must fit a message.
-    const [asked] = await this.db.select({ payload: questions.payload }).from(questions).where(eq(questions.id, questionId));
+    const [asked] = await this.db.select({ payload: questions.payload, runId: questions.runId, status: questions.status }).from(questions).where(eq(questions.id, questionId));
     if (asked) {
       const words = answerText({ payload: asked.payload, answer });
       if (words.length > TEXT || !storable(words)) throw new EngineError("INVALID", `The answer is too long (at most about ${TEXT - 100} characters)`);
+    }
+    // A person's "always allow" to a CLI session's approval of one of its agent's tools: that
+    // action stops asking on the agent, and the answer is used up as it is given (the call it is
+    // for needs no approval any more, and it must not stay for a later one). When the name
+    // stands for nothing the agent chose, nothing is granted and the answer allows this call only:
+    // the runner must not stop prompting for a call the endpoint would still refuse.
+    let used = false;
+    if (asked?.status === "pending" && by?.type === "user" && answer.kind === "permission" && answer.decision === "allow-always" && asked.payload.kind === "permission" && isExposedName(asked.payload.toolName)) {
+      used = await stopAsking(this.db, asked.runId, asked.payload.toolName);
+      if (!used) answer = { ...answer, decision: "allow" };
     }
     const out: RunEvent[] = [];
     const q = await this.db.transaction(async (tx) => {
       const [q] = await tx
         .update(questions)
-        .set({ status: "answered", answer, answeredAt: new Date(), answeredBy: by ?? null })
+        .set({ status: "answered", answer, answeredAt: new Date(), answeredBy: by ?? null, ...(used ? { consumedAt: new Date() } : {}) })
         .where(and(eq(questions.id, questionId), eq(questions.status, "pending")))
         .returning();
       if (!q) return null;
