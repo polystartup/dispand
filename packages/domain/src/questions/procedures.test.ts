@@ -250,3 +250,75 @@ test("a Job's question is listed with its agent and is answerable", async () => 
   await call(router.questions.answer, { questionId: mine.id, answer: { kind: "confirm-outputs", confirmed: true } }, { context });
   expect(adapter.answers).toEqual([[sessionId, "rq_job", { kind: "confirm-outputs", confirmed: true }]]);
 });
+
+// The Inbox: questions and approvals, with who answered.
+
+const permission: QuestionPayload = { kind: "permission", toolName: "Bash", input: { command: "ls" }, canAlwaysAllow: false };
+const all = (context: Awaited<ReturnType<typeof asked>>["context"]) => call(router.questions.list, { status: "all" }, { context });
+
+test("a permission is an approval; a choice and a confirmation are questions", async () => {
+  const a = await asked(permission);
+  expect((await call(router.questions.list, { status: "pending" }, { context: a.context }))[0]).toMatchObject({ kind: "approval" });
+  const b = await asked(choice);
+  await b.emit({ type: "question", questionId: "rq_2", payload: { kind: "confirm-outputs", values: {} } });
+  expect((await call(router.questions.list, { status: "pending" }, { context: b.context })).map((q) => q.kind)).toEqual(["question", "question"]);
+});
+
+test("an answer records who gave it and when", async () => {
+  const { context, question } = await asked(permission);
+  await call(router.questions.answer, { questionId: question.id, answer: { kind: "permission", decision: "allow" } }, { context });
+  const [row] = await context.db.select().from(questions).where(eq(questions.id, question.id));
+  expect(row).toMatchObject({ status: "answered", answeredBy: { type: "user", userId: context.ownerId } });
+  expect(row!.answeredAt).toBeInstanceOf(Date);
+  const [item] = await all(context);
+  expect(item).toMatchObject({ id: question.id, status: "answered", kind: "approval", answer: { kind: "permission", decision: "allow" }, answeredBy: { type: "user", userId: context.ownerId } });
+  expect(item!.answeredAt).toBeInstanceOf(Date);
+});
+
+test("status all lists the open items first, then the done ones; pending lists only the open ones", async () => {
+  const { context, question, emit } = await asked(choice);
+  await emit({ type: "question", questionId: "rq_2", payload: { kind: "confirm-outputs", values: {} } });
+  await emit({ type: "question", questionId: "rq_3", payload: permission });
+  await call(router.questions.answer, { questionId: question.id, answer: { kind: "choice", answers: { "Which tone?": "Formal", "Which extras?": ["Intro"] } } }, { context });
+  const listed = await all(context);
+  expect(listed.map((q) => q.status)).toEqual(["pending", "pending", "answered"]);
+  expect(listed[2]).toMatchObject({ id: question.id, workflow: { name: "Ship" }, step: { name: "Note" } });
+  expect(await call(router.questions.list, { status: "pending" }, { context })).toHaveLength(2);
+  // The count is of what waits.
+  expect(await call(router.questions.count, undefined, { context })).toEqual({ count: 2 });
+});
+
+test("every open item is listed, and the 100 latest done ones", async () => {
+  const { context, question } = await asked(choice);
+  const [row] = await context.db.select().from(questions).where(eq(questions.id, question.id));
+  const copies = Array.from({ length: 105 }, (_, i) => ({
+    ...row!,
+    id: `q_done_${String(i).padStart(3, "0")}`,
+    runnerQuestionId: `rq_done_${i}`,
+    status: "answered" as const,
+    answeredAt: new Date(Date.UTC(2026, 0, 1, 0, i)),
+  }));
+  const open = Array.from({ length: 120 }, (_, i) => ({ ...row!, id: `q_open_${i}`, runnerQuestionId: `rq_open_${i}` }));
+  await context.db.insert(questions).values([...copies, ...open]);
+  const listed = await all(context);
+  expect(listed.filter((q) => q.status === "pending")).toHaveLength(121);
+  const done = listed.filter((q) => q.status === "answered");
+  expect(done).toHaveLength(100);
+  // The latest answered first; the five oldest are left out.
+  expect(done[0]!.id).toBe("q_done_104");
+  expect(done.at(-1)!.id).toBe("q_done_005");
+});
+
+test("a Job's item names its trigger, and stays listed without one when the trigger is deleted", async () => {
+  const { context, adapter } = await asked(choice);
+  const [agent] = await call(router.agents.list, undefined, { context });
+  const trigger = await call(router.triggers.create, { agentId: agent!.id, name: "Mail", instructions: "Sort.", config: { kind: "manual", placement: "button" } }, { context });
+  const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
+  const [runner] = await call(router.runners.list, undefined, { context });
+  await context.engine.onHarnessEvent(adapter.sessions[1]!, { type: "question", questionId: "rq_job", payload: permission }, { runnerId: runner!.id, seq: 1 });
+  const mine = async () => (await all(context)).find((q) => q.run.id === runId)!;
+  expect(await mine()).toMatchObject({ kind: "approval", agent: { name: "Writer" }, trigger: { id: trigger.id, name: "Mail" }, workflow: null });
+  expect((await all(context)).find((q) => q.run.id !== runId)).toMatchObject({ trigger: null });
+  await call(router.triggers.delete, { id: trigger.id }, { context });
+  expect(await mine()).toMatchObject({ agent: { name: "Writer" }, trigger: null });
+});

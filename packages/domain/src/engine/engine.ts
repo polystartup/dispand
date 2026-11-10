@@ -22,6 +22,7 @@ import {
   workflows,
   workflowVersions,
   type AgentSnapshot,
+  type AnsweredBy,
   type JobCause,
   type RunStatus,
   type RunTrigger,
@@ -411,7 +412,7 @@ export class Engine {
   }
 
   /** Records the owner's answer (once) and sends it to the session. */
-  async answer(questionId: string, answer: Answer): Promise<void> {
+  async answer(questionId: string, answer: Answer, by?: AnsweredBy): Promise<void> {
     // Any answer may have to go as words (its session lost and resumed): those must fit a message.
     const [asked] = await this.db.select({ payload: questions.payload }).from(questions).where(eq(questions.id, questionId));
     if (asked) {
@@ -422,7 +423,7 @@ export class Engine {
     const q = await this.db.transaction(async (tx) => {
       const [q] = await tx
         .update(questions)
-        .set({ status: "answered", answer, answeredAt: new Date() })
+        .set({ status: "answered", answer, answeredAt: new Date(), answeredBy: by ?? null })
         .where(and(eq(questions.id, questionId), eq(questions.status, "pending")))
         .returning();
       if (!q) return null;
@@ -718,6 +719,7 @@ export class Engine {
             sessionId: step.sessionId!,
             runnerQuestionId: event.questionId,
             placement: step.start?.interactive ? "chat" : "notifications",
+            kind: event.payload.kind === "permission" ? "approval" : "question",
             payload: event.payload,
             status: "pending",
           })

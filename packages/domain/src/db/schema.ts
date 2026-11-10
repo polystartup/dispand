@@ -430,6 +430,10 @@ export const cloudSessions = pgTable("cloud_sessions", {
 
 export type QuestionStatus = "pending" | "answered" | "expired";
 
+export type QuestionKind = "question" | "approval";
+/** Who answered a question: a person, for now. */
+export type AnsweredBy = { type: "user"; userId: string };
+
 export const questions = pgTable(
   "questions",
   {
@@ -447,11 +451,15 @@ export const questions = pgTable(
     // The id the runner gave it, sent back with the answer.
     runnerQuestionId: text("runner_question_id").notNull(),
     placement: text("placement").$type<"chat" | "notifications">().notNull(),
+    // An approval authorizes an action (a permission); a question asks for words or a choice.
+    kind: text("kind").$type<QuestionKind>().notNull().default("question"),
     payload: jsonb("payload").$type<QuestionPayload>().notNull(),
     status: text("status").$type<QuestionStatus>().notNull(),
     answer: jsonb("answer").$type<Answer>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     answeredAt: timestamp("answered_at"),
+    // Who answered; null for answers given before this was recorded.
+    answeredBy: jsonb("answered_by").$type<AnsweredBy>(),
     // When the answer reached the session (null while answered: resent when the runner is back).
     deliveredAt: timestamp("delivered_at"),
     // Asked by a session the runner lost and resumed since: its answer goes as a chat message.
