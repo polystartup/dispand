@@ -148,3 +148,14 @@ test("a button or schedule trigger needs instructions; a chat doesn't", async ()
   const button = await create({ kind: "manual", placement: "button" }, "Sort the mail.");
   await expect(call(router.triggers.update, { id: button.id, instructions: "" }, { context })).rejects.toMatchObject(refused);
 });
+
+test("a schedule trigger's cron is checked even when it is turned off", async () => {
+  const context = await ownerContext();
+  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
+  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "" }, { context });
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Daily", instructions: "Work.", config: { kind: "schedule", cron: "0 9 * * *", timezone: "Europe/Paris" } }, { context });
+  await expect(
+    call(router.triggers.update, { id: trigger.id, enabled: false, config: { kind: "schedule", cron: "not a cron", timezone: "Europe/Paris" } }, { context }),
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+});

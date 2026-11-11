@@ -167,9 +167,9 @@ const update = owner
       if (!previous) throw new ORPCError("NOT_FOUND");
       const config = input.config ?? previous.config;
       if (config.kind !== previous.kind) throw new ORPCError("BAD_REQUEST", { message: "A trigger's kind can't change" });
-      // A trigger can always be turned off, even once what it watches has changed under it: an
-      // off trigger's config is checked when it is turned on again.
-      if (input.enabled ?? previous.enabled) await checkConfig(tx, context.ownerId, await requireAgent(tx, context.ownerId, previous.agentId), config);
+      // A primitive trigger can always be turned off, even once what it watches has changed under
+      // it: its config is checked when it is turned on again. A schedule's cron is always checked.
+      if ((input.enabled ?? previous.enabled) || config.kind !== "primitive") await checkConfig(tx, context.ownerId, await requireAgent(tx, context.ownerId, previous.agentId), config);
       checkInstructions(config, input.instructions ?? previous.instructions);
       const enabled = input.enabled ?? previous.enabled;
       const [updated] = await tx
