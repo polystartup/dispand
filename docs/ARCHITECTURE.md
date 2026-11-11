@@ -292,7 +292,8 @@
   no such tools; cloud sessions don't get skills yet.
 - **Proposals** (`platform/proposals.ts`, table `proposals`, migration 0034). A tool of the
   registry marked `grant` (`agents.create`, `agents.update`, `agents.setToolAsk`,
-  `tables.delete`, `fields.delete`; a tool's name is its path in lower case with `_`) is refused by `callPlatformTool`
+  `tables.delete`, `fields.delete`, `triggers.create`, `triggers.update`, `triggers.delete`;
+  a tool's name is its path in lower case with `_`) is refused by `callPlatformTool`
   unless `takeItem` uses up a matching item of an approved proposal of the Job: one
   transaction that locks the Job's approved proposals and marks the first unused item with
   that tool and canonically equal input (`canonical`, `platform/approvals.ts`). `propose`, a

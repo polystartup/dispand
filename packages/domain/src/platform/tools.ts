@@ -117,6 +117,11 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("agents.setToolAsk", "configure", `Makes one action of an agent's tool ask before use, or run without asking. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("tables.delete", "configure", `Deletes a table with its rows: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: named("id"), grant: true }),
   tool("fields.delete", "configure", `Deletes a field with its values in every row: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: tableOfField, grant: true }),
+  tool("triggers.list", "configure", "Lists an agent's triggers: what starts its Jobs (a button, a chat, a schedule), with their instructions.", { tables: none }),
+  tool("triggers.get", "configure", "Gives one trigger by its id.", { tables: none }),
+  tool("triggers.create", "configure", `Creates a trigger for an agent: what starts a Job and what the agent is told then. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool("triggers.update", "configure", `Changes a trigger: its name, instructions, schedule, or whether it is on. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool("triggers.delete", "configure", `Deletes a trigger. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("agents.update", "configure", `Changes an agent: give every field, as agents_get shows them. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
 ];
 
@@ -163,11 +168,6 @@ export const NOT_TOOLS: string[] = [
   // What grants authority or can't be undone: a person does it (later, through a proposal).
   "fields.retype",
   "agents.delete",
-  "triggers.create",
-  "triggers.update",
-  "triggers.delete",
-  "triggers.list",
-  "triggers.get",
   "skills.create",
   "skills.update",
   "skills.delete",

@@ -2,7 +2,7 @@ import { JOB_SERVER_NAME, storable } from "@dispand/runner-protocol";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agents, fields, harnesses, proposals, runners, skillPackages, tables, tools as toolsTable, type ProposalItem } from "../db/schema.ts";
+import { agents, fields, harnesses, proposals, runners, skillPackages, tables, tools as toolsTable, triggers, type ProposalItem } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { canonical } from "./approvals.ts";
 import type { TableScope } from "./bundles.ts";
@@ -125,6 +125,9 @@ const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
   agents_set_tool_ask: { agentId: "agent", toolId: "tool" },
   tables_delete: { id: "table" },
   fields_delete: { id: "field" },
+  triggers_create: { agentId: "agent" },
+  triggers_update: { id: "trigger" },
+  triggers_delete: { id: "trigger" },
 };
 
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : typeof value === "string" ? [value] : []);
@@ -189,6 +192,16 @@ export async function proposalView(db: Db, ownerId: string, proposalId: string) 
         .innerJoin(tables, eq(tables.id, fields.tableId))
         .where(and(inArray(fields.id, w), eq(fields.ownerId, ownerId))),
     (r) => ({ name: r.name, detail: `of the table ${r.table}` }),
+  );
+  await found(
+    "trigger",
+    (w) =>
+      db
+        .select({ id: triggers.id, name: triggers.name, agent: agents.name })
+        .from(triggers)
+        .innerJoin(agents, eq(agents.id, triggers.agentId))
+        .where(and(inArray(triggers.id, w), eq(triggers.ownerId, ownerId))),
+    (r) => ({ name: r.name, detail: `of the agent ${r.agent}` }),
   );
   return {
     id: row.id,

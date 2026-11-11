@@ -69,3 +69,27 @@ test("deletions and asking flags read as what they do, with names; a value that 
   expect(within(flag!).getByText("table_1")).toBeTruthy();
   expect(within(flag!).getByText("no")).toBeTruthy();
 });
+
+test("a trigger reads as what starts Jobs: its agent by name, its instructions and its schedule whole", () => {
+  const trigger: ProposalView = {
+    id: "prop_3",
+    status: "asked",
+    items: [
+      {
+        tool: "triggers_create",
+        used: false,
+        refs: ["agentId"],
+        input: { agentId: "agent_1", name: "Every morning", instructions: "Read the mail and file it.", concurrency: "parallel", config: { kind: "schedule", cron: "0 8 * * *", timezone: "Europe/Paris" } },
+      },
+    ],
+    names: { agent_1: { kind: "agent", name: "Clerk" } },
+  };
+  render(<ProposalItems proposal={trigger} />);
+  const [item] = screen.getAllByRole("listitem");
+  expect(within(item!).getByText("Create a trigger: what starts an agent's Jobs")).toBeTruthy();
+  expect(item!.textContent).toContain("Clerk");
+  expect(within(item!).getByText("What the agent is told")).toBeTruthy();
+  expect(within(item!).getByText("Read the mail and file it.")).toBeTruthy();
+  expect(item!.textContent).toContain("0 8 * * *");
+  expect(item!.textContent).toContain("Europe/Paris");
+});

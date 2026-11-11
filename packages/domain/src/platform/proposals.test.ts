@@ -124,7 +124,7 @@ test("an approval doesn't bring back a right taken since, nor skip the procedure
 test("every tool marked as a grant is refused without a proposal", async () => {
   const s = await setup(["data", "configure"]);
   const grants = PLATFORM_TOOLS.filter((t) => t.grant);
-  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "tables_delete"]);
+  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "tables_delete", "triggers_create", "triggers_delete", "triggers_update"]);
   const table = await call(router.tables.create, { name: "Clients" }, { context: s.context });
   const field = (await call(router.tables.get, { id: table.id }, { context: s.context })).fields[0]!;
   const inputs: Record<string, unknown> = {
@@ -133,6 +133,9 @@ test("every tool marked as a grant is refused without a proposal", async () => {
     agents_set_tool_ask: { agentId: s.agent.id, toolId: "tool_x", action: "send", ask: false },
     tables_delete: { id: table.id },
     fields_delete: { id: field.id },
+    triggers_create: { agentId: s.agent.id, name: "Daily", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    triggers_update: { id: "trigger_x", enabled: false },
+    triggers_delete: { id: "trigger_x" },
   };
   for (const t of grants) expect(((await s.tool(t.name, inputs[t.name])) as { error: string }).error).toMatch(NEEDS);
 });
@@ -297,4 +300,36 @@ test("the owner reads a name for the table, the field, the agent and the tool an
   // `action` is not an id: it is never read as a name.
   expect(proposal!.names).not.toHaveProperty("send");
   void fieldsTable;
+});
+
+test("a trigger is created, changed and deleted only on approved items, and the procedure's own refusals stay", async () => {
+  const s = await setup();
+  const { context } = s;
+  const other = await call(router.agents.create, { name: "Clerk", harnessId: s.harness.id, systemPrompt: "" }, { context });
+  const schedule = { agentId: other.id, name: "Every morning", instructions: "Read the mail and file it.", config: { kind: "schedule", cron: "0 8 * * *", timezone: "Europe/Paris" } };
+  // Triggers are read without a proposal.
+  expect(await s.tool("triggers_list", { agentId: other.id })).toMatchObject({ ok: true, output: [] });
+  const [created] = await approved(s, [{ tool: "triggers_create", input: schedule }]);
+  expect(created).toMatchObject({ ok: true, output: { name: "Every morning", kind: "schedule", enabled: true, instructions: "Read the mail and file it." } });
+  const id = (created as { output: { id: string } }).output.id;
+  expect(await s.tool("triggers_get", { id })).toMatchObject({ ok: true, output: { id } });
+  // Its instructions are in the item whole, and named for the owner with its agent.
+  const proposalId = s.idOf(await s.propose([{ tool: "triggers_update", input: { id, instructions: "Read the mail, file it, and draft replies." } }, { tool: "triggers_delete", input: { id } }]));
+  const q = await s.ask({ message: "May I?", proposal: proposalId });
+  const { proposal } = (await call(router.questions.list, { status: "pending" }, { context })).find((i) => i.id === q)!;
+  expect(proposal!.items[0]).toMatchObject({ refs: ["id"], input: { instructions: "Read the mail, file it, and draft replies." } });
+  expect(proposal!.names[id]).toEqual({ kind: "trigger", name: "Every morning", detail: "of the agent Clerk" });
+  await s.answer(q, "allow");
+  expect(await s.tool("triggers_update", { id, instructions: "Read the mail, file it, and draft replies." })).toMatchObject({ ok: true });
+  expect(await s.tool("triggers_delete", { id })).toMatchObject({ ok: true });
+  expect(await call(router.triggers.list, { agentId: other.id }, { context })).toEqual([]);
+
+  // What the procedure refuses stays refused once approved: an agent that isn't the owner's, a schedule that isn't one.
+  const bad = [
+    { tool: "triggers_create", input: { ...schedule, agentId: "agent_missing" } },
+    { tool: "triggers_create", input: { ...schedule, config: { kind: "schedule", cron: "not a cron", timezone: "Europe/Paris" } } },
+  ];
+  const refused = await approved(s, bad);
+  expect(refused.map((r) => r.ok)).toEqual([false, false]);
+  expect((refused[1] as { error: string }).error).not.toMatch(NEEDS);
 });
