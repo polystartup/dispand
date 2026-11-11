@@ -90,7 +90,7 @@ test("a chat widget on Home: inline question, confirmation, then the next step's
   runner.emit(start.sessionId, { type: "tool", name: "WebSearch", status: "started" });
   await expect(chat.getByText("WebSearch")).toBeVisible();
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
-  const example = "## A starting point\n\nHere is a small example:\n\n```ts\nconst idea = \"A weekly newsletter\";\n```";
+  const example = "## A starting point\n\n" + Array.from({ length: 12 }, (_, i) => `- Idea ${i + 1}: a useful update for readers`).join("\n") + "\n\nHere is a small example:\n\n```ts\nconst idea = \"A weekly newsletter\";\n```";
   runner.emit(start.sessionId, { type: "text", delta: example });
   await expect(chat.getByRole("heading", { name: "A starting point" })).toBeVisible();
   await chat.getByRole("button", { name: "Copy code" }).click();
@@ -98,7 +98,9 @@ test("a chat widget on Home: inline question, confirmation, then the next step's
   await chat.getByRole("button", { name: "Copy message" }).last().click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(example);
   const viewport = chat.locator('[aria-live="polite"]');
-  await viewport.evaluate((el) => { el.scrollTop = 0; });
+  await expect.poll(() => viewport.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  await viewport.hover();
+  await page.mouse.wheel(0, -10000);
   const jump = chat.getByRole("button", { name: "Jump to latest message" });
   await expect(jump).toBeVisible();
   await jump.click();
