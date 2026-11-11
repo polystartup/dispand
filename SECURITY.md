@@ -19,7 +19,7 @@ changes it updates this file.
   exposed through OpenAPI.
 - **An agent's Job reaches the workspace's data only through declared tools, within what its
   agent was given.** A procedure is a tool only when the registry names it under a bundle
-  (`data` or `configure`); every other procedure is declared "not a tool", and a test fails on
+  (`data` or `configure`), or declares it a Job's own tool (`inbox`); every other procedure is declared "not a tool", and a test fails on
   one that is in neither list. No tool exposes secrets, runner pairing, user or session
   management, or anything that deletes a table or a field. Every call is authorized in one
   place: the Job must still be going, and the tool's bundle and every table the call touches
@@ -111,7 +111,16 @@ changes it updates this file.
   is a person's), asked by a Job of another agent, without `configure`, on tables within its
   own; any other is recorded with no Job and never named to it. Each start of such a Job's
   session checks it again with the Job's rights as they are then (its snapshot's that its agent
-  still has), so a revoked table or `inbox` is never sent.
+  still has), so a revoked table or `inbox` is never sent. The `inbox` tools (`questions_list`,
+  `questions_get`, `questions_answer`, in `questions/inbox.ts`) run every call through the same
+  `reachable`, with the calling Job's rights as they are then, and then reach only an item
+  still open: anything else gets "Not found", and an answered or expired item says only that
+  it no longer waits, never its text or answer. Only a Question with choices is reachable: an
+  Approval, or a confirmation of a Job's values, is a person's. An agent's answer goes through
+  the same one-time pending-to-answered update as a person's, records the agent and its Job,
+  and the asking session is told which agent answered in the answer itself, so it never resumes
+  on an agent's words taken for the owner's. `inbox` is granted like any bundle: by
+  a person, or by an approved proposal.
 - **A poll is never a way around action approvals or an agent's tools.** The scheduler calls a
   tool outside any Job only for a poll trigger whose action the tool lets polls read and no agent
   must ask before using, of a tool its agent has (`pollProblem`): checked when the trigger is

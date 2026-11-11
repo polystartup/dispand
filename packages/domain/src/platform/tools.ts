@@ -7,6 +7,8 @@ import { router } from "../rpc/router.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import { INTERACTION } from "../triggers/model.ts";
 import { ProposeInput } from "./proposals.ts";
+import type { JobIdentity, PlatformApp, ToolResult } from "./call.ts";
+import { AnswerInput, answerQuestion, getQuestion, GetInput, listQuestions, ListInput } from "../questions/inbox.ts";
 
 export { BUNDLES, type Bundle, type TableScope } from "./bundles.ts";
 
@@ -36,6 +38,8 @@ export type PlatformTool = {
    * approved for that Job (`platform/proposals.ts`), checked in `callPlatformTool`.
    */
   grant?: true;
+  /** A tool that works for the Job itself, not as its owner: no procedure of the router, run here instead. */
+  run?(app: PlatformApp, job: JobIdentity, input: unknown): Promise<ToolResult>;
 };
 
 type Leaf = { "~orpc": { inputSchema?: z.ZodType } };
@@ -192,6 +196,41 @@ export const PROPOSE: PlatformTool = {
   input: ProposeInput,
   tables: none,
 };
+
+/**
+ * The `inbox` bundle: other agents' open Questions, each call within what the Job may reach
+ * (`questions/inbox.ts`). Not the owner's `questions.*` procedures, which see the whole Inbox.
+ */
+export const INBOX_TOOLS: PlatformTool[] = [
+  {
+    path: "",
+    name: "questions_list",
+    bundle: "inbox",
+    description: "Lists the open Questions of other agents' Jobs that you may answer, newest first: their ids, who asked and what.",
+    input: ListInput,
+    tables: none,
+    run: (app, job) => listQuestions(app, job),
+  },
+  {
+    path: "",
+    name: "questions_get",
+    bundle: "inbox",
+    description: "Gives one open Question by its id: who asked, and each question with its options.",
+    input: GetInput,
+    tables: none,
+    run: (app, job, input) => getQuestion(app, job, input as never),
+  },
+  {
+    path: "",
+    name: "questions_answer",
+    bundle: "inbox",
+    description:
+      "Answers one open Question: for each question asked (keyed by its exact text), one of its options' labels, or your own words; several for a multiSelect one. The asking Job is told your agent answered.",
+    input: AnswerInput,
+    tables: none,
+    run: (app, job, input) => answerQuestion(app, job, input as never),
+  },
+];
 
 /** Every other procedure: not a tool. A new procedure goes here or above, or the walk test fails. */
 export const NOT_TOOLS: string[] = [

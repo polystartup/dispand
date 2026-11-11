@@ -1580,7 +1580,7 @@ test("a Job's session start, its runner events and its question are traced with 
   const points = await t.metrics();
   expect(points).toContainEqual({ name: "dispand.harness.events", attributes: { "dispand.event.type": "text" } });
   expect(points).toContainEqual({ name: "dispand.questions.opened", attributes: { "dispand.question.kind": "approval" } });
-  expect(points).toContainEqual({ name: "dispand.questions.answered", attributes: { "dispand.question.kind": "approval", "dispand.answer.decision": "deny" } });
+  expect(points).toContainEqual({ name: "dispand.questions.answered", attributes: { "dispand.question.kind": "approval", "dispand.answer.decision": "deny", "dispand.answer.by": "user" } });
   expect(points).toContainEqual({ name: "dispand.sessions.started", attributes: { "dispand.harness.kind": "claude-code", "dispand.result": "ok" } });
   const all = await t.all();
   for (const sentinel of ["sentinel-client-name", "sentinel-agent-words", "sentinel-tool-input", "sentinel-owner-reply"]) expect(all).not.toContain(sentinel);

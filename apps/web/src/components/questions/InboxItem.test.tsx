@@ -72,6 +72,14 @@ test("a done item shows the answer and who answered, and no form", () => {
   expect(screen.getByText(/^Answered/).textContent).not.toMatch(/by you/);
 });
 
+test("a question an agent answered names the agent and links to its Job", () => {
+  const answeredBy = { type: "agent", agentId: "agent_2", runId: "run_answerer", name: "Answerer" };
+  mount({ ...base, kind: "question", status: "answered", payload: choice, answer: { kind: "choice", answers: { "Which tone?": "Formal" } }, answeredAt: at, answeredBy });
+  expect(screen.getByText(/Answered by the agent Answerer/)).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Open its Job" }).getAttribute("href")).toBe("/runs/run_answerer");
+  expect(screen.queryByText(/by you/)).toBeNull();
+});
+
 test("an expired item says so", () => {
   mount({ ...approval, status: "expired" });
   expect(screen.getByText(/Expired: its run ended before an answer/)).toBeTruthy();

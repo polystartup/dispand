@@ -1,5 +1,8 @@
 import type { Answer, ClaudeSessionStart, SessionStart } from "@dispand/runner-protocol";
+import type { AnsweredBy } from "../db/schema.ts";
 import type { CloudKind } from "../harnesses/cloud.ts";
+
+export type AgentAnswerer = Extract<AnsweredBy, { type: "agent" }>;
 
 /** A CLI harness as a session needs it (a snapshot of the `harnesses` row). Sessions always run in a per-run folder. */
 export type CliHarness = {
@@ -42,7 +45,8 @@ export type StartParams = Omit<ClaudeSessionStart, "harness" | "cwd" | "permissi
 export interface HarnessAdapter<H extends Harness = Harness> {
   start(harness: H, start: StartParams): Promise<boolean>;
   send(sessionId: string, text: string): Promise<boolean>;
-  answer(sessionId: string, questionId: string, answer: Answer): Promise<boolean>;
+  /** `by`: the agent that gave it (`inbox`), which the session is told with the answer; none for a person's. */
+  answer(sessionId: string, questionId: string, answer: Answer, by?: AgentAnswerer): Promise<boolean>;
   /**
    * Ends the session now, whatever it is doing; true once the harness was told (or has no such
    * session). `source` is where it runs (a runner id, or `CLOUD_SOURCE`): its step may be gone.

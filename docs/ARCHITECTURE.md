@@ -543,8 +543,8 @@
   with `ProposalItems`, which reads such a trigger's config in words (`ChangeConfig`).
 - **Inbox:** every question a session asks is a row of `questions` with a `kind`: a permission
   is an `approval`, a choice or a confirmation a `question` (set when it is asked; migration
-  `0030` moved the existing ones). An answer records who gave it (`answered_by`, a user for
-  now) and when. `questions.list` takes `status: "pending"` (what waits) or `"all"`: what
+  `0030` moved the existing ones). An answer records who gave it (`answered_by`: a user, or an
+  agent with its Job and the agent's name then) and when. `questions.list` takes `status: "pending"` (what waits) or `"all"`: what
   waits, newest first, then the 100 latest done items (answered or expired), each with its
   workflow or its agent and trigger, its answer and its answerer. The page is `/inbox`
   (`routes/_app.inbox.tsx`, `components/questions/InboxItem.tsx`): "Waiting for you", where
@@ -689,6 +689,18 @@
   item's id and the event's values (`INTERACTION_PROMPT`), and each start of its session checks
   `startable` again with the Job's scope, failing the step otherwise. `dispand.events.recorded`
   counts events by kind and operation; `scheduler.fire` has kind `interaction`.
+  The `inbox` bundle's tools (`questions/inbox.ts`: `questions_list`, `questions_get`,
+  `questions_answer`) are a Job's own, not procedures of the router (`INBOX_TOOLS`, run by
+  `callPlatformTool` through their `run`): each call takes `jobScope`, then `reachable`, then
+  "still open"; `reachable` admits only a Question with choices. An answer goes through
+  `Engine.answer` with `answered_by` the agent, its Job and its name; its `answered` event's
+  actor is that Job. The asking session is told who answered with the answer itself, before it
+  resumes: `HarnessAdapter.answer` takes the agent; the cloud runner words the result "Answered
+  by the agent <name>", and a CLI session, whose protocol answer has no answerer, gets each
+  question's answer followed by "(Answered by the agent <name>, not by the owner)" (`attributed`;
+  a label so changed reaches the CLI whole, as free text). An answer too long to carry that is
+  refused. An answer sent in words starts "Answered by the agent <name>". Each call has a span `inbox.<tool>` and
+  counts in `dispand.inbox.calls`; `dispand.questions.answered` carries `dispand.answer.by`.
   A schema change that rewrites cells (a choice removed, a retype, a field deleted) records
   no event: it changes the table's shape, not a row someone wrote, and starts no Job.
 - **Rows (Data):** every row write, from a procedure or a Data step, goes through
