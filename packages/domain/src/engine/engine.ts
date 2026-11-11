@@ -1081,7 +1081,6 @@ export class Engine {
       .returning();
     if (!started) return;
     annotate({ "dispand.harness.kind": harness.kind, "dispand.session.id": start.sessionId });
-    counts.counter("dispand.sessions.started").add(1, { "dispand.harness.kind": harness.kind, "dispand.result": "ok" });
     this.publish(run.id, [{ type: "step", step: stepView(started) }]);
     this.launch(harness, start, started);
   }
@@ -1091,9 +1090,12 @@ export class Engine {
    * step records it (and `written` runs); unwritten, the runner's next reconcile sends it again.
    */
   private launch(harness: Harness, start: StartParams, step: StepRow, held: string[] = [], written?: () => Promise<void>) {
+    // How the start ended, once it has: delivered, waiting for its runner, refused, or failed.
+    const outcome = (result: string) => counts.counter("dispand.sessions.started").add(1, { "dispand.harness.kind": harness.kind, "dispand.result": result });
     // Out of the protocol's bounds, the runner would refuse it and every reconcile would resend it.
     const problem = isCloud(harness) ? null : startProblem(harness, start);
     if (problem) {
+      outcome("refused");
       const out: RunEvent[] = [];
       const failed = this.db
         .transaction((tx) => this.fail(tx, step, problem, out))
@@ -1104,7 +1106,8 @@ export class Engine {
     }
     for (const key of held) this.inFlight.add(key);
     const sent = this.track(`start:${start.sessionId}`, async () => {
-      if (!(await this.adapter.start(harness, start))) return;
+      if (!(await this.adapter.start(harness, start))) return outcome("offline");
+      outcome("ok");
       await this.db.update(stepRuns).set({ startDeliveredAt: new Date() }).where(eq(stepRuns.id, step.id));
       await written?.();
     })
@@ -1112,6 +1115,7 @@ export class Engine {
         for (const key of held) this.inFlight.delete(key);
       })
       .catch(async (err: unknown) => {
+      outcome("failed");
       logError("session start failed", err, { ref: step.id });
       const out: RunEvent[] = [];
       await this.db.transaction((tx) => this.fail(tx, step, "The session could not start", out));
