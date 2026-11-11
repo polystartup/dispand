@@ -11,7 +11,7 @@ import { startFakeMcp } from "../tools/test-server.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
 import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
-import { Scheduler } from "./scheduler.ts";
+import { MAX_WALK_PAGES, Scheduler, SCHEDULER_TICK_MS } from "./scheduler.ts";
 
 class FakeAdapter implements HarnessAdapter {
   starts: { harness: Harness; start: StartParams }[] = [];
@@ -30,7 +30,7 @@ class FakeAdapter implements HarnessAdapter {
   }
 }
 
-type Mail = { id: string; subject: string };
+type Mail = { id: string; subject: string; receivedDateTime?: string };
 const MINUTE = 60_000;
 
 /**
@@ -41,6 +41,10 @@ const MINUTE = 60_000;
 async function setup() {
   const mailbox: Mail[] = [];
   const calls: Record<string, unknown>[] = [];
+  // `list_paged` pages as Graph does: `filter: receivedDateTime ge <time>`, oldest first, `top` a
+  // page, the next named in `@odata.nextLink` by its `$skiptoken`. `forever`: a next link on every
+  // page; `failAt`: that token's page reports an error; `during`: run before each page.
+  const paging: { forever?: boolean; failAt?: string; hasMore?: boolean; during?: (token: string | undefined) => void } = {};
   const server = await startFakeMcp([
     {
       name: "list_mail",
@@ -48,6 +52,23 @@ async function setup() {
       call: (args) => {
         calls.push(args);
         return { content: [{ type: "text", text: JSON.stringify({ value: mailbox }) }] };
+      },
+    },
+    {
+      name: "list_paged",
+      annotations: { readOnlyHint: true },
+      call: (args) => {
+        calls.push(args);
+        const token = (args.skiptoken ?? args.skip) as string | undefined;
+        paging.during?.(token);
+        if (token !== undefined && token === paging.failAt) return { content: [{ type: "text", text: "throttled" }], isError: true };
+        const since = /^receivedDateTime ge (.+)$/.exec(String(args.filter ?? ""))?.[1] ?? "";
+        const matching = mailbox.filter((m) => (m.receivedDateTime ?? "") >= since).sort((a, b) => (a.receivedDateTime ?? "").localeCompare(b.receivedDateTime ?? ""));
+        const top = Number(args.top ?? 10);
+        const offset = token === undefined ? 0 : Number(token.slice("tok-".length));
+        const next = offset + top < matching.length || paging.forever ? `https://graph.example.com/v1.0/me/messages?$skiptoken=tok-${offset + top}` : undefined;
+        const body = { value: matching.slice(offset, offset + top), ...(next ? { "@odata.nextLink": next } : {}) };
+        return { content: [{ type: "text", text: JSON.stringify(body) }], ...(paging.hasMore ? { _meta: { result_has_more: true } } : {}) };
       },
     },
     { name: "send", call: () => ({ content: [{ type: "text", text: "sent" }] }) },
@@ -66,7 +87,7 @@ async function setup() {
   const runnerCalls: unknown[] = [];
   // A runner whose `mail` server answers like the fake one, refusing a call while one to the same tool is under way, as runners do.
   const calling = new Set<string>();
-  const during: { call?: () => Promise<unknown> } = {};
+  const during: { call?: () => Promise<unknown>; hasMore?: boolean } = {};
   const hub: Pick<RunnerHub, "call"> = {
     call: async (_runnerId, msg) => {
       runnerCalls.push(msg);
@@ -75,7 +96,7 @@ async function setup() {
       calling.add(msg.tool);
       await new Promise((resolve) => setTimeout(resolve, 20));
       calling.delete(msg.tool);
-      return { type: "tool.called", requestId: msg.requestId, content: [{ type: "text", text: JSON.stringify({ value: mailbox }) }] };
+      return { type: "tool.called", requestId: msg.requestId, content: [{ type: "text", text: JSON.stringify({ value: mailbox }) }], ...(during.hasMore ? { hasMore: true } : {}) };
     },
   };
   const caller = pollCaller(new InstalledTools(context.db, context.secrets, context.tools), hub);
@@ -95,7 +116,7 @@ async function setup() {
   const itemsOf = (triggerId: string) => context.db.select().from(pollItems).where(eq(pollItems.triggerId, triggerId)).orderBy(asc(pollItems.firstSeen), asc(pollItems.itemId));
   const pollsOf = (triggerId: string) => context.db.select().from(polls).where(eq(polls.triggerId, triggerId)).orderBy(asc(polls.at));
   const jobsOf = (triggerId: string) => context.db.select().from(runs).where(eq(runs.triggerId, triggerId)).orderBy(asc(runs.createdAt));
-  return { context, mailbox, calls, tool, clerk, harness, adapter, engine, runnerCalls, during, caller, scheduler, watch, itemsOf, pollsOf, jobsOf, time };
+  return { context, mailbox, paging, calls, tool, clerk, harness, adapter, engine, runnerCalls, during, caller, scheduler, watch, itemsOf, pollsOf, jobsOf, time };
 }
 
 test("the first poll records what exists and starts nothing; a new item starts one Job whose prompt holds it; one seen before starts none", async () => {
@@ -363,4 +384,193 @@ test("saving a poll trigger as it is, its arguments' keys in another order, keep
   const config = trigger.config as Extract<TriggerConfig, { kind: "poll" }>;
   await call(router.triggers.update, { id: trigger.id, name: "Renamed", config: { ...config, arguments: { filter: "x", top: 10 } } }, { context: s.context });
   expect((await s.itemsOf(trigger.id)).map((i) => i.status).sort()).toEqual(["deferred", "started"]);
+});
+
+/** A poll of `list_paged` walking Graph's continuation, `top` items a page, made at 08:00. */
+async function watchPaged(s: Awaited<ReturnType<typeof setup>>, top = 10, extra: Partial<Extract<TriggerConfig, { kind: "poll" }>> = {}) {
+  const trigger = await s.watch({
+    action: "list_paged",
+    arguments: { filter: "receivedDateTime ge {{lastPoll}}", top },
+    continuation: { path: "@odata.nextLink", query: "$skiptoken", argument: "skiptoken" },
+    ...extra,
+  });
+  await s.context.db.update(triggers).set({ createdAt: new Date("2026-11-12T08:00:00Z") }).where(eq(triggers.id, trigger.id));
+  return trigger;
+}
+
+const mails = (prefix: string, n: number, receivedDateTime: string): Mail[] =>
+  Array.from({ length: n }, (_, i) => ({ id: `${prefix}${String(i + 1).padStart(2, "0")}`, subject: "x", receivedDateTime }));
+
+test("more mail with one timestamp than a page holds, then newer mail: every one recorded once, none missing, and the walk ends with the watermark moved", async () => {
+  const s = await setup();
+  const scheduler = s.scheduler();
+  const trigger = await watchPaged(s);
+  s.mailbox.push(...mails("old", 1, "2026-11-12T08:59:00.000Z"));
+  await scheduler.tick();
+  s.time.add(5 * MINUTE);
+  const walkStart = s.time.now().toISOString();
+  s.mailbox.push(...mails("tie", 25, "2026-11-12T09:02:00.000Z"));
+  // Mail arriving during the walk at the walk's own start: the next walk repeats it, unrecorded twice.
+  s.paging.during = (token) => {
+    if (token === "tok-10") s.mailbox.push(...mails("edge", 2, walkStart));
+  };
+  expect(await scheduler.tick()).toHaveLength(27);
+  s.paging.during = undefined;
+  // One fixed query, the server's token on each later page, all in one tick.
+  expect(s.calls.slice(1)).toEqual([
+    { filter: "receivedDateTime ge 2026-11-12T09:00:00.000Z", top: 10 },
+    { filter: "receivedDateTime ge 2026-11-12T09:00:00.000Z", top: 10, skiptoken: "tok-10" },
+    { filter: "receivedDateTime ge 2026-11-12T09:00:00.000Z", top: 10, skiptoken: "tok-20" },
+  ]);
+  expect((await s.pollsOf(trigger.id)).at(-1)).toMatchObject({ status: "polled", found: 27, fresh: 27, message: null });
+  expect((await s.context.db.select().from(triggers).where(eq(triggers.id, trigger.id)))[0]!.pollCursor).toBeNull();
+
+  s.time.add(5 * MINUTE);
+  s.mailbox.push(...mails("new", 3, "2026-11-12T09:07:00.000Z"));
+  expect(await scheduler.tick()).toHaveLength(3);
+  // The walk ended: `{{lastPoll}}` moved to its start; the boundary mail it returns again starts nothing.
+  expect(s.calls.at(-1)).toEqual({ filter: `receivedDateTime ge ${walkStart}`, top: 10 });
+  expect((await s.pollsOf(trigger.id)).at(-1)).toMatchObject({ status: "polled", found: 5, fresh: 3 });
+  const ids = (await s.itemsOf(trigger.id)).map((i) => i.itemId).sort();
+  expect(ids).toEqual(s.mailbox.map((m) => m.id).sort());
+  expect(await s.jobsOf(trigger.id)).toHaveLength(30);
+});
+
+test("a first walk is a baseline across its pages; a page that fails keeps the walk, which goes on from its token with its own query", async () => {
+  const s = await setup();
+  const scheduler = s.scheduler();
+  const trigger = await watchPaged(s);
+  s.mailbox.push(...mails("old", 15, "2026-11-12T08:30:00.000Z"));
+  expect(await scheduler.tick()).toEqual([]);
+  expect(s.calls.map((c) => c.skiptoken)).toEqual([undefined, "tok-10"]);
+  expect(new Set((await s.itemsOf(trigger.id)).map((i) => i.status))).toEqual(new Set(["baseline"]));
+  expect(await s.itemsOf(trigger.id)).toHaveLength(15);
+
+  s.time.add(5 * MINUTE);
+  s.mailbox.push(...mails("new", 12, "2026-11-12T09:02:00.000Z"));
+  s.paging.failAt = "tok-10";
+  expect(await scheduler.tick()).toHaveLength(10);
+  expect((await s.pollsOf(trigger.id)).at(-1)).toMatchObject({ status: "failed", found: 10, fresh: 10 });
+  const [stored] = await s.context.db.select().from(triggers).where(eq(triggers.id, trigger.id));
+  expect(stored!.pollCursor).toEqual({ lastPoll: "2026-11-12T09:00:00.000Z", startedAt: "2026-11-12T09:05:00.000Z", token: "tok-10" });
+
+  s.paging.failAt = undefined;
+  s.time.add(5 * MINUTE);
+  expect(await scheduler.tick()).toHaveLength(2);
+  expect(s.calls.at(-1)).toEqual({ filter: "receivedDateTime ge 2026-11-12T09:00:00.000Z", top: 10, skiptoken: "tok-10" });
+  // Its items were first seen when the walk began.
+  expect(new Set((await s.itemsOf(trigger.id)).filter((i) => i.itemId.startsWith("new")).map((i) => i.firstSeen.toISOString()))).toEqual(new Set(["2026-11-12T09:05:00.000Z"]));
+  s.time.add(5 * MINUTE);
+  await scheduler.tick();
+  expect(s.calls.at(-1)).toEqual({ filter: "receivedDateTime ge 2026-11-12T09:05:00.000Z", top: 10 });
+  // The server's token is never shown.
+  for (const p of await s.pollsOf(trigger.id)) expect(p.message ?? "").not.toContain("tok-");
+});
+
+test("a server returning next links forever is read 20 pages a poll; the walk goes on at the next interval, and the trigger's polls say so", async () => {
+  const s = await setup();
+  const scheduler = s.scheduler();
+  const trigger = await watchPaged(s, 1);
+  s.mailbox.push(...mails("m", 1, "2026-11-12T08:30:00.000Z"));
+  s.paging.forever = true;
+  await scheduler.tick();
+  expect(s.calls).toHaveLength(MAX_WALK_PAGES);
+  const view = await call(router.triggers.get, { id: trigger.id }, { context: s.context });
+  expect(view.lastPolls[0]).toMatchObject({ status: "baseline", message: "20 pages read: the rest at the next poll" });
+  // Not at once: at the next interval, from where it stopped.
+  s.time.add(SCHEDULER_TICK_MS);
+  await scheduler.tick();
+  expect(s.calls).toHaveLength(MAX_WALK_PAGES);
+  s.time.add(5 * MINUTE);
+  await scheduler.tick();
+  expect(s.calls).toHaveLength(2 * MAX_WALK_PAGES);
+  expect(s.calls[MAX_WALK_PAGES]).toMatchObject({ skiptoken: "tok-20" });
+  // Renamed, the walk goes on; reading something else, it starts over.
+  const config = trigger.config as Extract<TriggerConfig, { kind: "poll" }>;
+  const cursorOf = async () => (await s.context.db.select().from(triggers).where(eq(triggers.id, trigger.id)))[0]!.pollCursor;
+  await call(router.triggers.update, { id: trigger.id, name: "Renamed" }, { context: s.context });
+  expect(await cursorOf()).toMatchObject({ token: "tok-40" });
+  await call(router.triggers.update, { id: trigger.id, config: { ...config, arguments: { ...config.arguments, top: 2 } } }, { context: s.context });
+  expect(await cursorOf()).toBeNull();
+});
+
+test("a result the server cut short at its own cap (`hasMore`) is polled again on the next tick, through a runner or over HTTP", async () => {
+  const s = await setup();
+  await onRunner(s);
+  const scheduler = s.scheduler();
+  const trigger = await s.watch({ toolId: "tool_runner_mail", action: "list-mail-messages", arguments: { top: 10 } });
+  s.during.hasMore = true;
+  await scheduler.tick();
+  expect(s.runnerCalls).toHaveLength(1);
+  s.during.hasMore = false;
+  s.time.add(SCHEDULER_TICK_MS);
+  await scheduler.tick();
+  expect(s.runnerCalls).toHaveLength(2);
+  // Not cut short: its interval again.
+  s.time.add(SCHEDULER_TICK_MS);
+  await scheduler.tick();
+  expect(s.runnerCalls).toHaveLength(2);
+  expect((await s.pollsOf(trigger.id)).map((p) => p.status)).toEqual(["baseline", "polled"]);
+
+  await call(router.agents.update, { id: s.clerk.id, name: "Clerk", harnessId: s.harness.id, systemPrompt: "", toolIds: ["tool_runner_mail", s.tool.id] }, { context: s.context });
+  const http = await s.watch({ action: "list_paged", arguments: { top: 10 } });
+  s.paging.hasMore = true;
+  await scheduler.tick();
+  s.paging.hasMore = false;
+  s.time.add(SCHEDULER_TICK_MS);
+  await scheduler.tick();
+  expect(await s.pollsOf(http.id)).toHaveLength(2);
+});
+
+test("a poll without a continuation reads one call's result, its next link left alone", async () => {
+  const s = await setup();
+  const scheduler = s.scheduler();
+  const trigger = await s.watch({ action: "list_paged", arguments: { filter: "receivedDateTime ge {{lastPoll}}", top: 2 } });
+  s.mailbox.push(...mails("m", 5, "2026-11-12T08:30:00.000Z"));
+  await s.context.db.update(triggers).set({ createdAt: new Date("2026-11-12T08:00:00Z") }).where(eq(triggers.id, trigger.id));
+  await scheduler.tick();
+  expect(s.calls).toHaveLength(1);
+  expect((await s.pollsOf(trigger.id))[0]).toMatchObject({ status: "baseline", found: 2 });
+  expect((await call(router.triggers.get, { id: trigger.id }, { context: s.context })).config).not.toHaveProperty("continuation");
+  s.time.add(SCHEDULER_TICK_MS);
+  await scheduler.tick();
+  expect(s.calls).toHaveLength(1);
+});
+
+test("a walk whose continuation changes starts over from its first page with its own query, so nothing unread falls before a moved watermark", async () => {
+  const s = await setup();
+  const scheduler = s.scheduler();
+  const trigger = await watchPaged(s);
+  await scheduler.tick();
+  s.time.add(5 * MINUTE);
+  s.mailbox.push(...mails("new", 12, "2026-11-12T09:02:00.000Z"));
+  s.paging.failAt = "tok-10";
+  await scheduler.tick();
+  s.paging.failAt = undefined;
+  const config = trigger.config as Extract<TriggerConfig, { kind: "poll" }>;
+  await call(router.triggers.update, { id: trigger.id, config: { ...config, continuation: { ...config.continuation!, argument: "skip" } } }, { context: s.context });
+  s.time.add(5 * MINUTE);
+  expect(await scheduler.tick()).toHaveLength(2);
+  // The walk's own `{{lastPoll}}` (its baseline found nothing: the trigger's creation), not its start.
+  expect(s.calls.slice(-2)).toEqual([
+    { filter: "receivedDateTime ge 2026-11-12T08:00:00.000Z", top: 10 },
+    { filter: "receivedDateTime ge 2026-11-12T08:00:00.000Z", top: 10, skip: "tok-10" },
+  ]);
+  expect(await s.itemsOf(trigger.id)).toHaveLength(12);
+});
+
+test("Jobs started by a walk's earlier pages go on when a later page throws", async () => {
+  const s = await setup();
+  const trigger = await watchPaged(s);
+  await s.scheduler().tick();
+  s.time.add(5 * MINUTE);
+  s.mailbox.push(...mails("new", 12, "2026-11-12T09:02:00.000Z"));
+  const throwing: PollCaller = {
+    call: async (tool, action, args) => {
+      if (args.skiptoken) throw new Error("database gone");
+      return s.caller.call(tool, action, args);
+    },
+  };
+  expect(await s.scheduler(throwing).tick()).toHaveLength(10);
+  expect((await s.pollsOf(trigger.id)).at(-1)).toMatchObject({ status: "failed" });
 });

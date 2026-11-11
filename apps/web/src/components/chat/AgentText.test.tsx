@@ -71,3 +71,16 @@ test("a link shows where it goes and opens only on a click; one that goes nowher
   expect(open).toHaveBeenCalledWith("https://example.org/docs", "_blank", "noopener,noreferrer");
   expect(screen.getAllByRole("button")).toHaveLength(2);
 });
+
+
+test("a code block names its language and copies only its code, with retry on failure", async () => {
+  const user = userEvent.setup();
+  const copy = vi.spyOn(navigator.clipboard, "writeText").mockRejectedValueOnce(new Error("Clipboard refused")).mockResolvedValue(undefined);
+  render(<Chat text={"Example:\n\n```ts\nconst answer = 42;\n```"} />);
+  expect(await screen.findByText("ts")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Copy code" }));
+  expect(await screen.findByText("Copy failed; try again")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Copy code" }));
+  expect(copy).toHaveBeenLastCalledWith("const answer = 42;\n");
+  expect(await screen.findByText("Copied")).toBeTruthy();
+});

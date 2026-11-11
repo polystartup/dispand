@@ -6,6 +6,18 @@ import { StorableText } from "../text.ts";
 /** A poll's arguments as JSON, at most: well inside a runner message once `{{lastPoll}}` is filled. */
 export const MAX_POLL_ARGUMENTS = 16 * 1024;
 
+/**
+ * Where a poll's result names its next page, and the argument that takes it: the value at `path`
+ * is the token itself, or with `query`, a link whose query parameter of that name is (Microsoft
+ * Graph's `@odata.nextLink` and its `$skiptoken`).
+ */
+export const PollContinuation = z.object({
+  path: z.string().trim().min(1).max(200),
+  query: z.string().trim().min(1).max(100).optional(),
+  argument: z.string().trim().min(1).max(200),
+});
+export type PollContinuation = z.infer<typeof PollContinuation>;
+
 export const TriggerConfig = z.discriminatedUnion("kind", [
   /** Started by the owner: a conversation with the agent, or a button. */
   z.object({ kind: z.literal("manual"), placement: z.enum(["chat", "button"]) }),
@@ -22,7 +34,8 @@ export const TriggerConfig = z.discriminatedUnion("kind", [
    * Fired by a poll: every `interval` seconds the scheduler calls `action` of the tool with
    * `arguments` (where `{{lastPoll}}` stands for the time the newest recorded item was found),
    * takes the list at `itemsPath` of its result (dots between keys; empty: the result itself) and
-   * starts a Job for each item whose `idPath` it hasn't seen.
+   * starts a Job for each item whose `idPath` it hasn't seen. With a `continuation`, it walks
+   * the result's pages; without one, each poll reads one call's result ("newer than" alone).
    */
   z.object({
     kind: z.literal("poll"),
@@ -32,6 +45,7 @@ export const TriggerConfig = z.discriminatedUnion("kind", [
     itemsPath: z.string().trim().max(200).default(""),
     idPath: z.string().trim().min(1).max(200),
     interval: z.number().int().min(60).max(86_400).default(300),
+    continuation: PollContinuation.optional(),
   }),
 ]);
 export type TriggerConfig = z.infer<typeof TriggerConfig>;
