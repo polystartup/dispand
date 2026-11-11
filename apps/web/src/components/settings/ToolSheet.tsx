@@ -9,11 +9,13 @@ import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
 import { FormField } from "./parts.tsx";
 import { PollableActions } from "./PollableActions.tsx";
+import { ToolSignIn } from "./ToolSignIn.tsx";
 
 export type Tool = Awaited<ReturnType<typeof api.tools.list>>[number];
 type Action = Tool["actions"][number];
 
 export const transportLabels = { "streamable-http": "Streamable HTTP", sse: "SSE" } as const;
+const signInLabels = { headers: "Headers", oauth: "OAuth sign-in" } as const;
 
 /** A header row: a stored one (`stored`) shows "Set" until it is replaced or removed. */
 type HeaderRow = { key: number; name: string; value: string; stored: boolean; removed: boolean };
@@ -38,6 +40,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
   const [name, setName] = useState(tool?.name ?? "");
   const [url, setUrl] = useState(tool?.url ?? "");
   const [transport, setTransport] = useState<keyof typeof transportLabels>(tool?.transport ?? "streamable-http");
+  const [signIn, setSignIn] = useState<keyof typeof signInLabels>(tool?.auth === "oauth" ? "oauth" : "headers");
   const [headers, setHeaders] = useState<HeaderRow[]>(
     tool?.headerNames.map((n, i) => ({ key: i, name: n, value: "", stored: true, removed: false })) ?? [],
   );
@@ -51,7 +54,8 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
   const update = useMutation(orpc.tools.update.mutationOptions({ onSuccess: invalidate }));
   const refresh = useMutation(orpc.tools.refresh.mutationOptions({ onSuccess: invalidate }));
   const del = useMutation(orpc.tools.delete.mutationOptions({ onSuccess: invalidate }));
-  const busy = create.isPending || update.isPending || del.isPending || refresh.isPending;
+  const authorize = useMutation(orpc.tools.authorize.mutationOptions({ onSuccess: invalidate }));
+  const busy = create.isPending || update.isPending || del.isPending || refresh.isPending || authorize.isPending;
 
   // Saved headers are for the server they were entered for: another origin or transport starts without them.
   const origin = (value: string) => {
@@ -67,16 +71,19 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
   async function save() {
     setError(null);
     const sent: Record<string, string> = {};
-    for (const row of headers) {
+    const oauth = signIn === "oauth";
+    // An OAuth tool sends no header: the server refuses them.
+    for (const row of oauth ? [] : headers) {
       const n = row.name.trim();
       if (!n) continue;
       if (row.removed) sent[n] = "";
       else if (row.value.trim() || !row.stored) sent[n] = row.value.trim();
     }
     try {
+      const auth = oauth ? ("oauth" as const) : current?.auth === "oauth" ? ("headers" as const) : undefined;
       const saved = current
-        ? await update.mutateAsync({ id: current.id, name, url: url.trim(), transport, headers: sent })
-        : await create.mutateAsync({ name, url: url.trim(), transport, headers: sent });
+        ? await update.mutateAsync({ id: current.id, name, url: url.trim(), transport, headers: sent, ...(auth ? { auth } : {}) })
+        : await create.mutateAsync({ name, url: url.trim(), transport, headers: sent, ...(auth ? { auth } : {}) });
       onSaved(saved);
     } catch (e) {
       setError(errorMessage(e, "Could not save the tool. Check the details and try again."));
@@ -90,6 +97,18 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
       setCurrent(await refresh.mutateAsync({ id: current.id }));
     } catch {
       setError("Could not refresh the actions.");
+    }
+  }
+
+  /** Connect or Re-authorize: the page leaves for the server's sign-in, which comes back to the tool. */
+  async function connect(client?: { clientId: string; clientSecret?: string } | null) {
+    if (!current) return;
+    setError(null);
+    try {
+      const { url: to } = await authorize.mutateAsync({ id: current.id, ...(client !== undefined ? { client } : {}) });
+      window.location.assign(to);
+    } catch (e) {
+      setError(errorMessage(e, "Could not start the sign-in."));
     }
   }
 
@@ -111,7 +130,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
         <SheetHeader className="px-6 pt-6">
           <SheetTitle className="text-[20px] tracking-tight">{current ? current.name : "Add MCP server"}</SheetTitle>
           <SheetDescription>
-            An MCP server reached over HTTP. It acts as whatever account its headers authorize.
+            An MCP server reached over HTTP. It acts as whatever account its headers, or its sign-in, authorize.
             {current?.plugin && ` From the plugin ${current.plugin.name}: removed with it.`}
           </SheetDescription>
         </SheetHeader>
@@ -152,61 +171,78 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
               </Select>
             </FormField>
 
-            <fieldset className="space-y-2">
-              <legend className="mb-1.5 text-[13px] font-medium text-muted">Headers</legend>
-              {elsewhere && headers.some((r) => r.stored && !r.removed) && (
-                <p role="status" className="rounded-lg bg-hover px-3 py-2 text-[13px] text-muted">
-                  This is another address: the saved headers are not sent there. Enter again the ones this server needs.
-                </p>
-              )}
-              {headers
-                .filter((r) => !r.removed)
-                .map((row) => (
-                  <div key={row.key} className="flex items-center gap-2">
-                    <Input
-                      aria-label="Header name"
-                      value={row.name}
-                      onChange={(e) => setRow(row.key, { name: e.target.value })}
-                      disabled={row.stored}
-                      placeholder="Authorization"
-                      maxLength={100}
-                      className="w-2/5"
-                    />
-                    <Input
-                      aria-label={`Value of ${row.name || "the header"}`}
-                      type="password"
-                      autoComplete="off"
-                      value={row.value}
-                      onChange={(e) => setRow(row.key, { value: e.target.value })}
-                      placeholder={row.stored ? (elsewhere ? "Not kept: enter it again" : "Set: leave empty to keep") : "Bearer …"}
-                      maxLength={4000}
-                      required={!row.stored}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Remove ${row.name || "header"}`}
-                      onClick={() => (row.stored ? setRow(row.key, { removed: true }) : setHeaders((rows) => rows.filter((r) => r.key !== row.key)))}
-                    >
-                      <X />
-                    </Button>
-                  </div>
-                ))}
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={headers.filter((r) => !r.removed).length >= 20}
-                onClick={() => {
-                  setHeaders((rows) => [...rows, { key: nextKey, name: "", value: "", stored: false, removed: false }]);
-                  setNextKey((k) => k + 1);
-                }}
-              >
-                <Plus /> Add header
-              </Button>
-              <p className="text-[12px] text-faint">Values are stored encrypted and never shown again.</p>
-            </fieldset>
+            <FormField label="Sign-in" htmlFor="tool-sign-in-kind" hint={signIn === "oauth" ? "You sign in to the server; Dispand keeps the sign-in encrypted and renews it." : undefined}>
+              <Select value={signIn} onValueChange={(v) => setSignIn(v as keyof typeof signInLabels)}>
+                <SelectTrigger id="tool-sign-in-kind" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(signInLabels).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+
+            {signIn === "headers" && (
+              <fieldset className="space-y-2">
+                <legend className="mb-1.5 text-[13px] font-medium text-muted">Headers</legend>
+                {elsewhere && headers.some((r) => r.stored && !r.removed) && (
+                  <p role="status" className="rounded-lg bg-hover px-3 py-2 text-[13px] text-muted">
+                    This is another address: the saved headers are not sent there. Enter again the ones this server needs.
+                  </p>
+                )}
+                {headers
+                  .filter((r) => !r.removed)
+                  .map((row) => (
+                    <div key={row.key} className="flex items-center gap-2">
+                      <Input
+                        aria-label="Header name"
+                        value={row.name}
+                        onChange={(e) => setRow(row.key, { name: e.target.value })}
+                        disabled={row.stored}
+                        placeholder="Authorization"
+                        maxLength={100}
+                        className="w-2/5"
+                      />
+                      <Input
+                        aria-label={`Value of ${row.name || "the header"}`}
+                        type="password"
+                        autoComplete="off"
+                        value={row.value}
+                        onChange={(e) => setRow(row.key, { value: e.target.value })}
+                        placeholder={row.stored ? (elsewhere ? "Not kept: enter it again" : "Set: leave empty to keep") : "Bearer …"}
+                        maxLength={4000}
+                        required={!row.stored}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Remove ${row.name || "header"}`}
+                        onClick={() => (row.stored ? setRow(row.key, { removed: true }) : setHeaders((rows) => rows.filter((r) => r.key !== row.key)))}
+                      >
+                        <X />
+                      </Button>
+                    </div>
+                  ))}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={headers.filter((r) => !r.removed).length >= 20}
+                  onClick={() => {
+                    setHeaders((rows) => [...rows, { key: nextKey, name: "", value: "", stored: false, removed: false }]);
+                    setNextKey((k) => k + 1);
+                  }}
+                >
+                  <Plus /> Add header
+                </Button>
+                <p className="text-[12px] text-faint">Values are stored encrypted and never shown again.</p>
+              </fieldset>
+            )}
 
             {error && (
               <p role="alert" className="text-[13px] text-danger">
@@ -227,6 +263,10 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
               )}
             </div>
           </form>
+
+          {current?.auth === "oauth" && current.oauthStatus && signIn === "oauth" && (
+            <ToolSignIn status={current.oauthStatus} clientId={current.oauthClientId} busy={busy} onConnect={(client) => void connect(client)} />
+          )}
 
           {current && (
             <section aria-labelledby="tool-actions" className="space-y-3">
