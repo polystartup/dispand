@@ -901,7 +901,7 @@ export class Engine {
         .where(and(eq(stepRuns.id, step.id), eq(stepRuns.status, "pending")))
         .returning();
       if (!claimed) return null;
-      const ran = await runDataStep(tx, { ownerId: run.ownerId, step: node, values });
+      const ran = await runDataStep(tx, { ownerId: run.ownerId, step: node, values, actor: { type: "step", runId: run.id, stepId: step.id } });
       if ("error" in ran) await this.fail(tx, claimed, ran.error, out);
       else await this.complete(tx, claimed, ran.outputs, out);
       return ran;

@@ -465,6 +465,16 @@
   table, created when it has none) and `parent_required`. With a required parent, `writeRow`
   refuses a new row without one and any write that empties it, deleting a parent row with
   children is a `CONFLICT` with their count, and the parent field can't be deleted or retyped.
+  Each write of a primitive table's row appends one row to the `events` outbox in the write's
+  transaction (`recordEvent`, a rollback leaves none): `created` with the values set,
+  `updated` with the fields that changed and their values before and after (a write that
+  changes nothing makes none), `deleted` with every field's last value, and the `actor`: the
+  signed-in user, the Job whose tool wrote it, or the Data step (`writeRow` requires it;
+  `actorOf` reads it from a procedure's context). Clearing references to deleted rows is an
+  event of each referring row, by the deleter. `processed_at` stays null until node C's
+  scheduler matches the event to triggers.
+  A schema change that rewrites cells (a choice removed, a retype, a field deleted) records
+  no event: it changes the table's shape, not a row someone wrote, and starts no Job.
 - **Rows (Data):** every row write, from a procedure or a Data step, goes through
   `writeRow` (`packages/domain/src/data/rows.ts`): it takes the table's row `FOR SHARE`, so it
   waits for a schema change and is then checked against the new fields (`cellSchema`), and it
