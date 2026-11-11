@@ -5,6 +5,8 @@ export const METRICS = {
   "dispand.scheduler.ticks": [],
   "dispand.scheduler.fires": ["dispand.fire.kind", "dispand.fire.result"],
   "dispand.scheduler.lag": ["dispand.fire.kind"],
+  // An outbox row appended: a table's row write (`table`) or a Question's or an Approval's (`interaction`).
+  "dispand.events.recorded": ["dispand.event.kind", "dispand.event.operation"],
   "dispand.polls": ["dispand.tool.kind", "dispand.result"],
   "dispand.poll.items": ["dispand.tool.kind"],
   "dispand.poll.duration": ["dispand.tool.kind", "dispand.result"],

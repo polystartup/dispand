@@ -306,7 +306,10 @@
   `skipped`, `failed`), `dispand.poll.walks` and `dispand.poll.walk.pages` walks and their pages
   by how they stopped (`ended`, `bounded`), with `dispand.poll.pages` on the span, never an item,
   an argument, a result or a token. `triggers.get` gives a poll trigger's `lastPolls`, each with what it found and its new items
-  (their ids are what the tool read: a Job calling it gets none). The agent's page
+  (their ids are what the tool read: a Job calling it gets none). The trigger sheet's "Poll" kind
+  (`PollTriggerPanel`) picks one of the agent's tools, one of its actions a poll may read now (`tools.pollable`),
+  the arguments as JSON, the items' and ids' paths, the interval in minutes and the hour's cap,
+  and lists the latest polls with what each found. The agent's page
   (`/settings/agents/<id>`) has three tabs: Settings, Triggers (`components/agents/TriggerList`,
   `TriggerSheet`, which reuses the schedule panel) and Jobs (`JobList`). A manual trigger goes
   on a page as a `trigger-form` widget (`widgets.trigger_id`, one per trigger and page):
@@ -667,6 +670,25 @@
   `actorOf` reads it from a procedure's context). Clearing references to deleted rows is an
   event of each referring row, by the deleter. `processed_at` is set once the scheduler has
   matched the event to triggers (see Jobs).
+  Questions and Approvals are a built-in primitive (`engine/interactions.ts`): asking,
+  answering and expiring one appends an `events` row in the same transaction, its `table_id`
+  the built-in kind `interaction`, its row the item's id, its operation `created`, `answered` or
+  `expired`, and its `after` the item's kind and the asking run, agent and step, never its text,
+  options or answer. It belongs to the asking Job's root, whoever wrote it (`root_id`), so a
+  paused root's interactions wait with its other events. A `primitive` trigger may name
+  `interaction` with those operations (no fields), only for an agent with `inbox`; its tools
+  declare no table. At dispatch the asking agent's own trigger is `skipped-same-agent`, and an
+  item the trigger's agent may not read now (`questions/inbox-scope.ts`, `reachable`, with
+  `agentScope`) is `out-of-scope` with no Job, so it is never revealed even as an id. `reachable`
+  is the one check of what an `inbox` reader sees: a Question, not an Approval; asked by a Job of
+  another agent, whose snapshot has no `configure` and whose tables are within the reader's;
+  never whether it is still open: the dispatch and start checks (`startable`) add that a
+  `created` event's item is still open (one answered or expired meanwhile is `out-of-scope`),
+  while `answered` and `expired` Jobs start on a closed item. A Job's scope (`jobScope`) is its snapshot's rights that its
+  agent still has (`platform/rights.ts`, as every tool call's). The Job's prompt holds the
+  item's id and the event's values (`INTERACTION_PROMPT`), and each start of its session checks
+  `startable` again with the Job's scope, failing the step otherwise. `dispand.events.recorded`
+  counts events by kind and operation; `scheduler.fire` has kind `interaction`.
   A schema change that rewrites cells (a choice removed, a retype, a field deleted) records
   no event: it changes the table's shape, not a row someone wrote, and starts no Job.
 - **Rows (Data):** every row write, from a procedure or a Data step, goes through

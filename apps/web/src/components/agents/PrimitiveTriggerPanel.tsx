@@ -4,7 +4,7 @@ import { orpc } from "../../lib/api.ts";
 import { selectClass } from "../data/NewFieldPopover.tsx";
 import { FormField } from "../settings/parts.tsx";
 
-export type Operation = "created" | "updated" | "deleted";
+export type Operation = "created" | "updated" | "deleted" | "answered" | "expired";
 export type ChangeConfig = { tableId: string; operations: Operation[]; fields?: string[] };
 export type EventFire = { eventId: string; at: Date; status: string; runId?: string; message?: string };
 
@@ -14,19 +14,27 @@ const OPERATIONS: [Operation, string][] = [
   ["deleted", "A row is deleted"],
 ];
 
+/** The built-in kind of Questions and Approvals, picked in place of a table. */
+const INTERACTION = "interaction";
+const INTERACTION_OPERATIONS: [Operation, string][] = [
+  ["created", "One is asked"],
+  ["answered", "One is answered"],
+  ["expired", "One expires"],
+];
+
 const statusText: Record<string, string> = {
   started: "Started a Job",
   deferred: "Waiting: the hour's cap is reached, or a Job is still going",
   "skipped-same-agent": "Skipped: this agent's own Job made the change",
   stopped: "Stopped: its work was declined at a checkpoint",
-  "out-of-scope": "Skipped: the agent may no longer read this table",
+  "out-of-scope": "Skipped: the agent may not read this",
 };
 
 const when = (date: Date) => new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" }).format(date);
 
 /**
- * A table-change trigger's settings: which primitive table, which changes (and, for a changed
- * row, which fields), how many Jobs an hour at most, and what its latest events did.
+ * A table-change trigger's settings: which primitive table (or Questions and Approvals), which
+ * changes (and, for a changed row, which fields), how many Jobs an hour at most, and what its latest events did.
  */
 export function PrimitiveTriggerPanel({
   config,
@@ -42,7 +50,8 @@ export function PrimitiveTriggerPanel({
   onRateCap: (cap: number) => void;
 }) {
   const tables = useQuery(orpc.tables.list.queryOptions());
-  const table = useQuery({ ...orpc.tables.get.queryOptions({ input: { id: config.tableId } }), enabled: !!config.tableId });
+  const interaction = config.tableId === INTERACTION;
+  const table = useQuery({ ...orpc.tables.get.queryOptions({ input: { id: config.tableId } }), enabled: !!config.tableId && !interaction });
   const primitives = (tables.data ?? []).filter((t) => t.primitive || t.id === config.tableId);
   const toggle = <T,>(list: T[], item: T, on: boolean) => (on ? [...list, item] : list.filter((x) => x !== item));
 
@@ -53,8 +62,9 @@ export function PrimitiveTriggerPanel({
         htmlFor="trigger-table"
         hint={primitives.length === 0 && tables.isSuccess ? "No table's changes are events yet: open a table's menu, Events and parent." : undefined}
       >
-        <select id="trigger-table" className={selectClass} value={config.tableId} onChange={(e) => onChange({ tableId: e.target.value, operations: config.operations })}>
+        <select id="trigger-table" className={selectClass} value={config.tableId} onChange={(e) => onChange({ tableId: e.target.value, operations: config.operations.filter((op) => (e.target.value === INTERACTION ? INTERACTION_OPERATIONS : OPERATIONS).some(([o]) => o === op)) })}>
           <option value="">Pick a table</option>
+          <option value={INTERACTION}>A Question or an Approval</option>
           {primitives.map((t) => (
             <option key={t.id} value={t.id}>
               {t.name}
@@ -65,7 +75,7 @@ export function PrimitiveTriggerPanel({
       <fieldset>
         <legend className="mb-1.5 text-[13px] font-medium text-muted">Starts when</legend>
         <div className="grid gap-1.5">
-          {OPERATIONS.map(([op, label]) => (
+          {(interaction ? INTERACTION_OPERATIONS : OPERATIONS).map(([op, label]) => (
             <label key={op} className="flex items-center gap-2 text-[14px]">
               <input
                 type="checkbox"
@@ -82,7 +92,7 @@ export function PrimitiveTriggerPanel({
           ))}
         </div>
       </fieldset>
-      {config.operations.includes("updated") && table.data && (
+      {!interaction && config.operations.includes("updated") && table.data && (
         <fieldset>
           <legend className="mb-1.5 text-[13px] font-medium text-muted">A change to</legend>
           <div className="grid gap-1.5">

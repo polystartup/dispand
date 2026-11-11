@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { answerText, Engine } from "../engine/engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "../engine/harness.ts";
-import { questions, stepRuns } from "../db/schema.ts";
+import { questions, stepRuns, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 
@@ -286,6 +286,24 @@ test("status all lists the open items first, then the done ones; pending lists o
   expect(await call(router.questions.list, { status: "pending" }, { context })).toHaveLength(2);
   // The count is of what waits.
   expect(await call(router.questions.count, undefined, { context })).toEqual({ count: 2 });
+});
+
+test("the count is of the owner's open items only: not answered, not expired, not another owner's", async () => {
+  const { context, question, emit } = await asked(choice);
+  await emit({ type: "question", questionId: "rq_2", payload: { kind: "confirm-outputs", values: {} } });
+  await emit({ type: "question", questionId: "rq_3", payload: permission });
+  await emit({ type: "question", questionId: "rq_4", payload: permission });
+  const rows = await context.db.select().from(questions);
+  const byRunnerId = (id: string) => rows.find((q) => q.runnerQuestionId === id)!;
+  const count = async () => (await call(router.questions.count, undefined, { context })).count;
+  expect(await count()).toBe(4);
+  await call(router.questions.answer, { questionId: question.id, answer: { kind: "choice", answers: { "Which tone?": "Formal", "Which extras?": ["Intro"] } } }, { context });
+  expect(await count()).toBe(3);
+  await context.db.update(questions).set({ status: "expired" }).where(eq(questions.id, byRunnerId("rq_2").id));
+  expect(await count()).toBe(2);
+  await context.db.insert(user).values({ id: "u_other", name: "Bob", email: "bob@example.com", emailVerified: true });
+  await context.db.update(questions).set({ ownerId: "u_other" }).where(eq(questions.id, byRunnerId("rq_3").id));
+  expect(await count()).toBe(1);
 });
 
 test("every open item is listed, and the 100 latest done ones", async () => {

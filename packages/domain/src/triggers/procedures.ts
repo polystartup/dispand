@@ -7,7 +7,7 @@ import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { pollProblem } from "../tools/pollable.ts";
 import { cronProblem, nextFireAfter } from "../workflows/schedule.ts";
-import { canonicalJson, Concurrency, RateCap, TriggerConfig, TriggerFields } from "./model.ts";
+import { canonicalJson, Concurrency, INTERACTION, RateCap, TriggerConfig, TriggerFields } from "./model.ts";
 
 const owner = base.use(authed);
 
@@ -31,7 +31,8 @@ function checkInstructions(config: TriggerConfig, instructions: string) {
 
 /**
  * A schedule's cron must parse. A primitive trigger watches a primitive table of the owner's,
- * its fields, and reads no more than its agent may: the agent has `data` on that table. A poll
+ * its fields, and reads no more than its agent may: the agent has `data` on that table; or the
+ * built-in `interaction`, for an agent with `inbox`. A poll
  * names an action of a tool its agent has, one a poll may read (`pollProblem`).
  */
 async function checkConfig(db: Db | Tx, ownerId: string, agent: Awaited<ReturnType<typeof requireAgent>>, config: TriggerConfig) {
@@ -44,6 +45,11 @@ async function checkConfig(db: Db | Tx, ownerId: string, agent: Awaited<ReturnTy
     if (problem) throw new ORPCError("BAD_REQUEST", { message: problem });
   }
   if (config.kind !== "primitive") return;
+  // Questions and Approvals (the built-in `interaction`): only an agent with `inbox` is started by them.
+  if (config.tableId === INTERACTION) {
+    if (!agent.bundles.includes("inbox")) throw new ORPCError("BAD_REQUEST", { message: "Only an agent with the Inbox can be started by Questions: give it the Inbox first" });
+    return;
+  }
   const [table] = await db
     .select({ primitive: tables.primitive })
     .from(tables)
