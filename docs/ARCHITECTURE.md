@@ -378,7 +378,8 @@
   `Engine.answer` calls `settleProposal` in the answer's transaction (`approved` on a
   person's yes, `declined` on a no). `questions.list` adds `proposal` (`proposalView`: the
   items, each with `refs`, the keys of its input that hold ids according to `REFS`, and the
-  names of those ids); the web shows it with `ProposalItems`.
+  names of those ids, a table-change trigger's table and fields included); the web shows it
+  with `ProposalItems`, which reads such a trigger's config in words (`ChangeConfig`).
 - **Inbox:** every question a session asks is a row of `questions` with a `kind`: a permission
   is an `approval`, a choice or a confirmation a `question` (set when it is asked; migration
   `0030` moved the existing ones). An answer records who gave it (`answered_by`, a user for
