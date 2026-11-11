@@ -230,7 +230,10 @@
   chain's first Job (`rootJobId`); `createJob` refuses past depth 10 or at 100 Jobs from one
   root, counted with the root's run row locked (`chain-limit`). The trigger node's outputs are the change (`operation`, `table_id`,
   `row_id`, `changed_field_ids`, `before`, `after`, JSON for the last three), carried in the
-  run's firing and written after the trigger's instructions (`CHANGE_PROMPT`); a row's
+  run's firing and written after the trigger's instructions (`CHANGE_PROMPT`); every start of
+  such a Job's session (the first, a resend once its runner is back, a resume) first checks
+  that its agent still has `data` on the table that changed, and fails the step otherwise, so a
+  revoked table's values are never sent; a row's
   values never reach telemetry, whose `scheduler.fire` span has kind `event`. Creating or
   changing a primitive trigger checks that the table is the owner's and primitive, the fields
   are its own, and the agent has `data` on it whenever the trigger is on (an off trigger is

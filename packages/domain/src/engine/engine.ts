@@ -1119,6 +1119,15 @@ export class Engine {
     }
     for (const key of held) this.inFlight.add(key);
     const sent = this.track(`start:${start.sessionId}`, async () => {
+      // Rights shrink at once: a Job told of a row's change never gets it once its agent may no
+      // longer read that table, however long its start waited (a runner offline, a resume).
+      if (await this.lostEventScope(step.runId)) {
+        outcome("refused");
+        const out: RunEvent[] = [];
+        await this.db.transaction((tx) => this.fail(tx, step, "The agent may no longer read the table that changed", out));
+        this.publish(step.runId, out);
+        return;
+      }
       if (!(await this.adapter.start(harness, start))) return outcome("offline");
       await this.db.update(stepRuns).set({ startDeliveredAt: new Date() }).where(eq(stepRuns.id, step.id));
       await written?.();
@@ -1136,6 +1145,18 @@ export class Engine {
       this.publish(step.runId, out);
     });
     this.keep(sent);
+  }
+
+  /** Whether the run is a Job fired by a row's change whose agent no longer has `data` on that row's table. */
+  private async lostEventScope(runId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ trigger: runs.trigger, bundles: agents.bundles, dataTables: agents.dataTables })
+      .from(runs)
+      .leftJoin(agents, eq(agents.id, runs.agentId))
+      .where(eq(runs.id, runId));
+    if (row?.trigger.type !== "event") return false;
+    const tableId = row.trigger.outputs.table_id ?? "";
+    return !row.bundles?.includes("data") || (row.dataTables !== "all" && !row.dataTables?.includes(tableId));
   }
 
   /** An answer reaches the session as an answer, or, for a question its lost session asked, as a message. */
