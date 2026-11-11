@@ -18,7 +18,9 @@ const copyMigrations: Plugin = {
 export default defineConfig({
   server: { port: 3000 },
   resolve: { tsconfigPaths: true },
-  // PGlite loads its wasm and data files next to its own code: keep it out of the bundle.
-  ssr: { external: ["@electric-sql/pglite"] },
+  // PGlite loads its wasm and data files next to its own code: keep it out of the bundle. The
+  // PostgreSQL driver too: its telemetry hooks it as it loads (`telemetry-preload.mjs`), which a
+  // bundled copy never does.
+  ssr: { external: ["@electric-sql/pglite", "pg"] },
   plugins: [tailwindcss(), tanstackStart(), viteReact(), copyMigrations, runnerHub()],
 });
