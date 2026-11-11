@@ -33,7 +33,8 @@
   a `tool.discover` and waits for the `tool.discovered` with its `requestId` from that same runner
   (not numbered, not acked; "runner offline" or "timed out" after 45 s otherwise); `hub.call`
   does the same with a `tool.call` (a poll's call of one action, protocol 9) and its
-  `tool.called` (the result's MCP content and `isError`, or why the runner refused), a reply of
+  `tool.called` (the result's MCP content, `isError` and `hasMore`, protocol 10: the server's
+  `_meta.result_has_more`, or why the runner refused), a reply of
   the other kind resolving nothing; `runner.tool_call` spans and `dispand.runner.tool_calls`
   and its duration count them by outcome (`ok`, `error`, `refused`, `failed`).
   `SessionStart` is a union on `harness` (`claude-code`, `codex`, whose permission modes are only
@@ -246,7 +247,66 @@
   to some tables can't propose a trigger on another. The trigger sheet's "Table change" kind
   (`PrimitiveTriggerPanel`) picks a primitive table (`tables.list` gives `primitive`), the
   changes, for a changed row any field or some, the hour's cap, and lists the latest events
-  with what each did. The agent's page
+  with what each did. A `poll` trigger (`{ toolId, action, arguments, itemsPath, idPath,
+  interval }`, interval in seconds, 60 to a day, default 300; migration 0045) makes a tool's
+  list or search action an event source. Creating or changing one, while it is on, checks
+  `pollProblem` (`tools/pollable.ts`): the tool is the owner's, its agent has it, the action is
+  `isPollable`. Its `next_fire_at` is when it is due (now when it is made, changed or turned on
+  again), its `last_checked_at` when its baseline was recorded (null again when its tool,
+  action, arguments or paths change, or it is turned on again). The scheduler's tick, after its
+  transaction, claims due polls in one transaction of its own (`FOR UPDATE SKIP LOCKED`, the
+  next time moved an interval on, a `polls` row each, the latest 20 kept): `pollProblem` runs
+  again first, and a poll that fails it is recorded `skipped` with why and calls nothing. Once
+  that commits, each poll's call runs outside any transaction, for 60 s at most, all of them at
+  once but those of one runner's tool, one after the other (the runner calls each of its tools
+  once at a time), each checked again right before its call (the trigger unchanged, its tool
+  there, `pollProblem`), as it may have waited for another (`tools/poll.ts`: an HTTP tool through `InstalledTools` and the connector, a runner tool
+  through `hub.call`), with `{{lastPoll}}` in its arguments' strings filled with the newest
+  `first_seen` of the trigger's items (the trigger's creation before any), never a call's time,
+  so a poll that recorded nothing never moves it. Its data is the result's structured content,
+  else its text as JSON; its items are the list at `itemsPath` (keys between dots, empty: the
+  result), each identified by a string or a number at `idPath` (items without one are counted
+  and left out; all the others kept, however many: one left for later could fall before the next
+  `{{lastPoll}}`). A poll may declare its `continuation` (`{ path, query?, argument }`, migration
+  0046): where a result names its next page (the token at `path`, or with `query`, that query
+  parameter of the link there, as Graph's `@odata.nextLink` and its `$skiptoken`; a key holding
+  dots is read whole first) and the argument that takes it. It then walks one fixed query: the
+  trigger's `poll_cursor` keeps the walk's `{{lastPoll}}`, when it began and the next page's
+  token; each later call passes the token, a page naming the next is followed at once, one that
+  doesn't ends the walk (the cursor cleared: only then does `{{lastPoll}}` move), at most 20 pages
+  a poll (`MAX_WALK_PAGES`; past them the walk goes on from its token at the next interval, and the
+  poll's message says so). A walk's items are first seen when it began, so the next walk's
+  `ge {{lastPoll}}` repeats its boundary items, which `poll_items`' key drops. A first walk is a
+  baseline across its pages (`last_checked_at` set when it ends). A next page that can't be
+  followed (not text, not a link, without the parameter, past 8 KiB) fails the poll and keeps the
+  cursor; a token is the server's opaque string, never in a message, a log or telemetry. Changing
+  what the trigger reads clears the cursor (a new baseline); changing only its continuation keeps
+  the walk's query and starts it over from its first page. A poll without a continuation
+  reads one call's result, as before. A result the server cut short at its own cap
+  (`_meta.result_has_more`, `hasMore` over HTTP and in `tool.called`) is polled again on the
+  next tick. A second transaction per page, the trigger locked `FOR NO KEY
+  UPDATE`, records nothing when the trigger was turned off or changed meanwhile, else inserts
+  each item into `poll_items` once (unique on `(trigger_id, item_id)`, with its content as JSON,
+  its `first_seen` the claim's time, or its walk's start): the baseline poll as `baseline`, starting nothing, later
+  ones as `deferred` (`refused` past 256 KiB), then, `pollProblem` checked again, starts a Job
+  for as many as the trigger has room for (its rate cap and one at a time, as primitive
+  triggers), each Job created in the same transaction as its item's `started`. A crash between
+  the call and that record leaves the items unrecorded and the next poll calls again; an item
+  already recorded never starts a Job again. Each tick also tries the deferred items, trigger by
+  trigger and oldest first, from their rows, whatever later polls return (`out-of-scope` when
+  `pollProblem` fails then, `refused` when the trigger is off, and when its tool, action,
+  arguments or paths change, so an item is never told under another source than its own). The Job's cause is `poll` (the
+  trigger and the item id, depth 0), each item a root cause of its own (kind `poll`, 6.1's checkpoints), its firing carries the tool and the action, and the
+  trigger node's outputs are `item_id` and `item`, written after the instructions
+  (`POLL_PROMPT`); every start of its session first checks `pollProblem` against the agent and
+  the tool as they are then, and fails the step otherwise (`refusedForScope`), so the item is
+  never sent once the agent lost the tool or the action stopped being pollable. A
+  `scheduler.poll` span and `dispand.polls`, `dispand.poll.items` and `dispand.poll.duration`
+  count polls, new items and durations by tool kind and outcome (`baseline`, `polled`,
+  `skipped`, `failed`), `dispand.poll.walks` and `dispand.poll.walk.pages` walks and their pages
+  by how they stopped (`ended`, `bounded`), with `dispand.poll.pages` on the span, never an item,
+  an argument, a result or a token. `triggers.get` gives a poll trigger's `lastPolls`, each with what it found and its new items
+  (their ids are what the tool read: a Job calling it gets none). The agent's page
   (`/settings/agents/<id>`) has three tabs: Settings, Triggers (`components/agents/TriggerList`,
   `TriggerSheet`, which reuses the schedule panel) and Jobs (`JobList`). A manual trigger goes
   on a page as a `trigger-form` widget (`widgets.trigger_id`, one per trigger and page):
@@ -258,7 +318,16 @@
   renders it over the library's unstyled primitives, a question through `QuestionForm` and
   `questions.answer`. The agent's text goes through `components/chat/AgentText.tsx` (the library's markdown
   primitive with a `urlTransform`, `img` and `a` overrides and `skipHtml`). Nothing else
-  imports the library. The panel keeps its own composer. A Job's
+  imports the library. The thread uses message copy actions and a jump-to-latest control;
+  code fences have language headers and copy buttons. The panel uses the library's growing
+  input but owns its controlled draft and send form: failed sends retain the draft, typing
+  during delivery is kept, and messages can still be sent during a run. Messages use a wider
+  reading layout and tool traces use compact cards. A working indicator is not shown because
+  the run view does not distinguish an idle chat from a turn in progress. For the same reason,
+  the runtime renders text snapshots as available (including copying the latest text) instead
+  of marking the last message as streaming until the entire Job ends.
+  Editing, regeneration, branching, uploads and cancellation are not exposed by this frontend
+  integration: they need separate run semantics and API support. A Job's
   questions are listed in Notifications with its agent.
 - **Checkpoints** (`engine/roots.ts`): every Job has a root cause, a `roots` row (`kind`: `user`
   for a start by hand, `chat`, `schedule`, `event` for a person's or a workflow's write, `poll`),

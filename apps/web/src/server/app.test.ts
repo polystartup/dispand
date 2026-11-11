@@ -20,6 +20,8 @@ vi.mock("@dispand/domain", () => ({
     },
   }),
   getScheduler: () => ({ start: () => {}, stop: async () => {} }),
+  InstalledTools: class {},
+  pollCaller: () => ({}),
   sweepAttachments: async () => ({ removed: 0 }),
   logError: () => {},
   startTelemetry: () => true,

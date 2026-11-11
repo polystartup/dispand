@@ -104,6 +104,14 @@ changes it updates this file.
   creating or changing an agent, so the same gate refuses them without an approved item. An
   item is also checked against the Job's tables when it is proposed, like any call: a Job
   limited to some tables can't put another table's deletion in front of the owner.
+- **A poll is never a way around action approvals or an agent's tools.** The scheduler calls a
+  tool outside any Job only for a poll trigger whose action the tool lets polls read and no agent
+  must ask before using, of a tool its agent has (`pollProblem`): checked when the trigger is
+  made or changed, before every call (a poll that fails it calls nothing and says why), before
+  every Job of an item, and before every start of such a Job's session, which never gets its
+  item once the agent lost the tool. Its call takes the tool's own path (the connector's address
+  guard and redaction, or the runner's own checks), and what it reads (items, arguments,
+  results) never reaches telemetry.
 - **The server calls no address an agent chose before a person approved it, and an agent
   never handles a tool's credentials.** An agent adds a tool only as a proposal item
   (`tools.add`: a name, a URL and a transport, nothing else; a URL with credentials or any

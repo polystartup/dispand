@@ -41,7 +41,8 @@ export type ToolAction = McpAction & { outputSchema?: Record<string, unknown>; r
  */
 export type ToolFile = { name: string; bytes: Uint8Array };
 
-export type ToolResult = { text: string; structured?: Record<string, unknown>; isError: boolean; files?: ToolFile[] };
+/** `hasMore`: the server stopped at its own cap (`_meta.result_has_more`), with more to give. */
+export type ToolResult = { text: string; structured?: Record<string, unknown>; isError: boolean; files?: ToolFile[]; hasMore?: boolean };
 
 /**
  * A failed listing or call, with a short reason made here (host, status), never the server's own
@@ -269,6 +270,7 @@ export function createMcpConnector(opts: { fetch?: typeof fetch } = {}): ToolCon
         ...(structured && typeof structured === "object" && !Array.isArray(structured) ? { structured: clean(structured as Record<string, unknown>) } : {}),
         isError: result.isError === true,
         ...(files.length > 0 ? { files } : {}),
+        ...(result._meta?.result_has_more === true ? { hasMore: true } : {}),
       };
   }
 }

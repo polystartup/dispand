@@ -183,7 +183,9 @@ export type RunTrigger =
   | { type: "manual" }
   | { type: "schedule"; scheduledFor: string }
   /** A primitive trigger's event, with what the trigger node gives the Job: the change. */
-  | { type: "event"; eventId: string; outputs: Record<string, string> };
+  | { type: "event"; eventId: string; outputs: Record<string, string> }
+  /** A poll trigger's new item, with the action that found it and what the trigger node gives the Job: the item. */
+  | { type: "poll"; triggerId: string; itemId: string; toolId: string; action: string; outputs: Record<string, string> };
 export type StepStatus = "pending" | "running" | "waiting" | "succeeded" | "failed" | "skipped";
 
 /** Who waits on a queued step, served in this order (`engine/slots.ts`): a person, a resume, a new start. */
@@ -213,6 +215,7 @@ export type JobCause = (
   | { kind: "schedule"; scheduledFor: string }
   /** `jobId`: the Job whose write it was; `rootJobId`: the first Job of the chain (Jobs made before roots were counted). */
   | { kind: "event"; eventId: string; jobId?: string; rootJobId?: string }
+  /** A poll's new item: always the root of its chain. */
   | { kind: "poll"; triggerId: string; itemId: string }
 ) & { depth: number };
 
@@ -298,8 +301,15 @@ export const runs = pgTable(
 );
 
 export type ScheduleFireStatus = "started" | "skipped-overlap" | "refused";
-export type TriggerKind = "manual" | "schedule" | "primitive";
+export type TriggerKind = "manual" | "schedule" | "primitive" | "poll";
 export type TriggerConcurrency = "parallel" | "one-at-a-time";
+
+/**
+ * A poll's walk under way: `{{lastPoll}}` as it was when the walk began (every page runs that one
+ * query), when it began (its items' `first_seen`), and the server's token for the next page (null:
+ * the walk starts over from its first page, its continuation changed).
+ */
+export type PollCursor = { lastPoll: string; startedAt: string; token: string | null };
 
 /** What makes an agent work: each firing creates a Job. A schedule's next fire is claimed by the scheduler. */
 export const triggers = pgTable(
@@ -318,12 +328,15 @@ export const triggers = pgTable(
     // Added to the Job's prompt for this trigger.
     instructions: text("instructions").notNull().default(""),
     concurrency: text("concurrency").$type<TriggerConcurrency>().notNull().default("parallel"),
-    // A primitive trigger's most Jobs in an hour; an event past it waits (`event_fires`, deferred).
+    // A primitive or poll trigger's most Jobs in an hour; an event or item past it waits (deferred).
     rateCap: integer("rate_cap").notNull().default(60),
     config: jsonb("config").$type<TriggerConfig>().notNull(),
-    // Set for schedules only, with the meaning they have on `schedules`.
+    // Set for schedules, with the meaning they have on `schedules`. For a poll: when the next poll
+    // is due, and when its baseline was recorded (null: the next poll is its baseline).
     nextFireAt: timestamp("next_fire_at", { withTimezone: true }),
     lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    // A poll walking its tool's continuation: where the walk is (null between walks).
+    pollCursor: jsonb("poll_cursor").$type<PollCursor>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -721,6 +734,70 @@ export const eventFires = pgTable(
     unique().on(t.triggerId, t.eventId),
     index("event_fires_deferred_idx").on(t.createdAt).where(sql`${t.status} = 'deferred'`),
     index("event_fires_started_idx").on(t.triggerId, t.startedAt),
+  ],
+);
+
+export type PollStatus = "calling" | "baseline" | "polled" | "skipped" | "failed";
+
+/**
+ * One poll of a poll trigger: claimed (`calling`, its call under way or cut short), then what it
+ * came to. `baseline`: the first poll since the trigger was made, changed or turned on, which
+ * records what exists and starts nothing. A trigger keeps its latest `MAX_POLLS_KEPT`.
+ */
+export const polls = pgTable(
+  "polls",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    triggerId: text("trigger_id")
+      .notNull()
+      .references(() => triggers.id, { onDelete: "cascade" }),
+    // When it was claimed, before its call: what its new items' `first_seen` is.
+    at: timestamp("at", { withTimezone: true }).notNull(),
+    status: text("status").$type<PollStatus>().notNull(),
+    // Items the call returned, and how many of them were new.
+    found: integer("found").notNull().default(0),
+    fresh: integer("fresh").notNull().default(0),
+    message: text("message"),
+  },
+  (t) => [index("polls_trigger_idx").on(t.triggerId, t.at)],
+);
+
+export type PollItemStatus = "baseline" | "started" | "deferred" | "out-of-scope" | "refused";
+
+/**
+ * Each item a poll trigger has seen, once (the unique key), with its content (what its Job is
+ * told). A deferred item (past the rate cap, or one at a time with a Job going) is tried again
+ * each tick from this row, whatever later polls return.
+ */
+export const pollItems = pgTable(
+  "poll_items",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    triggerId: text("trigger_id")
+      .notNull()
+      .references(() => triggers.id, { onDelete: "cascade" }),
+    itemId: text("item_id").notNull(),
+    // The item as JSON.
+    content: text("content").notNull(),
+    // The poll that found it: its claim's time (`{{lastPoll}}` is the newest of these).
+    firstSeen: timestamp("first_seen", { withTimezone: true }).notNull(),
+    status: text("status").$type<PollItemStatus>().notNull(),
+    runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
+    message: text("message"),
+    // When its Job was created: what the rate cap counts.
+    startedAt: timestamp("started_at", { withTimezone: true }),
+  },
+  (t) => [
+    unique().on(t.triggerId, t.itemId),
+    index("poll_items_deferred_idx").on(t.firstSeen).where(sql`${t.status} = 'deferred'`),
+    index("poll_items_started_idx").on(t.triggerId, t.startedAt),
+    index("poll_items_seen_idx").on(t.triggerId, t.firstSeen),
   ],
 );
 

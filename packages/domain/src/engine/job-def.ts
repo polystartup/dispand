@@ -18,6 +18,14 @@ export const CHANGE_PROMPT = [
   "- Values after: {{trigger.after}}",
 ].join("\n");
 
+/** What a poll trigger's Job is told of its item, filled from the trigger node's outputs. */
+export const POLL_PROMPT = ["The item that started this Job (id {{trigger.item_id}}):", "{{trigger.item}}"].join("\n");
+
+/** A poll trigger node's outputs for one item: its id, and its content as JSON. */
+export function pollOutputs(item: { itemId: string; content: string }): Record<string, string> {
+  return { item_id: item.itemId, item: item.content };
+}
+
 /** A primitive trigger node's outputs for one event: ids as they are, the rest as JSON. */
 export function eventOutputs(event: {
   tableId: string;
@@ -55,8 +63,9 @@ export function jobDef(input: {
       edges: [],
     };
   }
-  // A primitive trigger's change, as its node's outputs (`eventOutputs`), follows the instructions.
-  const prompt = config.kind === "primitive" ? `${trigger.instructions}\n\n${CHANGE_PROMPT}` : trigger.instructions;
+  // A primitive trigger's change, or a poll's item, as its node's outputs, follows the instructions.
+  const prompt =
+    config.kind === "primitive" ? `${trigger.instructions}\n\n${CHANGE_PROMPT}` : config.kind === "poll" ? `${trigger.instructions}\n\n${POLL_PROMPT}` : trigger.instructions;
   return {
     trigger:
       config.kind === "schedule"

@@ -1,7 +1,8 @@
 // Test fixture: a stdio MCP server with one action, `echo`, which returns its text and the value
 // of `ECHO_PREFIX`, then the names of the `DISPAND_*` variables it sees, if any.
 // `ECHO_LEAK=<VAR>` puts that variable's value in its description; `ECHO_MCP_HANG=1` makes it never answer;
-// `ECHO_READ_ONLY=1` marks `echo` read-only (`readOnlyHint`); `ECHO_META=<key>` adds `_meta: { <key>: "x" }` to its result's item.
+// `ECHO_READ_ONLY=1` marks `echo` read-only (`readOnlyHint`); `ECHO_META=<key>` adds `_meta: { <key>: "x" }` to its result's item;
+// `ECHO_HAS_MORE=1` adds `_meta: { result_has_more: true }` to the result itself.
 import { Server } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 
@@ -26,6 +27,7 @@ else {
         ...(process.env.ECHO_META ? { _meta: { [process.env.ECHO_META]: "x" } } : {}),
       },
     ],
+    ...(process.env.ECHO_HAS_MORE === "1" ? { _meta: { result_has_more: true } } : {}),
   }));
   await server.connect(new StdioServerTransport());
 }
