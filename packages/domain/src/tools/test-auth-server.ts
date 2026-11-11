@@ -23,6 +23,8 @@ type Options = {
   /** A refresh token used twice revokes the whole grant (rotation reuse detection); refreshes answer after `refreshDelayMs`. */
   revokesOnReuse?: boolean;
   refreshDelayMs?: number;
+  /** After the first refresh, every other one is refused with this error code. */
+  refusesLaterRefreshesWith?: string;
   /** Runs before the token endpoint answers (to change things while an exchange is under way). */
   beforeToken?: () => Promise<void>;
 };
@@ -151,6 +153,7 @@ export async function startFakeAuthServer(options: Options = {}): Promise<FakeAu
             refresh.clear();
             return json(res, 400, { error: "invalid_grant" });
           }
+          if (options.refusesLaterRefreshesWith && used.size > 0) return json(res, 400, { error: options.refusesLaterRefreshesWith });
           used.add(form.refresh_token ?? "");
           if (options.refusesRefresh || owner !== client) {
             return json(res, options.refusalStatus ?? 400, { error: "invalid_grant", ...(options.describeRefusal ? { error_description: `The grant ${form.refresh_token} was revoked` } : {}) });

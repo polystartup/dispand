@@ -7,6 +7,7 @@ import { ownerContext } from "../runners/test-support.ts";
 import { InstalledTools } from "./executor.ts";
 import { createMcpConnector, httpsOnly } from "./mcp.ts";
 import { finishToolAuthorization, handleToolOAuthCallback } from "./oauth.ts";
+import { refreshTurns } from "./oauth-provider.ts";
 import { openState } from "./oauth-store.ts";
 import { startFakeAuthServer, startRecorder } from "./test-auth-server.ts";
 import { startFakeMcp, type FakeAction } from "./test-server.ts";
@@ -404,4 +405,27 @@ test("an OAuth connection's requests are https only, but to this machine", async
   await guarded("http://127.0.0.1:8080/token");
   await guarded("http://localhost/token");
   expect(reached).toEqual(["https://auth.example.com/token", "http://127.0.0.1:8080/token", "http://localhost/token"]);
+});
+
+test("a call cancelled while it waits for another's refresh gives its turn back, and the tool's next refresh still runs", async () => {
+  const { as, mcp } = await servers({ metadataDocuments: true, refreshDelayMs: 300, refusesLaterRefreshesWith: "invalid_scope" });
+  const ctx = await context();
+  const tool = await oauthTool(ctx, mcp.url);
+  await connect(ctx, tool.id);
+  as.expireAccessTokens();
+  const installed = new InstalledTools(ctx.db, ctx.secrets, ctx.tools);
+  const current = await row(ctx, tool.id);
+  const cancelled = new AbortController();
+  const first = installed.call(current, "echo", { text: "a" }, new AbortController().signal);
+  // The second call waits for the first one's refresh, and is cancelled meanwhile.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const second = installed.call(current, "echo", { text: "b" }, cancelled.signal);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  cancelled.abort();
+  expect(await second).toEqual({ ok: false, error: "The call was cancelled" });
+  expect(await first).toEqual({ ok: true, result: { text: "a", isError: false } });
+  // Once the first refresh ended, the cancelled call refreshed nothing and holds nothing.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(as.tokenRequests.filter((r) => r.form.grant_type === "refresh_token")).toHaveLength(1);
+  expect(refreshTurns()).toBe(0);
 });

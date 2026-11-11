@@ -787,7 +787,8 @@
   the connection's screen) before the SDK, which logs the description, reads it; an OAuth
   connection's requests are https only but to loopback (`httpsOnly`). Refreshes of one tool run
   one after the other in the process (a refresh token is used once), each with the tokens the
-  last one saved. Telemetry: `tool.oauth.<step>` spans and
+  last one saved; a turn is only held by a connection still open (one that comes after the
+  connection ended is given back at once, and that attempt stops). Telemetry: `tool.oauth.<step>` spans and
   `dispand.tool.oauth` (step, result). Settings → Tools
   (`_app.settings.tools.tsx`, `ToolSheet.tsx`) lists the tools, adds and edits them (header
   values are password fields, shown as "Set" once stored) and shows each action's parameters.

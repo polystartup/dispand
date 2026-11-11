@@ -71,6 +71,9 @@ async function turn(key: string): Promise<() => void> {
   };
 }
 
+/** Refreshes under way or waiting, all tools together (tests). */
+export const refreshTurns = () => refreshes.size;
+
 /** How long a started flow stays valid. */
 export const FLOW_TTL_MS = 10 * 60_000;
 
@@ -128,6 +131,12 @@ export function createOAuthProvider(store: OAuthStore, mode: OAuthMode, appUrl: 
     held?.();
     held = undefined;
   };
+  /**
+   * Set once the connection ended. A turn is only ever held by a connection still open, which
+   * gives it back as it ends: one that comes after the end is given back at once, and that SDK
+   * attempt stops there.
+   */
+  let closed = false;
 
   const provider: OAuthClientProvider = {
     get redirectUrl() {
@@ -177,7 +186,14 @@ export function createOAuthProvider(store: OAuthStore, mode: OAuthMode, appUrl: 
       // Connect and Re-authorize start over: no stored token is sent or refreshed.
       if (mode.kind === "authorize") return undefined;
       // With `ctx`, the SDK is about to refresh: after any refresh under way, with what it saved.
-      if (ctx && mode.kind === "use" && !held) held = await turn(store.key);
+      if (ctx && mode.kind === "use" && !held) {
+        const mine = await turn(store.key);
+        if (closed) {
+          mine();
+          throw new ToolError("The call ended before its sign-in could be renewed");
+        }
+        held = mine;
+      }
       const state = await store.read();
       const tokens = keep(state.issuers[issuerOf(state, ctx) ?? ""]?.tokens);
       used = tokens?.refresh_token;
@@ -257,7 +273,10 @@ export function createOAuthProvider(store: OAuthStore, mode: OAuthMode, appUrl: 
     started: () => (flow.url && flow.state ? { url: flow.url, pending: { state: flow.state, verifier: flow.verifier, discovery: flow.discovery, expiresAt: Date.now() + FLOW_TTL_MS } } : undefined),
     /** Discovery succeeded but no client could be had: the server supports neither metadata documents nor registration. */
     needsClient: () => discovered && !client,
-    /** Gives back the tool's refresh turn, if the connection ended holding it. */
-    release,
+    /** The connection ended: its refresh turn is given back, now or as soon as it comes. */
+    release: () => {
+      closed = true;
+      release();
+    },
   };
 }
