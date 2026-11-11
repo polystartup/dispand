@@ -191,7 +191,8 @@ const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input,
 function unusedName(base: string, taken: Set<string>): string {
   for (let i = 1; ; i++) {
     const suffix = i === 1 ? "" : ` (${i})`;
-    const name = `${base.slice(0, 100 - suffix.length).trimEnd()}${suffix}`;
+    // Cut by code points, never through a surrogate pair.
+    const name = `${[...base].slice(0, 100 - suffix.length).join("").slice(0, 100 - suffix.length).replace(/[\uD800-\uDBFF]$/, "").trimEnd()}${suffix}`;
     if (!taken.has(name.toLowerCase())) return name;
   }
 }
