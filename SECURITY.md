@@ -92,6 +92,11 @@ changes it updates this file.
   since, and the procedure's own checks still apply (what isn't the owner's stays refused). A
   person may approve more than the proposing agent holds: that is what a grant is, and why
   the owner is shown every item whole.
+- **Long work waits for a person; it is never cut.** The Jobs from one root cause pause at the
+  workspace's checkpoint, and only a person's answer to its Approval lets them go on: no tool
+  answers a question, and every path that makes a session work again reads the root's state
+  first (`rootGoing`). A declined root makes no Job and none of its sessions works again, after a
+  reconnect or a restart included.
 - **What can't be undone, what removes a question and what starts Jobs are grants too.**
   Deleting a table or a field, changing an action's asking flag, and creating, changing or
   deleting a trigger (what starts an agent's Jobs, and what the agent is told then) are in the registry with the same mark as

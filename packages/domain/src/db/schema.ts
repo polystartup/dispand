@@ -207,14 +207,57 @@ export type AgentSnapshot = {
   bundles?: Bundle[];
   tables?: TableScope;
 };
-/** What made a Job, and how many Jobs deep its chain is (0 for a user or a schedule). */
+/** What made a Job, and how many Jobs deep its chain is (0 for a user or a schedule): information only, never a limit. */
 export type JobCause = (
   | { kind: "user" }
   | { kind: "schedule"; scheduledFor: string }
-  /** `jobId`: the Job whose write it was; `rootJobId`: the first Job of the chain, which every Job of it counts against. */
+  /** `jobId`: the Job whose write it was; `rootJobId`: the first Job of the chain (Jobs made before roots were counted). */
   | { kind: "event"; eventId: string; jobId?: string; rootJobId?: string }
   | { kind: "poll"; triggerId: string; itemId: string }
 ) & { depth: number };
+
+export type RootKind = "user" | "chat" | "schedule" | "event" | "poll";
+export type RootState = "going" | "paused" | "stopped";
+
+/**
+ * A root cause (design 6.1): a person's start or write, a chat message, a schedule fire, a poll
+ * item. Every Job it leads to counts here (`Engine.createJob`, with the row locked), and each
+ * time `jobs - counted_from` reaches the workspace's checkpoint the root pauses and asks a
+ * person: approved, it goes on (`counted_from` moves up); "don't ask again" (`dont_ask`) ends its
+ * checkpoints; declined, it stops for good.
+ */
+export const roots = pgTable(
+  "roots",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<RootKind>().notNull(),
+    // The run it started from: a chat's run, or its first Job. Its Approval is asked on it.
+    runId: text("run_id"),
+    jobs: integer("jobs").notNull().default(0),
+    // The Jobs counted when it last went on: the next checkpoint is `checkpoint` Jobs further.
+    countedFrom: integer("counted_from").notNull().default(0),
+    state: text("state").$type<RootState>().notNull().default("going"),
+    dontAsk: boolean("dont_ask").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("roots_paused_idx").on(t.ownerId).where(sql`${t.state} = 'paused'`)],
+);
+
+/** The workspace's settings, one row per owner (none: the defaults). */
+export const workspaceSettings = pgTable(
+  "workspace_settings",
+  {
+    ownerId: text("owner_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    // How many Jobs of one root cause go before a person is asked (design 6.1).
+    checkpoint: integer("checkpoint").notNull().default(100),
+  },
+  (t) => [check("workspace_settings_checkpoint_range", sql`${t.checkpoint} between 1 and 100000`)],
+);
 
 export const runs = pgTable(
   "runs",
@@ -233,6 +276,8 @@ export const runs = pgTable(
     def: jsonb("def").$type<WorkflowDef>(),
     snapshot: jsonb("snapshot").$type<AgentSnapshot>(),
     cause: jsonb("cause").$type<JobCause>(),
+    // A Job's root cause (`roots`); a chat's moves to each message of the owner. Null for a workflow run.
+    rootId: text("root_id").references(() => roots.id),
     // A Job's token for the Job endpoint (`platform/token.ts`): its hash and its sealed form, never the token.
     tokenHash: text("token_hash").unique(),
     tokenSealed: text("token_sealed"),
@@ -248,6 +293,7 @@ export const runs = pgTable(
     index("runs_workflow_idx").on(t.workflowId, t.createdAt),
     index("runs_agent_idx").on(t.agentId, t.createdAt),
     index("runs_status_idx").on(t.status),
+    index("runs_root_idx").on(t.rootId),
   ],
 );
 
@@ -507,12 +553,11 @@ export const questions = pgTable(
     runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
-    stepRunId: text("step_run_id")
-      .notNull()
-      .references(() => stepRuns.id, { onDelete: "cascade" }),
-    sessionId: text("session_id").notNull(),
+    // A checkpoint's Approval has no session (and, outside a chat, no step).
+    stepRunId: text("step_run_id").references(() => stepRuns.id, { onDelete: "cascade" }),
+    sessionId: text("session_id"),
     // The id the runner gave it, sent back with the answer.
-    runnerQuestionId: text("runner_question_id").notNull(),
+    runnerQuestionId: text("runner_question_id"),
     placement: text("placement").$type<"chat" | "notifications">().notNull(),
     // An approval authorizes an action (a permission); a question asks for words or a choice.
     kind: text("kind").$type<QuestionKind>().notNull().default("question"),
@@ -533,8 +578,14 @@ export const questions = pgTable(
     deliveredAt: timestamp("delivered_at"),
     // Asked by a session the runner lost and resumed since: its answer goes as a chat message.
     orphaned: boolean("orphaned").notNull().default(false),
+    // A checkpoint's Approval (design 6.1): the root cause it pauses. No session waits on it.
+    rootId: text("root_id").references(() => roots.id, { onDelete: "cascade" }),
   },
-  (t) => [unique().on(t.sessionId, t.runnerQuestionId), index("questions_run_idx").on(t.runId)],
+  (t) => [
+    unique().on(t.sessionId, t.runnerQuestionId),
+    index("questions_run_idx").on(t.runId),
+    uniqueIndex("questions_checkpoint_idx").on(t.rootId).where(sql`${t.status} = 'pending'`),
+  ],
 );
 
 // Dashboards: the home page (one per owner, fixed) and its widgets.
@@ -631,17 +682,20 @@ export const events = pgTable(
     before: jsonb("before").$type<Record<string, Cell>>().notNull(),
     after: jsonb("after").$type<Record<string, Cell>>().notNull(),
     actor: jsonb("actor").$type<EventActor>().notNull(),
+    // The root cause of the Job that wrote it, as it was then; null: the write is a root of its own.
+    rootId: text("root_id").references(() => roots.id),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     processedAt: timestamp("processed_at"),
   },
   (t) => [index("events_unprocessed_idx").on(t.createdAt).where(sql`${t.processedAt} is null`), index("events_table_row_idx").on(t.tableId, t.rowId)],
 );
 
-export type EventFireStatus = "started" | "deferred" | "skipped-same-agent" | "chain-limit" | "out-of-scope" | "refused";
+export type EventFireStatus = "started" | "deferred" | "skipped-same-agent" | "out-of-scope" | "refused" | "stopped";
 
 /**
  * What one event did for one primitive trigger, once (the unique key). A deferred fire (past the
- * rate cap, or one at a time with a Job going) is tried again each tick until it starts.
+ * rate cap, or one at a time with a Job going) is tried again each tick until it starts, or its
+ * root cause is declined at a checkpoint (`stopped`).
  */
 export const eventFires = pgTable(
   "event_fires",

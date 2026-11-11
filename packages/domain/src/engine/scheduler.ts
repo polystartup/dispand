@@ -1,11 +1,12 @@
-import { and, asc, count, eq, gt, inArray, isNull, lte } from "drizzle-orm";
+import { and, asc, count, eq, gt, inArray, isNull, lte, ne, or } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { agents, eventFires, events, runs, scheduleFires, schedules, triggerFires, triggers, workflows, workflowVersions, type EventFireStatus, type JobCause, type ScheduleFireStatus } from "../db/schema.ts";
+import { agents, eventFires, events, roots, runs, scheduleFires, schedules, triggerFires, triggers, workflows, workflowVersions, type EventFireStatus, type JobCause, type ScheduleFireStatus } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { latestFireBetween, nextFireAfter } from "../workflows/schedule.ts";
-import { CHAIN_LIMIT, EngineError, runIssues, type Engine } from "./engine.ts";
+import { EngineError, runIssues, type Engine } from "./engine.ts";
+import { newRoot, ROOT_STOPPED } from "./roots.ts";
 import { eventOutputs } from "./job-def.ts";
 
 /** How often the scheduler looks for due schedules. */
@@ -44,6 +45,9 @@ const EVENT_BATCH = 100;
 const HOUR_MS = 3_600_000;
 
 type EventRow = typeof events.$inferSelect;
+
+/** An event whose root cause isn't paused at a checkpoint: a paused root's events wait, unclaimed, like a deferred fire. */
+const notPaused = or(isNull(roots.state), ne(roots.state, "paused"));
 type TriggerRow = typeof triggers.$inferSelect;
 
 /** Whether a primitive trigger watches this event: its table, its operation and, for an update, one of its fields. */
@@ -118,6 +122,7 @@ export class Scheduler {
 
   private async tickWork(): Promise<string[]> {
     const started = await this.claim();
+    await this.engine.announceCheckpoints();
     for (const runId of [...this.stalled, ...started]) {
       try {
         await this.engine.continueRun(runId);
@@ -211,40 +216,74 @@ export class Scheduler {
         .select({ id: eventFires.id, event: events })
         .from(eventFires)
         .innerJoin(events, eq(events.id, eventFires.eventId))
-        .where(and(eq(eventFires.triggerId, triggerId), eq(eventFires.status, "deferred")))
+        .leftJoin(roots, eq(roots.id, events.rootId))
+        .where(and(eq(eventFires.triggerId, triggerId), eq(eventFires.status, "deferred"), notPaused))
         .orderBy(asc(eventFires.createdAt), asc(eventFires.id))
         .limit(room)
         .for("update", { of: eventFires, skipLocked: true });
       for (const fire of fires) {
-        const runId = await this.tryFire(tx, triggerId, fire.event, fire.id, now);
+        const root = await this.lockRoot(tx, fire.event);
+        if (!root) continue;
+        const runId = await this.tryFire(tx, triggerId, fire.event, fire.id, now, root);
         if (runId) started.push(runId);
       }
     }
     const due = await tx
-      .select()
+      .select({ event: events })
       .from(events)
-      .where(isNull(events.processedAt))
+      .leftJoin(roots, eq(roots.id, events.rootId))
+      .where(and(isNull(events.processedAt), notPaused))
       .orderBy(asc(events.createdAt), asc(events.id))
       .limit(EVENT_BATCH)
-      .for("update", { skipLocked: true });
+      .for("update", { of: events, skipLocked: true });
     const watching = new Map<string, TriggerRow[]>();
-    for (const event of due) {
+    for (const { event } of due) {
       if (!watching.has(event.ownerId)) {
         watching.set(event.ownerId, await tx.select().from(triggers).where(and(eq(triggers.ownerId, event.ownerId), eq(triggers.kind, "primitive"), eq(triggers.enabled, true))));
       }
-      for (const trigger of watching.get(event.ownerId)!.filter((t) => watches(t, event))) {
-        const [fire] = await tx
-          .insert(eventFires)
-          .values({ id: newId("fire"), ownerId: event.ownerId, triggerId: trigger.id, eventId: event.id, status: "deferred", createdAt: event.createdAt })
-          .onConflictDoNothing()
-          .returning({ id: eventFires.id });
-        if (!fire) continue;
-        const runId = await this.tryFire(tx, trigger.id, event, fire.id, now);
-        if (runId) started.push(runId);
+      const matching = watching.get(event.ownerId)!.filter((t) => watches(t, event));
+      if (matching.length > 0) {
+        // Its root's state is read once, here: every Job its triggers call for is made, even past
+        // the checkpoint, and the pause holds from the next event.
+        const root = await this.lockRoot(tx, event);
+        if (!root) continue;
+        if (root.state !== "stopped") {
+          for (const trigger of matching) {
+            const [fire] = await tx
+              .insert(eventFires)
+              .values({ id: newId("fire"), ownerId: event.ownerId, triggerId: trigger.id, eventId: event.id, status: "deferred", createdAt: event.createdAt })
+              .onConflictDoNothing()
+              .returning({ id: eventFires.id });
+            if (!fire) continue;
+            const runId = await this.tryFire(tx, trigger.id, event, fire.id, now, root);
+            if (runId) started.push(runId);
+          }
+        }
       }
       await tx.update(events).set({ processedAt: now }).where(eq(events.id, event.id));
     }
     return started;
+  }
+
+  /**
+   * The event's root cause, locked until the tick commits, so that two schedulers count its Jobs
+   * one after the other: the root of the Job that wrote it, or, for a person's or a workflow's
+   * write, a new root of its own (kept on the event, for its deferred fires). Null when another
+   * scheduler holds it or it is paused: the event waits for a later tick.
+   */
+  private async lockRoot(tx: Tx, event: EventRow): Promise<{ id: string; state: string } | null> {
+    let rootId = event.rootId;
+    if (!rootId && event.actor.type !== "user") {
+      const [writer] = await tx.select({ rootId: runs.rootId }).from(runs).where(eq(runs.id, event.actor.runId));
+      rootId = writer?.rootId ?? null;
+    }
+    if (!rootId) {
+      rootId = await newRoot(tx, event.ownerId, "event", null);
+      await tx.update(events).set({ rootId }).where(eq(events.id, event.id));
+      event.rootId = rootId;
+    }
+    const [root] = await tx.select({ id: roots.id, state: roots.state }).from(roots).where(eq(roots.id, rootId)).for("update", { skipLocked: true });
+    return root && root.state !== "paused" ? root : null;
   }
 
   /** How many Jobs a primitive trigger may start now: what its rate cap leaves of the last hour, and one at a time, none while one is going. */
@@ -264,9 +303,9 @@ export class Scheduler {
   }
 
   /** One event's fire for one trigger, in its own span and savepoint; a failure leaves it deferred, for the next tick. */
-  private async tryFire(tx: Tx, triggerId: string, event: EventRow, fireId: string, now: Date): Promise<string | null> {
+  private async tryFire(tx: Tx, triggerId: string, event: EventRow, fireId: string, now: Date, root: { id: string; state: string }): Promise<string | null> {
     try {
-      return await fired("event", event.createdAt, now, () => tx.transaction((sp) => this.fireEvent(sp, triggerId, event, fireId, now)));
+      return await fired("event", event.createdAt, now, () => tx.transaction((sp) => this.fireEvent(sp, triggerId, event, fireId, now, root)));
     } catch (err) {
       logError("scheduler.fireEvent failed", err);
       return null;
@@ -278,10 +317,11 @@ export class Scheduler {
    * key-share lock an `event_fires` insert takes on its trigger) so that no other scheduler checks its
    * limits meanwhile, and read as it is now: no Job when it no longer watches this change, when
    * the write was by a Job of its own agent, or when the agent may no longer read the event's
-   * table; deferred when it has no room; otherwise a Job, one deeper than the Job that wrote the
-   * row, unless its chain is at its limit.
+   * table; deferred when it has no room; none either once its root cause was declined at a
+   * checkpoint (`stopped`); otherwise a Job of that root, one deeper than the Job that wrote the
+   * row (with no limit of depth: the root's checkpoints catch a loop).
    */
-  private async fireEvent(tx: Tx, triggerId: string, event: EventRow, fireId: string, now: Date): Promise<Fired> {
+  private async fireEvent(tx: Tx, triggerId: string, event: EventRow, fireId: string, now: Date, root: { id: string; state: string }): Promise<Fired> {
     const record = async (status: EventFireStatus, set: { runId?: string; message?: string } = {}): Promise<Fired> => {
       await tx
         .update(eventFires)
@@ -289,6 +329,7 @@ export class Scheduler {
         .where(eq(eventFires.id, fireId));
       return { runId: set.runId ?? null, result: status };
     };
+    if (root.state === "stopped") return record("stopped", { message: ROOT_STOPPED });
     const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, triggerId)).for("no key update");
     if (!trigger?.enabled || !watches(trigger, event)) return record("refused", { message: "The trigger no longer watches this change" });
     const writer = event.actor.type === "user" ? null : (await tx.select({ id: runs.id, agentId: runs.agentId, source: runs.source, cause: runs.cause }).from(runs).where(eq(runs.id, event.actor.runId)))[0];
@@ -317,12 +358,13 @@ export class Scheduler {
           triggerId: trigger.id,
           cause,
           firing: { type: "event", eventId: event.id, outputs: eventOutputs(event) },
+          rootId: root.id,
         }),
       );
       return record("started", { runId });
     } catch (err) {
       if (!(err instanceof EngineError)) throw err;
-      return err.message === CHAIN_LIMIT ? record("chain-limit", { message: err.message }) : record("refused", { message: err.message });
+      return record(err.code === "STOPPED" ? "stopped" : "refused", { message: err.message });
     }
   }
 

@@ -18,7 +18,7 @@ const statusText: Record<string, string> = {
   started: "Started a Job",
   deferred: "Waiting: the hour's cap is reached, or a Job is still going",
   "skipped-same-agent": "Skipped: this agent's own Job made the change",
-  "chain-limit": "Skipped: chain limit reached",
+  stopped: "Stopped: its work was declined at a checkpoint",
   "out-of-scope": "Skipped: the agent may no longer read this table",
 };
 
@@ -120,7 +120,7 @@ export function PrimitiveTriggerPanel({
             {events.map((f) => (
               <li key={f.eventId} className="flex flex-wrap justify-between gap-x-3">
                 <span className="text-muted">{when(f.at)}</span>
-                <span className={f.status === "refused" || f.status === "out-of-scope" || f.status === "chain-limit" ? "text-danger" : undefined}>
+                <span className={f.status === "refused" || f.status === "out-of-scope" || f.status === "stopped" ? "text-danger" : undefined}>
                   {f.status === "started" && f.runId ? (
                     <a href={`/settings/workflows/runs/${f.runId}`}>{statusText.started}</a>
                   ) : (

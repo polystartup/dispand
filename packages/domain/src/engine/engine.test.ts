@@ -1256,16 +1256,6 @@ test("editing the agent leaves a created Job's session unchanged", async () => {
   expect(adapter.starts[0]!.harness.model).toBe("opus");
 });
 
-test("a Job over the chain limit is refused", async () => {
-  const { context, engine, agent, trigger } = await jobSetup();
-  const job = (depth: number) =>
-    engine.db.transaction((tx) =>
-      engine.createJob(tx, { ownerId: context.ownerId, agentId: agent.id, triggerId: trigger.id, cause: { kind: "event", eventId: "evt_1", depth }, firing: { type: "manual" } }),
-    );
-  await expect(job(11)).rejects.toMatchObject({ code: "INVALID", message: "Chain limit reached" });
-  expect(await job(10)).toMatch(/^run_/);
-});
-
 test("a Job is refused for a disabled trigger, another agent's trigger or another owner", async () => {
   const { context, engine, agent, harness, trigger } = await jobSetup();
   const other = await call(router.agents.create, { name: "Other", harnessId: harness.id, systemPrompt: "" }, { context });

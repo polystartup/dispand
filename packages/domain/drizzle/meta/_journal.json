@@ -309,6 +309,13 @@
       "when": 1794417713706,
       "tag": "0043_job_attachments",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794420648041,
+      "tag": "0044_checkpoints",
+      "breakpoints": true
     }
   ]
 }
