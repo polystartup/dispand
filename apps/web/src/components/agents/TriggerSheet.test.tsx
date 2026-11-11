@@ -4,7 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ triggers: { create: vi.fn(), update: vi.fn(), delete: vi.fn() } }));
+const fake = vi.hoisted(() => ({ triggers: { create: vi.fn(), update: vi.fn(), delete: vi.fn() }, tables: { list: vi.fn(), get: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -105,4 +105,90 @@ test("TriggerSheet starts a schedule in a timezone schedules accept, whatever th
   expect(screen.queryByText("Unknown timezone")).toBeNull();
   await user.click(screen.getByRole("button", { name: "Create trigger" }));
   expect(fake.triggers.create.mock.calls[0]![0]).toMatchObject({ config: { kind: "schedule", timezone: "Europe/Paris" } });
+});
+
+const clients = { id: "tbl_1", name: "Clients", primitive: true, rowCount: 2, updatedAt: new Date() };
+const clientFields = { id: "tbl_1", name: "Clients", fields: [{ id: "fld_name", name: "Name" }, { id: "fld_city", name: "City" }] };
+
+test("TriggerSheet creates a table-change trigger on a primitive table: its changes, its fields and its hour's cap", async () => {
+  fake.triggers.create.mockResolvedValue({});
+  fake.tables.list.mockResolvedValue([clients, { ...clients, id: "tbl_2", name: "Notes", primitive: false }]);
+  fake.tables.get.mockResolvedValue(clientFields);
+  const { user } = mount();
+  await user.type(screen.getByLabelText("Name"), "New clients");
+  await user.type(screen.getByLabelText("Instructions"), "Welcome them.");
+  await user.click(screen.getByRole("radio", { name: "Table change" }));
+  // Only primitive tables are offered.
+  expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Pick a table", "Clients"]);
+  await user.click(screen.getByRole("button", { name: "Create trigger" }));
+  expect(screen.getByRole("alert").textContent).toBe("Pick the table whose changes start the Job");
+  await user.selectOptions(screen.getByLabelText("Table"), "tbl_1");
+  await user.click(screen.getByRole("checkbox", { name: "A row is created" }));
+  await user.click(await screen.findByRole("checkbox", { name: "Any field" }));
+  await user.click(screen.getByRole("checkbox", { name: "City" }));
+  await user.clear(screen.getByLabelText("At most, Jobs an hour"));
+  await user.type(screen.getByLabelText("At most, Jobs an hour"), "10");
+  await user.click(screen.getByRole("button", { name: "Create trigger" }));
+  expect(fake.triggers.create.mock.calls[0]![0]).toEqual({
+    agentId: "agent_1",
+    name: "New clients",
+    instructions: "Welcome them.",
+    concurrency: "parallel",
+    rateCap: 10,
+    config: { kind: "primitive", tableId: "tbl_1", operations: ["updated", "created"], fields: ["fld_city"] },
+  });
+});
+
+test("TriggerSheet drops the field filter with row changes", async () => {
+  fake.triggers.create.mockResolvedValue({});
+  fake.tables.list.mockResolvedValue([clients]);
+  fake.tables.get.mockResolvedValue(clientFields);
+  const { user } = mount();
+  await user.type(screen.getByLabelText("Name"), "New clients");
+  await user.type(screen.getByLabelText("Instructions"), "Welcome them.");
+  await user.click(screen.getByRole("radio", { name: "Table change" }));
+  await user.selectOptions(screen.getByLabelText("Table"), "tbl_1");
+  await user.click(await screen.findByRole("checkbox", { name: "Any field" }));
+  await user.click(screen.getByRole("checkbox", { name: "A row is created" }));
+  await user.click(screen.getByRole("checkbox", { name: "A row is changed" }));
+  await user.click(screen.getByRole("button", { name: "Create trigger" }));
+  expect(fake.triggers.create.mock.calls[0]![0]).toMatchObject({ config: { kind: "primitive", tableId: "tbl_1", operations: ["created"] } });
+  expect(fake.triggers.create.mock.calls[0]![0].config).not.toHaveProperty("fields");
+});
+
+test("TriggerSheet edits a table-change trigger as one, and shows what its latest events did", async () => {
+  fake.triggers.update.mockResolvedValue({});
+  fake.tables.list.mockResolvedValue([clients]);
+  fake.tables.get.mockResolvedValue(clientFields);
+  const trigger = {
+    id: "trigger_1",
+    agentId: "agent_1",
+    name: "On change",
+    kind: "primitive",
+    enabled: true,
+    instructions: "Look.",
+    concurrency: "parallel",
+    rateCap: 60,
+    config: { kind: "primitive", tableId: "tbl_1", operations: ["deleted"] },
+    lastFires: [],
+    lastEvents: [
+      { eventId: "evt_2", at: new Date(), status: "chain-limit", message: "Chain limit reached" },
+      { eventId: "evt_1", at: new Date(), status: "out-of-scope", message: "The agent may no longer read this table" },
+    ],
+  };
+  const { user } = mount(trigger);
+  expect(screen.getAllByRole("radio").map((r) => r.textContent)).toEqual(["Table change"]);
+  const recent = screen.getByRole("list", { name: "Recent" }).textContent;
+  expect(recent).toContain("Skipped: chain limit reached");
+  expect(recent).toContain("Skipped: the agent may no longer read this table");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(fake.triggers.update.mock.calls[0]![0]).toEqual({
+    id: "trigger_1",
+    name: "On change",
+    instructions: "Look.",
+    concurrency: "parallel",
+    enabled: true,
+    rateCap: 60,
+    config: { kind: "primitive", tableId: "tbl_1", operations: ["deleted"] },
+  });
 });

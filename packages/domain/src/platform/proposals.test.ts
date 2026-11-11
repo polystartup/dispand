@@ -274,6 +274,17 @@ test("a Job limited to some tables can't propose deleting another table, or a fi
   expect(await s.propose([{ tool: "tables_delete", input: { id: mine.id } }], job)).toMatchObject({ ok: true });
 });
 
+test("a Job limited to some tables can't propose a trigger watching another table", async () => {
+  const s = await setup();
+  const mine = await call(router.tables.create, { name: "Mine" }, { context: s.context });
+  const other = await call(router.tables.create, { name: "Other" }, { context: s.context });
+  await call(router.agents.update, { ...s.base, id: s.agent.id, dataTables: [mine.id] }, { context: s.context });
+  const job = await s.start();
+  const watch = (tableId: string) => ({ agentId: s.agent.id, name: "On change", instructions: "Look.", config: { kind: "primitive", tableId, operations: ["created"] } });
+  expect(await s.propose([{ tool: "triggers_create", input: watch(other.id) }], job)).toMatchObject({ ok: false, error: expect.stringContaining("Not found") });
+  expect(await s.propose([{ tool: "triggers_create", input: watch(mine.id) }], job)).toMatchObject({ ok: true });
+});
+
 test("the owner reads a name for the table, the field, the agent and the tool an item points at; what isn't theirs has none", async () => {
   const s = await setup();
   const { context } = s;

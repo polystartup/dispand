@@ -2,7 +2,7 @@ import { isProcedure } from "@orpc/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { fields, rows } from "../db/schema.ts";
+import { fields, rows, triggers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import { ProposeInput } from "./proposals.ts";
@@ -58,6 +58,17 @@ const str = (input: unknown, key: string): string | null => {
   return typeof value === "string" ? value : null;
 };
 const none = async () => [];
+/** The table a primitive trigger's config watches, if it is one. */
+const watchedBy = (config: unknown): (string | null)[] => {
+  const c = config as { kind?: unknown; tableId?: unknown } | undefined;
+  return c?.kind === "primitive" ? [typeof c.tableId === "string" ? c.tableId : null] : [];
+};
+/** A trigger change's tables: what its new config watches, and what the trigger watched before. */
+async function triggerTables(db: Db, ownerId: string, input: unknown): Promise<(string | null)[]> {
+  const id = str(input, "id");
+  const [current] = id ? await db.select({ config: triggers.config }).from(triggers).where(and(eq(triggers.id, id), eq(triggers.ownerId, ownerId))) : [];
+  return [...watchedBy((input as { config?: unknown })?.config), ...watchedBy(current?.config)];
+}
 const named = (key: string) => async (_db: Db, _ownerId: string, input: unknown) => [str(input, key)];
 
 /** The tables of these rows; `null` for each id that isn't a row of the owner's. */
@@ -151,9 +162,9 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("fields.delete", "configure", `Deletes a field with its values in every row: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: tableOfField, grant: true }),
   tool("triggers.list", "configure", "Lists an agent's triggers: what starts its Jobs (a button, a chat, a schedule), with their instructions.", { tables: none }),
   tool("triggers.get", "configure", "Gives one trigger by its id.", { tables: none }),
-  tool("triggers.create", "configure", `Creates a trigger for an agent: what starts a Job and what the agent is told then. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
-  tool("triggers.update", "configure", `Changes a trigger: its name, instructions, schedule, or whether it is on. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
-  tool("triggers.delete", "configure", `Deletes a trigger. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool("triggers.create", "configure", `Creates a trigger for an agent: what starts a Job and what the agent is told then. ${NEEDS_PROPOSAL}`, { tables: async (_db, _ownerId, input) => watchedBy((input as { config?: unknown })?.config), grant: true }),
+  tool("triggers.update", "configure", `Changes a trigger: its name, instructions, schedule, or whether it is on. ${NEEDS_PROPOSAL}`, { tables: triggerTables, grant: true }),
+  tool("triggers.delete", "configure", `Deletes a trigger. ${NEEDS_PROPOSAL}`, { tables: triggerTables, grant: true }),
   tool("tools.list", "configure", "Lists the tools (MCP servers) agents can be given, with their ids, addresses and actions. Header values are never shown.", { tables: none }),
   tool("tools.get", "configure", "Gives one tool by its id.", { tables: none }),
   tool("tools.add", "configure", `Adds a tool: an MCP server reached at a URL, with no credentials (the owner enters those afterwards). ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
