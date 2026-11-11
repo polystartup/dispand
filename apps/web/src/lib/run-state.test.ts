@@ -26,7 +26,7 @@ test("the stream stops only once the run is over; otherwise it reconnects, backi
   expect(afterStream(over, 0)).toEqual({ stop: true });
   expect(afterStream({ ...over, run: { ...over.run, status: "failed" } }, 0)).toEqual({ stop: true });
   // Failed, but a parallel step still works: its result is still to come.
-  const working = { id: "s2", runId: "run_1", nodeId: "n2", iteration: 0, status: "running" as const, outputs: null, error: null, startedAt: at, finishedAt: null, interactive: false, prompt: null };
+  const working = { id: "s2", runId: "run_1", nodeId: "n2", iteration: 0, status: "running" as const, outputs: null, error: null, startedAt: at, finishedAt: null, queuedAt: null, interactive: false, prompt: null };
   expect(afterStream({ ...over, run: { ...over.run, status: "failed" }, steps: [working] }, 0)).toEqual({ stop: false, delayMs: 1000 });
   // An active run whose stream ended (error or a proxy's clean close) reconnects.
   expect(afterStream(snapshot, 0)).toEqual({ stop: false, delayMs: 1000 });

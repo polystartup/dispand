@@ -122,8 +122,10 @@ export const harnesses = pgTable("harnesses", {
   maxTokens: integer("max_tokens"),
   effort: text("effort").$type<"low" | "medium" | "high">(),
   temperature: doublePrecision("temperature"),
+  // How many of its sessions may work on a turn at once (`engine/slots.ts`); the rest queue.
+  maxWorking: integer("max_working").notNull().default(5),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [check("harnesses_max_working_range", sql`${t.maxWorking} between 1 and 100`)]);
 
 export const agents = pgTable("agents", {
   id: text("id").primaryKey(),
@@ -183,6 +185,11 @@ export type RunTrigger =
   /** A primitive trigger's event, with what the trigger node gives the Job: the change. */
   | { type: "event"; eventId: string; outputs: Record<string, string> };
 export type StepStatus = "pending" | "running" | "waiting" | "succeeded" | "failed" | "skipped";
+
+/** Who waits on a queued step, served in this order (`engine/slots.ts`): a person, a resume, a new start. */
+export type QueueClass = "person" | "resume" | "new";
+/** What a step handed a slot does once that commits: its session's start. */
+export type PendingAction = { kind: "start" };
 
 /** The agent as it was when its Job was created: the Job's sessions read it, not the `agents` row. */
 export type AgentSnapshot = {
@@ -369,8 +376,21 @@ export const stepRuns = pgTable(
     error: text("error"),
     startedAt: timestamp("started_at"),
     finishedAt: timestamp("finished_at"),
+    // An agent step's harness, whose slots it takes (`engine/slots.ts`); null for the other steps.
+    harnessId: text("harness_id").references(() => harnesses.id, { onDelete: "set null" }),
+    // Holds one of its harness's slots: its session works on a turn, or is about to start.
+    working: boolean("working").notNull().default(false),
+    // Waiting for a slot since then, served by class, then oldest first; null when not queued.
+    queuedAt: timestamp("queued_at"),
+    queueClass: text("queue_class").$type<QueueClass>(),
+    // Handed a slot, not done yet: replayed by `recover()` if the process stopped before.
+    pendingAction: jsonb("pending_action").$type<PendingAction>(),
   },
-  (t) => [unique().on(t.runId, t.nodeId, t.iteration)],
+  (t) => [
+    unique().on(t.runId, t.nodeId, t.iteration),
+    index("step_runs_queued_idx").on(t.harnessId, t.queuedAt).where(sql`${t.queuedAt} is not null`),
+    index("step_runs_working_idx").on(t.harnessId).where(sql`${t.working}`),
+  ],
 );
 
 /** Chat transcripts and step transcripts: assistant text (deltas appended), user messages, tool calls. */

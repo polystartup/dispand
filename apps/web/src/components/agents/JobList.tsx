@@ -35,7 +35,7 @@ export function JobList({ agentId }: { agentId: string }) {
             className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-4 transition hover:bg-hover"
           >
             <span className="flex min-w-0 items-center gap-3">
-              <Status status={r.status} />
+              <Status status={r.queued && r.status === "running" ? "queued" : r.status} />
               <span className="truncate text-[15px] font-medium">{(r.triggerId && names.get(r.triggerId)) || "Deleted trigger"}</span>
               <span className="text-[13px] text-muted">{triggerText(r.trigger)}</span>
             </span>

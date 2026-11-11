@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import type { Tx } from "../db/client.ts";
@@ -375,7 +375,12 @@ const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agent
     )
     .orderBy(desc(runsTable.createdAt), desc(runsTable.id))
     .limit(50);
-  return rows.map(runView);
+  // The runs with a step waiting for a slot of its harness (`engine/slots.ts`).
+  const ids = rows.map((r) => r.id);
+  const queued = ids.length
+    ? new Set((await context.db.selectDistinct({ runId: stepRuns.runId }).from(stepRuns).where(and(inArray(stepRuns.runId, ids), isNotNull(stepRuns.queuedAt)))).map((r) => r.runId))
+    : new Set<string>();
+  return rows.map((r) => ({ ...runView(r), queued: queued.has(r.id) }));
 });
 
 export const runs = { start, sendChat, stop, get: getRun, stream, list: listRuns };

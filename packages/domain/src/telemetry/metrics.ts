@@ -13,6 +13,10 @@ export const METRICS = {
   "dispand.questions.answered": ["dispand.question.kind", "dispand.answer.decision"],
   "dispand.question.wait": ["dispand.question.kind"],
   "dispand.sessions.started": ["dispand.harness.kind", "dispand.result"],
+  // Ids are the owner's few harnesses, never user content.
+  "dispand.harness.working": ["dispand.harness.id", "dispand.harness.kind"],
+  "dispand.harness.queued": ["dispand.harness.id", "dispand.harness.kind"],
+  "dispand.harness.queue_wait": ["dispand.queue.class"],
   "dispand.runner.connections": ["dispand.result"],
   "dispand.runner.messages": ["dispand.message.type"],
   "dispand.runner.disconnects": [],

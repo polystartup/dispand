@@ -36,6 +36,7 @@ function row(id: string, nodeId: string, iteration: number, over: Partial<Step> 
     error: null,
     startedAt: new Date(2026, 10, 7, 9, 0, seconds),
     finishedAt: new Date(2026, 10, 7, 9, 0, seconds),
+    queuedAt: null,
     interactive: false,
     prompt: null,
     ...over,
@@ -67,6 +68,14 @@ test("RunSteps groups body steps by iteration", () => {
   expect(within(iteration).getByRole("region", { name: "Summarize" })).toBeTruthy();
   expect(screen.getAllByRole("region", { name: "Summarize" })).toHaveLength(3);
   expect(screen.getAllByRole("region", { name: "Each" })).toHaveLength(1);
+});
+
+test("a step waiting for a slot of its harness shows as queued", () => {
+  seconds = 0;
+  show([row("s0", "n_brief", 0, { status: "pending", startedAt: null, finishedAt: null, queuedAt: new Date(2026, 10, 7, 9, 0, 0) })]);
+  const card = screen.getByRole("region", { name: /./ });
+  expect(within(card).getByText("queued")).toBeTruthy();
+  expect(within(card).getByText(/since/)).toBeTruthy();
 });
 
 test("a finished loop counts its iterations, and what follows it stays at the top level", () => {

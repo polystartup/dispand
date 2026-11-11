@@ -29,6 +29,8 @@ const tones: Record<string, string> = {
   failed: "text-danger",
   running: "text-fg",
   waiting: "text-fg",
+  // Waiting for a slot of its harness.
+  queued: "text-muted",
   expired: "text-muted",
   // An untaken branch: grey, like nothing happened there.
   skipped: "text-faint",
@@ -68,7 +70,7 @@ export function RunList({ workflowId }: { workflowId?: string }) {
             className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-4 transition hover:bg-hover"
           >
             <span className="flex min-w-0 items-center gap-3">
-              <Status status={r.status} />
+              <Status status={r.queued && r.status === "running" ? "queued" : r.status} />
               {!workflowId && <span className="truncate text-[15px] font-medium">{r.workflowId ? (names.get(r.workflowId) ?? "Workflow") : "Job"}</span>}
               <span className="text-[13px] text-muted">{triggerText(r.trigger)}</span>
             </span>
