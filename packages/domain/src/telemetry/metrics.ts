@@ -20,6 +20,8 @@ export const METRICS = {
   "dispand.runner.connections": ["dispand.result"],
   "dispand.runner.messages": ["dispand.message.type"],
   "dispand.runner.disconnects": [],
+  "dispand.runner.tool_calls": ["dispand.result"],
+  "dispand.runner.tool_call.duration": ["dispand.result"],
   "dispand.tool.calls": ["dispand.result"],
   "dispand.tool.duration": ["dispand.result"],
   "dispand.attachments.stored": ["dispand.attachment.source"],

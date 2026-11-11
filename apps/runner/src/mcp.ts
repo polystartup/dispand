@@ -1,10 +1,13 @@
 // The MCP servers a session gets: by URL from Dispand, or the runner's own (runner tools).
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { isAbsolute, resolve } from "node:path";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { Client, type Tool } from "@modelcontextprotocol/client";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { JOB_SERVER_NAME, JOB_TOOLS_SERVER, McpAction, type McpServerRef, SHORT } from "@dispand/runner-protocol";
-import type { RunnerConfig } from "./config.ts";
+import { overlapping, type RunnerConfig } from "./config.ts";
 import type { JsonValue } from "./codex/protocol/serde_json/JsonValue.ts";
 import { cleanJson, FRAME_BUDGET, protocolString } from "./sanitize.ts";
 
@@ -110,7 +113,7 @@ function action(tool: Tool, secrets: string[]): McpAction {
   const name = protocolString(redact(tool.name, secrets), Infinity);
   const inputSchema = cleanJson(redact(tool.inputSchema, secrets), Infinity);
   if (JSON.stringify(inputSchema).length > MAX_SCHEMA_BYTES) throw new DiscoverFailed(`the schema of the action ${name.slice(0, 100)} is larger than 64 KiB`);
-  const parsed = McpAction.safeParse({ name, description: protocolString(redact(tool.description ?? "", secrets), SHORT), inputSchema });
+  const parsed = McpAction.safeParse({ name, description: protocolString(redact(tool.description ?? "", secrets), SHORT), inputSchema, ...(tool.annotations?.readOnlyHint === true ? { readOnly: true } : {}) });
   if (!parsed.success) throw new DiscoverFailed(`the action ${name.slice(0, 100)} isn't valid`);
   return parsed.data;
 }
@@ -163,4 +166,151 @@ export async function discoverTool(name: string, server: LocalServer, timeoutMs 
     await client.close().catch(() => undefined);
     await transport.close().catch(() => undefined);
   }
+}
+
+export const CALL_TIMEOUT_MS = 30_000;
+
+/** A call the runner refused or that failed, with the runner's own words. */
+export class CallFailed extends Error {
+  override name = "CallFailed";
+}
+
+/**
+ * Calls one action of one of the machine's own MCP servers, for a poll: starts it as listing
+ * does, and calls the action only if the server marks it read-only (`readOnlyHint`) or the
+ * server's `pollable` in the runner's config names it; a `pollable` left empty forbids every
+ * call. The reply is redacted of the server's `env` values and must fit a frame. The whole of it
+ * ends at `timeoutMs`.
+ */
+export async function callTool(
+  name: string,
+  server: LocalServer,
+  actionName: string,
+  args: Record<string, unknown>,
+  guard: { forbidden: string[]; secrets: string[] } = { forbidden: [], secrets: [] },
+  timeoutMs = CALL_TIMEOUT_MS,
+): Promise<{ content: Record<string, unknown>[]; isError: boolean }> {
+  if (server.pollable?.length === 0) throw new CallFailed(`the MCP server ${name} allows no polls on this runner`);
+  // No approval stands between a poll and its call: a path the runner keeps sessions out of
+  // (its own config, the CLIs' credentials) is refused in any argument, as sessions are kept from it.
+  const paths = pathsIn(args);
+  if (paths === null || paths.some((path) => overlapping(path, guard.forbidden))) throw new CallFailed(`the call names a path this runner keeps out of reach`);
+  const transport = new StdioClientTransport({
+    command: server.command,
+    args: server.args ?? [],
+    env: { ...getDefaultEnvironment(), ...server.env },
+    stderr: "ignore",
+    cwd: homedir(),
+  });
+  const client = new Client({ name: "dispand-runner", version: "1.0.0" });
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new CallFailed(`the MCP server ${name} didn't answer in time`)), timeoutMs);
+  });
+  try {
+    const result = await Promise.race([
+      (async () => {
+        await client.connect(transport, { timeout: timeoutMs });
+        if (!server.pollable?.includes(actionName)) {
+          // Read from the server itself: whatever the call asks, only what it marks read-only goes.
+          let cursor: string | undefined;
+          let found: Tool | undefined;
+          for (let page = 0; page < MAX_PAGES && !found; page++) {
+            const listed = await client.request({ method: "tools/list", params: cursor === undefined ? {} : { cursor } }, { timeout: timeoutMs });
+            found = listed.tools.find((t) => t.name === actionName);
+            cursor = listed.nextCursor;
+            if (!cursor) break;
+          }
+          if (!found) throw new CallFailed(`the MCP server ${name} has no action ${actionName.slice(0, 100)}`);
+          if (found.annotations?.readOnlyHint !== true) throw new CallFailed(`the action ${actionName.slice(0, 100)} of ${name} isn't read-only, and this runner's config doesn't list it as pollable`);
+        }
+        return client.callTool({ name: actionName, arguments: args }, { timeout: timeoutMs });
+      })(),
+      deadline,
+    ]);
+    const secrets = [...new Set([...Object.values(server.env ?? {}), ...guard.secrets].filter((v) => v.length >= 4))].sort((a, b) => b.length - a.length);
+    // Each item's own keys and its `type` are MCP's envelope and stay; everything inside its
+    // values, keys included, is redacted.
+    const content = ((result.content ?? []) as Record<string, unknown>[]).map(
+      (item) => cleanJson(Object.fromEntries(Object.entries(item).map(([k, v]) => [k, k === "type" ? v : redact(v, secrets)])), Infinity) as Record<string, unknown>,
+    );
+    if (content.length > 100 || Buffer.byteLength(JSON.stringify(content)) > MAX_REPLY_BYTES) throw new CallFailed(`the result of ${actionName.slice(0, 100)} is too large to send`);
+    return { content, isError: result.isError === true };
+  } catch (error) {
+    if (error instanceof CallFailed) throw error;
+    throw new CallFailed(`the MCP server ${name} didn't start or failed while calling ${actionName.slice(0, 100)}`);
+  } finally {
+    clearTimeout(timer);
+    await client.close().catch(() => undefined);
+    await transport.close().catch(() => undefined);
+  }
+}
+
+/**
+ * Every path a string in `args` could name, read every way a file reader might: as given, with its
+ * percent-encoding decoded, and as a file URL; relative to the home folder, where the server
+ * starts (`~` expanded). A `file:` string no reading turns into a path is refused (`null`), so a
+ * spelling the guard can't read never passes it.
+ */
+function pathsIn(args: unknown): string[] | null {
+  const out: string[] = [];
+  let unreadable = false;
+  const add = (p: string) => {
+    const expanded = p === "~" || p.startsWith("~/") ? homedir() + p.slice(1) : p;
+    out.push(isAbsolute(expanded) ? expanded : resolve(homedir(), expanded));
+  };
+  const walk = (v: unknown) => {
+    if (typeof v === "string" && v.length > 0 && v.length <= 4096) {
+      const readings = new Set<string>([v]);
+      try {
+        readings.add(decodeURIComponent(v));
+      } catch {
+        // Not percent-encoded text: read as given.
+      }
+      for (const r of [...readings]) {
+        // The literal reading stays too: a server may read it as a path from its working directory.
+        if (!/^file:/i.test(r)) continue;
+        try {
+          readings.add(fileURLToPath(r));
+        } catch {
+          // A file URL a file reader might still open: its path, decoded as text.
+          const path = r.replace(/^file:\/\/[^/]*/i, "");
+          if (path.startsWith("/")) readings.add(path);
+          else unreadable = true;
+        }
+      }
+      readings.forEach(add);
+    } else if (Array.isArray(v)) v.forEach(walk);
+    else if (typeof v === "object" && v !== null) Object.values(v).forEach(walk);
+  };
+  walk(args);
+  return unreadable ? null : out;
+}
+
+/**
+ * Every string of 16 characters or more in `files` (JSON read whole, other text as one value):
+ * the CLIs' and the runner's credentials, redacted from a poll's result by value, however the
+ * server reached the file (another path, a link, a copy). A file that can't be read gives none.
+ */
+export function credentialValues(files: string[]): string[] {
+  const out: string[] = [];
+  const walk = (v: unknown) => {
+    if (typeof v === "string" && v.length >= 16) out.push(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (typeof v === "object" && v !== null) Object.values(v).forEach(walk);
+  };
+  for (const file of files) {
+    let raw: string;
+    try {
+      raw = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    try {
+      walk(JSON.parse(raw));
+    } catch {
+      walk(raw.trim());
+    }
+  }
+  return out;
 }

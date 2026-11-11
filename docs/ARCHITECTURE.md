@@ -31,7 +31,11 @@
   `hello` retries. Revoking a runner (Settings › Harnesses › Runners) clears its token and
   closes its socket; it is refused while a harness uses the runner. `hub.request` sends
   a `tool.discover` and waits for the `tool.discovered` with its `requestId` from that same runner
-  (not numbered, not acked; "runner offline" or "timed out" after 45 s otherwise).
+  (not numbered, not acked; "runner offline" or "timed out" after 45 s otherwise); `hub.call`
+  does the same with a `tool.call` (a poll's call of one action, protocol 9) and its
+  `tool.called` (the result's MCP content and `isError`, or why the runner refused), a reply of
+  the other kind resolving nothing; `runner.tool_call` spans and `dispand.runner.tool_calls`
+  and its duration count them by outcome (`ok`, `error`, `refused`, `failed`).
   `SessionStart` is a union on `harness` (`claude-code`, `codex`, whose permission modes are only
   `default` and `bypassPermissions`) and carries `skills` and `mcpServers` by reference; the engine
   sends none yet. The runner refuses a start with MCP servers, or for Codex, before making its
@@ -394,6 +398,13 @@
   when the name stands for nothing the agent chose; the runner adds the name to the session's
   unasked ones. Workflow runs' CLI sessions have no Job token, so
   no such tools; cloud sessions don't get skills yet.
+- **What polls may read** (`tools/pollable.ts`): `tools.pollable` (the owner's list, migration
+  0042; null: the actions the server marks read-only) says which of a tool's actions a poll may
+  call, and `isPollable` adds that no agent holding the tool must ask before using it (the
+  action is in every holder's `agent_tools.unasked`; an agent that has the tool only through a
+  skill's required tools asks before every action). `tools.pollable` and `tools.setPollable`
+  are the owner's (never platform tools); the tool sheets show each action's state and why one
+  isn't polled. Polls check `isPollable` when a trigger is made and at every dispatch.
 - **Proposals** (`platform/proposals.ts`, table `proposals`, migration 0034). A tool of the
   registry marked `grant` (`agents.create`, `agents.update`, `agents.setToolAsk`,
   `tables.delete`, `fields.delete`, `triggers.create`, `triggers.update`, `triggers.delete`, `tools.add` (an address and no

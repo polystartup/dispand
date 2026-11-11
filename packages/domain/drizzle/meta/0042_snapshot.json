@@ -1,5 +1,5 @@
 {
-  "id": "9015ac61-da50-4415-b2eb-6bdceeb35068",
+  "id": "3092aa06-9e46-4991-aea9-6dba175374cb",
   "prevId": "21beba69-3881-45b7-84e4-e79aeb60ad53",
   "version": "7",
   "dialect": "postgresql",
@@ -412,13 +412,7 @@
           "name": "table_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
-        },
-        "job_id": {
-          "name": "job_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "name": {
           "name": "name",
@@ -467,21 +461,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "attachments_job_idx": {
-          "name": "attachments_job_idx",
-          "columns": [
-            {
-              "expression": "job_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -509,19 +488,6 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "attachments_job_id_runs_id_fk": {
-          "name": "attachments_job_id_runs_id_fk",
-          "tableFrom": "attachments",
-          "tableTo": "runs",
-          "columnsFrom": [
-            "job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -3502,6 +3468,12 @@
         "actions_error": {
           "name": "actions_error",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pollable": {
+          "name": "pollable",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
