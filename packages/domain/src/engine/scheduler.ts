@@ -68,6 +68,8 @@ const HOUR_MS = 3_600_000;
 
 /** Polls a trigger keeps, the latest (what its sheet shows). */
 const POLLS_KEPT = 20;
+/** Poll items inserted per statement. */
+const INSERT_CHUNK = 1000;
 
 type EventRow = typeof events.$inferSelect;
 
@@ -236,12 +238,23 @@ export class Scheduler {
    * Poll triggers: due polls claimed in one transaction (their next time moved, a `polls` row
    * each), then each one's call made outside any transaction, at once, and its items recorded in
    * a transaction of its own. Two schedulers never call one poll for the same time: the claim
-   * moves it past now under `FOR UPDATE SKIP LOCKED`.
+   * moves it past now under `FOR UPDATE SKIP LOCKED`. Polls of one runner's tool go one after
+   * the other (a runner calls each of its tools once at a time); the others at once.
    */
   async poll(): Promise<string[]> {
     const now = this.now();
     const claimed = await this.db.transaction((tx) => this.claimPolls(tx, now));
-    return (await Promise.all(claimed.map((c) => this.runPoll(c, now)))).flat();
+    const queues = new Map<string, Claimed[]>();
+    for (const c of claimed) {
+      const key = c.tool.kind === "runner" ? `${c.tool.runnerId}\u0000${c.tool.runnerTool}` : c.pollId;
+      queues.set(key, [...(queues.get(key) ?? []), c]);
+    }
+    const runs = [...queues.values()].map(async (queue) => {
+      const started: string[] = [];
+      for (const c of queue) started.push(...(await this.runPoll(c, now)));
+      return started;
+    });
+    return (await Promise.all(runs)).flat();
   }
 
   /**
@@ -343,7 +356,9 @@ export class Scheduler {
       status: baseline ? ("baseline" as const) : item.tooLarge ? ("refused" as const) : ("deferred" as const),
       message: item.tooLarge && !baseline ? `The item is larger than ${MAX_ITEM_BYTES / 1024} KiB` : null,
     }));
-    const inserted = values.length ? await tx.insert(pollItems).values(values).onConflictDoNothing().returning() : [];
+    const inserted: ItemRow[] = [];
+    // In chunks: one statement's parameters are bounded.
+    for (let i = 0; i < values.length; i += INSERT_CHUNK) inserted.push(...(await tx.insert(pollItems).values(values.slice(i, i + INSERT_CHUNK)).onConflictDoNothing().returning()));
     // In the order of the result.
     const order = new Map(values.map((v, i) => [v.id, i]));
     const fresh = inserted.sort((a, b) => order.get(a.id)! - order.get(b.id)!);

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { fillLastPoll, itemsOf, MAX_ITEM_BYTES, MAX_POLL_ITEMS } from "./poll.ts";
+import { fillLastPoll, itemsOf, MAX_ITEM_BYTES } from "./poll.ts";
 
 test("{{lastPoll}} is filled in every string, nested ones included, and keys are left as they are", () => {
   expect(fillLastPoll({ filter: "gt {{lastPoll}}", nested: [{ "{{lastPoll}}": "{{lastPoll}}" }], top: 10 }, "2026-11-12T09:00:00.000Z")).toEqual({
@@ -23,5 +23,6 @@ test("items are the list at the path, each with its id; without an id they are c
   expect(itemsOf([{ id: 1 }], "", "id")).toMatchObject({ items: [{ id: "1" }] });
   expect(itemsOf(data, "page", "id")).toEqual({ error: "The result has no list at “page”" });
   expect(itemsOf({}, "", "id")).toEqual({ error: "The result isn't a list" });
-  expect((itemsOf(Array.from({ length: MAX_POLL_ITEMS + 5 }, (_, i) => ({ id: i })), "", "id") as { items: unknown[] }).items).toHaveLength(MAX_POLL_ITEMS);
+  // All of them, however many: one left out could fall before the next `{{lastPoll}}`.
+  expect((itemsOf(Array.from({ length: 5000 }, (_, i) => ({ id: i })), "", "id") as { items: unknown[] }).items).toHaveLength(5000);
 });

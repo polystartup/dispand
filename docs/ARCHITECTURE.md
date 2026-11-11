@@ -256,14 +256,16 @@
   transaction, claims due polls in one transaction of its own (`FOR UPDATE SKIP LOCKED`, the
   next time moved an interval on, a `polls` row each, the latest 20 kept): `pollProblem` runs
   again first, and a poll that fails it is recorded `skipped` with why and calls nothing. Once
-  that commits, each poll's call runs outside any transaction, all of them at once, for 60 s at
-  most (`tools/poll.ts`: an HTTP tool through `InstalledTools` and the connector, a runner tool
+  that commits, each poll's call runs outside any transaction, for 60 s at most, all of them at
+  once but those of one runner's tool, one after the other (the runner calls each of its tools
+  once at a time) (`tools/poll.ts`: an HTTP tool through `InstalledTools` and the connector, a runner tool
   through `hub.call`), with `{{lastPoll}}` in its arguments' strings filled with the newest
   `first_seen` of the trigger's items (the trigger's creation before any), never a call's time,
   so a poll that recorded nothing never moves it. Its data is the result's structured content,
   else its text as JSON; its items are the list at `itemsPath` (keys between dots, empty: the
   result), each identified by a string or a number at `idPath` (items without one are counted
-  and left out; 500 at most a poll). A second transaction, the trigger locked `FOR NO KEY
+  and left out; all the others kept, however many: one left for later could fall before the next
+  `{{lastPoll}}`). A second transaction, the trigger locked `FOR NO KEY
   UPDATE`, records nothing when the trigger was turned off or changed meanwhile, else inserts
   each item into `poll_items` once (unique on `(trigger_id, item_id)`, with its content as JSON,
   its `first_seen` the claim's time): the baseline poll as `baseline`, starting nothing, later
@@ -273,7 +275,8 @@
   the call and that record leaves the items unrecorded and the next poll calls again; an item
   already recorded never starts a Job again. Each tick also tries the deferred items, trigger by
   trigger and oldest first, from their rows, whatever later polls return (`out-of-scope` when
-  `pollProblem` fails then, `refused` when the trigger is off). The Job's cause is `poll` (the
+  `pollProblem` fails then, `refused` when the trigger is off, and when its tool, action,
+  arguments or paths change, so an item is never told under another source than its own). The Job's cause is `poll` (the
   trigger and the item id, depth 0), its firing carries the tool and the action, and the
   trigger node's outputs are `item_id` and `item`, written after the instructions
   (`POLL_PROMPT`); every start of its session first checks `pollProblem` against the agent and
@@ -281,8 +284,8 @@
   never sent once the agent lost the tool or the action stopped being pollable. A
   `scheduler.poll` span and `dispand.polls`, `dispand.poll.items` and `dispand.poll.duration`
   count polls, new items and durations by tool kind and outcome (`baseline`, `polled`,
-  `skipped`, `failed`), never an item, an argument or a result. `triggers.get` gives a poll
-  trigger's `lastPolls`, each with what it found and its new items. The agent's page
+  `skipped`, `failed`), never an item, an argument or a result. `triggers.get` gives a poll trigger's `lastPolls`, each with what it found and its new items
+  (their ids are what the tool read: a Job calling it gets none). The agent's page
   (`/settings/agents/<id>`) has three tabs: Settings, Triggers (`components/agents/TriggerList`,
   `TriggerSheet`, which reuses the schedule panel) and Jobs (`JobList`). A manual trigger goes
   on a page as a `trigger-form` widget (`widgets.trigger_id`, one per trigger and page):

@@ -64,10 +64,15 @@ async function setup() {
   const engine = new Engine(context.db, adapter);
   onTestFinished(() => engine.stop());
   const runnerCalls: unknown[] = [];
-  // A runner whose `mail` server answers like the fake one.
+  // A runner whose `mail` server answers like the fake one, refusing a call while one to the same tool is under way, as runners do.
+  const calling = new Set<string>();
   const hub: Pick<RunnerHub, "call"> = {
     call: async (_runnerId, msg) => {
       runnerCalls.push(msg);
+      if (calling.has(msg.tool)) return { type: "tool.called", requestId: msg.requestId, error: "busy" };
+      calling.add(msg.tool);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      calling.delete(msg.tool);
       return { type: "tool.called", requestId: msg.requestId, content: [{ type: "text", text: JSON.stringify({ value: mailbox }) }] };
     },
   };
@@ -245,15 +250,18 @@ test("a runner tool's poll goes through its runner (`hub.call`)", async () => {
   });
   await call(router.agents.update, { id: s.clerk.id, name: "Clerk", harnessId: s.harness.id, systemPrompt: "", toolIds: ["tool_runner_mail"] }, { context: s.context });
   const trigger = await s.watch({ toolId: "tool_runner_mail", action: "list-mail-messages", arguments: { top: 10 } });
+  // A second trigger on the same runner tool: its polls wait for the first's, never overlap.
+  const other = await s.watch({ toolId: "tool_runner_mail", action: "list-mail-messages", arguments: { top: 5 } });
   const scheduler = s.scheduler();
   await scheduler.tick();
   s.mailbox.push({ id: "m1", subject: "Hello" });
   s.time.add(5 * MINUTE);
-  expect(await scheduler.tick()).toHaveLength(1);
-  expect(s.runnerCalls).toHaveLength(2);
-  expect(s.runnerCalls[1]).toMatchObject({ type: "tool.call", tool: "mail", action: "list-mail-messages", arguments: { top: 10 } });
+  expect(await scheduler.tick()).toHaveLength(2);
+  expect(s.runnerCalls).toHaveLength(4);
+  expect(s.runnerCalls).toContainEqual(expect.objectContaining({ type: "tool.call", tool: "mail", action: "list-mail-messages", arguments: { top: 10 } }));
   expect(s.calls).toEqual([]);
   expect((await s.itemsOf(trigger.id)).map((i) => [i.itemId, i.status])).toEqual([["m1", "started"]]);
+  expect((await s.pollsOf(other.id)).map((p) => p.status)).toEqual(["baseline", "polled"]);
 });
 
 test("a result without the list fails the poll with a reason, and records nothing", async () => {
@@ -283,4 +291,35 @@ test("an agent that loses the tool between dispatch and session start never gets
     expect(run).toMatchObject({ status: "failed", error: "The agent may no longer read the tool's action that found this item" });
   });
   expect(s.adapter.starts).toEqual([]);
+});
+
+test("items waiting under a trigger's old source are refused when it reads something else, never told under the new one", async () => {
+  const s = await setup();
+  const scheduler = s.scheduler();
+  const trigger = await s.watch({}, { rateCap: 1 });
+  await scheduler.tick();
+  s.mailbox.push({ id: "m1", subject: "a" }, { id: "m2", subject: "b" });
+  s.time.add(5 * MINUTE);
+  expect(await scheduler.tick()).toHaveLength(1);
+  const config = trigger.config as Extract<TriggerConfig, { kind: "poll" }>;
+  await call(router.triggers.update, { id: trigger.id, config: { ...config, arguments: { top: 1 } } }, { context: s.context });
+  expect((await s.itemsOf(trigger.id)).find((i) => i.itemId === "m2")).toMatchObject({ status: "refused", message: "The trigger was changed: it reads something else now" });
+  s.time.add(61 * MINUTE);
+  await scheduler.tick();
+  expect(await s.jobsOf(trigger.id)).toHaveLength(1);
+});
+
+test("a Job reading a poll trigger gets its polls without the ids of the items the tool read", async () => {
+  const s = await setup();
+  const trigger = await s.watch();
+  await s.scheduler().tick();
+  s.mailbox.push({ id: "Confidential subject", subject: "x" });
+  s.time.add(5 * MINUTE);
+  await s.scheduler().tick();
+  const [run] = await s.jobsOf(trigger.id);
+  expect((await call(router.triggers.get, { id: trigger.id }, { context: s.context })).lastPolls[0]!.items).toHaveLength(1);
+  const asJob = { ...s.context, job: { runId: run!.id, ownerId: s.context.ownerId, agentId: s.clerk.id } };
+  const seen = await call(router.triggers.get, { id: trigger.id }, { context: asJob });
+  expect(seen.lastPolls[0]).toMatchObject({ status: "polled", fresh: 1, items: [] });
+  expect(JSON.stringify(await call(router.triggers.list, { agentId: s.clerk.id }, { context: asJob }))).not.toContain("Confidential");
 });

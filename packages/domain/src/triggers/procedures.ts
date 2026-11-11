@@ -90,8 +90,11 @@ export function rebaselines(previous: { config: TriggerConfig; enabled: boolean 
   return calls(previous.config) !== calls(config) || (!previous.enabled && enabled);
 }
 
-/** A poll trigger's latest polls, and the items each found new (the latest of them). */
-async function pollView(db: Db, triggerId: string) {
+/**
+ * A poll trigger's latest polls, and the items each found new (the latest of them). An item's id
+ * is what the tool read (it may be a subject line): a Job, which may not hold the tool, gets none.
+ */
+async function pollView(db: Db, triggerId: string, forJob: boolean) {
   const latest = await db.select().from(polls).where(eq(polls.triggerId, triggerId)).orderBy(desc(polls.at), desc(polls.id)).limit(5);
   const items = await db
     .select({ itemId: pollItems.itemId, firstSeen: pollItems.firstSeen, status: pollItems.status, runId: pollItems.runId, message: pollItems.message })
@@ -105,13 +108,15 @@ async function pollView(db: Db, triggerId: string) {
     found: p.found,
     fresh: p.fresh,
     ...(p.message ? { message: p.message } : {}),
-    items: items
+    items: forJob
+      ? []
+      : items
       .filter((i) => i.firstSeen.getTime() === p.at.getTime())
       .map((i) => ({ itemId: i.itemId, status: i.status, ...(i.runId ? { runId: i.runId } : {}), ...(i.message ? { message: i.message } : {}) })),
   }));
 }
 
-async function view(db: Db, row: Row) {
+async function view(db: Db, row: Row, forJob: boolean) {
   const events =
     row.kind === "primitive"
       ? await db.select().from(eventFires).where(eq(eventFires.triggerId, row.id)).orderBy(desc(eventFires.createdAt), desc(eventFires.id)).limit(5)
@@ -144,7 +149,7 @@ async function view(db: Db, row: Row) {
       ...(f.message ? { message: f.message } : {}),
     })),
     // A poll trigger's latest polls: what each found, and what each new item did.
-    lastPolls: row.kind === "poll" ? await pollView(db, row.id) : [],
+    lastPolls: row.kind === "poll" ? await pollView(db, row.id, forJob) : [],
     // A primitive trigger's latest events: what each did.
     lastEvents: events.map((f) => ({
       eventId: f.eventId,
@@ -186,7 +191,7 @@ const create = owner.input(TriggerFields.extend({ agentId: z.string() })).handle
       ...scheduleColumns(config, null, true, now),
     })
     .returning();
-  return view(context.db, row!);
+  return view(context.db, row!, !!context.job);
 });
 
 const update = owner
@@ -218,6 +223,13 @@ const update = owner
       if ((input.enabled ?? previous.enabled) || config.kind === "schedule" || config.kind === "manual") await checkConfig(tx, context.ownerId, await requireAgent(tx, context.ownerId, previous.agentId), config);
       checkInstructions(config, input.instructions ?? previous.instructions);
       const enabled = input.enabled ?? previous.enabled;
+      // Items a poll found waiting under the trigger's old source are never told under the new one.
+      if (rebaselines(previous, config, enabled)) {
+        await tx
+          .update(pollItems)
+          .set({ status: "refused", message: "The trigger was changed: it reads something else now" })
+          .where(and(eq(pollItems.triggerId, previous.id), eq(pollItems.status, "deferred")));
+      }
       const [updated] = await tx
         .update(triggersTable)
         .set({
@@ -234,7 +246,7 @@ const update = owner
         .returning();
       return updated!;
     });
-    return view(context.db, row);
+    return view(context.db, row, !!context.job);
   });
 
 const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
@@ -249,11 +261,11 @@ const list = owner.input(z.object({ agentId: z.string() })).handler(async ({ inp
     .from(triggersTable)
     .where(and(eq(triggersTable.agentId, input.agentId), eq(triggersTable.ownerId, context.ownerId)))
     .orderBy(asc(triggersTable.createdAt), asc(triggersTable.id));
-  return Promise.all(rows.map((row) => view(context.db, row)));
+  return Promise.all(rows.map((row) => view(context.db, row, !!context.job)));
 });
 
 const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  return view(context.db, await find(context.db, context.ownerId, input.id));
+  return view(context.db, await find(context.db, context.ownerId, input.id), !!context.job);
 });
 
 export const triggers = { create, update, delete: remove, list, get };

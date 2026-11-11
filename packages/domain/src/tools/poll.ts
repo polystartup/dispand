@@ -10,8 +10,6 @@ type ToolRow = typeof toolsTable.$inferSelect;
 
 /** A poll's call, from start to answer, at most (the scheduler waits for its polls). */
 export const POLL_TIMEOUT_MS = 60_000;
-/** Items one poll takes from a result; the rest wait for the next poll. */
-export const MAX_POLL_ITEMS = 500;
 /** An item's content as JSON, at most: a larger one is recorded, refused, and starts nothing. */
 export const MAX_ITEM_BYTES = 256 * 1024;
 const MAX_ITEM_ID = 500;
@@ -85,8 +83,9 @@ export type PolledItem = { id: string; content: string; tooLarge: boolean };
 
 /**
  * The items of a result: the list at `itemsPath`, each with its id (a string or a number at
- * `idPath`) and its content as JSON. Items without an id are counted, not kept; past
- * `MAX_POLL_ITEMS`, the rest wait for the next poll; an id seen twice is kept once.
+ * `idPath`) and its content as JSON. Items without an id are counted, not kept; an id seen twice
+ * is kept once. Every item is kept (the result's own size bounds them): one left for a later
+ * poll could fall before the next `{{lastPoll}}` and never come back.
  */
 export function itemsOf(data: unknown, itemsPath: string, idPath: string): { items: PolledItem[]; noId: number } | { error: string } {
   const list = at(data, itemsPath);
@@ -95,7 +94,6 @@ export function itemsOf(data: unknown, itemsPath: string, idPath: string): { ite
   const seen = new Set<string>();
   let noId = 0;
   for (const item of list) {
-    if (items.length === MAX_POLL_ITEMS) break;
     const raw = at(item, idPath);
     const id = typeof raw === "string" ? raw : typeof raw === "number" && Number.isFinite(raw) ? String(raw) : "";
     if (!id || id.length > MAX_ITEM_ID || !storable(id)) {
