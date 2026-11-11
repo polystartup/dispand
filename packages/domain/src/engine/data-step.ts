@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import type { Tx } from "../db/client.ts";
-import { rows as rowsTable, tables as tablesTable } from "../db/schema.ts";
+import { type EventActor, rows as rowsTable, tables as tablesTable } from "../db/schema.ts";
 import { type Cell, cellText, parseCellText } from "../data/fields.ts";
 import { FILTER_OPS, type Filter, type FilterOp, filterValue, takesValue } from "../data/query.ts";
 import { orderOf, whereOf, writeRow } from "../data/rows.ts";
@@ -20,7 +20,7 @@ export type DataStepResult = { outputs: Record<string, string>; changed?: { tabl
  */
 export async function runDataStep(
   tx: Tx,
-  input: { ownerId: string; step: DataStep; values: Record<string, Record<string, string>> },
+  input: { ownerId: string; step: DataStep; values: Record<string, Record<string, string>>; actor: EventActor },
 ): Promise<DataStepResult> {
   const { ownerId, step, values } = input;
   const resolve = (source: Source) =>
@@ -79,7 +79,7 @@ export async function runDataStep(
     rowId = resolve(step.rowId).trim();
     if (rowId === "") return { error: `No row of ${table.name} to update: its id is empty` };
   }
-  const result = await writeRow(tx, { ownerId, tableId: table.id, ...(rowId ? { rowId } : {}), values: cells });
+  const result = await writeRow(tx, { ownerId, tableId: table.id, ...(rowId ? { rowId } : {}), values: cells, actor: input.actor });
   if ("problem" in result) {
     if (rowId && result.notFound) return { error: `row “${rowId.length > 100 ? `${Array.from(rowId).slice(0, 100).join("")}…` : rowId}” is not in ${table.name}` };
     return { error: result.problem };

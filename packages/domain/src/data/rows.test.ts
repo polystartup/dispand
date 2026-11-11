@@ -141,7 +141,7 @@ test("writeRow takes the table's row FOR SHARE before it reads the fields", asyn
   await db.insert(tables).values({ id: "tbl_1", ownerId: "user_1", name: "T" });
   await db.insert(fields).values({ id: "fld_1", ownerId: "user_1", tableId: "tbl_1", name: "Name", type: "text", position: 0 });
   statements.length = 0;
-  const result = await db.transaction((tx) => writeRow(tx, { ownerId: "user_1", tableId: "tbl_1", values: { fld_1: "x" } }));
+  const result = await db.transaction((tx) => writeRow(tx, { ownerId: "user_1", tableId: "tbl_1", values: { fld_1: "x" }, actor: { type: "user", userId: "user_1" } }));
   expect(result).toMatchObject({ row: { values: { fld_1: "x" } } });
   const lock = statements.findIndex((q) => /from "tables".* for share/s.test(q));
   const read = statements.findIndex((q) => /from "fields"/.test(q));
