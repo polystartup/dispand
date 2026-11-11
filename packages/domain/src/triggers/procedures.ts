@@ -167,7 +167,8 @@ const update = owner
       if (!previous) throw new ORPCError("NOT_FOUND");
       const config = input.config ?? previous.config;
       if (config.kind !== previous.kind) throw new ORPCError("BAD_REQUEST", { message: "A trigger's kind can't change" });
-      await checkConfig(tx, context.ownerId, await requireAgent(tx, context.ownerId, previous.agentId), config);
+      // A trigger can always be turned off, even once what it watches has changed under it.
+      if (input.config || (input.enabled ?? previous.enabled)) await checkConfig(tx, context.ownerId, await requireAgent(tx, context.ownerId, previous.agentId), config);
       checkInstructions(config, input.instructions ?? previous.instructions);
       const enabled = input.enabled ?? previous.enabled;
       const [updated] = await tx

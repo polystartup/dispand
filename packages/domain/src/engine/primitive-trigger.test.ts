@@ -216,3 +216,43 @@ test("a primitive trigger watches a primitive table of the owner's, its fields, 
     "make the table primitive first",
   );
 });
+
+test("a deferred fire is decided by the trigger as it is when tried: one retargeted elsewhere doesn't get the old table's change", async () => {
+  const s = await setup();
+  const trigger = await s.watch(s.clerk.id, {}, { rateCap: 1 });
+  const ada = await s.create({ [s.name.id]: "Ada" });
+  await s.update(ada.id, { [s.city.id]: "Paris" });
+  await s.update(ada.id, { [s.city.id]: "Rome" });
+  await s.scheduler.tick();
+  expect((await s.firesOf(trigger.id)).map((f) => f.status)).toEqual(["started", "deferred"]);
+  const notes = await call(router.tables.create, { name: "Notes" }, { context: s.context });
+  await call(router.tables.setPrimitive, { id: notes.id, primitive: true }, { context: s.context });
+  await call(router.triggers.update, { id: trigger.id, config: { kind: "primitive", tableId: notes.id, operations: ["updated"] } }, { context: s.context });
+  s.time.add(3_600_001);
+  expect(await s.scheduler.tick()).toEqual([]);
+  expect((await s.firesOf(trigger.id)).map((f) => [f.status, f.message])).toEqual([
+    ["started", null],
+    ["refused", "The trigger no longer watches this change"],
+  ]);
+});
+
+test("deferred fires are retried trigger by trigger: one trigger's backlog doesn't hold up another's", async () => {
+  const s = await setup();
+  const auditor = await s.agent("Auditor");
+  const a = await s.watch(s.clerk.id, { operations: ["created"] }, { rateCap: 1 });
+  const b = await s.watch(auditor.id, { operations: ["created"] }, { rateCap: 1 });
+  for (let i = 0; i < 3; i++) await s.create({ [s.name.id]: `Client ${i}` });
+  await s.scheduler.tick();
+  s.time.add(3_600_001);
+  await s.scheduler.tick();
+  expect(await s.jobsOf(a.id)).toHaveLength(2);
+  expect(await s.jobsOf(b.id)).toHaveLength(2);
+});
+
+test("a trigger can be turned off once what it watches changed under it", async () => {
+  const s = await setup();
+  const trigger = await s.watch(s.clerk.id);
+  await call(router.tables.setPrimitive, { id: s.clients.id, primitive: false }, { context: s.context });
+  await expect(call(router.triggers.update, { id: trigger.id, name: "Renamed" }, { context: s.context })).rejects.toThrow("make the table primitive first");
+  expect(await call(router.triggers.update, { id: trigger.id, enabled: false }, { context: s.context })).toMatchObject({ enabled: false });
+});

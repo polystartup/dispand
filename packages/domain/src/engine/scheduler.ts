@@ -194,25 +194,31 @@ export class Scheduler {
   }
 
   /**
-   * Primitive triggers: fires deferred before are tried again (oldest first), then due events
-   * are claimed (`FOR UPDATE SKIP LOCKED`), each matched against the owner's enabled primitive
-   * triggers: a fire recorded per match, once (`event_fires`' unique key), and the event marked
-   * processed, deferred fires included.
+   * Primitive triggers: each trigger with deferred fires gets as many of its oldest tried again
+   * as it has room for, then due events are claimed (`FOR UPDATE SKIP LOCKED`), each matched
+   * against the owner's enabled primitive triggers: a fire recorded per match, once
+   * (`event_fires`' unique key), and the event marked processed, deferred fires included.
    */
   private async claimEvents(tx: Tx, now: Date): Promise<string[]> {
     const started: string[] = [];
-    const deferred = await tx
-      .select({ fire: eventFires, trigger: triggers, event: events })
-      .from(eventFires)
-      .innerJoin(triggers, eq(triggers.id, eventFires.triggerId))
-      .innerJoin(events, eq(events.id, eventFires.eventId))
-      .where(eq(eventFires.status, "deferred"))
-      .orderBy(asc(eventFires.createdAt), asc(eventFires.id))
-      .limit(EVENT_BATCH)
-      .for("update", { of: eventFires, skipLocked: true });
-    for (const { fire, trigger, event } of deferred) {
-      const runId = await this.tryFire(tx, trigger, event, fire.id, now);
-      if (runId) started.push(runId);
+    const waiting = await tx.selectDistinct({ triggerId: eventFires.triggerId }).from(eventFires).where(eq(eventFires.status, "deferred")).limit(EVENT_BATCH);
+    for (const { triggerId } of waiting) {
+      const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, triggerId)).for("update", { skipLocked: true });
+      if (!trigger) continue;
+      const room = await this.room(tx, trigger, now);
+      if (room === 0) continue;
+      const fires = await tx
+        .select({ id: eventFires.id, event: events })
+        .from(eventFires)
+        .innerJoin(events, eq(events.id, eventFires.eventId))
+        .where(and(eq(eventFires.triggerId, triggerId), eq(eventFires.status, "deferred")))
+        .orderBy(asc(eventFires.createdAt), asc(eventFires.id))
+        .limit(room)
+        .for("update", { of: eventFires, skipLocked: true });
+      for (const fire of fires) {
+        const runId = await this.tryFire(tx, triggerId, fire.event, fire.id, now);
+        if (runId) started.push(runId);
+      }
     }
     const due = await tx
       .select()
@@ -233,7 +239,7 @@ export class Scheduler {
           .onConflictDoNothing()
           .returning({ id: eventFires.id });
         if (!fire) continue;
-        const runId = await this.tryFire(tx, trigger, event, fire.id, now);
+        const runId = await this.tryFire(tx, trigger.id, event, fire.id, now);
         if (runId) started.push(runId);
       }
       await tx.update(events).set({ processedAt: now }).where(eq(events.id, event.id));
@@ -241,10 +247,26 @@ export class Scheduler {
     return started;
   }
 
+  /** How many Jobs a primitive trigger may start now: what its rate cap leaves of the last hour, and one at a time, none while one is going. */
+  private async room(tx: Tx, trigger: TriggerRow, now: Date): Promise<number> {
+    const [recent] = await tx
+      .select({ jobs: count() })
+      .from(eventFires)
+      .where(and(eq(eventFires.triggerId, trigger.id), gt(eventFires.startedAt, new Date(now.getTime() - HOUR_MS))));
+    const left = Math.max(0, trigger.rateCap - recent!.jobs);
+    if (left === 0 || trigger.concurrency !== "one-at-a-time") return left;
+    const [active] = await tx
+      .select({ id: runs.id })
+      .from(runs)
+      .where(and(eq(runs.triggerId, trigger.id), inArray(runs.status, ["running", "waiting"])))
+      .limit(1);
+    return active ? 0 : 1;
+  }
+
   /** One event's fire for one trigger, in its own span and savepoint; a failure leaves it deferred, for the next tick. */
-  private async tryFire(tx: Tx, trigger: TriggerRow, event: EventRow, fireId: string, now: Date): Promise<string | null> {
+  private async tryFire(tx: Tx, triggerId: string, event: EventRow, fireId: string, now: Date): Promise<string | null> {
     try {
-      return await fired("event", event.createdAt, now, () => tx.transaction((sp) => this.fireEvent(sp, trigger, event, fireId, now)));
+      return await fired("event", event.createdAt, now, () => tx.transaction((sp) => this.fireEvent(sp, triggerId, event, fireId, now)));
     } catch (err) {
       logError("scheduler.fireEvent failed", err);
       return null;
@@ -252,12 +274,13 @@ export class Scheduler {
   }
 
   /**
-   * Decides a fire: no Job when the write was by a Job of the trigger's own agent, or when the
-   * agent may no longer read the table; deferred past the rate cap or, one at a time, while a Job
-   * of the trigger is going; otherwise a Job, one deeper than the Job that wrote the row, unless
-   * its chain is at its limit.
+   * Decides a fire, the trigger locked (`FOR UPDATE`) so that no other scheduler checks its
+   * limits meanwhile, and read as it is now: no Job when it no longer watches this change, when
+   * the write was by a Job of its own agent, or when the agent may no longer read the event's
+   * table; deferred when it has no room; otherwise a Job, one deeper than the Job that wrote the
+   * row, unless its chain is at its limit.
    */
-  private async fireEvent(tx: Tx, trigger: TriggerRow, event: EventRow, fireId: string, now: Date): Promise<Fired> {
+  private async fireEvent(tx: Tx, triggerId: string, event: EventRow, fireId: string, now: Date): Promise<Fired> {
     const record = async (status: EventFireStatus, set: { runId?: string; message?: string } = {}): Promise<Fired> => {
       await tx
         .update(eventFires)
@@ -265,27 +288,15 @@ export class Scheduler {
         .where(eq(eventFires.id, fireId));
       return { runId: set.runId ?? null, result: status };
     };
-    const config = trigger.config;
-    if (config.kind !== "primitive" || !trigger.enabled) return record("refused", { message: "The trigger is off" });
+    const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, triggerId)).for("update");
+    if (!trigger?.enabled || !watches(trigger, event)) return record("refused", { message: "The trigger no longer watches this change" });
     const writer = event.actor.type === "user" ? null : (await tx.select({ id: runs.id, agentId: runs.agentId, source: runs.source, cause: runs.cause }).from(runs).where(eq(runs.id, event.actor.runId)))[0];
     if (writer?.source === "agent" && writer.agentId === trigger.agentId) return record("skipped-same-agent");
     const [agent] = await tx.select({ bundles: agents.bundles, dataTables: agents.dataTables }).from(agents).where(eq(agents.id, trigger.agentId));
-    if (!agent?.bundles.includes("data") || (agent.dataTables !== "all" && !agent.dataTables.includes(config.tableId))) {
+    if (!agent?.bundles.includes("data") || (agent.dataTables !== "all" && !agent.dataTables.includes(event.tableId))) {
       return record("out-of-scope", { message: "The agent may no longer read this table" });
     }
-    const [recent] = await tx
-      .select({ jobs: count() })
-      .from(eventFires)
-      .where(and(eq(eventFires.triggerId, trigger.id), gt(eventFires.startedAt, new Date(now.getTime() - HOUR_MS))));
-    if (recent!.jobs >= trigger.rateCap) return { runId: null, result: "deferred" };
-    if (trigger.concurrency === "one-at-a-time") {
-      const [active] = await tx
-        .select({ id: runs.id })
-        .from(runs)
-        .where(and(eq(runs.triggerId, trigger.id), inArray(runs.status, ["running", "waiting"])))
-        .limit(1);
-      if (active) return { runId: null, result: "deferred" };
-    }
+    if ((await this.room(tx, trigger, now)) === 0) return { runId: null, result: "deferred" };
     // A Job's write makes the next link of its chain; a person's or a workflow's starts one.
     const parent = writer?.source === "agent" ? writer : null;
     const cause: JobCause = parent

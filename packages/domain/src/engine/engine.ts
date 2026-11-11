@@ -327,6 +327,8 @@ export class Engine {
     const { ownerId, agentId, triggerId, cause, firing } = input;
     if (cause.depth > MAX_CHAIN_DEPTH) throw new EngineError("INVALID", CHAIN_LIMIT);
     if (cause.kind === "event" && cause.rootJobId) {
+      // The root held while counting: two Jobs of one chain made at once wait for each other.
+      await tx.select({ id: runs.id }).from(runs).where(eq(runs.id, cause.rootJobId)).for("no key update");
       const [chain] = await tx
         .select({ jobs: count() })
         .from(runs)

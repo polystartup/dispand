@@ -213,24 +213,32 @@
   fire per due time in `trigger_fires` (unique on `(trigger_id, scheduled_for)`),
   `skipped-overlap` when the trigger is one at a time and one of its Jobs is going, `refused`
   with the engine's message, otherwise `started` with the Job. A third claim takes the
-  outbox: first the `deferred` fires of `event_fires` (oldest first), then up to 100
+  outbox: first, for each trigger with `deferred` fires in `event_fires`, as many of its
+  oldest as it has room for (so one trigger's backlog never holds up another's), then up to 100
   unprocessed `events` (`FOR UPDATE SKIP LOCKED`), each matched against the owner's enabled
   `primitive` triggers (`{ tableId, operations, fields? }`: an update fires only when one of
   `fields` changed). Each match is one `event_fires` row (unique on `(trigger_id, event_id)`)
   and the event is marked processed in the same transaction, so two schedulers never make an
-  event's Job twice. A fire is `skipped-same-agent` when the write was by a Job of the
-  trigger's own agent, `out-of-scope` when the agent no longer has `data` on the table (a
+  event's Job twice. Each fire reads its trigger again under `FOR UPDATE`, so no two
+  schedulers check its limits at once, and is `refused` when the trigger is off or no longer
+  watches the change, `skipped-same-agent` when the write was by a Job of the trigger's own
+  agent, `out-of-scope` when the agent no longer has `data` on the event's table (a
   table that stopped being primitive, or was deleted, makes no more events), `deferred`
   while the trigger has started `rate_cap` Jobs in the last hour (default 60, set on the
   trigger) or, one at a time, has a Job going, and otherwise `started`. The Job's cause is
   `event` with its depth (the writing Job's plus one, 0 for a person or a workflow) and the
   chain's first Job (`rootJobId`); `createJob` refuses past depth 10 or at 100 Jobs from one
-  root (`chain-limit`). The trigger node's outputs are the change (`operation`, `table_id`,
+  root, counted with the root's run row locked (`chain-limit`). The trigger node's outputs are the change (`operation`, `table_id`,
   `row_id`, `changed_field_ids`, `before`, `after`, JSON for the last three), carried in the
   run's firing and written after the trigger's instructions (`CHANGE_PROMPT`); a row's
   values never reach telemetry, whose `scheduler.fire` span has kind `event`. Creating or
   changing a primitive trigger checks that the table is the owner's and primitive, the fields
-  are its own, and the agent has `data` on it. The agent's page
+  are its own, and the agent has `data` on it (turning a trigger off never does); the trigger
+  tools declare the watched table (and, on a change, the one watched before), so a Job limited
+  to some tables can't propose a trigger on another. The trigger sheet's "Table change" kind
+  (`PrimitiveTriggerPanel`) picks a primitive table (`tables.list` gives `primitive`), the
+  changes, for a changed row any field or some, the hour's cap, and lists the latest events
+  with what each did. The agent's page
   (`/settings/agents/<id>`) has three tabs: Settings, Triggers (`components/agents/TriggerList`,
   `TriggerSheet`, which reuses the schedule panel) and Jobs (`JobList`). A manual trigger goes
   on a page as a `trigger-form` widget (`widgets.trigger_id`, one per trigger and page):
