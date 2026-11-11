@@ -103,7 +103,7 @@ type Written = { row: RowView } | { problem: string; notFound?: true };
  */
 export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string; rowId?: string; values: Record<string, Cell> }): Promise<Written> {
   const [table] = await tx
-    .select({ id: tablesTable.id })
+    .select({ id: tablesTable.id, parentFieldId: tablesTable.parentFieldId, parentRequired: tablesTable.parentRequired })
     .from(tablesTable)
     .where(and(eq(tablesTable.id, input.tableId), eq(tablesTable.ownerId, input.ownerId)))
     .for("share");
@@ -120,6 +120,12 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
   const known = await lockAttachments(tx, input.ownerId, table.id, files.flatMap(([, ids]) => ids as string[]));
   for (const [id, ids] of files) {
     if ((ids as string[]).some((a) => !known.has(a))) return { problem: `“${fields.get(id)!.name}”: no such file` };
+  }
+  // A required parent: a new row names one, and no write empties it.
+  if (table.parentRequired && table.parentFieldId) {
+    const parent = fields.get(table.parentFieldId)!;
+    const given = input.values[parent.id];
+    if ((input.rowId ? given === null : given === null || given === undefined)) return { problem: `“${parent.name}”: every row names one` };
   }
   // References: each names a row of its field's table, the owner's.
   for (const [id, value] of Object.entries(input.values)) {
@@ -313,13 +319,17 @@ export async function clearReferences(tx: Tx, ownerId: string, tableId: string, 
   const referring = await tx.select().from(fieldsTable).where(and(eq(fieldsTable.referencesTableId, tableId), eq(fieldsTable.ownerId, ownerId)));
   for (const field of referring) {
     // The table first, then its rows: the order a schema change takes them in.
-    await tx.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.id, field.tableId)).for("share");
+    const [table] = await tx.select({ name: tablesTable.name, parentFieldId: tablesTable.parentFieldId, parentRequired: tablesTable.parentRequired }).from(tablesTable).where(eq(tablesTable.id, field.tableId)).for("share");
     const hits = await tx
       .select({ id: rowsTable.id })
       .from(rowsTable)
       .where(and(eq(rowsTable.tableId, field.tableId), inArray(cellAsText(field.id), deletedIds)))
       // Locked, and the condition checked again on the row as it is then: a cell repointed meanwhile is kept.
       .for("update");
+    // Children of a required parent keep it: the parent can't go while they exist.
+    if (hits.length > 0 && table?.parentRequired && table.parentFieldId === field.id) {
+      throw new ORPCError("CONFLICT", { message: `${hits.length === 1 ? "1 row" : `${hits.length} rows`} of “${table.name}” belong to it: delete or move them first` });
+    }
     for (const hit of hits) {
       const result = await writeRow(tx, { ownerId, tableId: field.tableId, rowId: hit.id, values: { [field.id]: null } });
       if ("problem" in result) throw new ORPCError("CONFLICT", { message: result.problem });

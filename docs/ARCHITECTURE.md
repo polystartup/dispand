@@ -459,7 +459,12 @@
   `writeRow` checks the row exists in that table, the owner's, and holds it `FOR SHARE`;
   deleting rows clears the references to them through `writeRow` in the same transaction
   (`clearReferences`); a table another table's reference field names can't be deleted.
-  `rows.list` and `rows.get` give `references`, each named row's first field as text.
+  `rows.list` and `rows.get` give `references`, each named row's first field as text. A
+  table can be `primitive` (its row writes become events, node C) with a parent:
+  `tables.setPrimitive` sets `tables.parent_field_id` (its reference field naming the parent
+  table, created when it has none) and `parent_required`. With a required parent, `writeRow`
+  refuses a new row without one and any write that empties it, deleting a parent row with
+  children is a `CONFLICT` with their count, and the parent field can't be deleted or retyped.
 - **Rows (Data):** every row write, from a procedure or a Data step, goes through
   `writeRow` (`packages/domain/src/data/rows.ts`): it takes the table's row `FOR SHARE`, so it
   waits for a schema change and is then checked against the new fields (`cellSchema`), and it

@@ -32,7 +32,8 @@ type FieldRow = typeof fieldsTable.$inferSelect;
 
 /** `referencesTableId`: a reference field's table, null for any other field. */
 export type FieldView = { id: string; tableId: string; name: string; type: FieldType; choices: Choice[]; position: number; referencesTableId: string | null };
-export type TableView = { id: string; name: string; fields: FieldView[] };
+/** `parent`: a primitive table's parent table, the reference field that names its rows, and whether every row must. */
+export type TableView = { id: string; name: string; fields: FieldView[]; primitive: boolean; parent: { tableId: string; fieldId: string; required: boolean } | null };
 
 function fieldView(f: FieldRow): FieldView {
   const { id, tableId, name, type, choices, position, referencesTableId } = f;
@@ -76,8 +77,16 @@ const fieldsOf = (tx: Tx | Db, tableId: string) =>
 
 const touch = (tx: Tx, tableId: string) => tx.update(tablesTable).set({ updatedAt: sql`now()` }).where(eq(tablesTable.id, tableId));
 
-async function tableView(tx: Tx | Db, table: { id: string; name: string }): Promise<TableView> {
-  return { id: table.id, name: table.name, fields: (await fieldsOf(tx, table.id)).map(fieldView) };
+async function tableView(tx: Tx | Db, table: typeof tablesTable.$inferSelect): Promise<TableView> {
+  const fields = (await fieldsOf(tx, table.id)).map(fieldView);
+  const parentField = fields.find((f) => f.id === table.parentFieldId);
+  return {
+    id: table.id,
+    name: table.name,
+    fields,
+    primitive: table.primitive,
+    parent: parentField?.referencesTableId ? { tableId: parentField.referencesTableId, fieldId: parentField.id, required: table.parentRequired } : null,
+  };
 }
 
 /** The owner's tables among `ids`, with their fields in order, as the workflow model sees them. */
@@ -178,7 +187,65 @@ const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input,
   publish(context.dataEvents, input.id);
 });
 
-export const tables = { create, list, get, rename, delete: remove };
+/** `base`, or `base (2)`, `base (3)`… : the first a table's fields don't use, at most 100 characters. */
+function unusedName(base: string, taken: Set<string>): string {
+  for (let i = 1; ; i++) {
+    const suffix = i === 1 ? "" : ` (${i})`;
+    // Cut by code points, never through a surrogate pair.
+    const name = `${[...base].slice(0, 100 - suffix.length).join("").slice(0, 100 - suffix.length).replace(/[\uD800-\uDBFF]$/, "").trimEnd()}${suffix}`;
+    if (!taken.has(name.toLowerCase())) return name;
+  }
+}
+
+/**
+ * Makes a table primitive or not, and sets its parent: the table's reference field naming the
+ * parent table (created, named after it, when the table has none), and whether every row must
+ * name one. Only a primitive table has a parent; a required one can't be set while rows lack it.
+ */
+const setPrimitive = owner
+  .input(z.object({ id: z.string(), primitive: z.boolean(), parent: z.object({ tableId: z.string().max(64), required: z.boolean() }).nullable().optional() }))
+  .handler(async ({ input, context }) => {
+    if (!input.primitive && input.parent) throw new ORPCError("BAD_REQUEST", { message: "Only a primitive table has a parent" });
+    if (input.parent?.tableId === input.id) throw new ORPCError("BAD_REQUEST", { message: "A table can't be its own parent" });
+    const view = await context.db.transaction(async (tx) => {
+      const table = await lockTable(tx, context.ownerId, input.id);
+      let parentFieldId: string | null = null;
+      if (input.parent) {
+        const parentTable = await lockTable(tx, context.ownerId, input.parent.tableId);
+        const fields = await fieldsOf(tx, table.id);
+        // The parent field it has if it still names that table, else a reference field that does.
+        const names = (f: FieldRow) => f.type === "reference" && f.referencesTableId === parentTable.id;
+        const existing = fields.find((f) => f.id === table.parentFieldId && names(f)) ?? fields.find(names);
+        if (existing) parentFieldId = existing.id;
+        else {
+          if (fields.length >= MAX_FIELDS) throw new ORPCError("BAD_REQUEST", { message: `A table has at most ${MAX_FIELDS} fields` });
+          const name = unusedName(parentTable.name, new Set(fields.map((f) => f.name.toLowerCase())));
+          const [field] = await tx
+            .insert(fieldsTable)
+            .values({ id: newId("fld"), ownerId: context.ownerId, tableId: table.id, name, type: "reference", choices: [], position: fields.length, referencesTableId: parentTable.id })
+            .returning();
+          parentFieldId = field!.id;
+        }
+        if (input.parent.required) {
+          const [missing] = await tx
+            .select({ n: count() })
+            .from(rowsTable)
+            .where(and(eq(rowsTable.tableId, table.id), sql`coalesce(${rowsTable.values} -> ${parentFieldId}::text, 'null'::jsonb) = 'null'::jsonb`));
+          if (missing!.n > 0) throw new ORPCError("BAD_REQUEST", { message: `${missing!.n === 1 ? "1 row has" : `${missing!.n} rows have`} no ${parentTable.name}: fill them first` });
+        }
+      }
+      const [updated] = await tx
+        .update(tablesTable)
+        .set({ primitive: input.primitive, parentFieldId, parentRequired: input.parent?.required ?? false, updatedAt: sql`now()` })
+        .where(eq(tablesTable.id, table.id))
+        .returning();
+      return tableView(tx, updated!);
+    });
+    publish(context.dataEvents, view.id);
+    return view;
+  });
+
+export const tables = { create, list, get, rename, delete: remove, setPrimitive };
 
 const createField = owner
   .input(
@@ -292,6 +359,7 @@ const retype = owner
     if (input.type === "reference") throw new ORPCError("BAD_REQUEST", { message: "Create a reference field instead: it names the table it refers to" });
     const result = await context.db.transaction(async (tx) => {
       const field = await lockField(tx, context.ownerId, input.id);
+      await refuseIfParent(tx, field);
       const stored = await tx
         .select({ id: rowsTable.id, values: rowsTable.values })
         .from(rowsTable)
@@ -327,9 +395,16 @@ const retype = owner
   });
 
 /** Deletes a field and its cells in every row. A table keeps at least one field. */
+/** A table's parent field can't go or change type while it is the parent. */
+async function refuseIfParent(tx: Tx, field: FieldRow) {
+  const [table] = await tx.select({ parentFieldId: tablesTable.parentFieldId }).from(tablesTable).where(eq(tablesTable.id, field.tableId));
+  if (table?.parentFieldId === field.id) throw new ORPCError("CONFLICT", { message: `“${field.name}” is the table's parent: change the parent first` });
+}
+
 const removeField = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const tableId = await context.db.transaction(async (tx) => {
     const field = await lockField(tx, context.ownerId, input.id);
+    await refuseIfParent(tx, field);
     const rest = (await fieldsOf(tx, field.tableId)).filter((f) => f.id !== field.id);
     if (rest.length === 0) throw new ORPCError("BAD_REQUEST", { message: "A table keeps at least one field" });
     await tx.delete(fieldsTable).where(eq(fieldsTable.id, field.id));
