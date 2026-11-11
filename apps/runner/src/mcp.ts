@@ -113,7 +113,7 @@ function action(tool: Tool, secrets: string[]): McpAction {
   const name = protocolString(redact(tool.name, secrets), Infinity);
   const inputSchema = cleanJson(redact(tool.inputSchema, secrets), Infinity);
   if (JSON.stringify(inputSchema).length > MAX_SCHEMA_BYTES) throw new DiscoverFailed(`the schema of the action ${name.slice(0, 100)} is larger than 64 KiB`);
-  const parsed = McpAction.safeParse({ name, description: protocolString(redact(tool.description ?? "", secrets), SHORT), inputSchema });
+  const parsed = McpAction.safeParse({ name, description: protocolString(redact(tool.description ?? "", secrets), SHORT), inputSchema, ...(tool.annotations?.readOnlyHint === true ? { readOnly: true } : {}) });
   if (!parsed.success) throw new DiscoverFailed(`the action ${name.slice(0, 100)} isn't valid`);
   return parsed.data;
 }

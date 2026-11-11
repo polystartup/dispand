@@ -90,6 +90,11 @@ test("discover redacts the server's env values from what it lists", async () => 
   expect(named).toEqual([expect.objectContaining({ name: "echo", inputSchema: expect.objectContaining({ type: "object" }) })]);
 });
 
+test("discover says which actions the server marks read-only", async () => {
+  expect(await discoverTool("echo", readOnly)).toEqual([expect.objectContaining({ name: "echo", readOnly: true })]);
+  expect((await discoverTool("echo", echo))[0]).not.toHaveProperty("readOnly");
+});
+
 test("discover past its timeout replies with an error", async () => {
   await expect(discoverTool("echo", { ...echo, env: { ECHO_MCP_HANG: "1" } }, 1500)).rejects.toThrow("the MCP server echo didn't answer in time");
 });

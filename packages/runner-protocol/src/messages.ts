@@ -55,6 +55,8 @@ export const McpAction = z.object({
   name: id(),
   description: short(),
   inputSchema: jsonObject(64 * 1024),
+  /** The server's own claim (`readOnlyHint`): what a poll may read by default, and what runs unasked. */
+  readOnly: z.literal(true).optional(),
 });
 export type McpAction = z.infer<typeof McpAction>;
 
