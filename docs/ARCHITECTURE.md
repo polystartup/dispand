@@ -242,7 +242,13 @@
   before anything loads; the import hook wraps only `pg` and `http(s)` (wrapping every module
   breaks the router's import cycles), and `pg` is kept out of the server bundle so it can be
   hooked. `telemetry-requests.mjs` lists the requests that make no span. PGlite has no
-  instrumentation: installs on it get no database spans.
+  instrumentation: installs on it get no database spans. Each scheduler tick is the root of its own trace
+  (`scheduler.tick`, one `scheduler.fire` per due schedule or trigger with its kind, result
+  and lag); a run stores the trace it was created in (`runs.trace_id`, migration 0036). The
+  engine traces each session start (`engine.session.start`, inside the Job for a Job) and
+  each runner event but text deltas (`engine.event`, which are only counted), and counts runs
+  created and finished (with their duration), questions opened and answered (with their
+  wait) and sessions started.
 - **Platform tools:** a Job's session gets some of Dispand's own procedures as tools.
   `platform/tools.ts` is the registry: each tool names its procedure (`rows.create` is the tool
   `rows_create`), its bundle (`data`: `tables.list`, `tables.get` and the rows procedures;

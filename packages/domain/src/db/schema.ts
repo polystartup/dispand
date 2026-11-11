@@ -224,6 +224,8 @@ export const runs = pgTable(
     status: text("status").$type<RunStatus>().notNull(),
     trigger: jsonb("trigger").$type<RunTrigger>().notNull().default({ type: "manual" }),
     error: text("error"),
+    // The trace the run was created in (a scheduler tick, a request): to find its telemetry.
+    traceId: text("trace_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     finishedAt: timestamp("finished_at"),
   },
