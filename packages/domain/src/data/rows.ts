@@ -175,8 +175,11 @@ function attachmentsOf(db: Db, ownerId: string, fields: FieldSchema[], page: { v
   return attachmentsById(db, ownerId, ids.filter((id): id is string => typeof id === "string"));
 }
 
+/** A row a reference cell names: its first field as text, and its table (a Job sees only its own tables' labels). */
+export type ReferenceLabel = { label: string; tableId: string };
+
 /** A label for each row the reference cells of these rows name: its first field, as text. */
-export async function referencesOf(db: Db | Tx, ownerId: string, fields: FieldSchema[], page: { values: Record<string, Cell> }[]): Promise<Record<string, string>> {
+export async function referencesOf(db: Db | Tx, ownerId: string, fields: FieldSchema[], page: { values: Record<string, Cell> }[]): Promise<Record<string, ReferenceLabel>> {
   const ids = [...new Set(fields.filter((f) => f.type === "reference").flatMap((f) => page.map((r) => r.values[f.id])).filter((v): v is string => typeof v === "string"))];
   if (ids.length === 0) return {};
   const named = await db.select({ id: rowsTable.id, tableId: rowsTable.tableId, values: rowsTable.values }).from(rowsTable).where(and(inArray(rowsTable.id, ids), eq(rowsTable.ownerId, ownerId)));
@@ -184,11 +187,11 @@ export async function referencesOf(db: Db | Tx, ownerId: string, fields: FieldSc
   const firsts = tableIds.length
     ? await db.select().from(fieldsTable).where(and(inArray(fieldsTable.tableId, tableIds), eq(fieldsTable.position, 0)))
     : [];
-  const labels: Record<string, string> = {};
+  const labels: Record<string, ReferenceLabel> = {};
   for (const r of named) {
     const first = firsts.find((f) => f.tableId === r.tableId);
     const value = first ? r.values[first.id] : null;
-    labels[r.id] = first && value !== null && value !== undefined ? cellText(schemaOf(first), value) : "";
+    labels[r.id] = { label: first && value !== null && value !== undefined ? cellText(schemaOf(first), value) : "", tableId: r.tableId };
   }
   return labels;
 }
@@ -312,7 +315,9 @@ export async function clearReferences(tx: Tx, ownerId: string, tableId: string, 
     const hits = await tx
       .select({ id: rowsTable.id })
       .from(rowsTable)
-      .where(and(eq(rowsTable.tableId, field.tableId), inArray(cellAsText(field.id), deletedIds)));
+      .where(and(eq(rowsTable.tableId, field.tableId), inArray(cellAsText(field.id), deletedIds)))
+      // Locked, and the condition checked again on the row as it is then: a cell repointed meanwhile is kept.
+      .for("update");
     for (const hit of hits) {
       const result = await writeRow(tx, { ownerId, tableId: field.tableId, rowId: hit.id, values: { [field.id]: null } });
       if ("problem" in result) throw new ORPCError("CONFLICT", { message: result.problem });

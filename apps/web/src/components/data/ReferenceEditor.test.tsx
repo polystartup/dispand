@@ -37,7 +37,7 @@ test("a reference is picked among the rows of its table, by their first field", 
 });
 
 test("a reference cell shows the label of the row it names", () => {
-  render(<CellView field={field} value="row_ada" references={{ row_ada: "Ada" }} />);
+  render(<CellView field={field} value="row_ada" references={{ row_ada: { label: "Ada" } }} />);
   expect(screen.getByText("Ada")).toBeTruthy();
   cleanup();
   // A row whose label isn't known: its id, not nothing.

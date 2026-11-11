@@ -316,7 +316,7 @@ const retype = owner
       }
       const [updated] = await tx
         .update(fieldsTable)
-        .set({ type: input.type, choices: input.type === "single-select" ? converted.choices : [] })
+        .set({ type: input.type, choices: input.type === "single-select" ? converted.choices : [], referencesTableId: null })
         .where(eq(fieldsTable.id, field.id))
         .returning();
       await touch(tx, field.tableId);

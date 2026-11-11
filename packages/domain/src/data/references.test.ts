@@ -60,8 +60,8 @@ test("a table another table's reference field points at can't be deleted", async
 test("a listed row's references come with a label: the first field of the row they name", async () => {
   const s = await setup();
   const listed = await call(router.rows.list, { tableId: s.matters.id }, { context: s.context });
-  expect(listed.references).toEqual({ [s.ada.id]: "Ada" });
-  expect((await call(router.rows.get, { id: s.matter.id }, { context: s.context })).references).toEqual({ [s.ada.id]: "Ada" });
+  expect(listed.references).toEqual({ [s.ada.id]: { label: "Ada", tableId: s.clients.id } });
+  expect((await call(router.rows.get, { id: s.matter.id }, { context: s.context })).references).toEqual({ [s.ada.id]: { label: "Ada", tableId: s.clients.id } });
 });
 
 test("text becomes a reference when it is a row's id; a retype to a reference clears the cells", async () => {
@@ -70,4 +70,14 @@ test("text becomes a reference when it is a row's id; a retype to a reference cl
   expect(parseCellText(field, " row_01ABC ")).toEqual({ ok: true, value: "row_01ABC" });
   expect(parseCellText(field, "Ada")).toMatchObject({ ok: false });
   expect(convertCells(["Ada"], { id: "f", name: "x", type: "text", choices: [] }, field, () => "c").cells).toEqual([null]);
+});
+
+test("a field retyped from a reference to text names no table any more", async () => {
+  const s = await setup();
+  await call(router.fields.retype, { id: s.client.id, type: "text", dryRun: false }, { context: s.context });
+  // Its cells are text now: deleting the row they used to name changes nothing, and the table can go.
+  await call(router.rows.delete, { ids: [s.ada.id] }, { context: s.context });
+  expect((await call(router.rows.get, { id: s.matter.id }, { context: s.context })).values[s.client.id]).toBe(s.ada.id);
+  await call(router.tables.delete, { id: s.clients.id }, { context: s.context });
+  await expect(call(router.fields.retype, { id: s.client.id, type: "reference", dryRun: true }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });

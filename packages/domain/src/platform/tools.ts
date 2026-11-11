@@ -70,6 +70,29 @@ async function tablesOfRows(db: Db, ownerId: string, ids: string[]): Promise<(st
   return ids.map((id) => found.find((r) => r.id === id)?.tableId ?? null);
 }
 
+/**
+ * Deleting rows clears the reference cells that name them, in other tables: those tables are
+ * written too, so each must be within the Job's tables (any table whose reference field names
+ * one of these, whether or not a cell names a deleted row).
+ */
+async function withReferring(db: Db, ownerId: string, tables: Promise<(string | null)[]>): Promise<(string | null)[]> {
+  const own = await tables;
+  const ids = own.filter((id): id is string => id !== null);
+  if (ids.length === 0) return own;
+  const referring = await db
+    .select({ tableId: fields.tableId })
+    .from(fields)
+    .where(and(inArray(fields.referencesTableId, ids), eq(fields.ownerId, ownerId)));
+  return [...own, ...referring.map((r) => r.tableId)];
+}
+
+/** A row's references, labels of rows of other tables: only those of tables within the Job's. */
+function referencesWithin(output: unknown, scope: TableScope): unknown {
+  const out = output as { references?: Record<string, { tableId: string }> };
+  if (scope === "all" || !out.references) return output;
+  return { ...out, references: Object.fromEntries(Object.entries(out.references).filter(([, r]) => scope.includes(r.tableId))) };
+}
+
 async function tableOfField(db: Db, ownerId: string, input: unknown): Promise<(string | null)[]> {
   const id = str(input, "id");
   const [field] = id
@@ -95,14 +118,14 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
     filter: (output, scope) => (scope === "all" ? output : (output as { id: string }[]).filter((t) => scope.includes(t.id))),
   }),
   tool("tables.get", "data", "Gives one table with its fields: their ids, names, types and choices. Row values are keyed by field id.", { tables: named("id") }),
-  tool("rows.list", "data", "Lists the rows of a table, with optional filters, a sort and paging (offset, limit).", { tables: named("tableId") }),
-  tool("rows.get", "data", "Gives one row by its id.", { tables: (db, ownerId, input) => tablesOfRows(db, ownerId, [str(input, "id") ?? ""]) }),
+  tool("rows.list", "data", "Lists the rows of a table, with optional filters, a sort and paging (offset, limit).", { tables: named("tableId"), filter: referencesWithin }),
+  tool("rows.get", "data", "Gives one row by its id.", { tables: (db, ownerId, input) => tablesOfRows(db, ownerId, [str(input, "id") ?? ""]), filter: referencesWithin }),
   tool("rows.create", "data", "Creates a row in a table. Values are keyed by field id; fields left out stay empty.", { tables: named("tableId") }),
   tool("rows.update", "data", "Changes values of a row. Only the fields given change.", { tables: (db, ownerId, input) => tablesOfRows(db, ownerId, [str(input, "id") ?? ""]) }),
   tool("rows.delete", "data", "Deletes rows by their ids.", {
     tables: (db, ownerId, input) => {
       const ids = (input as { ids?: unknown } | null)?.ids;
-      return tablesOfRows(db, ownerId, Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []);
+      return withReferring(db, ownerId, tablesOfRows(db, ownerId, Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []));
     },
   }),
   tool("tables.create", "configure", "Creates a table. Add its fields next with fields_create.", { tables: none }),

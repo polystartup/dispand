@@ -190,3 +190,18 @@ test("a reference field a Job adds names a table within its tables only", async 
   expect(await tool("fields_create", { tableId: t1.id, name: "Matter", type: "reference", referencesTableId: t2.id })).toEqual(notFound);
   expect(await tool("fields_create", { tableId: t1.id, name: "Parent", type: "reference", referencesTableId: t1.id })).toMatchObject({ ok: true });
 });
+
+test("a Job sees reference labels only from its own tables, and can't delete a row whose references live in a table it can't write", async () => {
+  const { context, t1, t2, r1, tool } = await setup(["data", "configure"], (t1) => [t1]);
+  // t2's rows name t1's rows; t1's rows name t2's rows.
+  const toT1 = await call(router.fields.create, { tableId: t2.id, name: "Client", type: "reference", referencesTableId: t1.id }, { context });
+  const toT2 = await call(router.fields.create, { tableId: t1.id, name: "Matter", type: "reference", referencesTableId: t2.id }, { context });
+  const matter = await call(router.rows.create, { tableId: t2.id, values: { [toT1.id]: r1.id } }, { context });
+  await call(router.rows.update, { id: r1.id, values: { [toT2.id]: matter.id } }, { context });
+  // r1 names a row of t2, which the Job can't read: its label isn't given.
+  expect(await tool("rows_get", { id: r1.id })).toMatchObject({ ok: true, output: { references: {} } });
+  expect(((await tool("rows_list", { tableId: t1.id })) as { output: { references: object } }).output.references).toEqual({});
+  // Deleting r1 would clear a cell of t2: refused, and nothing changes.
+  expect(await tool("rows_delete", { ids: [r1.id] })).toEqual(notFound);
+  expect((await call(router.rows.get, { id: matter.id }, { context })).values[toT1.id]).toBe(r1.id);
+});
