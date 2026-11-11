@@ -277,12 +277,16 @@ changes it updates this file.
   forbids polls), whatever the server asks, so a poll is never a way to make the machine act;
   no approval stands between a poll and its call, so two guards stand instead. A call whose
   arguments name a path sessions are kept from (the runner's config, the CLIs' homes and every
-  link out of them, `codexDenied`; read from the home folder, `~` and file URLs parsed as a file
-  reader would) is refused before the server starts. And, since a path check can miss a
+  link out of them, `codexDenied`; each string read every way a file reader might: as given,
+  percent-decoded and as a file URL, from the home folder, `~` expanded; a `file:` string none of
+  these readings turns into a path is refused) is refused before the server starts. And, since a path check can miss a
   spelling, every string value of the runner's and the CLIs' credential files (16 characters or
   more, read at each call) is redacted from every result by value, with the runner's token and
   the server's `env` values, keys inside items included; only each item's own keys and `type`
-  are kept. HTTP MCP servers come from the server with their headers, and are never
+  are kept. Out of scope: other files on the machine a server installed with access to them can
+  read (installing a filesystem server over the home folder, and marking its read action
+  pollable or leaving it read-only, is the owner's choice); Claude Code's `settings.json` is
+  among the redacted files, Codex's `config.toml` is not (it holds no credential by default). HTTP MCP servers come from the server with their headers, and are never
   written to the runner's state: Claude Code gets them through the SDK's control channel
   (`setMcpServers`), never on the CLI's command line, which other local users can read; Codex
   gets each header as a variable name (`env_http_headers`), the value only in the app-server's

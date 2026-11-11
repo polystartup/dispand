@@ -193,8 +193,8 @@ export async function callTool(
   if (server.pollable?.length === 0) throw new CallFailed(`the MCP server ${name} allows no polls on this runner`);
   // No approval stands between a poll and its call: a path the runner keeps sessions out of
   // (its own config, the CLIs' credentials) is refused in any argument, as sessions are kept from it.
-  const touched = pathsIn(args).find((path) => overlapping(path, guard.forbidden));
-  if (touched !== undefined) throw new CallFailed(`the call names a path this runner keeps out of reach`);
+  const paths = pathsIn(args);
+  if (paths === null || paths.some((path) => overlapping(path, guard.forbidden))) throw new CallFailed(`the call names a path this runner keeps out of reach`);
   const transport = new StdioClientTransport({
     command: server.command,
     args: server.args ?? [],
@@ -246,25 +246,45 @@ export async function callTool(
   }
 }
 
-/** Every string in `args` read as a path from the home folder, where the server starts (`~` expanded). */
-function pathsIn(args: unknown): string[] {
+/**
+ * Every path a string in `args` could name, read every way a file reader might: as given, with its
+ * percent-encoding decoded, and as a file URL; relative to the home folder, where the server
+ * starts (`~` expanded). A `file:` string no reading turns into a path is refused (`null`), so a
+ * spelling the guard can't read never passes it.
+ */
+function pathsIn(args: unknown): string[] | null {
   const out: string[] = [];
+  let unreadable = false;
+  const add = (p: string) => {
+    const expanded = p === "~" || p.startsWith("~/") ? homedir() + p.slice(1) : p;
+    out.push(isAbsolute(expanded) ? expanded : resolve(homedir(), expanded));
+  };
   const walk = (v: unknown) => {
     if (typeof v === "string" && v.length > 0 && v.length <= 4096) {
-      let expanded = v === "~" || v.startsWith("~/") ? homedir() + v.slice(1) : v;
-      if (/^file:/i.test(v)) {
+      const readings = new Set<string>([v]);
+      try {
+        readings.add(decodeURIComponent(v));
+      } catch {
+        // Not percent-encoded text: read as given.
+      }
+      for (const r of [...readings]) {
+        if (!/^file:/i.test(r)) continue;
+        readings.delete(r);
         try {
-          expanded = fileURLToPath(v);
+          readings.add(fileURLToPath(r));
         } catch {
-          // Not a file URL a file reader would open: kept as text.
+          // A file URL a file reader might still open: its path, decoded as text.
+          const path = r.replace(/^file:\/\/[^/]*/i, "");
+          if (path.startsWith("/")) readings.add(path);
+          else unreadable = true;
         }
       }
-      out.push(isAbsolute(expanded) ? expanded : resolve(homedir(), expanded));
+      readings.forEach(add);
     } else if (Array.isArray(v)) v.forEach(walk);
     else if (typeof v === "object" && v !== null) Object.values(v).forEach(walk);
   };
   walk(args);
-  return out;
+  return unreadable ? null : out;
 }
 
 /**

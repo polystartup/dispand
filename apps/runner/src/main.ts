@@ -154,7 +154,7 @@ async function run(args: string[]) {
     // The machine's config and every link out of it, and the credentials' values, read now.
     const machine = machineConfigPaths(dir, env);
     const claudeDir = env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
-    const credentials = [join(dir, "config.json"), join(claudeDir, ".credentials.json"), join(env.CODEX_HOME || join(homedir(), ".codex"), "auth.json")];
+    const credentials = [join(dir, "config.json"), join(claudeDir, ".credentials.json"), join(claudeDir, "settings.json"), join(env.CODEX_HOME || join(homedir(), ".codex"), "auth.json")];
     const guard = { forbidden: codexDenied([...machine, ...credentials]), secrets: [token, ...credentialValues(credentials)] };
     void callTool(tool, server, action, args, guard).then(
       ({ content, isError }) => conn.reply({ type: "tool.called", requestId, content, isError }),
