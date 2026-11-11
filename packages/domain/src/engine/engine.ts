@@ -488,9 +488,19 @@ export class Engine {
       return;
     }
     // Queued for its start: the start sends what is stored by then. If it was written meanwhile,
-    // this one goes now, unless the start's flush sent it already.
-    const [now] = await this.db.select({ sessionId: stepRuns.sessionId, startDeliveredAt: stepRuns.startDeliveredAt }).from(stepRuns).where(eq(stepRuns.id, chat.id));
-    if (now?.sessionId && now.startDeliveredAt) await this.redeliverMessage(row.id);
+    // this one goes as any message to a started chat (its first turn may be over by now), unless
+    // the start's flush sent it already.
+    const [now] = await this.db.select().from(stepRuns).where(eq(stepRuns.id, chat.id));
+    if (!now?.sessionId || !now.startDeliveredAt) return;
+    if (now.harnessId) {
+      const late: Out[] = [];
+      const harnessId = now.harnessId;
+      await this.db.transaction(async (tx) => {
+        if ((await take(tx, { id: now.id, harnessId }, "person", { kind: "deliver" })) === "queued") await this.pushStep(tx, now.id, late);
+      });
+      this.publish(runId, late);
+    }
+    await this.redeliverMessage(row.id);
   }
 
   /** Sends the answers and chat messages that wait for the step's session (it holds a slot). */
@@ -942,10 +952,15 @@ export class Engine {
         await this.syncWaiting(tx, step.id, step.runId, out);
         return null;
       }
-      case "turn-end":
-        // A chat between turns waits for the owner's next message: it holds no slot meanwhile.
-        if (step.start?.interactive && step.working) await this.release(tx, step, out);
+      case "turn-end": {
+        // A chat between turns waits for the owner's next message: it holds no slot meanwhile. A
+        // message sent before this was applied (the last of the transcript) started its next turn
+        // on the slot it holds: that turn's end gives it back.
+        if (!step.start?.interactive || !step.working) return null;
+        const [last] = await tx.select({ role: messages.role }).from(messages).where(eq(messages.stepRunId, step.id)).orderBy(desc(messages.position)).limit(1);
+        if (last?.role !== "user") await this.release(tx, step, out);
         return null;
+      }
       case "outputs-accepted":
         return (await this.complete(tx, step, event.values, out)) ? "advance" : null;
       case "result":

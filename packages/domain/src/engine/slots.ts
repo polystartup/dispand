@@ -1,6 +1,6 @@
 import { and, asc, count, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { Tx } from "../db/client.ts";
-import { harnesses, runs, stepRuns, type PendingAction, type QueueClass } from "../db/schema.ts";
+import { harnesses, runs, stepRuns, type PendingAction, type QueueClass, type StepStatus } from "../db/schema.ts";
 import { meter, spanEvent } from "../telemetry/index.ts";
 
 export type { QueueClass };
@@ -11,6 +11,8 @@ export type { QueueClass };
 
 const counts = meter("engine");
 
+const OPEN: StepStatus[] = ["pending", "running", "waiting"];
+
 /** The order the queue is served in: a person waiting first, then resumes, then new starts. */
 const CLASS_ORDER = sql`case ${stepRuns.queueClass} when 'person' then 0 when 'resume' then 1 else 2 end`;
 
@@ -18,12 +20,15 @@ const CLASS_ORDER = sql`case ${stepRuns.queueClass} when 'person' then 0 when 'r
  * Gives the step one of its harness's slots, or queues it (class `cls`, from now) when none is
  * free, to do `action` once it is handed one. Called again on a step that already holds one or is
  * already queued, it keeps its place: only `give` and `next` serve the queue, in its order. A
- * resume replaces what a queued step waits to do, since it carries the rest.
+ * resume replaces what a queued step waits to do, since it carries the rest. A closed step is
+ * left as it is, reported "queued": nothing goes to it.
  */
 export async function take(tx: Tx, step: { id: string; harnessId: string }, cls: QueueClass, action: PendingAction = { kind: "start" }): Promise<"working" | "queued"> {
-  const [row] = await tx.select({ working: stepRuns.working, queuedAt: stepRuns.queuedAt }).from(stepRuns).where(eq(stepRuns.id, step.id)).for("update");
-  if (row?.working) return "working";
-  if (row?.queuedAt) {
+  const [row] = await tx.select({ status: stepRuns.status, working: stepRuns.working, queuedAt: stepRuns.queuedAt }).from(stepRuns).where(eq(stepRuns.id, step.id)).for("update");
+  // A step closed meanwhile (stopped, failed) takes nothing and is sent nothing.
+  if (!row || !OPEN.includes(row.status)) return "queued";
+  if (row.working) return "working";
+  if (row.queuedAt) {
     if (action.kind === "resume") await tx.update(stepRuns).set({ pendingAction: action }).where(eq(stepRuns.id, step.id));
     return "queued";
   }

@@ -12,6 +12,7 @@ import { asCli, ownerContext } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { Engine } from "./engine.ts";
+import { take } from "./slots.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { JOB_STEP } from "./job-def.ts";
 
@@ -467,6 +468,7 @@ test("an open chat waiting for its next message holds no slot; its message goes 
   expect(started([chat, x, y])).toEqual([chat, x]);
 
   // Its turn ends: the slot goes to y.
+  await emit(sessionOf(chat)!, { type: "text", delta: "Sorted." });
   await emit(sessionOf(chat)!, { type: "turn-end" });
   await vi.waitFor(() => expect(started([chat, x, y])).toEqual([chat, x, y]));
   expect(await working()).toBe(1);
@@ -514,4 +516,35 @@ test("a restart between handing an answer or a message a slot and sending it del
   expect(again.answers).toEqual([]);
   expect(again.sent).toEqual([]);
   expect(again.starts).toEqual([]);
+});
+
+test("a turn-end applied after the next message was sent keeps the slot for that message's turn", async () => {
+  const s = await setup(1);
+  const { context, job, step, adapter, engine, emit, sessionOf, started, working } = s;
+  const talk = await call(router.triggers.create, { agentId: s.agent.id, name: "Talk", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
+  const { runId: chat } = await call(router.jobs.start, { triggerId: talk.id }, { context: { ...context, engine } });
+  s.chat(talk.id);
+  await emit(sessionOf(chat)!, { type: "text", delta: "How can I help?" });
+  // The runner ended the turn, but the next message went out before its turn-end was applied.
+  await call(router.runs.sendChat, { runId: chat, text: "Sort my inbox" }, { context: { ...context, engine } });
+  await vi.waitFor(() => expect(adapter.sent).toHaveLength(1));
+  await emit(sessionOf(chat)!, { type: "turn-end" });
+  expect(await step(chat)).toMatchObject({ working: true });
+  const x = await job();
+  expect(started([chat, x])).toEqual([chat]);
+  // That message's turn ends: the slot goes on.
+  await emit(sessionOf(chat)!, { type: "text", delta: "Done." });
+  await emit(sessionOf(chat)!, { type: "turn-end" });
+  await vi.waitFor(() => expect(started([chat, x])).toEqual([chat, x]));
+  expect(await working()).toBe(1);
+});
+
+test("a step closed meanwhile takes no slot", async () => {
+  const { context, harness, job, step, engine, working } = await setup(2);
+  const a = await job();
+  await engine.stopRun(a);
+  const stopped = await step(a);
+  expect(await context.db.transaction((tx) => take(tx, { id: stopped.id, harnessId: harness.id }, "person", { kind: "deliver" }))).toBe("queued");
+  expect(await step(a)).toMatchObject({ status: "failed", working: false, queuedAt: null });
+  expect(await working()).toBe(0);
 });
