@@ -283,7 +283,12 @@
   session running. `runs.list` says which runs have a step `queued`; the run page shows it on
   the step. Telemetry: `dispand.harness.working` and `dispand.harness.queued` gauges by harness
   id and kind, `dispand.harness.queue_wait` (ms, by class), an `engine.slot` span event on each
-  take, give and hand-over.
+  take, give and hand-over. The limits are set on the Harnesses page (`HarnessLimits`:
+  `harnesses.limits` gives each harness's limit with its sessions working and steps queued,
+  `harnesses.setLimit` changes it) and by an agent through an approved proposal
+  (`harnesses_set_limit`, a grant; `harnesses_limits` reads them). Raising a limit hands the
+  freed slots out at once, in the same transaction (`Engine.setLimit`); lowering it stops nothing, and new turns wait
+  until fewer work.
 - **Telemetry** (`packages/domain/src/telemetry/`): OpenTelemetry's trace, log and metric
   providers, started once by the app (`startTelemetry`, guarded on `globalThis` for dev
   reloads) and stopped on shutdown. OTLP/HTTP exporters exist only when

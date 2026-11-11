@@ -30,5 +30,7 @@ jobs:
       - name: End-to-end tests
         if: inputs.e2e
         run: |
-          pnpm exec playwright install --with-deps chromium
+          # Chromium's system packages come from Ubuntu's mirror. When it can't be reached, the
+          # browser alone still runs: the runner image already has Chrome's libraries.
+          pnpm exec playwright install --with-deps chromium || pnpm exec playwright install chromium
           pnpm run test:e2e
