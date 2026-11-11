@@ -323,6 +323,13 @@
       "when": 1794424556855,
       "tag": "0045_poll_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1794425943743,
+      "tag": "0046_poll_continuation",
+      "breakpoints": true
     }
   ]
 }

@@ -80,6 +80,7 @@ const runnerMessages: RunnerToServer[] = [
   },
   { type: "tool.discovered", requestId: "req_2", error: "the server didn't start" },
   { type: "tool.called", requestId: "req_3", content: [{ type: "text", text: "[]" }], isError: false },
+  { type: "tool.called", requestId: "req_5", content: [{ type: "text", text: "[]" }], isError: false, hasMore: true },
   { type: "tool.called", requestId: "req_4", error: "the action send of mail isn't read-only" },
   ...(
     [
