@@ -71,10 +71,10 @@ test("telemetry exported during the whole suite holds no secret and no content",
   }
   // This test's own work is in once the tool call's span (named by the tool's id) arrived;
   // a later read takes whatever was still buffered then.
-  const dump = async () => JSON.stringify(await (await fetch(`${COLLECTOR}/dump`)).json());
-  await expect.poll(dump, { timeout: 20_000 }).toContain(toolId);
+  const has = async (text: string) => (await (await fetch(`${COLLECTOR}/has?text=${encodeURIComponent(text)}`)).json()) as boolean;
+  await expect.poll(() => has(toolId), { timeout: 20_000 }).toBe(true);
   await page.waitForTimeout(2_000);
-  const exported = await dump();
+  const exported = JSON.stringify(await (await fetch(`${COLLECTOR}/dump`)).json());
   // Spans, metrics and logs all reached the collector: none of the checks below is vacuous.
   expect(exported).toContain("tool.call");
   expect(exported).toContain("dispand.tool.calls");
