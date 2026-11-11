@@ -13,6 +13,8 @@ const TITLES: Record<string, string> = {
   agents_set_tool_ask: "Change whether an action asks before use",
   tables_delete: "Delete a table, with its rows",
   fields_delete: "Delete a field, with its values",
+  tools_add: "Add a tool: a server Dispand will call",
+  tools_delete: "Delete a tool, with its saved headers",
   triggers_create: "Create a trigger: what starts an agent's Jobs",
   triggers_update: "Change a trigger",
   triggers_delete: "Delete a trigger",
@@ -24,6 +26,8 @@ const LABELS_OF: Record<string, Record<string, string>> = {
   triggers_create: { id: "Trigger", agentId: "Agent", instructions: "What the agent is told", config: "When it fires", concurrency: "Jobs at once", enabled: "On" },
   triggers_update: { id: "Trigger", agentId: "Agent", instructions: "What the agent is told", config: "When it fires", concurrency: "Jobs at once", enabled: "On" },
   triggers_delete: { id: "Trigger" },
+  tools_add: { name: "Name", url: "Address", transport: "Transport" },
+  tools_delete: { id: "Tool" },
   agents_set_tool_ask: { agentId: "Agent", toolId: "Tool", action: "Action", ask: "Asks before use" },
 };
 const LABELS: Record<string, string> = {
@@ -54,7 +58,7 @@ function Ref({ id, names }: { id: string; names: ProposalView["names"] }) {
   );
 }
 
-function Value({ value, names, isRef }: { value: unknown; names: ProposalView["names"]; isRef: boolean }) {
+function Value({ value, names, isRef, address }: { value: unknown; names: ProposalView["names"]; isRef: boolean; address: boolean }) {
   const list = Array.isArray(value) ? value : null;
   // Read by name, never taken on trust ("all" tables is not an id).
   if (isRef && value !== "all") {
@@ -65,6 +69,18 @@ function Value({ value, names, isRef }: { value: unknown; names: ProposalView["n
         {ids.map((id) => (
           <Ref key={id} id={id} names={names} />
         ))}
+      </span>
+    );
+  }
+  if (address && typeof value === "string") {
+    // The whole address, and the host it reaches set apart: that is where calls will go.
+    const host = URL.parse(value)?.host;
+    return (
+      <span className="flex flex-col">
+        <span className="break-all font-mono text-[12.5px]">{value}</span>
+        <span>
+          Calls go to <span className="font-medium">{host ?? "an address that can't be read"}</span>
+        </span>
       </span>
     );
   }
@@ -92,7 +108,7 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
               <div key={name} className="contents">
                 <dt className="text-muted">{LABELS_OF[item.tool]?.[name] ?? LABELS[name] ?? name}</dt>
                 <dd className="min-w-0">
-                  <Value value={value} names={proposal.names} isRef={item.refs.includes(name)} />
+                  <Value value={value} names={proposal.names} isRef={item.refs.includes(name)} address={item.tool === "tools_add" && name === "url"} />
                 </dd>
               </div>
             ))}

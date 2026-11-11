@@ -74,6 +74,15 @@ changes it updates this file.
   creating or changing an agent, so the same gate refuses them without an approved item. An
   item is also checked against the Job's tables when it is proposed, like any call: a Job
   limited to some tables can't put another table's deletion in front of the owner.
+- **The server calls no address an agent chose before a person approved it, and an agent
+  never handles a tool's credentials.** An agent adds a tool only as a proposal item
+  (`tools.add`: a name, a URL and a transport, nothing else; a URL with credentials or any
+  header is refused when proposed). Making the proposal fetches nothing: the address is first
+  contacted, to list its actions, when the approved call runs. The owner reads the address
+  whole with the host set apart, and enters the server's headers afterwards on the tool's
+  page. Agents can read tools (names, addresses, actions, header names, never values) and
+  delete an unused one through a proposal; changing a tool's address, transport or headers
+  is not one of their tools at all.
 - **A proposal is approved by a person, on what the server shows, never on the agent's words.**
   The agent asks with `request_approval`, naming the proposal's id. The server attaches a
   draft of that same run to the question with one conditional update (so a proposal has one

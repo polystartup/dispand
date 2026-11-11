@@ -128,6 +128,7 @@ const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
   triggers_create: { agentId: "agent" },
   triggers_update: { id: "trigger" },
   triggers_delete: { id: "trigger" },
+  tools_delete: { id: "tool" },
 };
 
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : typeof value === "string" ? [value] : []);
