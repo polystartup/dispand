@@ -21,7 +21,7 @@ const STARTS: [Starts, string, string][] = [
 ];
 
 /** What a trigger's kind lets it become: a manual one moves between chat and button only. */
-const KINDS: Record<string, Starts[]> = { manual: ["chat", "button"], schedule: ["schedule"], primitive: ["change"] };
+const KINDS: Record<string, Starts[]> = { manual: ["chat", "button"], schedule: ["schedule"], primitive: ["change"], poll: [] };
 
 /** The browser's timezone when schedules accept it (they take IANA zones: not "UTC"), else the default. */
 function localTimezone(): string {

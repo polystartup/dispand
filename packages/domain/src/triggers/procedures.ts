@@ -2,9 +2,10 @@ import { ORPCError } from "@orpc/server";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
-import { agents, eventFires, fields, tables, triggerFires, triggers as triggersTable } from "../db/schema.ts";
+import { agents, eventFires, fields, pollItems, polls, tables, triggerFires, triggers as triggersTable } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
+import { pollProblem } from "../tools/pollable.ts";
 import { cronProblem, nextFireAfter } from "../workflows/schedule.ts";
 import { Concurrency, RateCap, TriggerConfig, TriggerFields } from "./model.ts";
 
@@ -30,11 +31,16 @@ function checkInstructions(config: TriggerConfig, instructions: string) {
 
 /**
  * A schedule's cron must parse. A primitive trigger watches a primitive table of the owner's,
- * its fields, and reads no more than its agent may: the agent has `data` on that table.
+ * its fields, and reads no more than its agent may: the agent has `data` on that table. A poll
+ * names an action of a tool its agent has, one a poll may read (`pollProblem`).
  */
 async function checkConfig(db: Db | Tx, ownerId: string, agent: Awaited<ReturnType<typeof requireAgent>>, config: TriggerConfig) {
   if (config.kind === "schedule") {
     const problem = cronProblem(config.cron, config.timezone);
+    if (problem) throw new ORPCError("BAD_REQUEST", { message: problem });
+  }
+  if (config.kind === "poll") {
+    const problem = await pollProblem(db, ownerId, agent.id, config.toolId, config.action);
     if (problem) throw new ORPCError("BAD_REQUEST", { message: problem });
   }
   if (config.kind !== "primitive") return;
@@ -59,12 +65,50 @@ async function checkConfig(db: Db | Tx, ownerId: string, agent: Awaited<ReturnTy
  * with no catch-up, as workflow schedules do.
  */
 export function scheduleColumns(config: TriggerConfig, previous: (Times & { config: TriggerConfig; enabled: boolean }) | null, enabled: boolean, now: Date): Times {
+  if (config.kind === "poll") {
+    // A poll is due at once when new, changed or turned on again (its baseline then recorded
+    // again: `lastCheckedAt` null); a new interval counts from now.
+    const same = previous?.config.kind === "poll" && !rebaselines(previous, config, enabled);
+    const sameInterval = same && previous.config.kind === "poll" && previous.config.interval === config.interval;
+    return { nextFireAt: sameInterval ? previous.nextFireAt : now, lastCheckedAt: same ? previous.lastCheckedAt : null };
+  }
   if (config.kind !== "schedule") return { nextFireAt: null, lastCheckedAt: null };
   const same =
     previous?.config.kind === "schedule" && previous.config.cron === config.cron && previous.config.timezone === config.timezone;
   const resumed = previous && !previous.enabled && enabled;
   if (previous && same && !resumed) return { nextFireAt: previous.nextFireAt, lastCheckedAt: previous.lastCheckedAt };
   return { nextFireAt: nextFireAfter(config.cron, config.timezone, now), lastCheckedAt: now };
+}
+
+/**
+ * Whether a poll trigger's next poll is a baseline again (it records what exists and starts
+ * nothing): it calls something else now (tool, action, arguments, paths), or it is turned on again.
+ */
+export function rebaselines(previous: { config: TriggerConfig; enabled: boolean }, config: TriggerConfig, enabled: boolean): boolean {
+  if (previous.config.kind !== "poll" || config.kind !== "poll") return false;
+  const calls = (c: typeof config) => JSON.stringify([c.toolId, c.action, c.arguments, c.itemsPath, c.idPath]);
+  return calls(previous.config) !== calls(config) || (!previous.enabled && enabled);
+}
+
+/** A poll trigger's latest polls, and the items each found new (the latest of them). */
+async function pollView(db: Db, triggerId: string) {
+  const latest = await db.select().from(polls).where(eq(polls.triggerId, triggerId)).orderBy(desc(polls.at), desc(polls.id)).limit(5);
+  const items = await db
+    .select({ itemId: pollItems.itemId, firstSeen: pollItems.firstSeen, status: pollItems.status, runId: pollItems.runId, message: pollItems.message })
+    .from(pollItems)
+    .where(eq(pollItems.triggerId, triggerId))
+    .orderBy(desc(pollItems.firstSeen), desc(pollItems.id))
+    .limit(20);
+  return latest.map((p) => ({
+    at: p.at,
+    status: p.status,
+    found: p.found,
+    fresh: p.fresh,
+    ...(p.message ? { message: p.message } : {}),
+    items: items
+      .filter((i) => i.firstSeen.getTime() === p.at.getTime())
+      .map((i) => ({ itemId: i.itemId, status: i.status, ...(i.runId ? { runId: i.runId } : {}), ...(i.message ? { message: i.message } : {}) })),
+  }));
 }
 
 async function view(db: Db, row: Row) {
@@ -99,6 +143,8 @@ async function view(db: Db, row: Row) {
       ...(f.runId ? { runId: f.runId } : {}),
       ...(f.message ? { message: f.message } : {}),
     })),
+    // A poll trigger's latest polls: what each found, and what each new item did.
+    lastPolls: row.kind === "poll" ? await pollView(db, row.id) : [],
     // A primitive trigger's latest events: what each did.
     lastEvents: events.map((f) => ({
       eventId: f.eventId,
@@ -167,9 +213,9 @@ const update = owner
       if (!previous) throw new ORPCError("NOT_FOUND");
       const config = input.config ?? previous.config;
       if (config.kind !== previous.kind) throw new ORPCError("BAD_REQUEST", { message: "A trigger's kind can't change" });
-      // A primitive trigger can always be turned off, even once what it watches has changed under
-      // it: its config is checked when it is turned on again. A schedule's cron is always checked.
-      if ((input.enabled ?? previous.enabled) || config.kind !== "primitive") await checkConfig(tx, context.ownerId, await requireAgent(tx, context.ownerId, previous.agentId), config);
+      // A primitive or poll trigger can always be turned off, even once what it watches has changed
+      // under it: its config is checked when it is turned on again. A schedule's cron is always checked.
+      if ((input.enabled ?? previous.enabled) || config.kind === "schedule" || config.kind === "manual") await checkConfig(tx, context.ownerId, await requireAgent(tx, context.ownerId, previous.agentId), config);
       checkInstructions(config, input.instructions ?? previous.instructions);
       const enabled = input.enabled ?? previous.enabled;
       const [updated] = await tx

@@ -31,3 +31,16 @@ export async function pollableActions(db: Db | Tx, ownerId: string, toolId: stri
 export async function isPollable(db: Db | Tx, ownerId: string, toolId: string, action: string): Promise<boolean> {
   return (await pollableActions(db, ownerId, toolId))?.find((a) => a.name === action)?.pollable === true;
 }
+
+/**
+ * Why a poll of `agentId` may not call `action` of the tool now, or null when it may: the tool is
+ * the owner's, the agent holds it, and the action is pollable. Checked when a poll trigger is
+ * made or changed, before each call, before each Job, and before each start of a poll Job's session.
+ */
+export async function pollProblem(db: Db | Tx, ownerId: string, agentId: string, toolId: string, action: string): Promise<string | null> {
+  const [tool] = await db.select({ id: tools.id }).from(tools).where(and(eq(tools.id, toolId), eq(tools.ownerId, ownerId)));
+  if (!tool) return "The tool no longer exists";
+  if (!(await skillsAndTools(db, agentId)).tools.some((t) => t.toolId === toolId)) return "The agent doesn't have this tool";
+  if (!(await isPollable(db, ownerId, toolId, action))) return "A poll may not read this action: the tool doesn't let polls read it, or an agent must ask before using it";
+  return null;
+}
