@@ -6,12 +6,13 @@ import { call } from "@orpc/server";
 import { and, eq, sql } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { closeDb, createDb, type Db } from "../db/client.ts";
-import { harnesses, runs, stepRuns, type RunTrigger } from "../db/schema.ts";
+import { harnesses, messages, questions, runs, stepRuns, type RunTrigger } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { Engine } from "./engine.ts";
+import { take } from "./slots.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { JOB_STEP } from "./job-def.ts";
 
@@ -19,6 +20,8 @@ import { JOB_STEP } from "./job-def.ts";
 class FakeAdapter implements HarnessAdapter {
   starts: { harness: Harness; start: StartParams }[] = [];
   sent: [string, string][] = [];
+  /** The runner question ids answered, in order. */
+  answers: string[] = [];
   /** What reached the runner, in order. */
   log: string[] = [];
   /** How long a start takes to be written, in ms. */
@@ -34,7 +37,8 @@ class FakeAdapter implements HarnessAdapter {
     this.log.push(`send:${sessionId}`);
     return true;
   }
-  async answer() {
+  async answer(_sessionId: string, questionId: string) {
+    this.answers.push(questionId);
     return true;
   }
   async stop() {
@@ -63,7 +67,10 @@ async function setup(limit: number) {
     return runId;
   };
   /** The Job's step row. */
-  const step = async (runId: string, nodeId = JOB_STEP) => (await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, nodeId))))[0]!;
+  const step = async (runId: string, nodeId?: string) =>
+    (await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), nodeId ? eq(stepRuns.nodeId, nodeId) : sql`${stepRuns.nodeId} in (${JOB_STEP}, ${chatNode})`)))[0]!;
+  /** A chat Job's step is its trigger's node. */
+  let chatNode = "";
   /** The session the engine started for the run's step (its run key starts with the run id). */
   const sessionOf = (runId: string) => adapter.starts.find((s) => s.start.runKey.startsWith(`${runId}-`))?.start.sessionId;
   /** The runs whose sessions started, in order. */
@@ -73,7 +80,8 @@ async function setup(limit: number) {
     (await context.db.select().from(stepRuns).where(and(eq(stepRuns.harnessId, harnessId), eq(stepRuns.working, true)))).length;
   /** Ends the run's session with a result. */
   const finish = (runId: string) => emit(sessionOf(runId)!, { type: "result", text: "Done." });
-  return { context, runnerId, harness, agent, trigger, adapter, engine, emit, job, step, sessionOf, started, working, finish };
+  const chat = (node: string) => void (chatNode = node);
+  return { context, runnerId, harness, agent, trigger, adapter, engine, emit, job, step, sessionOf, started, working, finish, chat };
 }
 
 test("with a limit of 1, three Jobs of one harness start one after the other as each finishes", async () => {
@@ -332,7 +340,7 @@ test("0041 charges open agent steps to their harness and counts the sessions mid
   expect((await db.select().from(runs).where(eq(runs.id, "run_next")))[0]!.status).toBe("running");
 });
 
-test("a step waiting on a question whose run failed gives its slot back", async () => {
+test("a step queued for its answer whose run fails leaves the queue; its answer is never sent", async () => {
   const both = (agentId: string): WorkflowDef => ({
     trigger: { type: "manual", field: { id: "n_go", key: "go", type: "button", label: "Go" } },
     steps: [
@@ -349,16 +357,18 @@ test("a step waiting on a question whose run failed gives its slot back", async 
   await call(router.workflows.update, { id: workflow.id, name: "Both", def: both(agent.id) }, { context });
   const run = await engine.startRun(workflow.id);
   const [one, two] = [await step(run, "n_one"), await step(run, "n_two")];
-  await emit(one.sessionId!, { type: "question", questionId: "rq_1", payload: { kind: "choice", questions: [{ question: "Which?", header: "Which", multiSelect: false, options: [{ label: "A", description: "" }] }] } });
-  expect(await step(run, "n_one")).toMatchObject({ status: "waiting", working: true });
-  const queued = await job();
-  expect(started([run, queued])).toEqual([run, run]);
+  await emit(one.sessionId!, { type: "question", questionId: "rq_1", payload: choice("Which?") });
+  // Waiting on its question, it holds no slot: the next Job takes it.
+  expect(await step(run, "n_one")).toMatchObject({ status: "waiting", working: false });
+  const other = await job();
+  expect(started([run, other])).toEqual([run, run, other]);
+  await engine.answer((await questionsOf(context.db, run))[0]!.id, { kind: "choice", answers: { "Which?": "A" } });
+  expect(await step(run, "n_one")).toMatchObject({ status: "running", working: false, queueClass: "resume" });
 
-  // The other branch fails: the question expires, so the waiting step never goes on.
+  // The other branch fails: the step queued for its answer leaves the queue.
   await emit(two.sessionId!, { type: "error", message: "The CLI crashed" });
-  await vi.waitFor(() => expect(adapter.starts).toHaveLength(3));
-  expect(started([run, queued])).toEqual([run, run, queued]);
-  expect(await step(run, "n_one")).toMatchObject({ working: false });
+  expect(await step(run, "n_one")).toMatchObject({ queuedAt: null, working: false, pendingAction: null });
+  expect(adapter.answers).toEqual([]);
   expect(await working()).toBe(1);
 });
 
@@ -380,4 +390,161 @@ test("a chat Job queued on a full harness keeps its first message and sends it a
   expect(adapter.sent).toEqual([[session, "Hello"]]);
   // The message follows its session's start, never ahead of it.
   expect(adapter.log.slice(-2)).toEqual([`start:${session}`, `send:${session}`]);
+});
+
+const choice = (question: string) => ({ kind: "choice" as const, questions: [{ question, header: "Pick", multiSelect: false, options: [{ label: "A", description: "" }] }] });
+const questionsOf = (db: Db, runId: string) => db.select().from(questions).where(eq(questions.runId, runId)).orderBy(questions.createdAt);
+
+test("with a limit of 1, a Job waiting on a Question lets the next Job run, and its answers queue once until a slot frees", async () => {
+  const t = await captureTelemetry();
+  onTestFinished(() => t.stop());
+  const { context, harness, job, step, adapter, engine, emit, finish, sessionOf, started, working } = await setup(1);
+  const a = await job();
+  const b = await job({ type: "schedule", scheduledFor: "2026-11-11T09:00:00.000Z" });
+  const c = await job({ type: "schedule", scheduledFor: "2026-11-11T09:00:00.000Z" });
+  expect(started([a, b, c])).toEqual([a]);
+  await emit(sessionOf(a)!, { type: "question", questionId: "rq_1", payload: choice("Which repo?") });
+  await emit(sessionOf(a)!, { type: "question", questionId: "rq_2", payload: choice("Which branch?") });
+  // a waits on its questions: its slot went to b.
+  await vi.waitFor(() => expect(started([a, b, c])).toEqual([a, b]));
+  expect(await step(a)).toMatchObject({ status: "waiting", working: false, queuedAt: null });
+  expect(await working()).toBe(1);
+
+  const [q1, q2] = await questionsOf(context.db, a);
+  await engine.answer(q1!.id, { kind: "choice", answers: { "Which repo?": "A" } });
+  // Still waiting on the other: nothing queues, nothing is sent.
+  expect(await step(a)).toMatchObject({ status: "waiting", queuedAt: null });
+  await engine.answer(q2!.id, { kind: "choice", answers: { "Which branch?": "A" } });
+  const queued = await step(a);
+  expect(queued).toMatchObject({ status: "running", working: false, queueClass: "resume", pendingAction: { kind: "deliver" } });
+  expect(queued.queuedAt).toBeInstanceOf(Date);
+  expect(adapter.answers).toEqual([]);
+  expect((await questionsOf(context.db, a)).map((q) => q.deliveredAt)).toEqual([null, null]);
+  // Queued once: one entry for the step, its place unchanged.
+  expect((await context.db.select().from(stepRuns).where(and(eq(stepRuns.harnessId, harness.id), sql`${stepRuns.queuedAt} is not null`))).map((s) => s.runId).sort()).toEqual([a, c].sort());
+
+  // b finishes: a's answers go ahead of c's start (a resume before a new start), each once.
+  await finish(b);
+  await vi.waitFor(() => expect(adapter.answers).toEqual(["rq_1", "rq_2"]));
+  await vi.waitFor(async () => expect((await questionsOf(context.db, a)).every((q) => q.deliveredAt)).toBe(true));
+  expect(await step(a)).toMatchObject({ status: "running", working: true, queuedAt: null, pendingAction: null });
+  expect(started([a, b, c])).toEqual([a, b]);
+  expect(await working()).toBe(1);
+  await engine.stop();
+  expect(adapter.answers).toEqual(["rq_1", "rq_2"]);
+  expect((await t.metrics())).toContainEqual({ name: "dispand.harness.queue_wait", attributes: { "dispand.queue.class": "resume" } });
+  const all = await t.all();
+  expect(all).not.toContain("Which repo");
+  expect(all).not.toContain("Sort the mail");
+});
+
+/** A chat Job of the setup's agent, started on a free slot; its first turn has ended. */
+async function openChat(s: Awaited<ReturnType<typeof setup>>) {
+  const { context, agent, engine, emit, sessionOf } = s;
+  const talk = await call(router.triggers.create, { agentId: agent.id, name: "Talk", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
+  const { runId } = await call(router.jobs.start, { triggerId: talk.id }, { context: { ...context, engine } });
+  s.chat(talk.id);
+  await emit(sessionOf(runId)!, { type: "text", delta: "How can I help?" });
+  await emit(sessionOf(runId)!, { type: "turn-end" });
+  return runId;
+}
+
+test("an open chat waiting for its next message holds no slot; its message goes ahead of queued starts", async () => {
+  const s = await setup(1);
+  const { context, job, step, adapter, engine, emit, finish, sessionOf, started, working } = s;
+  const chat = await openChat(s);
+  expect(await step(chat)).toMatchObject({ status: "running", working: false });
+  expect(await working()).toBe(0);
+  const x = await job();
+  const y = await job({ type: "schedule", scheduledFor: "2026-11-11T09:00:00.000Z" });
+  expect(started([chat, x, y])).toEqual([chat, x]);
+
+  await call(router.runs.sendChat, { runId: chat, text: "Sort my inbox" }, { context: { ...context, engine } });
+  expect(await step(chat)).toMatchObject({ working: false, queueClass: "person" });
+  expect(adapter.sent).toEqual([]);
+  await finish(x);
+  await vi.waitFor(() => expect(adapter.sent).toEqual([[sessionOf(chat), "Sort my inbox"]]));
+  expect(await step(chat)).toMatchObject({ working: true, queuedAt: null, pendingAction: null });
+  expect(started([chat, x, y])).toEqual([chat, x]);
+
+  // Its turn ends: the slot goes to y.
+  await emit(sessionOf(chat)!, { type: "text", delta: "Sorted." });
+  await emit(sessionOf(chat)!, { type: "turn-end" });
+  await vi.waitFor(() => expect(started([chat, x, y])).toEqual([chat, x, y]));
+  expect(await working()).toBe(1);
+});
+
+test("a restart between handing an answer or a message a slot and sending it delivers it once", async () => {
+  const s = await setup(1);
+  const { context, harness, job, step, engine, emit, sessionOf } = s;
+  const chat = await openChat(s);
+  const a = await job();
+  await emit(sessionOf(a)!, { type: "question", questionId: "rq_1", payload: choice("Which?") });
+  const b = await job();
+  const [q] = await questionsOf(context.db, a);
+  await engine.answer(q!.id, { kind: "choice", answers: { "Which?": "A" } });
+  await call(router.runs.sendChat, { runId: chat, text: "Hello again" }, { context: { ...context, engine } });
+  expect((await step(a)).queueClass).toBe("resume");
+  expect((await step(chat)).queueClass).toBe("person");
+  await engine.stop();
+
+  // The process stopped right after handing both their slots (b closed, one more slot meanwhile), before sending.
+  await context.db.update(stepRuns).set({ status: "succeeded", working: false }).where(eq(stepRuns.id, (await step(b)).id));
+  await context.db.update(harnesses).set({ maxWorking: 2 }).where(eq(harnesses.id, harness.id));
+  for (const id of [(await step(a)).id, (await step(chat)).id]) {
+    await context.db.update(stepRuns).set({ working: true, queuedAt: null, queueClass: null }).where(eq(stepRuns.id, id));
+  }
+  expect((await step(a)).pendingAction).toEqual({ kind: "deliver" });
+
+  const adapter = new FakeAdapter();
+  const restarted = new Engine(context.db, adapter);
+  onTestFinished(() => restarted.stop());
+  await restarted.recover();
+  await vi.waitFor(() => expect(adapter.answers).toEqual(["rq_1"]));
+  await vi.waitFor(() => expect(adapter.sent).toEqual([[sessionOf(chat), "Hello again"]]));
+  await restarted.stop();
+  expect((await questionsOf(context.db, a))[0]!.deliveredAt).toBeInstanceOf(Date);
+  expect((await context.db.select().from(messages).where(and(eq(messages.runId, chat), eq(messages.role, "user"))))[0]!.deliveredAt).toBeInstanceOf(Date);
+  expect(await step(a)).toMatchObject({ working: true, pendingAction: null });
+
+  // A second restart sends nothing again.
+  const again = new FakeAdapter();
+  const second = new Engine(context.db, again);
+  onTestFinished(() => second.stop());
+  await second.recover();
+  await second.stop();
+  expect(again.answers).toEqual([]);
+  expect(again.sent).toEqual([]);
+  expect(again.starts).toEqual([]);
+});
+
+test("a turn-end applied after the next message was sent keeps the slot for that message's turn", async () => {
+  const s = await setup(1);
+  const { context, job, step, adapter, engine, emit, sessionOf, started, working } = s;
+  const talk = await call(router.triggers.create, { agentId: s.agent.id, name: "Talk", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
+  const { runId: chat } = await call(router.jobs.start, { triggerId: talk.id }, { context: { ...context, engine } });
+  s.chat(talk.id);
+  await emit(sessionOf(chat)!, { type: "text", delta: "How can I help?" });
+  // The runner ended the turn, but the next message went out before its turn-end was applied.
+  await call(router.runs.sendChat, { runId: chat, text: "Sort my inbox" }, { context: { ...context, engine } });
+  await vi.waitFor(() => expect(adapter.sent).toHaveLength(1));
+  await emit(sessionOf(chat)!, { type: "turn-end" });
+  expect(await step(chat)).toMatchObject({ working: true });
+  const x = await job();
+  expect(started([chat, x])).toEqual([chat]);
+  // That message's turn ends: the slot goes on.
+  await emit(sessionOf(chat)!, { type: "text", delta: "Done." });
+  await emit(sessionOf(chat)!, { type: "turn-end" });
+  await vi.waitFor(() => expect(started([chat, x])).toEqual([chat, x]));
+  expect(await working()).toBe(1);
+});
+
+test("a step closed meanwhile takes no slot", async () => {
+  const { context, harness, job, step, engine, working } = await setup(2);
+  const a = await job();
+  await engine.stopRun(a);
+  const stopped = await step(a);
+  expect(await context.db.transaction((tx) => take(tx, { id: stopped.id, harnessId: harness.id }, "person", { kind: "deliver" }))).toBe("queued");
+  expect(await step(a)).toMatchObject({ status: "failed", working: false, queuedAt: null });
+  expect(await working()).toBe(0);
 });

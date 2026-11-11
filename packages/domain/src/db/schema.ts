@@ -188,8 +188,11 @@ export type StepStatus = "pending" | "running" | "waiting" | "succeeded" | "fail
 
 /** Who waits on a queued step, served in this order (`engine/slots.ts`): a person, a resume, a new start. */
 export type QueueClass = "person" | "resume" | "new";
-/** What a step handed a slot does once that commits: its session's start. */
-export type PendingAction = { kind: "start" };
+/**
+ * What a step does once it holds a slot: its session's start, the answers and chat messages that
+ * wait for it (`deliver`), or its lost session's resume, which carries those too.
+ */
+export type PendingAction = { kind: "start" | "deliver" | "resume" };
 
 /** The agent as it was when its Job was created: the Job's sessions read it, not the `agents` row. */
 export type AgentSnapshot = {
@@ -383,7 +386,8 @@ export const stepRuns = pgTable(
     // Waiting for a slot since then, served by class, then oldest first; null when not queued.
     queuedAt: timestamp("queued_at"),
     queueClass: text("queue_class").$type<QueueClass>(),
-    // Handed a slot, not done yet: replayed by `recover()` if the process stopped before.
+    // What it does once it holds a slot: set when queued (or handed one), cleared when done;
+    // `recover()` replays it for a step handed a slot before the process stopped.
     pendingAction: jsonb("pending_action").$type<PendingAction>(),
   },
   (t) => [

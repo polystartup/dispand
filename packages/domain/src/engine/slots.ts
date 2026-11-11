@@ -1,6 +1,6 @@
 import { and, asc, count, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { Tx } from "../db/client.ts";
-import { harnesses, runs, stepRuns, type QueueClass } from "../db/schema.ts";
+import { harnesses, runs, stepRuns, type PendingAction, type QueueClass, type StepStatus } from "../db/schema.ts";
 import { meter, spanEvent } from "../telemetry/index.ts";
 
 export type { QueueClass };
@@ -11,23 +11,32 @@ export type { QueueClass };
 
 const counts = meter("engine");
 
+const OPEN: StepStatus[] = ["pending", "running", "waiting"];
+
 /** The order the queue is served in: a person waiting first, then resumes, then new starts. */
 const CLASS_ORDER = sql`case ${stepRuns.queueClass} when 'person' then 0 when 'resume' then 1 else 2 end`;
 
 /**
  * Gives the step one of its harness's slots, or queues it (class `cls`, from now) when none is
- * free. Called again on a step that already holds one or is already queued, it changes nothing:
- * only `give` and `next` serve the queue, in its order.
+ * free, to do `action` once it is handed one. Called again on a step that already holds one or is
+ * already queued, it keeps its place: only `give` and `next` serve the queue, in its order. A
+ * resume replaces what a queued step waits to do, since it carries the rest. A closed step is
+ * left as it is, reported "queued": nothing goes to it.
  */
-export async function take(tx: Tx, step: { id: string; harnessId: string }, cls: QueueClass): Promise<"working" | "queued"> {
-  const [row] = await tx.select({ working: stepRuns.working, queuedAt: stepRuns.queuedAt }).from(stepRuns).where(eq(stepRuns.id, step.id)).for("update");
-  if (row?.working) return "working";
-  if (row?.queuedAt) return "queued";
+export async function take(tx: Tx, step: { id: string; harnessId: string }, cls: QueueClass, action: PendingAction = { kind: "start" }): Promise<"working" | "queued"> {
+  const [row] = await tx.select({ status: stepRuns.status, working: stepRuns.working, queuedAt: stepRuns.queuedAt }).from(stepRuns).where(eq(stepRuns.id, step.id)).for("update");
+  // A step closed meanwhile (stopped, failed) takes nothing and is sent nothing.
+  if (!row || !OPEN.includes(row.status)) return "queued";
+  if (row.working) return "working";
+  if (row.queuedAt) {
+    if (action.kind === "resume") await tx.update(stepRuns).set({ pendingAction: action }).where(eq(stepRuns.id, step.id));
+    return "queued";
+  }
   const harness = await lockHarness(tx, step.harnessId);
   const free = harness ? (await workingOn(tx, step.harnessId)) < harness.maxWorking : true;
   await tx
     .update(stepRuns)
-    .set(free ? { harnessId: step.harnessId, working: true } : { harnessId: step.harnessId, queuedAt: new Date(), queueClass: cls })
+    .set(free ? { harnessId: step.harnessId, working: true } : { harnessId: step.harnessId, queuedAt: new Date(), queueClass: cls, pendingAction: action })
     .where(eq(stepRuns.id, step.id));
   const result = free ? "working" : "queued";
   spanEvent("engine.slot", { "dispand.slot.action": "take", "dispand.slot.result": result, "dispand.step.id": step.id, "dispand.harness.id": step.harnessId, "dispand.queue.class": cls });
@@ -36,8 +45,9 @@ export async function take(tx: Tx, step: { id: string; harnessId: string }, cls:
 }
 
 /**
- * The step closes: it gives back its slot (or leaves the queue), and the free slots of its
- * harness go to the next queued steps (`next`). Returns those, for the caller to start once
+ * The step stops working (it closes, or waits on a question or a chat message): it gives back its
+ * slot (or leaves the queue), and the free slots of its harness go to the next queued steps
+ * (`next`). Returns those, for the caller to hand on once
  * this commits.
  */
 export async function give(tx: Tx, stepId: string): Promise<string[]> {
@@ -49,7 +59,7 @@ export async function give(tx: Tx, stepId: string): Promise<string[]> {
   return harness ? hand(tx, harness) : [];
 }
 
-/** Hands the harness's free slots to its queued steps, in the queue's order; returns them, to start once this commits. */
+/** Hands the harness's free slots to its queued steps, in the queue's order; returns them, for what they wait to do once this commits. */
 export async function next(tx: Tx, harnessId: string): Promise<string[]> {
   const harness = await lockHarness(tx, harnessId);
   return harness ? hand(tx, harness) : [];
@@ -63,7 +73,7 @@ async function hand(tx: Tx, harness: HarnessRow): Promise<string[]> {
   if (free > 0) {
     // Only steps of runs still going: a run that failed left its queue (`Engine.fail`).
     const queued = await tx
-      .select({ id: stepRuns.id, queuedAt: stepRuns.queuedAt, queueClass: stepRuns.queueClass })
+      .select({ id: stepRuns.id, queuedAt: stepRuns.queuedAt, queueClass: stepRuns.queueClass, pendingAction: stepRuns.pendingAction })
       .from(stepRuns)
       .innerJoin(runs, eq(runs.id, stepRuns.runId))
       .where(and(eq(stepRuns.harnessId, harness.id), isNotNull(stepRuns.queuedAt), inArray(runs.status, ["running", "waiting"])))
@@ -72,7 +82,7 @@ async function hand(tx: Tx, harness: HarnessRow): Promise<string[]> {
       .for("update", { of: stepRuns, skipLocked: true });
     const now = new Date();
     for (const step of queued) {
-      await tx.update(stepRuns).set({ working: true, queuedAt: null, queueClass: null, pendingAction: { kind: "start" } }).where(eq(stepRuns.id, step.id));
+      await tx.update(stepRuns).set({ working: true, queuedAt: null, queueClass: null, pendingAction: step.pendingAction ?? { kind: "start" } }).where(eq(stepRuns.id, step.id));
       counts.histogram("dispand.harness.queue_wait", { unit: "ms", description: "From a step queued for a slot to its slot" }).record(now.getTime() - step.queuedAt!.getTime(), { "dispand.queue.class": step.queueClass ?? "new" });
       spanEvent("engine.slot", { "dispand.slot.action": "hand", "dispand.step.id": step.id, "dispand.harness.id": harness.id, "dispand.queue.class": step.queueClass ?? "new" });
       handed.push(step.id);
