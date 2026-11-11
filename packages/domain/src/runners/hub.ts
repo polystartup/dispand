@@ -39,8 +39,10 @@ const MAX_PENDING_BYTES = 8 * 1024 * 1024;
 
 type Discover = Extract<ServerToRunner, { type: "tool.discover" }>;
 type Discovered = Extract<RunnerToServer, { type: "tool.discovered" }>;
+type Call = Extract<ServerToRunner, { type: "tool.call" }>;
+type Called = Extract<RunnerToServer, { type: "tool.called" }>;
 /** A `request` waiting for its reply, from that runner only. */
-type Waiting = { runnerId: string; resolve: (reply: Discovered) => void; reject: (err: Error) => void };
+type Waiting = { runnerId: string; type: "tool.discovered" | "tool.called"; resolve: (reply: Discovered | Called) => void; reject: (err: Error) => void };
 
 /** Why `request` got no reply. */
 export class RunnerRequestFailed extends Error {
@@ -138,8 +140,17 @@ export class RunnerHub {
    * connection or loses it meanwhile, "timed out" past `timeoutMs`.
    */
   request(runnerId: string, msg: Discover, timeoutMs = 45_000): Promise<Discovered> {
+    return this.ask(runnerId, msg, timeoutMs) as Promise<Discovered>;
+  }
+
+  /** Calls one action of the runner's tool, for a poll (the runner checks it may): as `request`. */
+  call(runnerId: string, msg: Call, timeoutMs = 45_000): Promise<Called> {
+    return this.ask(runnerId, msg, timeoutMs) as Promise<Called>;
+  }
+
+  private ask(runnerId: string, msg: Discover | Call, timeoutMs: number): Promise<Discovered | Called> {
     if (this.waiting.has(msg.requestId)) return Promise.reject(new RunnerRequestFailed("duplicate request id"));
-    const reply = new Promise<Discovered>((resolve, reject) => {
+    const reply = new Promise<Discovered | Called>((resolve, reject) => {
       const timer = setTimeout(() => settle(() => reject(new RunnerRequestFailed("timed out"))), timeoutMs);
       const settle = (done: () => void) => {
         clearTimeout(timer);
@@ -148,6 +159,7 @@ export class RunnerHub {
       };
       this.waiting.set(msg.requestId, {
         runnerId,
+        type: msg.type === "tool.call" ? "tool.called" : "tool.discovered",
         resolve: (r) => settle(() => resolve(r)),
         reject: (err) => settle(() => reject(err)),
       });
@@ -342,7 +354,7 @@ export class RunnerHub {
 
   private async handle(conn: Connection, state: RunnerState, msg: RunnerToServer) {
     if (msg.type === "hello") await this.hello(conn, msg);
-    else if (msg.type === "tool.discovered") this.reply(conn, msg);
+    else if (msg.type === "tool.discovered" || msg.type === "tool.called") this.reply(conn, msg);
     else await this.event(conn, state, msg);
     await this.catchUp(conn, state);
   }
@@ -355,10 +367,10 @@ export class RunnerHub {
     conn.catchUp = { lastSeq: msg.lastSeq, liveSessions: msg.liveSessions };
   }
 
-  /** A reply resolves only a request sent to the runner that answers it. */
-  private reply(conn: Connection, msg: Discovered) {
+  /** A reply resolves only a request of its kind sent to the runner that answers it. */
+  private reply(conn: Connection, msg: Discovered | Called) {
     const w = this.waiting.get(msg.requestId);
-    if (w?.runnerId === conn.runnerId) w.resolve(msg);
+    if (w?.runnerId === conn.runnerId && w.type === msg.type) w.resolve(msg);
   }
 
   /** Once the events sent before `hello` are handled: ready, then the caught-up handler. */

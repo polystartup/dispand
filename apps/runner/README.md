@@ -89,6 +89,10 @@ Uninstall: `systemctl --user disable --now dispand-runner`, then remove
   snippet for its runner entries. Restart the runner after adding one, then add it in
   Dispand (Settings → Tools → Add runner tool) by picking this runner.
 
+  A server may also have `pollable`: the actions Dispand's polls may call besides those the
+  server itself marks read-only. Polls call the read-only ones without it; `"pollable": []`
+  forbids every poll on that server.
+
 File tools read and write only inside the session folder (reads also inside the CLI's
 `plugins/cache`, `plugins/marketplaces` and `skills/`, where skills keep their own files, and
 the session's own skill packages; never
@@ -165,6 +169,10 @@ the owner outside `bypassPermissions`, each call (no "always allow", whatever yo
 allow). Listing a runner tool's actions (`tool.discover`, from Settings → Tools) starts its
 server from your home folder with an MCP client's default environment plus its `env`, its
 stderr dropped, and stops it again (at most 30 s); its `env` values are redacted from the list.
+A poll's call (`tool.call`) starts the server the same way, outside any session, and calls the
+action only if the server marks it read-only (`readOnlyHint`) or your `pollable` lists it,
+whatever Dispand asks; one call per tool at a time, at most 30 s, its `env` values redacted
+from the result.
 
 ## Commands
 

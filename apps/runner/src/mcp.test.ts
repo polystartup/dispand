@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
-import { codexMcpServers, discoverTool, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
+import { callTool, codexMcpServers, discoverTool, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
 
 const echo = { command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")] };
 
@@ -110,4 +110,34 @@ test("a Job's session gets both of Dispand's servers at the runner's own address
   expect(withJobServer([], "http://localhost:3000", "t")[1]).toMatchObject({ url: "http://localhost:3000/mcp/job/tools" });
   // Without a token, nothing is added.
   expect(withJobServer([github], "https://dispand.test", undefined)).toEqual([github]);
+});
+
+const readOnly = { ...echo, env: { ECHO_READ_ONLY: "1" } };
+
+test("a poll's call of a read-only action returns its result", async () => {
+  expect(await callTool("echo", readOnly, "echo", { text: "hi" })).toEqual({ content: [{ type: "text", text: "hi" }], isError: false });
+});
+
+test("an action the server doesn't mark read-only is refused, whatever the call asks, unless the runner's config lists it", async () => {
+  await expect(callTool("echo", echo, "echo", { text: "hi" })).rejects.toThrow("the action echo of echo isn't read-only, and this runner's config doesn't list it as pollable");
+  expect(await callTool("echo", { ...echo, pollable: ["echo"] }, "echo", { text: "hi" })).toMatchObject({ isError: false });
+});
+
+test("an empty pollable list forbids every call, read-only or not", async () => {
+  await expect(callTool("echo", { ...readOnly, pollable: [] }, "echo", { text: "hi" })).rejects.toThrow("the MCP server echo allows no polls on this runner");
+});
+
+test("an action the server doesn't have is refused", async () => {
+  await expect(callTool("echo", readOnly, "send", {})).rejects.toThrow("the MCP server echo has no action send");
+});
+
+test("the server's env values are redacted from what the call returns", async () => {
+  const result = await callTool("echo", { ...echo, env: { ECHO_READ_ONLY: "1", ECHO_PREFIX: "sk-12345 " } }, "echo", { text: "hi" });
+  expect(JSON.stringify(result)).not.toContain("sk-12345");
+  expect(result.content).toEqual([{ type: "text", text: "••••hi" }]);
+});
+
+test("a call past its timeout is an error, and one that doesn't start is in the runner's own words", async () => {
+  await expect(callTool("echo", { ...echo, env: { ECHO_MCP_HANG: "1" } }, "echo", {}, 1500)).rejects.toThrow("the MCP server echo didn't answer in time");
+  await expect(callTool("gone", { command: "/nonexistent/mcp-server", pollable: ["x"] }, "x", {})).rejects.toThrow("the MCP server gone didn't start or failed while calling x");
 });

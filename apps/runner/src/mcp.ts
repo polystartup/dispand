@@ -164,3 +164,66 @@ export async function discoverTool(name: string, server: LocalServer, timeoutMs 
     await transport.close().catch(() => undefined);
   }
 }
+
+export const CALL_TIMEOUT_MS = 30_000;
+
+/** A call the runner refused or that failed, with the runner's own words. */
+export class CallFailed extends Error {
+  override name = "CallFailed";
+}
+
+/**
+ * Calls one action of one of the machine's own MCP servers, for a poll: starts it as listing
+ * does, and calls the action only if the server marks it read-only (`readOnlyHint`) or the
+ * server's `pollable` in the runner's config names it; a `pollable` left empty forbids every
+ * call. The reply is redacted of the server's `env` values and must fit a frame. The whole of it
+ * ends at `timeoutMs`.
+ */
+export async function callTool(name: string, server: LocalServer, actionName: string, args: Record<string, unknown>, timeoutMs = CALL_TIMEOUT_MS): Promise<{ content: Record<string, unknown>[]; isError: boolean }> {
+  if (server.pollable?.length === 0) throw new CallFailed(`the MCP server ${name} allows no polls on this runner`);
+  const transport = new StdioClientTransport({
+    command: server.command,
+    args: server.args ?? [],
+    env: { ...getDefaultEnvironment(), ...server.env },
+    stderr: "ignore",
+    cwd: homedir(),
+  });
+  const client = new Client({ name: "dispand-runner", version: "1.0.0" });
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new CallFailed(`the MCP server ${name} didn't answer in time`)), timeoutMs);
+  });
+  try {
+    const result = await Promise.race([
+      (async () => {
+        await client.connect(transport, { timeout: timeoutMs });
+        if (!server.pollable?.includes(actionName)) {
+          // Read from the server itself: whatever the call asks, only what it marks read-only goes.
+          let cursor: string | undefined;
+          let found: Tool | undefined;
+          for (let page = 0; page < MAX_PAGES && !found; page++) {
+            const listed = await client.request({ method: "tools/list", params: cursor === undefined ? {} : { cursor } }, { timeout: timeoutMs });
+            found = listed.tools.find((t) => t.name === actionName);
+            cursor = listed.nextCursor;
+            if (!cursor) break;
+          }
+          if (!found) throw new CallFailed(`the MCP server ${name} has no action ${actionName.slice(0, 100)}`);
+          if (found.annotations?.readOnlyHint !== true) throw new CallFailed(`the action ${actionName.slice(0, 100)} of ${name} isn't read-only, and this runner's config doesn't list it as pollable`);
+        }
+        return client.callTool({ name: actionName, arguments: args }, { timeout: timeoutMs });
+      })(),
+      deadline,
+    ]);
+    const secrets = [...new Set(Object.values(server.env ?? {}).filter((v) => v.length >= 4))].sort((a, b) => b.length - a.length);
+    const content = redact((result.content ?? []) as Record<string, unknown>[], secrets).map((item) => cleanJson(item, Infinity) as Record<string, unknown>);
+    if (content.length > 100 || Buffer.byteLength(JSON.stringify(content)) > MAX_REPLY_BYTES) throw new CallFailed(`the result of ${actionName.slice(0, 100)} is too large to send`);
+    return { content, isError: result.isError === true };
+  } catch (error) {
+    if (error instanceof CallFailed) throw error;
+    throw new CallFailed(`the MCP server ${name} didn't start or failed while calling ${actionName.slice(0, 100)}`);
+  } finally {
+    clearTimeout(timer);
+    await client.close().catch(() => undefined);
+    await transport.close().catch(() => undefined);
+  }
+}

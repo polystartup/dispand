@@ -837,6 +837,21 @@ test("request sends tool.discover and resolves with the runner's reply to it", a
   expect(await runner.next()).toEqual({ type: "ack", seq: 1 });
 });
 
+test("call sends tool.call and resolves only with a tool.called reply to it", async () => {
+  const { context, runnerId, token, url } = await pairedRunner();
+  const runner = fakeRunner(url, token);
+  await runner.opened;
+  runner.send(hello);
+  await vi.waitFor(() => expect(context.hub.isOnline(runnerId)).toBe(true));
+  const msg = { type: "tool.call" as const, requestId: "req_c", tool: "mail", action: "search", arguments: { query: "is:unread" } };
+  const reply = context.hub.call(runnerId, msg);
+  expect(await runner.next()).toEqual(msg);
+  // A listing's reply with the same id is not a call's: it resolves nothing.
+  runner.send({ type: "tool.discovered", requestId: "req_c", actions: [] });
+  runner.send({ type: "tool.called", requestId: "req_c", content: [{ type: "text", text: "[]" }], isError: false });
+  expect(await reply).toEqual({ type: "tool.called", requestId: "req_c", content: [{ type: "text", text: "[]" }], isError: false });
+});
+
 test("request fails at once for an offline runner, after its timeout, and when the runner disconnects", async () => {
   const { context, runnerId, token, url } = await pairedRunner();
   const discover = (requestId: string) => ({ type: "tool.discover" as const, requestId, tool: "fetch" });
