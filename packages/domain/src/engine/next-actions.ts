@@ -68,7 +68,10 @@ function itemsOf(loop: LoopStep, seen: Map<string, StepState>): { items: unknown
  * the next iteration opens, or the loop completes after the last. Every top-level node succeeded
  * or skipped finishes the run.
  */
-export function nextActions(def: WorkflowDef, steps: StepState[], trigger?: { scheduledFor: Date }): Action[] {
+/** What the run's firing gives its trigger node: the time it fired for, and an event's outputs. */
+type FiringInfo = { scheduledFor: Date; outputs?: Record<string, string> };
+
+export function nextActions(def: WorkflowDef, steps: StepState[], trigger?: FiringInfo): Action[] {
   const top = new Map(steps.filter((s) => s.iteration === 0).map((s) => [s.nodeId, s]));
   const nodes = nodesOf(def);
   const topNodes = nodes.filter((n) => n.loopId === undefined);
@@ -82,7 +85,7 @@ export function nextActions(def: WorkflowDef, steps: StepState[], trigger?: { sc
 }
 
 /** A running loop: its current iteration's actions, or opening the next, or completing it. */
-function iterate(def: WorkflowDef, steps: StepState[], loop: LoopStep, nodes: WorkflowNode[], trigger?: { scheduledFor: Date }): Action[] {
+function iterate(def: WorkflowDef, steps: StepState[], loop: LoopStep, nodes: WorkflowNode[], trigger?: FiringInfo): Action[] {
   const body = nodes.filter((n) => n.loopId === loop.id);
   const ids = new Set(body.map((n) => n.id));
   const rows = steps.filter((s) => ids.has(s.nodeId));
@@ -105,7 +108,7 @@ function iterate(def: WorkflowDef, steps: StepState[], loop: LoopStep, nodes: Wo
 }
 
 /** The ready nodes of one scope (top level, or a loop's body in `iteration`), `seen` being the rows they see. */
-function scopeActions(def: WorkflowDef, nodes: WorkflowNode[], iteration: number, seen: Map<string, StepState>, trigger?: { scheduledFor: Date }): Action[] {
+function scopeActions(def: WorkflowDef, nodes: WorkflowNode[], iteration: number, seen: Map<string, StepState>, trigger?: FiringInfo): Action[] {
   const actions: Action[] = [];
   for (const node of nodes) {
     if (seen.get(node.id)?.status !== "pending") continue;
@@ -117,7 +120,8 @@ function scopeActions(def: WorkflowDef, nodes: WorkflowNode[], iteration: number
       continue;
     }
     const step = def.steps.find((s) => s.id === node.id);
-    if (node.type === "button") actions.push({ type: "complete", ...at, outputs: {} });
+    // A button gives nothing; a Job's button-shaped trigger node, its event's change.
+    if (node.type === "button") actions.push({ type: "complete", ...at, outputs: node.id === def.trigger.field.id ? (trigger?.outputs ?? {}) : {} });
     else if (def.trigger.type === "schedule" && node.id === def.trigger.field.id) {
       // The time the run was fired for (or started, for a manual start), in the schedule's timezone.
       const outputs: Record<string, string> = trigger ? { scheduled_for: isoInZone(trigger.scheduledFor, def.trigger.field.timezone) } : {};

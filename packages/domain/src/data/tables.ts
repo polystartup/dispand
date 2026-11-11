@@ -136,6 +136,7 @@ const list = owner.handler(async ({ context }) => {
     .select({
       id: tablesTable.id,
       name: tablesTable.name,
+      primitive: tablesTable.primitive,
       rowCount: sql<number>`(select count(*) from "rows" where "rows"."table_id" = "tables"."id")::int`,
       updatedAt: tablesTable.updatedAt,
     })

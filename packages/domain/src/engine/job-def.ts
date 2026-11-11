@@ -7,6 +7,36 @@ import type { WorkflowDef } from "../workflows/model.ts";
 /** The one step of a Job; with the trigger's id, a Job's step rows are predictable. */
 export const JOB_STEP = "job";
 
+/** What a primitive trigger's Job is told of its change, filled from the trigger node's outputs. */
+export const CHANGE_PROMPT = [
+  "The change that started this Job:",
+  "- Operation: {{trigger.operation}}",
+  "- Table: {{trigger.table_id}}",
+  "- Row: {{trigger.row_id}}",
+  "- Changed fields: {{trigger.changed_field_ids}}",
+  "- Values before: {{trigger.before}}",
+  "- Values after: {{trigger.after}}",
+].join("\n");
+
+/** A primitive trigger node's outputs for one event: ids as they are, the rest as JSON. */
+export function eventOutputs(event: {
+  tableId: string;
+  rowId: string;
+  operation: string;
+  changedFieldIds: string[];
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+}): Record<string, string> {
+  return {
+    operation: event.operation,
+    table_id: event.tableId,
+    row_id: event.rowId,
+    changed_field_ids: JSON.stringify(event.changedFieldIds),
+    before: JSON.stringify(event.before),
+    after: JSON.stringify(event.after),
+  };
+}
+
 /**
  * The definition of a Job: its trigger as the firing, then the agent with the trigger's
  * instructions as prompt. A chat placement has no step: the conversation is the Job.
@@ -25,12 +55,14 @@ export function jobDef(input: {
       edges: [],
     };
   }
+  // A primitive trigger's change, as its node's outputs (`eventOutputs`), follows the instructions.
+  const prompt = config.kind === "primitive" ? `${trigger.instructions}\n\n${CHANGE_PROMPT}` : trigger.instructions;
   return {
     trigger:
       config.kind === "schedule"
         ? { type: "schedule", field: { ...field, type: "schedule", cron: config.cron, timezone: config.timezone } }
         : { type: "manual", field: { ...field, type: "button" } },
-    steps: [{ id: JOB_STEP, key: JOB_STEP, type: "agent", name: agent.name, agentId: agent.id, prompt: trigger.instructions }],
+    steps: [{ id: JOB_STEP, key: JOB_STEP, type: "agent", name: agent.name, agentId: agent.id, prompt }],
     edges: [{ from: trigger.id, to: JOB_STEP }],
   };
 }

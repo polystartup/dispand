@@ -9,14 +9,19 @@ import { cn } from "@/lib/utils";
 import { orpc } from "../../lib/api.ts";
 import { FormField } from "../settings/parts.tsx";
 import { ScheduleTriggerPanel } from "../workflow/panels/ScheduleTriggerPanel.tsx";
+import { type ChangeConfig, PrimitiveTriggerPanel } from "./PrimitiveTriggerPanel.tsx";
 import type { Trigger } from "./TriggerList.tsx";
 
-type Starts = "chat" | "button" | "schedule";
+type Starts = "chat" | "button" | "schedule" | "change";
 const STARTS: [Starts, string, string][] = [
   ["chat", "Chat", "A conversation with the agent."],
   ["button", "Button", "One click starts the Job."],
   ["schedule", "Schedule", "The Job starts by itself, on a schedule."],
+  ["change", "Table change", "The Job starts when a row of a table changes, and is told the change."],
 ];
+
+/** What a trigger's kind lets it become: a manual one moves between chat and button only. */
+const KINDS: Record<string, Starts[]> = { manual: ["chat", "button"], schedule: ["schedule"], primitive: ["change"] };
 
 /** The browser's timezone when schedules accept it (they take IANA zones: not "UTC"), else the default. */
 function localTimezone(): string {
@@ -31,7 +36,7 @@ type Props = {
   onClose: () => void;
 };
 
-/** Creates or edits one of an agent's triggers. A trigger keeps its kind: manual (chat or button) or schedule. Mount it only while open. */
+/** Creates or edits one of an agent's triggers. A trigger keeps its kind: manual (chat or button), schedule or table change. Mount it only while open. */
 export function TriggerSheet({ agentId, trigger, onClose }: Props) {
   const queryClient = useQueryClient();
   const done = async () => {
@@ -43,7 +48,11 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
   const remove = useMutation(orpc.triggers.delete.mutationOptions({ onSuccess: done }));
   const [name, setName] = useState(trigger?.name ?? "");
   const [instructions, setInstructions] = useState(trigger?.instructions ?? "");
-  const [starts, setStarts] = useState<Starts>(trigger ? (trigger.config.kind === "schedule" ? "schedule" : trigger.config.placement) : "chat");
+  const [starts, setStarts] = useState<Starts>(
+    trigger ? (trigger.config.kind === "manual" ? trigger.config.placement : trigger.config.kind === "schedule" ? "schedule" : "change") : "chat",
+  );
+  const [change, setChange] = useState<ChangeConfig>(trigger?.config.kind === "primitive" ? trigger.config : { tableId: "", operations: ["updated"] });
+  const [rateCap, setRateCap] = useState(trigger?.rateCap ?? 60);
   const [schedule, setSchedule] = useState(
     trigger?.config.kind === "schedule" ? { cron: trigger.config.cron, timezone: trigger.config.timezone } : { cron: "0 9 * * *", timezone: localTimezone() },
   );
@@ -52,19 +61,30 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
   const [problem, setProblem] = useState<string | null>(null);
   const busy = create.isPending || update.isPending || remove.isPending;
   const error = problem ?? create.error?.message ?? update.error?.message ?? remove.error?.message;
-  // A trigger keeps its kind: a manual one moves between chat and button only.
-  const choices = STARTS.filter(([s]) => !trigger || (trigger.kind === "schedule" ? s === "schedule" : s !== "schedule"));
+  const choices = STARTS.filter(([s]) => !trigger || KINDS[trigger.kind]!.includes(s));
 
   function save(form: HTMLFormElement) {
     if (!name.trim()) return setProblem("Give the trigger a name");
     // The schedule panel keeps what is typed while it can't be saved: never save another schedule than the one shown.
     if (form.querySelector('[aria-invalid="true"]')) return setProblem("Fix the schedule first");
+    if (starts === "change") {
+      if (!change.tableId) return setProblem("Pick the table whose changes start the Job");
+      if (change.operations.length === 0) return setProblem("Pick at least one change");
+      if (change.fields?.length === 0) return setProblem("Pick the fields whose change starts the Job, or Any field");
+      if (!Number.isInteger(rateCap) || rateCap < 1 || rateCap > 1000) return setProblem("The hour's cap is a whole number from 1 to 1000");
+    }
     setProblem(null);
     const fields = {
       name: name.trim(),
       instructions,
       concurrency: oneAtATime ? ("one-at-a-time" as const) : ("parallel" as const),
-      config: starts === "schedule" ? { kind: "schedule" as const, ...schedule } : { kind: "manual" as const, placement: starts },
+      ...(starts === "change" ? { rateCap } : {}),
+      config:
+        starts === "schedule"
+          ? { kind: "schedule" as const, ...schedule }
+          : starts === "change"
+            ? { kind: "primitive" as const, ...change }
+            : { kind: "manual" as const, placement: starts },
     };
     if (trigger) update.mutate({ id: trigger.id, ...fields, enabled });
     else create.mutate({ agentId, ...fields });
@@ -109,7 +129,24 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
           <FormField label="Instructions" htmlFor="trigger-instructions" hint="What the agent is asked to do each time this trigger fires.">
             <Textarea id="trigger-instructions" rows={5} value={instructions} maxLength={100_000} onChange={(e) => setInstructions(e.target.value)} />
           </FormField>
-          {starts === "schedule" ? (
+          {starts === "change" ? (
+            <>
+              <PrimitiveTriggerPanel config={change} rateCap={rateCap} events={trigger?.lastEvents ?? []} onChange={setChange} onRateCap={setRateCap} />
+              <label className="flex items-start gap-3 text-[14px]">
+                <input type="checkbox" checked={oneAtATime} onChange={(e) => setOneAtATime(e.target.checked)} className="mt-1 size-4 accent-[var(--color-accent)]" />
+                <span>
+                  One at a time
+                  <span className="block text-[12px] text-faint">A change that comes while this trigger's Job is still going waits for it to end.</span>
+                </span>
+              </label>
+              {trigger && (
+                <label className="flex items-center justify-between gap-3 text-[14px]">
+                  Enabled
+                  <input type="checkbox" role="switch" aria-label="Enabled" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="size-4 accent-[var(--color-accent)]" />
+                </label>
+              )}
+            </>
+          ) : starts === "schedule" ? (
             <>
               <ScheduleTriggerPanel
                 field={{ id: "trigger", key: "trigger", type: "schedule", label: name, ...schedule }}
