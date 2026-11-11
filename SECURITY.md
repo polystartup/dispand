@@ -61,8 +61,9 @@ changes it updates this file.
   since, and the procedure's own checks still apply (what isn't the owner's stays refused). A
   person may approve more than the proposing agent holds: that is what a grant is, and why
   the owner is shown every item whole.
-- **What can't be undone, and what removes a question, are grants too.** Deleting a table or
-  a field and changing an action's asking flag are in the registry with the same mark as
+- **What can't be undone, what removes a question and what starts Jobs are grants too.**
+  Deleting a table or a field, changing an action's asking flag, and creating, changing or
+  deleting a trigger (what starts an agent's Jobs, and what the agent is told then) are in the registry with the same mark as
   creating or changing an agent, so the same gate refuses them without an approved item. An
   item is also checked against the Job's tables when it is proposed, like any call: a Job
   limited to some tables can't put another table's deletion in front of the owner.

@@ -50,8 +50,8 @@ Status: Prototype
     that reaches outside can carry what the agent read, so it is worth keeping it asking on
     an agent that reads confidential data.
   - An agent that may configure the workspace can create or change agents, delete a table or
-    a field, and change which actions of an agent's tool ask before use, only through a
-    proposal: it lists the exact changes, the Inbox shows each one whole with the names of
+    a field, change which actions of an agent's tool ask before use, and create, change or
+    delete an agent's triggers, only through a proposal: it lists the exact changes, the Inbox shows each one whole with the names of
     what it points at, and approving lets that Job make exactly those changes, once each.
     Nothing else an agent says approves anything.
   - Nothing answers a Question or an Approval for the owner: no timeout, no default. What was

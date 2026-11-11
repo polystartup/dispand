@@ -13,11 +13,17 @@ const TITLES: Record<string, string> = {
   agents_set_tool_ask: "Change whether an action asks before use",
   tables_delete: "Delete a table, with its rows",
   fields_delete: "Delete a field, with its values",
+  triggers_create: "Create a trigger: what starts an agent's Jobs",
+  triggers_update: "Change a trigger",
+  triggers_delete: "Delete a trigger",
 };
 /** What a key is called, by tool where one name isn't enough. */
 const LABELS_OF: Record<string, Record<string, string>> = {
   tables_delete: { id: "Table" },
   fields_delete: { id: "Field" },
+  triggers_create: { id: "Trigger", agentId: "Agent", instructions: "What the agent is told", config: "When it fires", concurrency: "Jobs at once", enabled: "On" },
+  triggers_update: { id: "Trigger", agentId: "Agent", instructions: "What the agent is told", config: "When it fires", concurrency: "Jobs at once", enabled: "On" },
+  triggers_delete: { id: "Trigger" },
   agents_set_tool_ask: { agentId: "Agent", toolId: "Tool", action: "Action", ask: "Asks before use" },
 };
 const LABELS: Record<string, string> = {
