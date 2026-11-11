@@ -268,8 +268,8 @@ function pathsIn(args: unknown): string[] | null {
         // Not percent-encoded text: read as given.
       }
       for (const r of [...readings]) {
+        // The literal reading stays too: a server may read it as a path from its working directory.
         if (!/^file:/i.test(r)) continue;
-        readings.delete(r);
         try {
           readings.add(fileURLToPath(r));
         } catch {

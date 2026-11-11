@@ -169,6 +169,8 @@ test("a file URL with a host, and a credentials file linked from outside, are re
     await symlink(join(outside, "auth.json"), join(codex, "auth.json"));
     const guard = { forbidden: codexDenied([codex]), secrets: [] };
     const encoded = `file://${codex.replaceAll("/", "%2F")}%2Fauth.json`;
+    // Read literally from the home folder, `file://host/../../.claude` is `~/.claude`.
+    await expect(callTool("echo", readOnly, "echo", { path: "file://host/../../.claude/settings.json" }, { forbidden: [join(homedir(), ".claude")], secrets: [] })).rejects.toThrow("keeps out of reach");
     for (const path of [`file://localhost${join(codex, "auth.json")}`, `file://${join(codex, "auth.json").replace(/\//g, "%2F").replace(/^%2F/, "/")}`, encoded, join(codex, "auth.json"), join(outside, "auth.json")]) {
       await expect(callTool("echo", readOnly, "echo", { text: "hi", path }, guard)).rejects.toThrow("the call names a path this runner keeps out of reach");
     }
