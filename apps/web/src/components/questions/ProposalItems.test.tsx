@@ -107,3 +107,28 @@ test("a tool to add shows its address whole and the host calls will go to", () =
   expect(within(item!).getByText("https://mail.example.com:8443/mcp?team=a")).toBeTruthy();
   expect(within(item!).getByText("mail.example.com:8443")).toBeTruthy();
 });
+
+test("a table-change trigger's config is read in words, its table and fields by name", () => {
+  render(
+    <ProposalItems
+      proposal={{
+        id: "prop_2",
+        status: "asked",
+        items: [
+          {
+            tool: "triggers_create",
+            used: false,
+            refs: ["agentId"],
+            input: { agentId: "agent_1", name: "On change", config: { kind: "primitive", tableId: "table_1", operations: ["created", "updated"], fields: ["field_1", "field_gone"] } },
+          },
+        ],
+        names: { agent_1: { kind: "agent", name: "Builder" }, table_1: { kind: "table", name: "Clients" }, field_1: { kind: "field", name: "City", detail: "of the table Clients" } },
+      }}
+    />,
+  );
+  const item = screen.getByRole("listitem");
+  expect(item.textContent).toContain("A change to the table Clients");
+  expect(item.textContent).toContain("When a row is created, or a row is changed");
+  expect(item.textContent).toContain("A changed row only when one of these changed:City (of the table Clients)");
+  expect(within(item).getByRole("alert").textContent).toBe("field_gone: not one of yours");
+});

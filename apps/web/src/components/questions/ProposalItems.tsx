@@ -58,6 +58,30 @@ function Ref({ id, names }: { id: string; names: ProposalView["names"] }) {
   );
 }
 
+const OPERATIONS: Record<string, string> = { created: "a row is created", updated: "a row is changed", deleted: "a row is deleted" };
+
+/** A table-change trigger's config in words, its table and fields read by name. */
+function ChangeConfig({ config, names }: { config: { tableId?: unknown; operations?: unknown; fields?: unknown }; names: ProposalView["names"] }) {
+  const operations = Array.isArray(config.operations) ? config.operations.map((o) => OPERATIONS[String(o)] ?? String(o)) : [];
+  const fields = Array.isArray(config.fields) ? config.fields.filter((f): f is string => typeof f === "string") : null;
+  return (
+    <span className="flex flex-col gap-1">
+      <span>
+        A change to the table <Ref id={String(config.tableId)} names={names} />
+      </span>
+      <span>When {operations.join(", or ") || "nothing"}</span>
+      {fields && operations.length > 0 && (config.operations as unknown[]).includes("updated") && (
+        <span className="flex flex-col">
+          A changed row only when one of these changed:
+          {fields.map((id) => (
+            <Ref key={id} id={id} names={names} />
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function Value({ value, names, isRef, address }: { value: unknown; names: ProposalView["names"]; isRef: boolean; address: boolean }) {
   const list = Array.isArray(value) ? value : null;
   // Read by name, never taken on trust ("all" tables is not an id).
@@ -72,6 +96,7 @@ function Value({ value, names, isRef, address }: { value: unknown; names: Propos
       </span>
     );
   }
+  if (typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "primitive") return <ChangeConfig config={value as never} names={names} />;
   if (address && typeof value === "string") {
     // The whole address, and the host it reaches set apart: that is where calls will go.
     const host = URL.parse(value)?.host;
