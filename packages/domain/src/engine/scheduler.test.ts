@@ -8,6 +8,8 @@ import type { WorkflowDef } from "../workflows/model.ts";
 import { Engine, EngineError } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { Scheduler } from "./scheduler.ts";
+import { stopTelemetry } from "../telemetry/index.ts";
+import { captureTelemetry } from "../telemetry/testing.ts";
 
 /** Records the starts the engine hands over; offline, none reaches the runner. */
 class FakeAdapter implements HarnessAdapter {
@@ -333,4 +335,23 @@ test("a fire that failed is tried again on the next tick, for the same time, on 
   create.mockRestore();
   expect(await scheduler.tick()).toHaveLength(1);
   expect(await jobsOf()).toMatchObject([{ trigger: { type: "schedule", scheduledFor: "2026-11-05T10:00:00.000Z" } }]);
+});
+
+test("one tick that fires a schedule trigger is one trace: the tick, the fire, the Job created in it, which keeps its trace id", async () => {
+  const { time, scheduler, jobsOf } = await triggerSetup();
+  const t = await captureTelemetry();
+  onTestFinished(() => stopTelemetry());
+  time.set("2026-11-05T11:00:10+01:00");
+  const [runId] = await scheduler.tick();
+  const tick = t.spans().find((s) => s.name === "scheduler.tick")!;
+  const fire = t.spans().find((s) => s.name === "scheduler.fire")!;
+  expect(tick.attributes).toMatchObject({ "dispand.scheduler.started": 1 });
+  expect(fire.parentSpanContext?.spanId).toBe(tick.spanContext().spanId);
+  expect(fire.attributes).toMatchObject({ "dispand.fire.kind": "trigger", "dispand.fire.result": "started", "dispand.job.id": runId });
+  const [job] = await jobsOf();
+  expect(job!.traceId).toBe(tick.spanContext().traceId);
+  const points = await t.metrics();
+  expect(points).toContainEqual({ name: "dispand.scheduler.fires", attributes: { "dispand.fire.kind": "trigger", "dispand.fire.result": "started" } });
+  expect(points).toContainEqual({ name: "dispand.scheduler.lag", attributes: { "dispand.fire.kind": "trigger" } });
+  expect(points).toContainEqual({ name: "dispand.runs.created", attributes: { "dispand.run.source": "agent", "dispand.run.trigger": "schedule" } });
 });

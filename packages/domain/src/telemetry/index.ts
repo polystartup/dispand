@@ -12,6 +12,7 @@ import {
   SpanStatusCode,
   trace,
   type Tracer,
+  isSpanContextValid,
 } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import type { ExportResult } from "@opentelemetry/core";
@@ -161,6 +162,12 @@ export function meter(name: string) {
 /** Runs `fn` for a Job: spans started and records logged inside carry its id. */
 export function withJob<T>(jobId: string, fn: () => T): T {
   return context.with(context.active().setValue(JOB, jobId), fn);
+}
+
+/** The id of the trace running now, to store with what it creates (a Job); none outside a span. */
+export function currentTraceId(): string | undefined {
+  const span = trace.getActiveSpan()?.spanContext();
+  return span && isSpanContextValid(span) ? span.traceId : undefined;
 }
 
 /** Attributes for the span running now, if any (an owner id once it is known, a count). */
