@@ -3,7 +3,7 @@ import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { cloudSessions, messages, questions, runs, stepRuns } from "../db/schema.ts";
+import { cloudSessions, harnesses, messages, questions, runs, stepRuns } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import type { Engine } from "../engine/engine.ts";
 import { router } from "../rpc/router.ts";
@@ -395,4 +395,28 @@ test("a model call is a span with the harness's kind, how the turn ended and how
   expect(await t.metrics()).toContainEqual({ name: "dispand.model.calls", attributes: { "dispand.harness.kind": "openai-compatible", "dispand.result": "end" } });
   const all = await t.all();
   for (const sentinel of ["sentinel-model-answer", "You work for Dispand.", "Be brief."]) expect(all).not.toContain(sentinel);
+});
+
+test("a cloud session holds its harness's slot only while it works: not between chat turns, nor while it asks", async () => {
+  const model = fakeModel(say("What shall we build?"), use("ask_user", { questions: [{ question: "Which stack?", header: "Stack", options: [{ label: "Node", description: "" }], multiSelect: false }] }), say("Done."));
+  const { context, engine, workflow, agent, harness } = await setup(chat, { client: model.client });
+  await context.db.update(harnesses).set({ maxWorking: 1 }).where(eq(harnesses.id, harness.id));
+  const working = async (runId: string, nodeId: string) => (await stepOf(engine, runId, nodeId)).working;
+  const chatRun = await engine.startRun(workflow.id);
+  await vi.waitFor(async () => {
+    const [s] = await engine.db.select().from(cloudSessions);
+    if (s?.status !== "idle") throw new Error("turn not ended");
+  });
+  // Between turns, the chat holds no slot: the next run starts on the only one.
+  expect(await working(chatRun, "n_chat")).toBe(false);
+  const note = await call(router.workflows.create, { name: "Note" }, { context });
+  await call(router.workflows.update, { id: note.id, name: "Note", def: buttonStep(agent.id) }, { context });
+  const noteRun = await engine.startRun(note.id);
+  const q = await pendingQuestion(engine, noteRun);
+  // Asking, it gives the slot back; its answer takes one again, and the loop goes on.
+  expect(await working(noteRun, "n_note")).toBe(false);
+  await engine.answer(q.id, { kind: "choice", answers: { "Which stack?": "Node" } });
+  await until(engine, noteRun, "succeeded");
+  expect(await working(noteRun, "n_note")).toBe(false);
+  expect(model.inputs).toHaveLength(3);
 });

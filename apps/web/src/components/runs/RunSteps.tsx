@@ -89,8 +89,8 @@ function StepCard({ step, name, agent, state }: { step: Step; name: string; agen
           {agent && <span className="ml-2 text-[13px] font-normal text-muted">{agent}</span>}
         </h2>
         <span className="flex items-center gap-2 text-[13px] text-muted">
-          <Status status={step.queuedAt && step.status === "pending" ? "queued" : step.status} />
-          {step.queuedAt && step.status === "pending" && <span>· since {when.format(step.queuedAt)}</span>}
+          <Status status={step.queuedAt ? "queued" : step.status} />
+          {step.queuedAt && <span>· since {when.format(step.queuedAt)}</span>}
           {step.startedAt && (
             <span>
               · {when.format(step.startedAt)} · {step.finishedAt ? duration(step.startedAt, step.finishedAt) : "still going"}
