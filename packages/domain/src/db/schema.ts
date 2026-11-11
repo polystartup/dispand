@@ -565,6 +565,12 @@ export const tables = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    // A primitive table records each write of its rows as an event (node C).
+    primitive: boolean("primitive").notNull().default(false),
+    // A primitive table's parent: its reference field that names the parent table's rows, and
+    // whether every row must name one. The field can't be deleted or retyped while it is the parent.
+    parentFieldId: text("parent_field_id").references((): AnyPgColumn => fields.id, { onDelete: "set null" }),
+    parentRequired: boolean("parent_required").notNull().default(false),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
