@@ -229,17 +229,19 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
    * engine again (dropped if it was handled), a tool call cut by the restart is answered without
    * running it again, and sessions that were working go on. Returns the sessions still open.
    */
-  async recover(): Promise<string[]> {
+  async recover(going: (runId: string) => Promise<boolean> = async () => true): Promise<string[]> {
     const rows = await this.db
-      .select({ s: cloudSessions })
+      .select({ s: cloudSessions, runId: stepRuns.runId })
       .from(cloudSessions)
       .innerJoin(stepRuns, eq(stepRuns.id, cloudSessions.stepRunId))
       .where(inArray(stepRuns.status, ["pending", "running", "waiting"]));
     const live: string[] = [];
-    for (const { s } of rows) {
+    for (const { s, runId } of rows) {
+      // A turn of a root paused at a checkpoint isn't run again: not live, the engine holds it to resume.
+      const paused = s.status === "running" && !(await going(runId));
       await this.locked(s.id, async () => {
         if (s.lastEvent) await this.deliver(s.id, s.lastEvent, s.seq);
-        if (s.status === "done") return;
+        if (s.status === "done" || paused) return;
         live.push(s.id);
         if (s.inFlight) {
           const call = nextCall(s.items);
@@ -247,7 +249,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
           await this.emit(s.id, { items, inFlight: null, approvedCall: null }, { type: "tool", name: await this.labelOf(s.id, s.inFlight.key), status: "done" });
         }
       });
-      if (s.status === "running") this.kick(s.id);
+      if (s.status === "running" && !paused) this.kick(s.id);
     }
     return live;
   }

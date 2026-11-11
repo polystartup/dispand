@@ -329,3 +329,22 @@ test("a long relay past depth 10 goes on", async () => {
   expect(deepest).toBeGreaterThan(10);
   expect(await s.approvals()).toEqual([]);
 });
+
+test("a root approved just before the process stopped hands back what it held on the next start", async () => {
+  const s = await setup(3);
+  await s.personWrites();
+  const made = await s.scheduler.tick();
+  await pauseBy(s, made[0]!);
+  await s.engine.reconcile(s.runnerId, []);
+  const starts = s.adapter.starts.length;
+  // The answer committed, and the process stopped before handing anything back.
+  const root = await s.rootOf(made[0]!);
+  await s.context.db.update(roots).set({ state: "going", countedFrom: root.jobs }).where(eq(roots.id, root.id));
+  const restarted = new FakeAdapter();
+  const engine2 = new Engine(s.context.db, restarted);
+  onTestFinished(() => engine2.stop());
+  await engine2.recover();
+  const sessions = await Promise.all(made.map(async (runId) => (await s.sessionOf(runId)).sessionId!));
+  for (const id of sessions) expect(restarted.starts.map((x) => x.start.sessionId)).toContain(id);
+  expect(s.adapter.starts).toHaveLength(starts);
+});

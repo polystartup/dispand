@@ -282,10 +282,15 @@
   `Engine.answer`, with the root locked): `allow` goes on to the next checkpoint (`counted_from`
   moves to `jobs`), `allow-always` ("don't ask again for this goal") sets `dont_ask`, and both
   hand back what waited (`goOn`: each held step takes a slot for its start, answers and messages,
-  or resume, and the Jobs not started yet start); `deny` stops the root for good: its unprocessed
-  events are marked processed, its deferred `event_fires` close as `stopped`, and every unfinished
-  Job of it is stopped as `runs.stop` does. A stopped root makes no Job (`STOPPED`), and since its
-  steps are failed and the gate refuses it, a reconnect or a restart replays nothing of it.
+  or resume, and the Jobs not started yet start; `recover()` does the same for the held steps of
+  a going root, should the process stop first); `deny` stops the root for good, in the answer's
+  transaction: its unprocessed events are marked processed, its deferred `event_fires` close as
+  `stopped`, and every unfinished Job of it is stopped as `runs.stop` does (their sessions are
+  told to end once it commits, or by the runner's next reconcile). A stopped root makes no Job
+  (`STOPPED`), and since its steps are failed and the gate refuses it, a reconnect or a restart
+  replays nothing of it. A chat message held during a turn leaves the turn its slot until
+  `turn-end`; a held start queued again is launched only once handed a slot. On boot,
+  `CloudRunner.recover` runs no turn of a paused root: reported not live, it is held to resume.
   Migration 0042 gives every existing Job the root its chain counted it against. Telemetry:
   `dispand.checkpoints.reached`, `dispand.checkpoints.answered` (by `dispand.checkpoint.answer`:
   `approve`, `dont-ask`, `decline`), the `dispand.roots.paused` gauge, an `engine.checkpoint`
