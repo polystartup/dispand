@@ -306,9 +306,10 @@ export type TriggerConcurrency = "parallel" | "one-at-a-time";
 
 /**
  * A poll's walk under way: `{{lastPoll}}` as it was when the walk began (every page runs that one
- * query), when it began (its items' `first_seen`), and the server's token for the next page.
+ * query), when it began (its items' `first_seen`), and the server's token for the next page (null:
+ * the walk starts over from its first page, its continuation changed).
  */
-export type PollCursor = { lastPoll: string; startedAt: string; token: string };
+export type PollCursor = { lastPoll: string; startedAt: string; token: string | null };
 
 /** What makes an agent work: each firing creates a Job. A schedule's next fire is claimed by the scheduler. */
 export const triggers = pgTable(

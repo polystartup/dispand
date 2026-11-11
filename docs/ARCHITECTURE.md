@@ -280,7 +280,8 @@
   baseline across its pages (`last_checked_at` set when it ends). A next page that can't be
   followed (not text, not a link, without the parameter, past 8 KiB) fails the poll and keeps the
   cursor; a token is the server's opaque string, never in a message, a log or telemetry. Changing
-  what the trigger reads, or its continuation, clears the cursor. A poll without a continuation
+  what the trigger reads clears the cursor (a new baseline); changing only its continuation keeps
+  the walk's query and starts it over from its first page. A poll without a continuation
   reads one call's result, as before. A result the server cut short at its own cap
   (`_meta.result_has_more`, `hasMore` over HTTP and in `tool.called`) is polled again on the
   next tick. A second transaction per page, the trigger locked `FOR NO KEY

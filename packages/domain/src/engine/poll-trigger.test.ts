@@ -59,7 +59,7 @@ async function setup() {
       annotations: { readOnlyHint: true },
       call: (args) => {
         calls.push(args);
-        const token = args.skiptoken as string | undefined;
+        const token = (args.skiptoken ?? args.skip) as string | undefined;
         paging.during?.(token);
         if (token !== undefined && token === paging.failAt) return { content: [{ type: "text", text: "throttled" }], isError: true };
         const since = /^receivedDateTime ge (.+)$/.exec(String(args.filter ?? ""))?.[1] ?? "";
@@ -535,4 +535,42 @@ test("a poll without a continuation reads one call's result, its next link left 
   s.time.add(SCHEDULER_TICK_MS);
   await scheduler.tick();
   expect(s.calls).toHaveLength(1);
+});
+
+test("a walk whose continuation changes starts over from its first page with its own query, so nothing unread falls before a moved watermark", async () => {
+  const s = await setup();
+  const scheduler = s.scheduler();
+  const trigger = await watchPaged(s);
+  await scheduler.tick();
+  s.time.add(5 * MINUTE);
+  s.mailbox.push(...mails("new", 12, "2026-11-12T09:02:00.000Z"));
+  s.paging.failAt = "tok-10";
+  await scheduler.tick();
+  s.paging.failAt = undefined;
+  const config = trigger.config as Extract<TriggerConfig, { kind: "poll" }>;
+  await call(router.triggers.update, { id: trigger.id, config: { ...config, continuation: { ...config.continuation!, argument: "skip" } } }, { context: s.context });
+  s.time.add(5 * MINUTE);
+  expect(await scheduler.tick()).toHaveLength(2);
+  // The walk's own `{{lastPoll}}` (its baseline found nothing: the trigger's creation), not its start.
+  expect(s.calls.slice(-2)).toEqual([
+    { filter: "receivedDateTime ge 2026-11-12T08:00:00.000Z", top: 10 },
+    { filter: "receivedDateTime ge 2026-11-12T08:00:00.000Z", top: 10, skip: "tok-10" },
+  ]);
+  expect(await s.itemsOf(trigger.id)).toHaveLength(12);
+});
+
+test("Jobs started by a walk's earlier pages go on when a later page throws", async () => {
+  const s = await setup();
+  const trigger = await watchPaged(s);
+  await s.scheduler().tick();
+  s.time.add(5 * MINUTE);
+  s.mailbox.push(...mails("new", 12, "2026-11-12T09:02:00.000Z"));
+  const throwing: PollCaller = {
+    call: async (tool, action, args) => {
+      if (args.skiptoken) throw new Error("database gone");
+      return s.caller.call(tool, action, args);
+    },
+  };
+  expect(await s.scheduler(throwing).tick()).toHaveLength(10);
+  expect((await s.pollsOf(trigger.id)).at(-1)).toMatchObject({ status: "failed" });
 });

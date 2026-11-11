@@ -296,8 +296,9 @@ export class Scheduler {
         counts.counter("dispand.polls").add(1, { "dispand.tool.kind": tool?.kind ?? "none", "dispand.result": "skipped" });
         continue;
       }
-      // A walk under way goes on with its own query, from its next page.
-      const cursor = config.continuation ? t.pollCursor : null;
+      // A walk under way goes on with its own query, from its next page (from its first again
+      // when its continuation changed: `token` null).
+      const cursor = t.pollCursor;
       if (cursor) {
         claimed.push({ pollId, trigger: { ...t, config }, tool, at: now, lastPoll: cursor.lastPoll, startedAt: new Date(cursor.startedAt), token: cursor.token });
         continue;
@@ -323,10 +324,11 @@ export class Scheduler {
       let result: PollStatus = "failed";
       let pages = 0;
       let token = c.token;
+      // Jobs committed by earlier pages: returned even when a later one throws, so they go on.
+      const runIds: string[] = [];
       try {
         const { toolId, action, arguments: args, itemsPath, idPath, continuation } = c.trigger.config;
         const query = fillLastPoll(args, c.lastPoll) as Record<string, unknown>;
-        const runIds: string[] = [];
         const totals = { found: 0, fresh: 0 };
         do {
           // Checked again right before each call, against the trigger, the tool and the agent as
@@ -369,7 +371,7 @@ export class Scheduler {
           .set({ status: "failed", message: "The poll failed" })
           .where(eq(polls.id, c.pollId))
           .catch(() => undefined);
-        return [];
+        return runIds;
       } finally {
         span.setAttribute("dispand.result", result);
         span.end();

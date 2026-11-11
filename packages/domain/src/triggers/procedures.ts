@@ -67,12 +67,18 @@ async function checkConfig(db: Db | Tx, ownerId: string, agent: Awaited<ReturnTy
 export function scheduleColumns(config: TriggerConfig, previous: (Times & { config: TriggerConfig; enabled: boolean }) | null, enabled: boolean, now: Date): Times {
   if (config.kind === "poll") {
     // A poll is due at once when new, changed or turned on again (its baseline then recorded
-    // again: `lastCheckedAt` null); a new interval counts from now. A walk under way goes on only
-    // while the trigger still reads the same pages the same way.
+    // again: `lastCheckedAt` null); a new interval counts from now. A walk under way keeps its
+    // query; its continuation changed, it starts over from its first page (its token dropped), so
+    // nothing it hadn't read yet falls before a moved `{{lastPoll}}`.
     const same = previous?.config.kind === "poll" && !rebaselines(previous, config, enabled);
     const sameInterval = same && previous.config.kind === "poll" && previous.config.interval === config.interval;
-    const sameWalk = same && previous.config.kind === "poll" && canonicalJson(previous.config.continuation ?? null) === canonicalJson(config.continuation ?? null);
-    return { nextFireAt: sameInterval ? previous.nextFireAt : now, lastCheckedAt: same ? previous.lastCheckedAt : null, pollCursor: sameWalk ? previous.pollCursor : null };
+    const cursor = same ? previous.pollCursor : null;
+    const sameWalk = previous?.config.kind === "poll" && canonicalJson(previous.config.continuation ?? null) === canonicalJson(config.continuation ?? null);
+    return {
+      nextFireAt: sameInterval ? previous.nextFireAt : now,
+      lastCheckedAt: same ? previous.lastCheckedAt : null,
+      pollCursor: cursor && !sameWalk ? { ...cursor, token: null } : cursor,
+    };
   }
   if (config.kind !== "schedule") return { nextFireAt: null, lastCheckedAt: null, pollCursor: null };
   const same =
