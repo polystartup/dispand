@@ -553,8 +553,11 @@ export const proposals = pgTable(
   (t) => [index("proposals_run_idx").on(t.runId)],
 );
 
-/** Who answered a question: a person, for now. */
-export type AnsweredBy = { type: "user"; userId: string };
+/**
+ * Who answered a question: a person, or an agent's Job with the `inbox` bundle (under the name
+ * the agent had then, as the asking Job is told it).
+ */
+export type AnsweredBy = { type: "user"; userId: string } | { type: "agent"; agentId: string; runId: string; name: string };
 
 export const questions = pgTable(
   "questions",

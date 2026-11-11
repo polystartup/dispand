@@ -145,6 +145,17 @@ export function cliProblem(kind: string, runner: Pick<RunnerRow, "name" | "clis"
   return null;
 }
 
+/** Who gave an agent's answer (`inbox`), as the asking Job is told it. */
+const answeredByAgent = (name: string) => `Answered by the agent ${name}`;
+
+/**
+ * What follows an agent's answer delivered as an answer: the CLI shows any answer as the owner's,
+ * so the session is told next who gave it.
+ */
+export function answererNote(name: string): string {
+  return `${answeredByAgent(name)}, not by the owner: the answer you just got came from that agent.`;
+}
+
 /** An answer in words, for a session that can only get it as a message. */
 /** The words of an approval asked with `request_approval`; null for any other question. */
 function approvalWords(payload: QuestionPayload): string | null {
@@ -153,11 +164,11 @@ function approvalWords(payload: QuestionPayload): string | null {
   return typeof message === "string" ? message : null;
 }
 
-export function answerText(q: Pick<QuestionRow, "payload" | "answer">): string {
+export function answerText(q: Pick<QuestionRow, "payload" | "answer"> & Partial<Pick<QuestionRow, "answeredBy">>): string {
   const a = q.answer!;
   if (a.kind === "choice") {
     const parts = Object.entries(a.answers).map(([question, answer]) => `“${question}”: ${Array.isArray(answer) ? answer.join(", ") : answer}`);
-    return `The owner answered: ${parts.join("; ")}.`;
+    return `${q.answeredBy?.type === "agent" ? answeredByAgent(q.answeredBy.name) : "The owner answered"}: ${parts.join("; ")}.`;
   }
   if (a.kind === "permission") {
     const asked = approvalWords(q.payload);
@@ -634,7 +645,7 @@ export class Engine {
     // Any answer may have to go as words (its session lost and resumed): those must fit a message.
     const [asked] = await this.db.select({ payload: questions.payload }).from(questions).where(eq(questions.id, questionId));
     if (asked) {
-      const words = answerText({ payload: asked.payload, answer });
+      const words = answerText({ payload: asked.payload, answer, answeredBy: by ?? null });
       if (words.length > TEXT || !storable(words)) throw new EngineError("INVALID", `The answer is too long (at most about ${TEXT - 100} characters)`);
     }
     const out: Out[] = [];
@@ -645,7 +656,8 @@ export class Engine {
         .where(and(eq(questions.id, questionId), eq(questions.status, "pending")))
         .returning();
       if (!q) return undefined;
-      await recordInteraction(tx, q, "answered", by ?? { type: "user", userId: q.ownerId });
+      // An agent's answer is its Job's write.
+      await recordInteraction(tx, q, "answered", by?.type === "agent" ? { type: "job", runId: by.runId } : (by ?? { type: "user", userId: q.ownerId }));
       // A checkpoint's Approval: no session waits on it, its root does.
       if (q.rootId) {
         out.push({ type: "question", question: questionView(q) });
@@ -691,7 +703,7 @@ export class Engine {
     const root = settled && "root" in settled ? settled.root : undefined;
     if (!q) throw new EngineError("NOT_PENDING", "This question is no longer waiting for an answer");
     const decision = q.answer?.kind === "permission" ? q.answer.decision : q.answer?.kind ?? "none";
-    counts.counter("dispand.questions.answered").add(1, { "dispand.question.kind": q.kind, "dispand.answer.decision": decision });
+    counts.counter("dispand.questions.answered").add(1, { "dispand.question.kind": q.kind, "dispand.answer.decision": decision, "dispand.answer.by": q.answeredBy?.type ?? "user" });
     counts.histogram("dispand.question.wait", { unit: "ms", description: "From a question to its answer" }).record(q.answeredAt!.getTime() - q.createdAt.getTime(), { "dispand.question.kind": q.kind });
     this.publish(q.runId, out);
     if (step) await this.flush(step.id, step.sessionId!);
@@ -1615,9 +1627,10 @@ export class Engine {
     const sessionId = q.sessionId!;
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`q:${q.id}`, async () => {
+      const by = q.answeredBy?.type === "agent" ? q.answeredBy : null;
       const ok = q.orphaned
         ? await this.adapter.send(sessionId, answerText(q))
-        : await this.adapter.answer(sessionId, q.runnerQuestionId!, q.answer!);
+        : (await this.adapter.answer(sessionId, q.runnerQuestionId!, q.answer!)) && (!by || (await this.adapter.send(sessionId, answererNote(by.name))));
       if (ok && (this.losses.get(sessionId) ?? 0) === losses) await this.db.update(questions).set({ deliveredAt: new Date() }).where(eq(questions.id, q.id));
     }).catch((err: unknown) => logError("answer delivery failed", err, { ref: q.id }));
     this.keep(sent);

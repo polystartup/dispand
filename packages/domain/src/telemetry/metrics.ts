@@ -17,8 +17,10 @@ export const METRICS = {
   "dispand.run.duration": ["dispand.run.source", "dispand.run.status"],
   "dispand.harness.events": ["dispand.event.type"],
   "dispand.questions.opened": ["dispand.question.kind"],
-  "dispand.questions.answered": ["dispand.question.kind", "dispand.answer.decision"],
+  "dispand.questions.answered": ["dispand.question.kind", "dispand.answer.decision", "dispand.answer.by"],
   "dispand.question.wait": ["dispand.question.kind"],
+  // The `inbox` bundle's tools (`questions/inbox.ts`).
+  "dispand.inbox.calls": ["dispand.inbox.tool", "dispand.result"],
   "dispand.checkpoints.reached": [],
   "dispand.checkpoints.answered": ["dispand.checkpoint.answer"],
   "dispand.roots.paused": [],

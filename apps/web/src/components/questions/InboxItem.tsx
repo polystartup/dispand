@@ -102,7 +102,16 @@ export function InboxItem({ item }: { item: InboxEntry }) {
             <>
               <p className="font-medium">{answerLine(item.answer, item.payload, item.rootId)}</p>
               <p className="text-[13px] text-faint">
-                Answered{item.answeredBy?.type === "user" ? " by you" : ""}
+                {item.answeredBy?.type === "agent" ? (
+                  <>
+                    Answered by the agent {item.answeredBy.name} ·{" "}
+                    <Link to="/settings/workflows/runs/$runId" params={{ runId: item.answeredBy.runId }} className="text-accent hover:underline">
+                      Open its Job
+                    </Link>
+                  </>
+                ) : (
+                  <>Answered{item.answeredBy?.type === "user" ? " by you" : ""}</>
+                )}
                 {item.answeredAt ? ` · ${when.format(item.answeredAt)}` : ""}
               </p>
             </>
