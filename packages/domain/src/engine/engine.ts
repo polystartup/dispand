@@ -456,15 +456,25 @@ export class Engine {
     const steps = await this.db
       .select()
       .from(stepRuns)
-      .where(and(eq(stepRuns.runId, runId), inArray(stepRuns.status, ACTIVE_STEP)));
-    const chat = steps.find((s) => s.start?.interactive && s.sessionId);
+      .where(and(eq(stepRuns.runId, runId), inArray(stepRuns.status, OPEN_STEP)));
+    // A chat whose session waits for a slot (`slots.ts`) keeps the message: its start sends it.
+    const chat = steps.find((s) => s.start?.interactive && s.sessionId && ACTIVE_STEP.includes(s.status)) ?? (await this.queuedChat(runId, steps));
     if (!chat) throw new EngineError("CLOSED", "The chat is over");
     const [row] = await this.db
       .insert(messages)
       .values({ id: newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text })
       .returning();
     this.publish(runId, [{ type: "message", message: messageView(row!) }]);
-    this.deliverMessage(chat.sessionId!, row!);
+    if (chat.sessionId) this.deliverMessage(chat.sessionId, row!);
+  }
+
+  /** The run's chat step queued for a slot of its harness, or handed one and not started yet. */
+  private async queuedChat(runId: string, steps: StepRow[]): Promise<StepRow | undefined> {
+    const [run] = await this.db.select().from(runs).where(eq(runs.id, runId));
+    if (!run || !ACTIVE_RUN.includes(run.status)) return undefined;
+    const { field } = (await this.defOf(run)).trigger;
+    if (field.type !== "chat") return undefined;
+    return steps.find((s) => s.nodeId === field.id && s.status === "pending" && (s.queuedAt || s.working));
   }
 
   /** Records the owner's answer (once) and sends it to the session. */
@@ -1146,6 +1156,8 @@ export class Engine {
     annotate({ "dispand.harness.kind": harness.kind, "dispand.session.id": start.sessionId });
     this.publish(run.id, [{ type: "step", step: stepView(started) }]);
     this.launch(harness, start, started);
+    // Chat messages sent while it was queued go right after the start.
+    if (start.interactive) for (const m of await this.undeliveredMessages(started.id)) this.deliverMessage(start.sessionId, m);
   }
 
   /**
@@ -1328,11 +1340,17 @@ export class Engine {
       .returning();
     for (const q of expired) out.push({ type: "question", question: questionView(q) });
     await this.finishRun(tx, step.runId, "failed", error, out);
-    // Nothing more of the run starts: its steps queued or handed a slot leave the queue.
+    // Nothing more of the run starts: its steps queued or handed a slot leave the queue. Its
+    // steps waiting on a question (expired above) never go on: they give their slot back.
     const waiting = await tx
       .select()
       .from(stepRuns)
-      .where(and(eq(stepRuns.runId, step.runId), eq(stepRuns.status, "pending"), or(isNotNull(stepRuns.queuedAt), eq(stepRuns.working, true))));
+      .where(
+        and(
+          eq(stepRuns.runId, step.runId),
+          or(and(eq(stepRuns.status, "pending"), or(isNotNull(stepRuns.queuedAt), eq(stepRuns.working, true))), and(eq(stepRuns.status, "waiting"), eq(stepRuns.working, true))),
+        ),
+      );
     for (const s of waiting) await this.release(tx, s, out);
   }
 

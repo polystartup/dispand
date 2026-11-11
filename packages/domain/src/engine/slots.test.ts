@@ -18,11 +18,13 @@ import { JOB_STEP } from "./job-def.ts";
 /** Records the starts the engine sends; every one reaches its runner. */
 class FakeAdapter implements HarnessAdapter {
   starts: { harness: Harness; start: StartParams }[] = [];
+  sent: [string, string][] = [];
   async start(harness: Harness, start: StartParams) {
     this.starts.push({ harness, start });
     return true;
   }
-  async send() {
+  async send(sessionId: string, text: string) {
+    this.sent.push([sessionId, text]);
     return true;
   }
   async answer() {
@@ -319,4 +321,51 @@ test("0041 charges open agent steps to their harness and counts the sessions mid
   const queued = await db.select({ id: stepRuns.id }).from(stepRuns).where(sql`${stepRuns.queuedAt} is not null`).orderBy(stepRuns.id);
   expect(queued).toEqual([{ id: "run_flow_note" }, { id: "run_next_job" }]);
   expect((await db.select().from(runs).where(eq(runs.id, "run_next")))[0]!.status).toBe("running");
+});
+
+test("a step waiting on a question whose run failed gives its slot back", async () => {
+  const both = (agentId: string): WorkflowDef => ({
+    trigger: { type: "manual", field: { id: "n_go", key: "go", type: "button", label: "Go" } },
+    steps: [
+      { id: "n_one", key: "one", type: "agent", name: "One", agentId, prompt: "One." },
+      { id: "n_two", key: "two", type: "agent", name: "Two", agentId, prompt: "Two." },
+    ],
+    edges: [
+      { from: "n_go", to: "n_one" },
+      { from: "n_go", to: "n_two" },
+    ],
+  });
+  const { context, agent, job, step, adapter, engine, emit, started, working } = await setup(2);
+  const workflow = await call(router.workflows.create, { name: "Both" }, { context });
+  await call(router.workflows.update, { id: workflow.id, name: "Both", def: both(agent.id) }, { context });
+  const run = await engine.startRun(workflow.id);
+  const [one, two] = [await step(run, "n_one"), await step(run, "n_two")];
+  await emit(one.sessionId!, { type: "question", questionId: "rq_1", payload: { kind: "choice", questions: [{ question: "Which?", header: "Which", multiSelect: false, options: [{ label: "A", description: "" }] }] } });
+  expect(await step(run, "n_one")).toMatchObject({ status: "waiting", working: true });
+  const queued = await job();
+  expect(started([run, queued])).toEqual([run, run]);
+
+  // The other branch fails: the question expires, so the waiting step never goes on.
+  await emit(two.sessionId!, { type: "error", message: "The CLI crashed" });
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(3));
+  expect(started([run, queued])).toEqual([run, run, queued]);
+  expect(await step(run, "n_one")).toMatchObject({ working: false });
+  expect(await working()).toBe(1);
+});
+
+test("a chat Job queued on a full harness keeps its first message and sends it after its start", async () => {
+  const { context, agent, job, adapter, engine, finish, started, harness } = await setup(1);
+  const a = await job();
+  const chat = await call(router.triggers.create, { agentId: agent.id, name: "Talk", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
+  const { runId } = await call(router.jobs.start, { triggerId: chat.id }, { context: { ...context, engine } });
+  const [chatStep] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+  expect(chatStep).toMatchObject({ status: "pending", harnessId: harness.id, queueClass: "person" });
+  expect(adapter.sent).toEqual([]);
+  await call(router.runs.sendChat, { runId, text: "Hello" }, { context: { ...context, engine } });
+
+  await finish(a);
+  await vi.waitFor(() => expect(adapter.sent).toHaveLength(1));
+  expect(started([a, runId])).toEqual([a, runId]);
+  const session = adapter.starts[1]!.start.sessionId;
+  expect(adapter.sent).toEqual([[session, "Hello"]]);
 });
