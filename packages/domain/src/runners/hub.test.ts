@@ -1,4 +1,6 @@
 import type { PGlite } from "@electric-sql/pglite";
+import { stopTelemetry } from "../telemetry/index.ts";
+import { captureTelemetry } from "../telemetry/testing.ts";
 import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { connect, type AddressInfo } from "node:net";
@@ -871,4 +873,24 @@ test("request times out even while its write is stalled", async () => {
   // A socket under backpressure: the write never completes.
   vi.spyOn(context.hub, "send").mockReturnValue(new Promise<boolean>(() => {}));
   await expect(context.hub.request(runnerId, { type: "tool.discover", requestId: "req_s", tool: "fetch" }, 50)).rejects.toThrow("timed out");
+});
+
+test("a runner's connection is counted, each message counted and traced but streamed words, and nothing of their content leaves", async () => {
+  const { context, token, url } = await pairedRunner();
+  context.hub.onEvent(async () => {});
+  const t = await captureTelemetry();
+  onTestFinished(() => stopTelemetry());
+  const runner = fakeRunner(url, token);
+  await runner.opened;
+  runner.send(hello);
+  runner.send({ type: "event", sessionId: "ses_1", seq: 1, event: { type: "text", delta: "sentinel-streamed-words" } });
+  expect(await runner.next()).toEqual({ type: "ack", seq: 1 });
+  runner.send({ type: "event", sessionId: "ses_1", seq: 2, event: { type: "result", text: "sentinel-result-text" } });
+  expect(await runner.next()).toEqual({ type: "ack", seq: 2 });
+  expect(t.spans().filter((x) => x.name === "runner.message").map((x) => x.attributes["dispand.message.type"])).toEqual(["hello", "event.result"]);
+  const points = await t.metrics();
+  expect(points).toContainEqual({ name: "dispand.runner.connections", attributes: { "dispand.result": "accepted" } });
+  expect(points).toContainEqual({ name: "dispand.runner.messages", attributes: { "dispand.message.type": "event.text" } });
+  const all = await t.all();
+  for (const sentinel of ["sentinel-streamed-words", "sentinel-result-text", token]) expect(all).not.toContain(sentinel);
 });

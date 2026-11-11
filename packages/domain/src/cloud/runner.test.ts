@@ -1,4 +1,6 @@
 import { call } from "@orpc/server";
+import { stopTelemetry } from "../telemetry/index.ts";
+import { captureTelemetry } from "../telemetry/testing.ts";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { cloudSessions, messages, questions, runs, stepRuns } from "../db/schema.ts";
@@ -379,4 +381,18 @@ test("request_approval without words, or with too many, is refused without a que
   expect(await engine.db.select().from(questions).where(eq(questions.runId, runId))).toEqual([]);
   expect(lastTool(model.inputs[1]!.items).isError).toBe(true);
   expect(lastTool(model.inputs[3]!.items).isError).toBe(true);
+});
+
+test("a model call is a span with the harness's kind, how the turn ended and how many tools it asked for, never the prompt or the answer", async () => {
+  const model = fakeModel(say("sentinel-model-answer"));
+  const { engine, workflow } = await setup(buttonStep, { client: model.client });
+  const t = await captureTelemetry();
+  onTestFinished(() => stopTelemetry());
+  const runId = await engine.startRun(workflow.id);
+  await until(engine, runId, "succeeded");
+  const [span] = t.spans().filter((x) => x.name === "model.turn");
+  expect(span!.attributes).toMatchObject({ "dispand.harness.kind": "openai-compatible", "dispand.result": "end", "dispand.model.tool_calls": 0 });
+  expect(await t.metrics()).toContainEqual({ name: "dispand.model.calls", attributes: { "dispand.harness.kind": "openai-compatible", "dispand.result": "end" } });
+  const all = await t.all();
+  for (const sentinel of ["sentinel-model-answer", "You work for Dispand.", "Be brief."]) expect(all).not.toContain(sentinel);
 });
