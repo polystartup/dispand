@@ -52,6 +52,11 @@ what happens then):
   may reach), or reading a client-IP header other than `X-Real-IP`.
 - An attachment served inline without its first bytes being sniffed as a raster image, or a
   file path built from anything but the owner id and the attachment id.
+- A procedure, scheduler path, engine step, runner message or tool call added without its
+  span, metric or log (`packages/domain/src/telemetry/`), or telemetry that records content
+  (a row value, a prompt, a message, a tool's arguments or result, an answer) or an error's
+  message: only ids, names, counts, durations and kinds; a metric attribute not listed in
+  `telemetry/metrics.ts`.
 
 Don't report:
 
