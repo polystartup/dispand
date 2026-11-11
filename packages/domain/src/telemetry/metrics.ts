@@ -12,6 +12,9 @@ export const METRICS = {
   "dispand.questions.opened": ["dispand.question.kind"],
   "dispand.questions.answered": ["dispand.question.kind", "dispand.answer.decision"],
   "dispand.question.wait": ["dispand.question.kind"],
+  "dispand.checkpoints.reached": [],
+  "dispand.checkpoints.answered": ["dispand.checkpoint.answer"],
+  "dispand.roots.paused": [],
   "dispand.sessions.started": ["dispand.harness.kind", "dispand.result"],
   // Ids are the owner's few harnesses, never user content.
   "dispand.harness.working": ["dispand.harness.id", "dispand.harness.kind"],

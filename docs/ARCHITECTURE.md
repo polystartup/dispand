@@ -196,8 +196,8 @@
   schedule, `next_fire_at` and `last_checked_at` with the meaning they have on `schedules`
   (reset only when the cron or timezone changed or the trigger is enabled again; a trigger keeps
   its kind). Each firing creates a Job: a row of `runs` with `source: "agent"`, no workflow, its
-  `agent_id` and `trigger_id`, a `cause` (who or what made it, and its depth in a chain of Jobs;
-  deeper than 10 is refused) and its own definition in `def`, built by the pure `jobDef`
+  `agent_id` and `trigger_id`, a `cause` (who or what made it, and its depth in a chain of Jobs,
+  for information: there is no limit of depth), its root cause (`root_id`, below) and its own definition in `def`, built by the pure `jobDef`
   (`engine/job-def.ts`): the trigger as the firing, then one agent step whose prompt is the
   trigger's instructions (a chat trigger has no step: the conversation is the Job). The engine's
   `defOf` returns `run.def` when it is set and the workflow version otherwise, so sessions,
@@ -220,15 +220,15 @@
   `fields` changed). Each match is one `event_fires` row (unique on `(trigger_id, event_id)`)
   and the event is marked processed in the same transaction, so two schedulers never make an
   event's Job twice. Each fire reads its trigger again under `FOR NO KEY UPDATE`, so no two
-  schedulers check its limits at once, and is `refused` when the trigger is off or no longer
+  schedulers check its limits at once, and is `stopped` when its root cause was declined at a
+  checkpoint, `refused` when the trigger is off or no longer
   watches the change, `skipped-same-agent` when the write was by a Job of the trigger's own
   agent, `out-of-scope` when the agent no longer has `data` on the event's table (a
   table that stopped being primitive, or was deleted, makes no more events), `deferred`
   while the trigger has started `rate_cap` Jobs in the last hour (default 60, set on the
   trigger) or, one at a time, has a Job going, and otherwise `started`. The Job's cause is
   `event` with its depth (the writing Job's plus one, 0 for a person or a workflow) and the
-  chain's first Job (`rootJobId`); `createJob` refuses past depth 10 or at 100 Jobs from one
-  root, counted with the root's run row locked (`chain-limit`). The trigger node's outputs are the change (`operation`, `table_id`,
+  chain's first Job (`rootJobId`). The trigger node's outputs are the change (`operation`, `table_id`,
   `row_id`, `changed_field_ids`, `before`, `after`, JSON for the last three), carried in the
   run's firing and written after the trigger's instructions (`CHANGE_PROMPT`); every start of
   such a Job's session (the first, a resend once its runner is back, a resume) first checks
@@ -256,6 +256,40 @@
   primitive with a `urlTransform`, `img` and `a` overrides and `skipHtml`). Nothing else
   imports the library. The panel keeps its own composer. A Job's
   questions are listed in Notifications with its agent.
+- **Checkpoints** (`engine/roots.ts`): every Job has a root cause, a `roots` row (`kind`: `user`
+  for a start by hand, `chat`, `schedule`, `event` for a person's or a workflow's write, `poll`),
+  going, paused or stopped. `Engine.createJob`, the one place a Job is made, locks the root's row
+  (`FOR UPDATE`, before the trigger's and the agent's share locks), counts the Job in `jobs`, and
+  when `jobs - counted_from` reaches the workspace's `checkpoint` (`workspace_settings`, default
+  100) pauses the root and asks one Approval: a `permission` question with no session, its
+  `root_id` set and `toolName` `checkpoint` (its input: what the root is, the Jobs made, the
+  agents involved and since when), on the Job that reached it, or, for a chat message, in the chat.
+  A Job's write keeps its run's root on its event (`events.root_id`, in `recordEvent`); a person's
+  or a workflow's write gets a root of its own when the scheduler first claims it. The scheduler
+  reads each event's root once, at its claim, locked `FOR UPDATE SKIP LOCKED` until the tick
+  commits (another scheduler holding it leaves the event for a later tick): a paused root's events
+  and deferred fires stay unclaimed (`notPaused`), and the event that reaches the checkpoint still
+  makes every Job its triggers call for. A chat's run moves to a new root (`chat`) with each
+  message of the owner (`sendChat`), unless its root is paused: the message then waits under it.
+  One gate, `rootGoing(runId)`, is read wherever a session would work again: a new session's start
+  (`openSession`), an answer delivered once no question is pending (`answer`), a chat message
+  (`sendChat`), a lost session's resume (`resume`, `reconcile`), a start never written
+  (`reconcile`) and the replay of a `pending_action` (`handOver`, which `recover` goes through).
+  A paused step holds no slot: it gives its slot back or leaves the queue, and keeps what it
+  would do in `pending_action` (`hold`), so its answers and messages stay undelivered; only a turn
+  under way finishes. The Approval's checks ignore it: a run or step "waits" only on its own
+  questions, and a stop or a step's end never expires it. Answering it (`questions.answer`,
+  `Engine.answer`, with the root locked): `allow` goes on to the next checkpoint (`counted_from`
+  moves to `jobs`), `allow-always` ("don't ask again for this goal") sets `dont_ask`, and both
+  hand back what waited (`goOn`: each held step takes a slot for its start, answers and messages,
+  or resume, and the Jobs not started yet start); `deny` stops the root for good: its unprocessed
+  events are marked processed, its deferred `event_fires` close as `stopped`, and every unfinished
+  Job of it is stopped as `runs.stop` does. A stopped root makes no Job (`STOPPED`), and since its
+  steps are failed and the gate refuses it, a reconnect or a restart replays nothing of it.
+  Migration 0042 gives every existing Job the root its chain counted it against. Telemetry:
+  `dispand.checkpoints.reached`, `dispand.checkpoints.answered` (by `dispand.checkpoint.answer`:
+  `approve`, `dont-ask`, `decline`), the `dispand.roots.paused` gauge, an `engine.checkpoint`
+  span event (root id, kind and Jobs counted) and `engine.slot` events with action `hold`.
 - **Harness slots:** each harness runs at most `harnesses.max_working` sessions on a turn at
   once (default 5, 1 to 100), counting every Job and workflow agent step on it. A slot is a
   step run with `working` set (`engine/slots.ts`). `Engine.openSession` takes one before it

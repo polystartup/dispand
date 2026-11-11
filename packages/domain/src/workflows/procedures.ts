@@ -272,7 +272,7 @@ async function snapshot(db: Db, runId: string) {
 
 export function engineError(err: unknown): never {
   if (!(err instanceof EngineError)) throw err;
-  const code = { NOT_FOUND: "NOT_FOUND", INVALID: "BAD_REQUEST", CLOSED: "CONFLICT", NOT_PENDING: "CONFLICT" }[err.code];
+  const code = { NOT_FOUND: "NOT_FOUND", INVALID: "BAD_REQUEST", CLOSED: "CONFLICT", NOT_PENDING: "CONFLICT", STOPPED: "CONFLICT" }[err.code];
   throw new ORPCError(code, { message: err.message });
 }
 

@@ -126,37 +126,6 @@ test("a Job's write never fires its own agent's trigger; another agent's is the 
   expect(seen!.cause).toMatchObject({ depth: 0 });
 });
 
-test("a chain stops at depth 10 and at 100 Jobs: the event is processed, the fire says so, no Job", async () => {
-  const s = await setup();
-  const auditor = await s.agent("Auditor");
-  const trigger = await s.watch(s.clerk.id);
-  const auditorTrigger = await s.watch(auditor.id, { operations: ["created"] });
-  const ada = await s.create({ [s.name.id]: "Ada" });
-  await s.scheduler.tick();
-  // A Job of the Auditor ten deep writes the row: the Clerk's Job would be the eleventh.
-  const deep = await s.context.db.transaction((tx) =>
-    s.engine.createJob(tx, { ownerId: s.context.ownerId, agentId: auditor.id, triggerId: auditorTrigger.id, cause: { kind: "event", eventId: "evt_x", depth: 10 }, firing: { type: "manual" } }),
-  );
-  await callPlatformTool(s.context, { runId: deep, ownerId: s.context.ownerId, agentId: auditor.id }, "rows_update", { id: ada.id, values: { [s.city.id]: "Paris" } });
-  expect(await s.scheduler.tick()).toEqual([]);
-  expect((await s.firesOf(trigger.id)).map((f) => [f.status, f.message])).toEqual([["chain-limit", "Chain limit reached"]]);
-  // A chain already 100 Jobs long, from its root: one more is refused too.
-  const root = await s.context.db.transaction((tx) =>
-    s.engine.createJob(tx, { ownerId: s.context.ownerId, agentId: auditor.id, triggerId: auditorTrigger.id, cause: { kind: "event", eventId: "evt_y", depth: 0 }, firing: { type: "manual" } }),
-  );
-  let last = root;
-  for (let i = 1; i < 100; i++) {
-    last = await s.context.db.transaction((tx) =>
-      s.engine.createJob(tx, { ownerId: s.context.ownerId, agentId: auditor.id, triggerId: auditorTrigger.id, cause: { kind: "event", eventId: "evt_y", rootJobId: root, depth: 1 }, firing: { type: "manual" } }),
-    );
-  }
-  await callPlatformTool(s.context, { runId: last, ownerId: s.context.ownerId, agentId: auditor.id }, "rows_update", { id: ada.id, values: { [s.city.id]: "Rome" } });
-  expect(await s.scheduler.tick()).toEqual([]);
-  expect((await s.firesOf(trigger.id)).map((f) => f.status)).toEqual(["chain-limit", "chain-limit"]);
-  expect(await s.jobsOf(trigger.id)).toEqual([]);
-  expect(await s.unprocessed()).toEqual([]);
-});
-
 test("a trigger whose agent lost data on the table is skipped at dispatch, reported, and the event processed", async () => {
   const s = await setup();
   const trigger = await s.watch(s.clerk.id);
