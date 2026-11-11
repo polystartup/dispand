@@ -57,7 +57,7 @@ import { jobDef } from "./job-def.ts";
 import { nextActions, outputsFor, toolValues, valuesFor } from "./next-actions.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import { give, next, take } from "./slots.ts";
-import { CHECKPOINT, checkpointOf, newRoot, pause, pausedGauge, ROOT_STOPPED, rootGoing } from "./roots.ts";
+import { checkpointOf, newRoot, pause, pausedGauge, ROOT_STOPPED, rootGoing } from "./roots.ts";
 
 type RunRow = typeof runs.$inferSelect;
 type StepRow = typeof stepRuns.$inferSelect;
