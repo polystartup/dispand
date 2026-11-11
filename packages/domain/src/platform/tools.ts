@@ -130,6 +130,12 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   }),
   tool("tables.create", "configure", "Creates a table. Add its fields next with fields_create.", { tables: none }),
   tool("tables.rename", "configure", "Renames a table.", { tables: named("id") }),
+  tool("tables.setPrimitive", "configure", "Makes a table primitive (each change of its rows is an event that can start agents' Jobs) or not, and sets its parent table.", {
+    tables: async (_db, _ownerId, input) => {
+      const parent = (input as { parent?: { tableId?: unknown } | null } | null)?.parent;
+      return [str(input, "id"), ...(parent && typeof parent.tableId === "string" ? [parent.tableId] : [])];
+    },
+  }),
   tool("fields.create", "configure", "Adds a field to a table: a name, a type and, for a choice field, its choices; for a reference, the table whose rows it names.", {
     // A reference names a second table: it too must be within the Job's tables.
     tables: async (_db, _ownerId, input) => [str(input, "tableId"), ...(str(input, "referencesTableId") === null ? [] : [str(input, "referencesTableId")])],

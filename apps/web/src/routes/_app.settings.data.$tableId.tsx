@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ChevronLeft, Ellipsis, Trash2 } from "lucide-react";
+import { ChevronLeft, Ellipsis, Trash2, Zap } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { RowQuery } from "@dispand/domain/data/query";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Grid } from "../components/data/Grid.tsx";
+import { PrimitiveDialog } from "../components/data/PrimitiveDialog.tsx";
 import { RowDetail } from "../components/data/RowDetail.tsx";
 import { type DataSearch, parseDataSearch, toDataSearch } from "../lib/data-search.ts";
 import { orpc } from "../lib/api.ts";
@@ -29,6 +30,7 @@ function TablePage() {
   const table = useQuery(orpc.tables.get.queryOptions({ input: { id: tableId } }));
   const [name, setName] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [settingEvents, setSettingEvents] = useState(false);
   useEffect(() => setName(table.data?.name ?? ""), [table.data?.name]);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: orpc.tables.key() });
@@ -87,6 +89,9 @@ function TablePage() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => setSettingEvents(true)}>
+              <Zap /> Events and parent
+            </DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onSelect={() => setConfirmDelete(true)}>
               <Trash2 /> Delete table
             </DropdownMenuItem>
@@ -100,6 +105,8 @@ function TablePage() {
       )}
       <Grid tableId={tableId} fields={table.data.fields} onSchemaChanged={schemaChanged} query={query} onQueryChange={setQuery} onOpenRow={openRow} />
       {row && <RowDetail key={row} tableId={tableId} rowId={row} fields={table.data.fields} onClose={() => openRow(undefined)} />}
+
+      {settingEvents && <PrimitiveDialog table={table.data} open={settingEvents} onOpenChange={setSettingEvents} onSaved={schemaChanged} />}
 
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent>

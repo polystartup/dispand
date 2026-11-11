@@ -260,6 +260,13 @@
       "when": 1794390324038,
       "tag": "0036_reference_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1794392230516,
+      "tag": "0037_primitive_tables",
+      "breakpoints": true
     }
   ]
 }
