@@ -339,6 +339,8 @@ const remove = owner.input(z.object({ ids: z.array(z.string()).min(1).max(MAX_PA
   const tableId = found[0]?.tableId;
   if (found.length !== ids.length || found.some((r) => r.tableId !== tableId)) throw new ORPCError("NOT_FOUND");
   const { deleted, cleared } = await context.db.transaction(async (tx) => {
+    // The table before its rows, as every writer and schema change takes them.
+    await tx.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.id, tableId!)).for("share");
     const deleted = await tx
       .delete(rowsTable)
       .where(and(inArray(rowsTable.id, ids), eq(rowsTable.tableId, tableId!)))
