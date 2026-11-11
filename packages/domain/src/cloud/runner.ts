@@ -6,7 +6,8 @@ import { answerText } from "../engine/engine.ts";
 import type { CloudHarness, HarnessAdapter, StartParams } from "../engine/harness.ts";
 import { loadCloudHarness } from "../harnesses/cloud.ts";
 import { newId } from "../ids.ts";
-import { logError } from "../log.ts";
+import { errorKind, logError } from "../log.ts";
+import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { SecretError, type SecretBox } from "../secrets.ts";
 import {
   ASK_USER,
@@ -56,6 +57,31 @@ export function combineToolCallers(...callers: ToolCaller[]): ToolCaller {
       }
     },
   };
+}
+
+const traces = tracer("cloud");
+const counts = meter("cloud");
+
+/** One model call in a span: the harness's kind, how the turn ended and how many tools it asked for; never the prompt or the answer. */
+function modelCall(kind: string, sessionId: string, turn: () => Promise<ModelTurn>): Promise<ModelTurn> {
+  return traces.startActiveSpan("model.turn", { attributes: { "dispand.harness.kind": kind, "dispand.session.id": sessionId } }, async (span) => {
+    const started = performance.now();
+    let result = "error";
+    try {
+      const done = await turn();
+      result = done.stop;
+      span.setAttribute("dispand.model.tool_calls", done.toolCalls.length);
+      return done;
+    } catch (err) {
+      recordError(span, errorKind(err));
+      throw err;
+    } finally {
+      span.setAttribute("dispand.result", result);
+      span.end();
+      counts.counter("dispand.model.calls").add(1, { "dispand.harness.kind": kind, "dispand.result": result });
+      counts.histogram("dispand.model.duration", { unit: "ms", description: "A model call of a cloud session" }).record(performance.now() - started, { "dispand.harness.kind": kind, "dispand.result": result });
+    }
+  });
 }
 
 export const noTools: ToolCaller = {
@@ -338,13 +364,15 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     try {
       const { specs, names } = await this.specs(row.id);
       const tools = [askUserSpec, submitOutputsSpec(start.expectedOutputs), requestApprovalSpec, ...specs.map((s) => ({ ...s.spec, name: names.toName(s.key) }))];
-      turn = await this.client(harness).turn({
-        system: [harness.systemPrompt, start.systemPrompt].filter(Boolean).join("\n\n"),
-        items,
-        tools,
-        signal: new AbortController().signal,
-        onText: text.push,
-      });
+      turn = await modelCall(harness.kind, id, () =>
+        this.client(harness).turn({
+          system: [harness.systemPrompt, start.systemPrompt].filter(Boolean).join("\n\n"),
+          items,
+          tools,
+          signal: new AbortController().signal,
+          onText: text.push,
+        }),
+      );
     } catch (err) {
       await text.done();
       await this.locked(id, () => this.emit(id, { status: "done" }, { type: "error", message: providerError(err, harness) }));

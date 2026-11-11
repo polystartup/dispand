@@ -13,6 +13,13 @@ export const METRICS = {
   "dispand.questions.answered": ["dispand.question.kind", "dispand.answer.decision"],
   "dispand.question.wait": ["dispand.question.kind"],
   "dispand.sessions.started": ["dispand.harness.kind", "dispand.result"],
+  "dispand.runner.connections": ["dispand.result"],
+  "dispand.runner.messages": ["dispand.message.type"],
+  "dispand.runner.disconnects": [],
+  "dispand.tool.calls": ["dispand.result"],
+  "dispand.tool.duration": ["dispand.result"],
+  "dispand.model.calls": ["dispand.harness.kind", "dispand.result"],
+  "dispand.model.duration": ["dispand.harness.kind", "dispand.result"],
   // The instrumentations' own (`apps/web/telemetry-preload.mjs`): methods, codes and peers, never a path or a query.
   "http.server.request.duration": ["http.request.method", "http.response.status_code", "url.scheme", "network.protocol.version", "error.type"],
   "http.client.request.duration": ["http.request.method", "http.response.status_code", "server.address", "server.port", "url.scheme", "error.type"],

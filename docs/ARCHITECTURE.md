@@ -248,7 +248,12 @@
   engine traces each session start (`engine.session.start`, inside the Job for a Job) and
   each runner event but text deltas (`engine.event`, which are only counted), and counts runs
   created and finished (with their duration), questions opened and answered (with their
-  wait) and sessions started.
+  wait) and sessions started. The runner hub counts connection attempts by outcome,
+  disconnects and messages by type, and traces each message but streamed words
+  (`runner.message`, the engine's work inside it). A tool action call is a `tool.call` span
+  (the tool's id, the action, how it ended) with its count and duration; a cloud session's
+  model call is a `model.turn` span (the harness's kind, how the turn ended, how many tools it
+  asked for) with its count and duration. Token counts are not read from the providers yet.
 - **Platform tools:** a Job's session gets some of Dispand's own procedures as tools.
   `platform/tools.ts` is the registry: each tool names its procedure (`rows.create` is the tool
   `rows_create`), its bundle (`data`: `tables.list`, `tables.get` and the rows procedures;

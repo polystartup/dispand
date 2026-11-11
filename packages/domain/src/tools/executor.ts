@@ -2,6 +2,10 @@ import { and, eq, inArray } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { tools as toolsTable } from "../db/schema.ts";
 import { logError } from "../log.ts";
+import { meter, recordError, tracer } from "../telemetry/index.ts";
+
+const traces = tracer("tools");
+const counts = meter("tools");
 import { SecretError, type SecretBox } from "../secrets.ts";
 import type { ToolStep } from "../workflows/model.ts";
 import type { ToolSchema } from "../workflows/tool-steps.ts";
@@ -50,6 +54,21 @@ export class InstalledTools {
 
   /** Calls `action` of `tool` with `args` (the connector's deadline applies; `signal` cancels it). */
   async call(tool: Row, action: string, args: Record<string, unknown>, signal: AbortSignal): Promise<{ ok: true; result: ToolResult } | { ok: false; error: string }> {
+    // In a span with the tool and the action, and how it ended; never the arguments or the result.
+    return traces.startActiveSpan("tool.call", { attributes: { "dispand.tool.id": tool.id, "dispand.tool.action": action } }, async (span) => {
+      const started = performance.now();
+      const called = await this.callTool(tool, action, args, signal);
+      const result = !called.ok ? "error" : called.result.isError ? "tool-error" : "ok";
+      span.setAttribute("dispand.result", result);
+      if (!called.ok) recordError(span, "ToolCallFailed");
+      span.end();
+      counts.counter("dispand.tool.calls").add(1, { "dispand.result": result });
+      counts.histogram("dispand.tool.duration", { unit: "ms", description: "A call of a tool's action, from the server" }).record(performance.now() - started, { "dispand.result": result });
+      return called;
+    });
+  }
+
+  private async callTool(tool: Row, action: string, args: Record<string, unknown>, signal: AbortSignal): Promise<{ ok: true; result: ToolResult } | { ok: false; error: string }> {
     if (tool.kind !== "http") return { ok: false, error: `${tool.name} runs on a runner: only an agent can use it` };
     try {
       return { ok: true, result: await this.connector.callAction(toolTarget(tool, this.secrets), action, args, signal) };
