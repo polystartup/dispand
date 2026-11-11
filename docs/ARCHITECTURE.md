@@ -286,7 +286,10 @@
   `scheduler.poll` span and `dispand.polls`, `dispand.poll.items` and `dispand.poll.duration`
   count polls, new items and durations by tool kind and outcome (`baseline`, `polled`,
   `skipped`, `failed`), never an item, an argument or a result. `triggers.get` gives a poll trigger's `lastPolls`, each with what it found and its new items
-  (their ids are what the tool read: a Job calling it gets none). The agent's page
+  (their ids are what the tool read: a Job calling it gets none). The trigger sheet's "Poll" kind
+  (`PollTriggerPanel`) picks one of the agent's tools, one of its actions a poll may read now (`tools.pollable`),
+  the arguments as JSON, the items' and ids' paths, the interval in minutes and the hour's cap,
+  and lists the latest polls with what each found. The agent's page
   (`/settings/agents/<id>`) has three tabs: Settings, Triggers (`components/agents/TriggerList`,
   `TriggerSheet`, which reuses the schedule panel) and Jobs (`JobList`). A manual trigger goes
   on a page as a `trigger-form` widget (`widgets.trigger_id`, one per trigger and page):

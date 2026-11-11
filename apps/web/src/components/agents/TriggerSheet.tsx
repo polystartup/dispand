@@ -9,19 +9,21 @@ import { cn } from "@/lib/utils";
 import { orpc } from "../../lib/api.ts";
 import { FormField } from "../settings/parts.tsx";
 import { ScheduleTriggerPanel } from "../workflow/panels/ScheduleTriggerPanel.tsx";
+import { type PollForm, PollTriggerPanel } from "./PollTriggerPanel.tsx";
 import { type ChangeConfig, PrimitiveTriggerPanel } from "./PrimitiveTriggerPanel.tsx";
 import type { Trigger } from "./TriggerList.tsx";
 
-type Starts = "chat" | "button" | "schedule" | "change";
+type Starts = "chat" | "button" | "schedule" | "change" | "poll";
 const STARTS: [Starts, string, string][] = [
   ["chat", "Chat", "A conversation with the agent."],
   ["button", "Button", "One click starts the Job."],
   ["schedule", "Schedule", "The Job starts by itself, on a schedule."],
   ["change", "Table change", "The Job starts when a row of a table changes, and is told the change."],
+  ["poll", "Poll", "A tool is asked for its list every few minutes: each new item starts a Job, and the Job is told the item."],
 ];
 
 /** What a trigger's kind lets it become: a manual one moves between chat and button only. */
-const KINDS: Record<string, Starts[]> = { manual: ["chat", "button"], schedule: ["schedule"], primitive: ["change"], poll: [] };
+const KINDS: Record<string, Starts[]> = { manual: ["chat", "button"], schedule: ["schedule"], primitive: ["change"], poll: ["poll"] };
 
 /** The browser's timezone when schedules accept it (they take IANA zones: not "UTC"), else the default. */
 function localTimezone(): string {
@@ -49,7 +51,12 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
   const [name, setName] = useState(trigger?.name ?? "");
   const [instructions, setInstructions] = useState(trigger?.instructions ?? "");
   const [starts, setStarts] = useState<Starts>(
-    trigger ? (trigger.config.kind === "manual" ? trigger.config.placement : trigger.config.kind === "schedule" ? "schedule" : "change") : "chat",
+    trigger ? (trigger.config.kind === "manual" ? trigger.config.placement : trigger.config.kind === "schedule" ? "schedule" : trigger.config.kind === "poll" ? "poll" : "change") : "chat",
+  );
+  const [poll, setPoll] = useState<PollForm>(
+    trigger?.config.kind === "poll"
+      ? { ...trigger.config, arguments: JSON.stringify(trigger.config.arguments, null, 2) }
+      : { toolId: "", action: "", arguments: "{}", itemsPath: "", idPath: "id", interval: 300 },
   );
   const [change, setChange] = useState<ChangeConfig>(trigger?.config.kind === "primitive" ? trigger.config : { tableId: "", operations: ["updated"] });
   const [rateCap, setRateCap] = useState(trigger?.rateCap ?? 60);
@@ -73,18 +80,33 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
       if (change.fields?.length === 0) return setProblem("Pick the fields whose change starts the Job, or Any field");
       if (!Number.isInteger(rateCap) || rateCap < 1 || rateCap > 1000) return setProblem("The hour's cap is a whole number from 1 to 1000");
     }
+    let pollArguments: Record<string, unknown> = {};
+    if (starts === "poll") {
+      if (!poll.toolId || !poll.action) return setProblem("Pick the tool and the action a poll reads");
+      try {
+        pollArguments = JSON.parse(poll.arguments || "{}") as Record<string, unknown>;
+      } catch {
+        return setProblem("The arguments aren't JSON");
+      }
+      if (typeof pollArguments !== "object" || pollArguments === null || Array.isArray(pollArguments)) return setProblem("The arguments are a JSON object: { … }");
+      if (!poll.idPath.trim()) return setProblem("Say where an item's id is");
+      if (!Number.isInteger(poll.interval) || poll.interval < 60 || poll.interval > 86_400) return setProblem("A poll runs every 1 to 1440 minutes");
+      if (!Number.isInteger(rateCap) || rateCap < 1 || rateCap > 1000) return setProblem("The hour's cap is a whole number from 1 to 1000");
+    }
     setProblem(null);
     const fields = {
       name: name.trim(),
       instructions,
       concurrency: oneAtATime ? ("one-at-a-time" as const) : ("parallel" as const),
-      ...(starts === "change" ? { rateCap } : {}),
+      ...(starts === "change" || starts === "poll" ? { rateCap } : {}),
       config:
         starts === "schedule"
           ? { kind: "schedule" as const, ...schedule }
           : starts === "change"
             ? { kind: "primitive" as const, ...change }
-            : { kind: "manual" as const, placement: starts },
+            : starts === "poll"
+              ? { kind: "poll" as const, ...poll, arguments: pollArguments }
+              : { kind: "manual" as const, placement: starts },
     };
     if (trigger) update.mutate({ id: trigger.id, ...fields, enabled });
     else create.mutate({ agentId, ...fields });
@@ -129,7 +151,24 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
           <FormField label="Instructions" htmlFor="trigger-instructions" hint="What the agent is asked to do each time this trigger fires.">
             <Textarea id="trigger-instructions" rows={5} value={instructions} maxLength={100_000} onChange={(e) => setInstructions(e.target.value)} />
           </FormField>
-          {starts === "change" ? (
+          {starts === "poll" ? (
+            <>
+              <PollTriggerPanel agentId={agentId} config={poll} rateCap={rateCap} polls={trigger?.lastPolls ?? []} onChange={setPoll} onRateCap={setRateCap} />
+              <label className="flex items-start gap-3 text-[14px]">
+                <input type="checkbox" checked={oneAtATime} onChange={(e) => setOneAtATime(e.target.checked)} className="mt-1 size-4 accent-[var(--color-accent)]" />
+                <span>
+                  One at a time
+                  <span className="block text-[12px] text-faint">A new item found while this trigger's Job is still going waits for it to end.</span>
+                </span>
+              </label>
+              {trigger && (
+                <label className="flex items-center justify-between gap-3 text-[14px]">
+                  Enabled
+                  <input type="checkbox" role="switch" aria-label="Enabled" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="size-4 accent-[var(--color-accent)]" />
+                </label>
+              )}
+            </>
+          ) : starts === "change" ? (
             <>
               <PrimitiveTriggerPanel config={change} rateCap={rateCap} events={trigger?.lastEvents ?? []} onChange={setChange} onRateCap={setRateCap} />
               <label className="flex items-start gap-3 text-[14px]">
