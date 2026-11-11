@@ -36,7 +36,7 @@ test("rows CRUD and total", async () => {
   expect(a).toMatchObject({ id: expect.stringMatching(/^row_/), tableId: table.id, values: { [name.id]: "Alpha", [price.id]: 3 } });
   const b = await call(router.rows.create, { tableId: table.id }, { context });
   expect(b.values).toEqual({});
-  expect(await call(router.rows.get, { id: a.id }, { context })).toEqual({ ...a, attachments: {} });
+  expect(await call(router.rows.get, { id: a.id }, { context })).toEqual({ ...a, attachments: {}, references: {} });
 
   const updated = await call(router.rows.update, { id: a.id, values: { [price.id]: null } }, { context });
   expect(updated.values).toEqual({ [name.id]: "Alpha", [price.id]: null });
@@ -46,7 +46,7 @@ test("rows CRUD and total", async () => {
   expect((await call(router.rows.list, { tableId: table.id, offset: 1 }, { context })).rows.map((r) => r.id)).toEqual([b.id]);
 
   await call(router.rows.delete, { ids: [a.id, b.id] }, { context });
-  expect(await call(router.rows.list, { tableId: table.id }, { context })).toEqual({ rows: [], total: 0, attachments: {} });
+  expect(await call(router.rows.list, { tableId: table.id }, { context })).toEqual({ rows: [], total: 0, attachments: {}, references: {} });
   await expect(call(router.rows.get, { id: a.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 

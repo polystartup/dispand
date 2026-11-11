@@ -64,6 +64,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
   const rows = useMemo(() => rowsQuery.data?.pages.flatMap((p) => p.rows) ?? [], [rowsQuery.data]);
   const total = rowsQuery.data?.pages.at(-1)?.total ?? 0;
   const files = useMemo(() => Object.assign({}, ...(rowsQuery.data?.pages.map((p) => p.attachments) ?? [])) as Page["attachments"], [rowsQuery.data]);
+  const references = useMemo(() => Object.assign({}, ...(rowsQuery.data?.pages.map((p) => p.references) ?? [])) as Page["references"], [rowsQuery.data]);
   const filtered = query.filters.length > 0;
   // Every row, for "N of M rows" while a filter hides some.
   const all = useQuery({ ...orpc.rows.list.queryOptions({ input: { tableId, limit: 1 } }), enabled: filtered });
@@ -344,7 +345,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
                       )}
                     >
                       <div className="w-48 truncate">
-                        {field.type === "attachment" && Array.isArray(value) ? <AttachmentCell ids={value} files={files} /> : <CellView field={field} value={value} />}
+                        {field.type === "attachment" && Array.isArray(value) ? <AttachmentCell ids={value} files={files} /> : <CellView field={field} value={value} references={references} />}
                       </div>
                       {isActive && editing && (
                         <CellEditor
