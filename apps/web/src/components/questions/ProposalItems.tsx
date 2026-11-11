@@ -11,6 +11,7 @@ const TITLES: Record<string, string> = {
   agents_create: "Create an agent",
   agents_update: "Change an agent",
   agents_set_tool_ask: "Change whether an action asks before use",
+  harnesses_set_limit: "Change how many sessions of a harness work at once",
   tables_delete: "Delete a table, with its rows",
   fields_delete: "Delete a field, with its values",
   tools_add: "Add a tool: a server Dispand will call",
@@ -29,6 +30,7 @@ const LABELS_OF: Record<string, Record<string, string>> = {
   tools_add: { name: "Name", url: "Address", transport: "Transport" },
   tools_delete: { id: "Tool" },
   agents_set_tool_ask: { agentId: "Agent", toolId: "Tool", action: "Action", ask: "Asks before use" },
+  harnesses_set_limit: { id: "Harness", maxWorking: "At most at once" },
 };
 const LABELS: Record<string, string> = {
   id: "Agent",

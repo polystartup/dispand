@@ -123,6 +123,7 @@ const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
   agents_create: { harnessId: "harness", toolIds: "tool", skillPackageIds: "skill", dataTables: "table" },
   agents_update: { id: "agent", harnessId: "harness", toolIds: "tool", skillPackageIds: "skill", dataTables: "table" },
   agents_set_tool_ask: { agentId: "agent", toolId: "tool" },
+  harnesses_set_limit: { id: "harness" },
   tables_delete: { id: "table" },
   fields_delete: { id: "field" },
   triggers_create: { agentId: "agent" },
