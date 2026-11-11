@@ -1,4 +1,5 @@
 import { createMcpHandler, Server } from "@modelcontextprotocol/server";
+import { keepJobFiles } from "../data/files.ts";
 import { logError } from "../log.ts";
 import { InstalledTools } from "../tools/executor.ts";
 import { takeApproval } from "./approvals.ts";
@@ -10,7 +11,8 @@ import { jobOf, jobOfRequest, RESTART_HINT } from "./mcp.ts";
 // sessions. The call runs here, on the server, where the tool's sealed headers stay; the session
 // only ever sees the action's name, description and schema. Every call must have been approved
 // by the owner for those exact arguments: the session's CLI asks before an MCP tool call, the
-// question and its answer are recorded here, and a call uses its approval up.
+// question and its answer are recorded here, and a call uses its approval up. Files a call
+// returns are kept as the Job's attachments.
 
 const VERSION = "1.0.0";
 const GONE = "This tool is not available.";
@@ -45,7 +47,10 @@ function toolsHandler(app: PlatformApp) {
           if (item.ask && !(await takeApproval(app.db, job, askedName(item.name), args))) return text(NEEDS_APPROVAL, true);
           // Cut when the request is: a session that ended doesn't leave its call running.
           const called = await installed.call(tool, item.action, args, ctx.requestInfo?.signal ?? new AbortController().signal);
-          return called.ok ? text(called.result.text, called.result.isError) : text(called.error, true);
+          if (!called.ok) return text(called.error, true);
+          // Files in the result are kept for the Job: the session gets their attachment ids, not their bytes.
+          const result = await keepJobFiles(app.db, app.filesDir, job, called.result);
+          return text(result.text, result.isError);
         });
         return server;
       },

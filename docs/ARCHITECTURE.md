@@ -567,12 +567,18 @@
 - **Attachments (Data):** an attachment cell holds attachment ids. `files.upload`
   (`packages/domain/src/data/files.ts`) stores each file at `<filesDir>/<ownerId>/<attachmentId>`
   (written to a temp name, then renamed) and its row in `attachments` (owner, table, name, size,
-  sniffed type). `writeRow` accepts only ids uploaded to the same table and locks them
-  `FOR SHARE`. `GET /files/<id>` (`apps/web/src/server/files.ts`, the one route outside oRPC,
+  sniffed type). Files in the MCP content of a Job's HTTP tool call (image items, embedded
+  resources with a blob; the tools endpoint and a cloud Job's calls) go the same way through
+  `keepJobFiles`, owned by the Job (`job_id`, no table yet), and the result's text tells the agent
+  their ids, or why one wasn't kept (over 10 MiB, past 20 a result). Tool steps and workflow runs'
+  sessions keep none: their text has placeholders only. `writeRow` accepts ids of the same
+  table, locked `FOR SHARE`, and, when a Job writes, that Job's files no table has, locked
+  `FOR UPDATE` and given to the table once the row is written. `GET /files/<id>` (`apps/web/src/server/files.ts`, the one route outside oRPC,
   checks the session itself) serves PNG, JPEG, GIF and WebP sniffed on upload inline and
   everything else as a download, all with `nosniff` and a sandbox CSP. `sweepAttachments` runs
-  on boot and hourly: it removes attachments no row of their table references, then files on disk
-  with no row (a deleted table's), both after an hour; it is the one mechanism for every way a
+  on boot and hourly: it removes attachments no row of their table references, a Job's files no
+  table took once the Job has ended, then files on disk with no row (a deleted table's), all after
+  an hour; it is the one mechanism for every way a
   file stops being used. `filesDir` is `DISPAND_FILES_DIR` (production: `/data/files`, in the
   `dispand-files` volume), `.data/files` in development. Bounds: 20 files per cell,
   10 MiB per file (the production server takes 11 MiB bodies on `files.upload` only).
