@@ -122,6 +122,10 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("triggers.create", "configure", `Creates a trigger for an agent: what starts a Job and what the agent is told then. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("triggers.update", "configure", `Changes a trigger: its name, instructions, schedule, or whether it is on. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("triggers.delete", "configure", `Deletes a trigger. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool("tools.list", "configure", "Lists the tools (MCP servers) agents can be given, with their ids, addresses and actions. Header values are never shown.", { tables: none }),
+  tool("tools.get", "configure", "Gives one tool by its id.", { tables: none }),
+  tool("tools.add", "configure", `Adds a tool: an MCP server reached at a URL, with no credentials (the owner enters those afterwards). ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool("tools.delete", "configure", `Deletes a tool no agent uses, with its saved headers: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("agents.update", "configure", `Changes an agent: give every field, as agents_get shows them. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
 ];
 
@@ -159,9 +163,6 @@ export const NOT_TOOLS: string[] = [
   // Tools, their headers and their sign-in.
   "tools.create",
   "tools.update",
-  "tools.delete",
-  "tools.list",
-  "tools.get",
   "tools.refresh",
   "tools.catalog",
   "tools.installFromCatalog",

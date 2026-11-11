@@ -93,3 +93,17 @@ test("a trigger reads as what starts Jobs: its agent by name, its instructions a
   expect(item!.textContent).toContain("0 8 * * *");
   expect(item!.textContent).toContain("Europe/Paris");
 });
+
+test("a tool to add shows its address whole and the host calls will go to", () => {
+  const tool: ProposalView = {
+    id: "prop_4",
+    status: "asked",
+    items: [{ tool: "tools_add", used: false, refs: [], input: { name: "Mail", url: "https://mail.example.com:8443/mcp?team=a", transport: "streamable-http" } }],
+    names: {},
+  };
+  render(<ProposalItems proposal={tool} />);
+  const [item] = screen.getAllByRole("listitem");
+  expect(within(item!).getByText("Add a tool: a server Dispand will call")).toBeTruthy();
+  expect(within(item!).getByText("https://mail.example.com:8443/mcp?team=a")).toBeTruthy();
+  expect(within(item!).getByText("mail.example.com:8443")).toBeTruthy();
+});
