@@ -612,6 +612,7 @@ export class Engine {
           step = { ...step, startDeliveredAt };
         }
         if (!step.startDeliveredAt) {
+          if (await this.refusedForScope(step)) continue;
           this.launch(step.harness!, step.start!, step);
           // Chat messages sent before the start ever reached the runner go right after it.
           for (const m of await this.undeliveredMessages(step.id)) this.deliverMessage(sessionId, m);
@@ -684,6 +685,7 @@ export class Engine {
     // Read right before the launch, so a stop is either seen here or sent after this start.
     const [now] = await this.db.select({ status: stepRuns.status }).from(stepRuns).where(eq(stepRuns.id, step.id));
     if (!now || !ACTIVE_STEP.includes(now.status)) return;
+    if (await this.refusedForScope(step)) return;
     this.launch(step.harness!, start, step, held, async () => {
       const now = new Date();
       if (answers.length) await this.db.update(questions).set({ deliveredAt: now }).where(inArray(questions.id, answers.map((q) => q.id)));
@@ -1087,6 +1089,7 @@ export class Engine {
         deriveExpectedOutputs(def, await loadTableSchemas(this.db, run.ownerId, tableIdsOf(def)), await loadToolSchemas(this.db, run.ownerId, toolIdsOf(def)))[node.id] ?? [],
       interactive: node.kind === "trigger",
     };
+    if (await this.refusedForScope(step)) return;
     const [started] = await this.db
       .update(stepRuns)
       .set({ status: "running", sessionId: start.sessionId, harness, runnerId: isCloud(harness) ? CLOUD_SOURCE : harness.runnerId, start, startedAt: new Date() })
@@ -1119,15 +1122,6 @@ export class Engine {
     }
     for (const key of held) this.inFlight.add(key);
     const sent = this.track(`start:${start.sessionId}`, async () => {
-      // Rights shrink at once: a Job told of a row's change never gets it once its agent may no
-      // longer read that table, however long its start waited (a runner offline, a resume).
-      if (await this.lostEventScope(step.runId)) {
-        outcome("refused");
-        const out: RunEvent[] = [];
-        await this.db.transaction((tx) => this.fail(tx, step, "The agent may no longer read the table that changed", out));
-        this.publish(step.runId, out);
-        return;
-      }
       if (!(await this.adapter.start(harness, start))) return outcome("offline");
       await this.db.update(stepRuns).set({ startDeliveredAt: new Date() }).where(eq(stepRuns.id, step.id));
       await written?.();
@@ -1145,6 +1139,19 @@ export class Engine {
       this.publish(step.runId, out);
     });
     this.keep(sent);
+  }
+
+  /**
+   * Rights shrink at once: a Job told of a row's change never gets it once its agent may no
+   * longer read that table, however long its start waited (a runner offline, a resume). Called
+   * right before each start of its session is sent; fails the step and says so when it must not go.
+   */
+  private async refusedForScope(step: StepRow): Promise<boolean> {
+    if (!(await this.lostEventScope(step.runId))) return false;
+    const out: RunEvent[] = [];
+    await this.db.transaction((tx) => this.fail(tx, step, "The agent may no longer read the table that changed", out));
+    this.publish(step.runId, out);
+    return true;
   }
 
   /** Whether the run is a Job fired by a row's change whose agent no longer has `data` on that row's table. */
