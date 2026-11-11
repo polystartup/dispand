@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import type { ChatItem } from "../cloud/model-client.ts";
 import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
-import { questions, runs, tools as toolsTable } from "../db/schema.ts";
+import { attachments, questions, runs, tools as toolsTable } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
@@ -16,6 +16,7 @@ afterEach(async () => {
 });
 
 const SECRET = "Bearer s3cret-value";
+const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
 
 /** A cloud agent with the HTTP tool "GitHub" (`create_repository`, `list_repos`), and an engine wired as the app's. */
 async function setup(script: Script[]) {
@@ -25,10 +26,11 @@ async function setup(script: Script[]) {
   const server = await startFakeMcp([
     { name: "create_repository", description: "Create a repository", inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] }, call: (args) => (calls.push(["create_repository", args]), text("created")) },
     { name: "list_repos", description: "List repositories", inputSchema: { type: "object", properties: {} }, call: (args) => (calls.push(["list_repos", args]), text("[]")) },
+    { name: "get_logo", annotations: { readOnlyHint: true }, call: () => ({ content: [{ type: "image" as const, data: Buffer.from(PNG).toString("base64"), mimeType: "image/png" }] }) },
   ]);
   servers.push(server);
   const model = fakeModel(...script);
-  const engine = createEngine(base.db, base.hub, base.secrets, base.dataEvents, { connector: base.tools, tools: platformToolCaller(() => context), client: model.client });
+  const engine = createEngine(base.db, base.hub, base.secrets, base.dataEvents, { connector: base.tools, tools: platformToolCaller(() => context), client: model.client, filesDir: base.filesDir });
   onTestFinished(() => engine.stop());
   const context = { ...base, engine };
   const harness = await call(
@@ -73,6 +75,17 @@ test("a cloud Job calls its agent's HTTP tool after the owner allows it; the hea
   expect(offered.find((t) => t.name === "GitHub_create_repository")).toMatchObject({ description: "Create a repository", inputSchema: { required: ["name"] } });
   expect(s.server.requests.some((h) => h.authorization === SECRET)).toBe(true);
   expect(JSON.stringify(s.model.inputs)).not.toContain("s3cret");
+});
+
+test("a file a cloud Job's tool returns is kept for the Job, and the model gets its id", async () => {
+  const s = await setup([use("GitHub_get_logo", {}), say("Got it.")]);
+  const runId = await s.start();
+  await s.until(runId, "succeeded");
+  const [kept] = await s.context.db.select().from(attachments).where(eq(attachments.jobId, runId));
+  expect(kept).toMatchObject({ mime: "image/png", image: true, tableId: null });
+  const result = lastTool(s.model.inputs[1]!.items);
+  expect(result.isError).toBe(false);
+  expect(result.result).toContain(`attachment ${kept!.id}, image/png`);
 });
 
 test("a call the owner denies doesn't reach the tool", async () => {
@@ -124,7 +137,7 @@ test("a workflow step's cloud session gets its agent's HTTP tools, and none of D
   );
   const { runId } = await call(router.runs.start, { workflowId: workflow.id }, { context: s.context });
   await s.until(runId, "succeeded");
-  expect(s.model.inputs[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "submit_outputs", "request_approval", "GitHub_create_repository", "GitHub_list_repos"]);
+  expect(s.model.inputs[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "submit_outputs", "request_approval", "GitHub_create_repository", "GitHub_list_repos", "GitHub_get_logo"]);
 });
 
 test("Dispand's own tools run unasked next to the agent's, which ask", async () => {

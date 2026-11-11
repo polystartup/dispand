@@ -6,7 +6,7 @@ import { type EventActor, events, fields as fieldsTable, rows as rowsTable, tabl
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { type Cell, CELL_LIMITS, cellSchema, cellText, type FieldSchema } from "./fields.ts";
-import { attachmentsById, lockAttachments } from "./files.ts";
+import { adoptAttachments, attachmentsById, lockAttachments } from "./files.ts";
 import { type Filter, filterValue, queryProblem, RowQuery, type Sort } from "./query.ts";
 import { MAX_FIELDS } from "./tables.ts";
 
@@ -115,9 +115,10 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
     const checked = cellSchema(field).safeParse(value);
     if (!checked.success) return { problem: `“${field.name}”: ${checked.error.issues[0]?.message ?? "not a valid value"}` };
   }
-  // Files: only this table's own uploads, locked so the sweep keeps them until this commits.
+  // Files: only this table's own, or the writing Job's that no table has yet (they become this
+  // table's once the row is written), locked so the sweep keeps them until this commits.
   const files = Object.entries(input.values).filter(([id, value]) => fields.get(id)!.type === "attachment" && Array.isArray(value));
-  const known = await lockAttachments(tx, input.ownerId, table.id, files.flatMap(([, ids]) => ids as string[]));
+  const { known, adopt } = await lockAttachments(tx, input.ownerId, table.id, files.flatMap(([, ids]) => ids as string[]), input.actor);
   for (const [id, ids] of files) {
     if ((ids as string[]).some((a) => !known.has(a))) return { problem: `“${fields.get(id)!.name}”: no such file` };
   }
@@ -145,6 +146,7 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
       const set = Object.entries(input.values).filter(([, v]) => v !== null);
       await recordEvent(tx, { ownerId: input.ownerId, tableId: table.id, rowId: row!.id, operation: "created", changed: set.map(([id]) => id), before: {}, after: Object.fromEntries(set), actor: input.actor });
     }
+    await adoptAttachments(tx, table.id, adopt);
     return { row: rowView(row!) };
   }
   // A primitive table's event says what changed: the row as it was, held until the write commits.
@@ -157,6 +159,7 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
     .where(and(eq(rowsTable.id, input.rowId), eq(rowsTable.tableId, table.id)))
     .returning();
   if (!row) return { problem: "row not found", notFound: true };
+  await adoptAttachments(tx, table.id, adopt);
   if (current) {
     const was = (id: string) => current.values[id] ?? null;
     const changed = Object.keys(input.values).filter((id) => JSON.stringify(was(id)) !== JSON.stringify(input.values[id]));

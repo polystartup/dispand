@@ -48,7 +48,7 @@ async function start(): Promise<App> {
   // Tool steps call installed tools through the same connector as Settings → Tools. A cloud
   // Job's session gets Dispand's own tools, called in process (the app is read at call time).
   const app = {} as App;
-  const engine = getEngine(db, hub, secrets, dataEvents, { connector: tools, tools: platformToolCaller(() => app) });
+  const engine = getEngine(db, hub, secrets, dataEvents, { connector: tools, tools: platformToolCaller(() => app), filesDir: config.filesDir });
   // Filled before anything can call a tool: recovery below may already need it.
   Object.assign(app, { db, auth, hub, engine, dataEvents, secrets, tools, setupCode: config.setupCode, filesDir: config.filesDir, gitFileUrls: config.gitFileUrls });
   // Before any runner can connect (the upgrade handler waits for this app); cloud sessions go on.

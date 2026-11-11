@@ -24,6 +24,9 @@ export const METRICS = {
   "dispand.runner.tool_call.duration": ["dispand.result"],
   "dispand.tool.calls": ["dispand.result"],
   "dispand.tool.duration": ["dispand.result"],
+  "dispand.attachments.stored": ["dispand.attachment.source"],
+  "dispand.attachments.refused": [],
+  "dispand.attachments.swept": [],
   "dispand.model.calls": ["dispand.harness.kind", "dispand.result"],
   "dispand.model.duration": ["dispand.harness.kind", "dispand.result"],
   // The instrumentations' own (`apps/web/telemetry-preload.mjs`): methods, codes and peers, never a path or a query.
