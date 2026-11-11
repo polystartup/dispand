@@ -283,6 +283,24 @@ const create = owner
     return createTool(context, { name, url, transport, headers });
   });
 
+/**
+ * Adds a tool by its address alone: a name, a URL without credentials, a transport. What an
+ * agent may propose (a person approves the address before anything is fetched from it); the
+ * owner enters the server's headers afterwards, on the tool's page.
+ */
+const add = owner
+  .input(
+    z.strictObject({
+      name: Name,
+      url: Url.refine((u) => {
+        const parsed = URL.parse(u);
+        return parsed !== null && parsed.username === "" && parsed.password === "";
+      }, "The URL can't carry credentials"),
+      transport: z.enum(TRANSPORTS),
+    }),
+  )
+  .handler(({ input, context }) => createTool(context, { ...input, headers: {} }));
+
 /** The catalog's entries, searched by name and description. Templates and setting names only: no value. */
 const catalog = owner.input(z.object({ query: z.string().max(100).optional() })).handler(({ input }) => searchCatalog(input.query));
 
@@ -426,4 +444,4 @@ const list = owner.handler(async ({ context }) => {
 
 const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => view(context.db, await find(context.db, context.ownerId, input.id)));
 
-export const tools = { create, update, delete: remove, list, get, refresh, catalog, installFromCatalog };
+export const tools = { create, add, update, delete: remove, list, get, refresh, catalog, installFromCatalog };

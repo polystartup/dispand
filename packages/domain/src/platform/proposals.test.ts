@@ -1,9 +1,10 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import { agents, agentTools, fields as fieldsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
+import { startFakeMcp } from "../tools/test-server.ts";
 import type { Bundle } from "./bundles.ts";
 import { callPlatformTool, toolsOf, type JobIdentity } from "./call.ts";
 import { PLATFORM_TOOLS } from "./tools.ts";
@@ -124,7 +125,7 @@ test("an approval doesn't bring back a right taken since, nor skip the procedure
 test("every tool marked as a grant is refused without a proposal", async () => {
   const s = await setup(["data", "configure"]);
   const grants = PLATFORM_TOOLS.filter((t) => t.grant);
-  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "tables_delete", "triggers_create", "triggers_delete", "triggers_update"]);
+  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "tables_delete", "tools_add", "tools_delete", "triggers_create", "triggers_delete", "triggers_update"]);
   const table = await call(router.tables.create, { name: "Clients" }, { context: s.context });
   const field = (await call(router.tables.get, { id: table.id }, { context: s.context })).fields[0]!;
   const inputs: Record<string, unknown> = {
@@ -136,6 +137,8 @@ test("every tool marked as a grant is refused without a proposal", async () => {
     triggers_create: { agentId: s.agent.id, name: "Daily", instructions: "Work.", config: { kind: "manual", placement: "button" } },
     triggers_update: { id: "trigger_x", enabled: false },
     triggers_delete: { id: "trigger_x" },
+    tools_add: { name: "Mail", url: "https://mail.example.com/mcp", transport: "streamable-http" },
+    tools_delete: { id: "tool_x" },
   };
   for (const t of grants) expect(((await s.tool(t.name, inputs[t.name])) as { error: string }).error).toMatch(NEEDS);
 });
@@ -332,4 +335,38 @@ test("a trigger is created, changed and deleted only on approved items, and the 
   const refused = await approved(s, bad);
   expect(refused.map((r) => r.ok)).toEqual([false, false]);
   expect((refused[1] as { error: string }).error).not.toMatch(NEEDS);
+});
+
+test("an agent adds a tool only on an approved item: an address and no credentials, and nothing is fetched before the owner's yes", async () => {
+  const s = await setup();
+  const { context } = s;
+  const server = await startFakeMcp([{ name: "search" }]);
+  onTestFinished(() => server.close());
+  const item = { tool: "tools_add", input: { name: "Search", url: server.url, transport: "streamable-http" } };
+  // Headers, a URL with credentials, and anything but an address and a name are not this tool's to give.
+  for (const input of [{ ...item.input, headers: { authorization: "Bearer x" } }, { ...item.input, url: "https://user:pass@example.com/mcp" }, { ...item.input, kind: "runner" }]) {
+    expect(await s.propose([{ tool: "tools_add", input }])).toMatchObject({ ok: false });
+  }
+  const id = s.idOf(await s.propose([item]));
+  const q = await s.ask({ message: "May I add a search tool?", proposal: id });
+  expect(server.requests).toHaveLength(0);
+  // The owner reads the address whole.
+  const { proposal } = (await call(router.questions.list, { status: "pending" }, { context })).find((i) => i.id === q)!;
+  expect(proposal!.items[0]).toMatchObject({ tool: "tools_add", refs: [], input: { url: server.url } });
+  await s.answer(q, "allow");
+  const added = await s.tool("tools_add", item.input);
+  expect(added).toMatchObject({ ok: true, output: { name: "Search", headerNames: [], actions: [{ name: "search" }] } });
+  expect(server.requests.length).toBeGreaterThan(0);
+  // Tools are read without a proposal; deleting one takes an item, named for the owner.
+  const toolId = (added as { output: { id: string } }).output.id;
+  expect(await s.tool("tools_list")).toMatchObject({ ok: true, output: [{ id: toolId, name: "Search" }] });
+  expect(await s.tool("tools_get", { id: toolId })).toMatchObject({ ok: true, output: { id: toolId } });
+  const del = s.idOf(await s.propose([{ tool: "tools_delete", input: { id: toolId } }]));
+  const q2 = await s.ask({ message: "Remove it?", proposal: del });
+  const view = (await call(router.questions.list, { status: "pending" }, { context })).find((i) => i.id === q2)!.proposal!;
+  expect(view.items[0]!.refs).toEqual(["id"]);
+  expect(view.names[toolId]).toMatchObject({ kind: "tool", name: "Search" });
+  await s.answer(q2, "allow");
+  expect(await s.tool("tools_delete", { id: toolId })).toMatchObject({ ok: true });
+  expect(await call(router.tools.list, undefined, { context })).toEqual([]);
 });
