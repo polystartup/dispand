@@ -1,5 +1,5 @@
 {
-  "id": "f8fa30e2-bc09-4dce-bd62-8d545563cd15",
+  "id": "3092aa06-9e46-4991-aea9-6dba175374cb",
   "prevId": "21beba69-3881-45b7-84e4-e79aeb60ad53",
   "version": "7",
   "dialect": "postgresql",
@@ -876,12 +876,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "root_id": {
-          "name": "root_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -947,19 +941,6 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "events_root_id_roots_id_fk": {
-          "name": "events_root_id_roots_id_fk",
-          "tableFrom": "events",
-          "tableTo": "roots",
-          "columnsFrom": [
-            "root_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -1837,19 +1818,19 @@
           "name": "step_run_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "session_id": {
           "name": "session_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "runner_question_id": {
           "name": "runner_question_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "placement": {
           "name": "placement",
@@ -1931,12 +1912,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
-        },
-        "root_id": {
-          "name": "root_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -1951,22 +1926,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "questions_checkpoint_idx": {
-          "name": "questions_checkpoint_idx",
-          "columns": [
-            {
-              "expression": "root_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"questions\".\"status\" = 'pending'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -2011,19 +1970,6 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
-        },
-        "questions_root_id_roots_id_fk": {
-          "name": "questions_root_id_roots_id_fk",
-          "tableFrom": "questions",
-          "tableTo": "roots",
-          "columnsFrom": [
-            "root_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2037,109 +1983,6 @@
           ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.roots": {
-      "name": "roots",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "owner_id": {
-          "name": "owner_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "run_id": {
-          "name": "run_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "jobs": {
-          "name": "jobs",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "counted_from": {
-          "name": "counted_from",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'going'"
-        },
-        "dont_ask": {
-          "name": "dont_ask",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "roots_paused_idx": {
-          "name": "roots_paused_idx",
-          "columns": [
-            {
-              "expression": "owner_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"roots\".\"state\" = 'paused'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "roots_owner_id_user_id_fk": {
-          "name": "roots_owner_id_user_id_fk",
-          "tableFrom": "roots",
-          "tableTo": "user",
-          "columnsFrom": [
-            "owner_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -2512,12 +2355,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "root_id": {
-          "name": "root_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "token_hash": {
           "name": "token_hash",
           "type": "text",
@@ -2626,21 +2463,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "runs_root_idx": {
-          "name": "runs_root_idx",
-          "columns": [
-            {
-              "expression": "root_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -2694,19 +2516,6 @@
             "id"
           ],
           "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "runs_root_id_roots_id_fk": {
-          "name": "runs_root_id_roots_id_fk",
-          "tableFrom": "runs",
-          "tableTo": "roots",
-          "columnsFrom": [
-            "root_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -3662,6 +3471,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "pollable": {
+          "name": "pollable",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "refreshed_at": {
           "name": "refreshed_at",
           "type": "timestamp",
@@ -4526,51 +4341,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.workspace_settings": {
-      "name": "workspace_settings",
-      "schema": "",
-      "columns": {
-        "owner_id": {
-          "name": "owner_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "checkpoint": {
-          "name": "checkpoint",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 100
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "workspace_settings_owner_id_user_id_fk": {
-          "name": "workspace_settings_owner_id_user_id_fk",
-          "tableFrom": "workspace_settings",
-          "tableTo": "user",
-          "columnsFrom": [
-            "owner_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "workspace_settings_checkpoint_range": {
-          "name": "workspace_settings_checkpoint_range",
-          "value": "\"workspace_settings\".\"checkpoint\" between 1 and 100000"
-        }
-      },
       "isRLSEnabled": false
     }
   },

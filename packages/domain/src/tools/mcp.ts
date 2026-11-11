@@ -35,7 +35,13 @@ export type ToolTarget = {
  */
 export type ToolAction = McpAction & { outputSchema?: Record<string, unknown>; readOnly?: true };
 
-export type ToolResult = { text: string; structured?: Record<string, unknown>; isError: boolean };
+/**
+ * A file in a result's content (an image, an embedded resource's blob): its bytes as the server
+ * sent them, never read here. Only a Job keeps them (`keepJobFiles`); anywhere else they are dropped.
+ */
+export type ToolFile = { name: string; bytes: Uint8Array };
+
+export type ToolResult = { text: string; structured?: Record<string, unknown>; isError: boolean; files?: ToolFile[] };
 
 /**
  * A failed listing or call, with a short reason made here (host, status), never the server's own
@@ -158,6 +164,30 @@ async function withClient<T>(target: ToolTarget, base: typeof fetch, timeoutMs: 
   }
 }
 
+/** The last segment of a resource's URI, as the file's name (redacted: the server may echo the headers there). */
+function nameOf(uri: string, clean: (text: string) => string): string {
+  const path = uri.split(/[?#]/)[0] ?? "";
+  return clean(decodeURIComponentSafe(path.slice(path.lastIndexOf("/") + 1))) || "file";
+}
+
+function decodeURIComponentSafe(text: string): string {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
+
+/** The files of a result: its images and the embedded resources that carry a blob, in order. */
+function filesOf(result: CallToolResult, clean: (text: string) => string): ToolFile[] {
+  const files: ToolFile[] = [];
+  for (const part of result.content) {
+    if (part.type === "image") files.push({ name: "image", bytes: Buffer.from(part.data, "base64") });
+    else if (part.type === "resource" && "blob" in part.resource) files.push({ name: nameOf(part.resource.uri, clean), bytes: Buffer.from(part.resource.blob, "base64") });
+  }
+  return files;
+}
+
 function summarize(result: CallToolResult, clean: (text: string) => string): string {
   const parts = result.content.map((part) => {
     switch (part.type) {
@@ -233,10 +263,12 @@ export function createMcpConnector(opts: { fetch?: typeof fetch } = {}): ToolCon
       // The server got the headers and may send them back: redacted before the text is cut.
       const clean = <T>(value: T) => storable(redact(value, target.headers, target.urlSecrets));
       const structured = result.structuredContent;
+      const files = filesOf(result, clean);
       return {
         text: storable(summarize(result, clean)),
         ...(structured && typeof structured === "object" && !Array.isArray(structured) ? { structured: clean(structured as Record<string, unknown>) } : {}),
         isError: result.isError === true,
+        ...(files.length > 0 ? { files } : {}),
       };
   }
 }

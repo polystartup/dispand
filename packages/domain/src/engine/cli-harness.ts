@@ -111,7 +111,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
 }
 
 /** What an engine calls besides runners: installed tools (through `connector`, Tool steps run), cloud agents' tools and model clients. */
-export type EngineDeps = { connector?: ToolConnector; tools?: ToolCaller; client?: (h: ClientHarness) => ModelClient };
+export type EngineDeps = { connector?: ToolConnector; tools?: ToolCaller; client?: (h: ClientHarness) => ModelClient; filesDir?: string };
 
 /**
  * An engine over the hub's runners and the in-process cloud runner: their events go to it, each
@@ -121,7 +121,7 @@ export type EngineDeps = { connector?: ToolConnector; tools?: ToolCaller; client
 export function createEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEvents: DataEvents, deps: EngineDeps = {}): Engine {
   const installed = deps.connector ? new InstalledTools(db, secrets, deps.connector) : undefined;
   // A cloud session's tools: the caller's (Dispand's own, in the app) and its agent's HTTP tools, called through the connector.
-  const tools = installed ? combineToolCallers(deps.tools ?? noTools, installedToolCaller(db, installed)) : (deps.tools ?? noTools);
+  const tools = installed ? combineToolCallers(deps.tools ?? noTools, installedToolCaller(db, installed, deps.filesDir)) : (deps.tools ?? noTools);
   const cloud = new CloudRunner(db, secrets, { tools, ...(deps.client ? { client: deps.client } : {}) });
   const engine = new Engine(
     db,

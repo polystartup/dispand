@@ -31,7 +31,11 @@
   `hello` retries. Revoking a runner (Settings › Harnesses › Runners) clears its token and
   closes its socket; it is refused while a harness uses the runner. `hub.request` sends
   a `tool.discover` and waits for the `tool.discovered` with its `requestId` from that same runner
-  (not numbered, not acked; "runner offline" or "timed out" after 45 s otherwise).
+  (not numbered, not acked; "runner offline" or "timed out" after 45 s otherwise); `hub.call`
+  does the same with a `tool.call` (a poll's call of one action, protocol 9) and its
+  `tool.called` (the result's MCP content and `isError`, or why the runner refused), a reply of
+  the other kind resolving nothing; `runner.tool_call` spans and `dispand.runner.tool_calls`
+  and its duration count them by outcome (`ok`, `error`, `refused`, `failed`).
   `SessionStart` is a union on `harness` (`claude-code`, `codex`, whose permission modes are only
   `default` and `bypassPermissions`) and carries `skills` and `mcpServers` by reference; the engine
   sends none yet. The runner refuses a start with MCP servers, or for Codex, before making its
@@ -291,7 +295,7 @@
   replays nothing of it. A chat message held during a turn leaves the turn its slot until
   `turn-end`; a held start queued again is launched only once handed a slot. On boot,
   `CloudRunner.recover` runs no turn of a paused root: reported not live, it is held to resume.
-  Migration 0042 gives every existing Job the root its chain counted it against. Telemetry:
+  Migration 0044 gives every existing Job the root its chain counted it against. Telemetry:
   `dispand.checkpoints.reached`, `dispand.checkpoints.answered` (by `dispand.checkpoint.answer`:
   `approve`, `dont-ask`, `decline`), the `dispand.roots.paused` gauge, an `engine.checkpoint`
   span event (root id, kind and Jobs counted) and `engine.slot` events with action `hold`.
@@ -433,6 +437,13 @@
   when the name stands for nothing the agent chose; the runner adds the name to the session's
   unasked ones. Workflow runs' CLI sessions have no Job token, so
   no such tools; cloud sessions don't get skills yet.
+- **What polls may read** (`tools/pollable.ts`): `tools.pollable` (the owner's list, migration
+  0042; null: the actions the server marks read-only) says which of a tool's actions a poll may
+  call, and `isPollable` adds that no agent holding the tool must ask before using it (the
+  action is in every holder's `agent_tools.unasked`; an agent that has the tool only through a
+  skill's required tools asks before every action). `tools.pollable` and `tools.setPollable`
+  are the owner's (never platform tools); the tool sheets show each action's state and why one
+  isn't polled. Polls check `isPollable` when a trigger is made and at every dispatch.
 - **Proposals** (`platform/proposals.ts`, table `proposals`, migration 0034). A tool of the
   registry marked `grant` (`agents.create`, `agents.update`, `agents.setToolAsk`,
   `tables.delete`, `fields.delete`, `triggers.create`, `triggers.update`, `triggers.delete`, `tools.add` (an address and no
@@ -615,12 +626,18 @@
 - **Attachments (Data):** an attachment cell holds attachment ids. `files.upload`
   (`packages/domain/src/data/files.ts`) stores each file at `<filesDir>/<ownerId>/<attachmentId>`
   (written to a temp name, then renamed) and its row in `attachments` (owner, table, name, size,
-  sniffed type). `writeRow` accepts only ids uploaded to the same table and locks them
-  `FOR SHARE`. `GET /files/<id>` (`apps/web/src/server/files.ts`, the one route outside oRPC,
+  sniffed type). Files in the MCP content of a Job's HTTP tool call (image items, embedded
+  resources with a blob; the tools endpoint and a cloud Job's calls) go the same way through
+  `keepJobFiles`, owned by the Job (`job_id`, no table yet), and the result's text tells the agent
+  their ids, or why one wasn't kept (over 10 MiB, past 20 a result). Tool steps and workflow runs'
+  sessions keep none: their text has placeholders only. `writeRow` accepts ids of the same
+  table, locked `FOR SHARE`, and, when a Job writes, that Job's files no table has, locked
+  `FOR UPDATE` and given to the table once the row is written. `GET /files/<id>` (`apps/web/src/server/files.ts`, the one route outside oRPC,
   checks the session itself) serves PNG, JPEG, GIF and WebP sniffed on upload inline and
   everything else as a download, all with `nosniff` and a sandbox CSP. `sweepAttachments` runs
-  on boot and hourly: it removes attachments no row of their table references, then files on disk
-  with no row (a deleted table's), both after an hour; it is the one mechanism for every way a
+  on boot and hourly: it removes attachments no row of their table references, a Job's files no
+  table took once the Job has ended, then files on disk with no row (a deleted table's), all after
+  an hour; it is the one mechanism for every way a
   file stops being used. `filesDir` is `DISPAND_FILES_DIR` (production: `/data/files`, in the
   `dispand-files` volume), `.data/files` in development. Bounds: 20 files per cell,
   10 MiB per file (the production server takes 11 MiB bodies on `files.upload` only).

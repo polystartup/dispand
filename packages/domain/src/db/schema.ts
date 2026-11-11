@@ -772,9 +772,10 @@ export const attachments = pgTable(
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    tableId: text("table_id")
-      .notNull()
-      .references(() => tables.id, { onDelete: "cascade" }),
+    /** The table it was uploaded to or written in; none while it is only a Job's (a file a tool returned). */
+    tableId: text("table_id").references(() => tables.id, { onDelete: "cascade" }),
+    /** The Job a tool returned it to: until a row of it is written, the file is only that Job's. */
+    jobId: text("job_id").references(() => runs.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     /** The sniffed image type, else `application/octet-stream`. */
     mime: text("mime").notNull(),
@@ -783,7 +784,7 @@ export const attachments = pgTable(
     image: boolean("image").notNull(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [index("attachments_table_idx").on(t.tableId)],
+  (t) => [index("attachments_table_idx").on(t.tableId), index("attachments_job_idx").on(t.jobId)],
 );
 
 // Plugin marketplaces: Git repositories with a `.claude-plugin/marketplace.json`, read at each
@@ -864,6 +865,9 @@ export const tools = pgTable(
     // From the last listing that succeeded; `actionsError` says why the last one failed.
     actions: jsonb("actions").$type<ToolAction[]>().notNull().default([]),
     actionsError: text("actions_error"),
+    // The actions a poll may read, set by the owner; null: the ones the server marks read-only.
+    // An action some agent must ask before using is never polled, whatever this says (`tools/pollable.ts`).
+    pollable: jsonb("pollable").$type<string[]>(),
     refreshedAt: timestamp("refreshed_at"),
     // The catalog entry it was installed from (`tools/catalog.ts`), if any.
     catalogId: text("catalog_id"),
