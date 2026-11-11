@@ -1,16 +1,13 @@
-import type { Answer } from "@dispand/runner-protocol";
 import { nodesOf, type WorkflowDef } from "@dispand/domain/workflows/model";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUp, Check, CircleAlert, Loader2, MessageSquarePlus, Wrench } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowUp, Check, CircleAlert, Loader2, MessageSquarePlus } from "lucide-react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { api, orpc } from "../../lib/api.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import { useRun } from "../../lib/run-watch.ts";
-import { QuestionForm } from "../questions/QuestionForm.tsx";
+import { ChatThread } from "../chat/Thread.tsx";
 
-type Question = RunSnapshot["questions"][number];
 type Step = RunSnapshot["steps"][number];
 
 type Props = {
@@ -51,6 +48,11 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
   const asking = !!run?.questions.some((q) => q.stepRunId === chatStep?.id && q.status === "pending");
   const canSend = open && !asking;
 
+  /** The library's composer path (not shown today: the panel keeps its own, which keeps a draft that failed to send). */
+  const sendText = async (words: string) => {
+    if (runId) await api.runs.sendChat({ runId, text: words });
+  };
+
   async function send() {
     const message = text.trim();
     if (!message || sending || !canSend) return;
@@ -76,7 +78,9 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <Transcript run={run} chatStepId={chatStep?.id} def={runDef} />
+      <ChatThread run={run} chatStepId={chatStep?.id} working={chatStep?.status === "running"} canSend={canSend} onSend={sendText}>
+        <AfterChat run={run} chatStepId={chatStep?.id} def={runDef} />
+      </ChatThread>
       <div className="border-t border-line px-3 pb-3 pt-2">
         {error && (
           <p role="alert" className="mb-2 px-1 text-[13px] text-danger">
@@ -134,114 +138,20 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
   );
 }
 
-function Transcript({ run, chatStepId, def }: { run: RunSnapshot | null; chatStepId: string | undefined; def: WorkflowDef | undefined }) {
-  const scroller = useRef<HTMLDivElement>(null);
-  const chatMessages = run?.messages.filter((m) => m.stepRunId === chatStepId) ?? [];
-  const chatQuestions = run?.questions.filter((q) => q.stepRunId === chatStepId && q.status !== "expired") ?? [];
-  // Messages and the chat's questions in the order they came.
-  const items = [
-    ...chatMessages.map((m) => ({ kind: "message" as const, at: new Date(m.createdAt).getTime(), m })),
-    ...chatQuestions.map((q) => ({ kind: "question" as const, at: new Date(q.createdAt).getTime(), q })),
-  ].sort((a, b) => a.at - b.at);
-  const followUps = run?.steps.filter((s) => s.id !== chatStepId) ?? [];
+/** Under the messages: why the conversation stopped, or the steps that follow it. */
+function AfterChat({ run, chatStepId, def }: { run: RunSnapshot | null; chatStepId: string | undefined; def: WorkflowDef | undefined }) {
   const chatStep = run?.steps.find((s) => s.id === chatStepId);
-  const chatDone = chatStep?.status === "succeeded";
-  const chatFailed = chatStep?.status === "failed";
-  const lastSize = `${items.length}:${chatMessages.at(-1)?.text.length ?? 0}:${followUps.map((s) => s.status).join()}`;
-
-  // The transcript's own scroll only: scrolling an element into view would move the whole page too.
-  useLayoutEffect(() => {
-    const el = scroller.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [lastSize]);
-
+  const followUps = run?.steps.filter((s) => s.id !== chatStepId) ?? [];
   return (
-    <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 py-4" aria-live="polite">
-      {items.length === 0 && !chatFailed && (
-        <p className="grid h-full place-items-center text-center text-[14px] text-faint">Say hello to start.</p>
-      )}
-      <ol className="flex flex-col gap-2">
-        {items.map((item) =>
-          item.kind === "message" ? (
-            <li key={item.m.id}>
-              <Bubble role={item.m.role} text={item.m.text} />
-            </li>
-          ) : (
-            <li key={item.q.id}>
-              <InlineQuestion q={item.q} />
-            </li>
-          ),
-        )}
-      </ol>
-      {chatFailed && (
+    <>
+      {chatStep?.status === "failed" && (
         <p role="alert" className="mt-3 px-1 text-[13px] text-danger">
           The conversation stopped: {chatStep.error ?? run?.run.error ?? "the agent failed"}
         </p>
       )}
-      {chatDone && run && <Progress run={run} steps={followUps} def={def} />}
-    </div>
+      {chatStep?.status === "succeeded" && run && <Progress run={run} steps={followUps} def={def} />}
+    </>
   );
-}
-
-function Bubble({ role, text }: { role: "assistant" | "user" | "tool"; text: string }) {
-  if (role === "tool") {
-    return (
-      <p className="flex items-center gap-1.5 px-1 text-[12px] text-faint">
-        <Wrench size={12} aria-hidden />
-        {text}
-      </p>
-    );
-  }
-  const mine = role === "user";
-  return (
-    <div className={cn("flex", mine ? "justify-end" : "justify-start")}>
-      <p
-        className={cn(
-          "max-w-[85%] whitespace-pre-wrap break-words rounded-[18px] px-3.5 py-2 text-[15px] leading-snug",
-          mine ? "rounded-br-md bg-accent text-accent-fg" : "rounded-bl-md bg-hover text-fg",
-        )}
-      >
-        {text}
-      </p>
-    </div>
-  );
-}
-
-/** A question of the chat, answered here or in the Inbox (whichever comes first). */
-function InlineQuestion({ q }: { q: Question }) {
-  const queryClient = useQueryClient();
-  const [conflict, setConflict] = useState(false);
-  const answer = useMutation(
-    orpc.questions.answer.mutationOptions({
-      onError: (err) => setConflict((err as { code?: string }).code === "CONFLICT"),
-      onSettled: () => void queryClient.invalidateQueries({ queryKey: orpc.questions.key() }),
-    }),
-  );
-  if (q.status === "answered") return <p className="px-1 text-right text-[12px] text-faint">{answeredText(q)}</p>;
-  return (
-    <div className="mr-6 rounded-2xl border border-line bg-surface p-4">
-      {conflict ? (
-        <p role="status" className="text-[14px] text-muted">
-          This question was already answered elsewhere.
-        </p>
-      ) : (
-        <QuestionForm
-          question={q}
-          busy={answer.isPending}
-          error={answer.error && !conflict ? answer.error.message : null}
-          onAnswer={(a: Answer) => answer.mutate({ questionId: q.id, answer: a })}
-        />
-      )}
-    </div>
-  );
-}
-
-function answeredText(q: Question): string {
-  const a = q.answer;
-  if (!a) return "Answered";
-  if (a.kind === "choice") return `You answered ${Object.values(a.answers).flat().join(", ")}`;
-  if (a.kind === "permission") return a.decision === "deny" ? "You denied it" : "You allowed it";
-  return a.confirmed ? "You said go ahead" : "You said not yet";
 }
 
 const statusText = { pending: "Up next", running: "Working…", waiting: "Waiting for you in the Inbox", succeeded: "Finished", failed: "Failed", skipped: "Skipped" };
