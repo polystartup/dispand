@@ -318,7 +318,14 @@
   renders it over the library's unstyled primitives, a question through `QuestionForm` and
   `questions.answer`. The agent's text goes through `components/chat/AgentText.tsx` (the library's markdown
   primitive with a `urlTransform`, `img` and `a` overrides and `skipHtml`). Nothing else
-  imports the library. The panel keeps its own composer. A Job's
+  imports the library. The thread uses message copy actions and a jump-to-latest control;
+  code fences have language headers and copy buttons. The panel uses the library's growing
+  input but owns its controlled draft and send form: failed sends retain the draft, typing
+  during delivery is kept, and messages can still be sent during a run. Messages use a wider
+  reading layout and tool traces use compact cards. A working indicator is not shown because
+  the run view does not distinguish an idle chat from a turn in progress.
+  Editing, regeneration, branching, uploads and cancellation are not exposed by this frontend
+  integration: they need separate run semantics and API support. A Job's
   questions are listed in Notifications with its agent.
 - **Checkpoints** (`engine/roots.ts`): every Job has a root cause, a `roots` row (`kind`: `user`
   for a start by hand, `chat`, `schedule`, `event` for a person's or a workflow's write, `poll`),

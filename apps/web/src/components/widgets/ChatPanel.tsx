@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { api, orpc } from "../../lib/api.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import { useRun } from "../../lib/run-watch.ts";
-import { ChatThread } from "../chat/Thread.tsx";
+import { ChatInput, ChatThread } from "../chat/Thread.tsx";
 
 type Step = RunSnapshot["steps"][number];
 
@@ -80,62 +80,74 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <ChatThread run={run} chatStepId={chatStep?.id} working={chatStep?.status === "running"} canSend={canSend} onSend={sendText}>
-        <AfterChat run={run} chatStepId={chatStep?.id} def={runDef} />
-      </ChatThread>
-      <div className="border-t border-line px-3 pb-3 pt-2">
-        {error && (
-          <p role="alert" className="mb-2 px-1 text-[13px] text-danger">
-            {error}
-          </p>
-        )}
-        {asking && <p className="mb-2 px-1 text-[13px] text-muted">Answer the question above to continue.</p>}
-        <form
-          className="flex items-end gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void send();
-          }}
-        >
-          {runId && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label="New conversation"
-              title="New conversation"
-              className="rounded-full text-muted"
-              // Not while a message is on its way: its completion clears the draft of this conversation.
-              disabled={sending}
-              onClick={() => {
-                setText("");
-                setError(null);
-                onNewConversation();
-              }}
-            >
-              <MessageSquarePlus aria-hidden />
-            </Button>
-          )}
-          <textarea
-            aria-label="Message"
-            rows={1}
-            value={text}
-            disabled={!canSend}
-            placeholder={open ? "Message" : "This conversation is over"}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      <ChatThread
+        run={run}
+        chatStepId={chatStep?.id}
+        working={chatStep?.status === "running"}
+        canSend={canSend}
+        onSend={sendText}
+        composer={
+          <div className="border-t border-line bg-surface px-3 py-3">
+            {error && (
+              <p role="alert" className="mb-2 px-1 text-[13px] text-danger">
+                {error}
+              </p>
+            )}
+            {asking && <p className="mb-2 px-1 text-[13px] text-muted">Answer the question above to continue.</p>}
+            <form
+              className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-line bg-bg p-2 shadow-sm focus-within:border-accent"
+              onSubmit={(e) => {
                 e.preventDefault();
                 void send();
-              }
-            }}
-            className="max-h-32 min-h-9 flex-1 resize-none rounded-[18px] border border-line bg-bg px-3.5 py-[7px] text-[15px] leading-5 outline-none placeholder:text-faint focus:border-accent disabled:opacity-60"
-          />
-          <Button type="submit" size="icon-sm" aria-label="Send" disabled={!canSend || sending || !text.trim()} className="rounded-full">
-            <ArrowUp aria-hidden />
-          </Button>
-        </form>
-      </div>
+              }}
+            >
+              {runId && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="New conversation"
+                  title="New conversation"
+                  className="rounded-full text-muted"
+                  // Not while a message is on its way: its completion clears the draft of this conversation.
+                  disabled={sending}
+                  onClick={() => {
+                    setText("");
+                    setError(null);
+                    onNewConversation();
+                  }}
+                >
+                  <MessageSquarePlus aria-hidden />
+                </Button>
+              )}
+              <ChatInput
+                aria-label="Message"
+                minRows={1}
+                value={text}
+                disabled={!canSend}
+                placeholder={open ? "Message" : "This conversation is over"}
+                onChange={(e) => {
+                  e.preventDefault(); // This controlled draft stays here until delivery succeeds.
+                  setText(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    void send();
+                  }
+                }}
+                className="min-h-9 min-w-0 flex-1 resize-none bg-transparent px-2 py-[7px] text-[15px] leading-5 outline-none placeholder:text-faint disabled:opacity-60"
+              />
+              <Button type="submit" size="icon-sm" aria-label="Send" disabled={!canSend || sending || !text.trim()} className="rounded-full">
+                <ArrowUp aria-hidden />
+              </Button>
+            </form>
+            <p className="mx-auto mt-2 max-w-3xl px-1 text-[11px] text-faint">Enter to send · Shift+Enter for a new line</p>
+          </div>
+        }
+      >
+        <AfterChat run={run} chatStepId={chatStep?.id} def={runDef} />
+      </ChatThread>
     </div>
   );
 }

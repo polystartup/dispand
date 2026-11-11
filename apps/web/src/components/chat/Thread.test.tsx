@@ -80,3 +80,16 @@ test("a question for a proposal is not answered in the chat: it sends the owner 
   expect(screen.getByRole("link", { name: /Inbox/ })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
 });
+
+
+test("copy actions copy the original message text, never a tool trace or question", async () => {
+  const { user } = mount(run([message("m1", "user", "Hello", 1), message("m2", "assistant", "A **formatted** reply", 2), message("m3", "tool", "Read", 3)], [question("q1", 4)]));
+  const copy = vi.spyOn(navigator.clipboard, "writeText");
+  const actions = screen.getAllByRole("button", { name: "Copy message" });
+  expect(actions).toHaveLength(2);
+  await user.click(actions[1]!);
+  expect(copy).toHaveBeenCalledWith("A **formatted** reply");
+  expect(await screen.findByText("Copied")).toBeTruthy();
+  await user.click(actions[0]!);
+  expect(copy).toHaveBeenLastCalledWith("Hello");
+});
