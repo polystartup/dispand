@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { fillLastPoll, itemsOf, MAX_ITEM_BYTES } from "./poll.ts";
+import { fillLastPoll, itemsOf, MAX_ITEM_BYTES, MAX_TOKEN, nextToken } from "./poll.ts";
 
 test("{{lastPoll}} is filled in every string, nested ones included, and keys are left as they are", () => {
   expect(fillLastPoll({ filter: "gt {{lastPoll}}", nested: [{ "{{lastPoll}}": "{{lastPoll}}" }], top: 10 }, "2026-11-12T09:00:00.000Z")).toEqual({
@@ -25,4 +25,17 @@ test("items are the list at the path, each with its id; without an id they are c
   expect(itemsOf({}, "", "id")).toEqual({ error: "The result isn't a list" });
   // All of them, however many: one left out could fall before the next `{{lastPoll}}`.
   expect((itemsOf(Array.from({ length: 5000 }, (_, i) => ({ id: i })), "", "id") as { items: unknown[] }).items).toHaveLength(5000);
+});
+
+test("the next page's token is the query parameter of a link, or the value itself; none ends the walk; one that can't be followed fails", () => {
+  const graph = { path: "@odata.nextLink", query: "$skiptoken", argument: "skiptoken" };
+  expect(nextToken({ value: [], "@odata.nextLink": "https://graph.example.com/v1.0/me/messages?$skiptoken=abc&$top=10" }, graph)).toEqual({ token: "abc" });
+  expect(nextToken({ value: [] }, graph)).toEqual({ token: null });
+  expect(nextToken({ "@odata.nextLink": null }, graph)).toEqual({ token: null });
+  expect(nextToken({ "@odata.nextLink": "not a link" }, graph)).toEqual({ error: "The result's next page at “@odata.nextLink” isn't a link" });
+  expect(nextToken({ "@odata.nextLink": "https://graph.example.com/v1.0/me/messages?$top=10" }, graph)).toEqual({ error: "The result's next page has no “$skiptoken”" });
+  const plain = { path: "page.next", argument: "cursor" };
+  expect(nextToken({ page: { next: "c2" } }, plain)).toEqual({ token: "c2" });
+  expect(nextToken({ page: { next: 2 } }, plain)).toEqual({ error: "The result's next page at “page.next” isn't text" });
+  expect(nextToken({ page: { next: "x".repeat(MAX_TOKEN + 1) } }, plain)).toEqual({ error: "The result's next page token is too long to follow" });
 });

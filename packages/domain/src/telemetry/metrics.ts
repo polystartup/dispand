@@ -8,6 +8,8 @@ export const METRICS = {
   "dispand.polls": ["dispand.tool.kind", "dispand.result"],
   "dispand.poll.items": ["dispand.tool.kind"],
   "dispand.poll.duration": ["dispand.tool.kind", "dispand.result"],
+  "dispand.poll.walks": ["dispand.tool.kind", "dispand.result"],
+  "dispand.poll.walk.pages": ["dispand.tool.kind", "dispand.result"],
   "dispand.runs.created": ["dispand.run.source", "dispand.run.trigger"],
   "dispand.runs.finished": ["dispand.run.source", "dispand.run.status"],
   "dispand.run.duration": ["dispand.run.source", "dispand.run.status"],

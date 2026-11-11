@@ -121,7 +121,11 @@ test("a Job's session gets both of Dispand's servers at the runner's own address
 const readOnly = { ...echo, env: { ECHO_READ_ONLY: "1" } };
 
 test("a poll's call of a read-only action returns its result", async () => {
-  expect(await callTool("echo", readOnly, "echo", { text: "hi" })).toEqual({ content: [{ type: "text", text: "hi" }], isError: false });
+  expect(await callTool("echo", readOnly, "echo", { text: "hi" })).toEqual({ content: [{ type: "text", text: "hi" }], isError: false, hasMore: false });
+});
+
+test("a result the server cut short at its own cap says so (`_meta.result_has_more`)", async () => {
+  expect(await callTool("echo", { ...echo, env: { ECHO_READ_ONLY: "1", ECHO_HAS_MORE: "1" } }, "echo", { text: "hi" })).toMatchObject({ isError: false, hasMore: true });
 });
 
 test("an action the server doesn't mark read-only is refused, whatever the call asks, unless the runner's config lists it", async () => {

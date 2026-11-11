@@ -304,6 +304,12 @@ export type ScheduleFireStatus = "started" | "skipped-overlap" | "refused";
 export type TriggerKind = "manual" | "schedule" | "primitive" | "poll";
 export type TriggerConcurrency = "parallel" | "one-at-a-time";
 
+/**
+ * A poll's walk under way: `{{lastPoll}}` as it was when the walk began (every page runs that one
+ * query), when it began (its items' `first_seen`), and the server's token for the next page.
+ */
+export type PollCursor = { lastPoll: string; startedAt: string; token: string };
+
 /** What makes an agent work: each firing creates a Job. A schedule's next fire is claimed by the scheduler. */
 export const triggers = pgTable(
   "triggers",
@@ -328,6 +334,8 @@ export const triggers = pgTable(
     // is due, and when its baseline was recorded (null: the next poll is its baseline).
     nextFireAt: timestamp("next_fire_at", { withTimezone: true }),
     lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    // A poll walking its tool's continuation: where the walk is (null between walks).
+    pollCursor: jsonb("poll_cursor").$type<PollCursor>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

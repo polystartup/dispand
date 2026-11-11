@@ -12,7 +12,7 @@ import { canonicalJson, Concurrency, RateCap, TriggerConfig, TriggerFields } fro
 const owner = base.use(authed);
 
 type Row = typeof triggersTable.$inferSelect;
-type Times = Pick<Row, "nextFireAt" | "lastCheckedAt">;
+type Times = Pick<Row, "nextFireAt" | "lastCheckedAt" | "pollCursor">;
 
 async function requireAgent(db: Db | Tx, ownerId: string, agentId: string) {
   const [row] = await db
@@ -67,17 +67,19 @@ async function checkConfig(db: Db | Tx, ownerId: string, agent: Awaited<ReturnTy
 export function scheduleColumns(config: TriggerConfig, previous: (Times & { config: TriggerConfig; enabled: boolean }) | null, enabled: boolean, now: Date): Times {
   if (config.kind === "poll") {
     // A poll is due at once when new, changed or turned on again (its baseline then recorded
-    // again: `lastCheckedAt` null); a new interval counts from now.
+    // again: `lastCheckedAt` null); a new interval counts from now. A walk under way goes on only
+    // while the trigger still reads the same pages the same way.
     const same = previous?.config.kind === "poll" && !rebaselines(previous, config, enabled);
     const sameInterval = same && previous.config.kind === "poll" && previous.config.interval === config.interval;
-    return { nextFireAt: sameInterval ? previous.nextFireAt : now, lastCheckedAt: same ? previous.lastCheckedAt : null };
+    const sameWalk = same && previous.config.kind === "poll" && canonicalJson(previous.config.continuation ?? null) === canonicalJson(config.continuation ?? null);
+    return { nextFireAt: sameInterval ? previous.nextFireAt : now, lastCheckedAt: same ? previous.lastCheckedAt : null, pollCursor: sameWalk ? previous.pollCursor : null };
   }
-  if (config.kind !== "schedule") return { nextFireAt: null, lastCheckedAt: null };
+  if (config.kind !== "schedule") return { nextFireAt: null, lastCheckedAt: null, pollCursor: null };
   const same =
     previous?.config.kind === "schedule" && previous.config.cron === config.cron && previous.config.timezone === config.timezone;
   const resumed = previous && !previous.enabled && enabled;
-  if (previous && same && !resumed) return { nextFireAt: previous.nextFireAt, lastCheckedAt: previous.lastCheckedAt };
-  return { nextFireAt: nextFireAfter(config.cron, config.timezone, now), lastCheckedAt: now };
+  if (previous && same && !resumed) return { nextFireAt: previous.nextFireAt, lastCheckedAt: previous.lastCheckedAt, pollCursor: null };
+  return { nextFireAt: nextFireAfter(config.cron, config.timezone, now), lastCheckedAt: now, pollCursor: null };
 }
 
 /**

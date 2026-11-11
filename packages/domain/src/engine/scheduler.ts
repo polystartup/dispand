@@ -17,13 +17,14 @@ import {
   workflowVersions,
   type EventFireStatus,
   type JobCause,
+  type PollCursor,
   type PollStatus,
   type ScheduleFireStatus,
 } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
-import { fillLastPoll, itemsOf, MAX_ITEM_BYTES, noPolls, type PollCaller } from "../tools/poll.ts";
+import { fillLastPoll, itemsOf, MAX_ITEM_BYTES, nextToken, noPolls, type PollCaller } from "../tools/poll.ts";
 import { pollProblem } from "../tools/pollable.ts";
 import { canonicalJson, type TriggerConfig } from "../triggers/model.ts";
 import { latestFireBetween, nextFireAfter } from "../workflows/schedule.ts";
@@ -70,6 +71,8 @@ const HOUR_MS = 3_600_000;
 const POLLS_KEPT = 20;
 /** Poll items inserted per statement. */
 const INSERT_CHUNK = 1000;
+/** Pages one poll reads of a walk; past them, the walk goes on at its next interval. */
+export const MAX_WALK_PAGES = 20;
 
 type EventRow = typeof events.$inferSelect;
 
@@ -78,8 +81,13 @@ const notPaused = or(isNull(roots.state), ne(roots.state, "paused"));
 type TriggerRow = typeof triggers.$inferSelect;
 type ItemRow = typeof pollItems.$inferSelect;
 type PollConfig = Extract<TriggerConfig, { kind: "poll" }>;
-/** A poll claimed by a tick, whose call is made once the claim commits. */
-type Claimed = { pollId: string; trigger: TriggerRow & { config: PollConfig }; tool: typeof tools.$inferSelect; at: Date; lastPoll: string };
+/**
+ * A poll claimed by a tick, whose calls are made once the claim commits: `lastPoll` and
+ * `startedAt` are its walk's (the one under way, else this claim's), `token` the next page's.
+ */
+type Claimed = { pollId: string; trigger: TriggerRow & { config: PollConfig }; tool: typeof tools.$inferSelect; at: Date; lastPoll: string; startedAt: Date; token: string | null };
+/** One page of a poll recorded: what it found, and where the walk is. */
+type Page = { status: PollStatus; found: number; fresh: number; runIds: string[]; token: string | null };
 
 /** Whether a primitive trigger watches this event: its table, its operation and, for an update, one of its fields. */
 function watches(trigger: TriggerRow, event: EventRow): boolean {
@@ -288,42 +296,71 @@ export class Scheduler {
         counts.counter("dispand.polls").add(1, { "dispand.tool.kind": tool?.kind ?? "none", "dispand.result": "skipped" });
         continue;
       }
-      // `{{lastPoll}}`: when the newest recorded item was found (its poll's claim), never a
+      // A walk under way goes on with its own query, from its next page.
+      const cursor = config.continuation ? t.pollCursor : null;
+      if (cursor) {
+        claimed.push({ pollId, trigger: { ...t, config }, tool, at: now, lastPoll: cursor.lastPoll, startedAt: new Date(cursor.startedAt), token: cursor.token });
+        continue;
+      }
+      // `{{lastPoll}}`: when the newest recorded item was found (its walk's start), never a
       // later call's time, so nothing a poll didn't record is skipped by the next one's query.
       const [newest] = await tx.select({ at: max(pollItems.firstSeen) }).from(pollItems).where(eq(pollItems.triggerId, t.id));
-      claimed.push({ pollId, trigger: { ...t, config }, tool, at: now, lastPoll: (newest?.at ?? t.createdAt).toISOString() });
+      claimed.push({ pollId, trigger: { ...t, config }, tool, at: now, lastPoll: (newest?.at ?? t.createdAt).toISOString(), startedAt: now, token: null });
     }
     return claimed;
   }
 
-  /** One claimed poll: its call, then its items recorded. In a `scheduler.poll` span with counts and kinds only, never an item, an argument or the result. */
+  /**
+   * One claimed poll: its call, then its items recorded. With a continuation, the walk's next
+   * pages follow at once (one fixed query, the server's token passed on each later call), up to
+   * `MAX_WALK_PAGES`; past them the walk goes on at the next interval. In a `scheduler.poll` span
+   * with counts and kinds only, never an item, an argument, the result or a token.
+   */
   private runPoll(c: Claimed, now: Date): Promise<string[]> {
     const kind = c.tool.kind;
     return traces.startActiveSpan("scheduler.poll", { attributes: { "dispand.trigger.id": c.trigger.id, "dispand.tool.id": c.tool.id, "dispand.tool.kind": kind } }, async (span) => {
       const started = performance.now();
       let result: PollStatus = "failed";
+      let pages = 0;
+      let token = c.token;
       try {
-        const { toolId, action, arguments: args, itemsPath, idPath } = c.trigger.config;
-        // Checked again right before the call, against the trigger, the tool and the agent as they
-        // are now: a poll may have waited for others of its runner's tool meanwhile.
-        const [trigger] = await this.db.select().from(triggers).where(eq(triggers.id, c.trigger.id));
-        const [tool] = await this.db.select().from(tools).where(eq(tools.id, toolId));
-        const problem =
-          !trigger?.enabled || canonicalJson(trigger.config) !== canonicalJson(c.trigger.config)
-            ? "The trigger changed before its poll"
-            : await pollProblem(this.db, c.trigger.ownerId, c.trigger.agentId, toolId, action);
-        if (problem || !tool) {
-          result = "skipped";
-          await this.db.update(polls).set({ status: "skipped", message: problem ?? "The tool no longer exists" }).where(eq(polls.id, c.pollId));
-          return [];
+        const { toolId, action, arguments: args, itemsPath, idPath, continuation } = c.trigger.config;
+        const query = fillLastPoll(args, c.lastPoll) as Record<string, unknown>;
+        const runIds: string[] = [];
+        const totals = { found: 0, fresh: 0 };
+        do {
+          // Checked again right before each call, against the trigger, the tool and the agent as
+          // they are now: a poll may have waited for others of its runner's tool meanwhile.
+          const [trigger] = await this.db.select().from(triggers).where(eq(triggers.id, c.trigger.id));
+          const [tool] = await this.db.select().from(tools).where(eq(tools.id, toolId));
+          const problem =
+            !trigger?.enabled || canonicalJson(trigger.config) !== canonicalJson(c.trigger.config)
+              ? "The trigger changed before its poll"
+              : await pollProblem(this.db, c.trigger.ownerId, c.trigger.agentId, toolId, action);
+          if (problem || !tool) {
+            result = "skipped";
+            await this.db.update(polls).set({ status: "skipped", message: problem ?? "The tool no longer exists" }).where(eq(polls.id, c.pollId));
+            return runIds;
+          }
+          const called = await this.polls.call(tool, action, token !== null && continuation ? { ...query, [continuation.argument]: token } : query);
+          pages++;
+          const next = called.ok && continuation ? nextToken(called.data, continuation) : { token: null };
+          const items = !called.ok ? { error: called.error } : "error" in next ? next : itemsOf(called.data, itemsPath, idPath);
+          const more = called.ok && called.hasMore;
+          const last = !("token" in next) || next.token === null || pages >= MAX_WALK_PAGES;
+          const page = await this.db.transaction((tx) => this.recordPoll(tx, c, items, "token" in next ? next.token : null, { last, more, pages, totals }, now));
+          result = page.status;
+          runIds.push(...page.runIds);
+          token = page.token;
+        } while (token !== null && pages < MAX_WALK_PAGES && result !== "failed" && result !== "skipped");
+        span.setAttributes({ "dispand.poll.found": totals.found, "dispand.poll.fresh": totals.fresh, "dispand.poll.pages": pages });
+        counts.counter("dispand.poll.items").add(totals.fresh, { "dispand.tool.kind": kind });
+        if (continuation && (result === "polled" || result === "baseline")) {
+          const walk = token === null ? "ended" : "bounded";
+          counts.counter("dispand.poll.walks").add(1, { "dispand.tool.kind": kind, "dispand.result": walk });
+          counts.histogram("dispand.poll.walk.pages", { description: "Pages a poll read of its walk" }).record(pages, { "dispand.tool.kind": kind, "dispand.result": walk });
         }
-        const called = await this.polls.call(tool, action, fillLastPoll(args, c.lastPoll) as Record<string, unknown>);
-        const items = called.ok ? itemsOf(called.data, itemsPath, idPath) : { error: called.error };
-        const recorded = await this.db.transaction((tx) => this.recordPoll(tx, c, items, now));
-        result = recorded.status;
-        span.setAttributes({ "dispand.poll.found": recorded.found, "dispand.poll.fresh": recorded.fresh });
-        counts.counter("dispand.poll.items").add(recorded.fresh, { "dispand.tool.kind": kind });
-        return recorded.runIds;
+        return runIds;
       } catch (err) {
         recordError(span, errorKind(err));
         logError("scheduler.poll failed", err, { ref: c.trigger.id });
@@ -343,17 +380,27 @@ export class Scheduler {
   }
 
   /**
-   * A poll's items, recorded with the trigger locked (`FOR NO KEY UPDATE`): each id once
-   * (`poll_items`' unique key), so an item recorded before (by this poll's earlier call, cut
-   * short after its record, or another) starts nothing again. The first poll records what exists
-   * as `baseline`; later ones record new items `deferred` and start what the trigger has room
-   * for, each Job in the same transaction as its item's row. A trigger turned off or changed
-   * during the call records nothing.
+   * One page of a poll, recorded with the trigger locked (`FOR NO KEY UPDATE`): each id once
+   * (`poll_items`' unique key), so an item recorded before (by this walk's earlier page, a walk
+   * repeating its boundary items, a call cut short after its record, or another) starts nothing
+   * again. Items are first seen when their walk began. The first walk records what exists as
+   * `baseline`; later ones record new items `deferred` and start what the trigger has room for,
+   * each Job in the same transaction as its item's row. A page with a `token` keeps the walk on the
+   * trigger; one without ends it (the next walk's `{{lastPoll}}` moves only then), and a result
+   * the server cut short (`more`) is polled again on the next tick. A trigger turned off or
+   * changed during the call records nothing. The poll's row counts all its pages.
    */
-  private async recordPoll(tx: Tx, c: Claimed, polled: ReturnType<typeof itemsOf>, now: Date) {
-    const finish = async (status: PollStatus, set: { found?: number; fresh?: number; message?: string | null } = {}, runIds: string[] = []) => {
+  private async recordPoll(
+    tx: Tx,
+    c: Claimed,
+    polled: ReturnType<typeof itemsOf>,
+    token: string | null,
+    walk: { last: boolean; more: boolean; pages: number; totals: { found: number; fresh: number } },
+    now: Date,
+  ): Promise<Page> {
+    const finish = async (status: PollStatus, set: { found?: number; fresh?: number; message?: string | null } = {}, runIds: string[] = [], next: string | null = null) => {
       await tx.update(polls).set({ status, ...set }).where(eq(polls.id, c.pollId));
-      return { status, found: set.found ?? 0, fresh: set.fresh ?? 0, runIds };
+      return { status, found: set.found ?? 0, fresh: set.fresh ?? 0, runIds, token: next };
     };
     const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, c.trigger.id)).for("no key update");
     if (!trigger?.enabled || canonicalJson(trigger.config) !== canonicalJson(c.trigger.config)) return finish("skipped", { message: "The trigger changed during its poll" });
@@ -365,7 +412,7 @@ export class Scheduler {
       triggerId: trigger.id,
       itemId: item.id,
       content: item.content,
-      firstSeen: c.at,
+      firstSeen: c.startedAt,
       status: baseline ? ("baseline" as const) : item.tooLarge ? ("refused" as const) : ("deferred" as const),
       message: item.tooLarge && !baseline ? `The item is larger than ${MAX_ITEM_BYTES / 1024} KiB` : null,
     }));
@@ -375,15 +422,28 @@ export class Scheduler {
     // In the order of the result.
     const order = new Map(values.map((v, i) => [v.id, i]));
     const fresh = inserted.sort((a, b) => order.get(a.id)! - order.get(b.id)!);
-    const found = polled.items.length;
-    const message = polled.noId ? `${polled.noId} item(s) without an id at “${c.trigger.config.idPath}” left out` : null;
-    if (baseline) {
-      await tx.update(triggers).set({ lastCheckedAt: c.at }).where(eq(triggers.id, trigger.id));
-      return finish("baseline", { found, fresh: fresh.length, message });
-    }
+    walk.totals.found += polled.items.length;
+    walk.totals.fresh += fresh.length;
+    const notes = [
+      ...(polled.noId ? [`${polled.noId} item(s) without an id at “${c.trigger.config.idPath}” left out`] : []),
+      ...(token !== null && walk.last ? [`${walk.pages} pages read: the rest at the next poll`] : []),
+    ];
+    const set = { ...walk.totals, message: notes.length ? notes.join("; ") : null };
+    // Where the walk is: its token kept for the next page, or the walk ended.
+    const cursor: PollCursor | null = token === null ? null : { lastPoll: c.lastPoll, startedAt: c.startedAt.toISOString(), token };
+    await tx
+      .update(triggers)
+      .set({
+        pollCursor: cursor,
+        ...(baseline && token === null ? { lastCheckedAt: c.startedAt } : {}),
+        // The server stopped at its own cap: asked again on the next tick, not after the interval.
+        ...(walk.more && token === null ? { nextFireAt: now } : {}),
+      })
+      .where(eq(triggers.id, trigger.id));
+    if (baseline) return finish("baseline", set, [], token);
     const deferred = fresh.filter((i) => i.status === "deferred");
     const runIds = deferred.length ? await this.fireItems(tx, trigger, deferred, now, await this.room(tx, trigger, now)) : [];
-    return finish("polled", { found, fresh: fresh.length, message }, runIds);
+    return finish("polled", set, runIds, token);
   }
 
   /**
