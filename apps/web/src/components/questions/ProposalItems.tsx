@@ -61,16 +61,17 @@ function Ref({ id, names }: { id: string; names: ProposalView["names"] }) {
 }
 
 const OPERATIONS: Record<string, string> = { created: "a row is created", updated: "a row is changed", deleted: "a row is deleted" };
+const INTERACTION_OPERATIONS: Record<string, string> = { created: "one is asked", answered: "one is answered", expired: "one expires" };
 
 /** A table-change trigger's config in words, its table and fields read by name. */
 function ChangeConfig({ config, names }: { config: { tableId?: unknown; operations?: unknown; fields?: unknown }; names: ProposalView["names"] }) {
-  const operations = Array.isArray(config.operations) ? config.operations.map((o) => OPERATIONS[String(o)] ?? String(o)) : [];
+  const interaction = config.tableId === "interaction";
+  const words = interaction ? INTERACTION_OPERATIONS : OPERATIONS;
+  const operations = Array.isArray(config.operations) ? config.operations.map((o) => words[String(o)] ?? String(o)) : [];
   const fields = Array.isArray(config.fields) ? config.fields.filter((f): f is string => typeof f === "string") : null;
   return (
     <span className="flex flex-col gap-1">
-      <span>
-        A change to the table <Ref id={String(config.tableId)} names={names} />
-      </span>
+      <span>{interaction ? "A Question or an Approval of another agent's Job" : <>A change to the table <Ref id={String(config.tableId)} names={names} /></>}</span>
       <span>When {operations.join(", or ") || "nothing"}</span>
       {fields && operations.length > 0 && (config.operations as unknown[]).includes("updated") && (
         <span className="flex flex-col">

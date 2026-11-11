@@ -9,12 +9,14 @@ import { type Cell, CELL_LIMITS, cellSchema, cellText, type FieldSchema } from "
 import { adoptAttachments, attachmentsById, lockAttachments } from "./files.ts";
 import { type Filter, filterValue, queryProblem, RowQuery, type Sort } from "./query.ts";
 import { MAX_FIELDS } from "./tables.ts";
+import { meter } from "../telemetry/index.ts";
 
 // Rows of a table. Every write goes through `writeRow`, which takes the table's row `FOR SHARE`:
 // a schema change (which locks it `FOR UPDATE`) finishes first, and the write is checked
 // against the fields as they are after it.
 
 const owner = base.use(authed);
+const counts = meter("data");
 
 export const MAX_PAGE = 500;
 
@@ -189,6 +191,7 @@ async function recordEvent(
 ) {
   const rootId = e.actor.type === "user" ? null : sql`(select ${runs.rootId} from ${runs} where ${runs.id} = ${e.actor.runId})`;
   await tx.insert(events).values({ id: newId("evt"), ownerId: e.ownerId, tableId: e.tableId, rowId: e.rowId, operation: e.operation, changedFieldIds: e.changed, before: e.before, after: e.after, actor: e.actor, rootId });
+  counts.counter("dispand.events.recorded").add(1, { "dispand.event.kind": "table", "dispand.event.operation": e.operation });
 }
 
 /** Who a procedure's write is by: the Job that called it as a tool, or the signed-in owner. */
