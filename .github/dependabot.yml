@@ -17,6 +17,9 @@ updates:
     groups:
       npm-minor-and-patch:
         patterns: ["*"]
+        # The chat library is at 0.x, pinned exactly and released several times a week: its
+        # updates come alone, each one checked against the adapter (`apps/web/src/lib/assistant-runtime.ts`).
+        exclude-patterns: ["@assistant-ui/*"]
         update-types: [minor, patch]
 
   - package-ecosystem: github-actions

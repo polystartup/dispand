@@ -55,6 +55,9 @@ Status: Prototype
     owner enters those) or delete an unused one, only through a proposal: it lists the exact changes, the Inbox shows each one whole with the names of
     what it points at, and approving lets that Job make exactly those changes, once each.
     Nothing else an agent says approves anything.
+  - In a chat, the agent's words are shown formatted (headings, lists, code, emphasis). An
+    image shows only when it is a file of the workspace, and a link says where it goes and
+    opens only when clicked.
   - Nothing answers a Question or an Approval for the owner: no timeout, no default. What was
     answered stays in the Inbox, with who answered and when.
   - An agent can ask for an approval in its own words before it acts; each request waits for
