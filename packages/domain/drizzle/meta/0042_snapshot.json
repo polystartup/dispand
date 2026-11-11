@@ -1,5 +1,5 @@
 {
-  "id": "9c5d1988-c83f-4271-8164-69d5af3d88af",
+  "id": "3092aa06-9e46-4991-aea9-6dba175374cb",
   "prevId": "21beba69-3881-45b7-84e4-e79aeb60ad53",
   "version": "7",
   "dialect": "postgresql",
@@ -3471,6 +3471,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "pollable": {
+          "name": "pollable",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "refreshed_at": {
           "name": "refreshed_at",
           "type": "timestamp",
@@ -3507,37 +3513,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "auth": {
-          "name": "auth",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'none'"
-        },
-        "oauth_sealed": {
-          "name": "oauth_sealed",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "oauth_status": {
-          "name": "oauth_status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "oauth_state_hash": {
-          "name": "oauth_state_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "oauth_client_id": {
-          "name": "oauth_client_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -3564,21 +3539,6 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "tools_oauth_state_idx": {
-          "name": "tools_oauth_state_idx",
-          "columns": [
-            {
-              "expression": "oauth_state_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}

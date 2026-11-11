@@ -2,11 +2,11 @@ import { ORPCError } from "@orpc/server";
 import { and, asc, count, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
-import { type EventActor, events, fields as fieldsTable, rows as rowsTable, tables as tablesTable } from "../db/schema.ts";
+import { type EventActor, events, fields as fieldsTable, rows as rowsTable, runs, tables as tablesTable } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { type Cell, CELL_LIMITS, cellSchema, cellText, type FieldSchema } from "./fields.ts";
-import { attachmentsById, lockAttachments } from "./files.ts";
+import { adoptAttachments, attachmentsById, lockAttachments } from "./files.ts";
 import { type Filter, filterValue, queryProblem, RowQuery, type Sort } from "./query.ts";
 import { MAX_FIELDS } from "./tables.ts";
 
@@ -115,9 +115,10 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
     const checked = cellSchema(field).safeParse(value);
     if (!checked.success) return { problem: `“${field.name}”: ${checked.error.issues[0]?.message ?? "not a valid value"}` };
   }
-  // Files: only this table's own uploads, locked so the sweep keeps them until this commits.
+  // Files: only this table's own, or the writing Job's that no table has yet (they become this
+  // table's once the row is written), locked so the sweep keeps them until this commits.
   const files = Object.entries(input.values).filter(([id, value]) => fields.get(id)!.type === "attachment" && Array.isArray(value));
-  const known = await lockAttachments(tx, input.ownerId, table.id, files.flatMap(([, ids]) => ids as string[]));
+  const { known, adopt } = await lockAttachments(tx, input.ownerId, table.id, files.flatMap(([, ids]) => ids as string[]), input.actor);
   for (const [id, ids] of files) {
     if ((ids as string[]).some((a) => !known.has(a))) return { problem: `“${fields.get(id)!.name}”: no such file` };
   }
@@ -145,6 +146,7 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
       const set = Object.entries(input.values).filter(([, v]) => v !== null);
       await recordEvent(tx, { ownerId: input.ownerId, tableId: table.id, rowId: row!.id, operation: "created", changed: set.map(([id]) => id), before: {}, after: Object.fromEntries(set), actor: input.actor });
     }
+    await adoptAttachments(tx, table.id, adopt);
     return { row: rowView(row!) };
   }
   // A primitive table's event says what changed: the row as it was, held until the write commits.
@@ -157,6 +159,7 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
     .where(and(eq(rowsTable.id, input.rowId), eq(rowsTable.tableId, table.id)))
     .returning();
   if (!row) return { problem: "row not found", notFound: true };
+  await adoptAttachments(tx, table.id, adopt);
   if (current) {
     const was = (id: string) => current.values[id] ?? null;
     const changed = Object.keys(input.values).filter((id) => JSON.stringify(was(id)) !== JSON.stringify(input.values[id]));
@@ -176,12 +179,16 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
   return { row: rowView(row) };
 }
 
-/** Appends one row of the outbox, in the write's transaction. */
+/**
+ * Appends one row of the outbox, in the write's transaction. A Job's or a step's write keeps its
+ * run's root cause as it is now (a chat's moves with each message), for the Jobs it leads to.
+ */
 async function recordEvent(
   tx: Tx,
   e: { ownerId: string; tableId: string; rowId: string; operation: "created" | "updated" | "deleted"; changed: string[]; before: Record<string, Cell>; after: Record<string, Cell>; actor: EventActor },
 ) {
-  await tx.insert(events).values({ id: newId("evt"), ownerId: e.ownerId, tableId: e.tableId, rowId: e.rowId, operation: e.operation, changedFieldIds: e.changed, before: e.before, after: e.after, actor: e.actor });
+  const rootId = e.actor.type === "user" ? null : sql`(select ${runs.rootId} from ${runs} where ${runs.id} = ${e.actor.runId})`;
+  await tx.insert(events).values({ id: newId("evt"), ownerId: e.ownerId, tableId: e.tableId, rowId: e.rowId, operation: e.operation, changedFieldIds: e.changed, before: e.before, after: e.after, actor: e.actor, rootId });
 }
 
 /** Who a procedure's write is by: the Job that called it as a tool, or the signed-in owner. */

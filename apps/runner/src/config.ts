@@ -47,7 +47,13 @@ const RunnerConfig = z.object({
   mcpServers: z
     .record(
       McpServerName,
-      z.strictObject({ command: z.string().min(1), args: z.array(z.string()).optional(), env: z.record(z.string(), z.string()).optional() }),
+      z.strictObject({
+        command: z.string().min(1),
+        args: z.array(z.string()).optional(),
+        env: z.record(z.string(), z.string()).optional(),
+        // The actions a poll may call besides those the server marks read-only; `[]` forbids polls.
+        pollable: z.array(z.string()).optional(),
+      }),
     )
     // `hello` lists them all, up to the protocol's limit.
     .refine((servers) => Object.keys(servers).length <= 100, "at most 100 MCP servers")

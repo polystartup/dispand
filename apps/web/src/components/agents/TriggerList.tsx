@@ -15,6 +15,7 @@ const fireText = { started: "started", "skipped-overlap": "skipped, a Job was st
 function summary(t: Trigger): string {
   if (t.config.kind === "manual") return t.config.placement === "chat" ? "Chat" : "Button";
   if (t.config.kind === "primitive") return t.enabled ? "Table change" : "Table change · Paused";
+  if (t.config.kind === "poll") return t.enabled ? `Poll · ${t.config.action}` : "Poll · Paused";
   if (!t.enabled) return "Schedule · Paused";
   return t.nextFireAt ? `Schedule · Next: ${at(t.nextFireAt, t.config.timezone)} (${t.config.timezone})` : "Schedule";
 }

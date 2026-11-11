@@ -10,9 +10,11 @@ import {
   getHub,
   guardedFetch,
   getScheduler,
+  InstalledTools,
   logError,
   ownAddresses,
   platformToolCaller,
+  pollCaller,
   startTelemetry,
   stopTelemetry,
   sweepAttachments,
@@ -62,14 +64,15 @@ async function start(): Promise<App> {
   // Tool steps call installed tools through the same connector as Settings → Tools. A cloud
   // Job's session gets Dispand's own tools, called in process (the app is read at call time).
   const app = {} as App;
-  const engine = getEngine(db, hub, secrets, dataEvents, { connector: tools, tools: platformToolCaller(() => app) });
+  const engine = getEngine(db, hub, secrets, dataEvents, { connector: tools, tools: platformToolCaller(() => app), filesDir: config.filesDir });
   // Filled before anything can call a tool: recovery below may already need it.
   Object.assign(app, { db, auth, hub, engine, dataEvents, secrets, tools, setupCode: config.setupCode, filesDir: config.filesDir, gitFileUrls: config.gitFileUrls, appUrl: config.baseURL });
   // Before any runner can connect (the upgrade handler waits for this app); cloud sessions go on.
   await engine.recover();
   // Fires what fell due while the app was down (once per schedule, for the latest time), then every 15 s.
   // Runs fired now start their sessions when their runner says hello (the engine's reconcile).
-  getScheduler(db, engine).start();
+  // Polls call HTTP tools through the same connector, and runner tools through their runner.
+  getScheduler(db, engine, pollCaller(new InstalledTools(db, secrets, tools), hub)).start();
   // Removes files no cell uses any more: on boot, then hourly. The timer never keeps the process alive.
   const sweep = () => void sweepAttachments(db, config.filesDir, new Date()).catch((err: unknown) => logError("files.sweep failed", err));
   sweep();

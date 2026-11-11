@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { orpc } from "../../lib/api.ts";
 import { FormField } from "./parts.tsx";
+import { PollableActions } from "./PollableActions.tsx";
 import { ActionItem, errorMessage, type Tool } from "./ToolSheet.tsx";
 
 type Props = {
@@ -183,6 +184,7 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
               </ul>
             </section>
           )}
+          {current && <PollableActions toolId={current.id} />}
         </div>
       </SheetContent>
     </Sheet>

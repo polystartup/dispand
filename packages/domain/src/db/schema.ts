@@ -183,13 +183,18 @@ export type RunTrigger =
   | { type: "manual" }
   | { type: "schedule"; scheduledFor: string }
   /** A primitive trigger's event, with what the trigger node gives the Job: the change. */
-  | { type: "event"; eventId: string; outputs: Record<string, string> };
+  | { type: "event"; eventId: string; outputs: Record<string, string> }
+  /** A poll trigger's new item, with the action that found it and what the trigger node gives the Job: the item. */
+  | { type: "poll"; triggerId: string; itemId: string; toolId: string; action: string; outputs: Record<string, string> };
 export type StepStatus = "pending" | "running" | "waiting" | "succeeded" | "failed" | "skipped";
 
 /** Who waits on a queued step, served in this order (`engine/slots.ts`): a person, a resume, a new start. */
 export type QueueClass = "person" | "resume" | "new";
-/** What a step handed a slot does once that commits: its session's start. */
-export type PendingAction = { kind: "start" };
+/**
+ * What a step does once it holds a slot: its session's start, the answers and chat messages that
+ * wait for it (`deliver`), or its lost session's resume, which carries those too.
+ */
+export type PendingAction = { kind: "start" | "deliver" | "resume" };
 
 /** The agent as it was when its Job was created: the Job's sessions read it, not the `agents` row. */
 export type AgentSnapshot = {
@@ -204,14 +209,58 @@ export type AgentSnapshot = {
   bundles?: Bundle[];
   tables?: TableScope;
 };
-/** What made a Job, and how many Jobs deep its chain is (0 for a user or a schedule). */
+/** What made a Job, and how many Jobs deep its chain is (0 for a user or a schedule): information only, never a limit. */
 export type JobCause = (
   | { kind: "user" }
   | { kind: "schedule"; scheduledFor: string }
-  /** `jobId`: the Job whose write it was; `rootJobId`: the first Job of the chain, which every Job of it counts against. */
+  /** `jobId`: the Job whose write it was; `rootJobId`: the first Job of the chain (Jobs made before roots were counted). */
   | { kind: "event"; eventId: string; jobId?: string; rootJobId?: string }
+  /** A poll's new item: always the root of its chain. */
   | { kind: "poll"; triggerId: string; itemId: string }
 ) & { depth: number };
+
+export type RootKind = "user" | "chat" | "schedule" | "event" | "poll";
+export type RootState = "going" | "paused" | "stopped";
+
+/**
+ * A root cause (design 6.1): a person's start or write, a chat message, a schedule fire, a poll
+ * item. Every Job it leads to counts here (`Engine.createJob`, with the row locked), and each
+ * time `jobs - counted_from` reaches the workspace's checkpoint the root pauses and asks a
+ * person: approved, it goes on (`counted_from` moves up); "don't ask again" (`dont_ask`) ends its
+ * checkpoints; declined, it stops for good.
+ */
+export const roots = pgTable(
+  "roots",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<RootKind>().notNull(),
+    // The run it started from: a chat's run, or its first Job. Its Approval is asked on it.
+    runId: text("run_id"),
+    jobs: integer("jobs").notNull().default(0),
+    // The Jobs counted when it last went on: the next checkpoint is `checkpoint` Jobs further.
+    countedFrom: integer("counted_from").notNull().default(0),
+    state: text("state").$type<RootState>().notNull().default("going"),
+    dontAsk: boolean("dont_ask").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("roots_paused_idx").on(t.ownerId).where(sql`${t.state} = 'paused'`)],
+);
+
+/** The workspace's settings, one row per owner (none: the defaults). */
+export const workspaceSettings = pgTable(
+  "workspace_settings",
+  {
+    ownerId: text("owner_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    // How many Jobs of one root cause go before a person is asked (design 6.1).
+    checkpoint: integer("checkpoint").notNull().default(100),
+  },
+  (t) => [check("workspace_settings_checkpoint_range", sql`${t.checkpoint} between 1 and 100000`)],
+);
 
 export const runs = pgTable(
   "runs",
@@ -230,6 +279,8 @@ export const runs = pgTable(
     def: jsonb("def").$type<WorkflowDef>(),
     snapshot: jsonb("snapshot").$type<AgentSnapshot>(),
     cause: jsonb("cause").$type<JobCause>(),
+    // A Job's root cause (`roots`); a chat's moves to each message of the owner. Null for a workflow run.
+    rootId: text("root_id").references(() => roots.id),
     // A Job's token for the Job endpoint (`platform/token.ts`): its hash and its sealed form, never the token.
     tokenHash: text("token_hash").unique(),
     tokenSealed: text("token_sealed"),
@@ -245,12 +296,20 @@ export const runs = pgTable(
     index("runs_workflow_idx").on(t.workflowId, t.createdAt),
     index("runs_agent_idx").on(t.agentId, t.createdAt),
     index("runs_status_idx").on(t.status),
+    index("runs_root_idx").on(t.rootId),
   ],
 );
 
 export type ScheduleFireStatus = "started" | "skipped-overlap" | "refused";
-export type TriggerKind = "manual" | "schedule" | "primitive";
+export type TriggerKind = "manual" | "schedule" | "primitive" | "poll";
 export type TriggerConcurrency = "parallel" | "one-at-a-time";
+
+/**
+ * A poll's walk under way: `{{lastPoll}}` as it was when the walk began (every page runs that one
+ * query), when it began (its items' `first_seen`), and the server's token for the next page (null:
+ * the walk starts over from its first page, its continuation changed).
+ */
+export type PollCursor = { lastPoll: string; startedAt: string; token: string | null };
 
 /** What makes an agent work: each firing creates a Job. A schedule's next fire is claimed by the scheduler. */
 export const triggers = pgTable(
@@ -269,12 +328,15 @@ export const triggers = pgTable(
     // Added to the Job's prompt for this trigger.
     instructions: text("instructions").notNull().default(""),
     concurrency: text("concurrency").$type<TriggerConcurrency>().notNull().default("parallel"),
-    // A primitive trigger's most Jobs in an hour; an event past it waits (`event_fires`, deferred).
+    // A primitive or poll trigger's most Jobs in an hour; an event or item past it waits (deferred).
     rateCap: integer("rate_cap").notNull().default(60),
     config: jsonb("config").$type<TriggerConfig>().notNull(),
-    // Set for schedules only, with the meaning they have on `schedules`.
+    // Set for schedules, with the meaning they have on `schedules`. For a poll: when the next poll
+    // is due, and when its baseline was recorded (null: the next poll is its baseline).
     nextFireAt: timestamp("next_fire_at", { withTimezone: true }),
     lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    // A poll walking its tool's continuation: where the walk is (null between walks).
+    pollCursor: jsonb("poll_cursor").$type<PollCursor>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -383,7 +445,8 @@ export const stepRuns = pgTable(
     // Waiting for a slot since then, served by class, then oldest first; null when not queued.
     queuedAt: timestamp("queued_at"),
     queueClass: text("queue_class").$type<QueueClass>(),
-    // Handed a slot, not done yet: replayed by `recover()` if the process stopped before.
+    // What it does once it holds a slot: set when queued (or handed one), cleared when done;
+    // `recover()` replays it for a step handed a slot before the process stopped.
     pendingAction: jsonb("pending_action").$type<PendingAction>(),
   },
   (t) => [
@@ -503,12 +566,11 @@ export const questions = pgTable(
     runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
-    stepRunId: text("step_run_id")
-      .notNull()
-      .references(() => stepRuns.id, { onDelete: "cascade" }),
-    sessionId: text("session_id").notNull(),
+    // A checkpoint's Approval has no session (and, outside a chat, no step).
+    stepRunId: text("step_run_id").references(() => stepRuns.id, { onDelete: "cascade" }),
+    sessionId: text("session_id"),
     // The id the runner gave it, sent back with the answer.
-    runnerQuestionId: text("runner_question_id").notNull(),
+    runnerQuestionId: text("runner_question_id"),
     placement: text("placement").$type<"chat" | "notifications">().notNull(),
     // An approval authorizes an action (a permission); a question asks for words or a choice.
     kind: text("kind").$type<QuestionKind>().notNull().default("question"),
@@ -529,8 +591,14 @@ export const questions = pgTable(
     deliveredAt: timestamp("delivered_at"),
     // Asked by a session the runner lost and resumed since: its answer goes as a chat message.
     orphaned: boolean("orphaned").notNull().default(false),
+    // A checkpoint's Approval (design 6.1): the root cause it pauses. No session waits on it.
+    rootId: text("root_id").references(() => roots.id, { onDelete: "cascade" }),
   },
-  (t) => [unique().on(t.sessionId, t.runnerQuestionId), index("questions_run_idx").on(t.runId)],
+  (t) => [
+    unique().on(t.sessionId, t.runnerQuestionId),
+    index("questions_run_idx").on(t.runId),
+    uniqueIndex("questions_checkpoint_idx").on(t.rootId).where(sql`${t.status} = 'pending'`),
+  ],
 );
 
 // Dashboards: the home page (one per owner, fixed) and its widgets.
@@ -627,17 +695,20 @@ export const events = pgTable(
     before: jsonb("before").$type<Record<string, Cell>>().notNull(),
     after: jsonb("after").$type<Record<string, Cell>>().notNull(),
     actor: jsonb("actor").$type<EventActor>().notNull(),
+    // The root cause of the Job that wrote it, as it was then; null: the write is a root of its own.
+    rootId: text("root_id").references(() => roots.id),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     processedAt: timestamp("processed_at"),
   },
   (t) => [index("events_unprocessed_idx").on(t.createdAt).where(sql`${t.processedAt} is null`), index("events_table_row_idx").on(t.tableId, t.rowId)],
 );
 
-export type EventFireStatus = "started" | "deferred" | "skipped-same-agent" | "chain-limit" | "out-of-scope" | "refused";
+export type EventFireStatus = "started" | "deferred" | "skipped-same-agent" | "out-of-scope" | "refused" | "stopped";
 
 /**
  * What one event did for one primitive trigger, once (the unique key). A deferred fire (past the
- * rate cap, or one at a time with a Job going) is tried again each tick until it starts.
+ * rate cap, or one at a time with a Job going) is tried again each tick until it starts, or its
+ * root cause is declined at a checkpoint (`stopped`).
  */
 export const eventFires = pgTable(
   "event_fires",
@@ -663,6 +734,70 @@ export const eventFires = pgTable(
     unique().on(t.triggerId, t.eventId),
     index("event_fires_deferred_idx").on(t.createdAt).where(sql`${t.status} = 'deferred'`),
     index("event_fires_started_idx").on(t.triggerId, t.startedAt),
+  ],
+);
+
+export type PollStatus = "calling" | "baseline" | "polled" | "skipped" | "failed";
+
+/**
+ * One poll of a poll trigger: claimed (`calling`, its call under way or cut short), then what it
+ * came to. `baseline`: the first poll since the trigger was made, changed or turned on, which
+ * records what exists and starts nothing. A trigger keeps its latest `MAX_POLLS_KEPT`.
+ */
+export const polls = pgTable(
+  "polls",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    triggerId: text("trigger_id")
+      .notNull()
+      .references(() => triggers.id, { onDelete: "cascade" }),
+    // When it was claimed, before its call: what its new items' `first_seen` is.
+    at: timestamp("at", { withTimezone: true }).notNull(),
+    status: text("status").$type<PollStatus>().notNull(),
+    // Items the call returned, and how many of them were new.
+    found: integer("found").notNull().default(0),
+    fresh: integer("fresh").notNull().default(0),
+    message: text("message"),
+  },
+  (t) => [index("polls_trigger_idx").on(t.triggerId, t.at)],
+);
+
+export type PollItemStatus = "baseline" | "started" | "deferred" | "out-of-scope" | "refused";
+
+/**
+ * Each item a poll trigger has seen, once (the unique key), with its content (what its Job is
+ * told). A deferred item (past the rate cap, or one at a time with a Job going) is tried again
+ * each tick from this row, whatever later polls return.
+ */
+export const pollItems = pgTable(
+  "poll_items",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    triggerId: text("trigger_id")
+      .notNull()
+      .references(() => triggers.id, { onDelete: "cascade" }),
+    itemId: text("item_id").notNull(),
+    // The item as JSON.
+    content: text("content").notNull(),
+    // The poll that found it: its claim's time (`{{lastPoll}}` is the newest of these).
+    firstSeen: timestamp("first_seen", { withTimezone: true }).notNull(),
+    status: text("status").$type<PollItemStatus>().notNull(),
+    runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
+    message: text("message"),
+    // When its Job was created: what the rate cap counts.
+    startedAt: timestamp("started_at", { withTimezone: true }),
+  },
+  (t) => [
+    unique().on(t.triggerId, t.itemId),
+    index("poll_items_deferred_idx").on(t.firstSeen).where(sql`${t.status} = 'deferred'`),
+    index("poll_items_started_idx").on(t.triggerId, t.startedAt),
+    index("poll_items_seen_idx").on(t.triggerId, t.firstSeen),
   ],
 );
 
@@ -714,9 +849,10 @@ export const attachments = pgTable(
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    tableId: text("table_id")
-      .notNull()
-      .references(() => tables.id, { onDelete: "cascade" }),
+    /** The table it was uploaded to or written in; none while it is only a Job's (a file a tool returned). */
+    tableId: text("table_id").references(() => tables.id, { onDelete: "cascade" }),
+    /** The Job a tool returned it to: until a row of it is written, the file is only that Job's. */
+    jobId: text("job_id").references(() => runs.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     /** The sniffed image type, else `application/octet-stream`. */
     mime: text("mime").notNull(),
@@ -725,7 +861,7 @@ export const attachments = pgTable(
     image: boolean("image").notNull(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [index("attachments_table_idx").on(t.tableId)],
+  (t) => [index("attachments_table_idx").on(t.tableId), index("attachments_job_idx").on(t.jobId)],
 );
 
 // Plugin marketplaces: Git repositories with a `.claude-plugin/marketplace.json`, read at each
@@ -806,6 +942,9 @@ export const tools = pgTable(
     // From the last listing that succeeded; `actionsError` says why the last one failed.
     actions: jsonb("actions").$type<ToolAction[]>().notNull().default([]),
     actionsError: text("actions_error"),
+    // The actions a poll may read, set by the owner; null: the ones the server marks read-only.
+    // An action some agent must ask before using is never polled, whatever this says (`tools/pollable.ts`).
+    pollable: jsonb("pollable").$type<string[]>(),
     refreshedAt: timestamp("refreshed_at"),
     // The catalog entry it was installed from (`tools/catalog.ts`), if any.
     catalogId: text("catalog_id"),

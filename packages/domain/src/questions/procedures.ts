@@ -83,7 +83,8 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]) })).handl
       .leftJoin(workflows, eq(workflows.id, runs.workflowId))
       .leftJoin(agents, eq(agents.id, runs.agentId))
       .leftJoin(triggers, eq(triggers.id, runs.triggerId))
-      .innerJoin(stepRuns, eq(stepRuns.id, questionsTable.stepRunId));
+      // A checkpoint's Approval may have no step.
+      .leftJoin(stepRuns, eq(stepRuns.id, questionsTable.stepRunId));
   const open = await select().where(waiting(context.ownerId)).orderBy(desc(questionsTable.createdAt), desc(questionsTable.id));
   const done =
     input.status === "all"
@@ -96,6 +97,8 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]) })).handl
   const versions = new Map<string, Map<string, string>>();
   const names = (def: WorkflowDef | undefined) => new Map((def ? nodesOf(def) : []).map((n) => [n.id, n.name]));
   const stepName = async (r: (typeof rows)[number]) => {
+    // A checkpoint's Approval is about its root cause, not a step.
+    if (r.q.rootId || !r.nodeId) return "Checkpoint";
     if (r.def || !r.workflowId) return names(r.def ?? undefined).get(r.nodeId);
     const key = `${r.workflowId}:${r.version}`;
     if (!versions.has(key)) {
@@ -105,7 +108,7 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]) })).handl
         .where(and(eq(workflowVersions.workflowId, r.workflowId), eq(workflowVersions.version, r.version)));
       versions.set(key, names(v?.def));
     }
-    return versions.get(key)!.get(r.nodeId);
+    return versions.get(key)!.get(r.nodeId!);
   };
   const out = [];
   for (const r of rows) {
@@ -119,7 +122,7 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]) })).handl
       answeredAt: r.q.answeredAt,
       answeredBy: r.q.answeredBy,
       run: { id: r.q.runId },
-      step: { name: (await stepName(r)) ?? r.nodeId },
+      step: { name: (await stepName(r)) ?? r.nodeId! },
       // What the owner approves when the Approval is for a proposal: its items, from the server's row.
       proposal: r.q.proposalId ? await proposalView(context.db, context.ownerId, r.q.proposalId) : null,
     });

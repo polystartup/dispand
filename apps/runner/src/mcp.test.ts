@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
-import { codexMcpServers, discoverTool, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
+import { callTool, codexMcpServers, credentialValues, discoverTool, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
+import { codexDenied } from "./boundary.ts";
 
 const echo = { command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")] };
 
@@ -89,6 +90,11 @@ test("discover redacts the server's env values from what it lists", async () => 
   expect(named).toEqual([expect.objectContaining({ name: "echo", inputSchema: expect.objectContaining({ type: "object" }) })]);
 });
 
+test("discover says which actions the server marks read-only", async () => {
+  expect(await discoverTool("echo", readOnly)).toEqual([expect.objectContaining({ name: "echo", readOnly: true })]);
+  expect((await discoverTool("echo", echo))[0]).not.toHaveProperty("readOnly");
+});
+
 test("discover past its timeout replies with an error", async () => {
   await expect(discoverTool("echo", { ...echo, env: { ECHO_MCP_HANG: "1" } }, 1500)).rejects.toThrow("the MCP server echo didn't answer in time");
 });
@@ -110,4 +116,92 @@ test("a Job's session gets both of Dispand's servers at the runner's own address
   expect(withJobServer([], "http://localhost:3000", "t")[1]).toMatchObject({ url: "http://localhost:3000/mcp/job/tools" });
   // Without a token, nothing is added.
   expect(withJobServer([github], "https://dispand.test", undefined)).toEqual([github]);
+});
+
+const readOnly = { ...echo, env: { ECHO_READ_ONLY: "1" } };
+
+test("a poll's call of a read-only action returns its result", async () => {
+  expect(await callTool("echo", readOnly, "echo", { text: "hi" })).toEqual({ content: [{ type: "text", text: "hi" }], isError: false, hasMore: false });
+});
+
+test("a result the server cut short at its own cap says so (`_meta.result_has_more`)", async () => {
+  expect(await callTool("echo", { ...echo, env: { ECHO_READ_ONLY: "1", ECHO_HAS_MORE: "1" } }, "echo", { text: "hi" })).toMatchObject({ isError: false, hasMore: true });
+});
+
+test("an action the server doesn't mark read-only is refused, whatever the call asks, unless the runner's config lists it", async () => {
+  await expect(callTool("echo", echo, "echo", { text: "hi" })).rejects.toThrow("the action echo of echo isn't read-only, and this runner's config doesn't list it as pollable");
+  expect(await callTool("echo", { ...echo, pollable: ["echo"] }, "echo", { text: "hi" })).toMatchObject({ isError: false });
+});
+
+test("an empty pollable list forbids every call, read-only or not", async () => {
+  await expect(callTool("echo", { ...readOnly, pollable: [] }, "echo", { text: "hi" })).rejects.toThrow("the MCP server echo allows no polls on this runner");
+});
+
+test("an action the server doesn't have is refused", async () => {
+  await expect(callTool("echo", readOnly, "send", {})).rejects.toThrow("the MCP server echo has no action send");
+});
+
+test("the server's env values are redacted from what the call returns", async () => {
+  const result = await callTool("echo", { ...echo, env: { ECHO_READ_ONLY: "1", ECHO_PREFIX: "sk-12345 " } }, "echo", { text: "hi" });
+  expect(JSON.stringify(result)).not.toContain("sk-12345");
+  expect(result.content).toEqual([{ type: "text", text: "••••hi" }]);
+});
+
+test("a call past its timeout is an error, and one that doesn't start is in the runner's own words", async () => {
+  await expect(callTool("echo", { ...echo, env: { ECHO_MCP_HANG: "1" } }, "echo", {}, undefined, 1500)).rejects.toThrow("the MCP server echo didn't answer in time");
+  await expect(callTool("gone", { command: "/nonexistent/mcp-server", pollable: ["x"] }, "x", {})).rejects.toThrow("the MCP server gone didn't start or failed while calling x");
+});
+
+test("a call naming a path the runner keeps out of reach is refused before the server starts, however the path is written", async () => {
+  const guard = { forbidden: [join(homedir(), ".config", "dispand-runner"), join(homedir(), ".claude")], secrets: [] };
+  for (const path of [join(homedir(), ".config", "dispand-runner", "config.json"), "~/.claude/.credentials.json", ".claude", "file://" + join(homedir(), ".claude"), join(homedir(), ".claude", "..", ".claude")]) {
+    await expect(callTool("echo", readOnly, "echo", { text: "hi", path: { nested: [path] } }, guard)).rejects.toThrow("the call names a path this runner keeps out of reach");
+  }
+  expect(await callTool("echo", readOnly, "echo", { text: "hi" }, guard)).toMatchObject({ isError: false });
+});
+
+test("the runner's own token is redacted, and an env value that is an envelope field leaves the content well-formed", async () => {
+  // The token is no env value of the server: only the runner's own secrets catch it.
+  const result = await callTool("echo", { ...echo, env: { ECHO_READ_ONLY: "1", FORMAT: "text" } }, "echo", { text: "dr_token1234 hi" }, { forbidden: [], secrets: ["dr_token1234"] });
+  expect(result.content).toEqual([{ type: "text", text: "•••• hi" }]);
+  expect(JSON.stringify(result)).not.toContain("dr_token1234");
+});
+
+test("a file URL with a host, and a credentials file linked from outside, are refused like the paths they name", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "poll-guard-")));
+  try {
+    const codex = join(base, ".codex");
+    const outside = join(base, "elsewhere");
+    await mkdir(codex);
+    await mkdir(outside);
+    await writeFile(join(outside, "auth.json"), "{}");
+    await symlink(join(outside, "auth.json"), join(codex, "auth.json"));
+    const guard = { forbidden: codexDenied([codex]), secrets: [] };
+    const encoded = `file://${codex.replaceAll("/", "%2F")}%2Fauth.json`;
+    // Read literally from the home folder, `file://host/../../.claude` is `~/.claude`.
+    await expect(callTool("echo", readOnly, "echo", { path: "file://host/../../.claude/settings.json" }, { forbidden: [join(homedir(), ".claude")], secrets: [] })).rejects.toThrow("keeps out of reach");
+    for (const path of [`file://localhost${join(codex, "auth.json")}`, `file://${join(codex, "auth.json").replace(/\//g, "%2F").replace(/^%2F/, "/")}`, encoded, join(codex, "auth.json"), join(outside, "auth.json")]) {
+      await expect(callTool("echo", readOnly, "echo", { text: "hi", path }, guard)).rejects.toThrow("the call names a path this runner keeps out of reach");
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("a credential's value is redacted from a result however the server reached it, and so is a secret in a nested key", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "poll-creds-")));
+  try {
+    await writeFile(join(base, "auth.json"), JSON.stringify({ tokens: { access_token: "codex-access-token-0123456789" } }));
+    const secrets = credentialValues([join(base, "auth.json"), join(base, "missing.json")]);
+    expect(secrets).toEqual(["codex-access-token-0123456789"]);
+    // No env value of the server holds it: only the credentials' values catch it.
+    const read = await callTool("echo", readOnly, "echo", { text: "codex-access-token-0123456789" }, { forbidden: [], secrets });
+    expect(read.content).toEqual([{ type: "text", text: "••••" }]);
+    // A secret as a key inside an item is redacted too; the item's own keys stay.
+    const keyed = await callTool("echo", { ...echo, env: { ECHO_READ_ONLY: "1", ECHO_META: "sk-env-secret-key" } }, "echo", { text: "hi" });
+    expect(JSON.stringify(keyed)).not.toContain("sk-env-secret-key");
+    expect(keyed.content[0]).toEqual({ type: "text", text: "hi", _meta: { "••••": "x" } });
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
 });

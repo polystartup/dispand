@@ -43,19 +43,19 @@ test("0025 keeps existing runs as workflow runs", async () => {
   });
 });
 
-test("0042 gives existing HTTP tools with headers the headers sign-in, and every other tool none", async () => {
+test("0047 gives existing HTTP tools with headers the headers sign-in, and every other tool none", async () => {
   const { cp, mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  const dir = await mkdtemp(join(tmpdir(), "dispand-0042-"));
+  const dir = await mkdtemp(join(tmpdir(), "dispand-0047-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
-  // The migrations as they were before 0042.
+  // The migrations as they were before 0047.
   const before = join(dir, "migrations");
   const all = new URL("../../drizzle", import.meta.url).pathname;
   await cp(all, before, { recursive: true });
   const journalPath = join(before, "meta", "_journal.json");
   const journal = JSON.parse(await readFile(journalPath, "utf8")) as { entries: { tag: string }[] };
-  journal.entries = journal.entries.filter((e) => e.tag < "0042");
+  journal.entries = journal.entries.filter((e) => e.tag < "0047");
   await writeFile(journalPath, JSON.stringify(journal));
   const url = `pglite://${join(dir, "db")}`;
   const old = await createDb(url, before);

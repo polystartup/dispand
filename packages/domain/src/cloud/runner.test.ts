@@ -3,7 +3,7 @@ import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { cloudSessions, messages, questions, runs, stepRuns } from "../db/schema.ts";
+import { cloudSessions, harnesses, messages, questions, roots, runs, stepRuns } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import type { Engine } from "../engine/engine.ts";
 import { router } from "../rpc/router.ts";
@@ -245,6 +245,44 @@ test("restart mid tool call does not rerun it", async () => {
   expect(lastTool(after.inputs[0]!.items)).toEqual({ role: "tool", callId: "c1", name: "GitHub_create_repo", result: TEXTS.restarted, isError: true });
 });
 
+test("on boot, a cloud turn of a root paused at a checkpoint isn't run again until the root goes on", async () => {
+  const held = fakeTools(true);
+  const model = fakeModel(use("GitHub_create_repo", { name: "x" }, "c1"));
+  const { context, engine, workflow } = await setup(buttonStep, { client: model.client, tools: held.tools });
+  const runId = await engine.startRun(workflow.id);
+  const q = await pendingQuestion(engine, runId);
+  await engine.answer(q.id, { kind: "permission", decision: "allow" });
+  await vi.waitFor(async () => {
+    const [s] = await engine.db.select().from(cloudSessions);
+    if (!s?.inFlight) throw new Error("not in flight yet");
+  });
+  // Its root is paused at a checkpoint when Dispand restarts.
+  await engine.db.insert(roots).values({ id: "root_1", ownerId: context.ownerId, kind: "user", state: "paused" });
+  await engine.db.update(runs).set({ rootId: "root_1" }).where(eq(runs.id, runId));
+  const after = fakeModel(say("Done."));
+  const engine2 = createEngine(context.db, context.hub, context.secrets, context.dataEvents, { client: after.client, tools: fakeTools().tools });
+  onTestFinished(() => engine2.stop());
+  await engine2.recover();
+  await new Promise((r) => setTimeout(r, 100));
+  // Nothing of it ran: no model call, and no question asked again. The call the restart cut is
+  // recorded as cut all the same, so it never runs again by itself.
+  expect(after.inputs).toEqual([]);
+  const [session] = await engine2.db.select().from(cloudSessions);
+  expect(session!.inFlight).toBeNull();
+  expect(lastTool(session!.items)).toMatchObject({ callId: "c1", result: TEXTS.restarted, isError: true });
+  expect(await engine2.db.select().from(questions)).toHaveLength(1);
+  expect(await stepOf(engine2, runId, "n_note")).toMatchObject({ working: false, pendingAction: { kind: "resume" } });
+  // The root went on (its answer committed) before the next start: that start hands it back, and
+  // the session goes on from the cut call, which it doesn't make again.
+  await engine.db.update(roots).set({ state: "going" }).where(eq(roots.id, "root_1"));
+  const engine3 = createEngine(context.db, context.hub, context.secrets, context.dataEvents, { client: after.client, tools: fakeTools().tools });
+  onTestFinished(() => engine3.stop());
+  await engine3.recover();
+  await until(engine3, runId, "succeeded");
+  expect(after.inputs).toHaveLength(1);
+  expect(lastTool(after.inputs[0]!.items)).toMatchObject({ callId: "c1", result: TEXTS.restarted, isError: true });
+});
+
 test("on boot, the last event is handed to the engine again", async () => {
   const model = fakeModel(say("Done."));
   const { context, engine, workflow } = await setup(buttonStep, { client: model.client });
@@ -395,4 +433,28 @@ test("a model call is a span with the harness's kind, how the turn ended and how
   expect(await t.metrics()).toContainEqual({ name: "dispand.model.calls", attributes: { "dispand.harness.kind": "openai-compatible", "dispand.result": "end" } });
   const all = await t.all();
   for (const sentinel of ["sentinel-model-answer", "You work for Dispand.", "Be brief."]) expect(all).not.toContain(sentinel);
+});
+
+test("a cloud session holds its harness's slot only while it works: not between chat turns, nor while it asks", async () => {
+  const model = fakeModel(say("What shall we build?"), use("ask_user", { questions: [{ question: "Which stack?", header: "Stack", options: [{ label: "Node", description: "" }], multiSelect: false }] }), say("Done."));
+  const { context, engine, workflow, agent, harness } = await setup(chat, { client: model.client });
+  await context.db.update(harnesses).set({ maxWorking: 1 }).where(eq(harnesses.id, harness.id));
+  const working = async (runId: string, nodeId: string) => (await stepOf(engine, runId, nodeId)).working;
+  const chatRun = await engine.startRun(workflow.id);
+  await vi.waitFor(async () => {
+    const [s] = await engine.db.select().from(cloudSessions);
+    if (s?.status !== "idle") throw new Error("turn not ended");
+  });
+  // Between turns, the chat holds no slot: the next run starts on the only one.
+  expect(await working(chatRun, "n_chat")).toBe(false);
+  const note = await call(router.workflows.create, { name: "Note" }, { context });
+  await call(router.workflows.update, { id: note.id, name: "Note", def: buttonStep(agent.id) }, { context });
+  const noteRun = await engine.startRun(note.id);
+  const q = await pendingQuestion(engine, noteRun);
+  // Asking, it gives the slot back; its answer takes one again, and the loop goes on.
+  expect(await working(noteRun, "n_note")).toBe(false);
+  await engine.answer(q.id, { kind: "choice", answers: { "Which stack?": "Node" } });
+  await until(engine, noteRun, "succeeded");
+  expect(await working(noteRun, "n_note")).toBe(false);
+  expect(model.inputs).toHaveLength(3);
 });

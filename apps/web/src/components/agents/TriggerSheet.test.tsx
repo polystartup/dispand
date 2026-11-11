@@ -172,14 +172,14 @@ test("TriggerSheet edits a table-change trigger as one, and shows what its lates
     config: { kind: "primitive", tableId: "tbl_1", operations: ["deleted"] },
     lastFires: [],
     lastEvents: [
-      { eventId: "evt_2", at: new Date(), status: "chain-limit", message: "Chain limit reached" },
+      { eventId: "evt_2", at: new Date(), status: "stopped", message: "Stopped at a checkpoint" },
       { eventId: "evt_1", at: new Date(), status: "out-of-scope", message: "The agent may no longer read this table" },
     ],
   };
   const { user } = mount(trigger);
   expect(screen.getAllByRole("radio").map((r) => r.textContent)).toEqual(["Table change"]);
   const recent = screen.getByRole("list", { name: "Recent" }).textContent;
-  expect(recent).toContain("Skipped: chain limit reached");
+  expect(recent).toContain("Stopped: its work was declined at a checkpoint");
   expect(recent).toContain("Skipped: the agent may no longer read this table");
   await user.click(screen.getByRole("button", { name: "Save" }));
   expect(fake.triggers.update.mock.calls[0]![0]).toEqual({

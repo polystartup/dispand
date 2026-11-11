@@ -14,6 +14,7 @@ import { secretAad, type SecretBox } from "../secrets.ts";
 import { CATALOG, fillHeaders, MissingSetting, runnerSnippet, searchCatalog } from "./catalog.ts";
 import { AUTHS, ToolError, TRANSPORTS, type ToolAuth, type ToolConnector, type ToolTarget, type ToolTransport } from "./mcp.ts";
 import { oauthStep, oauthStore } from "./oauth-store.ts";
+import { pollableActions } from "./pollable.ts";
 import type { InitialContext } from "../rpc/context.ts";
 
 const owner = base.use(authed);
@@ -548,4 +549,22 @@ const list = owner.handler(async ({ context }) => {
 
 const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => view(context.db, await find(context.db, context.ownerId, input.id)));
 
-export const tools = { create, add, update, delete: remove, list, get, refresh, authorize, catalog, installFromCatalog };
+/** Each action of a tool with whether a poll may read it, and why not. */
+const pollable = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+  const actions = await pollableActions(context.db, context.ownerId, input.id);
+  if (!actions) throw new ORPCError("NOT_FOUND");
+  return actions;
+});
+
+/** Sets the actions polls may read (the owner's choice; an action an agent asks before using stays unpolled). */
+const setPollable = owner.input(z.object({ id: z.string(), actions: z.array(z.string().max(200)).max(200) })).handler(async ({ input, context }) => {
+  const row = await find(context.db, context.ownerId, input.id);
+  const known = new Set(row.actions.map((a) => a.name));
+  const unknown = input.actions.find((a) => !known.has(a));
+  if (unknown !== undefined) throw new ORPCError("BAD_REQUEST", { message: `The tool has no action ${unknown.slice(0, 100)}` });
+  await context.db.update(toolsTable).set({ pollable: [...new Set(input.actions)] }).where(eq(toolsTable.id, row.id));
+  // Found above, so it lists the actions.
+  return (await pollableActions(context.db, context.ownerId, row.id))!;
+});
+
+export const tools = { create, add, update, delete: remove, list, get, refresh, authorize, catalog, installFromCatalog, pollable, setPollable };

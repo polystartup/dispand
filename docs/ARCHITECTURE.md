@@ -31,7 +31,12 @@
   `hello` retries. Revoking a runner (Settings › Harnesses › Runners) clears its token and
   closes its socket; it is refused while a harness uses the runner. `hub.request` sends
   a `tool.discover` and waits for the `tool.discovered` with its `requestId` from that same runner
-  (not numbered, not acked; "runner offline" or "timed out" after 45 s otherwise).
+  (not numbered, not acked; "runner offline" or "timed out" after 45 s otherwise); `hub.call`
+  does the same with a `tool.call` (a poll's call of one action, protocol 9) and its
+  `tool.called` (the result's MCP content, `isError` and `hasMore`, protocol 10: the server's
+  `_meta.result_has_more`, or why the runner refused), a reply of
+  the other kind resolving nothing; `runner.tool_call` spans and `dispand.runner.tool_calls`
+  and its duration count them by outcome (`ok`, `error`, `refused`, `failed`).
   `SessionStart` is a union on `harness` (`claude-code`, `codex`, whose permission modes are only
   `default` and `bypassPermissions`) and carries `skills` and `mcpServers` by reference; the engine
   sends none yet. The runner refuses a start with MCP servers, or for Codex, before making its
@@ -196,8 +201,8 @@
   schedule, `next_fire_at` and `last_checked_at` with the meaning they have on `schedules`
   (reset only when the cron or timezone changed or the trigger is enabled again; a trigger keeps
   its kind). Each firing creates a Job: a row of `runs` with `source: "agent"`, no workflow, its
-  `agent_id` and `trigger_id`, a `cause` (who or what made it, and its depth in a chain of Jobs;
-  deeper than 10 is refused) and its own definition in `def`, built by the pure `jobDef`
+  `agent_id` and `trigger_id`, a `cause` (who or what made it, and its depth in a chain of Jobs,
+  for information: there is no limit of depth), its root cause (`root_id`, below) and its own definition in `def`, built by the pure `jobDef`
   (`engine/job-def.ts`): the trigger as the firing, then one agent step whose prompt is the
   trigger's instructions (a chat trigger has no step: the conversation is the Job). The engine's
   `defOf` returns `run.def` when it is set and the workflow version otherwise, so sessions,
@@ -220,15 +225,15 @@
   `fields` changed). Each match is one `event_fires` row (unique on `(trigger_id, event_id)`)
   and the event is marked processed in the same transaction, so two schedulers never make an
   event's Job twice. Each fire reads its trigger again under `FOR NO KEY UPDATE`, so no two
-  schedulers check its limits at once, and is `refused` when the trigger is off or no longer
+  schedulers check its limits at once, and is `stopped` when its root cause was declined at a
+  checkpoint, `refused` when the trigger is off or no longer
   watches the change, `skipped-same-agent` when the write was by a Job of the trigger's own
   agent, `out-of-scope` when the agent no longer has `data` on the event's table (a
   table that stopped being primitive, or was deleted, makes no more events), `deferred`
   while the trigger has started `rate_cap` Jobs in the last hour (default 60, set on the
   trigger) or, one at a time, has a Job going, and otherwise `started`. The Job's cause is
   `event` with its depth (the writing Job's plus one, 0 for a person or a workflow) and the
-  chain's first Job (`rootJobId`); `createJob` refuses past depth 10 or at 100 Jobs from one
-  root, counted with the root's run row locked (`chain-limit`). The trigger node's outputs are the change (`operation`, `table_id`,
+  chain's first Job (`rootJobId`). The trigger node's outputs are the change (`operation`, `table_id`,
   `row_id`, `changed_field_ids`, `before`, `after`, JSON for the last three), carried in the
   run's firing and written after the trigger's instructions (`CHANGE_PROMPT`); every start of
   such a Job's session (the first, a resend once its runner is back, a resume) first checks
@@ -242,7 +247,66 @@
   to some tables can't propose a trigger on another. The trigger sheet's "Table change" kind
   (`PrimitiveTriggerPanel`) picks a primitive table (`tables.list` gives `primitive`), the
   changes, for a changed row any field or some, the hour's cap, and lists the latest events
-  with what each did. The agent's page
+  with what each did. A `poll` trigger (`{ toolId, action, arguments, itemsPath, idPath,
+  interval }`, interval in seconds, 60 to a day, default 300; migration 0045) makes a tool's
+  list or search action an event source. Creating or changing one, while it is on, checks
+  `pollProblem` (`tools/pollable.ts`): the tool is the owner's, its agent has it, the action is
+  `isPollable`. Its `next_fire_at` is when it is due (now when it is made, changed or turned on
+  again), its `last_checked_at` when its baseline was recorded (null again when its tool,
+  action, arguments or paths change, or it is turned on again). The scheduler's tick, after its
+  transaction, claims due polls in one transaction of its own (`FOR UPDATE SKIP LOCKED`, the
+  next time moved an interval on, a `polls` row each, the latest 20 kept): `pollProblem` runs
+  again first, and a poll that fails it is recorded `skipped` with why and calls nothing. Once
+  that commits, each poll's call runs outside any transaction, for 60 s at most, all of them at
+  once but those of one runner's tool, one after the other (the runner calls each of its tools
+  once at a time), each checked again right before its call (the trigger unchanged, its tool
+  there, `pollProblem`), as it may have waited for another (`tools/poll.ts`: an HTTP tool through `InstalledTools` and the connector, a runner tool
+  through `hub.call`), with `{{lastPoll}}` in its arguments' strings filled with the newest
+  `first_seen` of the trigger's items (the trigger's creation before any), never a call's time,
+  so a poll that recorded nothing never moves it. Its data is the result's structured content,
+  else its text as JSON; its items are the list at `itemsPath` (keys between dots, empty: the
+  result), each identified by a string or a number at `idPath` (items without one are counted
+  and left out; all the others kept, however many: one left for later could fall before the next
+  `{{lastPoll}}`). A poll may declare its `continuation` (`{ path, query?, argument }`, migration
+  0046): where a result names its next page (the token at `path`, or with `query`, that query
+  parameter of the link there, as Graph's `@odata.nextLink` and its `$skiptoken`; a key holding
+  dots is read whole first) and the argument that takes it. It then walks one fixed query: the
+  trigger's `poll_cursor` keeps the walk's `{{lastPoll}}`, when it began and the next page's
+  token; each later call passes the token, a page naming the next is followed at once, one that
+  doesn't ends the walk (the cursor cleared: only then does `{{lastPoll}}` move), at most 20 pages
+  a poll (`MAX_WALK_PAGES`; past them the walk goes on from its token at the next interval, and the
+  poll's message says so). A walk's items are first seen when it began, so the next walk's
+  `ge {{lastPoll}}` repeats its boundary items, which `poll_items`' key drops. A first walk is a
+  baseline across its pages (`last_checked_at` set when it ends). A next page that can't be
+  followed (not text, not a link, without the parameter, past 8 KiB) fails the poll and keeps the
+  cursor; a token is the server's opaque string, never in a message, a log or telemetry. Changing
+  what the trigger reads clears the cursor (a new baseline); changing only its continuation keeps
+  the walk's query and starts it over from its first page. A poll without a continuation
+  reads one call's result, as before. A result the server cut short at its own cap
+  (`_meta.result_has_more`, `hasMore` over HTTP and in `tool.called`) is polled again on the
+  next tick. A second transaction per page, the trigger locked `FOR NO KEY
+  UPDATE`, records nothing when the trigger was turned off or changed meanwhile, else inserts
+  each item into `poll_items` once (unique on `(trigger_id, item_id)`, with its content as JSON,
+  its `first_seen` the claim's time, or its walk's start): the baseline poll as `baseline`, starting nothing, later
+  ones as `deferred` (`refused` past 256 KiB), then, `pollProblem` checked again, starts a Job
+  for as many as the trigger has room for (its rate cap and one at a time, as primitive
+  triggers), each Job created in the same transaction as its item's `started`. A crash between
+  the call and that record leaves the items unrecorded and the next poll calls again; an item
+  already recorded never starts a Job again. Each tick also tries the deferred items, trigger by
+  trigger and oldest first, from their rows, whatever later polls return (`out-of-scope` when
+  `pollProblem` fails then, `refused` when the trigger is off, and when its tool, action,
+  arguments or paths change, so an item is never told under another source than its own). The Job's cause is `poll` (the
+  trigger and the item id, depth 0), each item a root cause of its own (kind `poll`, 6.1's checkpoints), its firing carries the tool and the action, and the
+  trigger node's outputs are `item_id` and `item`, written after the instructions
+  (`POLL_PROMPT`); every start of its session first checks `pollProblem` against the agent and
+  the tool as they are then, and fails the step otherwise (`refusedForScope`), so the item is
+  never sent once the agent lost the tool or the action stopped being pollable. A
+  `scheduler.poll` span and `dispand.polls`, `dispand.poll.items` and `dispand.poll.duration`
+  count polls, new items and durations by tool kind and outcome (`baseline`, `polled`,
+  `skipped`, `failed`), `dispand.poll.walks` and `dispand.poll.walk.pages` walks and their pages
+  by how they stopped (`ended`, `bounded`), with `dispand.poll.pages` on the span, never an item,
+  an argument, a result or a token. `triggers.get` gives a poll trigger's `lastPolls`, each with what it found and its new items
+  (their ids are what the tool read: a Job calling it gets none). The agent's page
   (`/settings/agents/<id>`) has three tabs: Settings, Triggers (`components/agents/TriggerList`,
   `TriggerSheet`, which reuses the schedule panel) and Jobs (`JobList`). A manual trigger goes
   on a page as a `trigger-form` widget (`widgets.trigger_id`, one per trigger and page):
@@ -254,23 +318,86 @@
   renders it over the library's unstyled primitives, a question through `QuestionForm` and
   `questions.answer`. The agent's text goes through `components/chat/AgentText.tsx` (the library's markdown
   primitive with a `urlTransform`, `img` and `a` overrides and `skipHtml`). Nothing else
-  imports the library. The panel keeps its own composer. A Job's
+  imports the library. The thread uses message copy actions and a jump-to-latest control;
+  code fences have language headers and copy buttons. The panel uses the library's growing
+  input but owns its controlled draft and send form: failed sends retain the draft, typing
+  during delivery is kept, and messages can still be sent during a run. Messages use a wider
+  reading layout and tool traces use compact cards. A working indicator is not shown because
+  the run view does not distinguish an idle chat from a turn in progress. For the same reason,
+  the runtime renders text snapshots as available (including copying the latest text) instead
+  of marking the last message as streaming until the entire Job ends.
+  Editing, regeneration, branching, uploads and cancellation are not exposed by this frontend
+  integration: they need separate run semantics and API support. A Job's
   questions are listed in Notifications with its agent.
+- **Checkpoints** (`engine/roots.ts`): every Job has a root cause, a `roots` row (`kind`: `user`
+  for a start by hand, `chat`, `schedule`, `event` for a person's or a workflow's write, `poll`),
+  going, paused or stopped. `Engine.createJob`, the one place a Job is made, locks the root's row
+  (`FOR UPDATE`, before the trigger's and the agent's share locks), counts the Job in `jobs`, and
+  when `jobs - counted_from` reaches the workspace's `checkpoint` (`workspace_settings`, default
+  100) pauses the root and asks one Approval: a `permission` question with no session, its
+  `root_id` set and `toolName` `checkpoint` (its input: what the root is, the Jobs made, the
+  agents involved and since when), on the Job that reached it, or, for a chat message, in the chat.
+  A Job's write keeps its run's root on its event (`events.root_id`, in `recordEvent`); a person's
+  or a workflow's write gets a root of its own when the scheduler first claims it. The scheduler
+  reads each event's root once, at its claim, locked `FOR UPDATE SKIP LOCKED` until the tick
+  commits (another scheduler holding it leaves the event for a later tick): a paused root's events
+  and deferred fires stay unclaimed (`notPaused`), and the event that reaches the checkpoint still
+  makes every Job its triggers call for. A chat's run moves to a new root (`chat`) with each
+  message of the owner (`sendChat`), unless its root is paused: the message then waits under it.
+  One gate, `rootGoing(runId)`, is read wherever a session would work again: a new session's start
+  (`openSession`), an answer delivered once no question is pending (`answer`), a chat message
+  (`sendChat`), a lost session's resume (`resume`, `reconcile`), a start never written
+  (`reconcile`) and the replay of a `pending_action` (`handOver`, which `recover` goes through).
+  A paused step holds no slot: it gives its slot back or leaves the queue, and keeps what it
+  would do in `pending_action` (`hold`), so its answers and messages stay undelivered; only a turn
+  under way finishes. The Approval's checks ignore it: a run or step "waits" only on its own
+  questions, and a stop or a step's end never expires it. Answering it (`questions.answer`,
+  `Engine.answer`, with the root locked): `allow` goes on to the next checkpoint (`counted_from`
+  moves to `jobs`), `allow-always` ("don't ask again for this goal") sets `dont_ask`, and both
+  hand back what waited (`goOn`: each held step takes a slot for its start, answers and messages,
+  or resume, and the Jobs not started yet start; `recover()` does the same for the held steps of
+  a going root, should the process stop first); `deny` stops the root for good, in the answer's
+  transaction: its unprocessed events are marked processed, its deferred `event_fires` close as
+  `stopped`, and every unfinished Job of it is stopped as `runs.stop` does (their sessions are
+  told to end once it commits, or by the runner's next reconcile). A stopped root makes no Job
+  (`STOPPED`), and since its steps are failed and the gate refuses it, a reconnect or a restart
+  replays nothing of it. A chat message held during a turn leaves the turn its slot until
+  `turn-end`; a held start queued again is launched only once handed a slot. On boot,
+  `CloudRunner.recover` runs no turn of a paused root: reported not live, it is held to resume.
+  The Inbox and the chat show it as a checkpoint (`QuestionForm`'s `Checkpoint`, told apart by the
+  question's `rootId`, never by its tool name): the root, its Jobs, the agents and since when, with
+  "Go on", "Don't ask again for this goal" and "Stop this work". The checkpoint is set on the
+  Harnesses page (`CheckpointSetting`: `workspace.checkpoint`, `workspace.setCheckpoint`, 1 to
+  100,000) and by an agent through an approved proposal (`workspace_set_checkpoint`, a grant;
+  `workspace_checkpoint` reads it); each root's next Job is counted against it as it is then.
+  Migration 0044 gives every existing Job the root its chain counted it against. Telemetry:
+  `dispand.checkpoints.reached`, `dispand.checkpoints.answered` (by `dispand.checkpoint.answer`:
+  `approve`, `dont-ask`, `decline`), the `dispand.roots.paused` gauge, an `engine.checkpoint`
+  span event (root id, kind and Jobs counted) and `engine.slot` events with action `hold`.
 - **Harness slots:** each harness runs at most `harnesses.max_working` sessions on a turn at
   once (default 5, 1 to 100), counting every Job and workflow agent step on it. A slot is a
   step run with `working` set (`engine/slots.ts`). `Engine.openSession` takes one before it
   writes a start: `take` locks the step's row, then its harness's (`FOR UPDATE`), counts the
   working steps and marks the step working, or queues it (`queued_at`, `queue_class`: `person`
-  for a manual run's start, `new` otherwise; `resume` comes with answers). A step's
+  for a manual run's start or a chat message, `resume` for an answer or a lost session's
+  resume, `new` otherwise). A step's
   `harness_id` is set when its row is made (a Job's from its snapshot, a workflow step's from
   its agent) and again when it becomes ready, from the agent row read once for both the slot and
-  the start, so an agent moved meanwhile is charged to its new harness. Closing a step (`complete`,
-  `fail`) calls `give`: the slot goes back and the free ones go, in the same transaction, to the
-  next queued steps of the harness (class, then oldest first), marked working with
-  `pending_action` `start`; once that commits, their runs advance and start them. A run that
-  fails takes its queued steps out of the queue. `recover()` hands the free slots to the queued
-  steps first, then advances every active run, which starts the steps handed a slot before the
-  process stopped. Migration 0041 charges the open agent steps and marks working those with a
+  the start, so an agent moved meanwhile is charged to its new harness. A step whose session
+  stops working gives its slot back (`give`): it closes (`complete`, `fail`), asks a question
+  (`syncWaiting`), or, in a chat, ends its turn (`turn-end`). Work coming back takes one first:
+  an answer once no question of the step is pending (`answer`), a chat message (`sendChat`), a
+  lost session's resume (`resume`). What can't go yet stays undelivered (`delivered_at` null)
+  and the step queues once, with what it will do in `pending_action` (`start`, `deliver` or
+  `resume`); a reconcile or a held delivery sends answers and messages only to a step holding a slot (`holdsSlot`).
+  `give` hands the free slots, in the same transaction, to the next queued steps of the harness
+  (class, then oldest first), marked working; once that commits, `handOver` does what each
+  waited for: its run advances (a start), or its undelivered answers and messages go, or its
+  session resumes. A run that fails takes its queued steps out of the queue before its slot is
+  handed on. The cloud harness goes through the same paths: it emits `turn-end` only once no
+  message waits in its turn. `recover()` hands the free slots to the queued steps first, then
+  advances every active run, which starts the steps handed a slot before the process stopped,
+  and hands over again those handed one to deliver or resume. Migration 0041 charges the open agent steps and marks working those with a
   session running. `runs.list` says which runs have a step `queued`; the run page shows it on
   the step. Telemetry: `dispand.harness.working` and `dispand.harness.queued` gauges by harness
   id and kind, `dispand.harness.queue_wait` (ms, by class), an `engine.slot` span event on each
@@ -385,6 +512,13 @@
   when the name stands for nothing the agent chose; the runner adds the name to the session's
   unasked ones. Workflow runs' CLI sessions have no Job token, so
   no such tools; cloud sessions don't get skills yet.
+- **What polls may read** (`tools/pollable.ts`): `tools.pollable` (the owner's list, migration
+  0042; null: the actions the server marks read-only) says which of a tool's actions a poll may
+  call, and `isPollable` adds that no agent holding the tool must ask before using it (the
+  action is in every holder's `agent_tools.unasked`; an agent that has the tool only through a
+  skill's required tools asks before every action). `tools.pollable` and `tools.setPollable`
+  are the owner's (never platform tools); the tool sheets show each action's state and why one
+  isn't polled. Polls check `isPollable` when a trigger is made and at every dispatch.
 - **Proposals** (`platform/proposals.ts`, table `proposals`, migration 0034). A tool of the
   registry marked `grant` (`agents.create`, `agents.update`, `agents.setToolAsk`,
   `tables.delete`, `fields.delete`, `triggers.create`, `triggers.update`, `triggers.delete`, `tools.add` (an address and no
@@ -567,12 +701,18 @@
 - **Attachments (Data):** an attachment cell holds attachment ids. `files.upload`
   (`packages/domain/src/data/files.ts`) stores each file at `<filesDir>/<ownerId>/<attachmentId>`
   (written to a temp name, then renamed) and its row in `attachments` (owner, table, name, size,
-  sniffed type). `writeRow` accepts only ids uploaded to the same table and locks them
-  `FOR SHARE`. `GET /files/<id>` (`apps/web/src/server/files.ts`, the one route outside oRPC,
+  sniffed type). Files in the MCP content of a Job's HTTP tool call (image items, embedded
+  resources with a blob; the tools endpoint and a cloud Job's calls) go the same way through
+  `keepJobFiles`, owned by the Job (`job_id`, no table yet), and the result's text tells the agent
+  their ids, or why one wasn't kept (over 10 MiB, past 20 a result). Tool steps and workflow runs'
+  sessions keep none: their text has placeholders only. `writeRow` accepts ids of the same
+  table, locked `FOR SHARE`, and, when a Job writes, that Job's files no table has, locked
+  `FOR UPDATE` and given to the table once the row is written. `GET /files/<id>` (`apps/web/src/server/files.ts`, the one route outside oRPC,
   checks the session itself) serves PNG, JPEG, GIF and WebP sniffed on upload inline and
   everything else as a download, all with `nosniff` and a sandbox CSP. `sweepAttachments` runs
-  on boot and hourly: it removes attachments no row of their table references, then files on disk
-  with no row (a deleted table's), both after an hour; it is the one mechanism for every way a
+  on boot and hourly: it removes attachments no row of their table references, a Job's files no
+  table took once the Job has ended, then files on disk with no row (a deleted table's), all after
+  an hour; it is the one mechanism for every way a
   file stops being used. `filesDir` is `DISPAND_FILES_DIR` (production: `/data/files`, in the
   `dispand-files` volume), `.data/files` in development. Bounds: 20 files per cell,
   10 MiB per file (the production server takes 11 MiB bodies on `files.upload` only).

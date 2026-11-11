@@ -74,3 +74,25 @@ test("busy disables the buttons, the error and the restart note show", () => {
   expect(screen.getByRole("alert").textContent).toBe("Already answered");
   expect(screen.getByText(/agent was restarted/)).toBeTruthy();
 });
+
+test("a checkpoint names its root, Jobs and agents, and answers go on, don't ask again or stop", async () => {
+  const payload: QuestionPayload = { kind: "permission", toolName: "checkpoint", input: { root: "A schedule", jobs: 100, agents: ["Clerk", "Auditor"], since: "2026-11-11T09:00:00.000Z" }, canAlwaysAllow: true };
+  const onAnswer = vi.fn<(a: Answer) => void>();
+  render(<QuestionForm question={{ payload, rootId: "root_1" }} onAnswer={onAnswer} />);
+  expect(screen.getByText(/A schedule has led to/).textContent).toContain("100 Jobs");
+  expect(screen.getByText("Agents: Clerk, Auditor")).toBeTruthy();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Go on" }));
+  await user.click(screen.getByRole("button", { name: "Don't ask again for this goal" }));
+  await user.click(screen.getByRole("button", { name: "Stop this work" }));
+  expect(onAnswer.mock.calls.map(([a]) => a)).toEqual([
+    { kind: "permission", decision: "allow" },
+    { kind: "permission", decision: "allow-always" },
+    { kind: "permission", decision: "deny" },
+  ]);
+  cleanup();
+  // The same tool name from an agent's own prompt is an ordinary permission: only the row's root makes a checkpoint.
+  render(<QuestionForm question={{ payload }} onAnswer={onAnswer} />);
+  expect(screen.queryByRole("button", { name: "Go on" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
+});

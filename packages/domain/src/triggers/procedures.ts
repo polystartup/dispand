@@ -2,16 +2,17 @@ import { ORPCError } from "@orpc/server";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
-import { agents, eventFires, fields, tables, triggerFires, triggers as triggersTable } from "../db/schema.ts";
+import { agents, eventFires, fields, pollItems, polls, tables, triggerFires, triggers as triggersTable } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
+import { pollProblem } from "../tools/pollable.ts";
 import { cronProblem, nextFireAfter } from "../workflows/schedule.ts";
-import { Concurrency, RateCap, TriggerConfig, TriggerFields } from "./model.ts";
+import { canonicalJson, Concurrency, RateCap, TriggerConfig, TriggerFields } from "./model.ts";
 
 const owner = base.use(authed);
 
 type Row = typeof triggersTable.$inferSelect;
-type Times = Pick<Row, "nextFireAt" | "lastCheckedAt">;
+type Times = Pick<Row, "nextFireAt" | "lastCheckedAt" | "pollCursor">;
 
 async function requireAgent(db: Db | Tx, ownerId: string, agentId: string) {
   const [row] = await db
@@ -30,11 +31,16 @@ function checkInstructions(config: TriggerConfig, instructions: string) {
 
 /**
  * A schedule's cron must parse. A primitive trigger watches a primitive table of the owner's,
- * its fields, and reads no more than its agent may: the agent has `data` on that table.
+ * its fields, and reads no more than its agent may: the agent has `data` on that table. A poll
+ * names an action of a tool its agent has, one a poll may read (`pollProblem`).
  */
 async function checkConfig(db: Db | Tx, ownerId: string, agent: Awaited<ReturnType<typeof requireAgent>>, config: TriggerConfig) {
   if (config.kind === "schedule") {
     const problem = cronProblem(config.cron, config.timezone);
+    if (problem) throw new ORPCError("BAD_REQUEST", { message: problem });
+  }
+  if (config.kind === "poll") {
+    const problem = await pollProblem(db, ownerId, agent.id, config.toolId, config.action);
     if (problem) throw new ORPCError("BAD_REQUEST", { message: problem });
   }
   if (config.kind !== "primitive") return;
@@ -59,15 +65,66 @@ async function checkConfig(db: Db | Tx, ownerId: string, agent: Awaited<ReturnTy
  * with no catch-up, as workflow schedules do.
  */
 export function scheduleColumns(config: TriggerConfig, previous: (Times & { config: TriggerConfig; enabled: boolean }) | null, enabled: boolean, now: Date): Times {
-  if (config.kind !== "schedule") return { nextFireAt: null, lastCheckedAt: null };
+  if (config.kind === "poll") {
+    // A poll is due at once when new, changed or turned on again (its baseline then recorded
+    // again: `lastCheckedAt` null); a new interval counts from now. A walk under way keeps its
+    // query; its continuation changed, it starts over from its first page (its token dropped), so
+    // nothing it hadn't read yet falls before a moved `{{lastPoll}}`.
+    const same = previous?.config.kind === "poll" && !rebaselines(previous, config, enabled);
+    const sameInterval = same && previous.config.kind === "poll" && previous.config.interval === config.interval;
+    const cursor = same ? previous.pollCursor : null;
+    const sameWalk = previous?.config.kind === "poll" && canonicalJson(previous.config.continuation ?? null) === canonicalJson(config.continuation ?? null);
+    return {
+      nextFireAt: sameInterval ? previous.nextFireAt : now,
+      lastCheckedAt: same ? previous.lastCheckedAt : null,
+      pollCursor: cursor && !sameWalk ? { ...cursor, token: null } : cursor,
+    };
+  }
+  if (config.kind !== "schedule") return { nextFireAt: null, lastCheckedAt: null, pollCursor: null };
   const same =
     previous?.config.kind === "schedule" && previous.config.cron === config.cron && previous.config.timezone === config.timezone;
   const resumed = previous && !previous.enabled && enabled;
-  if (previous && same && !resumed) return { nextFireAt: previous.nextFireAt, lastCheckedAt: previous.lastCheckedAt };
-  return { nextFireAt: nextFireAfter(config.cron, config.timezone, now), lastCheckedAt: now };
+  if (previous && same && !resumed) return { nextFireAt: previous.nextFireAt, lastCheckedAt: previous.lastCheckedAt, pollCursor: null };
+  return { nextFireAt: nextFireAfter(config.cron, config.timezone, now), lastCheckedAt: now, pollCursor: null };
 }
 
-async function view(db: Db, row: Row) {
+/**
+ * Whether a poll trigger's next poll is a baseline again (it records what exists and starts
+ * nothing): it calls something else now (tool, action, arguments, paths), or it is turned on again.
+ */
+export function rebaselines(previous: { config: TriggerConfig; enabled: boolean }, config: TriggerConfig, enabled: boolean): boolean {
+  if (previous.config.kind !== "poll" || config.kind !== "poll") return false;
+  const calls = (c: typeof config) => canonicalJson([c.toolId, c.action, c.arguments, c.itemsPath, c.idPath]);
+  return calls(previous.config) !== calls(config) || (!previous.enabled && enabled);
+}
+
+/**
+ * A poll trigger's latest polls, and the items each found new (the latest of them). An item's id
+ * is what the tool read (it may be a subject line): a Job, which may not hold the tool, gets none.
+ */
+async function pollView(db: Db, triggerId: string, forJob: boolean) {
+  const latest = await db.select().from(polls).where(eq(polls.triggerId, triggerId)).orderBy(desc(polls.at), desc(polls.id)).limit(5);
+  const items = await db
+    .select({ itemId: pollItems.itemId, firstSeen: pollItems.firstSeen, status: pollItems.status, runId: pollItems.runId, message: pollItems.message })
+    .from(pollItems)
+    .where(eq(pollItems.triggerId, triggerId))
+    .orderBy(desc(pollItems.firstSeen), desc(pollItems.id))
+    .limit(20);
+  return latest.map((p) => ({
+    at: p.at,
+    status: p.status,
+    found: p.found,
+    fresh: p.fresh,
+    ...(p.message ? { message: p.message } : {}),
+    items: forJob
+      ? []
+      : items
+      .filter((i) => i.firstSeen.getTime() === p.at.getTime())
+      .map((i) => ({ itemId: i.itemId, status: i.status, ...(i.runId ? { runId: i.runId } : {}), ...(i.message ? { message: i.message } : {}) })),
+  }));
+}
+
+async function view(db: Db, row: Row, forJob: boolean) {
   const events =
     row.kind === "primitive"
       ? await db.select().from(eventFires).where(eq(eventFires.triggerId, row.id)).orderBy(desc(eventFires.createdAt), desc(eventFires.id)).limit(5)
@@ -99,6 +156,8 @@ async function view(db: Db, row: Row) {
       ...(f.runId ? { runId: f.runId } : {}),
       ...(f.message ? { message: f.message } : {}),
     })),
+    // A poll trigger's latest polls: what each found, and what each new item did.
+    lastPolls: row.kind === "poll" ? await pollView(db, row.id, forJob) : [],
     // A primitive trigger's latest events: what each did.
     lastEvents: events.map((f) => ({
       eventId: f.eventId,
@@ -140,7 +199,7 @@ const create = owner.input(TriggerFields.extend({ agentId: z.string() })).handle
       ...scheduleColumns(config, null, true, now),
     })
     .returning();
-  return view(context.db, row!);
+  return view(context.db, row!, !!context.job);
 });
 
 const update = owner
@@ -167,11 +226,18 @@ const update = owner
       if (!previous) throw new ORPCError("NOT_FOUND");
       const config = input.config ?? previous.config;
       if (config.kind !== previous.kind) throw new ORPCError("BAD_REQUEST", { message: "A trigger's kind can't change" });
-      // A primitive trigger can always be turned off, even once what it watches has changed under
-      // it: its config is checked when it is turned on again. A schedule's cron is always checked.
-      if ((input.enabled ?? previous.enabled) || config.kind !== "primitive") await checkConfig(tx, context.ownerId, await requireAgent(tx, context.ownerId, previous.agentId), config);
+      // A primitive or poll trigger can always be turned off, even once what it watches has changed
+      // under it: its config is checked when it is turned on again. A schedule's cron is always checked.
+      if ((input.enabled ?? previous.enabled) || config.kind === "schedule" || config.kind === "manual") await checkConfig(tx, context.ownerId, await requireAgent(tx, context.ownerId, previous.agentId), config);
       checkInstructions(config, input.instructions ?? previous.instructions);
       const enabled = input.enabled ?? previous.enabled;
+      // Items a poll found waiting under the trigger's old source are never told under the new one.
+      if (rebaselines(previous, config, enabled)) {
+        await tx
+          .update(pollItems)
+          .set({ status: "refused", message: "The trigger was changed: it reads something else now" })
+          .where(and(eq(pollItems.triggerId, previous.id), eq(pollItems.status, "deferred")));
+      }
       const [updated] = await tx
         .update(triggersTable)
         .set({
@@ -188,7 +254,7 @@ const update = owner
         .returning();
       return updated!;
     });
-    return view(context.db, row);
+    return view(context.db, row, !!context.job);
   });
 
 const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
@@ -203,11 +269,11 @@ const list = owner.input(z.object({ agentId: z.string() })).handler(async ({ inp
     .from(triggersTable)
     .where(and(eq(triggersTable.agentId, input.agentId), eq(triggersTable.ownerId, context.ownerId)))
     .orderBy(asc(triggersTable.createdAt), asc(triggersTable.id));
-  return Promise.all(rows.map((row) => view(context.db, row)));
+  return Promise.all(rows.map((row) => view(context.db, row, !!context.job)));
 });
 
 const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  return view(context.db, await find(context.db, context.ownerId, input.id));
+  return view(context.db, await find(context.db, context.ownerId, input.id), !!context.job);
 });
 
 export const triggers = { create, update, delete: remove, list, get };

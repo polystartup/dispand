@@ -13,10 +13,13 @@ import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, or, sql
 import type { Db, Tx } from "../db/client.ts";
 import {
   agents,
+  eventFires,
+  events,
   harnesses,
   runners,
   messages,
   questions,
+  roots,
   runs,
   stepRuns,
   triggers,
@@ -25,6 +28,7 @@ import {
   type AgentSnapshot,
   type AnsweredBy,
   type JobCause,
+  type PendingAction,
   type QueueClass,
   type RunStatus,
   type RunTrigger,
@@ -44,7 +48,7 @@ import type { CloudKind } from "../harnesses/cloud.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, isCloud, type StartParams } from "./harness.ts";
 import { runDataStep } from "./data-step.ts";
 import { aboutExposed, isExposedName, stopAsking } from "../platform/exposed.ts";
-import { annotate, currentTraceId, meter, recordError, tracer, withJob } from "../telemetry/index.ts";
+import { annotate, currentTraceId, meter, recordError, spanEvent, tracer, withJob } from "../telemetry/index.ts";
 import { REQUEST_APPROVAL } from "../cloud/builtins.ts";
 import { attachProposal, settleProposal } from "../platform/proposals.ts";
 import { issueJobToken } from "../platform/token.ts";
@@ -52,19 +56,15 @@ import type { SecretBox } from "../secrets.ts";
 import { jobDef } from "./job-def.ts";
 import { nextActions, outputsFor, toolValues, valuesFor } from "./next-actions.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
+import { pollProblem } from "../tools/pollable.ts";
 import { give, next, take } from "./slots.ts";
+import { checkpointOf, newRoot, pause, pausedGauge, ROOT_STOPPED, rootGoing } from "./roots.ts";
 
 type RunRow = typeof runs.$inferSelect;
 type StepRow = typeof stepRuns.$inferSelect;
 type MessageRow = typeof messages.$inferSelect;
 type QuestionRow = typeof questions.$inferSelect;
 type RunnerRow = typeof runners.$inferSelect;
-
-/** How many Jobs deep a chain of Jobs causing Jobs may go. */
-const MAX_CHAIN_DEPTH = 10;
-/** The most Jobs one chain makes, from its first Job (`cause.rootJobId`). */
-const MAX_CHAIN_JOBS = 100;
-export const CHAIN_LIMIT = "Chain limit reached";
 
 const traces = tracer("engine");
 const counts = meter("engine");
@@ -96,8 +96,9 @@ export function messageView(m: MessageRow) {
   return { id, runId, stepRunId, role, text, createdAt };
 }
 export function questionView(q: QuestionRow) {
-  const { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId } = q;
-  return { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId };
+  // `rootId`: a checkpoint's Approval (`roots.ts`), told apart by it and never by its tool name.
+  const { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId, rootId } = q;
+  return { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId, rootId };
 }
 
 /** What `runs.stream` forwards: each carries the whole row as it is now (upserts by id). */
@@ -215,6 +216,15 @@ export function resumePrompt(
   };
 }
 
+/**
+ * Whether the step's session may get answers and chat messages now: it holds a slot (or has no
+ * harness to charge). Every path that sends them to a session it may not have reached goes
+ * through here; what may not go stays undelivered, sent when the step is handed a slot (`handOver`).
+ */
+function holdsSlot(step: Pick<StepRow, "working" | "harnessId">): boolean {
+  return step.working || !step.harnessId;
+}
+
 /** What keeps `def` from running: its own issues, its data steps' against the owner's tables and its Tool steps' against the owner's tools. */
 export async function runIssues(db: Db | Tx, ownerId: string, def: WorkflowDef): Promise<WorkflowIssue[]> {
   return [
@@ -241,7 +251,7 @@ async function agentHarnesses(db: Db | Tx, ownerId: string, nodes: object[]): Pr
 export class EngineError extends Error {
   override name = "EngineError";
   constructor(
-    readonly code: "NOT_FOUND" | "INVALID" | "CLOSED" | "NOT_PENDING",
+    readonly code: "NOT_FOUND" | "INVALID" | "CLOSED" | "NOT_PENDING" | "STOPPED",
     message: string,
   ) {
     super(message);
@@ -275,12 +285,14 @@ export class Engine {
   private readonly stopping = new AbortController();
   /** The Tool step calls under way, by step id: `stopRun` cuts its run's. */
   private readonly toolCalls = new Map<string, AbortController>();
+  /** Checkpoint Approvals asked in transactions not known to have committed, with when: `announceCheckpoints` publishes those that did. */
+  private readonly checkpointed = new Map<string, number>();
 
   constructor(
     readonly db: Db,
     private readonly adapter: HarnessAdapter,
     /** Sessions run in this process (`CloudRunner`), reconciled on `recover()` under `CLOUD_SOURCE`. */
-    private readonly cloud?: { recover(): Promise<string[]> },
+    private readonly cloud?: { recover(going: (runId: string) => Promise<boolean>): Promise<string[]> },
     /** Where data steps publish the rows they write (`rows.stream`). */
     private readonly dataEvents?: DataEvents,
     /** Runs Tool steps (`connectorToolExecutor`); without one, they fail. */
@@ -331,30 +343,50 @@ export class Engine {
       if (!trigger) throw new EngineError("NOT_FOUND", "Trigger not found");
       return this.createJob(tx, { ownerId, agentId: trigger.agentId, triggerId, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } });
     });
+    await this.announceCheckpoints();
     await this.continueRun(runId);
     return runId;
   }
 
   /**
+   * Publishes the checkpoint Approvals `createJob` asked whose transaction committed. One not
+   * found yet may be another transaction's, still under way: it is looked for again next time,
+   * for a minute (a rolled-back one never shows up).
+   */
+  async announceCheckpoints(): Promise<void> {
+    const ids = [...this.checkpointed.keys()];
+    if (ids.length === 0) return;
+    const asked = await this.db.select().from(questions).where(inArray(questions.id, ids));
+    for (const q of asked) {
+      this.checkpointed.delete(q.id);
+      this.publish(q.runId, [{ type: "question", question: questionView(q) }]);
+    }
+    for (const [id, at] of this.checkpointed) if (Date.now() - at > 60_000) this.checkpointed.delete(id);
+  }
+
+  /**
    * Inserts a Job (a run of the agent, for one firing of its trigger) and its steps, in `tx`,
    * without starting anything, like `createRun`. The Job keeps the agent and the trigger as
-   * they are now: later edits don't change it.
+   * they are now: later edits don't change it. Every Job is made here, and counted against its
+   * root cause (`rootId`, or a new root of its own): the root's row stays locked until `tx`
+   * commits, so Jobs of one root are counted one after the other, and the Job that reaches the
+   * workspace's checkpoint pauses the root and asks a person (`roots.ts`). A paused root still
+   * gets the Jobs of a claim already under way; a stopped one gets none.
    */
   async createJob(
     tx: Tx,
-    input: { ownerId: string; agentId: string; triggerId: string; cause: JobCause; firing: RunTrigger },
+    input: { ownerId: string; agentId: string; triggerId: string; cause: JobCause; firing: RunTrigger; rootId?: string },
   ): Promise<string> {
     const { ownerId, agentId, triggerId, cause, firing } = input;
-    if (cause.depth > MAX_CHAIN_DEPTH) throw new EngineError("INVALID", CHAIN_LIMIT);
-    if (cause.kind === "event" && cause.rootJobId) {
-      // The root held while counting: two Jobs of one chain made at once wait for each other.
-      await tx.select({ id: runs.id }).from(runs).where(eq(runs.id, cause.rootJobId)).for("no key update");
-      const [chain] = await tx
-        .select({ jobs: count() })
-        .from(runs)
-        .where(and(eq(runs.ownerId, ownerId), or(eq(runs.id, cause.rootJobId), sql`${runs.cause}->>'rootJobId' = ${cause.rootJobId}`)));
-      if (chain!.jobs >= MAX_CHAIN_JOBS) throw new EngineError("INVALID", CHAIN_LIMIT);
-    }
+    const runId = newId("run");
+    // An existing root first, then the trigger and the agent (`roots.ts`); a new one is no one else's yet.
+    const lockRoot = async (rootId: string) => {
+      const [root] = await tx.select().from(roots).where(and(eq(roots.id, rootId), eq(roots.ownerId, ownerId))).for("update");
+      if (!root) throw new EngineError("NOT_FOUND", "Root cause not found");
+      if (root.state === "stopped") throw new EngineError("STOPPED", ROOT_STOPPED);
+      return root;
+    };
+    const given = input.rootId ? await lockRoot(input.rootId) : undefined;
     // Shared with other starts, exclusive with a delete: the Job never outlives its agent. The
     // trigger first, then the agent: the order the scheduler and a delete take them in
     // (`jobs/active.ts`), so none of them waits on another.
@@ -370,6 +402,8 @@ export class Engine {
       .for("share");
     if (!agent) throw new EngineError("NOT_FOUND", "Agent not found");
     if (!trigger || !trigger.enabled) throw new EngineError("NOT_FOUND", "Trigger not found");
+    const root = given ?? (await lockRoot(await newRoot(tx, ownerId, cause.kind, runId)));
+    const rootId = root.id;
     const { skills, tools } = await skillsAndTools(tx, agentId);
     const snapshot: AgentSnapshot = {
       id: agent.id,
@@ -383,7 +417,6 @@ export class Engine {
       tables: agent.dataTables,
     };
     const def = jobDef({ agent: snapshot, trigger });
-    const runId = newId("run");
     const token = this.secrets ? issueJobToken(this.secrets, runId) : undefined;
     await tx.insert(runs).values({
       id: runId,
@@ -396,6 +429,7 @@ export class Engine {
       def,
       snapshot,
       cause,
+      rootId,
       status: "running",
       trigger: firing,
       traceId: currentTraceId() ?? null,
@@ -404,6 +438,15 @@ export class Engine {
     await tx
       .insert(stepRuns)
       .values(nodesOf(def).map((n) => ({ id: newId("step"), ownerId, runId, nodeId: n.id, harnessId: n.agentId ? snapshot.harnessId : null, status: "pending" as const })));
+    const jobs = root.jobs + 1;
+    const [counted] = await tx
+      .update(roots)
+      .set({ jobs, runId: root.runId ?? runId })
+      .where(eq(roots.id, rootId))
+      .returning();
+    if (root.state === "going" && !root.dontAsk && jobs - root.countedFrom >= (await checkpointOf(tx, ownerId))) {
+      this.checkpointed.set(await pause(tx, counted!, jobs, runId), Date.now());
+    }
     return runId;
   }
 
@@ -419,16 +462,29 @@ export class Engine {
       const [run] = await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).for("update");
       if (!run) throw new EngineError("NOT_FOUND", "Run not found");
       if (!ACTIVE_RUN.includes(run.status)) throw new EngineError("CLOSED", "This run is over");
-      const open = await tx
-        .select()
-        .from(stepRuns)
-        .where(and(eq(stepRuns.runId, runId), inArray(stepRuns.status, OPEN_STEP)));
-      for (const step of open) await this.fail(tx, step, STOPPED, out);
-      // A run with no step open (between two steps) is closed here.
-      await this.finishRun(tx, runId, "failed", STOPPED, out);
-      return open;
+      return this.stopIn(tx, runId, out);
     });
     this.publish(runId, out);
+    this.endSessions(sessions);
+  }
+
+  /** Fails every open step of the run, and the run, in `tx`; returns the steps, whose sessions end once it commits (`endSessions`). */
+  private async stopIn(tx: Tx, runId: string, out: Out[]): Promise<StepRow[]> {
+    const open = await tx
+      .select()
+      .from(stepRuns)
+      .where(and(eq(stepRuns.runId, runId), inArray(stepRuns.status, OPEN_STEP)));
+    for (const step of open) await this.fail(tx, step, STOPPED, out);
+    // A run with no step open (between two steps) is closed here.
+    await this.finishRun(tx, runId, "failed", STOPPED, out);
+    return open;
+  }
+
+  /**
+   * The sessions of steps just stopped are told to end. One the process doesn't reach (it stops
+   * first) is ended by its runner's next reconcile: no step still going waits on it.
+   */
+  private endSessions(sessions: StepRow[]) {
     for (const step of sessions) {
       // A Tool step's call under way is cut: it must not act after the stop.
       this.toolCalls.get(step.id)?.abort();
@@ -460,28 +516,114 @@ export class Engine {
     // A chat whose session waits for a slot (`slots.ts`) keeps the message: its start sends it.
     const chat = steps.find((s) => s.start?.interactive && s.sessionId && ACTIVE_STEP.includes(s.status)) ?? (await this.queuedChat(runId, steps));
     if (!chat) throw new EngineError("CLOSED", "The chat is over");
-    const [row] = await this.db
-      .insert(messages)
-      .values({ id: newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text })
-      .returning();
-    this.publish(runId, [{ type: "message", message: messageView(row!) }]);
-    if (chat.sessionId) return this.deliverMessage(chat.sessionId, row!);
-    // Queued: its start sends what is stored by then. If it was written meanwhile, this one goes now.
-    const [now] = await this.db.select({ sessionId: stepRuns.sessionId, startDeliveredAt: stepRuns.startDeliveredAt }).from(stepRuns).where(eq(stepRuns.id, chat.id));
-    if (now?.sessionId && now.startDeliveredAt) this.deliverMessage(now.sessionId, row!);
+    const out: Out[] = [];
+    const { row, working } = await this.db.transaction(async (tx) => {
+      // Each message of the owner is a root cause of its own, unless the chat's is paused at a
+      // checkpoint: the message then waits, undelivered, for that one to go on.
+      const going = await this.rootGoingLocked(tx, runId);
+      if (going) await tx.update(runs).set({ rootId: await newRoot(tx, chat.ownerId, "chat", runId) }).where(eq(runs.id, runId));
+      const [row] = await tx
+        .insert(messages)
+        .values({ id: newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text })
+        .returning();
+      out.push({ type: "message", message: messageView(row!) });
+      // Not started yet: its start sends what is stored by then (and waits for the root too).
+      if (!chat.sessionId) return { row: row!, working: true };
+      if (!going) {
+        await this.hold(tx, chat.id, { kind: "deliver" }, out);
+        return { row: row!, working: false };
+      }
+      // A session between turns takes a slot first, a person waiting on it, or queues with the message.
+      if (!chat.harnessId) return { row: row!, working: true };
+      const got = await take(tx, { id: chat.id, harnessId: chat.harnessId }, "person", { kind: "deliver" });
+      if (got === "queued") await this.pushStep(tx, chat.id, out);
+      return { row: row!, working: got === "working" };
+    });
+    this.publish(runId, out);
+    if (chat.sessionId) {
+      if (working) this.deliverMessage(chat.sessionId, row);
+      return;
+    }
+    // Queued for its start: the start sends what is stored by then. If it was written meanwhile,
+    // this one goes as any message to a started chat (its first turn may be over by now), unless
+    // the start's flush sent it already.
+    const [now] = await this.db.select().from(stepRuns).where(eq(stepRuns.id, chat.id));
+    if (!now?.sessionId || !now.startDeliveredAt) return;
+    const late: Out[] = [];
+    const going = await this.db.transaction(async (tx) => {
+      if (!(await rootGoing(tx, runId))) {
+        await this.hold(tx, now.id, { kind: "deliver" }, late);
+        return false;
+      }
+      if (now.harnessId && (await take(tx, { id: now.id, harnessId: now.harnessId }, "person", { kind: "deliver" })) === "queued") await this.pushStep(tx, now.id, late);
+      return true;
+    });
+    this.publish(runId, late);
+    if (going) await this.redeliverMessage(row.id);
   }
 
-  private async flushChat(stepId: string, sessionId: string) {
+  /** Sends the answers and chat messages that wait for the step's session (it holds a slot). */
+  private async flush(stepId: string, sessionId: string) {
+    for (const q of await this.undeliveredAnswers(sessionId)) this.deliverAnswer(q);
     for (const m of await this.undeliveredMessages(stepId)) this.deliverMessage(sessionId, m);
   }
 
-  /** The run's chat step queued for a slot of its harness, or handed one and not started yet. */
+  /** The step as it is now, for `runs.stream` (it queued, or left the queue). */
+  private async pushStep(tx: Tx, stepId: string, out: Out[]) {
+    const [row] = await tx.select().from(stepRuns).where(eq(stepRuns.id, stepId));
+    if (row) out.push({ type: "step", step: stepView(row) });
+  }
+
+  /**
+   * A step handed a slot does what it waited to do (`pending_action`): its start goes as its run
+   * advances; its waiting answers and messages go, or its lost session resumes. Cleared as it goes:
+   * the rows it sends stay undelivered until they reach the session, and every reconcile of a
+   * step holding a slot sends those again.
+   */
+  private async handOver(stepId: string) {
+    const [step] = await this.db.select().from(stepRuns).where(eq(stepRuns.id, stepId));
+    if (!step?.working || !step.pendingAction) return;
+    // Its root paused at a checkpoint meanwhile: the slot goes back, what it waited to do waits on.
+    if (!(await rootGoing(this.db, step.runId))) {
+      const out: Out[] = [];
+      const action = step.pendingAction;
+      await this.db.transaction((tx) => this.hold(tx, stepId, action, out));
+      return this.publish(step.runId, out);
+    }
+    if (step.pendingAction.kind === "start") {
+      // A session whose start was never written (its runner was away): it goes again.
+      if (step.sessionId && !step.startDeliveredAt && ACTIVE_STEP.includes(step.status)) {
+        const [claimed] = await this.db
+          .update(stepRuns)
+          .set({ pendingAction: null })
+          .where(and(eq(stepRuns.id, stepId), isNotNull(stepRuns.pendingAction)))
+          .returning();
+        if (claimed && !this.inFlight.has(`start:${claimed.sessionId}`) && !(await this.refusedForScope(claimed))) {
+          this.launch(claimed.harness!, claimed.start!, claimed);
+          for (const m of await this.undeliveredMessages(claimed.id)) this.deliverMessage(claimed.sessionId!, m);
+        }
+        return;
+      }
+      return this.advance(step.runId);
+    }
+    const [claimed] = await this.db
+      .update(stepRuns)
+      .set({ pendingAction: null })
+      .where(and(eq(stepRuns.id, stepId), isNotNull(stepRuns.pendingAction), inArray(stepRuns.status, ACTIVE_STEP)))
+      .returning();
+    if (!claimed?.sessionId) return;
+    if (step.pendingAction.kind === "resume") await this.resume(claimed);
+    else await this.flush(claimed.id, claimed.sessionId);
+  }
+
+  /** The run's chat step queued for a slot of its harness, or handed one (or held) and not started yet. */
   private async queuedChat(runId: string, steps: StepRow[]): Promise<StepRow | undefined> {
     const [run] = await this.db.select().from(runs).where(eq(runs.id, runId));
     if (!run || !ACTIVE_RUN.includes(run.status)) return undefined;
     const { field } = (await this.defOf(run)).trigger;
     if (field.type !== "chat") return undefined;
-    return steps.find((s) => s.nodeId === field.id && s.status === "pending" && (s.queuedAt || s.working));
+    // Held, too, while its root is paused at a checkpoint (`hold`).
+    return steps.find((s) => s.nodeId === field.id && s.status === "pending" && (s.queuedAt || s.working || s.pendingAction));
   }
 
   /** Records the owner's answer (once) and sends it to the session. */
@@ -493,13 +635,18 @@ export class Engine {
       if (words.length > TEXT || !storable(words)) throw new EngineError("INVALID", `The answer is too long (at most about ${TEXT - 100} characters)`);
     }
     const out: Out[] = [];
-    const q = await this.db.transaction(async (tx) => {
+    const settled = await this.db.transaction(async (tx) => {
       const [q] = await tx
         .update(questions)
         .set({ status: "answered", answer, answeredAt: new Date(), answeredBy: by ?? null })
         .where(and(eq(questions.id, questionId), eq(questions.status, "pending")))
         .returning();
-      if (!q) return null;
+      if (!q) return undefined;
+      // A checkpoint's Approval: no session waits on it, its root does.
+      if (q.rootId) {
+        out.push({ type: "question", question: questionView(q) });
+        return { q, step: null, root: await this.settleRoot(tx, q.rootId, answer) };
+      }
       // A person's "always allow" to a CLI session's approval of one of its agent's tools: that
       // action stops asking on the agent, with the answer that was just taken (an answer that
       // came second grants nothing). The answer is used up as it is given: the call it is for
@@ -520,15 +667,142 @@ export class Engine {
         await settleProposal(tx as unknown as Db, q.id, answer.decision !== "deny");
       }
       out.push({ type: "question", question: questionView(q) });
-      await this.syncWaiting(tx, q.stepRunId, q.runId, out);
-      return q;
+      await this.syncWaiting(tx, q.stepRunId!, q.runId, out);
+      // Nothing left to wait on: the session goes back to work once it holds a slot. Until then,
+      // and while another question is pending, the answers given stay undelivered.
+      const [step] = await tx.select().from(stepRuns).where(eq(stepRuns.id, q.stepRunId!));
+      if (step?.status !== "running" || !step.sessionId) return { q, step: null };
+      // Its root paused at a checkpoint: the answer is kept, and goes once the root goes on.
+      if (!(await rootGoing(tx, step.runId))) {
+        await this.hold(tx, step.id, { kind: "deliver" }, out);
+        return { q, step: null };
+      }
+      if (step.harnessId && (await take(tx, { id: step.id, harnessId: step.harnessId }, "resume", { kind: "deliver" })) === "queued") {
+        await this.pushStep(tx, step.id, out);
+        return { q, step: null };
+      }
+      return { q, step };
     });
+    const { q, step } = settled ?? {};
+    const root = settled && "root" in settled ? settled.root : undefined;
     if (!q) throw new EngineError("NOT_PENDING", "This question is no longer waiting for an answer");
     const decision = q.answer?.kind === "permission" ? q.answer.decision : q.answer?.kind ?? "none";
     counts.counter("dispand.questions.answered").add(1, { "dispand.question.kind": q.kind, "dispand.answer.decision": decision });
     counts.histogram("dispand.question.wait", { unit: "ms", description: "From a question to its answer" }).record(q.answeredAt!.getTime() - q.createdAt.getTime(), { "dispand.question.kind": q.kind });
     this.publish(q.runId, out);
-    this.deliverAnswer(q);
+    if (step) await this.flush(step.id, step.sessionId!);
+    if (root?.stopped) {
+      for (const [runId, events] of root.stopped.outs) this.publish(runId, events);
+      this.endSessions(root.stopped.sessions);
+    }
+    if (root?.goOn) await this.goOn(root.goOn);
+  }
+
+  /**
+   * A person answered a root's checkpoint, in `tx` with the root locked: approved, it goes on to
+   * the next checkpoint; "don't ask again" (`allow-always`), it goes on with no more checkpoints;
+   * declined, it stops for good: its held events are processed with no Job, its deferred fires
+   * close as `stopped`, and its unfinished Jobs stop as a person's stop does, all in `tx`, so
+   * nothing of it is left going if the process stops right after (their sessions are told to end
+   * once it commits, or by the next reconcile). A stopped root makes no Job (`createJob`), and none of its sessions works
+   * again (`rootGoing`), so nothing of it is replayed after a reconnect or a restart.
+   */
+  private async settleRoot(tx: Tx, rootId: string, answer: Answer): Promise<{ stopped?: { outs: Map<string, Out[]>; sessions: StepRow[] }; goOn?: string }> {
+    const decision = answer.kind === "permission" ? answer.decision : "deny";
+    counts.counter("dispand.checkpoints.answered").add(1, { "dispand.checkpoint.answer": decision === "allow-always" ? "dont-ask" : decision === "allow" ? "approve" : "decline" });
+    const [root] = await tx.select().from(roots).where(eq(roots.id, rootId)).for("update");
+    if (!root || root.state !== "paused") return {};
+    if (decision !== "deny") {
+      await tx
+        .update(roots)
+        .set({ state: "going", countedFrom: root.jobs, ...(decision === "allow-always" ? { dontAsk: true } : {}) })
+        .where(eq(roots.id, rootId));
+      await pausedGauge(tx);
+      return { goOn: rootId };
+    }
+    await tx.update(roots).set({ state: "stopped" }).where(eq(roots.id, rootId));
+    await pausedGauge(tx);
+    const now = new Date();
+    const held = tx.select({ id: events.id }).from(events).where(eq(events.rootId, rootId));
+    await tx
+      .update(eventFires)
+      .set({ status: "stopped", message: ROOT_STOPPED })
+      .where(and(eq(eventFires.status, "deferred"), inArray(eventFires.eventId, held)));
+    await tx.update(events).set({ processedAt: now }).where(and(eq(events.rootId, rootId), isNull(events.processedAt)));
+    const going = await tx
+      .select({ id: runs.id })
+      .from(runs)
+      .where(and(eq(runs.rootId, rootId), inArray(runs.status, ACTIVE_RUN)))
+      .for("update");
+    const outs = new Map<string, Out[]>();
+    const sessions: StepRow[] = [];
+    for (const { id } of going) {
+      const out: Out[] = [];
+      sessions.push(...(await this.stopIn(tx, id, out)));
+      outs.set(id, out);
+    }
+    return { stopped: { outs, sessions } };
+  }
+
+  /**
+   * A root went on after its checkpoint: what its Jobs held while it was paused goes now, in the
+   * order the slots allow. Each held step takes a slot (or queues) for what it waits to do (its
+   * start, its answers and messages, its resume); steps not started yet start as their runs advance.
+   */
+  private async goOn(rootId: string) {
+    const going = await this.db.select({ id: runs.id }).from(runs).where(and(eq(runs.rootId, rootId), inArray(runs.status, ACTIVE_RUN)));
+    for (const { id } of going) {
+      const steps = await this.db
+        .select()
+        .from(stepRuns)
+        .where(and(eq(stepRuns.runId, id), inArray(stepRuns.status, ACTIVE_STEP), isNotNull(stepRuns.sessionId)));
+      for (const step of steps) await this.wake(step);
+      await this.advance(id);
+    }
+  }
+
+  /** A held step takes a slot for what it waits to do, and does it once it holds one (`handOver`). */
+  private async wake(step: StepRow) {
+    const undelivered = async () => (await this.undeliveredAnswers(step.sessionId!)).length > 0 || (await this.undeliveredMessages(step.id)).length > 0;
+    const action: PendingAction | null = !step.startDeliveredAt
+      ? { kind: "start" }
+      : (step.pendingAction ?? (step.status === "running" && (await undelivered()) ? { kind: "deliver" } : null));
+    // An answer waits until no question of the step is pending; a resume carries what the session missed.
+    if (!action || (action.kind === "deliver" && step.status !== "running")) return;
+    const out: Out[] = [];
+    const got = await this.db.transaction(async (tx) => {
+      const got = step.harnessId ? await take(tx, { id: step.id, harnessId: step.harnessId }, "resume", action) : "working";
+      if (got === "working") await tx.update(stepRuns).set({ pendingAction: action }).where(and(eq(stepRuns.id, step.id), inArray(stepRuns.status, ACTIVE_STEP)));
+      else await this.pushStep(tx, step.id, out);
+      return got;
+    });
+    this.publish(step.runId, out);
+    if (got === "working") await this.handOver(step.id);
+  }
+
+  /**
+   * The root's paused: what the step would do now waits, holding no slot (given back, or out of
+   * the queue), in `pending_action`, done once the root goes on (`goOn`). A resume already
+   * waiting stays: it carries the rest.
+   */
+  private async hold(tx: Tx, stepId: string, action: PendingAction, out: Out[]) {
+    const [step] = await tx.select().from(stepRuns).where(eq(stepRuns.id, stepId)).for("update");
+    if (!step || !OPEN_STEP.includes(step.status)) return;
+    // A chat message arriving during a turn: the turn goes on with its slot, given back at its end
+    // (`turn-end`). A slot just handed for what the step waited to do (`pending_action` set) is no turn.
+    const turning = action.kind === "deliver" && step.working && step.status === "running" && !!step.startDeliveredAt && !step.pendingAction;
+    if (!turning) await this.release(tx, step, out);
+    await tx
+      .update(stepRuns)
+      .set({ pendingAction: step.pendingAction?.kind === "resume" ? step.pendingAction : action })
+      .where(eq(stepRuns.id, stepId));
+    spanEvent("engine.slot", { "dispand.slot.action": "hold", "dispand.step.id": stepId });
+  }
+
+  /** `rootGoing`, with the run's root locked: a chat message and a checkpoint are decided one after the other. */
+  private async rootGoingLocked(tx: Tx, runId: string): Promise<boolean> {
+    const [row] = await tx.select({ state: roots.state }).from(runs).innerJoin(roots, eq(roots.id, runs.rootId)).where(eq(runs.id, runId)).for("update", { of: roots });
+    return !row || row.state === "going";
   }
 
   /** One event of a session, from the runner `from.runnerId` (events for another runner's session are ignored). */
@@ -616,7 +890,32 @@ export class Engine {
       await this.failInterruptedTools(id);
       await this.advance(id);
     }
-    if (this.cloud) await this.reconcile(CLOUD_SOURCE, await this.cloud.recover());
+    // Steps handed a slot to deliver answers and messages, or to resume, before the process stopped.
+    const handed = await this.db
+      .select({ id: stepRuns.id })
+      .from(stepRuns)
+      .where(and(eq(stepRuns.working, true), sql`${stepRuns.pendingAction}->>'kind' in ('deliver', 'resume')`));
+    for (const { id } of handed) await this.handOver(id);
+    // Steps held while their root was paused, whose root went on before the process could hand
+    // them back (`goOn`): they take a slot now. Those of a root still paused stay held.
+    const held = await this.db
+      .select({ step: stepRuns })
+      .from(stepRuns)
+      .innerJoin(runs, eq(runs.id, stepRuns.runId))
+      .innerJoin(roots, eq(roots.id, runs.rootId))
+      .where(
+        and(
+          eq(roots.state, "going"),
+          inArray(stepRuns.status, ACTIVE_STEP),
+          isNotNull(stepRuns.sessionId),
+          isNotNull(stepRuns.pendingAction),
+          eq(stepRuns.working, false),
+          isNull(stepRuns.queuedAt),
+        ),
+      );
+    for (const { step } of held) await this.wake(step);
+    // A cloud session of a paused root isn't run again here: reconciled as lost, it is held to resume.
+    if (this.cloud) await this.reconcile(CLOUD_SOURCE, await this.cloud.recover((runId) => rootGoing(this.db, runId)));
   }
 
   /**
@@ -668,7 +967,21 @@ export class Engine {
           await this.db.update(stepRuns).set({ startDeliveredAt }).where(eq(stepRuns.id, step.id));
           step = { ...step, startDeliveredAt };
         }
+        // Its root paused at a checkpoint: nothing goes to it (a turn under way finishes); what it
+        // would do now waits for the root to go on (`goOn`), a lost session's resume included.
+        if (!(await rootGoing(this.db, step.runId))) {
+          const lost = !!step.startDeliveredAt && !liveSessions.includes(sessionId);
+          if (lost) await this.unconfirm(this.db, step);
+          if (!step.startDeliveredAt || lost) {
+            const out: Out[] = [];
+            await this.db.transaction((tx) => this.hold(tx, step.id, { kind: lost ? "resume" : "start" }, out));
+            this.publish(step.runId, out);
+          }
+          continue;
+        }
         if (!step.startDeliveredAt) {
+          // Queued again after its root was paused: it goes when handed a slot (`handOver`).
+          if (!holdsSlot(step)) continue;
           if (await this.refusedForScope(step)) continue;
           this.launch(step.harness!, step.start!, step);
           // Chat messages sent before the start ever reached the runner go right after it.
@@ -677,10 +990,8 @@ export class Engine {
           await this.unconfirm(this.db, step);
           await this.resume(step);
         }
-        else {
-          for (const q of await this.undeliveredAnswers(sessionId)) this.deliverAnswer(q);
-          for (const m of await this.undeliveredMessages(step.id)) this.deliverMessage(sessionId, m);
-        }
+        // Live: what it missed goes now, if it holds a slot; otherwise once it is handed one.
+        else if (holdsSlot(step)) await this.flush(step.id, sessionId);
       }
       // Sessions it still runs that no step still going is waiting on are ended: a stop that
       // never reached it, or a run deleted since (with its workflow or its agent). Decided from
@@ -711,6 +1022,21 @@ export class Engine {
   private async resume(step: StepRow) {
     const sessionId = step.sessionId!;
     const out: Out[] = [];
+    // Its root paused at a checkpoint: it resumes once the root goes on (`goOn`).
+    if (!(await rootGoing(this.db, step.runId))) {
+      await this.db.transaction((tx) => this.hold(tx, step.id, { kind: "resume" }, out));
+      return this.publish(step.runId, out);
+    }
+    // A resume is a turn: it takes a slot first, or queues and resumes once handed one.
+    if (step.harnessId) {
+      const harnessId = step.harnessId;
+      const got = await this.db.transaction(async (tx) => {
+        const got = await take(tx, { id: step.id, harnessId }, "resume", { kind: "resume" });
+        if (got === "queued") await this.pushStep(tx, step.id, out);
+        return got;
+      });
+      if (got === "queued") return this.publish(step.runId, out);
+    }
     const waiting = await this.db
       .update(questions)
       .set({ orphaned: true })
@@ -883,8 +1209,16 @@ export class Engine {
         await this.syncWaiting(tx, step.id, step.runId, out);
         return null;
       }
-      case "turn-end":
+      case "turn-end": {
+        // A chat between turns waits for the owner's next message: it holds no slot meanwhile. A
+        // message sent before this was applied (the last of the transcript) started its next turn
+        // on the slot it holds: that turn's end gives it back.
+        if (!step.start?.interactive || !step.working) return null;
+        const [last] = await tx.select({ role: messages.role }).from(messages).where(eq(messages.stepRunId, step.id)).orderBy(desc(messages.position)).limit(1);
+        // A message held by a paused root (`hold`) started no turn: the slot goes back too.
+        if (last?.role !== "user" || !(await rootGoing(tx, step.runId))) await this.release(tx, step, out);
         return null;
+      }
       case "outputs-accepted":
         return (await this.complete(tx, step, event.values, out)) ? "advance" : null;
       case "result":
@@ -919,7 +1253,7 @@ export class Engine {
       const nodes = new Map(nodesOf(def).map((n) => [n.id, n]));
       let changed = false;
       const scheduledFor = run.trigger.type === "schedule" ? new Date(run.trigger.scheduledFor) : run.createdAt;
-      const outputs = run.trigger.type === "event" ? run.trigger.outputs : undefined;
+      const outputs = run.trigger.type === "event" || run.trigger.type === "poll" ? run.trigger.outputs : undefined;
       for (const action of nextActions(def, steps, { scheduledFor, ...(outputs ? { outputs } : {}) })) {
         const out: Out[] = [];
         if (action.type === "finish") {
@@ -1155,6 +1489,7 @@ export class Engine {
     if (await this.refusedForScope(step)) return;
     // A person waits on a manual run; the other starts are new work.
     const cls: QueueClass = run.trigger.type === "manual" ? "person" : "new";
+    const held: Out[] = [];
     const [started, queued] = await this.db.transaction(async (tx) => {
       // The step's row first, then its harness's (`slots.ts`): a step no longer pending takes nothing.
       const [open] = await tx
@@ -1163,6 +1498,11 @@ export class Engine {
         .where(and(eq(stepRuns.id, step.id), eq(stepRuns.status, "pending")))
         .for("update");
       if (!open) return [];
+      // Its root paused at a checkpoint: it starts once the root goes on (`goOn`).
+      if (!(await rootGoing(tx, run.id))) {
+        await this.hold(tx, step.id, { kind: "start" }, held);
+        return [];
+      }
       if ((await take(tx, { id: step.id, harnessId: h.id }, cls)) === "queued") {
         return [undefined, (await tx.select().from(stepRuns).where(eq(stepRuns.id, step.id)))[0]];
       }
@@ -1172,13 +1512,14 @@ export class Engine {
         .where(eq(stepRuns.id, step.id))
         .returning();
     });
+    this.publish(run.id, held);
     if (queued) this.publish(run.id, [{ type: "step", step: stepView(queued) }]);
     if (!started) return;
     annotate({ "dispand.harness.kind": harness.kind, "dispand.session.id": start.sessionId });
     this.publish(run.id, [{ type: "step", step: stepView(started) }]);
     // Chat messages sent while it was queued go once the start is written (an unwritten one is
     // resent with them by the runner's reconcile).
-    this.launch(harness, start, started, [], start.interactive ? () => this.flushChat(started.id, start.sessionId) : undefined);
+    this.launch(harness, start, started, [], start.interactive ? () => this.flush(started.id, start.sessionId) : undefined);
   }
 
   /**
@@ -1223,27 +1564,33 @@ export class Engine {
 
   /**
    * Rights shrink at once: a Job told of a row's change never gets it once its agent may no
-   * longer read that table, however long its start waited (a runner offline, a resume). Called
-   * right before each start of its session is sent; fails the step and says so when it must not go.
+   * longer read that table, nor a Job told of a poll's item once its agent lost the tool or the
+   * action stopped being pollable, however long its start waited (a runner offline, a resume).
+   * Called right before each start of its session is sent; fails the step and says so when it must not go.
    */
   private async refusedForScope(step: StepRow): Promise<boolean> {
-    if (!(await this.lostEventScope(step.runId))) return false;
+    const problem = await this.lostScope(step.runId);
+    if (!problem) return false;
     const out: Out[] = [];
-    await this.db.transaction((tx) => this.fail(tx, step, "The agent may no longer read the table that changed", out));
+    await this.db.transaction((tx) => this.fail(tx, step, problem, out));
     this.publish(step.runId, out);
     return true;
   }
 
-  /** Whether the run is a Job fired by a row's change whose agent no longer has `data` on that row's table. */
-  private async lostEventScope(runId: string): Promise<boolean> {
+  /** Why the run, a Job fired by a row's change or a poll's item, may no longer be told of it; null when it may. */
+  private async lostScope(runId: string): Promise<string | null> {
     const [row] = await this.db
-      .select({ trigger: runs.trigger, bundles: agents.bundles, dataTables: agents.dataTables })
+      .select({ ownerId: runs.ownerId, agentId: runs.agentId, trigger: runs.trigger, bundles: agents.bundles, dataTables: agents.dataTables })
       .from(runs)
       .leftJoin(agents, eq(agents.id, runs.agentId))
       .where(eq(runs.id, runId));
-    if (row?.trigger.type !== "event") return false;
+    if (row?.trigger.type === "poll") {
+      const { toolId, action } = row.trigger;
+      return row.agentId && !(await pollProblem(this.db, row.ownerId, row.agentId, toolId, action)) ? null : "The agent may no longer read the tool's action that found this item";
+    }
+    if (row?.trigger.type !== "event") return null;
     const tableId = row.trigger.outputs.table_id ?? "";
-    return !row.bundles?.includes("data") || (row.dataTables !== "all" && !row.dataTables?.includes(tableId));
+    return !row.bundles?.includes("data") || (row.dataTables !== "all" && !row.dataTables?.includes(tableId)) ? "The agent may no longer read the table that changed" : null;
   }
 
   /** An answer reaches the session as an answer, or, for a question its lost session asked, as a message. */
@@ -1253,12 +1600,14 @@ export class Engine {
       this.deferred.push(() => this.keep(this.redeliverAnswer(q.id)));
       return;
     }
-    const losses = this.losses.get(q.sessionId) ?? 0;
+    // Only a session's questions are delivered (a checkpoint's Approval has none).
+    const sessionId = q.sessionId!;
+    const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`q:${q.id}`, async () => {
       const ok = q.orphaned
-        ? await this.adapter.send(q.sessionId, answerText(q))
-        : await this.adapter.answer(q.sessionId, q.runnerQuestionId, q.answer!);
-      if (ok && (this.losses.get(q.sessionId) ?? 0) === losses) await this.db.update(questions).set({ deliveredAt: new Date() }).where(eq(questions.id, q.id));
+        ? await this.adapter.send(sessionId, answerText(q))
+        : await this.adapter.answer(sessionId, q.runnerQuestionId!, q.answer!);
+      if (ok && (this.losses.get(sessionId) ?? 0) === losses) await this.db.update(questions).set({ deliveredAt: new Date() }).where(eq(questions.id, q.id));
     }).catch((err: unknown) => logError("answer delivery failed", err, { ref: q.id }));
     this.keep(sent);
   }
@@ -1278,17 +1627,21 @@ export class Engine {
   }
 
   private async redeliverAnswer(id: string) {
-    const [q] = await this.db.select().from(questions).where(eq(questions.id, id));
-    if (q?.status === "answered" && !q.deliveredAt) this.deliverAnswer(q);
+    const [row] = await this.db
+      .select({ q: questions, step: stepRuns })
+      .from(questions)
+      .innerJoin(stepRuns, eq(stepRuns.id, questions.stepRunId))
+      .where(eq(questions.id, id));
+    if (row?.q.status === "answered" && !row.q.deliveredAt && holdsSlot(row.step)) this.deliverAnswer(row.q);
   }
 
   private async redeliverMessage(id: string) {
     const [row] = await this.db
-      .select({ m: messages, sessionId: stepRuns.sessionId })
+      .select({ m: messages, step: stepRuns })
       .from(messages)
       .innerJoin(stepRuns, eq(stepRuns.id, messages.stepRunId))
       .where(eq(messages.id, id));
-    if (row && !row.m.deliveredAt && row.sessionId) this.deliverMessage(row.sessionId, row.m);
+    if (row && !row.m.deliveredAt && row.step.sessionId && holdsSlot(row.step)) this.deliverMessage(row.step.sessionId, row.m);
   }
 
   /** Keeps `work` in `background` until it settles; a rejection still surfaces, as it would unkept. */
@@ -1318,10 +1671,11 @@ export class Engine {
     if (!row) return false;
     out.push({ type: "step", step: stepView(row) });
     await this.release(tx, row, out);
+    // A checkpoint's Approval asked in a chat is the root's, not the step's: it stays.
     const expired = await tx
       .update(questions)
       .set({ status: "expired" })
-      .where(and(eq(questions.stepRunId, step.id), eq(questions.status, "pending")))
+      .where(and(eq(questions.stepRunId, step.id), eq(questions.status, "pending"), isNull(questions.rootId)))
       .returning();
     for (const q of expired) out.push({ type: "question", question: questionView(q) });
     await this.syncWaiting(tx, step.id, step.runId, out);
@@ -1337,7 +1691,6 @@ export class Engine {
       .returning();
     if (!row) return;
     out.push({ type: "step", step: stepView(row) });
-    await this.release(tx, row, out);
     // A failed iteration fails its loop too: nothing else would close the loop's row.
     if (step.iteration > 0) {
       const [run] = await tx
@@ -1354,28 +1707,33 @@ export class Engine {
         : [];
       if (loop) out.push({ type: "step", step: stepView(loop) });
     }
+    // A checkpoint's Approval asked on this run is its root's: it stays.
     const expired = await tx
       .update(questions)
       .set({ status: "expired" })
-      .where(and(eq(questions.runId, step.runId), eq(questions.status, "pending")))
+      .where(and(eq(questions.runId, step.runId), eq(questions.status, "pending"), isNull(questions.rootId)))
       .returning();
     for (const q of expired) out.push({ type: "question", question: questionView(q) });
     await this.finishRun(tx, step.runId, "failed", error, out);
-    // Nothing more of the run starts: its steps queued or handed a slot leave the queue. Its
-    // steps waiting on a question (expired above) never go on: they give their slot back.
+    // Nothing more of the run starts or resumes: its steps queued (to start, for an answer or a
+    // message, or to resume) or handed a slot leave the queue. Its steps waiting on a question
+    // (expired above) never go on: one still holding a slot gives it back.
     const waiting = await tx
       .select()
       .from(stepRuns)
       .where(
         and(
           eq(stepRuns.runId, step.runId),
-          or(and(eq(stepRuns.status, "pending"), or(isNotNull(stepRuns.queuedAt), eq(stepRuns.working, true))), and(eq(stepRuns.status, "waiting"), eq(stepRuns.working, true))),
+          inArray(stepRuns.status, OPEN_STEP),
+          or(isNotNull(stepRuns.queuedAt), and(inArray(stepRuns.status, ["pending", "waiting"]), eq(stepRuns.working, true))),
         ),
       );
     for (const s of waiting) await this.release(tx, s, out);
+    // Last, once its run is over: none of the run's steps is handed the slot.
+    await this.release(tx, row, out);
   }
 
-  /** A step that held a slot gives it back, or leaves the queue; the steps handed the slot start once `tx` commits. */
+  /** A step that held a slot gives it back, or leaves the queue; the steps handed the slot go on once `tx` commits (`handOver`). */
   private async release(tx: Tx, step: StepRow, out: Out[]) {
     if (!step.working && !step.queuedAt) return;
     const handed = await give(tx, step.id);
@@ -1398,13 +1756,13 @@ export class Engine {
     }
   }
 
-  /** A step, and its run, wait while one of their questions is pending. */
-  private async syncWaiting(tx: Tx | Db, stepId: string, runId: string, out: Out[]) {
+  /** A step, and its run, wait while one of their questions is pending (a checkpoint's is its root's); a step waiting holds no slot. */
+  private async syncWaiting(tx: Tx, stepId: string, runId: string, out: Out[]) {
     const pending = async (column: typeof questions.stepRunId | typeof questions.runId, id: string) => {
       const [row] = await tx
         .select({ n: count() })
         .from(questions)
-        .where(and(eq(column, id), eq(questions.status, "pending")));
+        .where(and(eq(column, id), eq(questions.status, "pending"), isNull(questions.rootId)));
       return (row?.n ?? 0) > 0;
     };
     const stepStatus = (await pending(questions.stepRunId, stepId)) ? "waiting" : "running";
@@ -1414,6 +1772,13 @@ export class Engine {
       .where(and(eq(stepRuns.id, stepId), inArray(stepRuns.status, ACTIVE_STEP), sql`${stepRuns.status} <> ${stepStatus}`))
       .returning();
     if (step) out.push({ type: "step", step: stepView(step) });
+    if (stepStatus === "waiting") {
+      const [held] = await tx
+        .select()
+        .from(stepRuns)
+        .where(and(eq(stepRuns.id, stepId), eq(stepRuns.status, "waiting"), eq(stepRuns.working, true)));
+      if (held) await this.release(tx, held, out);
+    }
     const runStatus = (await pending(questions.runId, runId)) ? "waiting" : "running";
     const [run] = await tx
       .update(runs)
@@ -1441,8 +1806,8 @@ export class Engine {
 
   private publish(runId: string, out: Out[]) {
     for (const e of out) {
-      // A step handed a slot: its run goes on, which starts its session (`openSession`).
-      if (e.type === "slot") this.keep(this.advance(e.runId).catch((err: unknown) => logError("slot hand-over failed", err, { ref: e.stepId })));
+      // A step handed a slot does what it waited to do (`handOver`).
+      if (e.type === "slot") this.keep(this.handOver(e.stepId).catch((err: unknown) => logError("slot hand-over failed", err, { ref: e.stepId })));
       else this.events.publish(runId, e);
     }
     if (out.some((e) => e.type === "question")) this.questionChanges.publish("changed", true);

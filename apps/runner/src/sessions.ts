@@ -169,7 +169,7 @@ export class Sessions {
    * Handles a server message after the earlier ones for the same session; messages for other
    * sessions don't wait for it. Settles once this one is handled.
    */
-  handle(msg: Exclude<ServerToRunner, { type: "ack" | "tool.discover" }>): Promise<void> {
+  handle(msg: Exclude<ServerToRunner, { type: "ack" | "tool.discover" | "tool.call" }>): Promise<void> {
     const id = msg.type === "session.start" ? msg.start.sessionId : msg.sessionId;
     const before = this.queues.get(id);
     // Nothing before it: handled now, as the message arrives.
@@ -182,7 +182,7 @@ export class Sessions {
     return done;
   }
 
-  private async dispatch(msg: Exclude<ServerToRunner, { type: "ack" | "tool.discover" }>): Promise<void> {
+  private async dispatch(msg: Exclude<ServerToRunner, { type: "ack" | "tool.discover" | "tool.call" }>): Promise<void> {
     if (msg.type === "session.start") {
       const started = this.start(msg.start);
       this.inFlight.add(started);

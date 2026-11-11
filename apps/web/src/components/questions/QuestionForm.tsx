@@ -10,7 +10,7 @@ export type About = { tool: string; action: string; description: string };
 
 export type QuestionFormProps = {
   /** `proposalId`: the Approval is for a proposal; `proposal`: that proposal as its owner reads it (the Inbox loads it). */
-  question: { payload: QuestionPayload; orphaned?: boolean; about?: About | null; proposalId?: string | null; proposal?: ProposalView | null };
+  question: { payload: QuestionPayload; orphaned?: boolean; about?: About | null; proposalId?: string | null; proposal?: ProposalView | null; rootId?: string | null };
   onAnswer: (answer: Answer) => void;
   /** An answer is being sent: the form can't be submitted again. */
   busy?: boolean;
@@ -28,7 +28,8 @@ export function QuestionForm({ question, onAnswer, busy, error }: QuestionFormPr
         </p>
       )}
       {payload.kind === "choice" && <Choice payload={payload} onAnswer={onAnswer} busy={busy} />}
-      {payload.kind === "permission" && (
+      {payload.kind === "permission" && question.rootId && <Checkpoint payload={payload} onAnswer={onAnswer} busy={busy} />}
+      {payload.kind === "permission" && !question.rootId && (
         <Permission payload={payload} about={question.about ?? null} proposalId={question.proposalId ?? null} proposal={question.proposal ?? null} onAnswer={onAnswer} busy={busy} />
       )}
       {payload.kind === "confirm-outputs" && <Confirm payload={payload} onAnswer={onAnswer} busy={busy} />}
@@ -37,6 +38,48 @@ export function QuestionForm({ question, onAnswer, busy, error }: QuestionFormPr
           {error}
         </p>
       )}
+    </div>
+  );
+}
+
+/** What a checkpoint's Approval says (`engine/roots.ts`): the root cause, its Jobs, the agents involved and since when. */
+export type CheckpointInput = { root: string; jobs: number; agents: string[]; since: string };
+
+export function checkpointInput(payload: QuestionPayload): CheckpointInput {
+  const input = (payload.kind === "permission" ? payload.input : null) as Partial<CheckpointInput> | null;
+  return {
+    root: typeof input?.root === "string" ? input.root : "Work of your agents",
+    jobs: typeof input?.jobs === "number" ? input.jobs : 0,
+    agents: Array.isArray(input?.agents) ? input.agents.filter((a): a is string => typeof a === "string") : [],
+    since: typeof input?.since === "string" ? input.since : "",
+  };
+}
+
+const since = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+
+/** A checkpoint (design 6.1): the work from one root cause made this many Jobs; go on, go on for good, or stop it. */
+function Checkpoint({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { kind: "permission" }>>) {
+  const c = checkpointInput(payload);
+  const send = (decision: "allow" | "allow-always" | "deny") => onAnswer({ kind: "permission", decision });
+  const date = c.since ? new Date(c.since) : null;
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-[15px]">
+        {c.root} has led to <span className="font-medium">{c.jobs} Jobs</span>
+        {date && !Number.isNaN(date.getTime()) ? ` since ${since.format(date)}` : ""}. It is paused until you say whether it goes on.
+      </p>
+      {c.agents.length > 0 && <p className="text-[13px] text-muted">Agents: {c.agents.join(", ")}</p>}
+      <div className="flex flex-wrap gap-2">
+        <Button disabled={busy} onClick={() => send("allow")}>
+          Go on
+        </Button>
+        <Button variant="outline" disabled={busy} onClick={() => send("allow-always")}>
+          Don't ask again for this goal
+        </Button>
+        <Button variant="outline" disabled={busy} onClick={() => send("deny")}>
+          Stop this work
+        </Button>
+      </div>
     </div>
   );
 }

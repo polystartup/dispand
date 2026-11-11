@@ -38,6 +38,7 @@ const serverMessages: ServerToRunner[] = [
   { type: "session.start", start: codexStart },
   { type: "session.start", start: { ...start, jobToken: "dj_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ" } },
   { type: "tool.discover", requestId: "req_1", tool: "fetch" },
+  { type: "tool.call", requestId: "req_3", tool: "mail", action: "search", arguments: { query: "is:unread" } },
   { type: "session.send", sessionId: "ses_1", text: "more" },
   {
     type: "session.answer",
@@ -78,6 +79,9 @@ const runnerMessages: RunnerToServer[] = [
     actions: [{ name: "fetch", description: "Fetches a URL", inputSchema: { type: "object", properties: { url: { type: "string" } } } }],
   },
   { type: "tool.discovered", requestId: "req_2", error: "the server didn't start" },
+  { type: "tool.called", requestId: "req_3", content: [{ type: "text", text: "[]" }], isError: false },
+  { type: "tool.called", requestId: "req_5", content: [{ type: "text", text: "[]" }], isError: false, hasMore: true },
+  { type: "tool.called", requestId: "req_4", error: "the action send of mail isn't read-only" },
   ...(
     [
       { type: "cli-session", cliSessionId: "cli-123" },

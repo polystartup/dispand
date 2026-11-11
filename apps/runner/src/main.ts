@@ -1,11 +1,13 @@
 // The runner's command line: `pair` once (install.sh runs it), then `run` (the systemd user unit).
 import { execFile } from "node:child_process";
+import { homedir } from "node:os";
 import { accessSync, constants } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 import { parseArgs, promisify } from "node:util";
 import pkg from "../package.json" with { type: "json" };
 import { claudeEnv, codexEnv, configDir, loadConfig, loadToken, machineConfigPaths, preparePairing, type RunnerConfig, runnerStateDir, serverUrl, stateDir } from "./config.ts";
-import { discoverTool } from "./mcp.ts";
+import { callTool, credentialValues, discoverTool } from "./mcp.ts";
+import { codexDenied } from "./boundary.ts";
 import { clearSessions } from "./skills.ts";
 import { Connection } from "./connection.ts";
 import { ID } from "@dispand/runner-protocol";
@@ -142,6 +144,24 @@ async function run(args: string[]) {
     ).finally(() => listing.delete(tool));
   };
 
+  /** Tools being called for a poll: one call per tool at a time. */
+  const calling = new Set<string>();
+  const call = (requestId: string, tool: string, action: string, args: Record<string, unknown>) => {
+    const server = Object.hasOwn(local, tool) ? local[tool] : undefined;
+    if (!server) return conn.reply({ type: "tool.called", requestId, error: `this runner has no MCP server ${tool} in its config` });
+    if (calling.has(tool)) return conn.reply({ type: "tool.called", requestId, error: `the MCP server ${tool} is already being called` });
+    calling.add(tool);
+    // The machine's config and every link out of it, and the credentials' values, read now.
+    const machine = machineConfigPaths(dir, env);
+    const claudeDir = env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+    const credentials = [join(dir, "config.json"), join(claudeDir, ".credentials.json"), join(claudeDir, "settings.json"), join(env.CODEX_HOME || join(homedir(), ".codex"), "auth.json")];
+    const guard = { forbidden: codexDenied([...machine, ...credentials]), secrets: [token, ...credentialValues(credentials)] };
+    void callTool(tool, server, action, args, guard).then(
+      ({ content, isError, hasMore }) => conn.reply({ type: "tool.called", requestId, content, isError, ...(hasMore ? { hasMore } : {}) }),
+      (err: unknown) => conn.reply({ type: "tool.called", requestId, error: (err as Error).message }),
+    ).finally(() => calling.delete(tool));
+  };
+
   const conn: Connection = new Connection({
     server: config.server,
     token,
@@ -154,6 +174,7 @@ async function run(args: string[]) {
     },
     onMessage: (msg) => {
       if (msg.type === "tool.discover") return discover(msg.requestId, msg.tool);
+      if (msg.type === "tool.call") return call(msg.requestId, msg.tool, msg.action, msg.arguments);
       // In order per session (`Sessions.handle`): one session's slow start holds up no other.
       sessions.handle(msg).catch((err: unknown) => console.error("dispand-runner:", err));
     },

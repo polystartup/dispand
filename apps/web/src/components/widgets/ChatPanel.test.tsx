@@ -71,6 +71,7 @@ test("while the chat's question waits, sending is off with a hint", async () => 
           id: "q1",
           about: null,
           proposalId: null,
+          rootId: null,
           runId: "run_1",
           stepRunId: "s_chat",
           placement: "chat",
@@ -144,4 +145,21 @@ test("a new conversation can't start while a message is on its way", async () =>
   expect(screen.getByRole<HTMLButtonElement>("button", { name: "New conversation" }).disabled).toBe(true);
   finish();
   await waitFor(() => expect(screen.getByRole<HTMLButtonElement>("button", { name: "New conversation" }).disabled).toBe(false));
+});
+
+
+test("Enter sends while the agent works; Shift+Enter adds a line, and a new conversation clears the draft", async () => {
+  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.runs.stream.mockImplementation(streamOf(snapshot()));
+  const user = mount("run_1");
+  const box = await screen.findByLabelText<HTMLTextAreaElement>("Message");
+  await user.type(box, "First{Shift>}{Enter}{/Shift}Second");
+  expect(box.value).toBe("First\nSecond");
+  expect(fake.runs.sendChat).not.toHaveBeenCalled();
+  await user.keyboard("{Enter}");
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledWith({ runId: "run_1", text: "First\nSecond" }));
+  await waitFor(() => expect(box.value).toBe(""));
+  await user.type(box, "Unsent");
+  await user.click(screen.getByRole("button", { name: "New conversation" }));
+  expect(box.value).toBe("");
 });

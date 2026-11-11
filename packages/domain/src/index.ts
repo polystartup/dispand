@@ -14,6 +14,8 @@ export { DataEvents, getDataEvents, type DataEvent } from "./data/events.ts";
 export { openAttachment, sweepAttachments, type AttachmentView } from "./data/files.ts";
 export { logError } from "./log.ts";
 export { createMcpConnector, type ToolConnector } from "./tools/mcp.ts";
+export { InstalledTools } from "./tools/executor.ts";
+export { pollCaller } from "./tools/poll.ts";
 export { guardedFetch, ownAddresses } from "./tools/network.ts";
 export { clientDocument, handleToolOAuthCallback } from "./tools/oauth.ts";
 export { packageForRunner } from "./skills/runner-access.ts";
