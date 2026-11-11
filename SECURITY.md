@@ -104,6 +104,14 @@ changes it updates this file.
   creating or changing an agent, so the same gate refuses them without an approved item. An
   item is also checked against the Job's tables when it is proposed, like any call: a Job
   limited to some tables can't put another table's deletion in front of the owner.
+- **A Question reaches another agent only within what it may read.** Asking, answering and
+  expiring a Question or an Approval is an event of ids and kinds, never its text, options or
+  answer. An agent's trigger on them starts a Job only for a Question it may read
+  (`questions/inbox-scope.ts`, `reachable`): it has `inbox`, the item is a Question (an Approval
+  is a person's), asked by a Job of another agent, without `configure`, on tables within its
+  own; any other is recorded with no Job and never named to it. Each start of such a Job's
+  session checks it again with the Job's rights as they are then (its snapshot's that its agent
+  still has), so a revoked table or `inbox` is never sent.
 - **A poll is never a way around action approvals or an agent's tools.** The scheduler calls a
   tool outside any Job only for a poll trigger whose action the tool lets polls read and no agent
   must ask before using, of a tool its agent has (`pollProblem`): checked when the trigger is

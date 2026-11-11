@@ -4,6 +4,7 @@ import type { Db, Tx } from "../db/client.ts";
 import { agents, questions, roots, runs, stepRuns, workspaceSettings, type RootKind } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { meter, spanEvent } from "../telemetry/index.ts";
+import { recordInteraction } from "./interactions.ts";
 
 // A root cause (design 6.1) and its checkpoints. Every Job is counted against its root in
 // `Engine.createJob`, with the root's row locked (`FOR UPDATE`, before the trigger's and the
@@ -87,6 +88,7 @@ export async function pause(tx: Tx, root: typeof roots.$inferSelect, jobs: numbe
     status: "pending",
     rootId: root.id,
   });
+  await recordInteraction(tx, { id, ownerId: root.ownerId, runId: chat ? root.runId! : reachedBy, stepRunId: chat?.id ?? null, kind: "approval" }, "created");
   counts.counter("dispand.checkpoints.reached").add(1);
   counts.counter("dispand.questions.opened").add(1, { "dispand.question.kind": "approval" });
   spanEvent("engine.checkpoint", { "dispand.root.id": root.id, "dispand.root.kind": root.kind, "dispand.root.jobs": jobs });

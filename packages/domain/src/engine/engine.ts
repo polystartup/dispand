@@ -59,6 +59,9 @@ import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import { pollProblem } from "../tools/pollable.ts";
 import { give, next, take } from "./slots.ts";
 import { checkpointOf, newRoot, pause, pausedGauge, ROOT_STOPPED, rootGoing } from "./roots.ts";
+import { recordInteraction, recordInteractions } from "./interactions.ts";
+import { jobScope, startable } from "../questions/inbox-scope.ts";
+import { INTERACTION } from "../triggers/model.ts";
 
 type RunRow = typeof runs.$inferSelect;
 type StepRow = typeof stepRuns.$inferSelect;
@@ -642,6 +645,7 @@ export class Engine {
         .where(and(eq(questions.id, questionId), eq(questions.status, "pending")))
         .returning();
       if (!q) return undefined;
+      await recordInteraction(tx, q, "answered", by ?? { type: "user", userId: q.ownerId });
       // A checkpoint's Approval: no session waits on it, its root does.
       if (q.rootId) {
         out.push({ type: "question", question: questionView(q) });
@@ -1192,6 +1196,7 @@ export class Engine {
           .returning();
         if (row) {
           counts.counter("dispand.questions.opened").add(1, { "dispand.question.kind": row.kind });
+          await recordInteraction(tx, row, "created");
           // A request for approval that names a proposal of this run: the question is for that proposal.
           if (event.payload.kind === "permission" && event.payload.toolName === REQUEST_APPROVAL) {
             row.proposalId = await attachProposal(tx as unknown as Db, { runId: step.runId, ownerId: step.ownerId }, row.id, event.payload.input);
@@ -1204,6 +1209,7 @@ export class Engine {
             .set({ status: "expired" })
             .where(and(eq(questions.stepRunId, step.id), eq(questions.status, "pending"), eq(questions.orphaned, true)))
             .returning();
+          await recordInteractions(tx, expired, "expired");
           for (const q of expired) out.push({ type: "question", question: questionView(q) });
         }
         await this.syncWaiting(tx, step.id, step.runId, out);
@@ -1577,7 +1583,7 @@ export class Engine {
     return true;
   }
 
-  /** Why the run, a Job fired by a row's change or a poll's item, may no longer be told of it; null when it may. */
+  /** Why the run, a Job fired by a row's change, a Question or a poll's item, may no longer be told of it; null when it may. */
   private async lostScope(runId: string): Promise<string | null> {
     const [row] = await this.db
       .select({ ownerId: runs.ownerId, agentId: runs.agentId, trigger: runs.trigger, bundles: agents.bundles, dataTables: agents.dataTables })
@@ -1590,6 +1596,11 @@ export class Engine {
     }
     if (row?.trigger.type !== "event") return null;
     const tableId = row.trigger.outputs.table_id ?? "";
+    // A Question or an Approval: still one its Job may read, with the Job's rights as they are now (and, once asked, still open).
+    if (tableId === INTERACTION) {
+      const scope = row.agentId ? await jobScope(this.db, { runId, ownerId: row.ownerId, agentId: row.agentId }) : null;
+      return scope && (await startable(this.db, scope, row.trigger.outputs.row_id ?? "", row.trigger.outputs.operation ?? "")) ? null : "The agent may no longer read this Question";
+    }
     return !row.bundles?.includes("data") || (row.dataTables !== "all" && !row.dataTables?.includes(tableId)) ? "The agent may no longer read the table that changed" : null;
   }
 
@@ -1677,6 +1688,7 @@ export class Engine {
       .set({ status: "expired" })
       .where(and(eq(questions.stepRunId, step.id), eq(questions.status, "pending"), isNull(questions.rootId)))
       .returning();
+    await recordInteractions(tx, expired, "expired");
     for (const q of expired) out.push({ type: "question", question: questionView(q) });
     await this.syncWaiting(tx, step.id, step.runId, out);
     return true;
@@ -1713,6 +1725,7 @@ export class Engine {
       .set({ status: "expired" })
       .where(and(eq(questions.runId, step.runId), eq(questions.status, "pending"), isNull(questions.rootId)))
       .returning();
+    await recordInteractions(tx, expired, "expired");
     for (const q of expired) out.push({ type: "question", question: questionView(q) });
     await this.finishRun(tx, step.runId, "failed", error, out);
     // Nothing more of the run starts or resumes: its steps queued (to start, for an answer or a

@@ -1,11 +1,12 @@
 import { call } from "@orpc/server";
 import type { Answer } from "@dispand/runner-protocol";
-import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { eventFires, events, harnesses, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
+import { INTERACTION } from "../triggers/model.ts";
 import { Engine, STOPPED } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { Scheduler } from "./scheduler.ts";
@@ -80,7 +81,8 @@ async function setup(checkpoint: number, maxWorking = 100) {
     const [row] = await context.db.select({ root: roots }).from(runs).innerJoin(roots, eq(roots.id, runs.rootId)).where(eq(runs.id, runId));
     return row!.root;
   };
-  const unprocessed = () => context.db.select().from(events).where(isNull(events.processedAt));
+  // The rows' writes that wait (a checkpoint's Approval is an `interaction` event of the root too, and waits with them).
+  const unprocessed = () => context.db.select().from(events).where(and(isNull(events.processedAt), ne(events.tableId, INTERACTION)));
   let seq = 0;
   const emit = (sessionId: string, event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(sessionId, event, { runnerId, seq: ++seq });
   const sessionOf = async (runId: string) => (await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId)))[0]!;
@@ -212,6 +214,8 @@ test("declining stops the root's Jobs, processes its held events, closes its def
   expect(fires.length).toBeGreaterThan(1);
   for (const f of fires.slice(1)) expect(f).toMatchObject({ status: "stopped", message: "Stopped at a checkpoint", runId: null });
   expect(await s.scheduler.tick()).toEqual([]);
+  // Its Approval's events, and those of what its stopped Jobs asked, start nothing either.
+  expect(await s.context.db.select().from(events).where(isNull(events.processedAt))).toEqual([]);
 
   // A reconnect and a restart replay nothing of it.
   const before = s.adapter.all;
