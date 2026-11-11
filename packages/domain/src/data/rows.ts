@@ -312,6 +312,8 @@ export async function clearReferences(tx: Tx, ownerId: string, tableId: string, 
   if (deletedIds.length === 0) return changed;
   const referring = await tx.select().from(fieldsTable).where(and(eq(fieldsTable.referencesTableId, tableId), eq(fieldsTable.ownerId, ownerId)));
   for (const field of referring) {
+    // The table first, then its rows: the order a schema change takes them in.
+    await tx.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.id, field.tableId)).for("share");
     const hits = await tx
       .select({ id: rowsTable.id })
       .from(rowsTable)
