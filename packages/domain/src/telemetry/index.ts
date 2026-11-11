@@ -167,6 +167,7 @@ export function meter(name: string) {
   return {
     counter: (instrument: MetricName, options?: MetricOptions) => ({ add: (value: number, attributes?: Attributes) => current().createCounter(instrument, options).add(value, attributes) }),
     histogram: (instrument: MetricName, options?: MetricOptions) => ({ record: (value: number, attributes?: Attributes) => current().createHistogram(instrument, options).record(value, attributes) }),
+    gauge: (instrument: MetricName, options?: MetricOptions) => ({ record: (value: number, attributes?: Attributes) => current().createGauge(instrument, options).record(value, attributes) }),
   };
 }
 
@@ -184,6 +185,11 @@ export function currentTraceId(): string | undefined {
 /** Attributes for the span running now, if any (an owner id once it is known, a count). */
 export function annotate(attributes: Attributes): void {
   trace.getActiveSpan()?.setAttributes(attributes);
+}
+
+/** An event on the span running now, if any: ids, names and kinds only. */
+export function spanEvent(name: string, attributes: Attributes): void {
+  trace.getActiveSpan()?.addEvent(name, attributes);
 }
 
 /**

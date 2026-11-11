@@ -256,6 +256,25 @@
   primitive with a `urlTransform`, `img` and `a` overrides and `skipHtml`). Nothing else
   imports the library. The panel keeps its own composer. A Job's
   questions are listed in Notifications with its agent.
+- **Harness slots:** each harness runs at most `harnesses.max_working` sessions on a turn at
+  once (default 5, 1 to 100), counting every Job and workflow agent step on it. A slot is a
+  step run with `working` set (`engine/slots.ts`). `Engine.openSession` takes one before it
+  writes a start: `take` locks the step's row, then its harness's (`FOR UPDATE`), counts the
+  working steps and marks the step working, or queues it (`queued_at`, `queue_class`: `person`
+  for a manual run's start, `new` otherwise; `resume` comes with answers). A step's
+  `harness_id` is set when its row is made (a Job's from its snapshot, a workflow step's from
+  its agent) and again when it becomes ready, from the agent row read once for both the slot and
+  the start, so an agent moved meanwhile is charged to its new harness. Closing a step (`complete`,
+  `fail`) calls `give`: the slot goes back and the free ones go, in the same transaction, to the
+  next queued steps of the harness (class, then oldest first), marked working with
+  `pending_action` `start`; once that commits, their runs advance and start them. A run that
+  fails takes its queued steps out of the queue. `recover()` hands the free slots to the queued
+  steps first, then advances every active run, which starts the steps handed a slot before the
+  process stopped. Migration 0041 charges the open agent steps and marks working those with a
+  session running. `runs.list` says which runs have a step `queued`; the run page shows it on
+  the step. Telemetry: `dispand.harness.working` and `dispand.harness.queued` gauges by harness
+  id and kind, `dispand.harness.queue_wait` (ms, by class), an `engine.slot` span event on each
+  take, give and hand-over.
 - **Telemetry** (`packages/domain/src/telemetry/`): OpenTelemetry's trace, log and metric
   providers, started once by the app (`startTelemetry`, guarded on `globalThis` for dev
   reloads) and stopped on shutdown. OTLP/HTTP exporters exist only when

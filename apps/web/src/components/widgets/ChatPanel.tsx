@@ -42,9 +42,11 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const chatStep = run?.steps.find((s) => s.interactive);
+  // The chat step, or, while it waits for a slot of its harness, the step of the run's chat field.
+  const chatField = runDef?.trigger.field.type === "chat" ? runDef.trigger.field.id : undefined;
+  const chatStep = run?.steps.find((s) => s.interactive) ?? run?.steps.find((s) => s.nodeId === chatField && s.status === "pending");
   // Until its stream answers, a run just started counts as open: the first message may still be on its way.
-  const open = !runId || !run || (!!chatStep && (chatStep.status === "running" || chatStep.status === "waiting"));
+  const open = !runId || !run || (!!chatStep && (chatStep.status === "running" || chatStep.status === "waiting" || chatStep.status === "pending"));
   const asking = !!run?.questions.some((q) => q.stepRunId === chatStep?.id && q.status === "pending");
   const canSend = open && !asking;
 
