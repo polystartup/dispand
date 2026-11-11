@@ -1,5 +1,5 @@
 import type { FieldType } from "@dispand/domain/data/fields";
-import { Calendar, CircleChevronDown, Hash, Link, type LucideIcon, Paperclip, SquareCheck, TextAlignStart, Type } from "lucide-react";
+import { Calendar, CircleChevronDown, Hash, Link, Link2, type LucideIcon, Paperclip, SquareCheck, TextAlignStart, Type } from "lucide-react";
 
 /** How each field type is named and drawn in the Data screens. */
 export const FIELD_TYPE_UI: Record<FieldType, { label: string; Icon: LucideIcon }> = {
@@ -11,4 +11,5 @@ export const FIELD_TYPE_UI: Record<FieldType, { label: string; Icon: LucideIcon 
   url: { label: "URL", Icon: Link },
   attachment: { label: "Files", Icon: Paperclip },
   "single-select": { label: "Single select", Icon: CircleChevronDown },
+  reference: { label: "Link to a row", Icon: Link2 },
 };

@@ -1,5 +1,5 @@
 import { FIELD_TYPES, type FieldType } from "@dispand/domain/data/fields";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,8 @@ export function NewFieldPopover({ tableId, onCreated }: { tableId: string; onCre
   const [name, setName] = useState("");
   const [type, setType] = useState<FieldType>("text");
   const [choices, setChoices] = useState("");
+  const [target, setTarget] = useState("");
+  const tables = useQuery({ ...orpc.tables.list.queryOptions(), enabled: open && type === "reference" });
   const create = useMutation(
     orpc.fields.create.mutationOptions({
       onSuccess: () => {
@@ -29,6 +31,7 @@ export function NewFieldPopover({ tableId, onCreated }: { tableId: string; onCre
         setName("");
         setType("text");
         setChoices("");
+        setTarget("");
         onCreated();
       },
     }),
@@ -36,7 +39,7 @@ export function NewFieldPopover({ tableId, onCreated }: { tableId: string; onCre
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    create.mutate({ tableId, name: name.trim(), type, choices: type === "single-select" ? choicesFromLines(choices) : [] });
+    create.mutate({ tableId, name: name.trim(), type, choices: type === "single-select" ? choicesFromLines(choices) : [], ...(type === "reference" ? { referencesTableId: target } : {}) });
   };
 
   return (
@@ -74,8 +77,21 @@ export function NewFieldPopover({ tableId, onCreated }: { tableId: string; onCre
               <textarea value={choices} onChange={(e) => setChoices(e.target.value)} rows={4} className="rounded-md border border-input bg-transparent px-3 py-2 text-[14px] outline-none" />
             </label>
           )}
+          {type === "reference" && (
+            <label className="grid gap-1 text-[13px] font-medium text-muted">
+              Rows of
+              <select value={target} onChange={(e) => setTarget(e.target.value)} className={selectClass} required>
+                <option value="">Choose a table</option>
+                {(tables.data ?? []).map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {create.error && <p role="alert" className="text-[13px] text-danger">{create.error.message}</p>}
-          <Button type="submit" disabled={create.isPending || name.trim() === ""}>
+          <Button type="submit" disabled={create.isPending || name.trim() === "" || (type === "reference" && target === "")}>
             Add field
           </Button>
         </form>

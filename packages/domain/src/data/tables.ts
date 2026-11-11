@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, sql, ne } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
 import { attachments, fields as fieldsTable, rows as rowsTable, runs, tables as tablesTable, workflows, workflowVersions } from "../db/schema.ts";
@@ -30,15 +30,16 @@ const Choices = z
 
 type FieldRow = typeof fieldsTable.$inferSelect;
 
-export type FieldView = { id: string; tableId: string; name: string; type: FieldType; choices: Choice[]; position: number };
+/** `referencesTableId`: a reference field's table, null for any other field. */
+export type FieldView = { id: string; tableId: string; name: string; type: FieldType; choices: Choice[]; position: number; referencesTableId: string | null };
 export type TableView = { id: string; name: string; fields: FieldView[] };
 
 function fieldView(f: FieldRow): FieldView {
-  const { id, tableId, name, type, choices, position } = f;
-  return { id, tableId, name, type, choices, position };
+  const { id, tableId, name, type, choices, position, referencesTableId } = f;
+  return { id, tableId, name, type, choices, position, referencesTableId };
 }
 
-const schemaOf = (f: FieldRow): FieldSchema => ({ id: f.id, name: f.name, type: f.type, choices: f.choices });
+const schemaOf = (f: FieldRow): FieldSchema => ({ id: f.id, name: f.name, type: f.type, choices: f.choices, referencesTableId: f.referencesTableId });
 
 /** A unique index refused the name: a CONFLICT naming it. Anything else goes on. */
 function nameTaken(what: "table" | "field", name: string) {
@@ -164,6 +165,14 @@ const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input,
   await context.db.transaction(async (tx) => {
     await lockTable(tx, context.ownerId, input.id);
     if (await tableInUse(tx, context.ownerId, input.id)) throw new ORPCError("CONFLICT", { message: "A workflow uses this table" });
+    // A reference field of another table names its rows: that field goes first.
+    const [referring] = await tx
+      .select({ field: fieldsTable.name, table: tablesTable.name })
+      .from(fieldsTable)
+      .innerJoin(tablesTable, eq(tablesTable.id, fieldsTable.tableId))
+      .where(and(eq(fieldsTable.referencesTableId, input.id), ne(fieldsTable.tableId, input.id)))
+      .limit(1);
+    if (referring) throw new ORPCError("CONFLICT", { message: `The field “${referring.field}” of the table “${referring.table}” refers to this table: delete it first` });
     await tx.delete(tablesTable).where(eq(tablesTable.id, input.id));
   });
   publish(context.dataEvents, input.id);
@@ -172,18 +181,32 @@ const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input,
 export const tables = { create, list, get, rename, delete: remove };
 
 const createField = owner
-  .input(z.object({ tableId: z.string(), name: Name, type: z.enum(FIELD_TYPES), choices: Choices.optional() }))
+  .input(
+    z.object({
+      tableId: z.string(),
+      name: Name,
+      type: z.enum(FIELD_TYPES),
+      choices: Choices.optional(),
+      /** For a reference field: the table whose rows it names. */
+      referencesTableId: z.string().max(64).optional(),
+    }),
+  )
   .handler(async ({ input, context }) => {
     const choices = input.choices ?? [];
     if (choices.length > 0 && input.type !== "single-select") throw new ORPCError("BAD_REQUEST", { message: "Only a single select has choices" });
+    if ((input.type === "reference") !== (input.referencesTableId !== undefined)) {
+      throw new ORPCError("BAD_REQUEST", { message: "A reference field, and only it, names the table whose rows it holds" });
+    }
     const field = await context.db
       .transaction(async (tx) => {
         await lockTable(tx, context.ownerId, input.tableId);
+        // The table it names: the owner's, and kept from being deleted meanwhile.
+        if (input.referencesTableId !== undefined && input.referencesTableId !== input.tableId) await lockTable(tx, context.ownerId, input.referencesTableId);
         const [n] = await tx.select({ n: count() }).from(fieldsTable).where(eq(fieldsTable.tableId, input.tableId));
         if (n!.n >= MAX_FIELDS) throw new ORPCError("BAD_REQUEST", { message: `A table has at most ${MAX_FIELDS} fields` });
         const [field] = await tx
           .insert(fieldsTable)
-          .values({ id: newId("fld"), ownerId: context.ownerId, tableId: input.tableId, name: input.name, type: input.type, choices, position: n!.n })
+          .values({ id: newId("fld"), ownerId: context.ownerId, tableId: input.tableId, name: input.name, type: input.type, choices, position: n!.n, referencesTableId: input.referencesTableId ?? null })
           .returning();
         await touch(tx, input.tableId);
         return field!;
@@ -265,6 +288,8 @@ const isEmpty = (cell: Cell) => cell === null || cell === "" || (Array.isArray(c
 const retype = owner
   .input(z.object({ id: z.string(), type: z.enum(FIELD_TYPES), dryRun: z.boolean() }))
   .handler(async ({ input, context }) => {
+    // A reference names a table, which a retype can't say: a reference field is created as one.
+    if (input.type === "reference") throw new ORPCError("BAD_REQUEST", { message: "Create a reference field instead: it names the table it refers to" });
     const result = await context.db.transaction(async (tx) => {
       const field = await lockField(tx, context.ownerId, input.id);
       const stored = await tx
@@ -291,7 +316,7 @@ const retype = owner
       }
       const [updated] = await tx
         .update(fieldsTable)
-        .set({ type: input.type, choices: input.type === "single-select" ? converted.choices : [] })
+        .set({ type: input.type, choices: input.type === "single-select" ? converted.choices : [], referencesTableId: null })
         .where(eq(fieldsTable.id, field.id))
         .returning();
       await touch(tx, field.tableId);

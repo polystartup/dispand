@@ -1,0 +1,2 @@
+ALTER TABLE "fields" ADD COLUMN "references_table_id" text;--> statement-breakpoint
+ALTER TABLE "fields" ADD CONSTRAINT "fields_references_table_id_tables_id_fk" FOREIGN KEY ("references_table_id") REFERENCES "public"."tables"("id") ON DELETE no action ON UPDATE no action;

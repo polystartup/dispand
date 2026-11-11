@@ -1,7 +1,9 @@
 import { type Cell, cellText, type FieldSchema, parseCellText } from "@dispand/domain/data/fields";
 import { Check } from "lucide-react";
 import { type KeyboardEvent, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { orpc } from "../../lib/api.ts";
 
 /** How the grid moves after a commit made from the keyboard. */
 export type CommitMove = "Tab" | "ShiftTab" | "Enter";
@@ -26,6 +28,7 @@ const inputClass = "w-full rounded-md border border-accent bg-surface px-2 py-1 
  */
 export function CellEditor({ field, value, onCommit, onCancel, inline = true, initialText }: Props) {
   if (field.type === "single-select") return <SelectEditor field={field} value={value} onCommit={onCommit} onCancel={onCancel} inline={inline} />;
+  if (field.type === "reference") return <ReferenceEditor field={field} value={value} onCommit={onCommit} onCancel={onCancel} inline={inline} />;
   if (field.type === "checkbox") {
     return (
       <input type="checkbox" aria-label={field.name} checked={value === true} onChange={(e) => onCommit(e.target.checked)} className="size-4 accent-[var(--accent)]" />
@@ -123,6 +126,20 @@ function TextEditor({ field, value, onCommit, onCancel, inline, initialText }: P
   );
 }
 
+/** A reference: one of the rows of its table, named by their first field (the first 100). */
+function ReferenceEditor({ field, ...rest }: Props) {
+  const tableId = field.referencesTableId ?? "";
+  const table = useQuery(orpc.tables.get.queryOptions({ input: { id: tableId } }));
+  const rows = useQuery(orpc.rows.list.queryOptions({ input: { tableId, limit: 100 } }));
+  const first = table.data?.fields.find((f) => f.position === 0);
+  const choices = (rows.data?.rows ?? []).map((r) => {
+    const value = first ? r.values[first.id] : null;
+    const label = first && value !== null && value !== undefined ? cellText(first, value) : "";
+    return { id: r.id, label: label || "Untitled row" };
+  });
+  return <SelectEditor field={{ ...field, choices }} {...rest} />;
+}
+
 function SelectEditor({ field, value, onCommit, onCancel, inline }: Props) {
   return (
     <div
@@ -154,7 +171,9 @@ function SelectEditor({ field, value, onCommit, onCancel, inline }: Props) {
           </li>
         ))}
       </ul>
-      {field.choices.length === 0 && <p className="px-2 py-1.5 text-[13px] text-muted">No choices yet: add them from the field's menu.</p>}
+      {field.choices.length === 0 && (
+        <p className="px-2 py-1.5 text-[13px] text-muted">{field.type === "reference" ? "No rows in that table yet." : "No choices yet: add them from the field's menu."}</p>
+      )}
       <button type="button" onClick={() => onCommit(null)} className="mt-1 w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-muted hover:bg-hover">
         Clear
       </button>
