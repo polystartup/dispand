@@ -1,5 +1,6 @@
-import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import type { ComponentProps } from "react";
+import { MarkdownTextPrimitive, type CodeHeaderProps } from "@assistant-ui/react-markdown";
+import { type ComponentProps, useState } from "react";
+import { Check, Copy } from "lucide-react";
 
 // Text an agent wrote, shown formatted. Whatever it holds, the browser is not made to fetch
 // anything from elsewhere: an image shows only when it is one of the app's own files, a link is a
@@ -17,7 +18,31 @@ function urlTransform(url: string, key: string): string | null {
   return null;
 }
 
+function CodeHeader({ language, code }: CodeHeaderProps) {
+  const [copied, setCopied] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(code);
+      setError(false);
+    } catch {
+      setError(true);
+    }
+  }
+  return (
+    <div className="mt-3 flex items-center justify-between gap-3 rounded-t-lg border border-line bg-surface px-3 py-2 text-[12px] text-muted">
+      <span className="min-w-0 truncate font-mono">{language || "Code"}</span>
+      <button type="button" onClick={() => void copy()} aria-label="Copy code" className="flex shrink-0 items-center gap-1.5 rounded px-1 hover:text-fg focus-visible:outline-2 focus-visible:outline-accent">
+        {copied === code ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
+        <span role="status">{error ? "Copy failed; try again" : copied === code ? "Copied" : "Copy code"}</span>
+      </button>
+    </div>
+  );
+}
+
 const components: ComponentProps<typeof MarkdownTextPrimitive>["components"] = {
+  CodeHeader,
   img: ({ src, alt }) =>
     typeof src === "string" && FILE.test(src) ? <img src={src} alt={alt ?? ""} className="my-1 max-h-64 rounded-lg" /> : <span className="text-faint">[image not shown: {alt || "no description"}]</span>,
   a: ({ href, children }) =>
@@ -31,16 +56,16 @@ const components: ComponentProps<typeof MarkdownTextPrimitive>["components"] = {
 };
 
 const prose =
-  "max-w-[85%] break-words rounded-[18px] rounded-bl-md bg-hover px-3.5 py-2 text-[15px] leading-snug text-fg " +
+  "min-w-0 w-full break-words text-[15px] leading-relaxed text-fg " +
   "[&_p]:whitespace-pre-wrap [&_p+p]:mt-2 [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 " +
   "[&_h1]:mt-1 [&_h1]:text-[17px] [&_h1]:font-semibold [&_h2]:mt-1 [&_h2]:text-[16px] [&_h2]:font-semibold [&_h3]:mt-1 [&_h3]:font-semibold " +
-  "[&_code]:rounded [&_code]:bg-surface [&_code]:px-1 [&_code]:font-mono [&_code]:text-[13px] [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-surface [&_pre]:p-2 " +
+  "[&_code]:rounded [&_code]:bg-surface [&_code]:px-1 [&_code]:font-mono [&_code]:text-[13px] [&_pre]:mb-3 [&_pre]:mt-0 [&_pre]:overflow-x-auto [&_pre]:rounded-b-lg [&_pre]:border [&_pre]:border-t-0 [&_pre]:border-line [&_pre]:bg-surface [&_pre]:p-2 " +
   "[&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-muted";
 
 /** An agent's words in the conversation. */
 export function AgentText() {
   return (
-    <div className="flex justify-start">
+    <div className="flex min-w-0 justify-start">
       <div className={prose}>
         <MarkdownTextPrimitive smooth={false} skipHtml urlTransform={urlTransform} components={components} />
       </div>

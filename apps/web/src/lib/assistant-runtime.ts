@@ -64,15 +64,16 @@ const same = (m: ThreadMessageLike) => m;
 export const textOf = (message: AppendMessage) => message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
 
 /**
- * The library's runtime over a run's chat. `working`: the agent is at work (the composer shows
- * it); `canSend`: false while the conversation is over or a question waits; `onSend` sends the
+ * The library's runtime over a run's chat. `canSend`: false while the conversation is over or a question waits; `onSend` sends the
  * owner's words through Dispand's own procedures.
  */
-export function useRunThread(options: { run: RunSnapshot | null; chatStepId: string | undefined; working: boolean; canSend: boolean; onSend: (text: string) => Promise<void> }) {
+export function useRunThread(options: { run: RunSnapshot | null; chatStepId: string | undefined; canSend: boolean; onSend: (text: string) => Promise<void> }) {
   return useExternalStoreRuntime({
     messages: threadMessages(options.run, options.chatStepId),
     convertMessage: same,
-    isRunning: options.working,
+    // The run view has no turn-in-progress flag: a running chat may be idle for hours.
+    // Render each text snapshot as available rather than disabling copy until the Job ends.
+    // Subsequent stream events still replace its text through `messages`.
     isSendDisabled: !options.canSend,
     onNew: (message) => options.onSend(textOf(message)),
   });
