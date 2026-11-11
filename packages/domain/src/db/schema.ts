@@ -810,6 +810,9 @@ export const tools = pgTable(
     // From the last listing that succeeded; `actionsError` says why the last one failed.
     actions: jsonb("actions").$type<ToolAction[]>().notNull().default([]),
     actionsError: text("actions_error"),
+    // The actions a poll may read, set by the owner; null: the ones the server marks read-only.
+    // An action some agent must ask before using is never polled, whatever this says (`tools/pollable.ts`).
+    pollable: jsonb("pollable").$type<string[]>(),
     refreshedAt: timestamp("refreshed_at"),
     // The catalog entry it was installed from (`tools/catalog.ts`), if any.
     catalogId: text("catalog_id"),

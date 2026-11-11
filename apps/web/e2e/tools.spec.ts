@@ -57,7 +57,9 @@ test("adding a tool with a header lists its actions, and the header shows as set
 
   const sheet = page.getByRole("dialog");
   await expect(sheet.getByRole("heading", { name: "Actions (1)" })).toBeVisible();
-  await expect(sheet.getByText("create_repository")).toBeVisible();
+  await expect(sheet.getByRole("region", { name: /^Actions/ }).getByText("create_repository")).toBeVisible();
+  // A poll may read it only if the server says it is read-only: it does not, so it is offered unticked.
+  await expect(sheet.getByRole("region", { name: "What polls may read" }).getByRole("checkbox", { name: /create_repository/ })).not.toBeChecked();
   await expect(sheet.getByText("Repository name")).toBeVisible();
   expect(server.requests.length).toBeGreaterThan(0);
   expect(server.requests.every((h) => h.authorization === "Bearer e2e-s3cret")).toBe(true);
