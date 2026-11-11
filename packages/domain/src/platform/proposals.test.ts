@@ -275,6 +275,19 @@ test("a Job limited to some tables can't propose deleting another table, or a fi
   expect(await s.propose([{ tool: "tables_delete", input: { id: mine.id } }], job)).toMatchObject({ ok: true });
 });
 
+test("a proposed table-change trigger's table and fields are read by name", async () => {
+  const s = await setup();
+  const table = await call(router.tables.create, { name: "Clients" }, { context: s.context });
+  const field = (await call(router.tables.get, { id: table.id }, { context: s.context })).fields[0]!;
+  await call(router.tables.setPrimitive, { id: table.id, primitive: true }, { context: s.context });
+  const id = s.idOf(
+    await s.propose([{ tool: "triggers_create", input: { agentId: s.agent.id, name: "On change", instructions: "Look.", config: { kind: "primitive", tableId: table.id, operations: ["updated"], fields: [field.id] } } }]),
+  );
+  const q = await s.ask({ message: "May I?", proposal: id });
+  const { proposal } = (await call(router.questions.list, { status: "pending" }, { context: s.context })).find((i) => i.id === q)!;
+  expect(proposal!.names).toMatchObject({ [table.id]: { kind: "table", name: "Clients" }, [field.id]: { kind: "field", name: field.name } });
+});
+
 test("a Job limited to some tables can't propose a trigger watching another table", async () => {
   const s = await setup();
   const mine = await call(router.tables.create, { name: "Mine" }, { context: s.context });

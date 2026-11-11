@@ -149,6 +149,14 @@ export async function proposalView(db: Db, ownerId: string, proposalId: string) 
       if (!wanted.has(kind)) wanted.set(kind, new Set());
       for (const id of ids) wanted.get(kind)!.add(id);
     }
+    // A table-change trigger names its table and fields inside its config.
+    const config = ((item.input ?? {}) as { config?: { kind?: unknown; tableId?: unknown; fields?: unknown } }).config;
+    if (item.tool.startsWith("triggers_") && config?.kind === "primitive") {
+      for (const [kind, ids] of [["table", strings(config.tableId)], ["field", strings(config.fields)]] as const) {
+        if (!wanted.has(kind)) wanted.set(kind, new Set());
+        for (const id of ids) wanted.get(kind)!.add(id);
+      }
+    }
   }
   const names: Record<string, ProposalName> = {};
   const found = async <T extends { id: string }>(kind: ProposalName["kind"], load: (ids: string[]) => Promise<T[]>, name: (row: T) => Omit<ProposalName, "kind">) => {
