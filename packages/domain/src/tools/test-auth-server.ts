@@ -14,6 +14,10 @@ type Options = {
   /** Its metadata, or its token endpoint, redirects there instead of answering. */
   redirectMetadataTo?: string;
   redirectTokenTo?: string;
+  /** A refused refresh says why, quoting the refresh token (as a careless server might). */
+  describeRefusal?: boolean;
+  /** Runs before the token endpoint answers (to change things while an exchange is under way). */
+  beforeToken?: () => Promise<void>;
 };
 
 /** One request to the token endpoint, as the form it posted (and the Authorization header). */
@@ -116,6 +120,7 @@ export async function startFakeAuthServer(options: Options = {}): Promise<FakeAu
         const form = Object.fromEntries(new URLSearchParams(await read(req)));
         tokenRequests.push({ form, ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}) });
         if (options.redirectTokenTo) return res.writeHead(307, { location: options.redirectTokenTo }).end();
+        await options.beforeToken?.();
         const client = clientOf(form, req.headers.authorization);
         if (!client) return json(res, 401, { error: "invalid_client" });
         if (form.grant_type === "authorization_code") {
@@ -129,7 +134,9 @@ export async function startFakeAuthServer(options: Options = {}): Promise<FakeAu
         }
         if (form.grant_type === "refresh_token") {
           const owner = refresh.get(form.refresh_token ?? "");
-          if (options.refusesRefresh || owner !== client) return json(res, 400, { error: "invalid_grant" });
+          if (options.refusesRefresh || owner !== client) {
+            return json(res, 400, { error: "invalid_grant", ...(options.describeRefusal ? { error_description: `The grant ${form.refresh_token} was revoked` } : {}) });
+          }
           refresh.delete(form.refresh_token!);
           return json(res, 200, tokens(client));
         }

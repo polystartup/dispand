@@ -8,7 +8,7 @@ import type { SecretBox } from "../secrets.ts";
 import { ToolError } from "./errors.ts";
 import type { ToolConnector } from "./mcp.ts";
 import { clientDocumentUrl, clientMetadata, type OAuthState } from "./oauth-provider.ts";
-import { oauthStep, oauthStore, openState, sealState, stateHash } from "./oauth-store.ts";
+import { oauthStep, oauthStore, openState, sameTarget, sealState, stateHash } from "./oauth-store.ts";
 import { refreshActions, toolTarget } from "./procedures.ts";
 
 export type OAuthApp = { db: Db; auth: Auth; secrets: SecretBox; tools: ToolConnector };
@@ -53,18 +53,16 @@ export async function finishToolAuthorization(app: Omit<OAuthApp, "auth">, owner
   };
   if (params.has("error")) return fail("The sign-in was refused or cancelled: connect the tool again");
   try {
-    await oauthStep("callback", row.id, () => app.tools.finishAuthorization({ ...toolTarget(row, app.secrets), oauth: oauthStore(app.db, app.secrets, row.id, ownerId) }, pending, params));
+    await oauthStep("callback", row.id, () => app.tools.finishAuthorization({ ...toolTarget(row, app.secrets), oauth: oauthStore(app.db, app.secrets, row) }, pending, params));
   } catch (error) {
     if (!(error instanceof ToolError)) logError("tools.oauth callback failed", error, { ref: row.id });
     return fail(error instanceof ToolError ? error.message : "The sign-in couldn't be finished: connect the tool again");
   }
-  const [connected] = await app.db
-    .update(toolsTable)
-    .set({ oauthStatus: "connected", actionsError: null })
-    .where(and(eq(toolsTable.id, row.id), eq(toolsTable.auth, "oauth")))
-    .returning();
+  // Only while the tool still signs in to the server the flow was for: one pointed elsewhere meanwhile isn't connected by it.
+  const [connected] = await app.db.update(toolsTable).set({ oauthStatus: "connected", actionsError: null }).where(sameTarget(row)).returning();
+  if (!connected) return { toolId: row.id, ok: false };
   // A fresh connection, with the tokens just saved.
-  if (connected) await refreshActions(app.db, app.secrets, app.tools, connected).catch((error: unknown) => logError("tools.refresh failed", error, { ref: row.id }));
+  await refreshActions(app.db, app.secrets, app.tools, connected).catch((error: unknown) => logError("tools.refresh failed", error, { ref: row.id }));
   return { toolId: row.id, ok: true };
 }
 

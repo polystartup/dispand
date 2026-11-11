@@ -1,6 +1,6 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
@@ -26,12 +26,14 @@ const echo: FakeAction = {
 };
 
 /** A fake authorization server, and an MCP server it protects. */
-async function servers(options: Parameters<typeof startFakeAuthServer>[0] = {}) {
+async function servers(options: Parameters<typeof startFakeAuthServer>[0] = {}, actions: FakeAction[] = [echo]) {
   const as = await startFakeAuthServer(options);
   closers.push(as.close);
-  const mcp = await startFakeMcp([echo], "streamable-http", { oauth: { authorizationServer: as.url, accepts: (t) => as.accepts(t) } });
+  // Changed by a test to have the server name another authorization server.
+  const protection = { authorizationServer: as.url, accepts: (t: string) => as.accepts(t) };
+  const mcp = await startFakeMcp(actions, "streamable-http", { oauth: protection });
   closers.push(mcp.close);
-  return { as, mcp };
+  return { as, mcp, protection };
 }
 
 /** The owner's context, with a connector that knows the app's URL. */
@@ -267,4 +269,80 @@ test("the client metadata document names the app and its callback, and nothing s
     response_types: ["code"],
     token_endpoint_auth_method: "none",
   });
+});
+
+test("an OAuth tool is only reached over https, as headers are", async () => {
+  const ctx = await context();
+  await expect(oauthTool(ctx, "http://mcp.example.com/mcp")).rejects.toThrow(/https/);
+  const plain = await call(router.tools.create, { name: "Plain", url: "http://mcp.example.com/mcp", transport: "streamable-http", headers: {} }, { context: ctx });
+  await expect(call(router.tools.update, { id: plain.id, auth: "oauth" }, { context: ctx })).rejects.toThrow(/https/);
+});
+
+test("an entered client is bound to its authorization server: another one the server names later never gets its secret", async () => {
+  const { mcp, protection } = await servers({ client: { id: "given-id", secret: "given-s3cret" } });
+  const ctx = await context();
+  const tool = await oauthTool(ctx, mcp.url);
+  await connect(ctx, tool.id, { clientId: "given-id", clientSecret: "given-s3cret" });
+  const other = await startFakeAuthServer({ client: { id: "given-id", secret: "given-s3cret" } });
+  closers.push(other.close);
+  protection.authorizationServer = other.url;
+  protection.accepts = (t) => other.accepts(t);
+  await expect(call(router.tools.authorize, { id: tool.id }, { context: ctx })).rejects.toThrow(/another authorization server/);
+  expect(other.authorizations).toEqual([]);
+  expect(other.tokenRequests).toEqual([]);
+  // Entering the client again binds it to the new server.
+  await connect(ctx, tool.id, { clientId: "given-id", clientSecret: "given-s3cret" });
+  expect(other.tokenRequests.map((r) => r.form.grant_type)).toEqual(["authorization_code"]);
+  expect(await call(router.tools.get, { id: tool.id }, { context: ctx })).toMatchObject({ oauthStatus: "connected", actions: [{ name: "echo" }] });
+});
+
+test("a tool pointed at another server while its code is exchanged isn't connected by it, and the new server gets no token", async () => {
+  const elsewhere = await startFakeMcp([echo]);
+  closers.push(elsewhere.close);
+  const ctx = await context();
+  let toolId = "";
+  const { mcp } = await servers({
+    metadataDocuments: true,
+    beforeToken: async () => {
+      await call(router.tools.update, { id: toolId, url: elsewhere.url }, { context: ctx });
+    },
+  });
+  const tool = await oauthTool(ctx, mcp.url);
+  toolId = tool.id;
+  const { url } = await call(router.tools.authorize, { id: tool.id }, { context: ctx });
+  expect(await finishToolAuthorization(ctx, ctx.ownerId, await signIn(url))).toEqual({ toolId: tool.id, ok: false });
+  const stored = await row(ctx, tool.id);
+  expect(stored).toMatchObject({ url: elsewhere.url, oauthStatus: "authorize" });
+  expect(openState(ctx.secrets, tool.id, stored.oauthSealed).issuers).toEqual({});
+  expect(elsewhere.requests.some((h) => h.authorization)).toBe(false);
+});
+
+test("what the server sends back is redacted of the tool's client secret and tokens", async () => {
+  const leaky: FakeAction = { name: "leak", description: "Uses given-s3cret", call: () => ({ content: [{ type: "text", text: "secret given-s3cret" }] }) };
+  const { mcp } = await servers({ client: { id: "given-id", secret: "given-s3cret" } }, [leaky]);
+  const ctx = await context();
+  const tool = await oauthTool(ctx, mcp.url);
+  await connect(ctx, tool.id, { clientId: "given-id", clientSecret: "given-s3cret" });
+  const listed = await call(router.tools.get, { id: tool.id }, { context: ctx });
+  expect(listed.actions[0]!.description).toBe("Uses ••••");
+  const installed = new InstalledTools(ctx.db, ctx.secrets, ctx.tools);
+  expect(await installed.call(await row(ctx, tool.id), "leak", {}, new AbortController().signal)).toEqual({ ok: true, result: { text: "secret ••••", isError: false } });
+});
+
+test("a refused refresh's description, which may quote the token, never reaches the console", async () => {
+  const { as, mcp } = await servers({ metadataDocuments: true, refusesRefresh: true, describeRefusal: true });
+  const ctx = await context();
+  const tool = await oauthTool(ctx, mcp.url);
+  await connect(ctx, tool.id);
+  const { refresh_token } = tokensOf(ctx, await row(ctx, tool.id));
+  as.expireAccessTokens();
+  const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  try {
+    const installed = new InstalledTools(ctx.db, ctx.secrets, ctx.tools);
+    expect(await installed.call(await row(ctx, tool.id), "echo", { text: "hi" }, new AbortController().signal)).toMatchObject({ ok: false });
+    expect(warned).toHaveBeenCalled();
+    expect(JSON.stringify(warned.mock.calls)).not.toContain(refresh_token!);
+  } finally {
+    warned.mockRestore();
+  }
 });

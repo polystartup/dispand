@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { ORPCError } from "@orpc/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { tools as toolsTable } from "../db/schema.ts";
 import { secretAad, type SecretBox } from "../secrets.ts";
@@ -29,20 +29,29 @@ export function sealState(secrets: SecretBox, toolId: string, state: OAuthState)
   };
 }
 
-/** The tool's OAuth state in the database, sealed with the secret box; each change on the row locked. */
-export function oauthStore(db: Db, secrets: SecretBox, toolId: string, ownerId: string): OAuthStore {
-  const mine = and(eq(toolsTable.id, toolId), eq(toolsTable.ownerId, ownerId));
+/** What a store is bound to: the tool, and the server it signs in to. */
+export type OAuthTarget = { id: string; ownerId: string; url: string | null; transport: string | null };
+
+/**
+ * The tool's OAuth state in the database, sealed with the secret box; each change on the row
+ * locked. Bound to the tool as `row` has it: once it is pointed at another server, or no longer
+ * signs in with OAuth, the store reads nothing and writes nothing, so a flow or a refresh still
+ * under way never gives the old server's tokens to the new one.
+ */
+export function oauthStore(db: Db, secrets: SecretBox, row: OAuthTarget): OAuthStore {
+  const toolId = row.id;
+  const mine = sameTarget(row);
   return {
     async read() {
-      const [row] = await db.select({ sealed: toolsTable.oauthSealed }).from(toolsTable).where(mine);
-      return openState(secrets, toolId, row?.sealed ?? null);
+      const [found] = await db.select({ sealed: toolsTable.oauthSealed }).from(toolsTable).where(mine);
+      return openState(secrets, toolId, found?.sealed ?? null);
     },
     async change(edit) {
       await db.transaction(async (tx) => {
-        const [row] = await tx.select({ sealed: toolsTable.oauthSealed, auth: toolsTable.auth }).from(toolsTable).where(mine).for("update");
-        // Deleted, or no longer an OAuth tool: what the flow hands over belongs to nobody.
-        if (!row || row.auth !== "oauth") return;
-        const state = openState(secrets, toolId, row.sealed);
+        const [found] = await tx.select({ sealed: toolsTable.oauthSealed }).from(toolsTable).where(mine).for("update");
+        // Deleted, moved, or no longer an OAuth tool: what the flow hands over belongs to nobody.
+        if (!found) return;
+        const state = openState(secrets, toolId, found.sealed);
         edit(state);
         await tx.update(toolsTable).set(sealState(secrets, toolId, state)).where(mine);
       });
@@ -51,9 +60,21 @@ export function oauthStore(db: Db, secrets: SecretBox, toolId: string, ownerId: 
       await db
         .update(toolsTable)
         .set({ oauthStatus: "reauthorize" })
-        .where(and(mine, eq(toolsTable.auth, "oauth")));
+        .where(mine);
     },
   };
+}
+
+/** The tool's row while it still signs in with OAuth to the server `row` names. */
+export function sameTarget(row: OAuthTarget) {
+  return and(
+    eq(toolsTable.id, row.id),
+    eq(toolsTable.ownerId, row.ownerId),
+    eq(toolsTable.auth, "oauth"),
+    row.url === null ? isNull(toolsTable.url) : eq(toolsTable.url, row.url),
+    row.transport === null ? isNull(toolsTable.transport) : eq(toolsTable.transport, row.transport as "sse"),
+    isNull(toolsTable.urlSealed),
+  );
 }
 
 const traces = tracer("tools");

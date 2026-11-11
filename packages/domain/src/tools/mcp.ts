@@ -17,7 +17,7 @@ import { z } from "zod";
 import { MAX_ACTIONS, redact, screenedFetch } from "./inbound.ts";
 import { ToolError } from "./errors.ts";
 import { BlockedAddressError } from "./network.ts";
-import { createOAuthProvider, type OAuthMode, type OAuthState, type OAuthStore } from "./oauth-provider.ts";
+import { createOAuthProvider, stateSecrets, type OAuthMode, type OAuthState, type OAuthStore } from "./oauth-provider.ts";
 
 export { ToolError } from "./errors.ts";
 
@@ -202,6 +202,24 @@ function summarize(result: CallToolResult, clean: (text: string) => string): str
   return text.length > MAX_RESULT_TEXT ? `${text.slice(0, MAX_RESULT_TEXT)}\n[truncated]` : text;
 }
 
+/** An OAuth error code, as RFC 6749 spells them. */
+const ERROR_CODE = /^[a-z_]{1,64}$/;
+
+/**
+ * A token endpoint's refusal (a form posted, an answer not ok) reduced to its error code: the SDK
+ * logs a refusal's description on the console, and a server may quote a token or a secret there.
+ */
+export function bareTokenErrors(inner: typeof fetch): typeof fetch {
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    const response = await inner(input, init);
+    // A redirect stays as it is: the SDK follows it within the origin, or refuses it.
+    if (response.ok || (response.status >= 300 && response.status < 400) || !(init?.body instanceof URLSearchParams)) return response;
+    const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
+    const error = typeof body?.error === "string" && ERROR_CODE.test(body.error) ? body.error : "server_error";
+    return new Response(JSON.stringify({ error }), { status: response.status, statusText: response.statusText, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+}
+
 /**
  * The MCP connector (SDK client over Streamable HTTP or SSE). `fetch` is the network policy:
  * production passes `guardedFetch(ownAddresses())`, and the SDK makes every request of an OAuth
@@ -212,7 +230,7 @@ function summarize(result: CallToolResult, clean: (text: string) => string): str
  * callback and the client metadata document).
  */
 export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string } = {}): ToolConnector {
-  const fetcher = opts.fetch ?? fetch;
+  const fetcher = bareTokenErrors(opts.fetch ?? fetch);
   return {
     listActions,
     callAction,
@@ -225,9 +243,14 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
     return createOAuthProvider(store, mode, opts.appUrl, secrets);
   }
 
-  /** A listing's or call's provider: it may refresh, never starts a flow. */
-  function using(target: ToolTarget, secrets: Set<string>): OAuthClientProvider | undefined {
-    return target.oauth ? provider(target.oauth, { kind: "use" }, secrets).provider : undefined;
+  /**
+   * A listing's or call's provider: it may refresh, never starts a flow. `secrets` gets every
+   * token and client secret the tool holds now, and those the connection gets later.
+   */
+  async function using(target: ToolTarget, secrets: Set<string>): Promise<OAuthClientProvider | undefined> {
+    if (!target.oauth) return undefined;
+    for (const secret of stateSecrets(await target.oauth.read())) secrets.add(secret);
+    return provider(target.oauth, { kind: "use" }, secrets).provider;
   }
 
   async function authorize(target: ToolTarget & { oauth: OAuthStore }) {
@@ -268,6 +291,7 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
 
   async function listActions(target: ToolTarget): Promise<ToolAction[]> {
       const secrets = new Set<string>();
+      const auth = await using(target, secrets);
       const tools = await withClient(target, fetcher, LIST_TIMEOUT_MS, undefined, async (client, options) => {
         const all: Tool[] = [];
         let cursor: string | undefined;
@@ -280,7 +304,7 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
           if (!cursor) return all;
         }
         throw new ToolError(`The server lists its actions on more than ${MAX_PAGES} pages`);
-      }, using(target, secrets));
+      }, auth);
       // The server got the headers and may send them back: each field the action keeps is redacted
       // before anything reads or cuts it (fields one by one, so the result keeps its own shape).
       const clean = <T>(value: T) => storable(redact(value, target.headers, [...(target.urlSecrets ?? []), ...secrets]));
@@ -306,7 +330,8 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
 
   async function callAction(target: ToolTarget, action: string, args: Record<string, unknown>, signal: AbortSignal): Promise<ToolResult> {
       const secrets = new Set<string>();
-      const result = await withClient(target, fetcher, CALL_TIMEOUT_MS, signal, (client, options) => client.callTool({ name: action, arguments: args }, options), using(target, secrets));
+      const auth = await using(target, secrets);
+      const result = await withClient(target, fetcher, CALL_TIMEOUT_MS, signal, (client, options) => client.callTool({ name: action, arguments: args }, options), auth);
       // The server got the headers and may send them back: redacted before the text is cut.
       const clean = <T>(value: T) => storable(redact(value, target.headers, [...(target.urlSecrets ?? []), ...secrets]));
       const structured = result.structuredContent;

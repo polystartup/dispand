@@ -19,8 +19,11 @@ export type OAuthState = {
   /** The issuer of the tokens saved last: the transport's per-request read names none. */
   current?: string;
   discovery?: OAuthDiscoveryState;
-  /** The client the owner entered, for a server that supports neither metadata documents nor registration. */
-  entered?: { client_id: string; client_secret?: string };
+  /**
+   * The client the owner entered, for a server that supports neither metadata documents nor
+   * registration; bound to the issuer it was first used with, and never sent to another.
+   */
+  entered?: { client_id: string; client_secret?: string; issuer?: string };
   /** The flow under way: its `state`, PKCE verifier and the discovery made for it, until it expires. */
   pending?: { state: string; verifier?: string; discovery?: OAuthDiscoveryState; expiresAt: number };
 };
@@ -68,11 +71,18 @@ export function clientMetadata(appUrl: string): OAuthClientMetadata & { redirect
 /** The issuer of the tokens saved last, or the one an SDK call names. */
 const issuerOf = (state: OAuthState, ctx?: OAuthClientInformationContext) => ctx?.issuer ?? state.current;
 
+/** Every secret of the state, which the server may send back: tokens and client secrets. */
+export function stateSecrets(state: OAuthState): string[] {
+  const found = [state.entered?.client_secret];
+  for (const { client, tokens } of Object.values(state.issuers)) found.push(client?.client_secret, tokens?.access_token, tokens?.refresh_token);
+  return found.filter((s): s is string => typeof s === "string" && s.length > 0);
+}
+
 /**
  * The SDK's `OAuthClientProvider` over a tool's sealed state. The SDK runs discovery, the client
  * metadata document or registration, PKCE, the resource indicator, the issuer checks and the
- * refresh; this only keeps what it hands over. `secrets` collects every token it read or saved,
- * so what the server sends back is redacted of them.
+ * refresh; this only keeps what it hands over. `secrets` collects every token and client secret
+ * it read or saved, so what the server sends back is redacted of them.
  */
 export function createOAuthProvider(store: OAuthStore, mode: OAuthMode, appUrl: string, secrets: Set<string>) {
   const metadata = clientMetadata(appUrl);
@@ -104,16 +114,33 @@ export function createOAuthProvider(store: OAuthStore, mode: OAuthMode, appUrl: 
     },
     async clientInformation(ctx) {
       const state = await store.read();
-      const info = state.entered ?? state.issuers[issuerOf(state, ctx) ?? ""]?.client;
+      const issuer = issuerOf(state, ctx);
+      const { entered } = state;
+      if (entered) {
+        client = true;
+        // Entered for one authorization server: its secret never goes to another the server names later.
+        if (entered.issuer && issuer && entered.issuer !== issuer) {
+          throw new ToolError("The server now names another authorization server than the one its client id was entered for: enter the client id that server gave you");
+        }
+        if (entered.client_secret) secrets.add(entered.client_secret);
+        return entered;
+      }
+      const info = state.issuers[issuer ?? ""]?.client;
       if (info) client = true;
+      if (info?.client_secret) secrets.add(info.client_secret);
       return info;
     },
     async saveClientInformation(info, ctx) {
       client = true;
+      if (info.client_secret) secrets.add(info.client_secret);
       await store.change((state) => {
         const issuer = issuerOf(state, ctx);
-        // The entered client stays the owner's: only its issuer stamp would be saved.
-        if (!issuer || state.entered?.client_id === info.client_id) return;
+        if (!issuer) return;
+        // The entered client stays the owner's: it is bound to the issuer it is first used with.
+        if (state.entered?.client_id === info.client_id) {
+          state.entered.issuer ??= issuer;
+          return;
+        }
         state.issuers[issuer] = { ...state.issuers[issuer], client: info };
       });
     },

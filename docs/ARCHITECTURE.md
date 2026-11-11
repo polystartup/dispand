@@ -639,7 +639,13 @@
   before any request; one whose refresh is refused (its tokens discarded, or none to refresh
   with) marks the tool `reauthorize` and fails with that reason, and never starts a flow; tokens
   another connection rotated meanwhile are kept. Tokens are redacted from what the server sends
-  back. Telemetry: `tool.oauth.<step>` spans and `dispand.tool.oauth` (step, result). Settings → Tools
+  back, with the client secrets. Only over https (or loopback), like headers. The entered
+  client is bound to the issuer it is first used with (another issuer refuses the flow). The
+  store (`oauthStore`) is bound to the tool's URL and transport as the flow or call found them:
+  pointed elsewhere meanwhile, it reads and writes nothing, and the callback connects nothing. A
+  token endpoint's refusal is reduced to its error code (`bareTokenErrors`) before the SDK,
+  which logs the description, reads it. Telemetry: `tool.oauth.<step>` spans and
+  `dispand.tool.oauth` (step, result). Settings → Tools
   (`_app.settings.tools.tsx`, `ToolSheet.tsx`) lists the tools, adds and edits them (header
   values are password fields, shown as "Set" once stored) and shows each action's parameters.
   The catalog (`tools/catalog.ts`) is a code constant: `github`

@@ -104,8 +104,8 @@ function normalize(headers: Record<string, string>): Record<string, string> {
 }
 
 /**
- * The rules the schema can't say alone: credentials go in headers, and headers (or a secret URL)
- * only over https (or to this machine).
+ * The rules the schema can't say alone: credentials go in headers, and headers, a secret URL or
+ * an OAuth token only over https (or to this machine).
  */
 function checkTarget(url: string, hasSecrets: boolean) {
   const parsed = new URL(url);
@@ -150,7 +150,7 @@ export function connectionTarget(db: Db, secrets: SecretBox, row: Row): ToolTarg
   if (row.auth !== "oauth") return target;
   if (row.oauthStatus === "reauthorize") throw new ToolError(REAUTHORIZE);
   if (row.oauthStatus !== "connected") throw new ToolError(`${row.name} isn't connected yet: connect it on its page in Settings → Tools`);
-  return { ...target, oauth: oauthStore(db, secrets, row.id, row.ownerId) };
+  return { ...target, oauth: oauthStore(db, secrets, row) };
 }
 
 /**
@@ -250,7 +250,7 @@ export async function insertTool(db: Db | Tx, secrets: SecretBox, ownerId: strin
   const headers = normalize(input.headers);
   for (const [name, value] of Object.entries(headers)) if (!value) bad(`The header ${name} has no value`);
   if (input.oauth && (Object.keys(headers).length > 0 || input.secretUrl)) bad("A tool that signs in with OAuth has no headers");
-  checkTarget(input.secretUrl?.url ?? input.url, Object.keys(headers).length > 0 || input.secretUrl !== undefined);
+  checkTarget(input.secretUrl?.url ?? input.url, Object.keys(headers).length > 0 || input.secretUrl !== undefined || input.oauth === true);
   const id = newId("tool");
   const headersSealed = Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, secrets.seal(value, headerAad(id, name))]));
   const [row] = await db
@@ -286,7 +286,7 @@ async function askAgain(db: Db | Tx, toolId: string) {
 /** Points the tool at a new (plain) URL, under the same rules as `update`; its actions are listed again afterwards. */
 export async function retarget(db: Db | Tx, row: Row, url: string, transport: ToolTransport): Promise<Row> {
   if (!Url.safeParse(url).success) bad("Not an http(s) URL");
-  checkTarget(url, Object.keys(row.headersSealed).length > 0);
+  checkTarget(url, Object.keys(row.headersSealed).length > 0 || row.auth === "oauth");
   const [updated] = await db
     .update(toolsTable)
     .set({ url, urlSealed: null, transport, actions: [], refreshedAt: null, ...(row.auth === "oauth" ? { ...NO_OAUTH, oauthStatus: "authorize" as const } : {}) })
@@ -440,7 +440,7 @@ const update = owner
     // A new URL replaces the secret one; the same template keeps it.
     const urlSealed = url === current.url ? current.urlSealed : null;
     if (oauth && urlSealed !== null) bad("A tool whose URL holds a secret can't sign in with OAuth");
-    checkTarget(urlSealed === null ? url : toolTarget(current, context.secrets).url, Object.keys(headersSealed).length > 0 || urlSealed !== null);
+    checkTarget(urlSealed === null ? url : toolTarget(current, context.secrets).url, Object.keys(headersSealed).length > 0 || urlSealed !== null || oauth);
     const moved = url !== current.url || transport !== current.transport;
     // A sign-in is for the server it was made with: another server, or another way, starts over.
     const oauthColumns = !oauth ? NO_OAUTH : current.auth !== "oauth" || moved ? { ...NO_OAUTH, oauthStatus: "authorize" as const } : {};
@@ -487,7 +487,7 @@ const authorize = owner
   .handler(async ({ input, context }) => {
     const row = await find(context.db, context.ownerId, input.id);
     if (row.kind !== "http" || row.auth !== "oauth") bad("This tool doesn't sign in with OAuth");
-    const store = oauthStore(context.db, context.secrets, row.id, row.ownerId);
+    const store = oauthStore(context.db, context.secrets, row);
     if (input.client !== undefined) {
       const client = input.client;
       await store.change((state) => {
