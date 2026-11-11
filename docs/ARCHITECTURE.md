@@ -462,6 +462,8 @@
   `actorOf` reads it from a procedure's context). Clearing references to deleted rows is an
   event of each referring row, by the deleter. `processed_at` stays null until node C's
   scheduler matches the event to triggers.
+  A schema change that rewrites cells (a choice removed, a retype, a field deleted) records
+  no event: it changes the table's shape, not a row someone wrote, and starts no Job.
 - **Rows (Data):** every row write, from a procedure or a Data step, goes through
   `writeRow` (`packages/domain/src/data/rows.ts`): it takes the table's row `FOR SHARE`, so it
   waits for a schema change and is then checked against the new fields (`cellSchema`), and it
