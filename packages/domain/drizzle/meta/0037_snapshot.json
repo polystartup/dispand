@@ -1,6 +1,6 @@
 {
-  "id": "1dd48da8-2ed4-417c-9935-62eb94f2755e",
-  "prevId": "04536748-6b20-47ab-bcc6-c0a936362953",
+  "id": "e199ef74-368c-4380-b5ef-5adcfcfa897d",
+  "prevId": "bfc02630-d1be-40b7-af5b-9ba6f9b32a72",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2075,6 +2075,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "trace_id": {
+          "name": "trace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -2913,26 +2919,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "primitive": {
-          "name": "primitive",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "parent_field_id": {
-          "name": "parent_field_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "parent_required": {
-          "name": "parent_required",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -2983,19 +2969,6 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "tables_parent_field_id_fields_id_fk": {
-          "name": "tables_parent_field_id_fields_id_fk",
-          "tableFrom": "tables",
-          "tableTo": "fields",
-          "columnsFrom": [
-            "parent_field_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
