@@ -270,7 +270,9 @@ test("0041 charges open agent steps to their harness and counts the sessions mid
   const journal = JSON.parse(await readFile(join(all, "meta/_journal.json"), "utf8")) as { entries: { tag: string }[] };
   journal.entries = journal.entries.filter((e) => e.tag < "0041");
   await writeFile(join(before, "meta/_journal.json"), JSON.stringify(journal));
-  const url = `pglite://${await mkdtemp(join(tmpdir(), "dispand-db-"))}`;
+  const folder = await mkdtemp(join(tmpdir(), "dispand-db-"));
+  onTestFinished(() => rm(folder, { recursive: true, force: true }));
+  const url = `pglite://${folder}`;
   let db: Db = await createDb(url, before);
   const job = (agentId: string) => ({
     trigger: { type: "manual", field: { id: "t_go", key: "trigger", type: "button", label: "Go" } },
