@@ -56,7 +56,8 @@ changes it updates this file.
   endpoint. Not to the browser (views say connected, needs authorization or re-authorize, and
   the entered client id), a runner, an agent, a log or telemetry. Every request of the flow
   (metadata, registration, token, refresh) goes through the connector's guarded fetch: the
-  address guard, and no redirect to another origin; a token endpoint's refusal keeps only its
+  address guard, https only (but to this machine), no redirect to another origin, and the
+  connection's 16 MiB budget; a token endpoint's refusal, whatever its status, keeps only its
   error code before the SDK reads (and logs) it. An OAuth tool sends no static header and is
   reached only over https (or on this machine), and what it sends back is redacted of its
   tokens and client secrets. An entered client id and secret are bound to the authorization

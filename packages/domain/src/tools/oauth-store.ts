@@ -42,6 +42,7 @@ export function oauthStore(db: Db, secrets: SecretBox, row: OAuthTarget): OAuthS
   const toolId = row.id;
   const mine = sameTarget(row);
   return {
+    key: toolId,
     async read() {
       const [found] = await db.select({ sealed: toolsTable.oauthSealed }).from(toolsTable).where(mine);
       return openState(secrets, toolId, found?.sealed ?? null);

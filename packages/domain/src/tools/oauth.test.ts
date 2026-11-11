@@ -5,7 +5,7 @@ import { tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { InstalledTools } from "./executor.ts";
-import { createMcpConnector } from "./mcp.ts";
+import { createMcpConnector, httpsOnly } from "./mcp.ts";
 import { finishToolAuthorization, handleToolOAuthCallback } from "./oauth.ts";
 import { openState } from "./oauth-store.ts";
 import { startFakeAuthServer, startRecorder } from "./test-auth-server.ts";
@@ -345,4 +345,63 @@ test("a refused refresh's description, which may quote the token, never reaches 
   } finally {
     warned.mockRestore();
   }
+});
+
+test("a refusal answered 200, its description quoting the token, never reaches the console either", async () => {
+  const { as, mcp } = await servers({ metadataDocuments: true, refusesRefresh: true, describeRefusal: true, refusalStatus: 200 });
+  const ctx = await context();
+  const tool = await oauthTool(ctx, mcp.url);
+  await connect(ctx, tool.id);
+  const { refresh_token } = tokensOf(ctx, await row(ctx, tool.id));
+  as.expireAccessTokens();
+  const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  try {
+    const installed = new InstalledTools(ctx.db, ctx.secrets, ctx.tools);
+    expect(await installed.call(await row(ctx, tool.id), "echo", { text: "hi" }, new AbortController().signal)).toMatchObject({ ok: false });
+    expect(JSON.stringify(warned.mock.calls)).not.toContain(refresh_token!);
+  } finally {
+    warned.mockRestore();
+  }
+});
+
+test("a token endpoint's answer counts against the connection's 16 MiB, refusals included", async () => {
+  const { mcp } = await servers({ metadataDocuments: true, hugeTokenError: true });
+  const ctx = await context();
+  const tool = await oauthTool(ctx, mcp.url);
+  const { url } = await call(router.tools.authorize, { id: tool.id }, { context: ctx });
+  expect(await finishToolAuthorization(ctx, ctx.ownerId, await signIn(url))).toEqual({ toolId: tool.id, ok: false });
+  expect((await row(ctx, tool.id)).actionsError).toMatch(/16 MiB/);
+});
+
+test("two calls whose token expired together refresh one after the other, so a server that revokes a reused refresh token keeps the grant", async () => {
+  const { as, mcp } = await servers({ metadataDocuments: true, revokesOnReuse: true, refreshDelayMs: 100 });
+  const ctx = await context();
+  const tool = await oauthTool(ctx, mcp.url);
+  await connect(ctx, tool.id);
+  as.expireAccessTokens();
+  const installed = new InstalledTools(ctx.db, ctx.secrets, ctx.tools);
+  const current = await row(ctx, tool.id);
+  const signal = new AbortController().signal;
+  const calls = await Promise.all([installed.call(current, "echo", { text: "a" }, signal), installed.call(current, "echo", { text: "b" }, signal)]);
+  expect(calls).toEqual([
+    { ok: true, result: { text: "a", isError: false } },
+    { ok: true, result: { text: "b", isError: false } },
+  ]);
+  const refreshes = as.tokenRequests.filter((r) => r.form.grant_type === "refresh_token").map((r) => r.form.refresh_token);
+  expect(new Set(refreshes).size).toBe(refreshes.length);
+  expect((await row(ctx, tool.id)).oauthStatus).toBe("connected");
+});
+
+test("an OAuth connection's requests are https only, but to this machine", async () => {
+  const reached: string[] = [];
+  const inner = (async (input: string | URL | Request) => {
+    reached.push(String(input));
+    return new Response("{}");
+  }) as typeof fetch;
+  const guarded = httpsOnly(inner);
+  await expect(guarded("http://auth.example.com/.well-known/oauth-authorization-server")).rejects.toThrow(/https/);
+  await guarded("https://auth.example.com/token");
+  await guarded("http://127.0.0.1:8080/token");
+  await guarded("http://localhost/token");
+  expect(reached).toEqual(["https://auth.example.com/token", "http://127.0.0.1:8080/token", "http://localhost/token"]);
 });

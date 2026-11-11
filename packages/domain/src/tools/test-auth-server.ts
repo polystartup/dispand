@@ -16,6 +16,13 @@ type Options = {
   redirectTokenTo?: string;
   /** A refused refresh says why, quoting the refresh token (as a careless server might). */
   describeRefusal?: boolean;
+  /** The status a refused refresh comes with (400 by default; some servers say 200). */
+  refusalStatus?: number;
+  /** The code exchange is refused with a body larger than a connection may read. */
+  hugeTokenError?: boolean;
+  /** A refresh token used twice revokes the whole grant (rotation reuse detection); refreshes answer after `refreshDelayMs`. */
+  revokesOnReuse?: boolean;
+  refreshDelayMs?: number;
   /** Runs before the token endpoint answers (to change things while an exchange is under way). */
   beforeToken?: () => Promise<void>;
 };
@@ -58,6 +65,7 @@ export async function startFakeAuthServer(options: Options = {}): Promise<FakeAu
   const access = new Set<string>();
   const refresh = new Map<string, string>();
   const registered = new Set<string>();
+  const used = new Set<string>();
   let issued = 0;
 
   const tokens = (clientId: string) => {
@@ -123,6 +131,9 @@ export async function startFakeAuthServer(options: Options = {}): Promise<FakeAu
         await options.beforeToken?.();
         const client = clientOf(form, req.headers.authorization);
         if (!client) return json(res, 401, { error: "invalid_client" });
+        if (form.grant_type === "authorization_code" && options.hugeTokenError) {
+          return res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: "invalid_grant", error_description: "x".repeat(17 * 1024 * 1024) }));
+        }
         if (form.grant_type === "authorization_code") {
           const grant = codes.get(form.code ?? "");
           codes.delete(form.code ?? "");
@@ -133,9 +144,16 @@ export async function startFakeAuthServer(options: Options = {}): Promise<FakeAu
           return json(res, 200, tokens(client));
         }
         if (form.grant_type === "refresh_token") {
+          if (options.refreshDelayMs) await new Promise((resolve) => setTimeout(resolve, options.refreshDelayMs));
           const owner = refresh.get(form.refresh_token ?? "");
+          if (options.revokesOnReuse && used.has(form.refresh_token ?? "")) {
+            access.clear();
+            refresh.clear();
+            return json(res, 400, { error: "invalid_grant" });
+          }
+          used.add(form.refresh_token ?? "");
           if (options.refusesRefresh || owner !== client) {
-            return json(res, 400, { error: "invalid_grant", ...(options.describeRefusal ? { error_description: `The grant ${form.refresh_token} was revoked` } : {}) });
+            return json(res, options.refusalStatus ?? 400, { error: "invalid_grant", ...(options.describeRefusal ? { error_description: `The grant ${form.refresh_token} was revoked` } : {}) });
           }
           refresh.delete(form.refresh_token!);
           return json(res, 200, tokens(client));

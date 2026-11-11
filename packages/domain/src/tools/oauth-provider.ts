@@ -30,6 +30,8 @@ export type OAuthState = {
 
 /** Reads and changes a tool's sealed state; `change` runs on the row locked, so two connections never lose a write. */
 export type OAuthStore = {
+  /** The tool's id: refreshes of one tool run one at a time. */
+  key: string;
   read(): Promise<OAuthState>;
   change(edit: (state: OAuthState) => void): Promise<void>;
   /** The tool's grant stopped working: its owner signs in again (`oauth_status = reauthorize`). */
@@ -46,6 +48,27 @@ export type OAuthMode = { kind: "authorize" } | { kind: "finish"; pending: NonNu
 /** A listing or call needs its owner to sign in again; the tool is marked so before this is thrown. */
 export class ReauthorizeError extends ToolError {
   override name = "ReauthorizeError";
+}
+
+/**
+ * The refresh under way per tool, in this process. A refresh token is used once (rotation), and a
+ * server that sees one used twice may revoke the whole grant: two connections whose token expired
+ * together refresh one after the other, the second with the token the first saved.
+ */
+const refreshes = new Map<string, Promise<void>>();
+
+/** Waits for the tool's refresh under way, if any, and holds the tool's turn; the function returned gives it back. */
+async function turn(key: string): Promise<() => void> {
+  const before = refreshes.get(key);
+  let done!: () => void;
+  const mine = new Promise<void>((resolve) => (done = resolve));
+  const queued = (before ?? Promise.resolve()).then(() => mine);
+  refreshes.set(key, queued);
+  await before;
+  return () => {
+    done();
+    if (refreshes.get(key) === queued) refreshes.delete(key);
+  };
 }
 
 /** How long a started flow stays valid. */
@@ -99,6 +122,12 @@ export function createOAuthProvider(store: OAuthStore, mode: OAuthMode, appUrl: 
   const flow: { state?: string; verifier?: string; discovery?: OAuthDiscoveryState; url?: URL } = {};
   let discovered = false;
   let client = false;
+  /** Use only: this connection's turn to refresh, held from the SDK's token read until it saves or gives up. */
+  let held: (() => void) | undefined;
+  const release = () => {
+    held?.();
+    held = undefined;
+  };
 
   const provider: OAuthClientProvider = {
     get redirectUrl() {
@@ -147,6 +176,8 @@ export function createOAuthProvider(store: OAuthStore, mode: OAuthMode, appUrl: 
     async tokens(ctx) {
       // Connect and Re-authorize start over: no stored token is sent or refreshed.
       if (mode.kind === "authorize") return undefined;
+      // With `ctx`, the SDK is about to refresh: after any refresh under way, with what it saved.
+      if (ctx && mode.kind === "use" && !held) held = await turn(store.key);
       const state = await store.read();
       const tokens = keep(state.issuers[issuerOf(state, ctx) ?? ""]?.tokens);
       used = tokens?.refresh_token;
@@ -163,8 +194,10 @@ export function createOAuthProvider(store: OAuthStore, mode: OAuthMode, appUrl: 
         state.current = issuer;
         if (mode.kind === "finish" && mode.pending.discovery) state.discovery = mode.pending.discovery;
       });
+      release();
     },
     async redirectToAuthorization(url) {
+      release();
       if (mode.kind === "authorize") {
         flow.url = url;
         return;
@@ -224,5 +257,7 @@ export function createOAuthProvider(store: OAuthStore, mode: OAuthMode, appUrl: 
     started: () => (flow.url && flow.state ? { url: flow.url, pending: { state: flow.state, verifier: flow.verifier, discovery: flow.discovery, expiresAt: Date.now() + FLOW_TTL_MS } } : undefined),
     /** Discovery succeeded but no client could be had: the server supports neither metadata documents nor registration. */
     needsClient: () => discovered && !client,
+    /** Gives back the tool's refresh turn, if the connection ended holding it. */
+    release,
   };
 }

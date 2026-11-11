@@ -783,8 +783,11 @@
   client is bound to the issuer it is first used with (another issuer refuses the flow). The
   store (`oauthStore`) is bound to the tool's URL and transport as the flow or call found them:
   pointed elsewhere meanwhile, it reads and writes nothing, and the callback connects nothing. A
-  token endpoint's refusal is reduced to its error code (`bareTokenErrors`) before the SDK,
-  which logs the description, reads it. Telemetry: `tool.oauth.<step>` spans and
+  token endpoint's refusal (any status) is reduced to its error code (`bareTokenErrors`, after
+  the connection's screen) before the SDK, which logs the description, reads it; an OAuth
+  connection's requests are https only but to loopback (`httpsOnly`). Refreshes of one tool run
+  one after the other in the process (a refresh token is used once), each with the tokens the
+  last one saved. Telemetry: `tool.oauth.<step>` spans and
   `dispand.tool.oauth` (step, result). Settings → Tools
   (`_app.settings.tools.tsx`, `ToolSheet.tsx`) lists the tools, adds and edits them (header
   values are password fields, shown as "Set" once stored) and shows each action's parameters.

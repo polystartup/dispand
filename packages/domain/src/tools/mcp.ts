@@ -125,7 +125,9 @@ function reason(error: unknown, host: string, timedOut: boolean): ToolError {
  */
 function transportFor(target: ToolTarget, fetcher: typeof fetch, authProvider?: OAuthClientProvider): Transport {
   const url = new URL(target.url);
-  const options = { requestInit: { headers: target.headers }, fetch: fetcher, redirectPolicy: "same-origin" as const, ...(authProvider ? { authProvider } : {}) };
+  // An OAuth connection's requests (the flow's included) are https only, and its token refusals bare.
+  const fetch = authProvider ? httpsOnly(bareTokenErrors(fetcher)) : fetcher;
+  const options = { requestInit: { headers: target.headers }, fetch, redirectPolicy: "same-origin" as const, ...(authProvider ? { authProvider } : {}) };
   const inner: Transport = target.transport === "sse" ? new SSEClientTransport(url, options) : new StreamableHTTPClientTransport(url, options);
   return new Proxy(inner, {
     set(t, property, value: unknown) {
@@ -152,7 +154,8 @@ async function withClient<T>(
   timeoutMs: number,
   signal: AbortSignal | undefined,
   work: (client: Client, options: { signal: AbortSignal; timeout: number }) => Promise<T>,
-  authProvider?: OAuthClientProvider,
+  /** An OAuth tool's provider, and how it gives back its refresh turn once the connection ends. */
+  auth?: { provider: OAuthClientProvider; release(): void },
 ): Promise<T> {
   const host = new URL(target.url).host;
   const deadline = AbortSignal.timeout(timeoutMs);
@@ -163,7 +166,7 @@ async function withClient<T>(
   const stopped = new Promise<never>((_, reject) => (stop = reject));
   stopped.catch(() => undefined);
   const screen = screenedFetch(base, (error) => stop(error));
-  const transport = transportFor(target, screen.fetch, authProvider);
+  const transport = transportFor(target, screen.fetch, auth?.provider);
   const onAbort = () => stop(both.reason);
   both.addEventListener("abort", onAbort, { once: true });
   try {
@@ -185,6 +188,7 @@ async function withClient<T>(
     both.removeEventListener("abort", onAbort);
     await client.close().catch(() => undefined);
     await transport.close().catch(() => undefined);
+    auth?.release();
   }
 }
 
@@ -237,17 +241,43 @@ function summarize(result: CallToolResult, clean: (text: string) => string): str
 const ERROR_CODE = /^[a-z_]{1,64}$/;
 
 /**
- * A token endpoint's refusal (a form posted, an answer not ok) reduced to its error code: the SDK
- * logs a refusal's description on the console, and a server may quote a token or a secret there.
+ * A token endpoint's refusal (a form posted, an answer with an `error`, whatever its status; or
+ * any answer not ok) reduced to its error code: the SDK logs a refusal's description on the
+ * console, and a server may quote a token or a secret there. `inner` is the connection's screened
+ * fetch, so the body read here is already within the connection's byte budget.
  */
 export function bareTokenErrors(inner: typeof fetch): typeof fetch {
   return (async (input: string | URL | Request, init?: RequestInit) => {
     const response = await inner(input, init);
     // A redirect stays as it is: the SDK follows it within the origin, or refuses it.
-    if (response.ok || (response.status >= 300 && response.status < 400) || !(init?.body instanceof URLSearchParams)) return response;
-    const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
-    const error = typeof body?.error === "string" && ERROR_CODE.test(body.error) ? body.error : "server_error";
-    return new Response(JSON.stringify({ error }), { status: response.status, statusText: response.statusText, headers: { "content-type": "application/json" } });
+    if ((response.status >= 300 && response.status < 400) || !(init?.body instanceof URLSearchParams)) return response;
+    const text = await response.text();
+    let body: unknown = null;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      // Not JSON: the SDK refuses it.
+    }
+    const error = (body as { error?: unknown } | null)?.error;
+    if (response.ok && error === undefined) return new Response(text, { status: response.status, statusText: response.statusText, headers: response.headers });
+    const code = typeof error === "string" && ERROR_CODE.test(error) ? error : "server_error";
+    return new Response(JSON.stringify({ error: code }), { status: response.status, statusText: response.statusText, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+}
+
+/** Loopback hosts, where plain http stays on this machine. */
+const loopback = (url: URL) => url.hostname === "localhost" || url.hostname === "[::1]" || /^127\.\d+\.\d+\.\d+$/.test(url.hostname);
+
+/**
+ * An OAuth connection's fetch refuses plain http but to this machine, before connecting: the
+ * server names the addresses of its flow (metadata, registration, token), and an observer could
+ * otherwise swap the token endpoint the client secret and the code go to.
+ */
+export function httpsOnly(inner: typeof fetch): typeof fetch {
+  return ((input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.protocol !== "https:" && !loopback(url)) return Promise.reject(new ToolError(`${url.host} isn't reached over https: its sign-in is refused`));
+    return inner(input, init);
   }) as typeof fetch;
 }
 
@@ -261,7 +291,7 @@ export function bareTokenErrors(inner: typeof fetch): typeof fetch {
  * callback and the client metadata document).
  */
 export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string } = {}): ToolConnector {
-  const fetcher = bareTokenErrors(opts.fetch ?? fetch);
+  const fetcher = opts.fetch ?? fetch;
   return {
     listActions,
     callAction,
@@ -278,10 +308,10 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
    * A listing's or call's provider: it may refresh, never starts a flow. `secrets` gets every
    * token and client secret the tool holds now, and those the connection gets later.
    */
-  async function using(target: ToolTarget, secrets: Set<string>): Promise<OAuthClientProvider | undefined> {
+  async function using(target: ToolTarget, secrets: Set<string>) {
     if (!target.oauth) return undefined;
     for (const secret of stateSecrets(await target.oauth.read())) secrets.add(secret);
-    return provider(target.oauth, { kind: "use" }, secrets).provider;
+    return provider(target.oauth, { kind: "use" }, secrets);
   }
 
   async function authorize(target: ToolTarget & { oauth: OAuthStore }) {
@@ -289,7 +319,7 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
     try {
       // Connecting without a token gets the server's 401, whose challenge names its resource
       // metadata; the SDK then runs discovery and hands the authorization URL to the provider.
-      await withClient(target, fetcher, LIST_TIMEOUT_MS, undefined, async () => undefined, oauth.provider);
+      await withClient(target, fetcher, LIST_TIMEOUT_MS, undefined, async () => undefined, oauth);
       return null;
     } catch (error) {
       const started = oauth.started();
