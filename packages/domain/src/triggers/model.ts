@@ -36,6 +36,13 @@ export const TriggerConfig = z.discriminatedUnion("kind", [
 ]);
 export type TriggerConfig = z.infer<typeof TriggerConfig>;
 
+/** A JSON value as text with its object keys sorted: equal for configs the database stored in another key order. */
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    typeof v === "object" && v !== null && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v,
+  );
+}
+
 /** `one-at-a-time`: a schedule firing while a Job of the trigger is active is skipped. */
 export const Concurrency = z.enum(["parallel", "one-at-a-time"]);
 

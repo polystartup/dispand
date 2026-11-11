@@ -7,7 +7,7 @@ import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { pollProblem } from "../tools/pollable.ts";
 import { cronProblem, nextFireAfter } from "../workflows/schedule.ts";
-import { Concurrency, RateCap, TriggerConfig, TriggerFields } from "./model.ts";
+import { canonicalJson, Concurrency, RateCap, TriggerConfig, TriggerFields } from "./model.ts";
 
 const owner = base.use(authed);
 
@@ -86,7 +86,7 @@ export function scheduleColumns(config: TriggerConfig, previous: (Times & { conf
  */
 export function rebaselines(previous: { config: TriggerConfig; enabled: boolean }, config: TriggerConfig, enabled: boolean): boolean {
   if (previous.config.kind !== "poll" || config.kind !== "poll") return false;
-  const calls = (c: typeof config) => JSON.stringify([c.toolId, c.action, c.arguments, c.itemsPath, c.idPath]);
+  const calls = (c: typeof config) => canonicalJson([c.toolId, c.action, c.arguments, c.itemsPath, c.idPath]);
   return calls(previous.config) !== calls(config) || (!previous.enabled && enabled);
 }
 

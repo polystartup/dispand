@@ -66,9 +66,11 @@ async function setup() {
   const runnerCalls: unknown[] = [];
   // A runner whose `mail` server answers like the fake one, refusing a call while one to the same tool is under way, as runners do.
   const calling = new Set<string>();
+  const during: { call?: () => Promise<unknown> } = {};
   const hub: Pick<RunnerHub, "call"> = {
     call: async (_runnerId, msg) => {
       runnerCalls.push(msg);
+      await during.call?.();
       if (calling.has(msg.tool)) return { type: "tool.called", requestId: msg.requestId, error: "busy" };
       calling.add(msg.tool);
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -93,7 +95,7 @@ async function setup() {
   const itemsOf = (triggerId: string) => context.db.select().from(pollItems).where(eq(pollItems.triggerId, triggerId)).orderBy(asc(pollItems.firstSeen), asc(pollItems.itemId));
   const pollsOf = (triggerId: string) => context.db.select().from(polls).where(eq(polls.triggerId, triggerId)).orderBy(asc(polls.at));
   const jobsOf = (triggerId: string) => context.db.select().from(runs).where(eq(runs.triggerId, triggerId)).orderBy(asc(runs.createdAt));
-  return { context, mailbox, calls, tool, clerk, harness, adapter, engine, runnerCalls, caller, scheduler, watch, itemsOf, pollsOf, jobsOf, time };
+  return { context, mailbox, calls, tool, clerk, harness, adapter, engine, runnerCalls, during, caller, scheduler, watch, itemsOf, pollsOf, jobsOf, time };
 }
 
 test("the first poll records what exists and starts nothing; a new item starts one Job whose prompt holds it; one seen before starts none", async () => {
@@ -322,4 +324,43 @@ test("a Job reading a poll trigger gets its polls without the ids of the items t
   const seen = await call(router.triggers.get, { id: trigger.id }, { context: asJob });
   expect(seen.lastPolls[0]).toMatchObject({ status: "polled", fresh: 1, items: [] });
   expect(JSON.stringify(await call(router.triggers.list, { agentId: s.clerk.id }, { context: asJob }))).not.toContain("Confidential");
+});
+
+async function onRunner(s: Awaited<ReturnType<typeof setup>>) {
+  await s.context.db.insert(tools).values({
+    id: "tool_runner_mail",
+    ownerId: s.context.ownerId,
+    name: "Local mail",
+    kind: "runner",
+    runnerId: s.harness.runnerId,
+    runnerTool: "mail",
+    actions: [{ name: "list-mail-messages", description: "Lists.", inputSchema: { type: "object" }, readOnly: true }],
+  });
+  await call(router.agents.update, { id: s.clerk.id, name: "Clerk", harnessId: s.harness.id, systemPrompt: "", toolIds: ["tool_runner_mail"] }, { context: s.context });
+}
+
+test("a poll waiting for another of its runner's tool is checked again before its call: unticked meanwhile, it calls nothing", async () => {
+  const s = await setup();
+  await onRunner(s);
+  const a = await s.watch({ toolId: "tool_runner_mail", action: "list-mail-messages", arguments: { top: 10 } });
+  const b = await s.watch({ toolId: "tool_runner_mail", action: "list-mail-messages", arguments: { top: 5 } });
+  // The owner unticks the action while the first poll's call is under way.
+  s.during.call = () => call(router.tools.setPollable, { id: "tool_runner_mail", actions: [] }, { context: s.context });
+  await s.scheduler().tick();
+  expect(s.runnerCalls).toHaveLength(1);
+  const statuses = [...(await s.pollsOf(a.id)), ...(await s.pollsOf(b.id))].map((p) => p.status).sort();
+  expect(statuses).toEqual(["baseline", "skipped"]);
+});
+
+test("saving a poll trigger as it is, its arguments' keys in another order, keeps its waiting items", async () => {
+  const s = await setup();
+  const scheduler = s.scheduler();
+  const trigger = await s.watch({ arguments: { top: 10, filter: "x" } }, { rateCap: 1 });
+  await scheduler.tick();
+  s.mailbox.push({ id: "m1", subject: "a" }, { id: "m2", subject: "b" });
+  s.time.add(5 * MINUTE);
+  await scheduler.tick();
+  const config = trigger.config as Extract<TriggerConfig, { kind: "poll" }>;
+  await call(router.triggers.update, { id: trigger.id, name: "Renamed", config: { ...config, arguments: { filter: "x", top: 10 } } }, { context: s.context });
+  expect((await s.itemsOf(trigger.id)).map((i) => i.status).sort()).toEqual(["deferred", "started"]);
 });

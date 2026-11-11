@@ -25,7 +25,7 @@ import { errorKind, logError } from "../log.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { fillLastPoll, itemsOf, MAX_ITEM_BYTES, noPolls, type PollCaller } from "../tools/poll.ts";
 import { pollProblem } from "../tools/pollable.ts";
-import type { TriggerConfig } from "../triggers/model.ts";
+import { canonicalJson, type TriggerConfig } from "../triggers/model.ts";
 import { latestFireBetween, nextFireAfter } from "../workflows/schedule.ts";
 import { EngineError, runIssues, type Engine } from "./engine.ts";
 import { newRoot, ROOT_STOPPED } from "./roots.ts";
@@ -303,8 +303,21 @@ export class Scheduler {
       const started = performance.now();
       let result: PollStatus = "failed";
       try {
-        const { action, arguments: args, itemsPath, idPath } = c.trigger.config;
-        const called = await this.polls.call(c.tool, action, fillLastPoll(args, c.lastPoll) as Record<string, unknown>);
+        const { toolId, action, arguments: args, itemsPath, idPath } = c.trigger.config;
+        // Checked again right before the call, against the trigger, the tool and the agent as they
+        // are now: a poll may have waited for others of its runner's tool meanwhile.
+        const [trigger] = await this.db.select().from(triggers).where(eq(triggers.id, c.trigger.id));
+        const [tool] = await this.db.select().from(tools).where(eq(tools.id, toolId));
+        const problem =
+          !trigger?.enabled || canonicalJson(trigger.config) !== canonicalJson(c.trigger.config)
+            ? "The trigger changed before its poll"
+            : await pollProblem(this.db, c.trigger.ownerId, c.trigger.agentId, toolId, action);
+        if (problem || !tool) {
+          result = "skipped";
+          await this.db.update(polls).set({ status: "skipped", message: problem ?? "The tool no longer exists" }).where(eq(polls.id, c.pollId));
+          return [];
+        }
+        const called = await this.polls.call(tool, action, fillLastPoll(args, c.lastPoll) as Record<string, unknown>);
         const items = called.ok ? itemsOf(called.data, itemsPath, idPath) : { error: called.error };
         const recorded = await this.db.transaction((tx) => this.recordPoll(tx, c, items, now));
         result = recorded.status;
@@ -343,7 +356,7 @@ export class Scheduler {
       return { status, found: set.found ?? 0, fresh: set.fresh ?? 0, runIds };
     };
     const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, c.trigger.id)).for("no key update");
-    if (!trigger?.enabled || JSON.stringify(trigger.config) !== JSON.stringify(c.trigger.config)) return finish("skipped", { message: "The trigger changed during its poll" });
+    if (!trigger?.enabled || canonicalJson(trigger.config) !== canonicalJson(c.trigger.config)) return finish("skipped", { message: "The trigger changed during its poll" });
     if ("error" in polled) return finish("failed", { message: polled.error });
     const baseline = trigger.lastCheckedAt === null;
     const values = polled.items.map((item) => ({

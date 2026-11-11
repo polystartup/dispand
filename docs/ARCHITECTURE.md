@@ -247,7 +247,7 @@
   (`PrimitiveTriggerPanel`) picks a primitive table (`tables.list` gives `primitive`), the
   changes, for a changed row any field or some, the hour's cap, and lists the latest events
   with what each did. A `poll` trigger (`{ toolId, action, arguments, itemsPath, idPath,
-  interval }`, interval in seconds, 60 to a day, default 300; migration 0043) makes a tool's
+  interval }`, interval in seconds, 60 to a day, default 300; migration 0045) makes a tool's
   list or search action an event source. Creating or changing one, while it is on, checks
   `pollProblem` (`tools/pollable.ts`): the tool is the owner's, its agent has it, the action is
   `isPollable`. Its `next_fire_at` is when it is due (now when it is made, changed or turned on
@@ -258,7 +258,8 @@
   again first, and a poll that fails it is recorded `skipped` with why and calls nothing. Once
   that commits, each poll's call runs outside any transaction, for 60 s at most, all of them at
   once but those of one runner's tool, one after the other (the runner calls each of its tools
-  once at a time) (`tools/poll.ts`: an HTTP tool through `InstalledTools` and the connector, a runner tool
+  once at a time), each checked again right before its call (the trigger unchanged, its tool
+  there, `pollProblem`), as it may have waited for another (`tools/poll.ts`: an HTTP tool through `InstalledTools` and the connector, a runner tool
   through `hub.call`), with `{{lastPoll}}` in its arguments' strings filled with the newest
   `first_seen` of the trigger's items (the trigger's creation before any), never a call's time,
   so a poll that recorded nothing never moves it. Its data is the result's structured content,
@@ -277,7 +278,7 @@
   trigger and oldest first, from their rows, whatever later polls return (`out-of-scope` when
   `pollProblem` fails then, `refused` when the trigger is off, and when its tool, action,
   arguments or paths change, so an item is never told under another source than its own). The Job's cause is `poll` (the
-  trigger and the item id, depth 0), its firing carries the tool and the action, and the
+  trigger and the item id, depth 0), each item a root cause of its own (kind `poll`, 6.1's checkpoints), its firing carries the tool and the action, and the
   trigger node's outputs are `item_id` and `item`, written after the instructions
   (`POLL_PROMPT`); every start of its session first checks `pollProblem` against the agent and
   the tool as they are then, and fails the step otherwise (`refusedForScope`), so the item is
