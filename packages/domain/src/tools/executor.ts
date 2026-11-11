@@ -11,7 +11,7 @@ import type { ToolStep } from "../workflows/model.ts";
 import type { ToolSchema } from "../workflows/tool-steps.ts";
 import { coerceArguments, toolErrorText, toolOutputs, type ArgValue } from "./arguments.ts";
 import { ToolError, type ToolConnector, type ToolResult } from "./mcp.ts";
-import { toolTarget } from "./procedures.ts";
+import { connectionTarget } from "./procedures.ts";
 
 type Row = typeof toolsTable.$inferSelect;
 
@@ -71,7 +71,7 @@ export class InstalledTools {
   private async callTool(tool: Row, action: string, args: Record<string, unknown>, signal: AbortSignal): Promise<{ ok: true; result: ToolResult } | { ok: false; error: string }> {
     if (tool.kind !== "http") return { ok: false, error: `${tool.name} runs on a runner: only an agent can use it` };
     try {
-      return { ok: true, result: await this.connector.callAction(toolTarget(tool, this.secrets), action, args, signal) };
+      return { ok: true, result: await this.connector.callAction(connectionTarget(this.db, this.secrets, tool), action, args, signal) };
     } catch (error) {
       if (error instanceof ToolError) return { ok: false, error: error.message };
       if (error instanceof SecretError) return { ok: false, error: `${tool.name}'s headers couldn't be opened` };

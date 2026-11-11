@@ -12,7 +12,8 @@ import { authed, base } from "../rpc/context.ts";
 import { type RunnerHub, RunnerRequestFailed } from "../runners/hub.ts";
 import { secretAad, type SecretBox } from "../secrets.ts";
 import { CATALOG, fillHeaders, MissingSetting, runnerSnippet, searchCatalog } from "./catalog.ts";
-import { ToolError, TRANSPORTS, type ToolConnector, type ToolTarget, type ToolTransport } from "./mcp.ts";
+import { AUTHS, ToolError, TRANSPORTS, type ToolAuth, type ToolConnector, type ToolTarget, type ToolTransport } from "./mcp.ts";
+import { oauthStep, oauthStore } from "./oauth-store.ts";
 import type { InitialContext } from "../rpc/context.ts";
 
 const owner = base.use(authed);
@@ -66,6 +67,10 @@ function toView(row: Row, plugin: PluginRef | null) {
     urlSet: row.urlSealed !== null,
     transport: row.transport,
     headerNames: Object.keys(row.headersSealed).sort(),
+    auth: row.auth,
+    // OAuth: connected, needs authorization, or re-authorize; and the client id the owner entered (its secret stays sealed).
+    oauthStatus: row.auth === "oauth" ? (row.oauthStatus ?? "authorize") : null,
+    oauthClientId: row.oauthClientId,
     actions: row.actions,
     actionsError: row.actionsError,
     refreshedAt: row.refreshedAt,
@@ -132,6 +137,22 @@ export function toolTarget(row: Row, secrets: SecretBox): ToolTarget {
   return { url: secret.url, transport: row.transport, headers, urlSecrets: secret.secrets };
 }
 
+/** What a sign-in that stopped working says on each call, until its owner re-authorizes the tool. */
+export const REAUTHORIZE = "The sign-in to this tool stopped working: re-authorize it on its page in Settings → Tools";
+
+/**
+ * The target a listing or call connects to: with an OAuth tool's sealed state, which the
+ * connector's provider reads and refreshes. A tool not connected fails here, before any request,
+ * so a sign-in that stopped working is never tried again until its owner re-authorizes it.
+ */
+export function connectionTarget(db: Db, secrets: SecretBox, row: Row): ToolTarget {
+  const target = toolTarget(row, secrets);
+  if (row.auth !== "oauth") return target;
+  if (row.oauthStatus === "reauthorize") throw new ToolError(REAUTHORIZE);
+  if (row.oauthStatus !== "connected") throw new ToolError(`${row.name} isn't connected yet: connect it on its page in Settings → Tools`);
+  return { ...target, oauth: oauthStore(db, secrets, row.id, row.ownerId) };
+}
+
 /**
  * Lists the tool's actions again and stores them, or the reason it failed (the last actions
  * stay). The reason is a `ToolError`'s short text, never the server's answer.
@@ -139,7 +160,7 @@ export function toolTarget(row: Row, secrets: SecretBox): ToolTarget {
 export async function refreshActions(db: Db, secrets: SecretBox, connector: ToolConnector, row: Row): Promise<Row> {
   let values: Partial<Row>;
   try {
-    values = { actions: await connector.listActions(toolTarget(row, secrets)), actionsError: null, refreshedAt: new Date() };
+    values = { actions: await connector.listActions(connectionTarget(db, secrets, row)), actionsError: null, refreshedAt: new Date() };
   } catch (error) {
     if (!(error instanceof ToolError)) logError("tools.refresh failed", error, { ref: row.id });
     values = { actionsError: error instanceof ToolError ? error.message : "Couldn't list the tool's actions" };
@@ -204,11 +225,18 @@ export type ToolFields = {
   url: string;
   transport: ToolTransport;
   headers: Record<string, string>;
+  /** OAuth: no headers; its owner connects it afterwards. Otherwise it follows from the headers. */
+  oauth?: boolean;
   catalogId?: string;
   /** The URL to call when it holds secrets (named in `secrets`); `url` is then its template, shown in its place. */
   secretUrl?: { url: string; secrets: string[] };
   plugin?: { id: string; component: string };
 };
+
+const authOf = (oauth: boolean, headers: Record<string, unknown>): ToolAuth => (oauth ? "oauth" : Object.keys(headers).length > 0 ? "headers" : "none");
+
+/** A tool's OAuth columns cleared: a new server, or another way to sign in, starts over. */
+const NO_OAUTH = { oauthSealed: null, oauthStatus: null, oauthStateHash: null, oauthClientId: null } as const;
 
 /**
  * Saves a new HTTP tool with its headers (and secret URL) sealed. The one way a tool row is
@@ -221,6 +249,7 @@ export async function insertTool(db: Db | Tx, secrets: SecretBox, ownerId: strin
   if (!Headers.safeParse(input.headers).success) bad("The headers aren't valid");
   const headers = normalize(input.headers);
   for (const [name, value] of Object.entries(headers)) if (!value) bad(`The header ${name} has no value`);
+  if (input.oauth && (Object.keys(headers).length > 0 || input.secretUrl)) bad("A tool that signs in with OAuth has no headers");
   checkTarget(input.secretUrl?.url ?? input.url, Object.keys(headers).length > 0 || input.secretUrl !== undefined);
   const id = newId("tool");
   const headersSealed = Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, secrets.seal(value, headerAad(id, name))]));
@@ -235,6 +264,8 @@ export async function insertTool(db: Db | Tx, secrets: SecretBox, ownerId: strin
       urlSealed: input.secretUrl === undefined ? null : secrets.seal(JSON.stringify(input.secretUrl), urlAad(id)),
       transport: input.transport,
       headersSealed,
+      auth: authOf(input.oauth === true, headers),
+      oauthStatus: input.oauth ? "authorize" : null,
       catalogId: input.catalogId ?? null,
       pluginId: input.plugin?.id ?? null,
       pluginComponent: input.plugin?.component ?? null,
@@ -258,7 +289,7 @@ export async function retarget(db: Db | Tx, row: Row, url: string, transport: To
   checkTarget(url, Object.keys(row.headersSealed).length > 0);
   const [updated] = await db
     .update(toolsTable)
-    .set({ url, urlSealed: null, transport, actions: [], refreshedAt: null })
+    .set({ url, urlSealed: null, transport, actions: [], refreshedAt: null, ...(row.auth === "oauth" ? { ...NO_OAUTH, oauthStatus: "authorize" as const } : {}) })
     .where(and(eq(toolsTable.id, row.id), eq(toolsTable.ownerId, row.ownerId)))
     .returning();
   if (!updated) throw new ORPCError("NOT_FOUND");
@@ -268,7 +299,8 @@ export async function retarget(db: Db | Tx, row: Row, url: string, transport: To
 
 async function createTool(context: Pick<InitialContext, "db" | "secrets" | "tools"> & { ownerId: string }, input: ToolFields) {
   const row = await insertTool(context.db, context.secrets, context.ownerId, input);
-  return view(context.db, await refreshActions(context.db, context.secrets, context.tools, row));
+  // An OAuth tool lists its actions once connected.
+  return view(context.db, row.auth === "oauth" ? row : await refreshActions(context.db, context.secrets, context.tools, row));
 }
 
 const RunnerTool = z.object({ kind: z.literal("runner"), name: Name, runnerId: z.string().max(100), runnerTool: McpServerName });
@@ -285,11 +317,13 @@ async function createRunnerTool(context: Pick<InitialContext, "db" | "hub"> & { 
 }
 
 const create = owner
-  .input(z.union([RunnerTool, z.object({ kind: z.literal("http").optional(), name: Name, url: Url, transport: z.enum(TRANSPORTS), headers: Headers })]))
+  .input(
+    z.union([RunnerTool, z.object({ kind: z.literal("http").optional(), name: Name, url: Url, transport: z.enum(TRANSPORTS), headers: Headers, auth: z.enum(AUTHS).optional() })]),
+  )
   .handler(({ input, context }) => {
     if (input.kind === "runner") return createRunnerTool(context, input);
-    const { name, url, transport, headers } = input;
-    return createTool(context, { name, url, transport, headers });
+    const { name, url, transport, headers, auth } = input;
+    return createTool(context, { name, url, transport, headers, oauth: auth === "oauth" });
   });
 
 /**
@@ -375,6 +409,7 @@ const update = owner
       url: Url.optional(),
       transport: z.enum(TRANSPORTS).optional(),
       headers: Headers.optional(),
+      auth: z.enum(AUTHS).optional(),
       runnerId: z.string().max(100).optional(),
       runnerTool: McpServerName.optional(),
     }),
@@ -382,7 +417,7 @@ const update = owner
   .handler(async ({ input, context }) => {
     const current = await find(context.db, context.ownerId, input.id);
     if (current.kind === "runner") {
-      if (input.url !== undefined || input.transport !== undefined || input.headers !== undefined) {
+      if (input.url !== undefined || input.transport !== undefined || input.headers !== undefined || input.auth !== undefined) {
         bad("A runner tool has no URL or headers: its runner's config.json says how to start it");
       }
       return updateRunnerTool(context, current, input);
@@ -393,16 +428,22 @@ const update = owner
     // Headers are for the server they were entered for: at another origin, or over another
     // transport, the tool starts without them, and only those given with the change are kept.
     const elsewhere = originOf(url) !== originOf(current.url!) || transport !== current.transport;
-    const headersSealed = elsewhere ? {} : { ...current.headersSealed };
+    const oauth = (input.auth ?? current.auth) === "oauth";
+    // An OAuth tool sends no header (they would reach its authorization server too); "none" drops them.
+    const headersSealed = elsewhere || oauth || input.auth === "none" ? {} : { ...current.headersSealed };
     for (const [name, value] of Object.entries(normalize(input.headers ?? {}))) {
+      if (value && (oauth || input.auth === "none")) bad("A tool that signs in with OAuth, or not at all, has no headers");
       if (value) headersSealed[name] = context.secrets.seal(value, headerAad(current.id, name));
       else delete headersSealed[name];
     }
     if (Object.keys(headersSealed).length > MAX_HEADERS) bad(`At most ${MAX_HEADERS} headers`);
     // A new URL replaces the secret one; the same template keeps it.
     const urlSealed = url === current.url ? current.urlSealed : null;
+    if (oauth && urlSealed !== null) bad("A tool whose URL holds a secret can't sign in with OAuth");
     checkTarget(urlSealed === null ? url : toolTarget(current, context.secrets).url, Object.keys(headersSealed).length > 0 || urlSealed !== null);
     const moved = url !== current.url || transport !== current.transport;
+    // A sign-in is for the server it was made with: another server, or another way, starts over.
+    const oauthColumns = !oauth ? NO_OAUTH : current.auth !== "oauth" || moved ? { ...NO_OAUTH, oauthStatus: "authorize" as const } : {};
     const [row] = await context.db
       .update(toolsTable)
       .set({
@@ -411,6 +452,8 @@ const update = owner
         urlSealed,
         transport,
         headersSealed,
+        auth: authOf(oauth, headersSealed),
+        ...oauthColumns,
         // Another server's actions don't describe this one.
         ...(moved ? { actions: [], refreshedAt: null } : {}),
       })
@@ -419,8 +462,57 @@ const update = owner
       .catch((e: unknown) => nameTaken(e, input.name ?? current.name));
     if (!row) throw new ORPCError("NOT_FOUND");
     if (moved) await askAgain(context.db, row.id);
-    const changed = moved || (input.headers !== undefined && Object.keys(input.headers).length > 0);
-    return view(context.db, changed ? await refreshActions(context.db, context.secrets, context.tools, row) : row);
+    const changed = moved || (input.headers !== undefined && Object.keys(input.headers).length > 0) || row.auth !== current.auth;
+    // An OAuth tool lists its actions once connected.
+    const listable = row.auth !== "oauth" || row.oauthStatus === "connected";
+    return view(context.db, changed && listable ? await refreshActions(context.db, context.secrets, context.tools, row) : row);
+  });
+
+/**
+ * Starts an OAuth tool's sign-in (Connect, Re-authorize) and gives the URL to send the owner to.
+ * `client` is the client id (and secret) the authorization server gave the owner, for one that
+ * supports neither client metadata documents nor registration; null removes it. The flow's
+ * `state` and verifier stay sealed here, for the callback.
+ */
+const authorize = owner
+  .input(
+    z.object({
+      id: z.string(),
+      client: z
+        .object({ clientId: z.string().trim().min(1).max(500).refine(oneLine, "One line of text"), clientSecret: z.string().trim().max(2000).refine(oneLine, "One line of text").optional() })
+        .nullable()
+        .optional(),
+    }),
+  )
+  .handler(async ({ input, context }) => {
+    const row = await find(context.db, context.ownerId, input.id);
+    if (row.kind !== "http" || row.auth !== "oauth") bad("This tool doesn't sign in with OAuth");
+    const store = oauthStore(context.db, context.secrets, row.id, row.ownerId);
+    if (input.client !== undefined) {
+      const client = input.client;
+      await store.change((state) => {
+        // Another client: what was had with the last one (its client information, its tokens) goes.
+        state.issuers = {};
+        delete state.current;
+        if (client) state.entered = { client_id: client.clientId, ...(client.clientSecret ? { client_secret: client.clientSecret } : {}) };
+        else delete state.entered;
+      });
+    }
+    return oauthStep("authorize", row.id, async () => {
+      let started;
+      try {
+        started = await context.tools.authorize({ ...toolTarget(row, context.secrets), oauth: store });
+      } catch (error) {
+        if (error instanceof ToolError) bad(error.message);
+        throw error;
+      }
+      if (!started) bad(`${new URL(row.url!).host} doesn't ask for a sign-in: choose no sign-in instead`);
+      const pending = started.pending;
+      await store.change((state) => {
+        state.pending = pending;
+      });
+      return { url: started.url.href };
+    });
   });
 
 const refresh = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
@@ -456,4 +548,4 @@ const list = owner.handler(async ({ context }) => {
 
 const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => view(context.db, await find(context.db, context.ownerId, input.id)));
 
-export const tools = { create, add, update, delete: remove, list, get, refresh, catalog, installFromCatalog };
+export const tools = { create, add, update, delete: remove, list, get, refresh, authorize, catalog, installFromCatalog };

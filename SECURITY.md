@@ -50,6 +50,17 @@ changes it updates this file.
   is words cut short and a mark, so the question the owner answers also carries, from the
   server, the tool's name and the action's name and description in full. A session in `bypassPermissions` mode asks
   nothing, so its calls of these tools are refused.
+- **An OAuth tool's tokens, client secret and code verifier never leave the server.** They are
+  sealed per tool, keyed by authorization server, and go only where the MCP SDK's flow sends
+  them: the access token to the tool's URL, the rest to its authorization server's token
+  endpoint. Not to the browser (views say connected, needs authorization or re-authorize, and
+  the entered client id), a runner, an agent, a log or telemetry. Every request of the flow
+  (metadata, registration, token, refresh) goes through the connector's guarded fetch: the
+  address guard, and no redirect to another origin. An OAuth tool sends no static header. Only
+  the owner's session finishes a flow it started, with the `state` it sealed, once and within
+  10 minutes. A tool whose refresh is refused is marked "re-authorize": its calls fail before
+  any request until the owner signs in again; a call never starts a flow. The client metadata
+  document (`/oauth/client`) is public on purpose: it holds the app's name and callback only.
 - **Telemetry carries no secret and no content.** One module knows OpenTelemetry's SDK
   (`packages/domain/src/telemetry/`; a lint rule keeps it so), and everything it exports goes
   through `redact.ts` first, whoever recorded it (our code, or a library's own spans): an

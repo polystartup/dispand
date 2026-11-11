@@ -209,6 +209,7 @@ export const NOT_TOOLS: string[] = [
   "tools.create",
   "tools.update",
   "tools.refresh",
+  "tools.authorize",
   "tools.catalog",
   "tools.installFromCatalog",
   // What grants authority or can't be undone: a person does it (later, through a proposal).

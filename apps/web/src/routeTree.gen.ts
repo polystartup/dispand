@@ -19,6 +19,8 @@ import { Route as AppNotificationsRouteImport } from './routes/_app.notification
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as FilesIdRouteImport } from './routes/files/$id'
 import { Route as McpJobRouteImport } from './routes/mcp/job'
+import { Route as OauthCallbackRouteImport } from './routes/oauth/callback'
+import { Route as OauthClientRouteImport } from './routes/oauth/client'
 import { Route as RunnerPairRouteImport } from './routes/runner/pair'
 import { Route as AppPPageIdRouteImport } from './routes/_app.p.$pageId'
 import { Route as AppSettingsSkillsRouteImport } from './routes/_app.settings.skills'
@@ -89,6 +91,16 @@ const FilesIdRoute = FilesIdRouteImport.update({
 const McpJobRoute = McpJobRouteImport.update({
   id: '/mcp/job',
   path: '/mcp/job',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OauthCallbackRoute = OauthCallbackRouteImport.update({
+  id: '/oauth/callback',
+  path: '/oauth/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OauthClientRoute = OauthClientRouteImport.update({
+  id: '/oauth/client',
+  path: '/oauth/client',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RunnerPairRoute = RunnerPairRouteImport.update({
@@ -219,6 +231,8 @@ export interface FileRoutesByFullPath {
   '/api/health': typeof ApiHealthRoute
   '/files/$id': typeof FilesIdRoute
   '/mcp/job': typeof McpJobRoute
+  '/oauth/callback': typeof OauthCallbackRoute
+  '/oauth/client': typeof OauthClientRoute
   '/runner/pair': typeof RunnerPairRoute
   '/p/$pageId': typeof AppPPageIdRoute
   '/settings/skills': typeof AppSettingsSkillsRoute
@@ -251,6 +265,8 @@ export interface FileRoutesByTo {
   '/api/health': typeof ApiHealthRoute
   '/files/$id': typeof FilesIdRoute
   '/mcp/job': typeof McpJobRoute
+  '/oauth/callback': typeof OauthCallbackRoute
+  '/oauth/client': typeof OauthClientRoute
   '/runner/pair': typeof RunnerPairRoute
   '/': typeof AppIndexRoute
   '/p/$pageId': typeof AppPPageIdRoute
@@ -286,6 +302,8 @@ export interface FileRoutesById {
   '/api/health': typeof ApiHealthRoute
   '/files/$id': typeof FilesIdRoute
   '/mcp/job': typeof McpJobRoute
+  '/oauth/callback': typeof OauthCallbackRoute
+  '/oauth/client': typeof OauthClientRoute
   '/runner/pair': typeof RunnerPairRoute
   '/_app/': typeof AppIndexRoute
   '/_app/p/$pageId': typeof AppPPageIdRoute
@@ -322,6 +340,8 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/files/$id'
     | '/mcp/job'
+    | '/oauth/callback'
+    | '/oauth/client'
     | '/runner/pair'
     | '/p/$pageId'
     | '/settings/skills'
@@ -354,6 +374,8 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/files/$id'
     | '/mcp/job'
+    | '/oauth/callback'
+    | '/oauth/client'
     | '/runner/pair'
     | '/'
     | '/p/$pageId'
@@ -388,6 +410,8 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/files/$id'
     | '/mcp/job'
+    | '/oauth/callback'
+    | '/oauth/client'
     | '/runner/pair'
     | '/_app/'
     | '/_app/p/$pageId'
@@ -420,6 +444,8 @@ export interface RootRouteChildren {
   ApiHealthRoute: typeof ApiHealthRoute
   FilesIdRoute: typeof FilesIdRoute
   McpJobRoute: typeof McpJobRoute
+  OauthCallbackRoute: typeof OauthCallbackRoute
+  OauthClientRoute: typeof OauthClientRoute
   RunnerPairRoute: typeof RunnerPairRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiRpcSplatRoute: typeof ApiRpcSplatRoute
@@ -497,6 +523,20 @@ declare module '@tanstack/react-router' {
       path: '/mcp/job'
       fullPath: '/mcp/job'
       preLoaderRoute: typeof McpJobRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/oauth/callback': {
+      id: '/oauth/callback'
+      path: '/oauth/callback'
+      fullPath: '/oauth/callback'
+      preLoaderRoute: typeof OauthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/oauth/client': {
+      id: '/oauth/client'
+      path: '/oauth/client'
+      fullPath: '/oauth/client'
+      preLoaderRoute: typeof OauthClientRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/runner/pair': {
@@ -713,6 +753,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiHealthRoute: ApiHealthRoute,
   FilesIdRoute: FilesIdRoute,
   McpJobRoute: McpJobRoute,
+  OauthCallbackRoute: OauthCallbackRoute,
+  OauthClientRoute: OauthClientRoute,
   RunnerPairRoute: RunnerPairRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiRpcSplatRoute: ApiRpcSplatRoute,

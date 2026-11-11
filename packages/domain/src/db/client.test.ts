@@ -42,3 +42,38 @@ test("0025 keeps existing runs as workflow runs", async () => {
     snapshot: null,
   });
 });
+
+test("0042 gives existing HTTP tools with headers the headers sign-in, and every other tool none", async () => {
+  const { cp, mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "dispand-0042-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  // The migrations as they were before 0042.
+  const before = join(dir, "migrations");
+  const all = new URL("../../drizzle", import.meta.url).pathname;
+  await cp(all, before, { recursive: true });
+  const journalPath = join(before, "meta", "_journal.json");
+  const journal = JSON.parse(await readFile(journalPath, "utf8")) as { entries: { tag: string }[] };
+  journal.entries = journal.entries.filter((e) => e.tag < "0042");
+  await writeFile(journalPath, JSON.stringify(journal));
+  const url = `pglite://${join(dir, "db")}`;
+  const old = await createDb(url, before);
+  await old.execute(sql`insert into "user" (id, name, email) values ('user_1', 'Ada', 'ada@example.com')`);
+  await old.execute(sql`insert into runners (id, owner_id, name, token_hash) values ('runner_1', 'user_1', 'Mac', 'h')`);
+  await old.execute(
+    sql`insert into tools (id, owner_id, name, kind, url, transport, headers_sealed) values
+      ('tool_h', 'user_1', 'With headers', 'http', 'https://a.example/mcp', 'streamable-http', '{"authorization":"v1.x.y"}'),
+      ('tool_n', 'user_1', 'Without', 'http', 'https://b.example/mcp', 'streamable-http', '{}')`,
+  );
+  await old.execute(sql`insert into tools (id, owner_id, name, kind, runner_id, runner_tool) values ('tool_r', 'user_1', 'On a runner', 'runner', 'runner_1', 'files')`);
+  await closeDb(old);
+  const db = await createDb(url);
+  onTestFinished(() => closeDb(db));
+  const rows = await db.execute(sql`select id, auth, oauth_sealed, oauth_status, headers_sealed from tools order by id`);
+  expect(rowsOf(rows)).toEqual([
+    { id: "tool_h", auth: "headers", oauth_sealed: null, oauth_status: null, headers_sealed: { authorization: "v1.x.y" } },
+    { id: "tool_n", auth: "none", oauth_sealed: null, oauth_status: null, headers_sealed: {} },
+    { id: "tool_r", auth: "none", oauth_sealed: null, oauth_status: null, headers_sealed: {} },
+  ]);
+});

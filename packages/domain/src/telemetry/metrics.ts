@@ -22,6 +22,8 @@ export const METRICS = {
   "dispand.runner.disconnects": [],
   "dispand.tool.calls": ["dispand.result"],
   "dispand.tool.duration": ["dispand.result"],
+  // A step of an OAuth tool's sign-in (`authorize`, `callback`, `refresh`) and how it ended.
+  "dispand.tool.oauth": ["dispand.oauth.step", "dispand.result"],
   "dispand.model.calls": ["dispand.harness.kind", "dispand.result"],
   "dispand.model.duration": ["dispand.harness.kind", "dispand.result"],
   // The instrumentations' own (`apps/web/telemetry-preload.mjs`): methods, codes and peers, never a path or a query.
