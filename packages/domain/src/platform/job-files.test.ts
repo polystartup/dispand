@@ -1,7 +1,7 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { readdir } from "node:fs/promises";
+import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, onTestFinished, test } from "vitest";
 import { MAX_FILE_BYTES, sweepAttachments } from "../data/files.ts";
@@ -146,4 +146,13 @@ test("a file over the size limit isn't kept, and the agent is told why", async (
   expect(result.isError).toBe(false);
   expect(result.text).toContain("File 1 (“scan.tiff”): not kept, files are at most 10 MiB");
   expect(await ownedBy(s, runId)).toEqual([]);
+});
+
+test("a file store that fails gives the agent a fixed reason, not the error", async () => {
+  const s = await setup();
+  const { callTool } = await s.job();
+  // The owner's directory can't be made: a plain file is in its place.
+  await writeFile(join(s.context.filesDir, s.context.ownerId), "x");
+  const result = await callTool("mail_get_mail");
+  expect(result).toEqual({ text: "The call ran, but the files it returned couldn't be kept.", isError: true });
 });

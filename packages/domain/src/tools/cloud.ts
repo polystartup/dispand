@@ -2,6 +2,7 @@ import { setAsk } from "../agents/tool-ask.ts";
 import type { ToolCaller } from "../cloud/runner.ts";
 import { keepJobFiles } from "../data/files.ts";
 import type { Db } from "../db/client.ts";
+import { logError } from "../log.ts";
 import { sessionTooling } from "../engine/tooling.ts";
 import type { InstalledTools } from "./executor.ts";
 
@@ -45,8 +46,12 @@ export function installedToolCaller(db: Db, installed: InstalledTools, filesDir?
       if (typeof args !== "object" || args === null || Array.isArray(args)) return { text: "The arguments must be an object.", isError: true };
       const called = await installed.call(tool, actionName, args as Record<string, unknown>, signal);
       if (!called.ok) return { text: called.error, isError: true };
-      const result = jobId && filesDir ? await keepJobFiles(db, filesDir, { ownerId: tool.ownerId, runId: jobId }, called.result) : called.result;
-      return { text: result.text, isError: result.isError };
+      if (!jobId || !filesDir) return { text: called.result.text, isError: called.result.isError };
+      const result = await keepJobFiles(db, filesDir, { ownerId: tool.ownerId, runId: jobId }, called.result).catch((err: unknown) => {
+        logError("tool files not kept", err, { ref: jobId });
+        return null;
+      });
+      return result ? { text: result.text, isError: result.isError } : { text: "The call ran, but the files it returned couldn't be kept.", isError: true };
     },
     // The owner's "always allow": the action stops asking on the agent itself, the one place that says which actions ask.
     async allowAlways(sessionId, key) {

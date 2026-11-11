@@ -19,6 +19,8 @@ const GONE = "This tool is not available.";
 const NEEDS_APPROVAL =
   "This call needs the owner's approval: the action asks before use. It is asked when the session's permission mode asks before using tools; it was not approved, or the arguments changed since. If you were not asked, don't retry: say that the call needs the owner's approval.";
 
+const FILES_FAILED = "The call ran, but the files it returned couldn't be kept.";
+
 const text = (t: string, isError = false) => ({ content: [{ type: "text" as const, text: t }], ...(isError ? { isError: true } : {}) });
 
 /** One handler per app: the SDK builds a server per request from the factory, which reads the request's Job. */
@@ -49,8 +51,11 @@ function toolsHandler(app: PlatformApp) {
           const called = await installed.call(tool, item.action, args, ctx.requestInfo?.signal ?? new AbortController().signal);
           if (!called.ok) return text(called.error, true);
           // Files in the result are kept for the Job: the session gets their attachment ids, not their bytes.
-          const result = await keepJobFiles(app.db, app.filesDir, job, called.result);
-          return text(result.text, result.isError);
+          const result = await keepJobFiles(app.db, app.filesDir, job, called.result).catch((err: unknown) => {
+            logError("tool files not kept", err, { ref: job.runId });
+            return null;
+          });
+          return result ? text(result.text, result.isError) : text(FILES_FAILED, true);
         });
         return server;
       },

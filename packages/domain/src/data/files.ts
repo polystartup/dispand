@@ -97,16 +97,16 @@ export async function keepJobFiles(db: Db, filesDir: string, job: { ownerId: str
   if (!files?.length) return rest;
   const lines: string[] = [];
   let kept = 0;
-  for (const [i, file] of files.entries()) {
+  for (const [i, file] of files.slice(0, MAX_RESULT_FILES).entries()) {
     const label = `File ${i + 1} (“${storedName(file.name)}”)`;
-    if (i >= MAX_RESULT_FILES) lines.push(`${label}: not kept, a result keeps at most ${MAX_RESULT_FILES} files`);
-    else if (file.bytes.length > MAX_FILE_BYTES) lines.push(`${label}: not kept, files are at most 10 MiB`);
+    if (file.bytes.length > MAX_FILE_BYTES) lines.push(`${label}: not kept, files are at most 10 MiB`);
     else {
       const row = await storeAttachment(db, filesDir, { ownerId: job.ownerId, jobId: job.runId, name: file.name, bytes: file.bytes });
       lines.push(`${label}: attachment ${row.id}, ${row.mime}, ${row.size} bytes`);
       kept++;
     }
   }
+  if (files.length > MAX_RESULT_FILES) lines.push(`${files.length - MAX_RESULT_FILES} more files: not kept, a result keeps at most ${MAX_RESULT_FILES}`);
   if (kept > 0) counts.counter("dispand.attachments.stored").add(kept, { "dispand.attachment.source": "tool" });
   if (files.length > kept) counts.counter("dispand.attachments.refused").add(files.length - kept);
   const note = `Files in this result, kept for this Job (write an attachment's id in a file field to keep it; the others are removed an hour after the Job ends):\n${lines.join("\n")}`;
