@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import type { RunSnapshot } from "../../lib/run-state.ts";
+import "../../test/jsdom-shims.ts";
 
 const fake = vi.hoisted(() => ({
   runs: { start: vi.fn(), sendChat: vi.fn(), stream: vi.fn(), list: vi.fn() },
