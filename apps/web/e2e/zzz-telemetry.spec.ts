@@ -75,7 +75,10 @@ test("telemetry exported during the whole suite holds no secret and no content",
   await expect.poll(dump, { timeout: 20_000 }).toContain(toolId);
   await page.waitForTimeout(2_000);
   const exported = await dump();
+  // Spans, metrics and logs all reached the collector: none of the checks below is vacuous.
   expect(exported).toContain("tool.call");
+  expect(exported).toContain("dispand.tool.calls");
+  expect(exported).toContain("dispand.rpc.duration");
   for (const [what, sentinel] of Object.entries({ ...SENTINELS, answer: "sentinel-tool-answer-35" })) {
     expect(exported.includes(sentinel), `${what} found in exported telemetry`).toBe(false);
   }
