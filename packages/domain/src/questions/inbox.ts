@@ -4,7 +4,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents, questions, runs } from "../db/schema.ts";
-import { EngineError } from "../engine/engine.ts";
+import { attributed, EngineError } from "../engine/engine.ts";
 import type { JobIdentity, PlatformApp, ToolResult } from "../platform/call.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { jobScope, reachable, type InboxScope } from "./inbox-scope.ts";
@@ -104,7 +104,10 @@ export function answerQuestion(app: PlatformApp, job: JobIdentity, input: z.infe
     const [agent] = await app.db.select({ name: agents.name }).from(agents).where(eq(agents.id, job.agentId));
     try {
       const delivered = check(item.q.payload, input.answer);
-      await app.engine.answer(item.q.id, delivered, { type: "agent", agentId: job.agentId, runId: job.runId, name: agent?.name ?? "" });
+      const name = agent?.name ?? "";
+      // A CLI session gets it with who answered in its words: that too must fit the protocol.
+      if (!Answer.safeParse(attributed(delivered, name)).success) return { ok: false, error: "An answer is too long" };
+      await app.engine.answer(item.q.id, delivered, { type: "agent", agentId: job.agentId, runId: job.runId, name });
     } catch (err) {
       if (err instanceof EngineError) return { ok: false, error: err.code === "NOT_PENDING" ? CLOSED : err.message };
       if (err instanceof ORPCError) return { ok: false, error: err.message };

@@ -691,9 +691,12 @@
   `callPlatformTool` through their `run`): each call takes `jobScope`, then `reachable`, then
   "still open"; `reachable` admits only a Question with choices. An answer goes through
   `Engine.answer` with `answered_by` the agent, its Job and its name; its `answered` event's
-  actor is that Job. The asking session gets the answer as usual and then a message saying
-  which agent gave it (`answererNote`: a CLI shows any answer as the owner's), and an answer
-  sent in words starts "Answered by the agent <name>". Each call has a span `inbox.<tool>` and
+  actor is that Job. The asking session is told who answered with the answer itself, before it
+  resumes: `HarnessAdapter.answer` takes the agent; the cloud runner words the result "Answered
+  by the agent <name>", and a CLI session, whose protocol answer has no answerer, gets each
+  question's answer followed by "(Answered by the agent <name>, not by the owner)" (`attributed`;
+  a label so changed reaches the CLI whole, as free text). An answer too long to carry that is
+  refused. An answer sent in words starts "Answered by the agent <name>". Each call has a span `inbox.<tool>` and
   counts in `dispand.inbox.calls`; `dispand.questions.answered` carries `dispand.answer.by`.
   A schema change that rewrites cells (a choice removed, a retype, a field deleted) records
   no event: it changes the table's shape, not a row someone wrote, and starts no Job.

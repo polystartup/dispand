@@ -1,10 +1,11 @@
 import { call } from "@orpc/server";
-import type { Answer, QuestionPayload } from "@dispand/runner-protocol";
+import type { Answer, QuestionPayload, ServerToRunner } from "@dispand/runner-protocol";
 import { and, eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { agents, events, questions, stepRuns } from "../db/schema.ts";
-import { answerText, Engine } from "../engine/engine.ts";
-import type { HarnessAdapter } from "../engine/harness.ts";
+import { CliHarnessAdapter } from "../engine/cli-harness.ts";
+import { answerText, attributed, Engine } from "../engine/engine.ts";
+import type { AgentAnswerer, HarnessAdapter } from "../engine/harness.ts";
 import { Scheduler } from "../engine/scheduler.ts";
 import type { Bundle, TableScope } from "../platform/bundles.ts";
 import { callPlatformTool, toolsOf, type JobIdentity } from "../platform/call.ts";
@@ -13,7 +14,7 @@ import { asCli, ownerContext } from "../runners/test-support.ts";
 import { INTERACTION } from "../triggers/model.ts";
 
 class FakeAdapter implements HarnessAdapter {
-  answers: { sessionId: string; answer: Answer }[] = [];
+  answers: { sessionId: string; answer: Answer; by?: AgentAnswerer }[] = [];
   sends: { sessionId: string; text: string }[] = [];
   async start() {
     return true;
@@ -22,8 +23,8 @@ class FakeAdapter implements HarnessAdapter {
     this.sends.push({ sessionId, text });
     return true;
   }
-  async answer(sessionId: string, _questionId: string, answer: Answer) {
-    this.answers.push({ sessionId, answer });
+  async answer(sessionId: string, _questionId: string, answer: Answer, by?: AgentAnswerer) {
+    this.answers.push({ sessionId, answer, by });
     return true;
   }
   async stop() {
@@ -108,10 +109,10 @@ test("an inbox Job lists, reads and answers another agent's Question on its tabl
   expect(await s.tool(job, "questions_answer", { questionId: q.id, answer: yes })).toEqual({ ok: true, output: { answered: q.id } });
   const answered = await s.questionOf(q.id);
   expect(answered).toMatchObject({ status: "answered", answer: yes, answeredBy: { type: "agent", agentId: s.answerer.id, runId: job.runId, name: "Answerer" } });
-  // The asking session gets the answer once, then who gave it.
+  // The asking session gets the answer once, with who gave it.
   const session = (await s.stepOf(asking)).sessionId!;
-  await vi.waitFor(() => expect(s.adapter.sends).toEqual([{ sessionId: session, text: expect.stringContaining("Answered by the agent Answerer") }]));
-  expect(s.adapter.answers).toEqual([{ sessionId: session, answer: yes }]);
+  await vi.waitFor(() => expect(s.adapter.answers).toEqual([{ sessionId: session, answer: yes, by: answered.answeredBy }]));
+  expect(s.adapter.sends).toEqual([]);
   // The event is the answering Job's write.
   const [event] = await s.context.db.select().from(events).where(and(eq(events.tableId, INTERACTION), eq(events.rowId, q.id), eq(events.operation, "answered")));
   expect(event!.actor).toEqual({ type: "job", runId: job.runId });
@@ -217,4 +218,32 @@ test("an agent's answer in words says which agent gave it", () => {
   const by = { type: "agent" as const, agentId: "agent_1", runId: "run_1", name: "Answerer" };
   expect(answerText({ payload: choice, answer: yes, answeredBy: by })).toBe(`Answered by the agent Answerer: “${SECRET}”: Yes, sign it.`);
   expect(answerText({ payload: choice, answer: yes, answeredBy: { type: "user", userId: "u" } })).toBe(`The owner answered: “${SECRET}”: Yes, sign it.`);
+  // As a CLI session gets it, with the answer itself: each question's answer names the agent.
+  expect(attributed({ kind: "choice", answers: { [SECRET]: "No", Which: ["A", "B"] } }, "Answerer")).toEqual({
+    kind: "choice",
+    answers: { [SECRET]: "No (Answered by the agent Answerer, not by the owner)", Which: ["A", "B (Answered by the agent Answerer, not by the owner)"] },
+  });
+});
+
+test("a CLI session's runner gets an agent's answer with who gave it, a person's as given", async () => {
+  const s = await setup();
+  const session = (await s.stepOf(await s.jobOn(s.clerk, s.clients))).sessionId!;
+  const sent: ServerToRunner[] = [];
+  const hub = { send: async (_runnerId: string, msg: ServerToRunner) => sent.push(msg) > 0 };
+  const cli = new CliHarnessAdapter(s.context.db, hub as never);
+  const by = { type: "agent" as const, agentId: s.answerer.id, runId: "run_1", name: "Answerer" };
+  await cli.answer(session, "rq_1", yes, by);
+  await cli.answer(session, "rq_2", yes);
+  expect(sent).toEqual([
+    { type: "session.answer", sessionId: session, questionId: "rq_1", answer: attributed(yes, "Answerer") },
+    { type: "session.answer", sessionId: session, questionId: "rq_2", answer: yes },
+  ]);
+});
+
+test("an answer too long to carry who gave it is refused, and the item still waits", async () => {
+  const s = await setup();
+  const q = await s.ask(await s.jobOn(s.clerk, s.clients));
+  const job = await s.jobOf(s.answerer);
+  expect(await s.tool(job, "questions_answer", { questionId: q.id, answer: { kind: "choice", answers: { [SECRET]: "x".repeat(3990) } } })).toEqual({ ok: false, error: "An answer is too long" });
+  expect((await s.questionOf(q.id)).status).toBe("pending");
 });

@@ -118,7 +118,8 @@ changes it updates this file.
   it no longer waits, never its text or answer. Only a Question with choices is reachable: an
   Approval, or a confirmation of a Job's values, is a person's. An agent's answer goes through
   the same one-time pending-to-answered update as a person's, records the agent and its Job,
-  and the asking session is told which agent answered. `inbox` is granted like any bundle: by
+  and the asking session is told which agent answered in the answer itself, so it never resumes
+  on an agent's words taken for the owner's. `inbox` is granted like any bundle: by
   a person, or by an approved proposal.
 - **A poll is never a way around action approvals or an agent's tools.** The scheduler calls a
   tool outside any Job only for a poll trigger whose action the tool lets polls read and no agent
