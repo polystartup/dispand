@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { expect, test, vi } from "vitest";
 import { logError } from "./log.ts";
+import { captureTelemetry } from "./telemetry/testing.ts";
 
 test("logError keeps the error's kind, code and constraint, never its message or params", () => {
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -40,4 +41,17 @@ test("the domain logs only through logError", () => {
     .filter((file) => /\bconsole\.\w+/.test(readFileSync(file, "utf8")))
     .map((file) => relative(import.meta.dirname, file));
   expect(offenders).toEqual([]);
+});
+
+test("a logged error is also a log record, with the same fields and never the error's text", async () => {
+  const t = await captureTelemetry();
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  const cause = Object.assign(new Error('value "secret" violates'), { code: "23505", constraint: "runners_token_hash_unique" });
+  logError("runner message failed", Object.assign(new Error("params: secret"), { cause, name: "DrizzleQueryError" }), { runnerId: "runner_1" });
+  const [record] = t.logs();
+  expect(record!.body).toBe("runner message failed");
+  expect(record!.attributes).toEqual({ runnerId: "runner_1", "error.type": "DrizzleQueryError", "error.cause": "Error", "db.response.status_code": "23505", "error.constraint": "runners_token_hash_unique" });
+  expect(await t.all()).not.toContain("secret");
+  error.mockRestore();
+  await t.stop();
 });
