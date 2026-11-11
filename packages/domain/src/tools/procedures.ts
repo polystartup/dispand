@@ -26,6 +26,15 @@ export const urlAad = (toolId: string) => secretAad("tools", toolId, "url");
 
 export const MAX_HEADERS = 20;
 
+/** A URL's origin (scheme, host, port); empty for what isn't a URL. A template's `${VAR}` in the path or query doesn't change it. */
+const originOf = (url: string) => {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return "";
+  }
+};
+
 export const Name = z.string().trim().min(1).max(100);
 export const Url = z.url({ protocol: /^https?$/ }).max(2000);
 // RFC 9110 token; stored in lower case (header names are case-insensitive).
@@ -361,14 +370,17 @@ const update = owner
       return updateRunnerTool(context, current, input);
     }
     if (input.runnerId !== undefined || input.runnerTool !== undefined) bad("An HTTP tool doesn't run on a runner");
-    const headersSealed = { ...current.headersSealed };
+    const url = input.url ?? current.url!;
+    const transport = input.transport ?? current.transport!;
+    // Headers are for the server they were entered for: at another origin, or over another
+    // transport, the tool starts without them, and only those given with the change are kept.
+    const elsewhere = originOf(url) !== originOf(current.url!) || transport !== current.transport;
+    const headersSealed = elsewhere ? {} : { ...current.headersSealed };
     for (const [name, value] of Object.entries(normalize(input.headers ?? {}))) {
       if (value) headersSealed[name] = context.secrets.seal(value, headerAad(current.id, name));
       else delete headersSealed[name];
     }
     if (Object.keys(headersSealed).length > MAX_HEADERS) bad(`At most ${MAX_HEADERS} headers`);
-    const url = input.url ?? current.url!;
-    const transport = input.transport ?? current.transport!;
     // A new URL replaces the secret one; the same template keeps it.
     const urlSealed = url === current.url ? current.urlSealed : null;
     checkTarget(urlSealed === null ? url : toolTarget(current, context.secrets).url, Object.keys(headersSealed).length > 0 || urlSealed !== null);
