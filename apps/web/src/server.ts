@@ -5,6 +5,7 @@ import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
 
 // For the production entry, which reads its settings through the bundle like the rest of the server.
 export { loadServerConfig } from "./server/config.ts";
+import { withPageSecurity } from "./server/page-security.ts";
 
 /**
  * The production entry (`server.ts` at the app root) hands every upgrade here. The hub comes from
@@ -25,4 +26,4 @@ export async function closeApp(): Promise<void> {
   await (await import("./server/app.ts")).closeApp();
 }
 
-export default createServerEntry({ fetch: handler.fetch });
+export default createServerEntry({ fetch: async (...args) => withPageSecurity(await handler.fetch(...args)) });
