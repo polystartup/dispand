@@ -66,6 +66,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
     }
   };
   const elsewhere = current?.kind === "http" && (origin(url.trim()) !== origin(current.url ?? "") || transport !== current.transport);
+  const unsavedTarget = current?.kind === "http" && (url.trim() !== (current.url ?? "") || transport !== current.transport);
   const setRow = (key: number, patch: Partial<HeaderRow>) => setHeaders((rows) => rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
 
   async function save() {
@@ -102,7 +103,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
 
   /** Connect or Re-authorize: the page leaves for the server's sign-in, which comes back to the tool. */
   async function connect(client?: { clientId: string; clientSecret?: string } | null) {
-    if (!current) return;
+    if (!current || unsavedTarget) return;
     setError(null);
     try {
       const { url: to } = await authorize.mutateAsync({ id: current.id, ...(client !== undefined ? { client } : {}) });
@@ -264,9 +265,17 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
             </div>
           </form>
 
-          {current?.auth === "oauth" && current.oauthStatus && signIn === "oauth" && (
-            <ToolSignIn status={current.oauthStatus} clientId={current.enteredClientId} busy={busy} onConnect={(client) => void connect(client)} />
-          )}
+          {current?.auth === "oauth" &&
+            current.oauthStatus &&
+            signIn === "oauth" &&
+            // A sign-in is for the saved server: an address or transport not saved yet would get it (and the client entered for it).
+            (unsavedTarget ? (
+              <p role="status" className="text-[13px] text-muted">
+                Save the new address before connecting: the sign-in is for the server the tool is saved with.
+              </p>
+            ) : (
+              <ToolSignIn status={current.oauthStatus} clientId={current.enteredClientId} busy={busy} onConnect={(client) => void connect(client)} />
+            ))}
 
           {current && (
             <section aria-labelledby="tool-actions" className="space-y-3">
