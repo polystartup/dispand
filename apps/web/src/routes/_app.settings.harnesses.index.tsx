@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cloudKindLabels } from "../components/settings/CloudHarnessForm.tsx";
+import { HarnessLimits } from "../components/settings/HarnessLimits.tsx";
 import { cliVersion, HarnessSheet, harnessTabs, permissionLabels, type Harness } from "../components/settings/HarnessSheet.tsx";
 import { Empty, List, NextStep, OutdatedRunners, StatusDot } from "../components/settings/parts.tsx";
 import { Tabs } from "../components/settings/Tabs.tsx";
@@ -100,6 +101,8 @@ function Harnesses() {
           })}
         </List>
       )}
+
+      {loaded && harnesses.data!.length > 0 && <HarnessLimits />}
 
       {sheet && (
         <HarnessSheet

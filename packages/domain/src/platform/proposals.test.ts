@@ -125,7 +125,7 @@ test("an approval doesn't bring back a right taken since, nor skip the procedure
 test("every tool marked as a grant is refused without a proposal", async () => {
   const s = await setup(["data", "configure"]);
   const grants = PLATFORM_TOOLS.filter((t) => t.grant);
-  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "tables_delete", "tools_add", "tools_delete", "triggers_create", "triggers_delete", "triggers_update"]);
+  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "harnesses_set_limit", "tables_delete", "tools_add", "tools_delete", "triggers_create", "triggers_delete", "triggers_update"]);
   const table = await call(router.tables.create, { name: "Clients" }, { context: s.context });
   const field = (await call(router.tables.get, { id: table.id }, { context: s.context })).fields[0]!;
   const inputs: Record<string, unknown> = {
@@ -139,6 +139,7 @@ test("every tool marked as a grant is refused without a proposal", async () => {
     triggers_delete: { id: "trigger_x" },
     tools_add: { name: "Mail", url: "https://mail.example.com/mcp", transport: "streamable-http" },
     tools_delete: { id: "tool_x" },
+    harnesses_set_limit: { id: s.agent.harnessId, maxWorking: 10 },
   };
   for (const t of grants) expect(((await s.tool(t.name, inputs[t.name])) as { error: string }).error).toMatch(NEEDS);
 });
@@ -380,4 +381,16 @@ test("an agent adds a tool only on an approved item: an address and no credentia
   await s.answer(q2, "allow");
   expect(await s.tool("tools_delete", { id: toolId })).toMatchObject({ ok: true });
   expect(await call(router.tools.list, undefined, { context })).toEqual([]);
+});
+
+test("a harness's limit changes through an approved proposal, which names the harness", async () => {
+  const s = await setup();
+  const id = s.idOf(await s.propose([{ tool: "harnesses_set_limit", input: { id: s.harness.id, maxWorking: 2 } }]));
+  const q = await s.ask({ message: "May I?", proposal: id });
+  const { proposal } = (await call(router.questions.list, { status: "pending" }, { context: s.context })).find((i) => i.id === q)!;
+  expect(proposal!.items[0]!.refs).toEqual(["id"]);
+  expect(proposal!.names[s.harness.id]).toMatchObject({ kind: "harness" });
+  await s.answer(q, "allow");
+  expect(await s.tool("harnesses_set_limit", { id: s.harness.id, maxWorking: 2 })).toMatchObject({ ok: true, output: { maxWorking: 2 } });
+  expect((await call(router.harnesses.limits, undefined, { context: s.context })).find((h) => h.id === s.harness.id)).toMatchObject({ maxWorking: 2 });
 });

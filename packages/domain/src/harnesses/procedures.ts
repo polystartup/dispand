@@ -1,9 +1,9 @@
 import { ORPCError } from "@orpc/server";
 import { ClaudePermissionMode, CodexPermissionMode } from "@dispand/runner-protocol";
-import { and, asc, count, eq, isNull } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agents, harnesses as harnessesTable, runners } from "../db/schema.ts";
+import { agents, harnesses as harnessesTable, runners, stepRuns } from "../db/schema.ts";
 import { listModels, ModelListError } from "../cloud/models.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -220,4 +220,41 @@ const models = owner
     }
   });
 
-export const harnesses = { create, update, delete: remove, list, get, models };
+/** How many sessions of a harness may work on a turn at once (design 6.1). */
+export const MaxWorking = z.number().int().min(1).max(100);
+
+/** Every harness with its limit, and its sessions working and its steps queued now. */
+const limits = owner.handler(async ({ context }) => {
+  const rows = await context.db
+    .select({ id: harnessesTable.id, name: harnessesTable.name, kind: harnessesTable.kind, maxWorking: harnessesTable.maxWorking })
+    .from(harnessesTable)
+    .where(eq(harnessesTable.ownerId, context.ownerId))
+    .orderBy(asc(harnessesTable.createdAt), asc(harnessesTable.id));
+  const ids = rows.map((r) => r.id);
+  const now = ids.length
+    ? await context.db
+        .select({
+          harnessId: stepRuns.harnessId,
+          working: sql<number>`count(*) filter (where ${stepRuns.working})`.mapWith(Number),
+          queued: sql<number>`count(*) filter (where ${stepRuns.queuedAt} is not null)`.mapWith(Number),
+        })
+        .from(stepRuns)
+        .where(inArray(stepRuns.harnessId, ids))
+        .groupBy(stepRuns.harnessId)
+    : [];
+  const byHarness = new Map(now.map((n) => [n.harnessId, n]));
+  return rows.map((r) => ({ ...r, working: byHarness.get(r.id)?.working ?? 0, queued: byHarness.get(r.id)?.queued ?? 0 }));
+});
+
+/**
+ * Sets a harness's limit. Raising it starts queued steps at once; lowering it stops nothing: new
+ * turns wait until the sessions working are fewer than the limit.
+ */
+const setLimit = owner.input(z.object({ id: z.string(), maxWorking: MaxWorking })).handler(async ({ input, context }) => {
+  await find(context.db, context.ownerId, input.id);
+  await context.db.update(harnessesTable).set({ maxWorking: input.maxWorking }).where(eq(harnessesTable.id, input.id));
+  await context.engine.handOut(input.id);
+  return { id: input.id, maxWorking: input.maxWorking };
+});
+
+export const harnesses = { create, update, delete: remove, list, get, models, limits, setLimit };
