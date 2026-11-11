@@ -187,6 +187,15 @@ const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input,
   publish(context.dataEvents, input.id);
 });
 
+/** `base`, or `base (2)`, `base (3)`… : the first a table's fields don't use, at most 100 characters. */
+function unusedName(base: string, taken: Set<string>): string {
+  for (let i = 1; ; i++) {
+    const suffix = i === 1 ? "" : ` (${i})`;
+    const name = `${base.slice(0, 100 - suffix.length).trimEnd()}${suffix}`;
+    if (!taken.has(name.toLowerCase())) return name;
+  }
+}
+
 /**
  * Makes a table primitive or not, and sets its parent: the table's reference field naming the
  * parent table (created, named after it, when the table has none), and whether every row must
@@ -203,12 +212,13 @@ const setPrimitive = owner
       if (input.parent) {
         const parentTable = await lockTable(tx, context.ownerId, input.parent.tableId);
         const fields = await fieldsOf(tx, table.id);
-        const existing = fields.find((f) => f.type === "reference" && f.referencesTableId === parentTable.id);
+        // The parent field it has if it still names that table, else a reference field that does.
+        const names = (f: FieldRow) => f.type === "reference" && f.referencesTableId === parentTable.id;
+        const existing = fields.find((f) => f.id === table.parentFieldId && names(f)) ?? fields.find(names);
         if (existing) parentFieldId = existing.id;
         else {
           if (fields.length >= MAX_FIELDS) throw new ORPCError("BAD_REQUEST", { message: `A table has at most ${MAX_FIELDS} fields` });
-          const taken = new Set(fields.map((f) => f.name.toLowerCase()));
-          const name = taken.has(parentTable.name.toLowerCase()) ? `${parentTable.name} (parent)` : parentTable.name;
+          const name = unusedName(parentTable.name, new Set(fields.map((f) => f.name.toLowerCase())));
           const [field] = await tx
             .insert(fieldsTable)
             .values({ id: newId("fld"), ownerId: context.ownerId, tableId: table.id, name, type: "reference", choices: [], position: fields.length, referencesTableId: parentTable.id })

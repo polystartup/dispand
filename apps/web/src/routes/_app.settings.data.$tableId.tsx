@@ -103,7 +103,15 @@ function TablePage() {
           {rename.error.message}
         </p>
       )}
-      <Grid tableId={tableId} fields={table.data.fields} onSchemaChanged={schemaChanged} query={query} onQueryChange={setQuery} onOpenRow={openRow} />
+      <Grid
+        tableId={tableId}
+        fields={table.data.fields}
+        onSchemaChanged={schemaChanged}
+        query={query}
+        onQueryChange={setQuery}
+        onOpenRow={openRow}
+        requiredParent={table.data.parent?.required ? table.data.fields.find((f) => f.id === table.data.parent!.fieldId) : undefined}
+      />
       {row && <RowDetail key={row} tableId={tableId} rowId={row} fields={table.data.fields} onClose={() => openRow(undefined)} />}
 
       {settingEvents && <PrimitiveDialog table={table.data} open={settingEvents} onOpenChange={setSettingEvents} onSaved={schemaChanged} />}

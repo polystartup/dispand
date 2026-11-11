@@ -53,3 +53,18 @@ test("a parent table must be another of the owner's tables", async () => {
     });
   }
 });
+
+test("the parent field keeps its place on an unchanged save, and a new one takes a name the table doesn't use", async () => {
+  const s = await setup();
+  await call(router.fields.create, { tableId: s.matters.id, name: "Clients", type: "text" }, { context: s.context });
+  await call(router.fields.create, { tableId: s.matters.id, name: "Clients (2)", type: "text" }, { context: s.context });
+  const set = await call(router.tables.setPrimitive, { id: s.matters.id, primitive: true, parent: { tableId: s.clients.id, required: false } }, { context: s.context });
+  const parent = set.fields.find((f) => f.id === set.parent!.fieldId)!;
+  expect(parent.name).toBe("Clients (3)");
+  // A second reference to the same table, put first: saving again keeps the parent field.
+  const other = await call(router.fields.create, { tableId: s.matters.id, name: "Referred by", type: "reference", referencesTableId: s.clients.id }, { context: s.context });
+  const order = [other.id, ...set.fields.map((f) => f.id)];
+  await call(router.fields.reorder, { tableId: s.matters.id, fieldIds: order }, { context: s.context });
+  const again = await call(router.tables.setPrimitive, { id: s.matters.id, primitive: true, parent: { tableId: s.clients.id, required: false } }, { context: s.context });
+  expect(again.parent!.fieldId).toBe(parent.id);
+});
