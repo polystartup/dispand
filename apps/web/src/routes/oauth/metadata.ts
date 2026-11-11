@@ -7,4 +7,4 @@ async function handle() {
   return clientDocument((await getApp()).appUrl);
 }
 
-export const Route = createFileRoute("/oauth/client")({ server: { handlers: { GET: handle } } });
+export const Route = createFileRoute("/oauth/metadata")({ server: { handlers: { GET: handle } } });

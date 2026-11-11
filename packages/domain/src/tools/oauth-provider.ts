@@ -49,7 +49,7 @@ export class ReauthorizeError extends ToolError {
 export const FLOW_TTL_MS = 10 * 60_000;
 
 export const CALLBACK_PATH = "/oauth/callback";
-export const CLIENT_DOCUMENT_PATH = "/oauth/client";
+export const CLIENT_DOCUMENT_PATH = "/oauth/metadata";
 
 /** Dispand's client id where an authorization server takes a metadata document's URL. */
 export const clientDocumentUrl = (appUrl: string) => new URL(CLIENT_DOCUMENT_PATH, appUrl).href;

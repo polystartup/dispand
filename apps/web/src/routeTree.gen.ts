@@ -20,7 +20,7 @@ import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as FilesIdRouteImport } from './routes/files/$id'
 import { Route as McpJobRouteImport } from './routes/mcp/job'
 import { Route as OauthCallbackRouteImport } from './routes/oauth/callback'
-import { Route as OauthClientRouteImport } from './routes/oauth/client'
+import { Route as OauthMetadataRouteImport } from './routes/oauth/metadata'
 import { Route as RunnerPairRouteImport } from './routes/runner/pair'
 import { Route as AppPPageIdRouteImport } from './routes/_app.p.$pageId'
 import { Route as AppSettingsSkillsRouteImport } from './routes/_app.settings.skills'
@@ -98,9 +98,9 @@ const OauthCallbackRoute = OauthCallbackRouteImport.update({
   path: '/oauth/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OauthClientRoute = OauthClientRouteImport.update({
-  id: '/oauth/client',
-  path: '/oauth/client',
+const OauthMetadataRoute = OauthMetadataRouteImport.update({
+  id: '/oauth/metadata',
+  path: '/oauth/metadata',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RunnerPairRoute = RunnerPairRouteImport.update({
@@ -232,7 +232,7 @@ export interface FileRoutesByFullPath {
   '/files/$id': typeof FilesIdRoute
   '/mcp/job': typeof McpJobRoute
   '/oauth/callback': typeof OauthCallbackRoute
-  '/oauth/client': typeof OauthClientRoute
+  '/oauth/metadata': typeof OauthMetadataRoute
   '/runner/pair': typeof RunnerPairRoute
   '/p/$pageId': typeof AppPPageIdRoute
   '/settings/skills': typeof AppSettingsSkillsRoute
@@ -266,7 +266,7 @@ export interface FileRoutesByTo {
   '/files/$id': typeof FilesIdRoute
   '/mcp/job': typeof McpJobRoute
   '/oauth/callback': typeof OauthCallbackRoute
-  '/oauth/client': typeof OauthClientRoute
+  '/oauth/metadata': typeof OauthMetadataRoute
   '/runner/pair': typeof RunnerPairRoute
   '/': typeof AppIndexRoute
   '/p/$pageId': typeof AppPPageIdRoute
@@ -303,7 +303,7 @@ export interface FileRoutesById {
   '/files/$id': typeof FilesIdRoute
   '/mcp/job': typeof McpJobRoute
   '/oauth/callback': typeof OauthCallbackRoute
-  '/oauth/client': typeof OauthClientRoute
+  '/oauth/metadata': typeof OauthMetadataRoute
   '/runner/pair': typeof RunnerPairRoute
   '/_app/': typeof AppIndexRoute
   '/_app/p/$pageId': typeof AppPPageIdRoute
@@ -341,7 +341,7 @@ export interface FileRouteTypes {
     | '/files/$id'
     | '/mcp/job'
     | '/oauth/callback'
-    | '/oauth/client'
+    | '/oauth/metadata'
     | '/runner/pair'
     | '/p/$pageId'
     | '/settings/skills'
@@ -375,7 +375,7 @@ export interface FileRouteTypes {
     | '/files/$id'
     | '/mcp/job'
     | '/oauth/callback'
-    | '/oauth/client'
+    | '/oauth/metadata'
     | '/runner/pair'
     | '/'
     | '/p/$pageId'
@@ -411,7 +411,7 @@ export interface FileRouteTypes {
     | '/files/$id'
     | '/mcp/job'
     | '/oauth/callback'
-    | '/oauth/client'
+    | '/oauth/metadata'
     | '/runner/pair'
     | '/_app/'
     | '/_app/p/$pageId'
@@ -445,7 +445,7 @@ export interface RootRouteChildren {
   FilesIdRoute: typeof FilesIdRoute
   McpJobRoute: typeof McpJobRoute
   OauthCallbackRoute: typeof OauthCallbackRoute
-  OauthClientRoute: typeof OauthClientRoute
+  OauthMetadataRoute: typeof OauthMetadataRoute
   RunnerPairRoute: typeof RunnerPairRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiRpcSplatRoute: typeof ApiRpcSplatRoute
@@ -532,11 +532,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OauthCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/oauth/client': {
-      id: '/oauth/client'
-      path: '/oauth/client'
-      fullPath: '/oauth/client'
-      preLoaderRoute: typeof OauthClientRouteImport
+    '/oauth/metadata': {
+      id: '/oauth/metadata'
+      path: '/oauth/metadata'
+      fullPath: '/oauth/metadata'
+      preLoaderRoute: typeof OauthMetadataRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/runner/pair': {
@@ -754,7 +754,7 @@ const rootRouteChildren: RootRouteChildren = {
   FilesIdRoute: FilesIdRoute,
   McpJobRoute: McpJobRoute,
   OauthCallbackRoute: OauthCallbackRoute,
-  OauthClientRoute: OauthClientRoute,
+  OauthMetadataRoute: OauthMetadataRoute,
   RunnerPairRoute: RunnerPairRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiRpcSplatRoute: ApiRpcSplatRoute,

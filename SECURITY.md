@@ -60,7 +60,7 @@ changes it updates this file.
   the owner's session finishes a flow it started, with the `state` it sealed, once and within
   10 minutes. A tool whose refresh is refused is marked "re-authorize": its calls fail before
   any request until the owner signs in again; a call never starts a flow. The client metadata
-  document (`/oauth/client`) is public on purpose: it holds the app's name and callback only.
+  document (`/oauth/metadata`) is public on purpose: it holds the app's name and callback only.
 - **Telemetry carries no secret and no content.** One module knows OpenTelemetry's SDK
   (`packages/domain/src/telemetry/`; a lint rule keeps it so), and everything it exports goes
   through `redact.ts` first, whoever recorded it (our code, or a library's own spans): an

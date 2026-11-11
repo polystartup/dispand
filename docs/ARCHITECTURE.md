@@ -624,7 +624,7 @@
   client, and a flow under way with its `state` and PKCE verifier), each change on the row
   locked; the SDK does discovery (protected-resource metadata from the 401's challenge,
   authorization-server metadata), the client (Dispand's metadata document at
-  `<app>/oauth/client` when the server supports them and the app's URL is https, else
+  `<app>/oauth/metadata` when the server supports them and the app's URL is https, else
   registration, else the client id and secret the owner entered), PKCE, the resource indicator,
   the issuer checks and the refresh, every request through the connector's `fetch` (the address
   guard; redirects only within the request's origin, the SDK's rule). Plain columns say what the

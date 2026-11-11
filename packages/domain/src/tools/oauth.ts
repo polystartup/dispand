@@ -83,7 +83,7 @@ export async function handleToolOAuthCallback(request: Request, app: OAuthApp): 
 }
 
 /**
- * `GET /oauth/client`: Dispand's client metadata document, the client id it presents to an
+ * `GET /oauth/metadata`: Dispand's client metadata document, the client id it presents to an
  * authorization server that supports them. Public by design: it holds only the app's name and
  * callback address.
  */

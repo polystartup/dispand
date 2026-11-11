@@ -77,7 +77,7 @@ test("the whole flow with a client metadata document: connected, actions listed,
   const { url } = await call(router.tools.authorize, { id: tool.id }, { context: ctx });
   const asked = new URL(url);
   expect(asked.origin).toBe(as.url);
-  expect(asked.searchParams.get("client_id")).toBe(`${APP}/oauth/client`);
+  expect(asked.searchParams.get("client_id")).toBe(`${APP}/oauth/metadata`);
   expect(asked.searchParams.get("redirect_uri")).toBe(`${APP}/oauth/callback`);
   expect(asked.searchParams.get("code_challenge_method")).toBe("S256");
   expect(asked.searchParams.get("resource")).toBe(mcp.url);
@@ -101,7 +101,7 @@ test("the whole flow with a client metadata document: connected, actions listed,
     expect(shown).not.toContain(tokens.refresh_token);
   }
   // The code was exchanged with the flow's verifier, as the client the document names.
-  expect(as.tokenRequests[0]!.form).toMatchObject({ grant_type: "authorization_code", client_id: `${APP}/oauth/client`, resource: mcp.url });
+  expect(as.tokenRequests[0]!.form).toMatchObject({ grant_type: "authorization_code", client_id: `${APP}/oauth/metadata`, resource: mcp.url });
   // A call carries the token to the MCP server.
   const installed = new InstalledTools(ctx.db, ctx.secrets, ctx.tools);
   expect(await installed.call(stored, "echo", { text: "hi" }, new AbortController().signal)).toEqual({ ok: true, result: { text: "hi", isError: false } });
@@ -260,7 +260,7 @@ test("the client metadata document names the app and its callback, and nothing s
   const { clientDocument } = await import("./oauth.ts");
   const res = clientDocument(APP);
   expect(await res.json()).toEqual({
-    client_id: `${APP}/oauth/client`,
+    client_id: `${APP}/oauth/metadata`,
     client_name: "Dispand",
     redirect_uris: [`${APP}/oauth/callback`],
     grant_types: ["authorization_code", "refresh_token"],
