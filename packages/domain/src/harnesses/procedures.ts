@@ -252,8 +252,7 @@ const limits = owner.handler(async ({ context }) => {
  */
 const setLimit = owner.input(z.object({ id: z.string(), maxWorking: MaxWorking })).handler(async ({ input, context }) => {
   await find(context.db, context.ownerId, input.id);
-  await context.db.update(harnessesTable).set({ maxWorking: input.maxWorking }).where(eq(harnessesTable.id, input.id));
-  await context.engine.handOut(input.id);
+  await context.engine.setLimit(input.id, input.maxWorking);
   return { id: input.id, maxWorking: input.maxWorking };
 });
 

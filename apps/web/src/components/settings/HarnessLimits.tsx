@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { orpc } from "../../lib/api.ts";
@@ -11,6 +11,11 @@ type Limit = { id: string; name: string; maxWorking: number; working: number; qu
 function LimitRow({ limit }: { limit: Limit }) {
   const queryClient = useQueryClient();
   const [value, setValue] = useState(String(limit.maxWorking));
+  const [editing, setEditing] = useState(false);
+  // Changed elsewhere (another tab, an approved proposal): the field follows unless it is being edited.
+  useEffect(() => {
+    if (!editing) setValue(String(limit.maxWorking));
+  }, [limit.maxWorking, editing]);
   const save = useMutation(orpc.harnesses.setLimit.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.harnesses.limits.key() }) }));
   const n = Number(value);
   const valid = Number.isInteger(n) && n >= 1 && n <= 100;
@@ -27,13 +32,16 @@ function LimitRow({ limit }: { limit: Limit }) {
         className="flex items-center gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (valid) save.mutate({ id: limit.id, maxWorking: n });
+          if (valid) save.mutate({ id: limit.id, maxWorking: n }, { onSuccess: () => setEditing(false) });
         }}
       >
         <label htmlFor={inputId} className="text-[13px] text-muted">
           At most at once
         </label>
-        <Input id={inputId} type="number" min={1} max={100} value={value} onChange={(e) => setValue(e.target.value)} aria-invalid={!valid} className="w-20" />
+        <Input id={inputId} type="number" min={1} max={100} value={value} onChange={(e) => {
+            setEditing(true);
+            setValue(e.target.value);
+          }} aria-invalid={!valid} className="w-20" />
         <Button type="submit" variant="outline" disabled={!valid || n === limit.maxWorking || save.isPending}>
           Save
         </Button>

@@ -278,7 +278,7 @@
   `harnesses.limits` gives each harness's limit with its sessions working and steps queued,
   `harnesses.setLimit` changes it) and by an agent through an approved proposal
   (`harnesses_set_limit`, a grant; `harnesses_limits` reads them). Raising a limit hands the
-  freed slots out at once (`Engine.handOut`); lowering it stops nothing, and new turns wait
+  freed slots out at once, in the same transaction (`Engine.setLimit`); lowering it stops nothing, and new turns wait
   until fewer work.
 - **Telemetry** (`packages/domain/src/telemetry/`): OpenTelemetry's trace, log and metric
   providers, started once by the app (`startTelemetry`, guarded on `globalThis` for dev

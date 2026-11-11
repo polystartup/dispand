@@ -619,9 +619,15 @@ export class Engine {
     if (this.cloud) await this.reconcile(CLOUD_SOURCE, await this.cloud.recover());
   }
 
-  /** A harness's limit changed: its queued steps get the slots that frees, in the queue's order, and start. */
-  async handOut(harnessId: string): Promise<void> {
-    const handed = await this.db.transaction((tx) => next(tx, harnessId));
+  /**
+   * Sets a harness's limit and, in the same transaction, gives its queued steps the slots that
+   * frees, in the queue's order (no start in between takes one first); they start once it commits.
+   */
+  async setLimit(harnessId: string, maxWorking: number): Promise<void> {
+    const handed = await this.db.transaction(async (tx) => {
+      await tx.update(harnesses).set({ maxWorking }).where(eq(harnesses.id, harnessId));
+      return next(tx, harnessId);
+    });
     if (handed.length === 0) return;
     const rows = await this.db.select({ id: stepRuns.id, runId: stepRuns.runId }).from(stepRuns).where(inArray(stepRuns.id, handed));
     for (const r of rows) this.publish(r.runId, [{ type: "slot", runId: r.runId, stepId: r.id }]);
