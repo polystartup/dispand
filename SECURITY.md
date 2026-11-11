@@ -96,7 +96,8 @@ changes it updates this file.
   workspace's checkpoint, and only a person's answer to its Approval lets them go on: no tool
   answers a question, and every path that makes a session work again reads the root's state
   first (`rootGoing`). A declined root makes no Job and none of its sessions works again, after a
-  reconnect or a restart included.
+  reconnect or a restart included. Changing the checkpoint is a grant: an agent does it only
+  through a proposal a person approved.
 - **What can't be undone, what removes a question and what starts Jobs are grants too.**
   Deleting a table or a field, changing an action's asking flag, and creating, changing or
   deleting a trigger (what starts an agent's Jobs, and what the agent is told then) are in the registry with the same mark as

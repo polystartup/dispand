@@ -291,6 +291,12 @@
   replays nothing of it. A chat message held during a turn leaves the turn its slot until
   `turn-end`; a held start queued again is launched only once handed a slot. On boot,
   `CloudRunner.recover` runs no turn of a paused root: reported not live, it is held to resume.
+  The Inbox and the chat show it as a checkpoint (`QuestionForm`'s `Checkpoint`, told apart by the
+  question's `rootId`, never by its tool name): the root, its Jobs, the agents and since when, with
+  "Go on", "Don't ask again for this goal" and "Stop this work". The checkpoint is set on the
+  Harnesses page (`CheckpointSetting`: `workspace.checkpoint`, `workspace.setCheckpoint`, 1 to
+  100,000) and by an agent through an approved proposal (`workspace_set_checkpoint`, a grant;
+  `workspace_checkpoint` reads it); each root's next Job is counted against it as it is then.
   Migration 0042 gives every existing Job the root its chain counted it against. Telemetry:
   `dispand.checkpoints.reached`, `dispand.checkpoints.answered` (by `dispand.checkpoint.answer`:
   `approve`, `dont-ask`, `decline`), the `dispand.roots.paused` gauge, an `engine.checkpoint`
