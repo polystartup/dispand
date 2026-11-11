@@ -36,7 +36,7 @@
     "@opentelemetry/sdk-metrics": "3.0.0",
     "@opentelemetry/sdk-trace": "3.0.0",
     "@orpc/server": "^1.16.1",
-    "better-auth": "^1.7.15",
+    "better-auth": "^1.7.16",
     "cron-parser": "^5.10.3",
     "drizzle-orm": "^0.45.4",
     "openai": "^7.50.0",
