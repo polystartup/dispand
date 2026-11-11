@@ -119,7 +119,7 @@ test("an entered client id and secret, where the server supports neither metadat
 
   await connect(ctx, tool.id, { clientId: "given-id", clientSecret: "given-s3cret" });
   const view = await call(router.tools.get, { id: tool.id }, { context: ctx });
-  expect(view).toMatchObject({ oauthStatus: "connected", oauthClientId: "given-id", actions: [{ name: "echo" }] });
+  expect(view).toMatchObject({ oauthStatus: "connected", enteredClientId: "given-id", actions: [{ name: "echo" }] });
   expect(JSON.stringify(view)).not.toContain("given-s3cret");
   const stored = await row(ctx, tool.id);
   expect(JSON.stringify(stored)).not.toContain("given-s3cret");

@@ -769,7 +769,7 @@
   the issuer checks and the refresh, every request through the connector's `fetch` (the address
   guard; redirects only within the request's origin, the SDK's rule). Plain columns say what the
   page shows without opening the seal: `oauth_status` (`authorize`, `connected`,
-  `reauthorize`), `oauth_client_id`, and `oauth_state_hash` (SHA-256 of the flow's `state`).
+  `reauthorize`), `oauth_client_id` (`enteredClientId` in views), and `oauth_state_hash` (SHA-256 of the flow's `state`).
   `tools.authorize` (with an optional entered client) starts a flow with fresh discovery and no
   token and returns the authorization URL; `GET /oauth/callback` (`handleToolOAuthCallback`,
   the owner's session) finds the flow by its state's hash among the owner's tools, compares the

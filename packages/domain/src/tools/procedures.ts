@@ -71,7 +71,7 @@ function toView(row: Row, plugin: PluginRef | null) {
     auth: row.auth,
     // OAuth: connected, needs authorization, or re-authorize; and the client id the owner entered (its secret stays sealed).
     oauthStatus: row.auth === "oauth" ? (row.oauthStatus ?? "authorize") : null,
-    oauthClientId: row.oauthClientId,
+    enteredClientId: row.oauthClientId,
     actions: row.actions,
     actionsError: row.actionsError,
     refreshedAt: row.refreshedAt,
