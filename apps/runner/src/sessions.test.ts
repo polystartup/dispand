@@ -6,12 +6,17 @@ import type { Options, query, SDKMessage, SDKUserMessage } from "@anthropic-ai/c
 import { type HarnessEvent, MAX_LIVE_SESSIONS, type SessionStart } from "@dispand/runner-protocol";
 import { afterEach, expect, test, vi } from "vitest";
 import { Sessions, type SessionsOptions } from "./sessions.ts";
-import { SkillsRefused, sessionPluginsDir } from "./skills.ts";
+import { clearSessions, SkillsRefused, sessionPluginsDir } from "./skills.ts";
 import { fakeCodex } from "./fixtures/fake-codex-bin.ts";
 
 const made: string[] = [];
 afterEach(async () => {
-  for (const dir of made.splice(0)) await rm(dir, { recursive: true, force: true });
+  for (const dir of made.splice(0)) {
+    // A session's skill folders are read-only (0555) until the session removes them, which may
+    // still be under way when its test ends: unlock them first, as the runner does on start.
+    await clearSessions(dir).catch(() => undefined);
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 /** A fake CLI that reports session id `cli-1` for a new session (or the one it resumes), then ends its turn. */
