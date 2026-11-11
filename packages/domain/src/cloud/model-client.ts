@@ -46,12 +46,15 @@ export function createModelClient(h: ClientHarness, deps: ClientDeps = {}): Mode
 }
 
 // Whether providers accept this schema with `strict: true`: every object lists all its properties
-// as required and allows no others (OpenAI's strict-mode rules, which Anthropic's also accept).
+// as required and allows no others, and no string has a format (OpenAI's strict-mode rules, which
+// Anthropic's also accept).
 // Other schemas are sent without `strict`, rather than having the whole request refused.
 export function strictCompatible(schema: unknown): boolean {
   if (Array.isArray(schema)) return schema.every(strictCompatible);
   if (typeof schema !== "object" || schema === null) return true;
   const node = schema as Record<string, unknown>;
+  // A string format a provider doesn't know (`uri`) gets the whole request refused in strict mode.
+  if (typeof node.format === "string") return false;
   if (node.type === "object" || "properties" in node) {
     const keys = Object.keys((node.properties as Record<string, unknown> | undefined) ?? {});
     const required = Array.isArray(node.required) ? node.required : [];
