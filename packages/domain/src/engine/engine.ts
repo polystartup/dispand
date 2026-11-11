@@ -60,7 +60,7 @@ import { pollProblem } from "../tools/pollable.ts";
 import { give, next, take } from "./slots.ts";
 import { checkpointOf, newRoot, pause, pausedGauge, ROOT_STOPPED, rootGoing } from "./roots.ts";
 import { recordInteraction, recordInteractions } from "./interactions.ts";
-import { jobScope, reachable } from "../questions/inbox-scope.ts";
+import { jobScope, startable } from "../questions/inbox-scope.ts";
 import { INTERACTION } from "../triggers/model.ts";
 
 type RunRow = typeof runs.$inferSelect;
@@ -1596,10 +1596,10 @@ export class Engine {
     }
     if (row?.trigger.type !== "event") return null;
     const tableId = row.trigger.outputs.table_id ?? "";
-    // A Question or an Approval: still one its Job may read, with the Job's rights as they are now.
+    // A Question or an Approval: still one its Job may read, with the Job's rights as they are now (and, once asked, still open).
     if (tableId === INTERACTION) {
       const scope = row.agentId ? await jobScope(this.db, { runId, ownerId: row.ownerId, agentId: row.agentId }) : null;
-      return scope && (await reachable(this.db, scope, row.trigger.outputs.row_id ?? "")) ? null : "The agent may no longer read this Question";
+      return scope && (await startable(this.db, scope, row.trigger.outputs.row_id ?? "", row.trigger.outputs.operation ?? "")) ? null : "The agent may no longer read this Question";
     }
     return !row.bundles?.includes("data") || (row.dataTables !== "all" && !row.dataTables?.includes(tableId)) ? "The agent may no longer read the table that changed" : null;
   }

@@ -283,3 +283,26 @@ test("a Job of an answered or expired item, held for its runner, still starts: t
   expect(prompts.some((p) => p.includes(`- Item: ${expired.id}`) && p.includes("- What happened: expired"))).toBe(true);
   expect((await s.jobsOf(trigger.id)).map((r) => r.status).every((st) => st === "running")).toBe(true);
 });
+
+test("a Question answered while its asked event waited starts no Job; one answered before its Job's start sends nothing", async () => {
+  const s = await setup();
+  const clerk = await s.agent("Clerk", ["data"], [s.clients.id]);
+  await s.onRow(clerk.id, s.clients.id);
+  const trigger = await s.onInteraction(s.answerer.id);
+  const [job] = await s.write(s.clients);
+  // Closed before dispatch: out of scope, no Job.
+  const early = await s.ask(job!);
+  await s.engine.answer(early.id, { kind: "choice", answers: { [SECRET]: "No" } }, s.by);
+  expect(await s.scheduler.tick()).toEqual([]);
+  expect((await s.firesOf(trigger.id)).map((f) => [f.status, f.runId])).toEqual([["out-of-scope", null]]);
+  // Closed after dispatch, before its start: the Job ends, its prompt never sent.
+  const late = await s.ask(job!);
+  const [held] = await s.scheduler.claim();
+  await s.engine.answer(late.id, { kind: "choice", answers: { [SECRET]: "No" } }, s.by);
+  await s.engine.continueRun(held!);
+  await vi.waitFor(async () => {
+    const [run] = await s.context.db.select().from(runs).where(eq(runs.id, held!));
+    expect(run).toMatchObject({ status: "failed" });
+  });
+  expect(s.adapter.starts.some((st) => st.start.prompt?.includes(late.id) || st.start.prompt?.includes(early.id))).toBe(false);
+});

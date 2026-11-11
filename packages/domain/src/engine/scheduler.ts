@@ -25,7 +25,7 @@ import { errorKind, logError } from "../log.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { fillLastPoll, itemsOf, MAX_ITEM_BYTES, noPolls, type PollCaller } from "../tools/poll.ts";
 import { pollProblem } from "../tools/pollable.ts";
-import { agentScope, reachable } from "../questions/inbox-scope.ts";
+import { agentScope, startable } from "../questions/inbox-scope.ts";
 import { canonicalJson, INTERACTION, type TriggerConfig } from "../triggers/model.ts";
 import { latestFireBetween, nextFireAfter } from "../workflows/schedule.ts";
 import { EngineError, runIssues, type Engine } from "./engine.ts";
@@ -604,9 +604,9 @@ export class Scheduler {
     const writer = writerId ? (await tx.select({ id: runs.id, agentId: runs.agentId, source: runs.source, cause: runs.cause }).from(runs).where(eq(runs.id, writerId)))[0] : null;
     if (writer?.source === "agent" && writer.agentId === trigger.agentId) return record("skipped-same-agent");
     if (interaction) {
-      // Only an item the agent may read now starts its Job: any other is never revealed to it, even as an id.
+      // Only an item the agent may read now (and, once asked, still open) starts its Job: any other is never revealed to it, even as an id.
       const scope = await agentScope(tx, trigger.ownerId, trigger.agentId);
-      if (!scope || !(await reachable(tx, scope, event.rowId))) return record("out-of-scope", { message: "The agent may not read this Question" });
+      if (!scope || !(await startable(tx, scope, event.rowId, event.operation))) return record("out-of-scope", { message: "The agent may not read this Question" });
     } else {
       const [agent] = await tx.select({ bundles: agents.bundles, dataTables: agents.dataTables }).from(agents).where(eq(agents.id, trigger.agentId));
       if (!agent?.bundles.includes("data") || (agent.dataTables !== "all" && !agent.dataTables.includes(event.tableId))) {

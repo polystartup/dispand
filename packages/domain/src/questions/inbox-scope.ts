@@ -49,3 +49,15 @@ export async function reachable(db: Db | Tx, scope: InboxScope, questionId: stri
   // A Job with no bundle reached no table.
   return bundles.length === 0 || within(row.snapshot?.tables ?? "all", scope.tables);
 }
+
+/**
+ * Whether an `interaction` event's Job may start, or its session be sent its prompt: the item is
+ * `reachable`, and for `created`, still open (one answered or expired while its event waited is
+ * nothing to help with). `answered` and `expired` Jobs start on a closed item.
+ */
+export async function startable(db: Db | Tx, scope: InboxScope, questionId: string, operation: string): Promise<boolean> {
+  if (!(await reachable(db, scope, questionId))) return false;
+  if (operation !== "created") return true;
+  const [row] = await db.select({ status: questions.status }).from(questions).where(eq(questions.id, questionId));
+  return row?.status === "pending";
+}

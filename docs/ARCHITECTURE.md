@@ -650,10 +650,12 @@
   `agentScope`) is `out-of-scope` with no Job, so it is never revealed even as an id. `reachable`
   is the one check of what an `inbox` reader sees: a Question, not an Approval; asked by a Job of
   another agent, whose snapshot has no `configure` and whose tables are within the reader's;
-  never whether it is still open. A Job's scope (`jobScope`) is its snapshot's rights that its
+  never whether it is still open: the dispatch and start checks (`startable`) add that a
+  `created` event's item is still open (one answered or expired meanwhile is `out-of-scope`),
+  while `answered` and `expired` Jobs start on a closed item. A Job's scope (`jobScope`) is its snapshot's rights that its
   agent still has (`platform/rights.ts`, as every tool call's). The Job's prompt holds the
   item's id and the event's values (`INTERACTION_PROMPT`), and each start of its session checks
-  `reachable` again with the Job's scope, failing the step otherwise. `dispand.events.recorded`
+  `startable` again with the Job's scope, failing the step otherwise. `dispand.events.recorded`
   counts events by kind and operation; `scheduler.fire` has kind `interaction`.
   A schema change that rewrites cells (a choice removed, a retype, a field deleted) records
   no event: it changes the table's shape, not a row someone wrote, and starts no Job.
