@@ -1107,9 +1107,10 @@ export class Engine {
     for (const key of held) this.inFlight.add(key);
     const sent = this.track(`start:${start.sessionId}`, async () => {
       if (!(await this.adapter.start(harness, start))) return outcome("offline");
-      outcome("ok");
       await this.db.update(stepRuns).set({ startDeliveredAt: new Date() }).where(eq(stepRuns.id, step.id));
       await written?.();
+      // Last: a failure above is counted once, as failed.
+      outcome("ok");
     })
       .finally(() => {
         for (const key of held) this.inFlight.delete(key);
