@@ -149,7 +149,7 @@ async function run(args: string[]) {
     if (!server) return conn.reply({ type: "tool.called", requestId, error: `this runner has no MCP server ${tool} in its config` });
     if (calling.has(tool)) return conn.reply({ type: "tool.called", requestId, error: `the MCP server ${tool} is already being called` });
     calling.add(tool);
-    void callTool(tool, server, action, args).then(
+    void callTool(tool, server, action, args, { forbidden: machineConfigPaths(dir, env), secrets: [token] }).then(
       ({ content, isError }) => conn.reply({ type: "tool.called", requestId, content, isError }),
       (err: unknown) => conn.reply({ type: "tool.called", requestId, error: (err as Error).message }),
     ).finally(() => calling.delete(tool));

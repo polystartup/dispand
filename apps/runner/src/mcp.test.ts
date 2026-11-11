@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
@@ -138,6 +138,21 @@ test("the server's env values are redacted from what the call returns", async ()
 });
 
 test("a call past its timeout is an error, and one that doesn't start is in the runner's own words", async () => {
-  await expect(callTool("echo", { ...echo, env: { ECHO_MCP_HANG: "1" } }, "echo", {}, 1500)).rejects.toThrow("the MCP server echo didn't answer in time");
+  await expect(callTool("echo", { ...echo, env: { ECHO_MCP_HANG: "1" } }, "echo", {}, undefined, 1500)).rejects.toThrow("the MCP server echo didn't answer in time");
   await expect(callTool("gone", { command: "/nonexistent/mcp-server", pollable: ["x"] }, "x", {})).rejects.toThrow("the MCP server gone didn't start or failed while calling x");
+});
+
+test("a call naming a path the runner keeps out of reach is refused before the server starts, however the path is written", async () => {
+  const guard = { forbidden: [join(homedir(), ".config", "dispand-runner"), join(homedir(), ".claude")], secrets: [] };
+  for (const path of [join(homedir(), ".config", "dispand-runner", "config.json"), "~/.claude/.credentials.json", ".claude", "file://" + join(homedir(), ".claude"), join(homedir(), ".claude", "..", ".claude")]) {
+    await expect(callTool("echo", readOnly, "echo", { text: "hi", path: { nested: [path] } }, guard)).rejects.toThrow("the call names a path this runner keeps out of reach");
+  }
+  expect(await callTool("echo", readOnly, "echo", { text: "hi" }, guard)).toMatchObject({ isError: false });
+});
+
+test("the runner's own token is redacted, and an env value that is an envelope field leaves the content well-formed", async () => {
+  // The token is no env value of the server: only the runner's own secrets catch it.
+  const result = await callTool("echo", { ...echo, env: { ECHO_READ_ONLY: "1", FORMAT: "text" } }, "echo", { text: "dr_token1234 hi" }, { forbidden: [], secrets: ["dr_token1234"] });
+  expect(result.content).toEqual([{ type: "text", text: "•••• hi" }]);
+  expect(JSON.stringify(result)).not.toContain("dr_token1234");
 });

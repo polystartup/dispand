@@ -143,9 +143,29 @@ export class RunnerHub {
     return this.ask(runnerId, msg, timeoutMs) as Promise<Discovered>;
   }
 
-  /** Calls one action of the runner's tool, for a poll (the runner checks it may): as `request`. */
+  /**
+   * Calls one action of the runner's tool, for a poll (the runner checks it may): as `request`.
+   * Traced and counted by outcome (`ok`, `error` for an action that reported one, `refused` for a
+   * call the runner declined, `failed` when it is offline or timed out); never the arguments or the result.
+   */
   call(runnerId: string, msg: Call, timeoutMs = 45_000): Promise<Called> {
-    return this.ask(runnerId, msg, timeoutMs) as Promise<Called>;
+    return traces.startActiveSpan("runner.tool_call", { attributes: { "dispand.runner.id": runnerId, "dispand.request.id": msg.requestId } }, async (span) => {
+      const started = performance.now();
+      let result = "failed";
+      try {
+        const reply = (await this.ask(runnerId, msg, timeoutMs)) as Called;
+        result = reply.error !== undefined ? "refused" : reply.isError ? "error" : "ok";
+        return reply;
+      } catch (err) {
+        recordError(span, errorKind(err));
+        throw err;
+      } finally {
+        span.setAttribute("dispand.result", result);
+        span.end();
+        counts.counter("dispand.runner.tool_calls").add(1, { "dispand.result": result });
+        counts.histogram("dispand.runner.tool_call.duration", { unit: "ms", description: "From a poll's call to the runner's reply" }).record(performance.now() - started, { "dispand.result": result });
+      }
+    });
   }
 
   private ask(runnerId: string, msg: Discover | Call, timeoutMs: number): Promise<Discovered | Called> {

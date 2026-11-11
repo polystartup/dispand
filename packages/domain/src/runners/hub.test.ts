@@ -838,6 +838,8 @@ test("request sends tool.discover and resolves with the runner's reply to it", a
 });
 
 test("call sends tool.call and resolves only with a tool.called reply to it", async () => {
+  const t = await captureTelemetry();
+  onTestFinished(() => t.stop());
   const { context, runnerId, token, url } = await pairedRunner();
   const runner = fakeRunner(url, token);
   await runner.opened;
@@ -850,6 +852,10 @@ test("call sends tool.call and resolves only with a tool.called reply to it", as
   runner.send({ type: "tool.discovered", requestId: "req_c", actions: [] });
   runner.send({ type: "tool.called", requestId: "req_c", content: [{ type: "text", text: "[]" }], isError: false });
   expect(await reply).toEqual({ type: "tool.called", requestId: "req_c", content: [{ type: "text", text: "[]" }], isError: false });
+  // Traced and counted by outcome, never with its arguments or result.
+  const spans = t.spans().filter((sp) => sp.name === "runner.tool_call");
+  expect(spans.map((sp) => sp.attributes["dispand.result"])).toEqual(["ok"]);
+  expect(JSON.stringify(spans.map((sp) => sp.attributes))).not.toContain("is:unread");
 });
 
 test("request fails at once for an offline runner, after its timeout, and when the runner disconnects", async () => {

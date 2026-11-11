@@ -171,8 +171,9 @@ server from your home folder with an MCP client's default environment plus its `
 stderr dropped, and stops it again (at most 30 s); its `env` values are redacted from the list.
 A poll's call (`tool.call`) starts the server the same way, outside any session, and calls the
 action only if the server marks it read-only (`readOnlyHint`) or your `pollable` lists it,
-whatever Dispand asks; one call per tool at a time, at most 30 s, its `env` values redacted
-from the result.
+whatever Dispand asks; one call per tool at a time, at most 30 s, its `env` values and the
+runner's token redacted from the result. A call whose arguments name the runner's config or a
+CLI's credentials (as a path, `~/…` or `file://…`) is refused before the server starts.
 
 ## Commands
 

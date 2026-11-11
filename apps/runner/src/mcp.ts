@@ -1,10 +1,11 @@
 // The MCP servers a session gets: by URL from Dispand, or the runner's own (runner tools).
 import { homedir } from "node:os";
+import { isAbsolute, resolve } from "node:path";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { Client, type Tool } from "@modelcontextprotocol/client";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { JOB_SERVER_NAME, JOB_TOOLS_SERVER, McpAction, type McpServerRef, SHORT } from "@dispand/runner-protocol";
-import type { RunnerConfig } from "./config.ts";
+import { overlapping, type RunnerConfig } from "./config.ts";
 import type { JsonValue } from "./codex/protocol/serde_json/JsonValue.ts";
 import { cleanJson, FRAME_BUDGET, protocolString } from "./sanitize.ts";
 
@@ -179,8 +180,19 @@ export class CallFailed extends Error {
  * call. The reply is redacted of the server's `env` values and must fit a frame. The whole of it
  * ends at `timeoutMs`.
  */
-export async function callTool(name: string, server: LocalServer, actionName: string, args: Record<string, unknown>, timeoutMs = CALL_TIMEOUT_MS): Promise<{ content: Record<string, unknown>[]; isError: boolean }> {
+export async function callTool(
+  name: string,
+  server: LocalServer,
+  actionName: string,
+  args: Record<string, unknown>,
+  guard: { forbidden: string[]; secrets: string[] } = { forbidden: [], secrets: [] },
+  timeoutMs = CALL_TIMEOUT_MS,
+): Promise<{ content: Record<string, unknown>[]; isError: boolean }> {
   if (server.pollable?.length === 0) throw new CallFailed(`the MCP server ${name} allows no polls on this runner`);
+  // No approval stands between a poll and its call: a path the runner keeps sessions out of
+  // (its own config, the CLIs' credentials) is refused in any argument, as sessions are kept from it.
+  const touched = pathsIn(args).find((path) => overlapping(path, guard.forbidden));
+  if (touched !== undefined) throw new CallFailed(`the call names a path this runner keeps out of reach`);
   const transport = new StdioClientTransport({
     command: server.command,
     args: server.args ?? [],
@@ -214,8 +226,11 @@ export async function callTool(name: string, server: LocalServer, actionName: st
       })(),
       deadline,
     ]);
-    const secrets = [...new Set(Object.values(server.env ?? {}).filter((v) => v.length >= 4))].sort((a, b) => b.length - a.length);
-    const content = redact((result.content ?? []) as Record<string, unknown>[], secrets).map((item) => cleanJson(item, Infinity) as Record<string, unknown>);
+    const secrets = [...new Set([...Object.values(server.env ?? {}), ...guard.secrets].filter((v) => v.length >= 4))].sort((a, b) => b.length - a.length);
+    // Each item's keys and `type` stay as they are: only its values are redacted.
+    const content = ((result.content ?? []) as Record<string, unknown>[]).map(
+      (item) => cleanJson(Object.fromEntries(Object.entries(item).map(([k, v]) => [k, k === "type" ? v : redactValues(v, secrets)])), Infinity) as Record<string, unknown>,
+    );
     if (content.length > 100 || Buffer.byteLength(JSON.stringify(content)) > MAX_REPLY_BYTES) throw new CallFailed(`the result of ${actionName.slice(0, 100)} is too large to send`);
     return { content, isError: result.isError === true };
   } catch (error) {
@@ -226,4 +241,26 @@ export async function callTool(name: string, server: LocalServer, actionName: st
     await client.close().catch(() => undefined);
     await transport.close().catch(() => undefined);
   }
+}
+
+/** `value` with each of `secrets` replaced by "••••" in its strings, its object keys kept. */
+function redactValues(value: unknown, secrets: string[]): unknown {
+  if (typeof value === "string") return redact(value, secrets);
+  if (Array.isArray(value)) return value.map((v) => redactValues(v, secrets));
+  if (typeof value === "object" && value !== null) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, redactValues(v, secrets)]));
+  return value;
+}
+
+/** Every string in `args` read as a path from the home folder, where the server starts (`~` expanded). */
+function pathsIn(args: unknown): string[] {
+  const out: string[] = [];
+  const walk = (v: unknown) => {
+    if (typeof v === "string" && v.length > 0 && v.length <= 4096) {
+      const expanded = v === "~" || v.startsWith("~/") ? homedir() + v.slice(1) : v.startsWith("file://") ? decodeURIComponent(v.slice(7)) : v;
+      out.push(isAbsolute(expanded) ? expanded : resolve(homedir(), expanded));
+    } else if (Array.isArray(v)) v.forEach(walk);
+    else if (typeof v === "object" && v !== null) Object.values(v).forEach(walk);
+  };
+  walk(args);
+  return out;
 }
