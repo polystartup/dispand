@@ -19,12 +19,19 @@ import { JOB_STEP } from "./job-def.ts";
 class FakeAdapter implements HarnessAdapter {
   starts: { harness: Harness; start: StartParams }[] = [];
   sent: [string, string][] = [];
+  /** What reached the runner, in order. */
+  log: string[] = [];
+  /** How long a start takes to be written, in ms. */
+  delay = 0;
   async start(harness: Harness, start: StartParams) {
     this.starts.push({ harness, start });
+    if (this.delay) await new Promise((resolve) => setTimeout(resolve, this.delay));
+    this.log.push(`start:${start.sessionId}`);
     return true;
   }
   async send(sessionId: string, text: string) {
     this.sent.push([sessionId, text]);
+    this.log.push(`send:${sessionId}`);
     return true;
   }
   async answer() {
@@ -363,9 +370,12 @@ test("a chat Job queued on a full harness keeps its first message and sends it a
   expect(adapter.sent).toEqual([]);
   await call(router.runs.sendChat, { runId, text: "Hello" }, { context: { ...context, engine } });
 
+  adapter.delay = 50;
   await finish(a);
   await vi.waitFor(() => expect(adapter.sent).toHaveLength(1));
   expect(started([a, runId])).toEqual([a, runId]);
   const session = adapter.starts[1]!.start.sessionId;
   expect(adapter.sent).toEqual([[session, "Hello"]]);
+  // The message follows its session's start, never ahead of it.
+  expect(adapter.log.slice(-2)).toEqual([`start:${session}`, `send:${session}`]);
 });

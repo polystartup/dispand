@@ -465,7 +465,14 @@ export class Engine {
       .values({ id: newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text })
       .returning();
     this.publish(runId, [{ type: "message", message: messageView(row!) }]);
-    if (chat.sessionId) this.deliverMessage(chat.sessionId, row!);
+    if (chat.sessionId) return this.deliverMessage(chat.sessionId, row!);
+    // Queued: its start sends what is stored by then. If it was written meanwhile, this one goes now.
+    const [now] = await this.db.select({ sessionId: stepRuns.sessionId, startDeliveredAt: stepRuns.startDeliveredAt }).from(stepRuns).where(eq(stepRuns.id, chat.id));
+    if (now?.sessionId && now.startDeliveredAt) this.deliverMessage(now.sessionId, row!);
+  }
+
+  private async flushChat(stepId: string, sessionId: string) {
+    for (const m of await this.undeliveredMessages(stepId)) this.deliverMessage(sessionId, m);
   }
 
   /** The run's chat step queued for a slot of its harness, or handed one and not started yet. */
@@ -1155,9 +1162,9 @@ export class Engine {
     if (!started) return;
     annotate({ "dispand.harness.kind": harness.kind, "dispand.session.id": start.sessionId });
     this.publish(run.id, [{ type: "step", step: stepView(started) }]);
-    this.launch(harness, start, started);
-    // Chat messages sent while it was queued go right after the start.
-    if (start.interactive) for (const m of await this.undeliveredMessages(started.id)) this.deliverMessage(start.sessionId, m);
+    // Chat messages sent while it was queued go once the start is written (an unwritten one is
+    // resent with them by the runner's reconcile).
+    this.launch(harness, start, started, [], start.interactive ? () => this.flushChat(started.id, start.sessionId) : undefined);
   }
 
   /**
