@@ -265,16 +265,25 @@
   step run with `working` set (`engine/slots.ts`). `Engine.openSession` takes one before it
   writes a start: `take` locks the step's row, then its harness's (`FOR UPDATE`), counts the
   working steps and marks the step working, or queues it (`queued_at`, `queue_class`: `person`
-  for a manual run's start, `new` otherwise; `resume` comes with answers). A step's
+  for a manual run's start or a chat message, `resume` for an answer or a lost session's
+  resume, `new` otherwise). A step's
   `harness_id` is set when its row is made (a Job's from its snapshot, a workflow step's from
   its agent) and again when it becomes ready, from the agent row read once for both the slot and
-  the start, so an agent moved meanwhile is charged to its new harness. Closing a step (`complete`,
-  `fail`) calls `give`: the slot goes back and the free ones go, in the same transaction, to the
-  next queued steps of the harness (class, then oldest first), marked working with
-  `pending_action` `start`; once that commits, their runs advance and start them. A run that
-  fails takes its queued steps out of the queue. `recover()` hands the free slots to the queued
-  steps first, then advances every active run, which starts the steps handed a slot before the
-  process stopped. Migration 0041 charges the open agent steps and marks working those with a
+  the start, so an agent moved meanwhile is charged to its new harness. A step whose session
+  stops working gives its slot back (`give`): it closes (`complete`, `fail`), asks a question
+  (`syncWaiting`), or, in a chat, ends its turn (`turn-end`). Work coming back takes one first:
+  an answer once no question of the step is pending (`answer`), a chat message (`sendChat`), a
+  lost session's resume (`resume`). What can't go yet stays undelivered (`delivered_at` null)
+  and the step queues once, with what it will do in `pending_action` (`start`, `deliver` or
+  `resume`); a reconcile or a held delivery sends answers and messages only to a step holding a slot (`holdsSlot`).
+  `give` hands the free slots, in the same transaction, to the next queued steps of the harness
+  (class, then oldest first), marked working; once that commits, `handOver` does what each
+  waited for: its run advances (a start), or its undelivered answers and messages go, or its
+  session resumes. A run that fails takes its queued steps out of the queue before its slot is
+  handed on. The cloud harness goes through the same paths: it emits `turn-end` only once no
+  message waits in its turn. `recover()` hands the free slots to the queued steps first, then
+  advances every active run, which starts the steps handed a slot before the process stopped,
+  and hands over again those handed one to deliver or resume. Migration 0041 charges the open agent steps and marks working those with a
   session running. `runs.list` says which runs have a step `queued`; the run page shows it on
   the step. Telemetry: `dispand.harness.working` and `dispand.harness.queued` gauges by harness
   id and kind, `dispand.harness.queue_wait` (ms, by class), an `engine.slot` span event on each
