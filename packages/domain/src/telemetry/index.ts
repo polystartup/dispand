@@ -12,6 +12,7 @@ import {
   SpanStatusCode,
   trace,
   type Tracer,
+  isSpanContextValid,
 } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import type { ExportResult } from "@opentelemetry/core";
@@ -93,9 +94,20 @@ export function startTelemetry(exporters: Exporters = exportersFromEnv(), env: N
   const g = globalThis as Global;
   if (g[STARTED]) return false;
   const resource = resourceFromAttributes({ "service.name": env.OTEL_SERVICE_NAME || "dispand" });
-  const spanProcessor = (e: SpanExporter) => (exporters.simple ? new SimpleSpanProcessor({ exporter: redactedSpans(e) }) : new BatchSpanProcessor({ exporter: redactedSpans(e) }));
-  const logProcessor = (e: LogRecordExporter) => (exporters.simple ? new SimpleLogRecordProcessor({ exporter: redactedLogs(e) }) : new BatchLogRecordProcessor({ exporter: redactedLogs(e) }));
-  const readers: MetricReader[] = exporters.metrics ? [new PeriodicExportingMetricReader({ exporter: exporters.metrics, exportIntervalMillis: exporters.metricIntervalMs ?? 60_000 })] : [];
+  // The SDK no longer reads its intervals from the environment: the standard variables are read here.
+  const ms = (name: string) => {
+    const value = Number(env[name]);
+    return Number.isInteger(value) && value > 0 ? value : undefined;
+  };
+  const spanDelay = ms("OTEL_BSP_SCHEDULE_DELAY");
+  const logDelay = ms("OTEL_BLRP_SCHEDULE_DELAY");
+  const spanProcessor = (e: SpanExporter) =>
+    exporters.simple ? new SimpleSpanProcessor({ exporter: redactedSpans(e) }) : new BatchSpanProcessor({ exporter: redactedSpans(e), ...(spanDelay ? { scheduledDelayMillis: spanDelay } : {}) });
+  const logProcessor = (e: LogRecordExporter) =>
+    exporters.simple ? new SimpleLogRecordProcessor({ exporter: redactedLogs(e) }) : new BatchLogRecordProcessor({ exporter: redactedLogs(e), ...(logDelay ? { scheduledDelayMillis: logDelay } : {}) });
+  const readers: MetricReader[] = exporters.metrics
+    ? [new PeriodicExportingMetricReader({ exporter: exporters.metrics, exportIntervalMillis: exporters.metricIntervalMs ?? ms("OTEL_METRIC_EXPORT_INTERVAL") ?? 60_000 })]
+    : [];
   const started: Started = {
     contextManager: new AsyncLocalStorageContextManager().enable(),
     traces: new TracerProvider({ resource, spanProcessors: [jobOnSpans, ...(exporters.spans ? [spanProcessor(exporters.spans)] : [])] }),
@@ -161,6 +173,12 @@ export function meter(name: string) {
 /** Runs `fn` for a Job: spans started and records logged inside carry its id. */
 export function withJob<T>(jobId: string, fn: () => T): T {
   return context.with(context.active().setValue(JOB, jobId), fn);
+}
+
+/** The id of the trace running now, to store with what it creates (a Job); none outside a span. */
+export function currentTraceId(): string | undefined {
+  const span = trace.getActiveSpan()?.spanContext();
+  return span && isSpanContextValid(span) ? span.traceId : undefined;
 }
 
 /** Attributes for the span running now, if any (an owner id once it is known, a count). */

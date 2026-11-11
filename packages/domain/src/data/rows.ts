@@ -2,10 +2,10 @@ import { ORPCError } from "@orpc/server";
 import { and, asc, count, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
-import { fields as fieldsTable, rows as rowsTable, tables as tablesTable } from "../db/schema.ts";
+import { type EventActor, events, fields as fieldsTable, rows as rowsTable, tables as tablesTable } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
-import { type Cell, CELL_LIMITS, cellSchema, type FieldSchema } from "./fields.ts";
+import { type Cell, CELL_LIMITS, cellSchema, cellText, type FieldSchema } from "./fields.ts";
 import { attachmentsById, lockAttachments } from "./files.ts";
 import { type Filter, filterValue, queryProblem, RowQuery, type Sort } from "./query.ts";
 import { MAX_FIELDS } from "./tables.ts";
@@ -25,7 +25,7 @@ function rowView(r: typeof rowsTable.$inferSelect): RowView {
   return { id, tableId, values, createdAt, updatedAt };
 }
 
-const schemaOf = (f: typeof fieldsTable.$inferSelect): FieldSchema => ({ id: f.id, name: f.name, type: f.type, choices: f.choices });
+const schemaOf = (f: typeof fieldsTable.$inferSelect): FieldSchema => ({ id: f.id, name: f.name, type: f.type, choices: f.choices, referencesTableId: f.referencesTableId });
 
 const cell = (id: string) => sql`${rowsTable.values} -> ${id}::text`;
 const cellAsText = (id: string) => sql`${rowsTable.values} ->> ${id}::text`;
@@ -54,8 +54,8 @@ export function whereOf(fields: FieldSchema[], filters: Filter[]): SQL {
       return ops[filter.op as keyof typeof ops];
     }
     const v = String(value);
-    if (field.type === "date" || field.type === "single-select") {
-      // Dates are ISO text, so they compare as text; a single select compares choice ids.
+    if (field.type === "date" || field.type === "single-select" || field.type === "reference") {
+      // Dates are ISO text, so they compare as text; a single select compares choice ids, a reference row ids.
       const t = cellAsText(id);
       const ops = { is: sql`${t} = ${v}`, "is-not": sql`${t} is distinct from ${v}`, before: sql`${t} < ${v}`, after: sql`${t} > ${v}` };
       return ops[filter.op as keyof typeof ops];
@@ -101,9 +101,9 @@ type Written = { row: RowView } | { problem: string; notFound?: true };
  * change of the table, checks every value against its field, then inserts the row or merges the
  * values into it (`||`, so concurrent edits of different cells both land).
  */
-export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string; rowId?: string; values: Record<string, Cell> }): Promise<Written> {
+export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string; rowId?: string; values: Record<string, Cell>; actor: EventActor }): Promise<Written> {
   const [table] = await tx
-    .select({ id: tablesTable.id })
+    .select({ id: tablesTable.id, primitive: tablesTable.primitive, parentFieldId: tablesTable.parentFieldId, parentRequired: tablesTable.parentRequired })
     .from(tablesTable)
     .where(and(eq(tablesTable.id, input.tableId), eq(tablesTable.ownerId, input.ownerId)))
     .for("share");
@@ -121,18 +121,72 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
   for (const [id, ids] of files) {
     if ((ids as string[]).some((a) => !known.has(a))) return { problem: `“${fields.get(id)!.name}”: no such file` };
   }
+  // A required parent: a new row names one, and no write empties it.
+  if (table.parentRequired && table.parentFieldId) {
+    const parent = fields.get(table.parentFieldId)!;
+    const given = input.values[parent.id];
+    if ((input.rowId ? given === null : given === null || given === undefined)) return { problem: `“${parent.name}”: every row names one` };
+  }
+  // References: each names a row of its field's table, the owner's.
+  for (const [id, value] of Object.entries(input.values)) {
+    const field = fields.get(id)!;
+    if (field.type !== "reference" || typeof value !== "string") continue;
+    const [target] = await tx
+      .select({ id: rowsTable.id })
+      .from(rowsTable)
+      .where(and(eq(rowsTable.id, value), eq(rowsTable.tableId, field.referencesTableId ?? ""), eq(rowsTable.ownerId, input.ownerId)))
+      .for("share");
+    if (!target) return { problem: `“${field.name}”: no such row` };
+  }
   const values = JSON.stringify(input.values);
   if (!input.rowId) {
     const [row] = await tx.insert(rowsTable).values({ id: newId("row"), ownerId: input.ownerId, tableId: table.id, values: input.values }).returning();
+    if (table.primitive) {
+      const set = Object.entries(input.values).filter(([, v]) => v !== null);
+      await recordEvent(tx, { ownerId: input.ownerId, tableId: table.id, rowId: row!.id, operation: "created", changed: set.map(([id]) => id), before: {}, after: Object.fromEntries(set), actor: input.actor });
+    }
     return { row: rowView(row!) };
   }
+  // A primitive table's event says what changed: the row as it was, held until the write commits.
+  const [current] = table.primitive
+    ? await tx.select({ values: rowsTable.values }).from(rowsTable).where(and(eq(rowsTable.id, input.rowId), eq(rowsTable.tableId, table.id))).for("update")
+    : [];
   const [row] = await tx
     .update(rowsTable)
     .set({ values: sql`${rowsTable.values} || ${values}::jsonb`, updatedAt: sql`now()` })
     .where(and(eq(rowsTable.id, input.rowId), eq(rowsTable.tableId, table.id)))
     .returning();
   if (!row) return { problem: "row not found", notFound: true };
+  if (current) {
+    const was = (id: string) => current.values[id] ?? null;
+    const changed = Object.keys(input.values).filter((id) => JSON.stringify(was(id)) !== JSON.stringify(input.values[id]));
+    if (changed.length > 0) {
+      await recordEvent(tx, {
+        ownerId: input.ownerId,
+        tableId: table.id,
+        rowId: row.id,
+        operation: "updated",
+        changed,
+        before: Object.fromEntries(changed.map((id) => [id, was(id)])),
+        after: Object.fromEntries(changed.map((id) => [id, input.values[id]!])),
+        actor: input.actor,
+      });
+    }
+  }
   return { row: rowView(row) };
+}
+
+/** Appends one row of the outbox, in the write's transaction. */
+async function recordEvent(
+  tx: Tx,
+  e: { ownerId: string; tableId: string; rowId: string; operation: "created" | "updated" | "deleted"; changed: string[]; before: Record<string, Cell>; after: Record<string, Cell>; actor: EventActor },
+) {
+  await tx.insert(events).values({ id: newId("evt"), ownerId: e.ownerId, tableId: e.tableId, rowId: e.rowId, operation: e.operation, changedFieldIds: e.changed, before: e.before, after: e.after, actor: e.actor });
+}
+
+/** Who a procedure's write is by: the Job that called it as a tool, or the signed-in owner. */
+export function actorOf(context: { ownerId: string; job?: { runId: string } }): EventActor {
+  return context.job ? { type: "job", runId: context.job.runId } : { type: "user", userId: context.ownerId };
 }
 
 function written(result: Written): RowView {
@@ -162,6 +216,27 @@ async function requireRow(db: Db, ownerId: string, id: string) {
 function attachmentsOf(db: Db, ownerId: string, fields: FieldSchema[], page: { values: Record<string, Cell> }[]) {
   const ids = fields.filter((f) => f.type === "attachment").flatMap((f) => page.flatMap((r) => r.values[f.id] ?? []));
   return attachmentsById(db, ownerId, ids.filter((id): id is string => typeof id === "string"));
+}
+
+/** A row a reference cell names: its first field as text, and its table (a Job sees only its own tables' labels). */
+export type ReferenceLabel = { label: string; tableId: string };
+
+/** A label for each row the reference cells of these rows name: its first field, as text. */
+export async function referencesOf(db: Db | Tx, ownerId: string, fields: FieldSchema[], page: { values: Record<string, Cell> }[]): Promise<Record<string, ReferenceLabel>> {
+  const ids = [...new Set(fields.filter((f) => f.type === "reference").flatMap((f) => page.map((r) => r.values[f.id])).filter((v): v is string => typeof v === "string"))];
+  if (ids.length === 0) return {};
+  const named = await db.select({ id: rowsTable.id, tableId: rowsTable.tableId, values: rowsTable.values }).from(rowsTable).where(and(inArray(rowsTable.id, ids), eq(rowsTable.ownerId, ownerId)));
+  const tableIds = [...new Set(named.map((r) => r.tableId))];
+  const firsts = tableIds.length
+    ? await db.select().from(fieldsTable).where(and(inArray(fieldsTable.tableId, tableIds), eq(fieldsTable.position, 0)))
+    : [];
+  const labels: Record<string, ReferenceLabel> = {};
+  for (const r of named) {
+    const first = firsts.find((f) => f.tableId === r.tableId);
+    const value = first ? r.values[first.id] : null;
+    labels[r.id] = { label: first && value !== null && value !== undefined ? cellText(schemaOf(first), value) : "", tableId: r.tableId };
+  }
+  return labels;
 }
 
 const AnyCell = z.union([
@@ -201,18 +276,23 @@ const list = owner
         .offset(input.offset),
       context.db.select({ n: count() }).from(rowsTable).where(where),
     ]);
-    return { rows: page.map(rowView), total: total!.n, attachments: await attachmentsOf(context.db, context.ownerId, fields, page) };
+    return {
+      rows: page.map(rowView),
+      total: total!.n,
+      attachments: await attachmentsOf(context.db, context.ownerId, fields, page),
+      references: await referencesOf(context.db, context.ownerId, fields, page),
+    };
   });
 
 const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const row = await requireRow(context.db, context.ownerId, input.id);
   const fields = (await context.db.select().from(fieldsTable).where(eq(fieldsTable.tableId, row.tableId))).map(schemaOf);
-  return { ...rowView(row), attachments: await attachmentsOf(context.db, context.ownerId, fields, [row]) };
+  return { ...rowView(row), attachments: await attachmentsOf(context.db, context.ownerId, fields, [row]), references: await referencesOf(context.db, context.ownerId, fields, [row]) };
 });
 
 const create = owner.input(z.object({ tableId: z.string(), values: Values.optional() })).handler(async ({ input, context }) => {
   const row = written(
-    await context.db.transaction((tx) => writeRow(tx, { ownerId: context.ownerId, tableId: input.tableId, values: input.values ?? {} })),
+    await context.db.transaction((tx) => writeRow(tx, { ownerId: context.ownerId, tableId: input.tableId, values: input.values ?? {}, actor: actorOf(context) })),
   );
   context.dataEvents.publish({ type: "rows", tableId: row.tableId, rowIds: [row.id] });
   return row;
@@ -223,7 +303,7 @@ const update = owner.input(z.object({ id: z.string(), values: Values })).handler
   const current = await requireRow(context.db, context.ownerId, input.id);
   const row = written(
     await context.db.transaction((tx) =>
-      writeRow(tx, { ownerId: context.ownerId, tableId: current.tableId, rowId: current.id, values: input.values }),
+      writeRow(tx, { ownerId: context.ownerId, tableId: current.tableId, rowId: current.id, values: input.values, actor: actorOf(context) }),
     ),
   );
   context.dataEvents.publish({ type: "rows", tableId: row.tableId, rowIds: [row.id] });
@@ -259,12 +339,42 @@ const editFiles = owner
         const stored = locked.values[field.id];
         const gone = new Set(input.remove);
         const next = [...new Set([...(Array.isArray(stored) ? stored : []).filter((id) => !gone.has(id)), ...input.add])];
-        return writeRow(tx, { ownerId: context.ownerId, tableId: current.tableId, rowId: current.id, values: { [field.id]: next.length > 0 ? next : null } });
+        return writeRow(tx, { ownerId: context.ownerId, tableId: current.tableId, rowId: current.id, values: { [field.id]: next.length > 0 ? next : null }, actor: actorOf(context) });
       }),
     );
     context.dataEvents.publish({ type: "rows", tableId: row.tableId, rowIds: [row.id] });
     return row;
   });
+
+/**
+ * Empties the reference cells that name rows of `tableId` just deleted, through `writeRow` (so
+ * they are writes like any other). Returns the rows changed, by table.
+ */
+export async function clearReferences(tx: Tx, ownerId: string, tableId: string, deletedIds: string[], actor: EventActor): Promise<Map<string, string[]>> {
+  const changed = new Map<string, string[]>();
+  if (deletedIds.length === 0) return changed;
+  const referring = await tx.select().from(fieldsTable).where(and(eq(fieldsTable.referencesTableId, tableId), eq(fieldsTable.ownerId, ownerId)));
+  for (const field of referring) {
+    // The table first, then its rows: the order a schema change takes them in.
+    const [table] = await tx.select({ name: tablesTable.name, parentFieldId: tablesTable.parentFieldId, parentRequired: tablesTable.parentRequired }).from(tablesTable).where(eq(tablesTable.id, field.tableId)).for("share");
+    const hits = await tx
+      .select({ id: rowsTable.id })
+      .from(rowsTable)
+      .where(and(eq(rowsTable.tableId, field.tableId), inArray(cellAsText(field.id), deletedIds)))
+      // Locked, and the condition checked again on the row as it is then: a cell repointed meanwhile is kept.
+      .for("update");
+    // Children of a required parent keep it: the parent can't go while they exist.
+    if (hits.length > 0 && table?.parentRequired && table.parentFieldId === field.id) {
+      throw new ORPCError("CONFLICT", { message: `${hits.length === 1 ? "1 row" : `${hits.length} rows`} of “${table.name}” belong to it: delete or move them first` });
+    }
+    for (const hit of hits) {
+      const result = await writeRow(tx, { ownerId, tableId: field.tableId, rowId: hit.id, values: { [field.id]: null }, actor });
+      if ("problem" in result) throw new ORPCError("CONFLICT", { message: result.problem });
+      changed.set(field.tableId, [...(changed.get(field.tableId) ?? []), hit.id]);
+    }
+  }
+  return changed;
+}
 
 /** Deletes rows of one of the owner's tables: an id of another owner or table deletes nothing. */
 const remove = owner.input(z.object({ ids: z.array(z.string()).min(1).max(MAX_PAGE) })).handler(async ({ input, context }) => {
@@ -275,11 +385,25 @@ const remove = owner.input(z.object({ ids: z.array(z.string()).min(1).max(MAX_PA
     .where(and(inArray(rowsTable.id, ids), eq(rowsTable.ownerId, context.ownerId)));
   const tableId = found[0]?.tableId;
   if (found.length !== ids.length || found.some((r) => r.tableId !== tableId)) throw new ORPCError("NOT_FOUND");
-  const deleted = await context.db
-    .delete(rowsTable)
-    .where(and(inArray(rowsTable.id, ids), eq(rowsTable.tableId, tableId!)))
-    .returning({ id: rowsTable.id });
+  const { deleted, cleared } = await context.db.transaction(async (tx) => {
+    // The table before its rows, as every writer and schema change takes them.
+    const [table] = await tx.select({ id: tablesTable.id, primitive: tablesTable.primitive }).from(tablesTable).where(eq(tablesTable.id, tableId!)).for("share");
+    const deleted = await tx
+      .delete(rowsTable)
+      .where(and(inArray(rowsTable.id, ids), eq(rowsTable.tableId, tableId!)))
+      .returning({ id: rowsTable.id, values: rowsTable.values });
+    const actor = actorOf(context);
+    // A primitive table's deleted rows are events, each with every field's last value.
+    if (table?.primitive && deleted.length > 0) {
+      const fieldIds = (await tx.select({ id: fieldsTable.id }).from(fieldsTable).where(eq(fieldsTable.tableId, tableId!)).orderBy(asc(fieldsTable.position))).map((f) => f.id);
+      for (const r of deleted) {
+        await recordEvent(tx, { ownerId: context.ownerId, tableId: tableId!, rowId: r.id, operation: "deleted", changed: fieldIds, before: Object.fromEntries(fieldIds.map((id) => [id, r.values[id] ?? null])), after: {}, actor });
+      }
+    }
+    return { deleted, cleared: await clearReferences(tx, context.ownerId, tableId!, deleted.map((r) => r.id), actor) };
+  });
   if (deleted.length > 0) context.dataEvents.publish({ type: "rows", tableId: tableId!, rowIds: deleted.map((r) => r.id) });
+  for (const [otherTable, rowIds] of cleared) context.dataEvents.publish({ type: "rows", tableId: otherTable, rowIds });
 });
 
 /** Every change of these tables (the owner's), as it is published. */

@@ -16,6 +16,7 @@ export const FILTER_OPS = {
   date: ["is", "before", "after", "empty", "not-empty"],
   "single-select": ["is", "is-not", "empty", "not-empty"],
   attachment: ["empty", "not-empty"],
+  reference: ["is", "is-not", "empty", "not-empty"],
 } as const satisfies Record<FieldType, readonly string[]>;
 
 export type FilterOp = (typeof FILTER_OPS)[FieldType][number];

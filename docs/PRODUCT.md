@@ -69,7 +69,9 @@ Status: Prototype
   - A for-each loop over a list longer than its cap **fails before its first iteration**.
 - **Data** (the owner's memory, an Airtable-like grid):
   - **What it does:** tables of typed fields (text, long text, number, checkbox, date, URL,
-    single select, files) with inline editing, field management (add, rename, reorder, retype,
+    single select, files, and links to a row of another table) with inline editing; a table
+    can be made primitive, so changes to its rows can start agents' Jobs, and given a parent
+    table its rows belong to, field management (add, rename, reorder, retype,
     delete), sort and filter, a row detail and image upload. A retype shows how many cells
     would be cleared before anything changes. Data steps in a workflow create, update and find
     rows, and what they take from upstream is added to the agents' expected outputs. Grid and

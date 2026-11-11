@@ -253,6 +253,41 @@
       "when": 1794351584925,
       "tag": "0035_question_proposal",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794388000572,
+      "tag": "0036_run_trace_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1794393798558,
+      "tag": "0037_reference_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794394375056,
+      "tag": "0038_primitive_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1794394382318,
+      "tag": "0039_events_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794395035957,
+      "tag": "0040_primitive_triggers",
+      "breakpoints": true
     }
   ]
 }

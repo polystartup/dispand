@@ -14,6 +14,8 @@ import { CliHarnessAdapter } from "./cli-harness.ts";
 import { RoutingAdapter } from "./routing-adapter.ts";
 import { exposedName } from "../platform/exposed.ts";
 import { jobTokenOf } from "../platform/token.ts";
+import { stopTelemetry } from "../telemetry/index.ts";
+import { captureTelemetry } from "../telemetry/testing.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
 import { Engine, RESUME_PROMPT, TOOL_RESTARTED } from "./engine.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, type StartParams } from "./harness.ts";
@@ -1562,4 +1564,34 @@ test("a Job's CLI session start names the actions that run unasked, at most 500;
   const params: StartParams = { sessionId: "ses_x", runKey: "run_1", systemPrompt: "S", prompt: "P", expectedOutputs: [], interactive: false };
   await adapter.start({ ...harness, kind: "claude-code" }, params);
   expect((sent[2] as { start: Record<string, unknown> }).start).not.toHaveProperty("unasked");
+});
+
+test("a Job's session start, its runner events and its question are traced with the Job's id, and none of their words leave", async () => {
+  const instructions = "Sort the mail of sentinel-client-name";
+  const s = await jobSetup("button", instructions);
+  const t = await captureTelemetry();
+  onTestFinished(() => stopTelemetry());
+  const runId = await s.engine.startJob(s.trigger.id, s.context.ownerId);
+  const sessionId = (await vi.waitFor(async () => {
+    const [step] = await s.context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+    if (!step?.sessionId) throw new Error("not started");
+    return step;
+  })).sessionId!;
+  const start = t.spans().find((x) => x.name === "engine.session.start")!;
+  expect(start.attributes).toMatchObject({ "dispand.job.id": runId, "dispand.run.id": runId, "dispand.harness.kind": "claude-code", "dispand.session.id": sessionId });
+  await s.emit(sessionId, { type: "text", delta: "sentinel-agent-words" });
+  await s.emit(sessionId, { type: "question", questionId: "rq_1", payload: { kind: "permission", toolName: "Bash", input: { command: "echo sentinel-tool-input" }, canAlwaysAllow: false } });
+  const event = t.spans().find((x) => x.name === "engine.event")!;
+  expect(event.attributes).toMatchObject({ "dispand.event.type": "question", "dispand.job.id": runId });
+  // Text deltas are counted, not traced one by one.
+  expect(t.spans().filter((x) => x.name === "engine.event")).toHaveLength(1);
+  const [q] = await s.context.db.select().from(questions).where(eq(questions.runId, runId));
+  await s.engine.answer(q!.id, { kind: "permission", decision: "deny", message: "sentinel-owner-reply" }, { type: "user", userId: s.context.ownerId });
+  const points = await t.metrics();
+  expect(points).toContainEqual({ name: "dispand.harness.events", attributes: { "dispand.event.type": "text" } });
+  expect(points).toContainEqual({ name: "dispand.questions.opened", attributes: { "dispand.question.kind": "approval" } });
+  expect(points).toContainEqual({ name: "dispand.questions.answered", attributes: { "dispand.question.kind": "approval", "dispand.answer.decision": "deny" } });
+  expect(points).toContainEqual({ name: "dispand.sessions.started", attributes: { "dispand.harness.kind": "claude-code", "dispand.result": "ok" } });
+  const all = await t.all();
+  for (const sentinel of ["sentinel-client-name", "sentinel-agent-words", "sentinel-tool-input", "sentinel-owner-reply"]) expect(all).not.toContain(sentinel);
 });

@@ -1,5 +1,7 @@
 import { call } from "@orpc/server";
-import { afterEach, expect, test } from "vitest";
+import { stopTelemetry } from "../telemetry/index.ts";
+import { captureTelemetry } from "../telemetry/testing.ts";
+import { afterEach, expect, onTestFinished, test } from "vitest";
 import { tools, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
@@ -96,4 +98,17 @@ test("a runner tool in a Tool step fails without a call", async () => {
     ok: false,
     error: "Fetch runs on a runner: only an agent can use it",
   });
+});
+
+test("a tool call is a span with the tool and the action and how it ended, never its arguments or its answer", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const { run, tool } = await setup(github(calls, () => ({ content: [{ type: "text", text: "sentinel-tool-answer" }] })));
+  const t = await captureTelemetry();
+  onTestFinished(() => stopTelemetry());
+  await run({ name: "sentinel-tool-argument" });
+  const [span] = t.spans().filter((x) => x.name === "tool.call");
+  expect(span!.attributes).toEqual({ "dispand.tool.id": tool.id, "dispand.tool.action": "create_repository", "dispand.result": "ok" });
+  expect(await t.metrics()).toContainEqual({ name: "dispand.tool.calls", attributes: { "dispand.result": "ok" } });
+  const all = await t.all();
+  for (const sentinel of ["sentinel-tool-argument", "sentinel-tool-answer", SECRET]) expect(all).not.toContain(sentinel);
 });

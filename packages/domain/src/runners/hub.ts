@@ -11,7 +11,13 @@ import { eq } from "drizzle-orm";
 import { WebSocket, WebSocketServer } from "ws";
 import type { Db } from "../db/client.ts";
 import { runners } from "../db/schema.ts";
-import { logError } from "../log.ts";
+import { errorKind, logError } from "../log.ts";
+import { meter, recordError, tracer } from "../telemetry/index.ts";
+
+const traces = tracer("runners");
+const counts = meter("runners");
+/** How a runner's connection attempt ended. */
+const connected = (result: string) => counts.counter("dispand.runner.connections").add(1, { "dispand.result": result });
 import { findRunnerByToken } from "./pairing.ts";
 import { refuseUpgrade, RUNNER_WS_PATH, upgradePath } from "./upgrade.ts";
 
@@ -103,7 +109,7 @@ export class RunnerHub {
       if (path === null) return refuseUpgrade(socket, 400);
       if (path !== RUNNER_WS_PATH) return refuseUpgrade(socket, 404);
       const refused = this.refusal();
-      if (refused) return refuseUpgrade(socket, refused);
+      if (refused) return connected("refused"), refuseUpgrade(socket, refused);
       this.accept(req, socket, head).catch((err: unknown) => {
         logError("runner upgrade failed", err);
         refuseUpgrade(socket, 500);
@@ -200,16 +206,18 @@ export class RunnerHub {
   private async accept(req: IncomingMessage, socket: Duplex, head: Buffer) {
     const [scheme, token] = (req.headers.authorization ?? "").split(" ");
     const runner = scheme === "Bearer" && token ? await findRunnerByToken(this.db, token) : null;
-    if (!runner) return refuseUpgrade(socket, 401);
+    if (!runner) return connected("unauthorized"), refuseUpgrade(socket, 401);
     const refused = this.refusal(runner.id);
-    if (refused) return refuseUpgrade(socket, refused);
+    if (refused) return connected("refused"), refuseUpgrade(socket, refused);
     const protocol = req.headers["dispand-protocol"];
     if (typeof protocol === "string" && /^[0-9]{1,9}$/.test(protocol) && Number(protocol) < PROTOCOL_VERSION) {
       // An older runner: Settings shows it as outdated, with the command that updates it.
       await this.db.update(runners).set({ protocolVersion: Number(protocol) }).where(eq(runners.id, runner.id));
+      connected("outdated");
       return refuseUpgrade(socket, 426, "update the runner");
     }
-    if (protocol !== String(PROTOCOL_VERSION)) return refuseUpgrade(socket, 400);
+    if (protocol !== String(PROTOCOL_VERSION)) return connected("bad-protocol"), refuseUpgrade(socket, 400);
+    connected("accepted");
     this.wss.handleUpgrade(req, socket, head, (ws) => this.attach(ws, runner));
   }
 
@@ -269,6 +277,7 @@ export class RunnerHub {
   private retire(conn: Connection, code?: number, reason?: string) {
     if (!conn.retired) {
       conn.retired = true;
+      counts.counter("dispand.runner.disconnects").add(1);
       if (this.connections.get(conn.runnerId) === conn) {
         this.connections.delete(conn.runnerId);
         // Its replies can't come any more.
@@ -307,16 +316,35 @@ export class RunnerHub {
       // back on reconnect. Postgres can't store some valid JSON (a NUL in a string), so this happens.
       return;
     }
+    const type = msg.type === "event" ? `event.${msg.event.type}` : msg.type;
+    counts.counter("dispand.runner.messages").add(1, { "dispand.message.type": type });
+    // Streamed words are counted only; every other message is a span (the engine's work inside it).
+    const handled = () => this.handle(conn, state, msg);
     try {
-      if (msg.type === "hello") await this.hello(conn, msg);
-      else if (msg.type === "tool.discovered") this.reply(conn, msg);
-      else await this.event(conn, state, msg);
-      await this.catchUp(conn, state);
+      await (msg.type === "event" && msg.event.type === "text"
+        ? handled()
+        : traces.startActiveSpan("runner.message", { attributes: { "dispand.runner.id": conn.runnerId, "dispand.message.type": type } }, async (span) => {
+            try {
+              await handled();
+            } catch (err) {
+              recordError(span, errorKind(err));
+              throw err;
+            } finally {
+              span.end();
+            }
+          }));
     } catch (err) {
       // Not acked: the runner resends it after reconnecting.
       logError("runner message failed", err, { runnerId: conn.runnerId });
       this.retire(conn, 1011, "server error");
     }
+  }
+
+  private async handle(conn: Connection, state: RunnerState, msg: RunnerToServer) {
+    if (msg.type === "hello") await this.hello(conn, msg);
+    else if (msg.type === "tool.discovered") this.reply(conn, msg);
+    else await this.event(conn, state, msg);
+    await this.catchUp(conn, state);
   }
 
   private async hello(conn: Connection, msg: Extract<RunnerToServer, { type: "hello" }>) {

@@ -212,7 +212,34 @@
   transaction, for due enabled schedule triggers, with the rules of workflow schedules: one
   fire per due time in `trigger_fires` (unique on `(trigger_id, scheduled_for)`),
   `skipped-overlap` when the trigger is one at a time and one of its Jobs is going, `refused`
-  with the engine's message, otherwise `started` with the Job. The agent's page
+  with the engine's message, otherwise `started` with the Job. A third claim takes the
+  outbox: first, for each trigger with `deferred` fires in `event_fires`, as many of its
+  oldest as it has room for (so one trigger's backlog never holds up another's), then up to 100
+  unprocessed `events` (`FOR UPDATE SKIP LOCKED`), each matched against the owner's enabled
+  `primitive` triggers (`{ tableId, operations, fields? }`: an update fires only when one of
+  `fields` changed). Each match is one `event_fires` row (unique on `(trigger_id, event_id)`)
+  and the event is marked processed in the same transaction, so two schedulers never make an
+  event's Job twice. Each fire reads its trigger again under `FOR NO KEY UPDATE`, so no two
+  schedulers check its limits at once, and is `refused` when the trigger is off or no longer
+  watches the change, `skipped-same-agent` when the write was by a Job of the trigger's own
+  agent, `out-of-scope` when the agent no longer has `data` on the event's table (a
+  table that stopped being primitive, or was deleted, makes no more events), `deferred`
+  while the trigger has started `rate_cap` Jobs in the last hour (default 60, set on the
+  trigger) or, one at a time, has a Job going, and otherwise `started`. The Job's cause is
+  `event` with its depth (the writing Job's plus one, 0 for a person or a workflow) and the
+  chain's first Job (`rootJobId`); `createJob` refuses past depth 10 or at 100 Jobs from one
+  root, counted with the root's run row locked (`chain-limit`). The trigger node's outputs are the change (`operation`, `table_id`,
+  `row_id`, `changed_field_ids`, `before`, `after`, JSON for the last three), carried in the
+  run's firing and written after the trigger's instructions (`CHANGE_PROMPT`); a row's
+  values never reach telemetry, whose `scheduler.fire` span has kind `event`. Creating or
+  changing a primitive trigger checks that the table is the owner's and primitive, the fields
+  are its own, and the agent has `data` on it whenever the trigger is on (an off trigger is
+  checked when it is turned on again); the trigger
+  tools declare the watched table (and, on a change, the one watched before), so a Job limited
+  to some tables can't propose a trigger on another. The trigger sheet's "Table change" kind
+  (`PrimitiveTriggerPanel`) picks a primitive table (`tables.list` gives `primitive`), the
+  changes, for a changed row any field or some, the hour's cap, and lists the latest events
+  with what each did. The agent's page
   (`/settings/agents/<id>`) has three tabs: Settings, Triggers (`components/agents/TriggerList`,
   `TriggerSheet`, which reuses the schedule panel) and Jobs (`JobList`). A manual trigger goes
   on a page as a `trigger-form` widget (`widgets.trigger_id`, one per trigger and page):
@@ -242,7 +269,23 @@
   before anything loads; the import hook wraps only `pg` and `http(s)` (wrapping every module
   breaks the router's import cycles), and `pg` is kept out of the server bundle so it can be
   hooked. `telemetry-requests.mjs` lists the requests that make no span. PGlite has no
-  instrumentation: installs on it get no database spans.
+  instrumentation: installs on it get no database spans. Each scheduler tick is the root of its own trace
+  (`scheduler.tick`, one `scheduler.fire` per due schedule or trigger with its kind, result
+  and lag); a run stores the trace it was created in (`runs.trace_id`, migration 0036). The
+  engine traces each session start (`engine.session.start`, inside the Job for a Job) and
+  each runner event but text deltas (`engine.event`, which are only counted), and counts runs
+  created and finished (with their duration), questions opened and answered (with their
+  wait) and sessions started. The runner hub counts connection attempts by outcome,
+  disconnects and messages by type, and traces each message but streamed words
+  (`runner.message`, the engine's work inside it). A tool action call is a `tool.call` span
+  (the tool's id, the action, how it ended) with its count and duration; a cloud session's
+  model call is a `model.turn` span (the harness's kind, how the turn ended, how many tools it
+  asked for) with its count and duration. Token counts are not read from the providers yet. The browser
+  tests run the app instrumented and exporting to a stand-in collector
+  (`apps/web/e2e/collector.mjs`); the last spec, `zzz-telemetry.spec.ts`, adds sentinel
+  secrets and content and checks none appears in anything exported during the whole suite.
+  The standard `OTEL_BSP_SCHEDULE_DELAY`, `OTEL_BLRP_SCHEDULE_DELAY` and
+  `OTEL_METRIC_EXPORT_INTERVAL` are read by `startTelemetry` (the SDK no longer reads them).
 - **Platform tools:** a Job's session gets some of Dispand's own procedures as tools.
   `platform/tools.ts` is the registry: each tool names its procedure (`rows.create` is the tool
   `rows_create`), its bundle (`data`: `tables.list`, `tables.get` and the rows procedures;
@@ -443,7 +486,27 @@
   fields per table; 100 choices per single select (labels 1-100, distinct ids and labels); text
   10 000 characters, long text 100 000, URL 2 000 (`http:`/`https:`). A table always keeps at
   least one field; the field at position 0 is its primary field; `tables.create` adds a
-  `Name` text field.
+  `Name` text field. A `reference` field names a table (`fields.references_table_id`, set when it
+  is created, never by a retype) and its cell holds the id of one of that table's rows.
+  `writeRow` checks the row exists in that table, the owner's, and holds it `FOR SHARE`;
+  deleting rows clears the references to them through `writeRow` in the same transaction
+  (`clearReferences`); a table another table's reference field names can't be deleted.
+  `rows.list` and `rows.get` give `references`, each named row's first field as text. A
+  table can be `primitive` (its row writes become events, node C) with a parent:
+  `tables.setPrimitive` sets `tables.parent_field_id` (its reference field naming the parent
+  table, created when it has none) and `parent_required`. With a required parent, `writeRow`
+  refuses a new row without one and any write that empties it, deleting a parent row with
+  children is a `CONFLICT` with their count, and the parent field can't be deleted or retyped.
+  Each write of a primitive table's row appends one row to the `events` outbox in the write's
+  transaction (`recordEvent`, a rollback leaves none): `created` with the values set,
+  `updated` with the fields that changed and their values before and after (a write that
+  changes nothing makes none), `deleted` with every field's last value, and the `actor`: the
+  signed-in user, the Job whose tool wrote it, or the Data step (`writeRow` requires it;
+  `actorOf` reads it from a procedure's context). Clearing references to deleted rows is an
+  event of each referring row, by the deleter. `processed_at` is set once the scheduler has
+  matched the event to triggers (see Jobs).
+  A schema change that rewrites cells (a choice removed, a retype, a field deleted) records
+  no event: it changes the table's shape, not a row someone wrote, and starts no Job.
 - **Rows (Data):** every row write, from a procedure or a Data step, goes through
   `writeRow` (`packages/domain/src/data/rows.ts`): it takes the table's row `FOR SHARE`, so it
   waits for a schema change and is then checked against the new fields (`cellSchema`), and it

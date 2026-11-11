@@ -54,6 +54,7 @@ test("the tools are exactly the data and configure ones, on tables, fields, rows
     "tables_create",
     "tables_delete",
     "tables_rename",
+    "tables_set_primitive",
     "tools_add",
     "tools_delete",
     "tools_get",
@@ -64,7 +65,7 @@ test("the tools are exactly the data and configure ones, on tables, fields, rows
     "triggers_list",
     "triggers_update",
   ]);
-  expect(PLATFORM_TOOLS).toHaveLength(29);
+  expect(PLATFORM_TOOLS).toHaveLength(30);
   expect(PLATFORM_TOOLS.every((t) => ["tables", "fields", "rows", "agents", "triggers", "tools"].includes(t.path.split(".")[0]!))).toBe(true);
   // What changes what agents may do is marked: it runs only on a proposal a person approved.
   expect(PLATFORM_TOOLS.filter((t) => t.grant).map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "tables_delete", "tools_add", "tools_delete", "triggers_create", "triggers_delete", "triggers_update"]);

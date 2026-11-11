@@ -6,7 +6,7 @@ import { StorableText } from "../text.ts";
 // cell (a wired agent output, a literal, a retype) and how a cell becomes text again. Pure, so the
 // web app, the procedures and the engine all apply the same rules.
 
-export const FIELD_TYPES = ["text", "long-text", "number", "checkbox", "date", "url", "attachment", "single-select"] as const;
+export const FIELD_TYPES = ["text", "long-text", "number", "checkbox", "date", "url", "attachment", "single-select", "reference"] as const;
 export type FieldType = (typeof FIELD_TYPES)[number];
 
 export const CELL_LIMITS = { text: 10_000, "long-text": 100_000, url: 2_000, attachments: 20 } as const;
@@ -19,9 +19,13 @@ export const Choice = z.object({
 });
 export type Choice = z.infer<typeof Choice>;
 
-export type FieldSchema = { id: string; name: string; type: FieldType; choices: Choice[] };
+/** `referencesTableId`: for a reference field, the table whose rows it names. */
+export type FieldSchema = { id: string; name: string; type: FieldType; choices: Choice[]; referencesTableId?: string | null };
 
-/** text, long-text, url, date: a string; number: finite; checkbox: boolean; single-select: a choice id; attachment: attachment ids. `null` is empty. */
+/** What a row's id looks like: a reference cell holds one. Whether it names a row is `writeRow`'s check. */
+export const ROW_ID = /^row_[0-9A-Za-z]{1,64}$/;
+
+/** text, long-text, url, date: a string; number: finite; checkbox: boolean; single-select: a choice id; attachment: attachment ids; reference: a row id. `null` is empty. */
 export type Cell = string | number | boolean | string[] | null;
 
 type Parsed = { ok: true; value: Cell } | { ok: false; reason: string };
@@ -68,6 +72,8 @@ export function cellSchema(field: FieldSchema): z.ZodType<Cell> {
     }
     case "attachment":
       return z.array(StorableText(200)).max(CELL_LIMITS.attachments).nullable();
+    case "reference":
+      return z.string().regex(ROW_ID, "expected the id of a row").nullable();
   }
 }
 
@@ -129,6 +135,8 @@ export function parseCellText(field: FieldSchema, text: string): Parsed {
     }
     case "attachment":
       return { ok: false, reason: "files can't be set from text" };
+    case "reference":
+      return ROW_ID.test(t) ? { ok: true, value: t } : { ok: false, reason: `expected the id of a row, got ${quote(t)}` };
   }
 }
 
@@ -159,7 +167,8 @@ export function convertCells(
   const convert = (cell: Cell): Cell => {
     if (isEmpty(cell)) return null;
     if (from.type === to.type && to.type !== "single-select") return cell;
-    if (to.type === "attachment") return null;
+    // Files and references come from what they name, never from text: a retype to one clears.
+    if (to.type === "attachment" || to.type === "reference") return null;
     if (to.type === "single-select") {
       if (from.type === "single-select") return choices.some((c) => c.id === cell) ? cell : null;
       const label = cellText(from, cell, attachmentNames).trim();
@@ -198,6 +207,8 @@ export function typeHint(field: FieldSchema): string {
       return "an http(s) URL";
     case "attachment":
       return "files";
+    case "reference":
+      return "the id of a row (row_…)";
     case "single-select": {
       const hint = `one of: ${field.choices.map((c) => c.label).join(", ")}`;
       return hint.length > MAX_HINT ? `${cut(hint, MAX_HINT - 1)}…` : hint;

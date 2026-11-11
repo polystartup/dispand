@@ -177,7 +177,11 @@ export const workflowVersions = pgTable(
 export type RunSource = "workflow" | "agent";
 export type RunStatus = "running" | "waiting" | "succeeded" | "failed";
 /** What started a run: the owner, or a schedule's fire for `scheduledFor` (ISO 8601, UTC). */
-export type RunTrigger = { type: "manual" } | { type: "schedule"; scheduledFor: string };
+export type RunTrigger =
+  | { type: "manual" }
+  | { type: "schedule"; scheduledFor: string }
+  /** A primitive trigger's event, with what the trigger node gives the Job: the change. */
+  | { type: "event"; eventId: string; outputs: Record<string, string> };
 export type StepStatus = "pending" | "running" | "waiting" | "succeeded" | "failed" | "skipped";
 
 /** The agent as it was when its Job was created: the Job's sessions read it, not the `agents` row. */
@@ -197,7 +201,8 @@ export type AgentSnapshot = {
 export type JobCause = (
   | { kind: "user" }
   | { kind: "schedule"; scheduledFor: string }
-  | { kind: "event"; eventId: string; jobId?: string }
+  /** `jobId`: the Job whose write it was; `rootJobId`: the first Job of the chain, which every Job of it counts against. */
+  | { kind: "event"; eventId: string; jobId?: string; rootJobId?: string }
   | { kind: "poll"; triggerId: string; itemId: string }
 ) & { depth: number };
 
@@ -224,6 +229,8 @@ export const runs = pgTable(
     status: text("status").$type<RunStatus>().notNull(),
     trigger: jsonb("trigger").$type<RunTrigger>().notNull().default({ type: "manual" }),
     error: text("error"),
+    // The trace the run was created in (a scheduler tick, a request): to find its telemetry.
+    traceId: text("trace_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     finishedAt: timestamp("finished_at"),
   },
@@ -235,7 +242,7 @@ export const runs = pgTable(
 );
 
 export type ScheduleFireStatus = "started" | "skipped-overlap" | "refused";
-export type TriggerKind = "manual" | "schedule";
+export type TriggerKind = "manual" | "schedule" | "primitive";
 export type TriggerConcurrency = "parallel" | "one-at-a-time";
 
 /** What makes an agent work: each firing creates a Job. A schedule's next fire is claimed by the scheduler. */
@@ -255,6 +262,8 @@ export const triggers = pgTable(
     // Added to the Job's prompt for this trigger.
     instructions: text("instructions").notNull().default(""),
     concurrency: text("concurrency").$type<TriggerConcurrency>().notNull().default("parallel"),
+    // A primitive trigger's most Jobs in an hour; an event past it waits (`event_fires`, deferred).
+    rateCap: integer("rate_cap").notNull().default(60),
     config: jsonb("config").$type<TriggerConfig>().notNull(),
     // Set for schedules only, with the meaning they have on `schedules`.
     nextFireAt: timestamp("next_fire_at", { withTimezone: true }),
@@ -563,10 +572,78 @@ export const tables = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    // A primitive table records each write of its rows as an event (node C).
+    primitive: boolean("primitive").notNull().default(false),
+    // A primitive table's parent: its reference field that names the parent table's rows, and
+    // whether every row must name one. The field can't be deleted or retyped while it is the parent.
+    parentFieldId: text("parent_field_id").references((): AnyPgColumn => fields.id, { onDelete: "set null" }),
+    parentRequired: boolean("parent_required").notNull().default(false),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("tables_owner_name_idx").on(t.ownerId, sql`lower(${t.name})`)],
+);
+
+/** Who made a write: a person, a Job (its run), or a workflow's step. */
+export type EventActor = { type: "user"; userId: string } | { type: "job"; runId: string } | { type: "step"; runId: string; stepId: string };
+
+/**
+ * The outbox (node C): one row per write of a row of a primitive table, appended in the same
+ * transaction as the write. `before` and `after` hold the changed fields' values (every field of
+ * a deleted row). The scheduler marks each one processed once its triggers had their chance.
+ * Kept after processing: it is also the record of data changes.
+ */
+export const events = pgTable(
+  "events",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    tableId: text("table_id").notNull(),
+    rowId: text("row_id").notNull(),
+    operation: text("operation").$type<"created" | "updated" | "deleted">().notNull(),
+    changedFieldIds: jsonb("changed_field_ids").$type<string[]>().notNull(),
+    before: jsonb("before").$type<Record<string, Cell>>().notNull(),
+    after: jsonb("after").$type<Record<string, Cell>>().notNull(),
+    actor: jsonb("actor").$type<EventActor>().notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    processedAt: timestamp("processed_at"),
+  },
+  (t) => [index("events_unprocessed_idx").on(t.createdAt).where(sql`${t.processedAt} is null`), index("events_table_row_idx").on(t.tableId, t.rowId)],
+);
+
+export type EventFireStatus = "started" | "deferred" | "skipped-same-agent" | "chain-limit" | "out-of-scope" | "refused";
+
+/**
+ * What one event did for one primitive trigger, once (the unique key). A deferred fire (past the
+ * rate cap, or one at a time with a Job going) is tried again each tick until it starts.
+ */
+export const eventFires = pgTable(
+  "event_fires",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    triggerId: text("trigger_id")
+      .notNull()
+      .references(() => triggers.id, { onDelete: "cascade" }),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    status: text("status").$type<EventFireStatus>().notNull(),
+    runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
+    message: text("message"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    // When its Job was created: what the rate cap counts.
+    startedAt: timestamp("started_at", { withTimezone: true }),
+  },
+  (t) => [
+    unique().on(t.triggerId, t.eventId),
+    index("event_fires_deferred_idx").on(t.createdAt).where(sql`${t.status} = 'deferred'`),
+    index("event_fires_started_idx").on(t.triggerId, t.startedAt),
+  ],
 );
 
 export const fields = pgTable(
@@ -582,6 +659,9 @@ export const fields = pgTable(
     name: text("name").notNull(),
     type: text("type").$type<FieldType>().notNull(),
     choices: jsonb("choices").$type<Choice[]>().notNull().default([]),
+    // A reference field: the table whose rows it names. A table something points at can't be
+    // deleted (`tables.delete` refuses): no cascade.
+    referencesTableId: text("references_table_id").references((): AnyPgColumn => tables.id),
     /** 0 is the primary field. */
     position: integer("position").notNull(),
   },

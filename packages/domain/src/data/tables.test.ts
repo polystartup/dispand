@@ -23,7 +23,7 @@ test("tables CRUD: create adds a Name field, rename, list counts rows, delete ca
   const context = await ownerContext();
   const table = await call(router.tables.create, { name: " Projects " }, { context });
   expect(table).toMatchObject({ id: expect.stringMatching(/^tbl_/), name: "Projects" });
-  expect(table.fields).toEqual([{ id: expect.any(String), tableId: table.id, name: "Name", type: "text", choices: [], position: 0 }]);
+  expect(table.fields).toEqual([{ id: expect.any(String), tableId: table.id, name: "Name", type: "text", choices: [], position: 0, referencesTableId: null }]);
   const other = await call(router.tables.create, { name: "Archive" }, { context });
   await addRows(context, table.id, [{}, {}]);
 
