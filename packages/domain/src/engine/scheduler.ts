@@ -25,7 +25,8 @@ import { errorKind, logError } from "../log.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { fillLastPoll, itemsOf, MAX_ITEM_BYTES, noPolls, type PollCaller } from "../tools/poll.ts";
 import { pollProblem } from "../tools/pollable.ts";
-import { canonicalJson, type TriggerConfig } from "../triggers/model.ts";
+import { agentScope, reachable } from "../questions/inbox-scope.ts";
+import { canonicalJson, INTERACTION, type TriggerConfig } from "../triggers/model.ts";
 import { latestFireBetween, nextFireAfter } from "../workflows/schedule.ts";
 import { EngineError, runIssues, type Engine } from "./engine.ts";
 import { newRoot, ROOT_STOPPED } from "./roots.ts";
@@ -41,7 +42,7 @@ const counts = meter("scheduler");
 type Fired = { runId: string | null; result: "started" | "already" | "skipped-overlap" | "refused" | EventFireStatus };
 
 /** One fire in its own span, counted by kind and result, with how late it was claimed. */
-function fired(kind: "workflow" | "trigger" | "event" | "poll", at: Date, now: Date, work: () => Promise<Fired>): Promise<string | null> {
+function fired(kind: "workflow" | "trigger" | "event" | "interaction" | "poll", at: Date, now: Date, work: () => Promise<Fired>): Promise<string | null> {
   return traces.startActiveSpan("scheduler.fire", { attributes: { "dispand.fire.kind": kind, "dispand.fire.scheduled_for": at.toISOString() } }, async (span) => {
     let result = "failed";
     try {
@@ -570,7 +571,7 @@ export class Scheduler {
   /** One event's fire for one trigger, in its own span and savepoint; a failure leaves it deferred, for the next tick. */
   private async tryFire(tx: Tx, triggerId: string, event: EventRow, fireId: string, now: Date, root: { id: string; state: string }): Promise<string | null> {
     try {
-      return await fired("event", event.createdAt, now, () => tx.transaction((sp) => this.fireEvent(sp, triggerId, event, fireId, now, root)));
+      return await fired(event.tableId === INTERACTION ? "interaction" : "event", event.createdAt, now, () => tx.transaction((sp) => this.fireEvent(sp, triggerId, event, fireId, now, root)));
     } catch (err) {
       logError("scheduler.fireEvent failed", err);
       return null;
@@ -581,8 +582,8 @@ export class Scheduler {
    * Decides a fire, the trigger locked (`FOR NO KEY UPDATE`: it waits for itself, not for the
    * key-share lock an `event_fires` insert takes on its trigger) so that no other scheduler checks its
    * limits meanwhile, and read as it is now: no Job when it no longer watches this change, when
-   * the write was by a Job of its own agent, or when the agent may no longer read the event's
-   * table; deferred when it has no room; none either once its root cause was declined at a
+   * the write was by a Job of its own agent (for a Question or an Approval, asked by one), or when
+   * the agent may no longer read the event's table (the item: `reachable`); deferred when it has no room; none either once its root cause was declined at a
    * checkpoint (`stopped`); otherwise a Job of that root, one deeper than the Job that wrote the
    * row (with no limit of depth: the root's checkpoints catch a loop).
    */
@@ -597,11 +598,20 @@ export class Scheduler {
     if (root.state === "stopped") return record("stopped", { message: ROOT_STOPPED });
     const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, triggerId)).for("no key update");
     if (!trigger?.enabled || !watches(trigger, event)) return record("refused", { message: "The trigger no longer watches this change" });
-    const writer = event.actor.type === "user" ? null : (await tx.select({ id: runs.id, agentId: runs.agentId, source: runs.source, cause: runs.cause }).from(runs).where(eq(runs.id, event.actor.runId)))[0];
+    // A Question or an Approval: its Job is the asking Job's, whoever answered it.
+    const interaction = event.tableId === INTERACTION;
+    const writerId = interaction ? String(event.after.runId) : event.actor.type === "user" ? null : event.actor.runId;
+    const writer = writerId ? (await tx.select({ id: runs.id, agentId: runs.agentId, source: runs.source, cause: runs.cause }).from(runs).where(eq(runs.id, writerId)))[0] : null;
     if (writer?.source === "agent" && writer.agentId === trigger.agentId) return record("skipped-same-agent");
-    const [agent] = await tx.select({ bundles: agents.bundles, dataTables: agents.dataTables }).from(agents).where(eq(agents.id, trigger.agentId));
-    if (!agent?.bundles.includes("data") || (agent.dataTables !== "all" && !agent.dataTables.includes(event.tableId))) {
-      return record("out-of-scope", { message: "The agent may no longer read this table" });
+    if (interaction) {
+      // Only an item the agent may read now starts its Job: any other is never revealed to it, even as an id.
+      const scope = await agentScope(tx, trigger.ownerId, trigger.agentId);
+      if (!scope || !(await reachable(tx, scope, event.rowId))) return record("out-of-scope", { message: "The agent may not read this Question" });
+    } else {
+      const [agent] = await tx.select({ bundles: agents.bundles, dataTables: agents.dataTables }).from(agents).where(eq(agents.id, trigger.agentId));
+      if (!agent?.bundles.includes("data") || (agent.dataTables !== "all" && !agent.dataTables.includes(event.tableId))) {
+        return record("out-of-scope", { message: "The agent may no longer read this table" });
+      }
     }
     if ((await this.room(tx, trigger, now)) === 0) return { runId: null, result: "deferred" };
     // A Job's write makes the next link of its chain; a person's or a workflow's starts one.

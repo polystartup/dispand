@@ -666,10 +666,14 @@ export const tables = pgTable(
 /** Who made a write: a person, a Job (its run), or a workflow's step. */
 export type EventActor = { type: "user"; userId: string } | { type: "job"; runId: string } | { type: "step"; runId: string; stepId: string };
 
+/** A row's write; for the built-in `interaction` kind, a Question or an Approval asked, answered or expired. */
+export type EventOperation = "created" | "updated" | "deleted" | "answered" | "expired";
+
 /**
  * The outbox (node C): one row per write of a row of a primitive table, appended in the same
- * transaction as the write. `before` and `after` hold the changed fields' values (every field of
- * a deleted row). The scheduler marks each one processed once its triggers had their chance.
+ * transaction as the write; and one per Question or Approval asked, answered or expired, with the
+ * built-in kind `interaction` as its table (`engine/interactions.ts`). `before` and `after` hold
+ * the changed fields' values (every field of a deleted row). The scheduler marks each one processed once its triggers had their chance.
  * Kept after processing: it is also the record of data changes.
  */
 export const events = pgTable(
@@ -681,7 +685,7 @@ export const events = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     tableId: text("table_id").notNull(),
     rowId: text("row_id").notNull(),
-    operation: text("operation").$type<"created" | "updated" | "deleted">().notNull(),
+    operation: text("operation").$type<EventOperation>().notNull(),
     changedFieldIds: jsonb("changed_field_ids").$type<string[]>().notNull(),
     before: jsonb("before").$type<Record<string, Cell>>().notNull(),
     after: jsonb("after").$type<Record<string, Cell>>().notNull(),
