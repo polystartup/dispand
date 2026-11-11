@@ -22,6 +22,8 @@ vi.mock("@dispand/domain", () => ({
   getScheduler: () => ({ start: () => {}, stop: async () => {} }),
   sweepAttachments: async () => ({ removed: 0 }),
   logError: () => {},
+  startTelemetry: () => true,
+  stopTelemetry: async () => {},
 }));
 
 test("getApp retries after a failed start instead of caching the failure", async () => {
