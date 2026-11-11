@@ -90,3 +90,20 @@ test("redaction never throws, whatever it is given", () => {
   expect(() => redactAttributes({ "url.full": 3 as never, x: null as never, y: undefined })).not.toThrow();
   expect(() => redactSpan(span({ events: undefined, attributes: undefined, status: undefined }))).not.toThrow();
 });
+
+test("a call out keeps only where it went: a tool's address may hold a secret in its path", () => {
+  const out = redactSpan(
+    span({
+      kind: SpanKind.CLIENT,
+      name: "POST",
+      attributes: { "url.full": "https://tools.example.com/mcp/sentinel-path-key/x?k=1", "url.path": "/mcp/sentinel-path-key/x", "http.target": "/mcp/sentinel-path-key/x", "server.address": "tools.example.com", "http.response.status_code": 200 },
+      events: [],
+    }),
+  );
+  expect(out.attributes).toEqual({ "url.full": "https://tools.example.com", "server.address": "tools.example.com", "http.response.status_code": 200 });
+  expect(JSON.stringify(out)).not.toContain("sentinel-path-key");
+});
+
+test("a database connection string keeps no password", () => {
+  expect(redactAttributes({ "db.connection_string": "postgresql://dispand:sentinel-db-password@postgres:5432/dispand" })).toEqual({ "db.connection_string": "postgresql://postgres:5432/dispand" });
+});

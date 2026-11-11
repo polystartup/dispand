@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { Attributes, AttributeValue } from "@opentelemetry/api";
+import { type Attributes, type AttributeValue, SpanKind } from "@opentelemetry/api";
 import type { ReadableLogRecord } from "@opentelemetry/sdk-logs";
 import type { ReadableSpan, TimedEvent } from "@opentelemetry/sdk-trace";
 
@@ -13,7 +13,7 @@ const SECRET_NAMES = new Set(["authorization", "cookie", "set-cookie", "token", 
 /** Headers are never exported: they carry credentials. */
 const HEADER = /^(http\.(request|response)\.header\.|http\.request\.headers?$|http\.response\.headers?$)/;
 /** Attributes that hold a URL or a request target: kept without query string, fragment or credentials. */
-const URLS = new Set(["url.full", "http.url", "http.target", "url.original", "server.url"]);
+const URLS = new Set(["url.full", "http.url", "http.target", "url.original", "server.url", "db.connection_string"]);
 /** Attributes that hold only a query string. */
 const QUERIES = new Set(["url.query", "http.query"]);
 /** What of an exception event may leave: its kind. */
@@ -81,6 +81,25 @@ function redactEvent(event: TimedEvent): TimedEvent {
   return { ...event, attributes: redactAttributes(attributes) };
 }
 
+/** Of a call out: only where it went. A tool's address may hold a secret in its path, not only in its query. */
+const PATHS = ["url.path", "http.target", "url.template", "http.route"];
+function outbound(attributes: Attributes): Attributes {
+  const out: Attributes = {};
+  for (const [key, value] of Object.entries(attributes)) {
+    if (PATHS.includes(key)) continue;
+    if ((key === "url.full" || key === "http.url") && typeof value === "string") {
+      try {
+        out[key] = new URL(value).origin;
+      } catch {
+        // Not a URL: nothing of it leaves.
+      }
+      continue;
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
 /** A span as it may leave: the same span, its attributes and events redacted, its status without a message. */
 export function redactSpan(span: ReadableSpan): ReadableSpan {
   let events: TimedEvent[];
@@ -90,7 +109,7 @@ export function redactSpan(span: ReadableSpan): ReadableSpan {
     events = [];
   }
   return Object.create(span, {
-    attributes: { value: redactAttributes(span.attributes), enumerable: true },
+    attributes: { value: span.kind === SpanKind.CLIENT ? outbound(redactAttributes(span.attributes)) : redactAttributes(span.attributes), enumerable: true },
     events: { value: events, enumerable: true },
     status: { value: span.status ? { code: span.status.code } : span.status, enumerable: true },
   }) as ReadableSpan;

@@ -62,6 +62,11 @@ changes it updates this file.
   logs carry ids, names, counts, durations and result kinds, never a procedure's input or
   output; a metric keeps only the attributes `telemetry/metrics.ts` lists for it. Nothing is
   sent unless `OTEL_EXPORTER_OTLP_*` names a collector, and then only there.
+  The HTTP server, the PostgreSQL driver and outbound fetch are instrumented by a preload
+  (`apps/web/telemetry-preload.mjs`): no header is recorded; pairing (`/runner/pair`), the
+  runner socket, OAuth callbacks and health checks make no span; a call out keeps only the
+  origin it went to (a tool's address may hold a secret in its path); a statement is recorded
+  without its values; a connection string keeps no password.
 - **A page loads from, and connects to, the app's own origin only.** Every HTML page is
   served with a Content-Security-Policy that keeps images (plus inline `data:` and `blob:`),
   media and fonts to the app's origin, connections to it too, and allows no frame, object,
