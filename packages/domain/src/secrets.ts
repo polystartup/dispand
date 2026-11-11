@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { rememberSecret } from "./telemetry/index.ts";
 
 /**
  * Seals secrets (API keys, tool headers) before they are stored, with AES-256-GCM and the key
@@ -45,7 +46,10 @@ export function createSecretBox(key: Buffer): SecretBox {
         const decipher = createDecipheriv("aes-256-gcm", box, iv, { authTagLength: TAG_BYTES });
         decipher.setAAD(Buffer.from(aad, "utf8"));
         decipher.setAuthTag(body.subarray(body.length - TAG_BYTES));
-        return Buffer.concat([decipher.update(body.subarray(0, body.length - TAG_BYTES)), decipher.final()]).toString("utf8");
+        const plain = Buffer.concat([decipher.update(body.subarray(0, body.length - TAG_BYTES)), decipher.final()]).toString("utf8");
+        // Telemetry drops any value equal to it, wherever an instrumentation might pick it up.
+        rememberSecret(plain);
+        return plain;
       } catch {
         // Node's own errors say nothing secret, but one message keeps every failure alike.
         throw new SecretError();

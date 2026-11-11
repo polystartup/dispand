@@ -13,6 +13,8 @@ import {
   logError,
   ownAddresses,
   platformToolCaller,
+  startTelemetry,
+  stopTelemetry,
   sweepAttachments,
   type Auth,
   type DataEvents,
@@ -32,6 +34,8 @@ const globalForApp = globalThis as { __dispandApp?: Promise<App> };
 
 async function start(): Promise<App> {
   const config = loadServerConfig();
+  // First: what starts below is traced. Sends over OTLP only where OTEL_EXPORTER_OTLP_* says.
+  startTelemetry();
   // The production build copies the migrations next to the server bundle (see vite.config.ts).
   const migrations = config.mode === "production" ? fileURLToPath(new URL("../drizzle", import.meta.url)) : undefined;
   const db = await createDb(config.databaseUrl, migrations);
@@ -80,4 +84,6 @@ export async function closeApp(): Promise<void> {
   await getScheduler(app.db, app.engine).stop();
   await app.engine.stop();
   await closeDb(app.db);
+  // What is still buffered goes before the process ends.
+  await stopTelemetry();
 }

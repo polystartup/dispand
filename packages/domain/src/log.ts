@@ -1,3 +1,5 @@
+import { emitLog } from "./telemetry/index.ts";
+
 // The domain's only logger. It logs a fixed whitelist and nothing derived from error text: Drizzle
 // errors quote the SQL and its bound params (event payloads, tokens) in their message, params,
 // cause and stack, and a runner-chosen value (a sessionId with "\nat …") can forge stack lines.
@@ -29,5 +31,20 @@ function summarize(err: unknown) {
  * concerns (`ref`, never a runner-chosen value), and a data-free summary of `err`.
  */
 export function logError(event: string, err: unknown, meta: { runnerId?: string; ref?: string } = {}): void {
-  console.error(event, { ...(meta.runnerId && { runnerId: meta.runnerId }), ...(meta.ref && { ref: meta.ref }), error: summarize(err) });
+  const error = summarize(err);
+  const ids = { ...(meta.runnerId && { runnerId: meta.runnerId }), ...(meta.ref && { ref: meta.ref }) };
+  // Always on stdout, as before: an install without a collector reads its logs there.
+  console.error(event, { ...ids, error });
+  // And as a log record, with the trace, span and Job it happened in: the same fields, flattened.
+  emitLog("log", "error", event, {
+    ...ids,
+    "error.type": error.name,
+    ...(error.cause && { "error.cause": error.cause }),
+    // The SQLSTATE, under its semantic-convention name ("code" alone reads as a secret to redaction).
+    ...(error.code && { "db.response.status_code": error.code }),
+    ...(error.constraint && { "error.constraint": error.constraint }),
+  });
 }
+
+/** The data-free kind of an error, for a span (`recordError`): its class name, if it has the shape of one. */
+export const errorKind = (err: unknown): string => summarize(err).name;

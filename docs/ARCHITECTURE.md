@@ -226,6 +226,23 @@
   primitive with a `urlTransform`, `img` and `a` overrides and `skipHtml`). Nothing else
   imports the library. The panel keeps its own composer. A Job's
   questions are listed in Notifications with its agent.
+- **Telemetry** (`packages/domain/src/telemetry/`): OpenTelemetry's trace, log and metric
+  providers, started once by the app (`startTelemetry`, guarded on `globalThis` for dev
+  reloads) and stopped on shutdown. OTLP/HTTP exporters exist only when
+  `OTEL_EXPORTER_OTLP_ENDPOINT` (or a signal's own endpoint) is set; each sits behind
+  `redact.ts`. Modules take `tracer(name)` and `meter(name)` (resolved at each use, so ones
+  taken at load time follow the provider) and record errors with `recordError`. `logError`
+  writes to stderr as before and emits a log record with the trace, span and Job ids
+  (`withJob`). Every procedure runs in a span named after it (`rpc/context.ts`: `rpc.method`,
+  `dispand.owner.id`, `dispand.result`) and records `dispand.rpc.duration`; a Job's tool call
+  passes the procedure's path. Metric instruments and their allowed attributes are listed in
+  `telemetry/metrics.ts`. Better Auth's own spans go through the same pipeline.
+  `apps/web/telemetry-preload.mjs`, loaded with `node --import` by `pnpm start`, the image and
+  the dev server (`NODE_OPTIONS`), registers the HTTP, PostgreSQL and undici instrumentations
+  before anything loads; the import hook wraps only `pg` and `http(s)` (wrapping every module
+  breaks the router's import cycles), and `pg` is kept out of the server bundle so it can be
+  hooked. `telemetry-requests.mjs` lists the requests that make no span. PGlite has no
+  instrumentation: installs on it get no database spans.
 - **Platform tools:** a Job's session gets some of Dispand's own procedures as tools.
   `platform/tools.ts` is the registry: each tool names its procedure (`rows.create` is the tool
   `rows_create`), its bundle (`data`: `tables.list`, `tables.get` and the rows procedures;

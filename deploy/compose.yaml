@@ -26,6 +26,10 @@ services:
       DISPAND_SETUP_CODE: ${DISPAND_SETUP_CODE:?}
       DISPAND_SECRET_KEY: ${DISPAND_SECRET_KEY:?}
       DISPAND_FILES_DIR: /data/files
+      # Telemetry over OTLP, when set (see README); nothing is sent otherwise.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-dispand}
     volumes:
       # Attachments, in /data/files. The volume is mounted on /data, which the image owns as the
       # app's user, so a new volume starts writable by it.
