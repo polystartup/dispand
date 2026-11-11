@@ -157,7 +157,7 @@ async function run(args: string[]) {
     const credentials = [join(dir, "config.json"), join(claudeDir, ".credentials.json"), join(claudeDir, "settings.json"), join(env.CODEX_HOME || join(homedir(), ".codex"), "auth.json")];
     const guard = { forbidden: codexDenied([...machine, ...credentials]), secrets: [token, ...credentialValues(credentials)] };
     void callTool(tool, server, action, args, guard).then(
-      ({ content, isError }) => conn.reply({ type: "tool.called", requestId, content, isError }),
+      ({ content, isError, hasMore }) => conn.reply({ type: "tool.called", requestId, content, isError, ...(hasMore ? { hasMore } : {}) }),
       (err: unknown) => conn.reply({ type: "tool.called", requestId, error: (err as Error).message }),
     ).finally(() => calling.delete(tool));
   };

@@ -189,7 +189,7 @@ export async function callTool(
   args: Record<string, unknown>,
   guard: { forbidden: string[]; secrets: string[] } = { forbidden: [], secrets: [] },
   timeoutMs = CALL_TIMEOUT_MS,
-): Promise<{ content: Record<string, unknown>[]; isError: boolean }> {
+): Promise<{ content: Record<string, unknown>[]; isError: boolean; hasMore: boolean }> {
   if (server.pollable?.length === 0) throw new CallFailed(`the MCP server ${name} allows no polls on this runner`);
   // No approval stands between a poll and its call: a path the runner keeps sessions out of
   // (its own config, the CLIs' credentials) is refused in any argument, as sessions are kept from it.
@@ -235,7 +235,8 @@ export async function callTool(
       (item) => cleanJson(Object.fromEntries(Object.entries(item).map(([k, v]) => [k, k === "type" ? v : redact(v, secrets)])), Infinity) as Record<string, unknown>,
     );
     if (content.length > 100 || Buffer.byteLength(JSON.stringify(content)) > MAX_REPLY_BYTES) throw new CallFailed(`the result of ${actionName.slice(0, 100)} is too large to send`);
-    return { content, isError: result.isError === true };
+    // The server stopped at its own cap: the poll asks again on its next tick.
+    return { content, isError: result.isError === true, hasMore: result._meta?.result_has_more === true };
   } catch (error) {
     if (error instanceof CallFailed) throw error;
     throw new CallFailed(`the MCP server ${name} didn't start or failed while calling ${actionName.slice(0, 100)}`);

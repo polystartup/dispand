@@ -33,7 +33,8 @@
   a `tool.discover` and waits for the `tool.discovered` with its `requestId` from that same runner
   (not numbered, not acked; "runner offline" or "timed out" after 45 s otherwise); `hub.call`
   does the same with a `tool.call` (a poll's call of one action, protocol 9) and its
-  `tool.called` (the result's MCP content and `isError`, or why the runner refused), a reply of
+  `tool.called` (the result's MCP content, `isError` and `hasMore`, protocol 10: the server's
+  `_meta.result_has_more`, or why the runner refused), a reply of
   the other kind resolving nothing; `runner.tool_call` spans and `dispand.runner.tool_calls`
   and its duration count them by outcome (`ok`, `error`, `refused`, `failed`).
   `SessionStart` is a union on `harness` (`claude-code`, `codex`, whose permission modes are only
@@ -266,10 +267,27 @@
   else its text as JSON; its items are the list at `itemsPath` (keys between dots, empty: the
   result), each identified by a string or a number at `idPath` (items without one are counted
   and left out; all the others kept, however many: one left for later could fall before the next
-  `{{lastPoll}}`). A second transaction, the trigger locked `FOR NO KEY
+  `{{lastPoll}}`). A poll may declare its `continuation` (`{ path, query?, argument }`, migration
+  0046): where a result names its next page (the token at `path`, or with `query`, that query
+  parameter of the link there, as Graph's `@odata.nextLink` and its `$skiptoken`; a key holding
+  dots is read whole first) and the argument that takes it. It then walks one fixed query: the
+  trigger's `poll_cursor` keeps the walk's `{{lastPoll}}`, when it began and the next page's
+  token; each later call passes the token, a page naming the next is followed at once, one that
+  doesn't ends the walk (the cursor cleared: only then does `{{lastPoll}}` move), at most 20 pages
+  a poll (`MAX_WALK_PAGES`; past them the walk goes on from its token at the next interval, and the
+  poll's message says so). A walk's items are first seen when it began, so the next walk's
+  `ge {{lastPoll}}` repeats its boundary items, which `poll_items`' key drops. A first walk is a
+  baseline across its pages (`last_checked_at` set when it ends). A next page that can't be
+  followed (not text, not a link, without the parameter, past 8 KiB) fails the poll and keeps the
+  cursor; a token is the server's opaque string, never in a message, a log or telemetry. Changing
+  what the trigger reads clears the cursor (a new baseline); changing only its continuation keeps
+  the walk's query and starts it over from its first page. A poll without a continuation
+  reads one call's result, as before. A result the server cut short at its own cap
+  (`_meta.result_has_more`, `hasMore` over HTTP and in `tool.called`) is polled again on the
+  next tick. A second transaction per page, the trigger locked `FOR NO KEY
   UPDATE`, records nothing when the trigger was turned off or changed meanwhile, else inserts
   each item into `poll_items` once (unique on `(trigger_id, item_id)`, with its content as JSON,
-  its `first_seen` the claim's time): the baseline poll as `baseline`, starting nothing, later
+  its `first_seen` the claim's time, or its walk's start): the baseline poll as `baseline`, starting nothing, later
   ones as `deferred` (`refused` past 256 KiB), then, `pollProblem` checked again, starts a Job
   for as many as the trigger has room for (its rate cap and one at a time, as primitive
   triggers), each Job created in the same transaction as its item's `started`. A crash between
@@ -285,7 +303,9 @@
   never sent once the agent lost the tool or the action stopped being pollable. A
   `scheduler.poll` span and `dispand.polls`, `dispand.poll.items` and `dispand.poll.duration`
   count polls, new items and durations by tool kind and outcome (`baseline`, `polled`,
-  `skipped`, `failed`), never an item, an argument or a result. `triggers.get` gives a poll trigger's `lastPolls`, each with what it found and its new items
+  `skipped`, `failed`), `dispand.poll.walks` and `dispand.poll.walk.pages` walks and their pages
+  by how they stopped (`ended`, `bounded`), with `dispand.poll.pages` on the span, never an item,
+  an argument, a result or a token. `triggers.get` gives a poll trigger's `lastPolls`, each with what it found and its new items
   (their ids are what the tool read: a Job calling it gets none). The agent's page
   (`/settings/agents/<id>`) has three tabs: Settings, Triggers (`components/agents/TriggerList`,
   `TriggerSheet`, which reuses the schedule panel) and Jobs (`JobList`). A manual trigger goes
