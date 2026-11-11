@@ -14,7 +14,10 @@ const fireText = { started: "started", "skipped-overlap": "skipped, a Job was st
 /** What a trigger does, in a line: how it starts and, for a schedule, when it next fires. */
 function summary(t: Trigger): string {
   if (t.config.kind === "manual") return t.config.placement === "chat" ? "Chat" : "Button";
-  if (t.config.kind === "primitive") return t.enabled ? "Table change" : "Table change · Paused";
+  if (t.config.kind === "primitive") {
+    const what = t.config.tableId === "interaction" ? "Question or Approval" : "Table change";
+    return t.enabled ? what : `${what} · Paused`;
+  }
   if (t.config.kind === "poll") return t.enabled ? `Poll · ${t.config.action}` : "Poll · Paused";
   if (!t.enabled) return "Schedule · Paused";
   return t.nextFireAt ? `Schedule · Next: ${at(t.nextFireAt, t.config.timezone)} (${t.config.timezone})` : "Schedule";
