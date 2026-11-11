@@ -31,7 +31,11 @@
   `hello` retries. Revoking a runner (Settings › Harnesses › Runners) clears its token and
   closes its socket; it is refused while a harness uses the runner. `hub.request` sends
   a `tool.discover` and waits for the `tool.discovered` with its `requestId` from that same runner
-  (not numbered, not acked; "runner offline" or "timed out" after 45 s otherwise).
+  (not numbered, not acked; "runner offline" or "timed out" after 45 s otherwise); `hub.call`
+  does the same with a `tool.call` (a poll's call of one action, protocol 9) and its
+  `tool.called` (the result's MCP content and `isError`, or why the runner refused), a reply of
+  the other kind resolving nothing; `runner.tool_call` spans and `dispand.runner.tool_calls`
+  and its duration count them by outcome (`ok`, `error`, `refused`, `failed`).
   `SessionStart` is a union on `harness` (`claude-code`, `codex`, whose permission modes are only
   `default` and `bypassPermissions`) and carries `skills` and `mcpServers` by reference; the engine
   sends none yet. The runner refuses a start with MCP servers, or for Codex, before making its
