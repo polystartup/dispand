@@ -56,6 +56,7 @@ import type { SecretBox } from "../secrets.ts";
 import { jobDef } from "./job-def.ts";
 import { nextActions, outputsFor, toolValues, valuesFor } from "./next-actions.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
+import { pollProblem } from "../tools/pollable.ts";
 import { give, next, take } from "./slots.ts";
 import { checkpointOf, newRoot, pause, pausedGauge, ROOT_STOPPED, rootGoing } from "./roots.ts";
 
@@ -1252,7 +1253,7 @@ export class Engine {
       const nodes = new Map(nodesOf(def).map((n) => [n.id, n]));
       let changed = false;
       const scheduledFor = run.trigger.type === "schedule" ? new Date(run.trigger.scheduledFor) : run.createdAt;
-      const outputs = run.trigger.type === "event" ? run.trigger.outputs : undefined;
+      const outputs = run.trigger.type === "event" || run.trigger.type === "poll" ? run.trigger.outputs : undefined;
       for (const action of nextActions(def, steps, { scheduledFor, ...(outputs ? { outputs } : {}) })) {
         const out: Out[] = [];
         if (action.type === "finish") {
@@ -1563,27 +1564,33 @@ export class Engine {
 
   /**
    * Rights shrink at once: a Job told of a row's change never gets it once its agent may no
-   * longer read that table, however long its start waited (a runner offline, a resume). Called
-   * right before each start of its session is sent; fails the step and says so when it must not go.
+   * longer read that table, nor a Job told of a poll's item once its agent lost the tool or the
+   * action stopped being pollable, however long its start waited (a runner offline, a resume).
+   * Called right before each start of its session is sent; fails the step and says so when it must not go.
    */
   private async refusedForScope(step: StepRow): Promise<boolean> {
-    if (!(await this.lostEventScope(step.runId))) return false;
+    const problem = await this.lostScope(step.runId);
+    if (!problem) return false;
     const out: Out[] = [];
-    await this.db.transaction((tx) => this.fail(tx, step, "The agent may no longer read the table that changed", out));
+    await this.db.transaction((tx) => this.fail(tx, step, problem, out));
     this.publish(step.runId, out);
     return true;
   }
 
-  /** Whether the run is a Job fired by a row's change whose agent no longer has `data` on that row's table. */
-  private async lostEventScope(runId: string): Promise<boolean> {
+  /** Why the run, a Job fired by a row's change or a poll's item, may no longer be told of it; null when it may. */
+  private async lostScope(runId: string): Promise<string | null> {
     const [row] = await this.db
-      .select({ trigger: runs.trigger, bundles: agents.bundles, dataTables: agents.dataTables })
+      .select({ ownerId: runs.ownerId, agentId: runs.agentId, trigger: runs.trigger, bundles: agents.bundles, dataTables: agents.dataTables })
       .from(runs)
       .leftJoin(agents, eq(agents.id, runs.agentId))
       .where(eq(runs.id, runId));
-    if (row?.trigger.type !== "event") return false;
+    if (row?.trigger.type === "poll") {
+      const { toolId, action } = row.trigger;
+      return row.agentId && !(await pollProblem(this.db, row.ownerId, row.agentId, toolId, action)) ? null : "The agent may no longer read the tool's action that found this item";
+    }
+    if (row?.trigger.type !== "event") return null;
     const tableId = row.trigger.outputs.table_id ?? "";
-    return !row.bundles?.includes("data") || (row.dataTables !== "all" && !row.dataTables?.includes(tableId));
+    return !row.bundles?.includes("data") || (row.dataTables !== "all" && !row.dataTables?.includes(tableId)) ? "The agent may no longer read the table that changed" : null;
   }
 
   /** An answer reaches the session as an answer, or, for a question its lost session asked, as a message. */
