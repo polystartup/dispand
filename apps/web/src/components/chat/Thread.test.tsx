@@ -28,7 +28,7 @@ const run = (messages: unknown[], questions: unknown[] = [], step = "running") =
 function mount(snapshot: RunSnapshot | null) {
   const view = (snap: RunSnapshot | null) => (
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <ChatThread run={snap} chatStepId="s_chat" working={false} canSend onSend={async () => {}} />
+      <ChatThread run={snap} chatStepId="s_chat" canSend onSend={async () => {}} />
     </QueryClientProvider>
   );
   const rendered = render(view(snapshot));
@@ -83,7 +83,7 @@ test("a question for a proposal is not answered in the chat: it sends the owner 
 
 
 test("copy actions copy the original message text, never a tool trace or question", async () => {
-  const { user } = mount(run([message("m1", "user", "Hello", 1), message("m2", "assistant", "A **formatted** reply", 2), message("m3", "tool", "Read", 3)], [question("q1", 4)]));
+  const { user, update } = mount(run([message("m1", "user", "Hello", 1), message("m2", "assistant", "A **formatted** reply", 2), message("m3", "tool", "Read", 3)], [question("q1", 4)]));
   const copy = vi.spyOn(navigator.clipboard, "writeText");
   const actions = screen.getAllByRole("button", { name: "Copy message" });
   expect(actions).toHaveLength(2);
@@ -92,4 +92,8 @@ test("copy actions copy the original message text, never a tool trace or questio
   expect(await screen.findByText("Copied")).toBeTruthy();
   await user.click(actions[0]!);
   expect(copy).toHaveBeenLastCalledWith("Hello");
+  // A running Job can be between turns; copy stays available, including after a text delta.
+  update(run([message("m1", "user", "Hello", 1), message("m2", "assistant", "A **formatted** reply, continued", 2)]));
+  await user.click(screen.getAllByRole("button", { name: "Copy message" })[1]!);
+  expect(copy).toHaveBeenLastCalledWith("A **formatted** reply, continued");
 });

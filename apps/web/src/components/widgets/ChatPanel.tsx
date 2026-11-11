@@ -83,7 +83,6 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
       <ChatThread
         run={run}
         chatStepId={chatStep?.id}
-        working={chatStep?.status === "running"}
         canSend={canSend}
         onSend={sendText}
         composer={

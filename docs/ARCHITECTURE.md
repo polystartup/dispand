@@ -323,7 +323,9 @@
   input but owns its controlled draft and send form: failed sends retain the draft, typing
   during delivery is kept, and messages can still be sent during a run. Messages use a wider
   reading layout and tool traces use compact cards. A working indicator is not shown because
-  the run view does not distinguish an idle chat from a turn in progress.
+  the run view does not distinguish an idle chat from a turn in progress. For the same reason,
+  the runtime renders text snapshots as available (including copying the latest text) instead
+  of marking the last message as streaming until the entire Job ends.
   Editing, regeneration, branching, uploads and cancellation are not exposed by this frontend
   integration: they need separate run semantics and API support. A Job's
   questions are listed in Notifications with its agent.

@@ -104,8 +104,6 @@ const AgentMessage = () => (
 type Props = {
   run: RunSnapshot | null;
   chatStepId: string | undefined;
-  /** The agent is at work. */
-  working: boolean;
   canSend: boolean;
   onSend: (text: string) => Promise<void>;
   /** What follows the messages inside the scrolling area: the failure, the steps after the chat. */
@@ -114,8 +112,8 @@ type Props = {
 };
 
 /** The conversation of a run's chat step, on assistant-ui's thread: the owner's and the agent's words, the tools it used, its questions. */
-export function ChatThread({ run, chatStepId, working, canSend, onSend, children, composer }: Props) {
-  const runtime = useRunThread({ run, chatStepId, working, canSend, onSend });
+export function ChatThread({ run, chatStepId, canSend, onSend, children, composer }: Props) {
+  const runtime = useRunThread({ run, chatStepId, canSend, onSend });
   // Nothing said yet, and nothing went wrong: the invitation to start.
   const empty = threadMessages(run, chatStepId).length === 0 && run?.steps.find((s) => s.id === chatStepId)?.status !== "failed";
   const questions = new Map((run?.questions ?? []).map((q) => [q.id, q]));

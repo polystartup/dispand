@@ -67,13 +67,13 @@ test("a chat widget on Home: inline question, confirmation, then the next step's
   await expect(chat).toBeVisible();
 
   // The composer grows for multiline drafts, then returns to one line.
-  const input = chat.getByLabel("Message");
+  const input = chat.getByRole("textbox", { name: "Message", exact: true });
   const initialHeight = (await input.boundingBox())!.height;
   await input.fill("One\nTwo\nThree");
   await expect.poll(async () => (await input.boundingBox())!.height).toBeGreaterThan(initialHeight);
 
   // The first message starts the run.
-  await chat.getByLabel("Message").fill("Hello");
+  await chat.getByRole("textbox", { name: "Message", exact: true }).fill("Hello");
   await chat.getByRole("button", { name: "Send" }).click();
   const { start } = await runner.waitFor("session.start", WAIT_MS);
   expect(start.interactive).toBe(true);
@@ -153,7 +153,7 @@ test("a chat widget on Home: inline question, confirmation, then the next step's
   runner.emit(next.sessionId, { type: "result", text: "A post about x." });
   await expect(chat.getByText("A post about x.")).toBeVisible();
   await expect(chat.getByText("All done")).toBeVisible();
-  await expect(chat.getByLabel("Message")).toBeDisabled();
+  await expect(chat.getByRole("textbox", { name: "Message", exact: true })).toBeDisabled();
 
   // The workflow changes afterwards: the run still shows its own version's names and its transcript.
   await rpc(page, "workflows/update", {
@@ -173,7 +173,7 @@ test("a chat widget on Home: inline question, confirmation, then the next step's
 
   await chat.getByRole("button", { name: "New conversation" }).click();
   await expect(chat.getByText("Hi! Let's find an idea.")).toHaveCount(0);
-  await expect(chat.getByLabel("Message")).toBeEnabled();
+  await expect(chat.getByRole("textbox", { name: "Message", exact: true })).toBeEnabled();
 
   // Phone width: the widget fills the column, nothing scrolls sideways.
   await page.setViewportSize({ width: 360, height: 740 });

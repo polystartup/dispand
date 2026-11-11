@@ -130,7 +130,7 @@ test("data steps: fields wired to the chat, rewired between agents, and a run wr
   await rpc(page, "widgets/create", { pageId: home.id, type: "workflow-form", workflowId: workflow.id });
   await page.goto("/");
   const chat = page.getByRole("region", { name: "Create a project" });
-  await chat.getByLabel("Message").fill("A new project");
+  await chat.getByRole("textbox", { name: "Message", exact: true }).fill("A new project");
   await chat.getByRole("button", { name: "Send" }).click();
   const { start } = await runner.waitFor("session.start", WAIT_MS);
   expect(start.expectedOutputs.map((o) => o.name)).toEqual(["name", "short_description", "mission_statement", "repository_url"]);
