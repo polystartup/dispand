@@ -786,8 +786,9 @@ export class Engine {
   private async hold(tx: Tx, stepId: string, action: PendingAction, out: Out[]) {
     const [step] = await tx.select().from(stepRuns).where(eq(stepRuns.id, stepId)).for("update");
     if (!step || !OPEN_STEP.includes(step.status)) return;
-    // A chat message arriving during a turn: the turn goes on with its slot, given back at its end (`turn-end`).
-    const turning = action.kind === "deliver" && step.working && step.status === "running" && !!step.startDeliveredAt;
+    // A chat message arriving during a turn: the turn goes on with its slot, given back at its end
+    // (`turn-end`). A slot just handed for what the step waited to do (`pending_action` set) is no turn.
+    const turning = action.kind === "deliver" && step.working && step.status === "running" && !!step.startDeliveredAt && !step.pendingAction;
     if (!turning) await this.release(tx, step, out);
     await tx
       .update(stepRuns)

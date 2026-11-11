@@ -348,3 +348,24 @@ test("a root approved just before the process stopped hands back what it held on
   for (const id of sessions) expect(restarted.starts.map((x) => x.start.sessionId)).toContain(id);
   expect(s.adapter.starts).toHaveLength(starts);
 });
+
+test("while paused, a slot handed to a queued answer goes back: nothing is sent, and other work isn't held up", async () => {
+  const s = await setup(3, 2);
+  await s.personWrites();
+  const made = await s.scheduler.tick();
+  const [a, b] = await Promise.all(made.map((runId) => s.sessionOf(runId)));
+  // B asks, and its answer queues behind A once the harness has one slot.
+  await s.emit(b!.sessionId!, { type: "question", questionId: "rq_b", payload: { kind: "confirm-outputs", values: {} } });
+  await s.context.db.update(harnesses).set({ maxWorking: 1 }).where(eq(harnesses.id, s.harness.id));
+  const [asked] = await s.context.db.select().from(questions).where(eq(questions.stepRunId, b!.id));
+  await s.engine.answer(asked!.id, { kind: "confirm-outputs", confirmed: true }, by(s));
+  expect(await s.sessionOf(b!.runId)).toMatchObject({ working: false, pendingAction: { kind: "deliver" } });
+  expect((await s.sessionOf(b!.runId)).queuedAt).not.toBeNull();
+  await pauseBy(s, a!.runId);
+  // A finishes: its slot is handed to B, whose root is paused: B gives it back at once.
+  await s.emit(a!.sessionId!, { type: "result", text: "Done." });
+  expect(await s.sessionOf(b!.runId)).toMatchObject({ working: false, queuedAt: null, pendingAction: { kind: "deliver" } });
+  expect(s.adapter.answers).toEqual([]);
+  await s.engine.answer((await s.pendingApproval())[0]!.id, approve, by(s));
+  await vi.waitFor(() => expect(s.adapter.answers.map(([session]) => session)).toEqual([b!.sessionId]));
+});

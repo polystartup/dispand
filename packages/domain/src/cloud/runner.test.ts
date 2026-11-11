@@ -264,17 +264,23 @@ test("on boot, a cloud turn of a root paused at a checkpoint isn't run again unt
   onTestFinished(() => engine2.stop());
   await engine2.recover();
   await new Promise((r) => setTimeout(r, 100));
-  // Nothing of it ran: no model call, and no question asked again.
+  // Nothing of it ran: no model call, and no question asked again. The call the restart cut is
+  // recorded as cut all the same, so it never runs again by itself.
   expect(after.inputs).toEqual([]);
+  const [session] = await engine2.db.select().from(cloudSessions);
+  expect(session!.inFlight).toBeNull();
+  expect(lastTool(session!.items)).toMatchObject({ callId: "c1", result: TEXTS.restarted, isError: true });
   expect(await engine2.db.select().from(questions)).toHaveLength(1);
   expect(await stepOf(engine2, runId, "n_note")).toMatchObject({ working: false, pendingAction: { kind: "resume" } });
   // The root went on (its answer committed) before the next start: that start hands it back, and
-  // the session asks again for the call it was making.
+  // the session goes on from the cut call, which it doesn't make again.
   await engine.db.update(roots).set({ state: "going" }).where(eq(roots.id, "root_1"));
   const engine3 = createEngine(context.db, context.hub, context.secrets, context.dataEvents, { client: after.client, tools: fakeTools().tools });
   onTestFinished(() => engine3.stop());
   await engine3.recover();
-  await vi.waitFor(async () => expect((await engine3.db.select().from(questions).where(eq(questions.status, "pending"))).length).toBe(1));
+  await until(engine3, runId, "succeeded");
+  expect(after.inputs).toHaveLength(1);
+  expect(lastTool(after.inputs[0]!.items)).toMatchObject({ callId: "c1", result: TEXTS.restarted, isError: true });
 });
 
 test("on boot, the last event is handed to the engine again", async () => {

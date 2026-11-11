@@ -241,13 +241,15 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       const paused = s.status === "running" && !(await going(runId));
       await this.locked(s.id, async () => {
         if (s.lastEvent) await this.deliver(s.id, s.lastEvent, s.seq);
-        if (s.status === "done" || paused) return;
-        live.push(s.id);
+        if (s.status === "done") return;
+        // A call cut by the restart is recorded as such either way: it never runs again by itself.
         if (s.inFlight) {
           const call = nextCall(s.items);
           const items: ChatItem[] = call?.id === s.inFlight.callId ? [...s.items, { role: "tool", callId: call.id, name: call.name, result: TEXTS.restarted, isError: true }] : s.items;
           await this.emit(s.id, { items, inFlight: null, approvedCall: null }, { type: "tool", name: await this.labelOf(s.id, s.inFlight.key), status: "done" });
         }
+        if (paused) return;
+        live.push(s.id);
       });
       if (s.status === "running" && !paused) this.kick(s.id);
     }
