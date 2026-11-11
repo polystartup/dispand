@@ -584,6 +584,9 @@ export const fields = pgTable(
     name: text("name").notNull(),
     type: text("type").$type<FieldType>().notNull(),
     choices: jsonb("choices").$type<Choice[]>().notNull().default([]),
+    // A reference field: the table whose rows it names. A table something points at can't be
+    // deleted (`tables.delete` refuses): no cascade.
+    referencesTableId: text("references_table_id").references((): AnyPgColumn => tables.id),
     /** 0 is the primary field. */
     position: integer("position").notNull(),
   },

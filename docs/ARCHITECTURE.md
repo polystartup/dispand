@@ -454,7 +454,12 @@
   fields per table; 100 choices per single select (labels 1-100, distinct ids and labels); text
   10 000 characters, long text 100 000, URL 2 000 (`http:`/`https:`). A table always keeps at
   least one field; the field at position 0 is its primary field; `tables.create` adds a
-  `Name` text field.
+  `Name` text field. A `reference` field names a table (`fields.references_table_id`, set when it
+  is created, never by a retype) and its cell holds the id of one of that table's rows.
+  `writeRow` checks the row exists in that table, the owner's, and holds it `FOR SHARE`;
+  deleting rows clears the references to them through `writeRow` in the same transaction
+  (`clearReferences`); a table another table's reference field names can't be deleted.
+  `rows.list` and `rows.get` give `references`, each named row's first field as text.
 - **Rows (Data):** every row write, from a procedure or a Data step, goes through
   `writeRow` (`packages/domain/src/data/rows.ts`): it takes the table's row `FOR SHARE`, so it
   waits for a schema change and is then checked against the new fields (`cellSchema`), and it
