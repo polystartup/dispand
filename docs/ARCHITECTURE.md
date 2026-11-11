@@ -222,7 +222,9 @@
   messages and questions into thread messages, a tool's trace and a question as tool-call
   parts; `useRunThread` feeds `useExternalStoreRuntime`), and `components/chat/Thread.tsx`
   renders it over the library's unstyled primitives, a question through `QuestionForm` and
-  `questions.answer`. Nothing else imports the library. The panel keeps its own composer. A Job's
+  `questions.answer`. The agent's text goes through `components/chat/AgentText.tsx` (the library's markdown
+  primitive with a `urlTransform`, `img` and `a` overrides and `skipHtml`). Nothing else
+  imports the library. The panel keeps its own composer. A Job's
   questions are listed in Notifications with its agent.
 - **Platform tools:** a Job's session gets some of Dispand's own procedures as tools.
   `platform/tools.ts` is the registry: each tool names its procedure (`rows.create` is the tool

@@ -7,6 +7,7 @@ import { orpc } from "../../lib/api.ts";
 import { QUESTION_TOOL, threadMessages, TRACE_TOOL, useRunThread } from "../../lib/assistant-runtime.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import { QuestionForm } from "../questions/QuestionForm.tsx";
+import { AgentText } from "./AgentText.tsx";
 
 type Question = RunSnapshot["questions"][number];
 
@@ -18,12 +19,6 @@ const bubble = "max-w-[85%] whitespace-pre-wrap break-words rounded-[18px] px-3.
 const OwnerText: TextMessagePartComponent = ({ text }) => (
   <div className="flex justify-end">
     <p className={`${bubble} rounded-br-md bg-accent text-accent-fg`}>{text}</p>
-  </div>
-);
-
-const AgentText: TextMessagePartComponent = ({ text }) => (
-  <div className="flex justify-start">
-    <p className={`${bubble} rounded-bl-md bg-hover text-fg`}>{text}</p>
   </div>
 );
 
