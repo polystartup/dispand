@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
-import { callTool, codexMcpServers, discoverTool, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
+import { callTool, codexMcpServers, credentialValues, discoverTool, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
+import { codexDenied } from "./boundary.ts";
 
 const echo = { command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")] };
 
@@ -155,4 +156,40 @@ test("the runner's own token is redacted, and an env value that is an envelope f
   const result = await callTool("echo", { ...echo, env: { ECHO_READ_ONLY: "1", FORMAT: "text" } }, "echo", { text: "dr_token1234 hi" }, { forbidden: [], secrets: ["dr_token1234"] });
   expect(result.content).toEqual([{ type: "text", text: "•••• hi" }]);
   expect(JSON.stringify(result)).not.toContain("dr_token1234");
+});
+
+test("a file URL with a host, and a credentials file linked from outside, are refused like the paths they name", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "poll-guard-")));
+  try {
+    const codex = join(base, ".codex");
+    const outside = join(base, "elsewhere");
+    await mkdir(codex);
+    await mkdir(outside);
+    await writeFile(join(outside, "auth.json"), "{}");
+    await symlink(join(outside, "auth.json"), join(codex, "auth.json"));
+    const guard = { forbidden: codexDenied([codex]), secrets: [] };
+    for (const path of [`file://localhost${join(codex, "auth.json")}`, join(codex, "auth.json"), join(outside, "auth.json")]) {
+      await expect(callTool("echo", readOnly, "echo", { text: "hi", path }, guard)).rejects.toThrow("the call names a path this runner keeps out of reach");
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("a credential's value is redacted from a result however the server reached it, and so is a secret in a nested key", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "poll-creds-")));
+  try {
+    await writeFile(join(base, "auth.json"), JSON.stringify({ tokens: { access_token: "codex-access-token-0123456789" } }));
+    const secrets = credentialValues([join(base, "auth.json"), join(base, "missing.json")]);
+    expect(secrets).toEqual(["codex-access-token-0123456789"]);
+    // No env value of the server holds it: only the credentials' values catch it.
+    const read = await callTool("echo", readOnly, "echo", { text: "codex-access-token-0123456789" }, { forbidden: [], secrets });
+    expect(read.content).toEqual([{ type: "text", text: "••••" }]);
+    // A secret as a key inside an item is redacted too; the item's own keys stay.
+    const keyed = await callTool("echo", { ...echo, env: { ECHO_READ_ONLY: "1", ECHO_META: "sk-env-secret-key" } }, "echo", { text: "hi" });
+    expect(JSON.stringify(keyed)).not.toContain("sk-env-secret-key");
+    expect(keyed.content[0]).toEqual({ type: "text", text: "hi", _meta: { "••••": "x" } });
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
 });

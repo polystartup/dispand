@@ -275,10 +275,14 @@ changes it updates this file.
   the same way; the runner calls the action only if that server marks it read-only
   (`readOnlyHint`) or the server's `pollable` in the runner's config names it (an empty list
   forbids polls), whatever the server asks, so a poll is never a way to make the machine act;
-  no approval stands between a poll and its call, so a call whose arguments name a path sessions
-  are kept from (the runner's config, the CLIs' credentials, read from the home folder, `~` and
-  `file://` included) is refused before the server starts, and the runner's own token is
-  redacted from every result with the server's `env` values, each item's envelope kept. HTTP MCP servers come from the server with their headers, and are never
+  no approval stands between a poll and its call, so two guards stand instead. A call whose
+  arguments name a path sessions are kept from (the runner's config, the CLIs' homes and every
+  link out of them, `codexDenied`; read from the home folder, `~` and file URLs parsed as a file
+  reader would) is refused before the server starts. And, since a path check can miss a
+  spelling, every string value of the runner's and the CLIs' credential files (16 characters or
+  more, read at each call) is redacted from every result by value, with the runner's token and
+  the server's `env` values, keys inside items included; only each item's own keys and `type`
+  are kept. HTTP MCP servers come from the server with their headers, and are never
   written to the runner's state: Claude Code gets them through the SDK's control channel
   (`setMcpServers`), never on the CLI's command line, which other local users can read; Codex
   gets each header as a variable name (`env_http_headers`), the value only in the app-server's

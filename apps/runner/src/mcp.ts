@@ -1,5 +1,7 @@
 // The MCP servers a session gets: by URL from Dispand, or the runner's own (runner tools).
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { isAbsolute, resolve } from "node:path";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { Client, type Tool } from "@modelcontextprotocol/client";
@@ -227,9 +229,10 @@ export async function callTool(
       deadline,
     ]);
     const secrets = [...new Set([...Object.values(server.env ?? {}), ...guard.secrets].filter((v) => v.length >= 4))].sort((a, b) => b.length - a.length);
-    // Each item's keys and `type` stay as they are: only its values are redacted.
+    // Each item's own keys and its `type` are MCP's envelope and stay; everything inside its
+    // values, keys included, is redacted.
     const content = ((result.content ?? []) as Record<string, unknown>[]).map(
-      (item) => cleanJson(Object.fromEntries(Object.entries(item).map(([k, v]) => [k, k === "type" ? v : redactValues(v, secrets)])), Infinity) as Record<string, unknown>,
+      (item) => cleanJson(Object.fromEntries(Object.entries(item).map(([k, v]) => [k, k === "type" ? v : redact(v, secrets)])), Infinity) as Record<string, unknown>,
     );
     if (content.length > 100 || Buffer.byteLength(JSON.stringify(content)) > MAX_REPLY_BYTES) throw new CallFailed(`the result of ${actionName.slice(0, 100)} is too large to send`);
     return { content, isError: result.isError === true };
@@ -243,24 +246,51 @@ export async function callTool(
   }
 }
 
-/** `value` with each of `secrets` replaced by "••••" in its strings, its object keys kept. */
-function redactValues(value: unknown, secrets: string[]): unknown {
-  if (typeof value === "string") return redact(value, secrets);
-  if (Array.isArray(value)) return value.map((v) => redactValues(v, secrets));
-  if (typeof value === "object" && value !== null) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, redactValues(v, secrets)]));
-  return value;
-}
-
 /** Every string in `args` read as a path from the home folder, where the server starts (`~` expanded). */
 function pathsIn(args: unknown): string[] {
   const out: string[] = [];
   const walk = (v: unknown) => {
     if (typeof v === "string" && v.length > 0 && v.length <= 4096) {
-      const expanded = v === "~" || v.startsWith("~/") ? homedir() + v.slice(1) : v.startsWith("file://") ? decodeURIComponent(v.slice(7)) : v;
+      let expanded = v === "~" || v.startsWith("~/") ? homedir() + v.slice(1) : v;
+      if (/^file:/i.test(v)) {
+        try {
+          expanded = fileURLToPath(v);
+        } catch {
+          // Not a file URL a file reader would open: kept as text.
+        }
+      }
       out.push(isAbsolute(expanded) ? expanded : resolve(homedir(), expanded));
     } else if (Array.isArray(v)) v.forEach(walk);
     else if (typeof v === "object" && v !== null) Object.values(v).forEach(walk);
   };
   walk(args);
+  return out;
+}
+
+/**
+ * Every string of 16 characters or more in `files` (JSON read whole, other text as one value):
+ * the CLIs' and the runner's credentials, redacted from a poll's result by value, however the
+ * server reached the file (another path, a link, a copy). A file that can't be read gives none.
+ */
+export function credentialValues(files: string[]): string[] {
+  const out: string[] = [];
+  const walk = (v: unknown) => {
+    if (typeof v === "string" && v.length >= 16) out.push(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (typeof v === "object" && v !== null) Object.values(v).forEach(walk);
+  };
+  for (const file of files) {
+    let raw: string;
+    try {
+      raw = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    try {
+      walk(JSON.parse(raw));
+    } catch {
+      walk(raw.trim());
+    }
+  }
   return out;
 }
