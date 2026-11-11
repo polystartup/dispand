@@ -291,7 +291,8 @@
   unasked ones. Workflow runs' CLI sessions have no Job token, so
   no such tools; cloud sessions don't get skills yet.
 - **Proposals** (`platform/proposals.ts`, table `proposals`, migration 0034). A tool of the
-  registry marked `grant` (`agents.create`, `agents.update`) is refused by `callPlatformTool`
+  registry marked `grant` (`agents.create`, `agents.update`, `agents.setToolAsk`,
+  `tables.delete`, `fields.delete`; a tool's name is its path in lower case with `_`) is refused by `callPlatformTool`
   unless `takeItem` uses up a matching item of an approved proposal of the Job: one
   transaction that locks the Job's approved proposals and marks the first unused item with
   that tool and canonically equal input (`canonical`, `platform/approvals.ts`). `propose`, a
@@ -303,7 +304,8 @@
   to `asked`, with the question's id; `questions.proposal_id`, migration 0035), and
   `Engine.answer` calls `settleProposal` in the answer's transaction (`approved` on a
   person's yes, `declined` on a no). `questions.list` adds `proposal` (`proposalView`: the
-  items and the names of the ids they point at); the web shows it with `ProposalItems`.
+  items, each with `refs`, the keys of its input that hold ids according to `REFS`, and the
+  names of those ids); the web shows it with `ProposalItems`.
 - **Inbox:** every question a session asks is a row of `questions` with a `kind`: a permission
   is an `approval`, a choice or a confirmation a `question` (set when it is asked; migration
   `0030` moved the existing ones). An answer records who gave it (`answered_by`, a user for

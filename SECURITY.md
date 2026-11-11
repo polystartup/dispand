@@ -61,14 +61,20 @@ changes it updates this file.
   since, and the procedure's own checks still apply (what isn't the owner's stays refused). A
   person may approve more than the proposing agent holds: that is what a grant is, and why
   the owner is shown every item whole.
+- **What can't be undone, and what removes a question, are grants too.** Deleting a table or
+  a field and changing an action's asking flag are in the registry with the same mark as
+  creating or changing an agent, so the same gate refuses them without an approved item. An
+  item is also checked against the Job's tables when it is proposed, like any call: a Job
+  limited to some tables can't put another table's deletion in front of the owner.
 - **A proposal is approved by a person, on what the server shows, never on the agent's words.**
   The agent asks with `request_approval`, naming the proposal's id. The server attaches a
   draft of that same run to the question with one conditional update (so a proposal has one
   question and one answer), and the owner's answer to that question, given through
   `questions.answer` as a signed-in person, approves it; a denial declines it for good. The
   Inbox reads the items from the server's row and shows each whole, with a name for every id
-  an item points at (the agent changed, the harness, tools, skills, tables) as resolved for
-  that owner; an id that names nothing of theirs is flagged. A question for a proposal is not
+  an item points at (the agent, the harness, tools, skills, tables, a field with its table)
+  as resolved for that owner; an id that names nothing of theirs is flagged. Which values of
+  an input are ids is the server's own table per tool: any other value is shown as data. A question for a proposal is not
   answerable where its items aren't shown (the chat sends the owner to the Inbox). A request
   naming a proposal that isn't attached (another run's, one already asked, none) is words only,
   and says so. A `proposal` argument that isn't an id is refused as a bad call by the runner
@@ -83,9 +89,10 @@ changes it updates this file.
   gains nothing, an action that appears later asks, and a tool that only comes with a skill
   asks for everything. A tool pointed at another address or transport asks for everything
   again on every agent: the list named the old server's actions. Only tools reached by URL
-  have this list; a runner's own tools ask as its CLI does. The list changes in two ways, both a person's: the procedure for it,
-  which is not one of a Job's tools, and the answer "always allow" to an approval of that
-  action, in a cloud session or a Job's CLI session. For a CLI session the server resolves
+  have this list; a runner's own tools ask as its CLI does. The list changes in three ways, each a person's: the owner on the
+  agent's page; an item of a proposal the owner approved (the write is a grant: an agent
+  can list it, never make it on its own); and the answer "always allow" to an approval of
+  that action, in a cloud session or a Job's CLI session. For a CLI session the server resolves
   the name the question was asked under (which stands for one tool and action for good) on
   the run's own agent; a name that stands for nothing the agent chose grants nothing, and the
   runner is then told "allow", once. On "always", the runner only stops asking about that

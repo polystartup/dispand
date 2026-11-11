@@ -27,7 +27,7 @@ test("a procedure nobody declared fails the walk", () => {
 test("tool names are unique, at most 64 characters, and their input is the procedure's own schema", () => {
   expect(new Set(PLATFORM_TOOLS.map((t) => t.name)).size).toBe(PLATFORM_TOOLS.length);
   for (const tool of PLATFORM_TOOLS) {
-    expect(tool.name).toBe(tool.path.replace(".", "_"));
+    expect(tool.name).toBe(tool.path.replace(".", "_").replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`));
     expect(tool.name).toMatch(/^[a-z_]{1,64}$/);
     expect(tool.description.length).toBeGreaterThan(10);
     const own = (procedureOf(router, tool.path) as unknown as { "~orpc": { inputSchema?: unknown } })["~orpc"].inputSchema;
@@ -40,13 +40,27 @@ test("tool names are unique, at most 64 characters, and their input is the proce
 test("the tools are exactly the data and configure ones, on tables, fields, rows and agents only", () => {
   const of = (bundle: string) => PLATFORM_TOOLS.filter((t) => t.bundle === bundle).map((t) => t.name).sort();
   expect(of("data")).toEqual(["rows_create", "rows_delete", "rows_get", "rows_list", "rows_update", "tables_get", "tables_list"]);
-  expect(of("configure")).toEqual(["agents_create", "agents_get", "agents_list", "agents_update", "fields_create", "fields_reorder", "fields_update", "tables_create", "tables_rename"]);
-  expect(PLATFORM_TOOLS).toHaveLength(16);
+  expect(of("configure")).toEqual([
+    "agents_create",
+    "agents_get",
+    "agents_list",
+    "agents_set_tool_ask",
+    "agents_tool_ask",
+    "agents_update",
+    "fields_create",
+    "fields_delete",
+    "fields_reorder",
+    "fields_update",
+    "tables_create",
+    "tables_delete",
+    "tables_rename",
+  ]);
+  expect(PLATFORM_TOOLS).toHaveLength(20);
   expect(PLATFORM_TOOLS.every((t) => ["tables", "fields", "rows", "agents"].includes(t.path.split(".")[0]!))).toBe(true);
   // What changes what agents may do is marked: it runs only on a proposal a person approved.
-  expect(PLATFORM_TOOLS.filter((t) => t.grant).map((t) => t.name)).toEqual(["agents_create", "agents_update"]);
+  expect(PLATFORM_TOOLS.filter((t) => t.grant).map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "tables_delete"]);
   // What needs a person, and what agents never touch, are named as not tools.
-  for (const path of ["tables.delete", "fields.delete", "fields.retype", "auth.setup", "runners.create", "tools.create", "agents.delete", "agents.setToolAsk", "files.upload"]) {
+  for (const path of ["fields.retype", "auth.setup", "runners.create", "tools.create", "agents.delete", "triggers.create", "questions.answer", "files.upload"]) {
     expect(NOT_TOOLS).toContain(path);
   }
 });

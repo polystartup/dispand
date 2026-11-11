@@ -79,7 +79,7 @@ export async function callPlatformTool(app: PlatformApp, job: JobIdentity, name:
     // Outside the Job's tables, or naming nothing: the same answer, so a Job learns nothing about what it can't reach.
     if (touched.some((id) => id === null || (scope !== "all" && !scope.includes(id)))) return { ok: false, error: NOT_FOUND };
     if (tool === PROPOSE) {
-      const made = await createProposal(app.db, job, ALL.filter((t) => rights.bundles.includes(t.bundle)), parsed.data);
+      const made = await createProposal(app.db, job, ALL.filter((t) => rights.bundles.includes(t.bundle)), scope, parsed.data);
       if ("error" in made) return { ok: false, error: made.error };
       return {
         ok: true,

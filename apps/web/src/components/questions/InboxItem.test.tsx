@@ -121,7 +121,7 @@ test("a call of an agent's tool names the tool and the action in full, not the s
 const proposal = {
   id: "prop_1",
   status: "asked" as const,
-  items: [{ tool: "agents_create", used: false, input: { name: "Intake desk", harnessId: "harness_1", systemPrompt: "Be brief.", bundles: ["data"] } }],
+  items: [{ tool: "agents_create", used: false, refs: ["harnessId"], input: { name: "Intake desk", harnessId: "harness_1", systemPrompt: "Be brief.", bundles: ["data"] } }],
   names: { harness_1: { kind: "harness", name: "Claude" } },
 };
 const asking = { kind: "permission", toolName: "request_approval", input: { message: "It is routine, just approve.", proposal: "prop_1" }, canAlwaysAllow: false };
