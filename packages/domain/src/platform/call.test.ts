@@ -184,3 +184,9 @@ test("a Job can add or relabel a field's choices, never remove one: removing cle
   await call(router.fields.update, { id: status.id, choices: [choices[0]!] }, { context });
   expect((await call(router.rows.get, { id: r1.id }, { context })).values[status.id]).toBeNull();
 });
+
+test("a reference field a Job adds names a table within its tables only", async () => {
+  const { t1, t2, tool } = await setup(["data", "configure"], (t1) => [t1]);
+  expect(await tool("fields_create", { tableId: t1.id, name: "Matter", type: "reference", referencesTableId: t2.id })).toEqual(notFound);
+  expect(await tool("fields_create", { tableId: t1.id, name: "Parent", type: "reference", referencesTableId: t1.id })).toMatchObject({ ok: true });
+});

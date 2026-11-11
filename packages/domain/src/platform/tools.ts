@@ -107,7 +107,10 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   }),
   tool("tables.create", "configure", "Creates a table. Add its fields next with fields_create.", { tables: none }),
   tool("tables.rename", "configure", "Renames a table.", { tables: named("id") }),
-  tool("fields.create", "configure", "Adds a field to a table: a name, a type and, for a choice field, its choices.", { tables: named("tableId") }),
+  tool("fields.create", "configure", "Adds a field to a table: a name, a type and, for a choice field, its choices; for a reference, the table whose rows it names.", {
+    // A reference names a second table: it too must be within the Job's tables.
+    tables: async (_db, _ownerId, input) => [str(input, "tableId"), ...(str(input, "referencesTableId") === null ? [] : [str(input, "referencesTableId")])],
+  }),
   tool("fields.update", "configure", "Renames a field or changes its choices.", { tables: tableOfField }),
   tool("fields.reorder", "configure", "Sets the order of a table's fields: give every field id, in the new order.", { tables: named("tableId") }),
   tool("agents.list", "configure", "Lists the agents, with their ids, harness, instructions and what their Jobs may do.", { tables: none }),

@@ -2,7 +2,7 @@ import type { Cell, FieldSchema } from "@dispand/domain/data/fields";
 import { Check } from "lucide-react";
 
 /** A cell as the grid shows it, read-only. */
-export function CellView({ field, value }: { field: FieldSchema; value: Cell }) {
+export function CellView({ field, value, references = {} }: { field: FieldSchema; value: Cell; references?: Record<string, string> }) {
   if (value === null || value === "" || (Array.isArray(value) && value.length === 0)) return null;
   switch (field.type) {
     case "checkbox":
@@ -22,6 +22,11 @@ export function CellView({ field, value }: { field: FieldSchema; value: Cell }) 
     case "attachment": {
       const n = Array.isArray(value) ? value.length : 0;
       return <span className="text-muted">{n === 1 ? "1 file" : `${n} files`}</span>;
+    }
+    case "reference": {
+      // The row's first field; its id when that isn't known (a row deleted meanwhile).
+      const label = references[String(value)];
+      return <span className="rounded-md bg-hover px-1.5 py-0.5 text-[13px]">{label || String(value)}</span>;
     }
     case "long-text":
       return <span>{String(value).split("\n")[0]}</span>;

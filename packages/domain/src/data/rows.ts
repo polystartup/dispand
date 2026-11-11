@@ -5,7 +5,7 @@ import type { Db, Tx } from "../db/client.ts";
 import { fields as fieldsTable, rows as rowsTable, tables as tablesTable } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
-import { type Cell, CELL_LIMITS, cellSchema, type FieldSchema } from "./fields.ts";
+import { type Cell, CELL_LIMITS, cellSchema, cellText, type FieldSchema } from "./fields.ts";
 import { attachmentsById, lockAttachments } from "./files.ts";
 import { type Filter, filterValue, queryProblem, RowQuery, type Sort } from "./query.ts";
 import { MAX_FIELDS } from "./tables.ts";
@@ -25,7 +25,7 @@ function rowView(r: typeof rowsTable.$inferSelect): RowView {
   return { id, tableId, values, createdAt, updatedAt };
 }
 
-const schemaOf = (f: typeof fieldsTable.$inferSelect): FieldSchema => ({ id: f.id, name: f.name, type: f.type, choices: f.choices });
+const schemaOf = (f: typeof fieldsTable.$inferSelect): FieldSchema => ({ id: f.id, name: f.name, type: f.type, choices: f.choices, referencesTableId: f.referencesTableId });
 
 const cell = (id: string) => sql`${rowsTable.values} -> ${id}::text`;
 const cellAsText = (id: string) => sql`${rowsTable.values} ->> ${id}::text`;
@@ -54,8 +54,8 @@ export function whereOf(fields: FieldSchema[], filters: Filter[]): SQL {
       return ops[filter.op as keyof typeof ops];
     }
     const v = String(value);
-    if (field.type === "date" || field.type === "single-select") {
-      // Dates are ISO text, so they compare as text; a single select compares choice ids.
+    if (field.type === "date" || field.type === "single-select" || field.type === "reference") {
+      // Dates are ISO text, so they compare as text; a single select compares choice ids, a reference row ids.
       const t = cellAsText(id);
       const ops = { is: sql`${t} = ${v}`, "is-not": sql`${t} is distinct from ${v}`, before: sql`${t} < ${v}`, after: sql`${t} > ${v}` };
       return ops[filter.op as keyof typeof ops];
@@ -121,6 +121,17 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
   for (const [id, ids] of files) {
     if ((ids as string[]).some((a) => !known.has(a))) return { problem: `“${fields.get(id)!.name}”: no such file` };
   }
+  // References: each names a row of its field's table, the owner's.
+  for (const [id, value] of Object.entries(input.values)) {
+    const field = fields.get(id)!;
+    if (field.type !== "reference" || typeof value !== "string") continue;
+    const [target] = await tx
+      .select({ id: rowsTable.id })
+      .from(rowsTable)
+      .where(and(eq(rowsTable.id, value), eq(rowsTable.tableId, field.referencesTableId ?? ""), eq(rowsTable.ownerId, input.ownerId)))
+      .for("share");
+    if (!target) return { problem: `“${field.name}”: no such row` };
+  }
   const values = JSON.stringify(input.values);
   if (!input.rowId) {
     const [row] = await tx.insert(rowsTable).values({ id: newId("row"), ownerId: input.ownerId, tableId: table.id, values: input.values }).returning();
@@ -164,6 +175,24 @@ function attachmentsOf(db: Db, ownerId: string, fields: FieldSchema[], page: { v
   return attachmentsById(db, ownerId, ids.filter((id): id is string => typeof id === "string"));
 }
 
+/** A label for each row the reference cells of these rows name: its first field, as text. */
+export async function referencesOf(db: Db | Tx, ownerId: string, fields: FieldSchema[], page: { values: Record<string, Cell> }[]): Promise<Record<string, string>> {
+  const ids = [...new Set(fields.filter((f) => f.type === "reference").flatMap((f) => page.map((r) => r.values[f.id])).filter((v): v is string => typeof v === "string"))];
+  if (ids.length === 0) return {};
+  const named = await db.select({ id: rowsTable.id, tableId: rowsTable.tableId, values: rowsTable.values }).from(rowsTable).where(and(inArray(rowsTable.id, ids), eq(rowsTable.ownerId, ownerId)));
+  const tableIds = [...new Set(named.map((r) => r.tableId))];
+  const firsts = tableIds.length
+    ? await db.select().from(fieldsTable).where(and(inArray(fieldsTable.tableId, tableIds), eq(fieldsTable.position, 0)))
+    : [];
+  const labels: Record<string, string> = {};
+  for (const r of named) {
+    const first = firsts.find((f) => f.tableId === r.tableId);
+    const value = first ? r.values[first.id] : null;
+    labels[r.id] = first && value !== null && value !== undefined ? cellText(schemaOf(first), value) : "";
+  }
+  return labels;
+}
+
 const AnyCell = z.union([
   z.string().max(CELL_LIMITS["long-text"]),
   z.number(),
@@ -201,13 +230,18 @@ const list = owner
         .offset(input.offset),
       context.db.select({ n: count() }).from(rowsTable).where(where),
     ]);
-    return { rows: page.map(rowView), total: total!.n, attachments: await attachmentsOf(context.db, context.ownerId, fields, page) };
+    return {
+      rows: page.map(rowView),
+      total: total!.n,
+      attachments: await attachmentsOf(context.db, context.ownerId, fields, page),
+      references: await referencesOf(context.db, context.ownerId, fields, page),
+    };
   });
 
 const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const row = await requireRow(context.db, context.ownerId, input.id);
   const fields = (await context.db.select().from(fieldsTable).where(eq(fieldsTable.tableId, row.tableId))).map(schemaOf);
-  return { ...rowView(row), attachments: await attachmentsOf(context.db, context.ownerId, fields, [row]) };
+  return { ...rowView(row), attachments: await attachmentsOf(context.db, context.ownerId, fields, [row]), references: await referencesOf(context.db, context.ownerId, fields, [row]) };
 });
 
 const create = owner.input(z.object({ tableId: z.string(), values: Values.optional() })).handler(async ({ input, context }) => {
@@ -266,6 +300,28 @@ const editFiles = owner
     return row;
   });
 
+/**
+ * Empties the reference cells that name rows of `tableId` just deleted, through `writeRow` (so
+ * they are writes like any other). Returns the rows changed, by table.
+ */
+export async function clearReferences(tx: Tx, ownerId: string, tableId: string, deletedIds: string[]): Promise<Map<string, string[]>> {
+  const changed = new Map<string, string[]>();
+  if (deletedIds.length === 0) return changed;
+  const referring = await tx.select().from(fieldsTable).where(and(eq(fieldsTable.referencesTableId, tableId), eq(fieldsTable.ownerId, ownerId)));
+  for (const field of referring) {
+    const hits = await tx
+      .select({ id: rowsTable.id })
+      .from(rowsTable)
+      .where(and(eq(rowsTable.tableId, field.tableId), inArray(cellAsText(field.id), deletedIds)));
+    for (const hit of hits) {
+      const result = await writeRow(tx, { ownerId, tableId: field.tableId, rowId: hit.id, values: { [field.id]: null } });
+      if ("problem" in result) throw new ORPCError("CONFLICT", { message: result.problem });
+      changed.set(field.tableId, [...(changed.get(field.tableId) ?? []), hit.id]);
+    }
+  }
+  return changed;
+}
+
 /** Deletes rows of one of the owner's tables: an id of another owner or table deletes nothing. */
 const remove = owner.input(z.object({ ids: z.array(z.string()).min(1).max(MAX_PAGE) })).handler(async ({ input, context }) => {
   const ids = [...new Set(input.ids)];
@@ -275,11 +331,15 @@ const remove = owner.input(z.object({ ids: z.array(z.string()).min(1).max(MAX_PA
     .where(and(inArray(rowsTable.id, ids), eq(rowsTable.ownerId, context.ownerId)));
   const tableId = found[0]?.tableId;
   if (found.length !== ids.length || found.some((r) => r.tableId !== tableId)) throw new ORPCError("NOT_FOUND");
-  const deleted = await context.db
-    .delete(rowsTable)
-    .where(and(inArray(rowsTable.id, ids), eq(rowsTable.tableId, tableId!)))
-    .returning({ id: rowsTable.id });
+  const { deleted, cleared } = await context.db.transaction(async (tx) => {
+    const deleted = await tx
+      .delete(rowsTable)
+      .where(and(inArray(rowsTable.id, ids), eq(rowsTable.tableId, tableId!)))
+      .returning({ id: rowsTable.id });
+    return { deleted, cleared: await clearReferences(tx, context.ownerId, tableId!, deleted.map((r) => r.id)) };
+  });
   if (deleted.length > 0) context.dataEvents.publish({ type: "rows", tableId: tableId!, rowIds: deleted.map((r) => r.id) });
+  for (const [otherTable, rowIds] of cleared) context.dataEvents.publish({ type: "rows", tableId: otherTable, rowIds });
 });
 
 /** Every change of these tables (the owner's), as it is published. */

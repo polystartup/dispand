@@ -56,7 +56,7 @@ export function RetypeDialog({ field, open, onOpenChange, onDone }: { field: Fie
           New type
           <select value={type} onChange={(e) => choose(e.target.value as FieldType | "")} className={selectClass}>
             <option value="">Choose a type</option>
-            {FIELD_TYPES.filter((t) => t !== field.type || t === "single-select").map((t) => (
+            {FIELD_TYPES.filter((t) => (t !== field.type || t === "single-select") && t !== "reference").map((t) => (
               <option key={t} value={t}>
                 {FIELD_TYPE_UI[t].label}
               </option>
