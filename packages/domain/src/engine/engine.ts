@@ -215,6 +215,15 @@ export function resumePrompt(
   };
 }
 
+/**
+ * Whether the step's session may get answers and chat messages now: it holds a slot (or has no
+ * harness to charge). Every path that sends them to a session it may not have reached goes
+ * through here; what may not go stays undelivered, sent when the step is handed a slot (`handOver`).
+ */
+function holdsSlot(step: Pick<StepRow, "working" | "harnessId">): boolean {
+  return step.working || !step.harnessId;
+}
+
 /** What keeps `def` from running: its own issues, its data steps' against the owner's tables and its Tool steps' against the owner's tools. */
 export async function runIssues(db: Db | Tx, ownerId: string, def: WorkflowDef): Promise<WorkflowIssue[]> {
   return [
@@ -719,10 +728,8 @@ export class Engine {
           await this.unconfirm(this.db, step);
           await this.resume(step);
         }
-        else {
-          for (const q of await this.undeliveredAnswers(sessionId)) this.deliverAnswer(q);
-          for (const m of await this.undeliveredMessages(step.id)) this.deliverMessage(sessionId, m);
-        }
+        // Live: what it missed goes now, if it holds a slot; otherwise once it is handed one.
+        else if (holdsSlot(step)) await this.flush(step.id, sessionId);
       }
       // Sessions it still runs that no step still going is waiting on are ended: a stop that
       // never reached it, or a run deleted since (with its workflow or its agent). Decided from
@@ -1309,7 +1316,6 @@ export class Engine {
     }
     const losses = this.losses.get(q.sessionId) ?? 0;
     const sent = this.track(`q:${q.id}`, async () => {
-      if (!(await this.holdsSlot(q.stepRunId))) return;
       const ok = q.orphaned
         ? await this.adapter.send(q.sessionId, answerText(q))
         : await this.adapter.answer(q.sessionId, q.runnerQuestionId, q.answer!);
@@ -1325,7 +1331,6 @@ export class Engine {
     }
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`m:${m.id}`, async () => {
-      if (!(await this.holdsSlot(m.stepRunId))) return;
       if ((await this.adapter.send(sessionId, m.text)) && (this.losses.get(sessionId) ?? 0) === losses) {
         await this.db.update(messages).set({ deliveredAt: new Date() }).where(eq(messages.id, m.id));
       }
@@ -1333,28 +1338,22 @@ export class Engine {
     this.keep(sent);
   }
 
-  /**
-   * Whether the step's session may get answers and messages now: it holds a slot (or has no
-   * harness to charge). What it may not stays undelivered, sent when it is handed one (`handOver`).
-   */
-  private async holdsSlot(stepId: string | null): Promise<boolean> {
-    if (!stepId) return true;
-    const [row] = await this.db.select({ working: stepRuns.working, harnessId: stepRuns.harnessId }).from(stepRuns).where(eq(stepRuns.id, stepId));
-    return !row || row.working || !row.harnessId;
-  }
-
   private async redeliverAnswer(id: string) {
-    const [q] = await this.db.select().from(questions).where(eq(questions.id, id));
-    if (q?.status === "answered" && !q.deliveredAt) this.deliverAnswer(q);
+    const [row] = await this.db
+      .select({ q: questions, step: stepRuns })
+      .from(questions)
+      .innerJoin(stepRuns, eq(stepRuns.id, questions.stepRunId))
+      .where(eq(questions.id, id));
+    if (row?.q.status === "answered" && !row.q.deliveredAt && holdsSlot(row.step)) this.deliverAnswer(row.q);
   }
 
   private async redeliverMessage(id: string) {
     const [row] = await this.db
-      .select({ m: messages, sessionId: stepRuns.sessionId })
+      .select({ m: messages, step: stepRuns })
       .from(messages)
       .innerJoin(stepRuns, eq(stepRuns.id, messages.stepRunId))
       .where(eq(messages.id, id));
-    if (row && !row.m.deliveredAt && row.sessionId) this.deliverMessage(row.sessionId, row.m);
+    if (row && !row.m.deliveredAt && row.step.sessionId && holdsSlot(row.step)) this.deliverMessage(row.step.sessionId, row.m);
   }
 
   /** Keeps `work` in `background` until it settles; a rejection still surfaces, as it would unkept. */

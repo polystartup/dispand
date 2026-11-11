@@ -271,7 +271,7 @@
   an answer once no question of the step is pending (`answer`), a chat message (`sendChat`), a
   lost session's resume (`resume`). What can't go yet stays undelivered (`delivered_at` null)
   and the step queues once, with what it will do in `pending_action` (`start`, `deliver` or
-  `resume`); every answer and message is sent only to a step holding a slot (`holdsSlot`).
+  `resume`); a reconcile or a held delivery sends answers and messages only to a step holding a slot (`holdsSlot`).
   `give` hands the free slots, in the same transaction, to the next queued steps of the harness
   (class, then oldest first), marked working; once that commits, `handOver` does what each
   waited for: its run advances (a start), or its undelivered answers and messages go, or its
