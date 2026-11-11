@@ -18,6 +18,9 @@ file out of version control and readable only by the account that runs Compose.
 | `DISPAND_SETUP_CODE` | yes | One-time code asked when the owner account is created on the first visit: at least 16 characters. |
 | `DISPAND_POSTGRES_PASSWORD` | yes | Password of the `dispand` database user. |
 | `DISPAND_IMAGE_TAG` | no | Image tag to run; `latest` by default. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | no | Where to send traces, metrics and logs over OTLP/HTTP (`http://collector:4318`). Unset: nothing is sent. Logs always also go to the container's output. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | no | Headers for the collector, such as its API key (`authorization=Bearer …`). |
+| `OTEL_SERVICE_NAME` | no | The service name telemetry carries; `dispand` by default. |
 
 ## Run it
 

@@ -90,6 +90,8 @@ export async function callPlatformTool(app: PlatformApp, job: JobIdentity, name:
     if (tool.grant && !(await takeItem(app.db, job, tool.name, parsed.data))) return { ok: false, error: NEEDS_PROPOSAL };
     const output = await call(procedureOf(router, tool.path) as never, parsed.data as never, {
       context: { ...app, job, headers: new Headers(), resHeaders: new Headers() } as never,
+      // The procedure's name, for its span: a call in process has none of its own.
+      path: tool.path.split("."),
     });
     return { ok: true, output: tool.filter ? tool.filter(output, scope) : output };
   } catch (err) {
