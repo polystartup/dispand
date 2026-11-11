@@ -253,7 +253,12 @@
   (`runner.message`, the engine's work inside it). A tool action call is a `tool.call` span
   (the tool's id, the action, how it ended) with its count and duration; a cloud session's
   model call is a `model.turn` span (the harness's kind, how the turn ended, how many tools it
-  asked for) with its count and duration. Token counts are not read from the providers yet.
+  asked for) with its count and duration. Token counts are not read from the providers yet. The browser
+  tests run the app instrumented and exporting to a stand-in collector
+  (`apps/web/e2e/collector.mjs`); the last spec, `zzz-telemetry.spec.ts`, adds sentinel
+  secrets and content and checks none appears in anything exported during the whole suite.
+  The standard `OTEL_BSP_SCHEDULE_DELAY`, `OTEL_BLRP_SCHEDULE_DELAY` and
+  `OTEL_METRIC_EXPORT_INTERVAL` are read by `startTelemetry` (the SDK no longer reads them).
 - **Platform tools:** a Job's session gets some of Dispand's own procedures as tools.
   `platform/tools.ts` is the registry: each tool names its procedure (`rows.create` is the tool
   `rows_create`), its bundle (`data`: `tables.list`, `tables.get` and the rows procedures;
