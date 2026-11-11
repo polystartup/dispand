@@ -1,6 +1,6 @@
 import { call } from "@orpc/server";
 import { asc, eq, isNull } from "drizzle-orm";
-import { expect, onTestFinished, test } from "vitest";
+import { expect, onTestFinished, test, vi } from "vitest";
 import { eventFires, events, runs } from "../db/schema.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
@@ -259,4 +259,20 @@ test("a trigger can be turned off once what it watches changed under it", async 
   const config = { kind: "primitive" as const, tableId: s.clients.id, operations: ["updated" as const] };
   expect(await call(router.triggers.update, { id: trigger.id, enabled: false, name: "Paused", config }, { context: s.context })).toMatchObject({ name: "Paused" });
   await expect(call(router.triggers.update, { id: trigger.id, enabled: true }, { context: s.context })).rejects.toThrow("make the table primitive first");
+});
+
+test("a Job whose agent lost the table before its session started never gets the change", async () => {
+  const s = await setup();
+  await s.watch(s.clerk.id);
+  const ada = await s.create({ [s.name.id]: "Ada" });
+  await s.update(ada.id, { [s.city.id]: "Paris" });
+  // The Job is made, but its session not started yet (as when its runner is offline).
+  const [runId] = await s.scheduler.claim();
+  await call(router.agents.update, { id: s.clerk.id, name: "Clerk", harnessId: s.clerk.harnessId, systemPrompt: "", bundles: [] }, { context: s.context });
+  await s.engine.continueRun(runId!);
+  await vi.waitFor(async () => {
+    const [run] = await s.context.db.select().from(runs).where(eq(runs.id, runId!));
+    expect(run).toMatchObject({ status: "failed", error: "The agent may no longer read the table that changed" });
+  });
+  expect(s.adapter.starts).toEqual([]);
 });
