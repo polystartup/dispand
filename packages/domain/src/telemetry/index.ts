@@ -42,6 +42,7 @@ export type Exporters = { spans?: SpanExporter; logs?: LogRecordExporter; metric
 
 type Started = { traces: TracerProvider; logs: LoggerProvider; metrics: MeterProvider; contextManager: AsyncLocalStorageContextManager };
 const STARTED = Symbol.for("dispand.telemetry");
+const INSTRUMENTATIONS = Symbol.for("dispand.instrumentations");
 type Global = typeof globalThis & { [STARTED]?: Started };
 
 /** Wraps an exporter so nothing leaves without going through redaction. */
@@ -110,6 +111,9 @@ export function startTelemetry(exporters: Exporters = exportersFromEnv(), env: N
   trace.setGlobalTracerProvider(started.traces);
   logs.setGlobalLoggerProvider(started.logs);
   metrics.setGlobalMeterProvider(started.metrics);
+  // The preload's instrumentations (HTTP, PostgreSQL, fetch) started before any provider: their
+  // metrics go to the real one from now on.
+  for (const instrumentation of (g as { [INSTRUMENTATIONS]?: { setMeterProvider(p: MeterProvider): void }[] })[INSTRUMENTATIONS] ?? []) instrumentation.setMeterProvider(started.metrics);
   g[STARTED] = started;
   return true;
 }

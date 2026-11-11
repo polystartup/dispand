@@ -15,14 +15,23 @@ const { HttpInstrumentation } = await import("@opentelemetry/instrumentation-htt
 const { PgInstrumentation } = await import("@opentelemetry/instrumentation-pg");
 const { UndiciInstrumentation } = await import("@opentelemetry/instrumentation-undici");
 
-registerInstrumentations({
-  instrumentations: [
-    new HttpInstrumentation({
-      ignoreIncomingRequestHook: (request) => ignoredIncoming(request.url),
-      ignoreOutgoingRequestHook: (options) => ignoredOutgoing(options.hostname ?? options.host, options.port),
-    }),
+const instrumentations = [
+  new HttpInstrumentation({
+    ignoreIncomingRequestHook: (request) => ignoredIncoming(request.url),
+    ignoreOutgoingRequestHook: (options) => ignoredOutgoing(options.hostname ?? options.host, options.port),
+    // The client is the one the reverse proxy saw (`X-Real-IP`, the only header it sets), never
+    // what `Forwarded` or `X-Forwarded-For` claim.
+    requestHook: (span, request) => {
+      if (!("headers" in request) || !request.socket) return;
+      const real = request.headers["x-real-ip"];
+      span.setAttribute("client.address", typeof real === "string" && real ? real : (request.socket.remoteAddress ?? ""));
+    },
+  }),
     // Statements without their values: no `enhancedDatabaseReporting`, no hooks that read them.
-    new PgInstrumentation({ enhancedDatabaseReporting: false }),
-    new UndiciInstrumentation(),
-  ],
-});
+  new PgInstrumentation({ enhancedDatabaseReporting: false }),
+  new UndiciInstrumentation(),
+];
+registerInstrumentations({ instrumentations });
+// Their metrics bind to the meter provider when they start, and there is none yet:
+// `startTelemetry` gives them the real one through this.
+globalThis[Symbol.for("dispand.instrumentations")] = instrumentations;

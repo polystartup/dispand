@@ -2,6 +2,15 @@
 // `meter(...)` under one of these names; any attribute not listed here is dropped by its view.
 export const METRICS = {
   "dispand.rpc.duration": ["rpc.method", "dispand.result"],
+  // The instrumentations' own (`apps/web/telemetry-preload.mjs`): methods, codes and peers, never a path or a query.
+  "http.server.request.duration": ["http.request.method", "http.response.status_code", "url.scheme", "network.protocol.version", "error.type"],
+  "http.client.request.duration": ["http.request.method", "http.response.status_code", "server.address", "server.port", "url.scheme", "error.type"],
+  "db.client.operation.duration": ["db.system.name", "db.operation.name", "db.namespace", "server.address", "server.port", "error.type"],
+  "db.client.connection.count": ["db.client.connection.state", "db.client.connection.pool.name"],
+  "db.client.connection.pending_requests": ["db.client.connection.pool.name"],
+  "db.client.connection.max": ["db.client.connection.pool.name"],
+  "db.client.connection.idle.max": ["db.client.connection.pool.name"],
+  "db.client.connection.idle.min": ["db.client.connection.pool.name"],
 } as const satisfies Record<string, readonly string[]>;
 
 export type MetricName = keyof typeof METRICS;
