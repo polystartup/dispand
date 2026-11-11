@@ -17,6 +17,7 @@ export { createMcpConnector, type ToolConnector } from "./tools/mcp.ts";
 export { InstalledTools } from "./tools/executor.ts";
 export { pollCaller } from "./tools/poll.ts";
 export { guardedFetch, ownAddresses } from "./tools/network.ts";
+export { clientDocument, handleToolOAuthCallback } from "./tools/oauth.ts";
 export { packageForRunner } from "./skills/runner-access.ts";
 export { platformToolCaller } from "./platform/cloud.ts";
 export { handleJobMcp } from "./platform/mcp.ts";

@@ -36,6 +36,8 @@ export const METRICS = {
   "dispand.runner.tool_call.duration": ["dispand.result"],
   "dispand.tool.calls": ["dispand.result"],
   "dispand.tool.duration": ["dispand.result"],
+  // A step of an OAuth tool's sign-in (`authorize`, `callback`, `refresh`) and how it ended.
+  "dispand.tool.oauth": ["dispand.oauth.step", "dispand.result"],
   "dispand.attachments.stored": ["dispand.attachment.source"],
   "dispand.attachments.refused": [],
   "dispand.attachments.swept": [],

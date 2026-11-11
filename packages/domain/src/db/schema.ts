@@ -12,7 +12,7 @@ import type { WorkflowDef } from "../workflows/model.ts";
 import type { CloudKind } from "../harnesses/cloud.ts";
 import type { MarketplaceEntry, MarketplaceKind } from "../plugins/marketplace.ts";
 import type { NotImported, PluginComponents } from "../plugins/read-plugin.ts";
-import type { ToolAction, ToolTransport } from "../tools/mcp.ts";
+import type { OAuthStatus, ToolAction, ToolAuth, ToolTransport } from "../tools/mcp.ts";
 
 // Better Auth tables (email + password, one owner).
 export const user = pgTable("user", {
@@ -961,9 +961,20 @@ export const tools = pgTable(
     // A runner tool's runner, and the server's name in its config (one the runner reported in `hello`).
     runnerId: text("runner_id").references(() => runners.id),
     runnerTool: text("runner_tool"),
+    // How an HTTP tool signs in: nothing, its sealed headers, or OAuth (`tools/oauth.ts`; no headers then).
+    auth: text("auth").$type<ToolAuth>().notNull().default("none"),
+    // OAuth only. The sealed state (`oauthAad(id)`): client information and tokens per issuer,
+    // discovery, the owner's entered client, and a flow under way with its verifier. Never leaves the server.
+    oauthSealed: text("oauth_sealed"),
+    // `authorize` (never connected), `connected`, or `reauthorize` (its grant stopped working): shown without opening the seal.
+    oauthStatus: text("oauth_status").$type<OAuthStatus>(),
+    // SHA-256 of the `state` of the flow under way, which the callback finds the tool by.
+    oauthStateHash: text("oauth_state_hash"),
+    // The client id the owner entered (not a secret; its secret is sealed in `oauthSealed`).
+    oauthClientId: text("oauth_client_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("tools_owner_name_idx").on(t.ownerId, sql`lower(${t.name})`)],
+  (t) => [uniqueIndex("tools_owner_name_idx").on(t.ownerId, sql`lower(${t.name})`), index("tools_oauth_state_idx").on(t.oauthStateHash)],
 );
 
 const bytea = customType<{ data: Uint8Array; driverData: Uint8Array }>({ dataType: () => "bytea" });

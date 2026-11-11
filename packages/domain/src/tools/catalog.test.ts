@@ -17,6 +17,8 @@ function recording() {
       return [{ name: "create_repository", description: "", inputSchema: { type: "object" } }];
     },
     callAction: async () => ({ text: "", isError: false }),
+    authorize: async () => null,
+    finishAuthorization: async () => undefined,
   };
   return { connector, targets };
 }

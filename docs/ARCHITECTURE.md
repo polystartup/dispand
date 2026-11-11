@@ -789,7 +789,41 @@
   change to where or how lists them again); `refresh`; `delete` (refused while an agent, a
   skill package or a workflow's Tool step holds it: `toolHolder`); `list` and `get` give `headerNames`, never values. Headers go only to an
   `https://` URL (plain http only to loopback), and a URL can't carry credentials.
-  `toolTarget` (server-only) opens the headers for a call. Settings → Tools
+  `toolTarget` (server-only) opens the headers for a call.
+  **Sign-in (`tools.auth`):** `none`, `headers` (follows from the headers) or `oauth`. An OAuth
+  tool has no headers (they would reach its authorization server too) and no secret URL. The
+  connector implements the SDK's `OAuthClientProvider` (`tools/oauth-provider.ts`) over the
+  tool's sealed state (`oauth_sealed`, AAD `oauthAad(id)`, `tools/oauth-store.ts`: client
+  information and tokens per issuer, the issuer saved last, discovery, the owner's entered
+  client, and a flow under way with its `state` and PKCE verifier), each change on the row
+  locked; the SDK does discovery (protected-resource metadata from the 401's challenge,
+  authorization-server metadata), the client (Dispand's metadata document at
+  `<app>/oauth/metadata` when the server supports them and the app's URL is https, else
+  registration, else the client id and secret the owner entered), PKCE, the resource indicator,
+  the issuer checks and the refresh, every request through the connector's `fetch` (the address
+  guard; redirects only within the request's origin, the SDK's rule). Plain columns say what the
+  page shows without opening the seal: `oauth_status` (`authorize`, `connected`,
+  `reauthorize`), `oauth_client_id` (`enteredClientId` in views), and `oauth_state_hash` (SHA-256 of the flow's `state`).
+  `tools.authorize` (with an optional entered client) starts a flow with fresh discovery and no
+  token and returns the authorization URL; `GET /oauth/callback` (`handleToolOAuthCallback`,
+  the owner's session) finds the flow by its state's hash among the owner's tools, compares the
+  state, uses it up (10 minutes at most), hands the parameters to the transport's `finishAuth`,
+  marks the tool `connected` and lists its actions on a fresh connection; a failure is stored
+  as `actionsError`. A listing or call (`connectionTarget`) of a tool not `connected` fails
+  before any request; one whose refresh is refused (its tokens discarded, or none to refresh
+  with) marks the tool `reauthorize` and fails with that reason, and never starts a flow; tokens
+  another connection rotated meanwhile are kept. Tokens are redacted from what the server sends
+  back, with the client secrets. Only over https (or loopback), like headers. The entered
+  client is bound to the issuer it is first used with (another issuer refuses the flow). The
+  store (`oauthStore`) is bound to the tool's URL and transport as the flow or call found them:
+  pointed elsewhere meanwhile, it reads and writes nothing, and the callback connects nothing. A
+  token endpoint's refusal (any status) is reduced to its error code (`bareTokenErrors`, after
+  the connection's screen) before the SDK, which logs the description, reads it; an OAuth
+  connection's requests are https only but to loopback (`httpsOnly`). Refreshes of one tool run
+  one after the other in the process (a refresh token is used once), each with the tokens the
+  last one saved; a turn is only held by a connection still open (one that comes after the
+  connection ended is given back at once, and that attempt stops). Telemetry: `tool.oauth.<step>` spans and
+  `dispand.tool.oauth` (step, result). Settings → Tools
   (`_app.settings.tools.tsx`, `ToolSheet.tsx`) lists the tools, adds and edits them (header
   values are password fields, shown as "Set" once stored) and shows each action's parameters.
   The catalog (`tools/catalog.ts`) is a code constant: `github`

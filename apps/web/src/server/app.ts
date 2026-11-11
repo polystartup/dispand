@@ -28,7 +28,20 @@ import {
 } from "@dispand/domain";
 import { loadServerConfig } from "./config.ts";
 
-type App = { db: Db; auth: Auth; hub: RunnerHub; engine: Engine; dataEvents: DataEvents; secrets: SecretBox; tools: ToolConnector; setupCode: string; filesDir: string; gitFileUrls: boolean };
+type App = {
+  db: Db;
+  auth: Auth;
+  hub: RunnerHub;
+  engine: Engine;
+  dataEvents: DataEvents;
+  secrets: SecretBox;
+  tools: ToolConnector;
+  setupCode: string;
+  filesDir: string;
+  gitFileUrls: boolean;
+  /** The app's public URL: OAuth tools' callback and client metadata document are there. */
+  appUrl: string;
+};
 
 const SWEEP_EVERY_MS = 3600_000;
 
@@ -46,13 +59,14 @@ async function start(): Promise<App> {
   const secrets = createSecretBox(config.secretKey);
   const dataEvents = getDataEvents();
   // Tool calls never reach the app's own addresses in production; development reaches local fakes (e2e).
-  const tools = createMcpConnector(config.mode === "production" ? { fetch: guardedFetch(ownAddresses()) } : {});
+  // Their OAuth flows too (discovery, registration, token, refresh), through the same fetch.
+  const tools = createMcpConnector({ ...(config.mode === "production" ? { fetch: guardedFetch(ownAddresses()) } : {}), appUrl: config.baseURL });
   // Tool steps call installed tools through the same connector as Settings → Tools. A cloud
   // Job's session gets Dispand's own tools, called in process (the app is read at call time).
   const app = {} as App;
   const engine = getEngine(db, hub, secrets, dataEvents, { connector: tools, tools: platformToolCaller(() => app), filesDir: config.filesDir });
   // Filled before anything can call a tool: recovery below may already need it.
-  Object.assign(app, { db, auth, hub, engine, dataEvents, secrets, tools, setupCode: config.setupCode, filesDir: config.filesDir, gitFileUrls: config.gitFileUrls });
+  Object.assign(app, { db, auth, hub, engine, dataEvents, secrets, tools, setupCode: config.setupCode, filesDir: config.filesDir, gitFileUrls: config.gitFileUrls, appUrl: config.baseURL });
   // Before any runner can connect (the upgrade handler waits for this app); cloud sessions go on.
   await engine.recover();
   // Fires what fell due while the app was down (once per schedule, for the latest time), then every 15 s.

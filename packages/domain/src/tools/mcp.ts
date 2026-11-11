@@ -1,5 +1,6 @@
 import {
   Client,
+  OAuthError,
   SdkError,
   SdkErrorCode,
   SdkHttpError,
@@ -8,16 +9,26 @@ import {
   type CallToolResult,
   type Tool,
   type Transport,
+  UnauthorizedError,
+  type OAuthClientProvider,
 } from "@modelcontextprotocol/client";
 import { McpAction } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { MAX_ACTIONS, redact, screenedFetch } from "./inbound.ts";
+import { ToolError } from "./errors.ts";
 import { BlockedAddressError } from "./network.ts";
+import { createOAuthProvider, stateSecrets, type OAuthMode, type OAuthState, type OAuthStore } from "./oauth-provider.ts";
+
+export { ToolError } from "./errors.ts";
 
 export { inboundProblem, MAX_ACTIONS, MAX_MESSAGE_VALUES, MAX_RESPONSE_BYTES, redact } from "./inbound.ts";
 
 export const TRANSPORTS = ["streamable-http", "sse"] as const;
 export type ToolTransport = (typeof TRANSPORTS)[number];
+/** How an HTTP tool signs in: nothing, its sealed headers, or OAuth. */
+export const AUTHS = ["none", "headers", "oauth"] as const;
+export type ToolAuth = (typeof AUTHS)[number];
+export type OAuthStatus = "authorize" | "connected" | "reauthorize";
 
 /** Where an HTTP tool is and how to call it. `headers` are opened from the secret box just for the call. */
 export type ToolTarget = {
@@ -26,6 +37,8 @@ export type ToolTarget = {
   headers: Record<string, string>;
   /** Secrets the URL's path or query holds (a plugin server's settings): redacted like the headers. */
   urlSecrets?: string[];
+  /** An OAuth tool's sealed state (`tools/oauth.ts`); its headers are empty then. */
+  oauth?: OAuthStore;
 };
 
 /**
@@ -44,18 +57,18 @@ export type ToolFile = { name: string; bytes: Uint8Array };
 /** `hasMore`: the server stopped at its own cap (`_meta.result_has_more`), with more to give. */
 export type ToolResult = { text: string; structured?: Record<string, unknown>; isError: boolean; files?: ToolFile[]; hasMore?: boolean };
 
-/**
- * A failed listing or call, with a short reason made here (host, status), never the server's own
- * text: an error body or message may echo the headers.
- */
-export class ToolError extends Error {
-  override name = "ToolError";
-}
-
 /** The one way Dispand calls MCP servers over HTTP: actions for Settings → Tools, calls for agents and Tool steps. */
 export type ToolConnector = {
   listActions(target: ToolTarget): Promise<ToolAction[]>;
   callAction(target: ToolTarget, action: string, args: Record<string, unknown>, signal: AbortSignal): Promise<ToolResult>;
+  /**
+   * Starts an OAuth tool's sign-in: the SDK discovers its authorization server and gets a client
+   * (metadata document, registration, or the entered one). Gives the URL to send the owner to and
+   * the flow to keep for the callback, or null when the server asks for no sign-in.
+   */
+  authorize(target: ToolTarget & { oauth: OAuthStore }): Promise<{ url: URL; pending: NonNullable<OAuthState["pending"]> } | null>;
+  /** Hands the callback's parameters to the SDK (`finishAuth`), which exchanges the code with the flow's verifier. */
+  finishAuthorization(target: ToolTarget & { oauth: OAuthStore }, pending: NonNullable<OAuthState["pending"]>, params: URLSearchParams): Promise<void>;
 };
 
 /** Each schema, as JSON. */
@@ -87,6 +100,8 @@ function causes(error: unknown): unknown[] {
 /** The short reason of a failure: never the error's own message, which may quote the server's answer. */
 function reason(error: unknown, host: string, timedOut: boolean): ToolError {
   const chain = causes(error);
+  const own = chain.find((e) => e instanceof ToolError);
+  if (own) return own as ToolError;
   const blocked = chain.find((e) => e instanceof BlockedAddressError);
   if (blocked) return new ToolError(`${host} is one of Dispand's own addresses`);
   if (timedOut) return new ToolError(`${host} didn't answer in time`);
@@ -98,6 +113,7 @@ function reason(error: unknown, host: string, timedOut: boolean): ToolError {
     return new ToolError(`${host} answered ${status}`);
   }
   if (chain.some((e) => e instanceof SdkError && e.code === SdkErrorCode.RequestTimeout)) return new ToolError(`${host} didn't answer in time`);
+  if (chain.some((e) => e instanceof OAuthError || e instanceof UnauthorizedError)) return new ToolError(`${host}'s sign-in failed`);
   return new ToolError(`Couldn't reach ${host}`);
 }
 
@@ -107,9 +123,11 @@ function reason(error: unknown, host: string, timedOut: boolean): ToolError {
  * capability, and the SDK would answer each one with a request of its own, so a server could
  * make it open any number of them.
  */
-function transportFor(target: ToolTarget, fetcher: typeof fetch): Transport {
+function transportFor(target: ToolTarget, fetcher: typeof fetch, authProvider?: OAuthClientProvider): Transport {
   const url = new URL(target.url);
-  const options = { requestInit: { headers: target.headers }, fetch: fetcher, redirectPolicy: "same-origin" as const };
+  // An OAuth connection's requests (the flow's included) are https only, and its token refusals bare.
+  const fetch = authProvider ? httpsOnly(bareTokenErrors(fetcher)) : fetcher;
+  const options = { requestInit: { headers: target.headers }, fetch, redirectPolicy: "same-origin" as const, ...(authProvider ? { authProvider } : {}) };
   const inner: Transport = target.transport === "sse" ? new SSEClientTransport(url, options) : new StreamableHTTPClientTransport(url, options);
   return new Proxy(inner, {
     set(t, property, value: unknown) {
@@ -130,7 +148,15 @@ function transportFor(target: ToolTarget, fetcher: typeof fetch): Transport {
  * Opens a connection, runs `work` on it, then closes it: one connection per listing or call. The
  * whole of it, connecting included, ends at `timeoutMs` or when `signal` aborts.
  */
-async function withClient<T>(target: ToolTarget, base: typeof fetch, timeoutMs: number, signal: AbortSignal | undefined, work: (client: Client, options: { signal: AbortSignal; timeout: number }) => Promise<T>): Promise<T> {
+async function withClient<T>(
+  target: ToolTarget,
+  base: typeof fetch,
+  timeoutMs: number,
+  signal: AbortSignal | undefined,
+  work: (client: Client, options: { signal: AbortSignal; timeout: number }) => Promise<T>,
+  /** An OAuth tool's provider, and how it gives back its refresh turn once the connection ends. */
+  auth?: { provider: OAuthClientProvider; release(): void },
+): Promise<T> {
   const host = new URL(target.url).host;
   const deadline = AbortSignal.timeout(timeoutMs);
   const both = signal ? AbortSignal.any([signal, deadline]) : deadline;
@@ -140,7 +166,7 @@ async function withClient<T>(target: ToolTarget, base: typeof fetch, timeoutMs: 
   const stopped = new Promise<never>((_, reject) => (stop = reject));
   stopped.catch(() => undefined);
   const screen = screenedFetch(base, (error) => stop(error));
-  const transport = transportFor(target, screen.fetch);
+  const transport = transportFor(target, screen.fetch, auth?.provider);
   const onAbort = () => stop(both.reason);
   both.addEventListener("abort", onAbort, { once: true });
   try {
@@ -162,6 +188,7 @@ async function withClient<T>(target: ToolTarget, base: typeof fetch, timeoutMs: 
     both.removeEventListener("abort", onAbort);
     await client.close().catch(() => undefined);
     await transport.close().catch(() => undefined);
+    auth?.release();
   }
 }
 
@@ -210,19 +237,122 @@ function summarize(result: CallToolResult, clean: (text: string) => string): str
   return text.length > MAX_RESULT_TEXT ? `${text.slice(0, MAX_RESULT_TEXT)}\n[truncated]` : text;
 }
 
+/** An OAuth error code, as RFC 6749 spells them. */
+const ERROR_CODE = /^[a-z_]{1,64}$/;
+
+/**
+ * A token endpoint's refusal (a form posted, an answer with an `error`, whatever its status; or
+ * any answer not ok) reduced to its error code: the SDK logs a refusal's description on the
+ * console, and a server may quote a token or a secret there. `inner` is the connection's screened
+ * fetch, so the body read here is already within the connection's byte budget.
+ */
+export function bareTokenErrors(inner: typeof fetch): typeof fetch {
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    const response = await inner(input, init);
+    // A redirect stays as it is: the SDK follows it within the origin, or refuses it.
+    if ((response.status >= 300 && response.status < 400) || !(init?.body instanceof URLSearchParams)) return response;
+    const text = await response.text();
+    let body: unknown = null;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      // Not JSON: the SDK refuses it.
+    }
+    const error = (body as { error?: unknown } | null)?.error;
+    if (response.ok && error === undefined) return new Response(text, { status: response.status, statusText: response.statusText, headers: response.headers });
+    const code = typeof error === "string" && ERROR_CODE.test(error) ? error : "server_error";
+    return new Response(JSON.stringify({ error: code }), { status: response.status, statusText: response.statusText, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+}
+
+/** Loopback hosts, where plain http stays on this machine. */
+const loopback = (url: URL) => url.hostname === "localhost" || url.hostname === "[::1]" || /^127\.\d+\.\d+\.\d+$/.test(url.hostname);
+
+/**
+ * An OAuth connection's fetch refuses plain http but to this machine, before connecting: the
+ * server names the addresses of its flow (metadata, registration, token), and an observer could
+ * otherwise swap the token endpoint the client secret and the code go to.
+ */
+export function httpsOnly(inner: typeof fetch): typeof fetch {
+  return ((input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.protocol !== "https:" && !loopback(url)) return Promise.reject(new ToolError(`${url.host} isn't reached over https: its sign-in is refused`));
+    return inner(input, init);
+  }) as typeof fetch;
+}
+
 /**
  * The MCP connector (SDK client over Streamable HTTP or SSE). `fetch` is the network policy:
- * production passes `guardedFetch(ownAddresses())`. Redirects are followed only within the
- * tool's origin, so headers never go to another host, and a connection reads at most 16 MiB.
+ * production passes `guardedFetch(ownAddresses())`, and the SDK makes every request of an OAuth
+ * flow (discovery, registration, token, refresh) through it too. Redirects are followed only
+ * within the origin of the request (the SDK's own rule, for the transport and the flow alike), so
+ * headers, codes, verifiers, client secrets and tokens never go to another host. A connection
+ * reads at most 16 MiB. `appUrl` is the application's public URL, which OAuth tools need (the
+ * callback and the client metadata document).
  */
-export function createMcpConnector(opts: { fetch?: typeof fetch } = {}): ToolConnector {
+export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string } = {}): ToolConnector {
   const fetcher = opts.fetch ?? fetch;
   return {
     listActions,
     callAction,
+    authorize,
+    finishAuthorization,
   };
 
+  function provider(store: OAuthStore, mode: OAuthMode, secrets: Set<string>) {
+    if (!opts.appUrl) throw new ToolError("OAuth sign-in needs the application's URL");
+    return createOAuthProvider(store, mode, opts.appUrl, secrets);
+  }
+
+  /**
+   * A listing's or call's provider: it may refresh, never starts a flow. `secrets` gets every
+   * token and client secret the tool holds now, and those the connection gets later.
+   */
+  async function using(target: ToolTarget, secrets: Set<string>) {
+    if (!target.oauth) return undefined;
+    for (const secret of stateSecrets(await target.oauth.read())) secrets.add(secret);
+    return provider(target.oauth, { kind: "use" }, secrets);
+  }
+
+  async function authorize(target: ToolTarget & { oauth: OAuthStore }) {
+    const oauth = provider(target.oauth, { kind: "authorize" }, new Set());
+    try {
+      // Connecting without a token gets the server's 401, whose challenge names its resource
+      // metadata; the SDK then runs discovery and hands the authorization URL to the provider.
+      await withClient(target, fetcher, LIST_TIMEOUT_MS, undefined, async () => undefined, oauth);
+      return null;
+    } catch (error) {
+      const started = oauth.started();
+      if (started) return started;
+      if (oauth.needsClient()) throw new ToolError(`${new URL(target.url).host}'s authorization server supports neither client metadata documents nor registration: enter the client id it gave you`);
+      throw error;
+    }
+  }
+
+  async function finishAuthorization(target: ToolTarget & { oauth: OAuthStore }, pending: NonNullable<OAuthState["pending"]>, params: URLSearchParams) {
+    const host = new URL(target.url).host;
+    const oauth = provider(target.oauth, { kind: "finish", pending }, new Set());
+    const screen = screenedFetch(fetcher, () => undefined);
+    const transport = transportFor(target, screen.fetch, oauth.provider) as StreamableHTTPClientTransport | SSEClientTransport;
+    const finished = (async () => {
+      // Through the proxy: `finishAuth` is the transport's own.
+      await (transport as unknown as { finishAuth(p: URLSearchParams): Promise<void> }).finishAuth(params);
+    })();
+    try {
+      await Promise.race([finished, new Promise<never>((_, reject) => AbortSignal.timeout(LIST_TIMEOUT_MS).addEventListener("abort", () => reject(new ToolError(`${host} didn't answer in time`)), { once: true }))]);
+    } catch (error) {
+      if (error instanceof ToolError) throw error;
+      const refused = screen.refused();
+      if (refused) throw new ToolError(`${host} ${refused}`);
+      throw reason(error, host, false);
+    } finally {
+      await transport.close().catch(() => undefined);
+    }
+  }
+
   async function listActions(target: ToolTarget): Promise<ToolAction[]> {
+      const secrets = new Set<string>();
+      const auth = await using(target, secrets);
       const tools = await withClient(target, fetcher, LIST_TIMEOUT_MS, undefined, async (client, options) => {
         const all: Tool[] = [];
         let cursor: string | undefined;
@@ -235,10 +365,10 @@ export function createMcpConnector(opts: { fetch?: typeof fetch } = {}): ToolCon
           if (!cursor) return all;
         }
         throw new ToolError(`The server lists its actions on more than ${MAX_PAGES} pages`);
-      });
+      }, auth);
       // The server got the headers and may send them back: each field the action keeps is redacted
       // before anything reads or cuts it (fields one by one, so the result keeps its own shape).
-      const clean = <T>(value: T) => storable(redact(value, target.headers, target.urlSecrets));
+      const clean = <T>(value: T) => storable(redact(value, target.headers, [...(target.urlSecrets ?? []), ...secrets]));
       return tools.map((tool) => {
         const candidate = {
           name: clean(tool.name),
@@ -260,9 +390,11 @@ export function createMcpConnector(opts: { fetch?: typeof fetch } = {}): ToolCon
   }
 
   async function callAction(target: ToolTarget, action: string, args: Record<string, unknown>, signal: AbortSignal): Promise<ToolResult> {
-      const result = await withClient(target, fetcher, CALL_TIMEOUT_MS, signal, (client, options) => client.callTool({ name: action, arguments: args }, options));
+      const secrets = new Set<string>();
+      const auth = await using(target, secrets);
+      const result = await withClient(target, fetcher, CALL_TIMEOUT_MS, signal, (client, options) => client.callTool({ name: action, arguments: args }, options), auth);
       // The server got the headers and may send them back: redacted before the text is cut.
-      const clean = <T>(value: T) => storable(redact(value, target.headers, target.urlSecrets));
+      const clean = <T>(value: T) => storable(redact(value, target.headers, [...(target.urlSecrets ?? []), ...secrets]));
       const structured = result.structuredContent;
       const files = filesOf(result, clean);
       return {

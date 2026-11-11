@@ -30,6 +30,11 @@ type Options = {
   serverRequests?: number;
   /** Actions per `tools/list` page, the next one always announced (default: one page). */
   pageSize?: number;
+  /**
+   * Streamable HTTP only: the server is an OAuth protected resource of `authorizationServer`. A
+   * request without a bearer `accepts` gets a 401 naming its resource metadata.
+   */
+  oauth?: { authorizationServer: string; accepts: (token: string) => boolean };
 };
 
 function mcpServer(actions: FakeAction[], options: Options, pages: { count: number }): Server {
@@ -91,6 +96,7 @@ export async function startFakeMcp(
     requests.push(req.headers);
     void (async () => {
       if (transport === "streamable-http") {
+        if (options.oauth && !protectedResource(req.url ?? "/", req.headers.authorization, res)) return;
         const server = mcpServer(actions, options, pages);
         const t = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
         await server.connect(t);
@@ -127,8 +133,22 @@ export async function startFakeMcp(
   });
   await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
   const { port } = http.address() as AddressInfo;
+  const url = `http://127.0.0.1:${port}/${transport === "sse" ? "sse" : "mcp"}`;
+  const metadataPath = "/.well-known/oauth-protected-resource/mcp";
+  /** Answers the resource metadata, or a request without an accepted token; true when the request goes on. */
+  function protectedResource(path: string, authorization: string | undefined, res: ServerResponse): boolean {
+    const oauth = options.oauth!;
+    if (path === metadataPath) {
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ resource: url, authorization_servers: [oauth.authorizationServer] }));
+      return false;
+    }
+    const token = authorization?.match(/^Bearer (.+)$/)?.[1];
+    if (token && oauth.accepts(token)) return true;
+    res.writeHead(401, { "www-authenticate": `Bearer resource_metadata="http://127.0.0.1:${port}${metadataPath}"` }).end();
+    return false;
+  }
   return {
-    url: `http://127.0.0.1:${port}/${transport === "sse" ? "sse" : "mcp"}`,
+    url,
     requests,
     posted,
     pages,

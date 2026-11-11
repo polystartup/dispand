@@ -253,6 +253,7 @@ export const NOT_TOOLS: string[] = [
   "tools.create",
   "tools.update",
   "tools.refresh",
+  "tools.authorize",
   "tools.catalog",
   "tools.installFromCatalog",
   // What polls may read: the owner's choice, never an agent's.
