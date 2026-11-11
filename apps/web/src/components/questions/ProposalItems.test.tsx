@@ -129,6 +129,6 @@ test("a table-change trigger's config is read in words, its table and fields by 
   const item = screen.getByRole("listitem");
   expect(item.textContent).toContain("A change to the table Clients");
   expect(item.textContent).toContain("When a row is created, or a row is changed");
-  expect(item.textContent).toContain("City (of the table Clients)");
+  expect(item.textContent).toContain("A changed row only when one of these changed:City (of the table Clients)");
   expect(within(item).getByRole("alert").textContent).toBe("field_gone: not one of yours");
 });

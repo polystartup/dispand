@@ -70,9 +70,9 @@ function ChangeConfig({ config, names }: { config: { tableId?: unknown; operatio
         A change to the table <Ref id={String(config.tableId)} names={names} />
       </span>
       <span>When {operations.join(", or ") || "nothing"}</span>
-      {fields && (
+      {fields && operations.length > 0 && (config.operations as unknown[]).includes("updated") && (
         <span className="flex flex-col">
-          Only a change to:
+          A changed row only when one of these changed:
           {fields.map((id) => (
             <Ref key={id} id={id} names={names} />
           ))}
