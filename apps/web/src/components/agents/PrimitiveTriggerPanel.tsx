@@ -70,7 +70,11 @@ export function PrimitiveTriggerPanel({
               <input
                 type="checkbox"
                 checked={config.operations.includes(op)}
-                onChange={(e) => onChange({ ...config, operations: toggle(config.operations, op, e.target.checked) })}
+                onChange={(e) => {
+                  const operations = toggle(config.operations, op, e.target.checked);
+                  // The field filter is for changed rows: it goes with them.
+                  onChange(operations.includes("updated") ? { ...config, operations } : { tableId: config.tableId, operations });
+                }}
                 className="size-4 accent-[var(--color-accent)]"
               />
               {label}

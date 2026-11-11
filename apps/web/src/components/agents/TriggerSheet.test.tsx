@@ -139,6 +139,23 @@ test("TriggerSheet creates a table-change trigger on a primitive table: its chan
   });
 });
 
+test("TriggerSheet drops the field filter with row changes", async () => {
+  fake.triggers.create.mockResolvedValue({});
+  fake.tables.list.mockResolvedValue([clients]);
+  fake.tables.get.mockResolvedValue(clientFields);
+  const { user } = mount();
+  await user.type(screen.getByLabelText("Name"), "New clients");
+  await user.type(screen.getByLabelText("Instructions"), "Welcome them.");
+  await user.click(screen.getByRole("radio", { name: "Table change" }));
+  await user.selectOptions(screen.getByLabelText("Table"), "tbl_1");
+  await user.click(await screen.findByRole("checkbox", { name: "Any field" }));
+  await user.click(screen.getByRole("checkbox", { name: "A row is created" }));
+  await user.click(screen.getByRole("checkbox", { name: "A row is changed" }));
+  await user.click(screen.getByRole("button", { name: "Create trigger" }));
+  expect(fake.triggers.create.mock.calls[0]![0]).toMatchObject({ config: { kind: "primitive", tableId: "tbl_1", operations: ["created"] } });
+  expect(fake.triggers.create.mock.calls[0]![0].config).not.toHaveProperty("fields");
+});
+
 test("TriggerSheet edits a table-change trigger as one, and shows what its latest events did", async () => {
   fake.triggers.update.mockResolvedValue({});
   fake.tables.list.mockResolvedValue([clients]);

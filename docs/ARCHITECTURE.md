@@ -219,7 +219,7 @@
   `primitive` triggers (`{ tableId, operations, fields? }`: an update fires only when one of
   `fields` changed). Each match is one `event_fires` row (unique on `(trigger_id, event_id)`)
   and the event is marked processed in the same transaction, so two schedulers never make an
-  event's Job twice. Each fire reads its trigger again under `FOR UPDATE`, so no two
+  event's Job twice. Each fire reads its trigger again under `FOR NO KEY UPDATE`, so no two
   schedulers check its limits at once, and is `refused` when the trigger is off or no longer
   watches the change, `skipped-same-agent` when the write was by a Job of the trigger's own
   agent, `out-of-scope` when the agent no longer has `data` on the event's table (a
@@ -233,7 +233,8 @@
   run's firing and written after the trigger's instructions (`CHANGE_PROMPT`); a row's
   values never reach telemetry, whose `scheduler.fire` span has kind `event`. Creating or
   changing a primitive trigger checks that the table is the owner's and primitive, the fields
-  are its own, and the agent has `data` on it (turning a trigger off never does); the trigger
+  are its own, and the agent has `data` on it whenever the trigger is on (an off trigger is
+  checked when it is turned on again); the trigger
   tools declare the watched table (and, on a change, the one watched before), so a Job limited
   to some tables can't propose a trigger on another. The trigger sheet's "Table change" kind
   (`PrimitiveTriggerPanel`) picks a primitive table (`tables.list` gives `primitive`), the

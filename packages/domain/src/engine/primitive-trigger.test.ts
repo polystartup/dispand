@@ -255,4 +255,8 @@ test("a trigger can be turned off once what it watches changed under it", async 
   await call(router.tables.setPrimitive, { id: s.clients.id, primitive: false }, { context: s.context });
   await expect(call(router.triggers.update, { id: trigger.id, name: "Renamed" }, { context: s.context })).rejects.toThrow("make the table primitive first");
   expect(await call(router.triggers.update, { id: trigger.id, enabled: false }, { context: s.context })).toMatchObject({ enabled: false });
+  // The sheet sends the whole trigger: off, its config as it was is accepted too.
+  const config = { kind: "primitive" as const, tableId: s.clients.id, operations: ["updated" as const] };
+  expect(await call(router.triggers.update, { id: trigger.id, enabled: false, name: "Paused", config }, { context: s.context })).toMatchObject({ name: "Paused" });
+  await expect(call(router.triggers.update, { id: trigger.id, enabled: true }, { context: s.context })).rejects.toThrow("make the table primitive first");
 });

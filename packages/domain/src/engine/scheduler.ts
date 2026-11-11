@@ -203,7 +203,7 @@ export class Scheduler {
     const started: string[] = [];
     const waiting = await tx.selectDistinct({ triggerId: eventFires.triggerId }).from(eventFires).where(eq(eventFires.status, "deferred")).limit(EVENT_BATCH);
     for (const { triggerId } of waiting) {
-      const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, triggerId)).for("update", { skipLocked: true });
+      const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, triggerId)).for("no key update", { skipLocked: true });
       if (!trigger) continue;
       const room = await this.room(tx, trigger, now);
       if (room === 0) continue;
@@ -274,7 +274,8 @@ export class Scheduler {
   }
 
   /**
-   * Decides a fire, the trigger locked (`FOR UPDATE`) so that no other scheduler checks its
+   * Decides a fire, the trigger locked (`FOR NO KEY UPDATE`: it waits for itself, not for the
+   * key-share lock an `event_fires` insert takes on its trigger) so that no other scheduler checks its
    * limits meanwhile, and read as it is now: no Job when it no longer watches this change, when
    * the write was by a Job of its own agent, or when the agent may no longer read the event's
    * table; deferred when it has no room; otherwise a Job, one deeper than the Job that wrote the
@@ -288,7 +289,7 @@ export class Scheduler {
         .where(eq(eventFires.id, fireId));
       return { runId: set.runId ?? null, result: status };
     };
-    const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, triggerId)).for("update");
+    const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, triggerId)).for("no key update");
     if (!trigger?.enabled || !watches(trigger, event)) return record("refused", { message: "The trigger no longer watches this change" });
     const writer = event.actor.type === "user" ? null : (await tx.select({ id: runs.id, agentId: runs.agentId, source: runs.source, cause: runs.cause }).from(runs).where(eq(runs.id, event.actor.runId)))[0];
     if (writer?.source === "agent" && writer.agentId === trigger.agentId) return record("skipped-same-agent");
