@@ -27,7 +27,7 @@ async function pendingCount(db: Db, ownerId: string) {
  * label exactly as listed, free text trimmed). Free-text "Other" is any string, so a label the question doesn't list can't be told
  * from it: it reaches the agent as the owner's own words.
  */
-function check(payload: QuestionPayload, answer: Answer): Answer {
+export function check(payload: QuestionPayload, answer: Answer): Answer {
   const bad = (message: string): never => {
     throw new ORPCError("BAD_REQUEST", { message });
   };

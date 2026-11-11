@@ -5,7 +5,7 @@ import type { InitialContext } from "../rpc/context.ts";
 import { router } from "../rpc/router.ts";
 import { createProposal, takeItem } from "./proposals.ts";
 import { rightsOf, type JobIdentity } from "./rights.ts";
-import { PLATFORM_TOOLS, procedureOf, PROPOSE, type PlatformTool } from "./tools.ts";
+import { INBOX_TOOLS, PLATFORM_TOOLS, procedureOf, PROPOSE, type PlatformTool } from "./tools.ts";
 
 // The one way a Job's session calls Dispand's own procedures, for a cloud session (in process)
 // and for the Job endpoint alike: every call is authorized here, against the Job and against
@@ -16,7 +16,7 @@ export type PlatformApp = Omit<InitialContext, "headers" | "resHeaders" | "job">
 
 export type ToolResult = { ok: true; output: unknown } | { ok: false; error: string };
 
-const ALL = [...PLATFORM_TOOLS, PROPOSE];
+const ALL = [...PLATFORM_TOOLS, PROPOSE, ...INBOX_TOOLS];
 const NEEDS_PROPOSAL =
   "This change needs the owner's approval: list it in a proposal (propose), ask for it (request_approval with the proposal's id), then make the call exactly as listed, once.";
 const OVER = "This Job is over";
@@ -57,6 +57,7 @@ export async function callPlatformTool(app: PlatformApp, job: JobIdentity, name:
         output: { ...made, next: `Now call request_approval with a message saying what you propose and why, and proposal: "${made.proposalId}". Once approved, make each call exactly as listed.` },
       };
     }
+    if (tool.run) return await tool.run(app, job, parsed.data);
     // What changes what agents may do: only as a person approved it for this Job, and once.
     if (tool.grant && !(await takeItem(app.db, job, tool.name, parsed.data))) return { ok: false, error: NEEDS_PROPOSAL };
     const output = await call(procedureOf(router, tool.path) as never, parsed.data as never, {

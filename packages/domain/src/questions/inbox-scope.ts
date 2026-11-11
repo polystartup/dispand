@@ -29,8 +29,8 @@ export async function jobScope(db: Db | Tx, job: JobIdentity): Promise<InboxScop
 }
 
 /**
- * Whether `scope` may see the item: the reader has `inbox`, and the item is a Question (an
- * Approval is a person's), asked by a Job of another agent, a Job without `configure`, whose
+ * Whether `scope` may see the item: the reader has `inbox`, and the item is a Question with
+ * choices (an Approval, or a confirmation of a Job's values, is a person's), asked by a Job of another agent, a Job without `configure`, whose
  * tables are all within the reader's. The asking Job is judged by its snapshot, everything it
  * could read while it worked, not by what its agent has kept since: a Question may quote what it
  * read before a table was taken away. A workflow's question (no agent, no snapshot) is never
@@ -39,11 +39,11 @@ export async function jobScope(db: Db | Tx, job: JobIdentity): Promise<InboxScop
 export async function reachable(db: Db | Tx, scope: InboxScope, questionId: string): Promise<boolean> {
   if (!scope.bundles.includes("inbox")) return false;
   const [row] = await db
-    .select({ kind: questions.kind, source: runs.source, agentId: runs.agentId, snapshot: runs.snapshot })
+    .select({ kind: questions.kind, payload: questions.payload, source: runs.source, agentId: runs.agentId, snapshot: runs.snapshot })
     .from(questions)
     .innerJoin(runs, eq(runs.id, questions.runId))
     .where(and(eq(questions.id, questionId), eq(questions.ownerId, scope.ownerId)));
-  if (!row || row.kind !== "question" || row.source !== "agent" || !row.agentId || row.agentId === scope.agentId) return false;
+  if (!row || row.kind !== "question" || row.payload.kind !== "choice" || row.source !== "agent" || !row.agentId || row.agentId === scope.agentId) return false;
   const bundles = row.snapshot?.bundles ?? [];
   if (bundles.includes("configure")) return false;
   // A Job with no bundle reached no table.

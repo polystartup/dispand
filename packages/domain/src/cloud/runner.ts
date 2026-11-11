@@ -3,7 +3,7 @@ import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { cloudSessions, stepRuns } from "../db/schema.ts";
 import { answerText } from "../engine/engine.ts";
-import type { CloudHarness, HarnessAdapter, StartParams } from "../engine/harness.ts";
+import type { AgentAnswerer, CloudHarness, HarnessAdapter, StartParams } from "../engine/harness.ts";
 import { loadCloudHarness } from "../harnesses/cloud.ts";
 import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
@@ -209,7 +209,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     return known;
   }
 
-  async answer(sessionId: string, questionId: string, answer: Answer): Promise<boolean> {
+  async answer(sessionId: string, questionId: string, answer: Answer, by?: AgentAnswerer): Promise<boolean> {
     const known = await this.locked(sessionId, async () => {
       const [row] = await this.db.select().from(cloudSessions).where(eq(cloudSessions.id, sessionId));
       if (!row) return false;
@@ -217,7 +217,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       if (row.status !== "waiting" || row.pending?.questionId !== questionId) return true;
       const call = nextCall(row.items);
       if (!call) return true;
-      await this.resolve(row, call, row.pending.payload, answer);
+      await this.resolve(row, call, row.pending.payload, answer, by);
       return true;
     });
     if (known) this.kick(sessionId);
@@ -487,8 +487,8 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     await this.locked(id, () => done(outcome.text, outcome.isError, { inFlight: null }));
   }
 
-  /** The owner answered the question the session waits on, for `call`. Call it locked. */
-  private async resolve(row: Row, call: ToolCall, payload: QuestionPayload, answer: Answer) {
+  /** The owner (or, `by`, an agent) answered the question the session waits on, for `call`. Call it locked. */
+  private async resolve(row: Row, call: ToolCall, payload: QuestionPayload, answer: Answer, by?: AgentAnswerer) {
     const id = row.id;
     const { specs, names } = await this.specs(row.id);
     const key = names.fromName(call.name);
@@ -501,7 +501,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       );
     if (payload.kind === "choice") {
       if (answer.kind !== "choice") return reply(TEXTS.notAnswered, true);
-      return reply(answerText({ payload, answer }), false);
+      return reply(answerText({ payload, answer, answeredBy: by ?? null }), false);
     }
     if (payload.kind === "confirm-outputs") {
       if (answer.kind !== "confirm-outputs" || !answer.confirmed) {

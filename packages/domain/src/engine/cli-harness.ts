@@ -8,14 +8,14 @@ import { serverName, sessionTooling } from "./tooling.ts";
 import { exposedName } from "../platform/exposed.ts";
 import { jobTokenOf } from "../platform/token.ts";
 import type { RunnerHub } from "../runners/hub.ts";
-import { Engine } from "./engine.ts";
+import { attributed, Engine } from "./engine.ts";
 import { CloudRunner, combineToolCallers, noTools, type ToolCaller } from "../cloud/runner.ts";
 import { installedToolCaller } from "../tools/cloud.ts";
 import type { ClientHarness, ModelClient } from "../cloud/model-client.ts";
 import type { SecretBox } from "../secrets.ts";
 import { connectorToolExecutor, InstalledTools } from "../tools/executor.ts";
 import type { ToolConnector } from "../tools/mcp.ts";
-import { CLOUD_SOURCE, type CliHarness, type HarnessAdapter, type StartParams } from "./harness.ts";
+import { type AgentAnswerer, CLOUD_SOURCE, type CliHarness, type HarnessAdapter, type StartParams } from "./harness.ts";
 import { RoutingAdapter } from "./routing-adapter.ts";
 
 /** CLI harnesses: sessions run on a runner, reached through the hub. */
@@ -91,8 +91,9 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
     return this.deliver(await this.runnerOf(sessionId), { type: "session.send", sessionId, text });
   }
 
-  async answer(sessionId: string, questionId: string, answer: Answer): Promise<boolean> {
-    return this.deliver(await this.runnerOf(sessionId), { type: "session.answer", sessionId, questionId, answer });
+  async answer(sessionId: string, questionId: string, answer: Answer, by?: AgentAnswerer): Promise<boolean> {
+    // The protocol's answer has no answerer: an agent's says it in its own words.
+    return this.deliver(await this.runnerOf(sessionId), { type: "session.answer", sessionId, questionId, answer: by ? attributed(answer, by.name) : answer });
   }
 
   stop(sessionId: string, runnerId: string): Promise<boolean> {
