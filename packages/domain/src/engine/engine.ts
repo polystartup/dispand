@@ -460,19 +460,60 @@ export class Engine {
     // A chat whose session waits for a slot (`slots.ts`) keeps the message: its start sends it.
     const chat = steps.find((s) => s.start?.interactive && s.sessionId && ACTIVE_STEP.includes(s.status)) ?? (await this.queuedChat(runId, steps));
     if (!chat) throw new EngineError("CLOSED", "The chat is over");
-    const [row] = await this.db
-      .insert(messages)
-      .values({ id: newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text })
-      .returning();
-    this.publish(runId, [{ type: "message", message: messageView(row!) }]);
-    if (chat.sessionId) return this.deliverMessage(chat.sessionId, row!);
-    // Queued: its start sends what is stored by then. If it was written meanwhile, this one goes now.
+    const out: Out[] = [];
+    const { row, working } = await this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(messages)
+        .values({ id: newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text })
+        .returning();
+      out.push({ type: "message", message: messageView(row!) });
+      // A session between turns takes a slot first, a person waiting on it, or queues with the message.
+      if (!chat.sessionId || !chat.harnessId) return { row: row!, working: true };
+      const got = await take(tx, { id: chat.id, harnessId: chat.harnessId }, "person", { kind: "deliver" });
+      if (got === "queued") await this.pushStep(tx, chat.id, out);
+      return { row: row!, working: got === "working" };
+    });
+    this.publish(runId, out);
+    if (chat.sessionId) {
+      if (working) this.deliverMessage(chat.sessionId, row);
+      return;
+    }
+    // Queued for its start: the start sends what is stored by then. If it was written meanwhile,
+    // this one goes now, unless the start's flush sent it already.
     const [now] = await this.db.select({ sessionId: stepRuns.sessionId, startDeliveredAt: stepRuns.startDeliveredAt }).from(stepRuns).where(eq(stepRuns.id, chat.id));
-    if (now?.sessionId && now.startDeliveredAt) this.deliverMessage(now.sessionId, row!);
+    if (now?.sessionId && now.startDeliveredAt) await this.redeliverMessage(row.id);
   }
 
-  private async flushChat(stepId: string, sessionId: string) {
+  /** Sends the answers and chat messages that wait for the step's session (it holds a slot). */
+  private async flush(stepId: string, sessionId: string) {
+    for (const q of await this.undeliveredAnswers(sessionId)) this.deliverAnswer(q);
     for (const m of await this.undeliveredMessages(stepId)) this.deliverMessage(sessionId, m);
+  }
+
+  /** The step as it is now, for `runs.stream` (it queued, or left the queue). */
+  private async pushStep(tx: Tx, stepId: string, out: Out[]) {
+    const [row] = await tx.select().from(stepRuns).where(eq(stepRuns.id, stepId));
+    if (row) out.push({ type: "step", step: stepView(row) });
+  }
+
+  /**
+   * A step handed a slot does what it waited to do (`pending_action`): its start goes as its run
+   * advances; its waiting answers and messages go, or its lost session resumes. Cleared as it goes:
+   * the rows it sends stay undelivered until they reach the session, and every reconcile of a
+   * step holding a slot sends those again.
+   */
+  private async handOver(stepId: string) {
+    const [step] = await this.db.select().from(stepRuns).where(eq(stepRuns.id, stepId));
+    if (!step?.working || !step.pendingAction) return;
+    if (step.pendingAction.kind === "start") return this.advance(step.runId);
+    const [claimed] = await this.db
+      .update(stepRuns)
+      .set({ pendingAction: null })
+      .where(and(eq(stepRuns.id, stepId), isNotNull(stepRuns.pendingAction), inArray(stepRuns.status, ACTIVE_STEP)))
+      .returning();
+    if (!claimed?.sessionId) return;
+    if (step.pendingAction.kind === "resume") await this.resume(claimed);
+    else await this.flush(claimed.id, claimed.sessionId);
   }
 
   /** The run's chat step queued for a slot of its harness, or handed one and not started yet. */
@@ -493,13 +534,13 @@ export class Engine {
       if (words.length > TEXT || !storable(words)) throw new EngineError("INVALID", `The answer is too long (at most about ${TEXT - 100} characters)`);
     }
     const out: Out[] = [];
-    const q = await this.db.transaction(async (tx) => {
+    const settled = await this.db.transaction(async (tx) => {
       const [q] = await tx
         .update(questions)
         .set({ status: "answered", answer, answeredAt: new Date(), answeredBy: by ?? null })
         .where(and(eq(questions.id, questionId), eq(questions.status, "pending")))
         .returning();
-      if (!q) return null;
+      if (!q) return undefined;
       // A person's "always allow" to a CLI session's approval of one of its agent's tools: that
       // action stops asking on the agent, with the answer that was just taken (an answer that
       // came second grants nothing). The answer is used up as it is given: the call it is for
@@ -521,14 +562,23 @@ export class Engine {
       }
       out.push({ type: "question", question: questionView(q) });
       await this.syncWaiting(tx, q.stepRunId, q.runId, out);
-      return q;
+      // Nothing left to wait on: the session goes back to work once it holds a slot. Until then,
+      // and while another question is pending, the answers given stay undelivered.
+      const [step] = await tx.select().from(stepRuns).where(eq(stepRuns.id, q.stepRunId));
+      if (step?.status !== "running" || !step.sessionId) return { q, step: null };
+      if (step.harnessId && (await take(tx, { id: step.id, harnessId: step.harnessId }, "resume", { kind: "deliver" })) === "queued") {
+        await this.pushStep(tx, step.id, out);
+        return { q, step: null };
+      }
+      return { q, step };
     });
+    const { q, step } = settled ?? {};
     if (!q) throw new EngineError("NOT_PENDING", "This question is no longer waiting for an answer");
     const decision = q.answer?.kind === "permission" ? q.answer.decision : q.answer?.kind ?? "none";
     counts.counter("dispand.questions.answered").add(1, { "dispand.question.kind": q.kind, "dispand.answer.decision": decision });
     counts.histogram("dispand.question.wait", { unit: "ms", description: "From a question to its answer" }).record(q.answeredAt!.getTime() - q.createdAt.getTime(), { "dispand.question.kind": q.kind });
     this.publish(q.runId, out);
-    this.deliverAnswer(q);
+    if (step) await this.flush(step.id, step.sessionId!);
   }
 
   /** One event of a session, from the runner `from.runnerId` (events for another runner's session are ignored). */
@@ -616,6 +666,12 @@ export class Engine {
       await this.failInterruptedTools(id);
       await this.advance(id);
     }
+    // Steps handed a slot to deliver answers and messages, or to resume, before the process stopped.
+    const handed = await this.db
+      .select({ id: stepRuns.id })
+      .from(stepRuns)
+      .where(and(eq(stepRuns.working, true), sql`${stepRuns.pendingAction}->>'kind' in ('deliver', 'resume')`));
+    for (const { id } of handed) await this.handOver(id);
     if (this.cloud) await this.reconcile(CLOUD_SOURCE, await this.cloud.recover());
   }
 
@@ -697,6 +753,16 @@ export class Engine {
   private async resume(step: StepRow) {
     const sessionId = step.sessionId!;
     const out: Out[] = [];
+    // A resume is a turn: it takes a slot first, or queues and resumes once handed one.
+    if (step.harnessId) {
+      const harnessId = step.harnessId;
+      const got = await this.db.transaction(async (tx) => {
+        const got = await take(tx, { id: step.id, harnessId }, "resume", { kind: "resume" });
+        if (got === "queued") await this.pushStep(tx, step.id, out);
+        return got;
+      });
+      if (got === "queued") return this.publish(step.runId, out);
+    }
     const waiting = await this.db
       .update(questions)
       .set({ orphaned: true })
@@ -870,6 +936,8 @@ export class Engine {
         return null;
       }
       case "turn-end":
+        // A chat between turns waits for the owner's next message: it holds no slot meanwhile.
+        if (step.start?.interactive && step.working) await this.release(tx, step, out);
         return null;
       case "outputs-accepted":
         return (await this.complete(tx, step, event.values, out)) ? "advance" : null;
@@ -1164,7 +1232,7 @@ export class Engine {
     this.publish(run.id, [{ type: "step", step: stepView(started) }]);
     // Chat messages sent while it was queued go once the start is written (an unwritten one is
     // resent with them by the runner's reconcile).
-    this.launch(harness, start, started, [], start.interactive ? () => this.flushChat(started.id, start.sessionId) : undefined);
+    this.launch(harness, start, started, [], start.interactive ? () => this.flush(started.id, start.sessionId) : undefined);
   }
 
   /**
@@ -1241,6 +1309,7 @@ export class Engine {
     }
     const losses = this.losses.get(q.sessionId) ?? 0;
     const sent = this.track(`q:${q.id}`, async () => {
+      if (!(await this.holdsSlot(q.stepRunId))) return;
       const ok = q.orphaned
         ? await this.adapter.send(q.sessionId, answerText(q))
         : await this.adapter.answer(q.sessionId, q.runnerQuestionId, q.answer!);
@@ -1256,11 +1325,22 @@ export class Engine {
     }
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`m:${m.id}`, async () => {
+      if (!(await this.holdsSlot(m.stepRunId))) return;
       if ((await this.adapter.send(sessionId, m.text)) && (this.losses.get(sessionId) ?? 0) === losses) {
         await this.db.update(messages).set({ deliveredAt: new Date() }).where(eq(messages.id, m.id));
       }
     }).catch((err: unknown) => logError("chat message delivery failed", err, { ref: m.id }));
     this.keep(sent);
+  }
+
+  /**
+   * Whether the step's session may get answers and messages now: it holds a slot (or has no
+   * harness to charge). What it may not stays undelivered, sent when it is handed one (`handOver`).
+   */
+  private async holdsSlot(stepId: string | null): Promise<boolean> {
+    if (!stepId) return true;
+    const [row] = await this.db.select({ working: stepRuns.working, harnessId: stepRuns.harnessId }).from(stepRuns).where(eq(stepRuns.id, stepId));
+    return !row || row.working || !row.harnessId;
   }
 
   private async redeliverAnswer(id: string) {
@@ -1323,7 +1403,6 @@ export class Engine {
       .returning();
     if (!row) return;
     out.push({ type: "step", step: stepView(row) });
-    await this.release(tx, row, out);
     // A failed iteration fails its loop too: nothing else would close the loop's row.
     if (step.iteration > 0) {
       const [run] = await tx
@@ -1347,21 +1426,25 @@ export class Engine {
       .returning();
     for (const q of expired) out.push({ type: "question", question: questionView(q) });
     await this.finishRun(tx, step.runId, "failed", error, out);
-    // Nothing more of the run starts: its steps queued or handed a slot leave the queue. Its
-    // steps waiting on a question (expired above) never go on: they give their slot back.
+    // Nothing more of the run starts or resumes: its steps queued (to start, for an answer or a
+    // message, or to resume) or handed a slot leave the queue. Its steps waiting on a question
+    // (expired above) never go on: one still holding a slot gives it back.
     const waiting = await tx
       .select()
       .from(stepRuns)
       .where(
         and(
           eq(stepRuns.runId, step.runId),
-          or(and(eq(stepRuns.status, "pending"), or(isNotNull(stepRuns.queuedAt), eq(stepRuns.working, true))), and(eq(stepRuns.status, "waiting"), eq(stepRuns.working, true))),
+          inArray(stepRuns.status, OPEN_STEP),
+          or(isNotNull(stepRuns.queuedAt), and(inArray(stepRuns.status, ["pending", "waiting"]), eq(stepRuns.working, true))),
         ),
       );
     for (const s of waiting) await this.release(tx, s, out);
+    // Last, once its run is over: none of the run's steps is handed the slot.
+    await this.release(tx, row, out);
   }
 
-  /** A step that held a slot gives it back, or leaves the queue; the steps handed the slot start once `tx` commits. */
+  /** A step that held a slot gives it back, or leaves the queue; the steps handed the slot go on once `tx` commits (`handOver`). */
   private async release(tx: Tx, step: StepRow, out: Out[]) {
     if (!step.working && !step.queuedAt) return;
     const handed = await give(tx, step.id);
@@ -1384,8 +1467,8 @@ export class Engine {
     }
   }
 
-  /** A step, and its run, wait while one of their questions is pending. */
-  private async syncWaiting(tx: Tx | Db, stepId: string, runId: string, out: Out[]) {
+  /** A step, and its run, wait while one of their questions is pending; a step waiting holds no slot. */
+  private async syncWaiting(tx: Tx, stepId: string, runId: string, out: Out[]) {
     const pending = async (column: typeof questions.stepRunId | typeof questions.runId, id: string) => {
       const [row] = await tx
         .select({ n: count() })
@@ -1400,6 +1483,13 @@ export class Engine {
       .where(and(eq(stepRuns.id, stepId), inArray(stepRuns.status, ACTIVE_STEP), sql`${stepRuns.status} <> ${stepStatus}`))
       .returning();
     if (step) out.push({ type: "step", step: stepView(step) });
+    if (stepStatus === "waiting") {
+      const [held] = await tx
+        .select()
+        .from(stepRuns)
+        .where(and(eq(stepRuns.id, stepId), eq(stepRuns.status, "waiting"), eq(stepRuns.working, true)));
+      if (held) await this.release(tx, held, out);
+    }
     const runStatus = (await pending(questions.runId, runId)) ? "waiting" : "running";
     const [run] = await tx
       .update(runs)
@@ -1427,8 +1517,8 @@ export class Engine {
 
   private publish(runId: string, out: Out[]) {
     for (const e of out) {
-      // A step handed a slot: its run goes on, which starts its session (`openSession`).
-      if (e.type === "slot") this.keep(this.advance(e.runId).catch((err: unknown) => logError("slot hand-over failed", err, { ref: e.stepId })));
+      // A step handed a slot does what it waited to do (`handOver`).
+      if (e.type === "slot") this.keep(this.handOver(e.stepId).catch((err: unknown) => logError("slot hand-over failed", err, { ref: e.stepId })));
       else this.events.publish(runId, e);
     }
     if (out.some((e) => e.type === "question")) this.questionChanges.publish("changed", true);
