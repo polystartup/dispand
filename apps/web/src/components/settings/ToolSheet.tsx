@@ -265,7 +265,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
           </form>
 
           {current?.auth === "oauth" && current.oauthStatus && signIn === "oauth" && (
-            <ToolSignIn status={current.oauthStatus} clientId={current.oauthClientId} busy={busy} onConnect={(client) => void connect(client)} />
+            <ToolSignIn status={current.oauthStatus} clientId={current.enteredClientId} busy={busy} onConnect={(client) => void connect(client)} />
           )}
 
           {current && (
