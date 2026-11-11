@@ -33,4 +33,5 @@ COPY --from=build --chown=node:node /out/ ./
 RUN mkdir /data && chown node:node /data
 USER node
 EXPOSE 3000
-CMD ["node", "server.ts"]
+# The preload hooks the HTTP server, the PostgreSQL driver and fetch for telemetry before they load.
+CMD ["node", "--import", "./telemetry-preload.mjs", "server.ts"]

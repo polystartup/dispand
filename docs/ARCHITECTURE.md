@@ -237,6 +237,12 @@
   `dispand.owner.id`, `dispand.result`) and records `dispand.rpc.duration`; a Job's tool call
   passes the procedure's path. Metric instruments and their allowed attributes are listed in
   `telemetry/metrics.ts`. Better Auth's own spans go through the same pipeline.
+  `apps/web/telemetry-preload.mjs`, loaded with `node --import` by `pnpm start`, the image and
+  the dev server (`NODE_OPTIONS`), registers the HTTP, PostgreSQL and undici instrumentations
+  before anything loads; the import hook wraps only `pg` and `http(s)` (wrapping every module
+  breaks the router's import cycles), and `pg` is kept out of the server bundle so it can be
+  hooked. `telemetry-requests.mjs` lists the requests that make no span. PGlite has no
+  instrumentation: installs on it get no database spans.
 - **Platform tools:** a Job's session gets some of Dispand's own procedures as tools.
   `platform/tools.ts` is the registry: each tool names its procedure (`rows.create` is the tool
   `rows_create`), its bundle (`data`: `tables.list`, `tables.get` and the rows procedures;
