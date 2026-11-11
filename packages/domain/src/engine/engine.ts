@@ -30,7 +30,7 @@ import {
   type StepStatus,
 } from "../db/schema.ts";
 import { newId } from "../ids.ts";
-import { logError } from "../log.ts";
+import { errorKind, logError } from "../log.ts";
 import type { DataEvents } from "../data/events.ts";
 import { loadTableSchemas } from "../data/tables.ts";
 import { loadToolSchemas, noToolSteps, type ToolExecutor } from "../tools/executor.ts";
@@ -43,6 +43,7 @@ import type { CloudKind } from "../harnesses/cloud.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, isCloud, type StartParams } from "./harness.ts";
 import { runDataStep } from "./data-step.ts";
 import { aboutExposed, isExposedName, stopAsking } from "../platform/exposed.ts";
+import { annotate, currentTraceId, meter, recordError, tracer, withJob } from "../telemetry/index.ts";
 import { REQUEST_APPROVAL } from "../cloud/builtins.ts";
 import { attachProposal, settleProposal } from "../platform/proposals.ts";
 import { issueJobToken } from "../platform/token.ts";
@@ -59,6 +60,9 @@ type RunnerRow = typeof runners.$inferSelect;
 
 /** How many Jobs deep a chain of Jobs causing Jobs may go. */
 const MAX_CHAIN_DEPTH = 10;
+
+const traces = tracer("engine");
+const counts = meter("engine");
 
 const ACTIVE_RUN: RunStatus[] = ["running", "waiting"];
 const ACTIVE_STEP: StepStatus[] = ["running", "waiting"];
@@ -286,7 +290,8 @@ export class Engine {
     const [issue] = await runIssues(tx, workflow.ownerId, def);
     if (issue) throw new EngineError("INVALID", issue.message);
     const runId = newId("run");
-    await tx.insert(runs).values({ id: runId, ownerId: workflow.ownerId, workflowId, version: workflow.currentVersion, status: "running", trigger });
+    await tx.insert(runs).values({ id: runId, ownerId: workflow.ownerId, workflowId, version: workflow.currentVersion, status: "running", trigger, traceId: currentTraceId() ?? null });
+    counts.counter("dispand.runs.created").add(1, { "dispand.run.source": "workflow", "dispand.run.trigger": trigger.type });
     // A loop's body gets its rows when each iteration opens.
     const top = nodesOf(def).filter((n) => n.loopId === undefined);
     await tx.insert(stepRuns).values(top.map((n) => ({ id: newId("step"), ownerId: workflow.ownerId, runId, nodeId: n.id, status: "pending" as const })));
@@ -361,7 +366,9 @@ export class Engine {
       cause,
       status: "running",
       trigger: firing,
+      traceId: currentTraceId() ?? null,
     });
+    counts.counter("dispand.runs.created").add(1, { "dispand.run.source": "agent", "dispand.run.trigger": firing.type });
     await tx.insert(stepRuns).values(nodesOf(def).map((n) => ({ id: newId("step"), ownerId, runId, nodeId: n.id, status: "pending" as const })));
     return runId;
   }
@@ -466,6 +473,9 @@ export class Engine {
       return q;
     });
     if (!q) throw new EngineError("NOT_PENDING", "This question is no longer waiting for an answer");
+    const decision = q.answer?.kind === "permission" ? q.answer.decision : q.answer?.kind ?? "none";
+    counts.counter("dispand.questions.answered").add(1, { "dispand.question.kind": q.kind, "dispand.answer.decision": decision });
+    counts.histogram("dispand.question.wait", { unit: "ms", description: "From a question to its answer" }).record(q.answeredAt!.getTime() - q.createdAt.getTime(), { "dispand.question.kind": q.kind });
     this.publish(q.runId, out);
     this.deliverAnswer(q);
   }
@@ -480,6 +490,22 @@ export class Engine {
   }
 
   private async handleEvent(sessionId: string, event: HarnessEvent, from: { runnerId: string; seq: number }): Promise<void> {
+    counts.counter("dispand.harness.events").add(1, { "dispand.event.type": event.type });
+    // Words stream as many small events: those are counted, the others traced one by one.
+    if (event.type === "text") return this.applyEvent(sessionId, event, from);
+    return traces.startActiveSpan("engine.event", { attributes: { "dispand.event.type": event.type, "dispand.session.id": sessionId, "dispand.runner.id": from.runnerId } }, async (span) => {
+      try {
+        await this.applyEvent(sessionId, event, from);
+      } catch (err) {
+        recordError(span, errorKind(err));
+        throw err;
+      } finally {
+        span.end();
+      }
+    });
+  }
+
+  private async applyEvent(sessionId: string, event: HarnessEvent, from: { runnerId: string; seq: number }): Promise<void> {
     const out: RunEvent[] = [];
     const result = await this.db.transaction(async (tx) => {
       const [step] = await tx
@@ -488,6 +514,7 @@ export class Engine {
         .where(and(eq(stepRuns.sessionId, sessionId), eq(stepRuns.runnerId, from.runnerId), lt(stepRuns.eventSeq, from.seq)))
         .returning();
       if (!step) return null;
+      annotate({ "dispand.job.id": step.runId, "dispand.step.id": step.id });
       return { step, next: await this.apply(tx, step, event, out) };
     });
     if (!result) {
@@ -767,6 +794,7 @@ export class Engine {
           .onConflictDoNothing()
           .returning();
         if (row) {
+          counts.counter("dispand.questions.opened").add(1, { "dispand.question.kind": row.kind });
           // A request for approval that names a proposal of this run: the question is for that proposal.
           if (event.payload.kind === "permission" && event.payload.toolName === REQUEST_APPROVAL) {
             row.proposalId = await attachProposal(tx as unknown as Db, { runId: step.runId, ownerId: step.ownerId }, row.id, event.payload.input);
@@ -975,7 +1003,23 @@ export class Engine {
     return !!row;
   }
 
-  private async startSession(run: RunRow, def: WorkflowDef, steps: StepRow[], node: WorkflowNode, step: StepRow) {
+  /** A step's session, started in its own span (inside the Job's, for a Job). */
+  private startSession(run: RunRow, def: WorkflowDef, steps: StepRow[], node: WorkflowNode, step: StepRow): Promise<void> {
+    const traced = () =>
+      traces.startActiveSpan("engine.session.start", { attributes: { "dispand.run.id": run.id, "dispand.step.id": step.id, "dispand.node.id": node.id } }, async (span) => {
+        try {
+          await this.openSession(run, def, steps, node, step);
+        } catch (err) {
+          recordError(span, errorKind(err));
+          throw err;
+        } finally {
+          span.end();
+        }
+      });
+    return run.source === "agent" ? withJob(run.id, traced) : traced();
+  }
+
+  private async openSession(run: RunRow, def: WorkflowDef, steps: StepRow[], node: WorkflowNode, step: StepRow) {
     // A Job runs the agent as it was when the Job was created; a workflow run, as it is now.
     const [stored] = run.snapshot
       ? []
@@ -1036,6 +1080,7 @@ export class Engine {
       .where(and(eq(stepRuns.id, step.id), eq(stepRuns.status, "pending")))
       .returning();
     if (!started) return;
+    annotate({ "dispand.harness.kind": harness.kind, "dispand.session.id": start.sessionId });
     this.publish(run.id, [{ type: "step", step: stepView(started) }]);
     this.launch(harness, start, started);
   }
@@ -1045,9 +1090,12 @@ export class Engine {
    * step records it (and `written` runs); unwritten, the runner's next reconcile sends it again.
    */
   private launch(harness: Harness, start: StartParams, step: StepRow, held: string[] = [], written?: () => Promise<void>) {
+    // How the start ended, once it has: delivered, waiting for its runner, refused, or failed.
+    const outcome = (result: string) => counts.counter("dispand.sessions.started").add(1, { "dispand.harness.kind": harness.kind, "dispand.result": result });
     // Out of the protocol's bounds, the runner would refuse it and every reconcile would resend it.
     const problem = isCloud(harness) ? null : startProblem(harness, start);
     if (problem) {
+      outcome("refused");
       const out: RunEvent[] = [];
       const failed = this.db
         .transaction((tx) => this.fail(tx, step, problem, out))
@@ -1058,14 +1106,17 @@ export class Engine {
     }
     for (const key of held) this.inFlight.add(key);
     const sent = this.track(`start:${start.sessionId}`, async () => {
-      if (!(await this.adapter.start(harness, start))) return;
+      if (!(await this.adapter.start(harness, start))) return outcome("offline");
       await this.db.update(stepRuns).set({ startDeliveredAt: new Date() }).where(eq(stepRuns.id, step.id));
       await written?.();
+      // Last: a failure above is counted once, as failed.
+      outcome("ok");
     })
       .finally(() => {
         for (const key of held) this.inFlight.delete(key);
       })
       .catch(async (err: unknown) => {
+      outcome("failed");
       logError("session start failed", err, { ref: step.id });
       const out: RunEvent[] = [];
       await this.db.transaction((tx) => this.fail(tx, step, "The session could not start", out));
@@ -1195,7 +1246,12 @@ export class Engine {
       .set({ status, error, finishedAt: new Date() })
       .where(and(eq(runs.id, runId), inArray(runs.status, ACTIVE_RUN)))
       .returning();
-    if (row) out.push({ type: "run", run: runView(row) });
+    if (row) {
+      out.push({ type: "run", run: runView(row) });
+      const attributes = { "dispand.run.source": row.source, "dispand.run.status": status };
+      counts.counter("dispand.runs.finished").add(1, attributes);
+      counts.histogram("dispand.run.duration", { unit: "ms", description: "From a run's creation to its end" }).record(row.finishedAt!.getTime() - row.createdAt.getTime(), attributes);
+    }
   }
 
   /** A step, and its run, wait while one of their questions is pending. */

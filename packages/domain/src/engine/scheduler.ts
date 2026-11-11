@@ -2,12 +2,40 @@ import { and, asc, eq, inArray, lte } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { runs, scheduleFires, schedules, triggerFires, triggers, workflows, workflowVersions, type ScheduleFireStatus } from "../db/schema.ts";
 import { newId } from "../ids.ts";
-import { logError } from "../log.ts";
+import { errorKind, logError } from "../log.ts";
+import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { latestFireBetween, nextFireAfter } from "../workflows/schedule.ts";
 import { EngineError, runIssues, type Engine } from "./engine.ts";
 
 /** How often the scheduler looks for due schedules. */
 export const SCHEDULER_TICK_MS = 15_000;
+
+const traces = tracer("scheduler");
+const counts = meter("scheduler");
+
+/** What firing one schedule came to: the run it created, or why none. */
+type Fired = { runId: string | null; result: "started" | "already" | "skipped-overlap" | "refused" };
+
+/** One fire in its own span, counted by kind and result, with how late it was claimed. */
+function fired(kind: "workflow" | "trigger", at: Date, now: Date, work: () => Promise<Fired>): Promise<string | null> {
+  return traces.startActiveSpan("scheduler.fire", { attributes: { "dispand.fire.kind": kind, "dispand.fire.scheduled_for": at.toISOString() } }, async (span) => {
+    let result = "failed";
+    try {
+      const done = await work();
+      result = done.result;
+      if (done.runId) span.setAttribute("dispand.job.id", done.runId);
+      return done.runId;
+    } catch (err) {
+      recordError(span, errorKind(err));
+      throw err;
+    } finally {
+      span.setAttribute("dispand.fire.result", result);
+      span.end();
+      counts.counter("dispand.scheduler.fires").add(1, { "dispand.fire.kind": kind, "dispand.fire.result": result });
+      counts.histogram("dispand.scheduler.lag", { unit: "ms", description: "How late a due schedule was claimed" }).record(now.getTime() - at.getTime(), { "dispand.fire.kind": kind });
+    }
+  });
+}
 /** The most schedules one tick claims; the rest wait for the next. */
 const BATCH = 20;
 
@@ -58,6 +86,23 @@ export class Scheduler {
 
   /** Fires what is due and goes on with the runs it started (and those that failed to before); returns the new ones' ids. */
   async tick(): Promise<string[]> {
+    // Each tick is the root of its own trace: the runs it creates carry its id.
+    return traces.startActiveSpan("scheduler.tick", { root: true }, async (span) => {
+      try {
+        const started = await this.tickWork();
+        span.setAttribute("dispand.scheduler.started", started.length);
+        return started;
+      } catch (err) {
+        recordError(span, errorKind(err));
+        throw err;
+      } finally {
+        span.end();
+        counts.counter("dispand.scheduler.ticks").add(1);
+      }
+    });
+  }
+
+  private async tickWork(): Promise<string[]> {
     const started = await this.claim();
     for (const runId of [...this.stalled, ...started]) {
       try {
@@ -91,7 +136,7 @@ export class Scheduler {
           // that failed (rolled back, nothing recorded) leaves its schedule due: the next tick
           // tries the same time again.
           try {
-            const runId = await tx.transaction((sp) => this.fire(sp, s.workflowId, s.ownerId, at));
+            const runId = await fired("workflow", at, now, () => tx.transaction((sp) => this.fire(sp, s.workflowId, s.ownerId, at)));
             if (runId) started.push(runId);
           } catch (err) {
             logError("scheduler.fire failed", err);
@@ -117,7 +162,7 @@ export class Scheduler {
         const at = latestFireBetween(cron, timezone, t.lastCheckedAt, now);
         if (at) {
           try {
-            const runId = await tx.transaction((sp) => this.fireTrigger(sp, t, at));
+            const runId = await fired("trigger", at, now, () => tx.transaction((sp) => this.fireTrigger(sp, t, at)));
             if (runId) started.push(runId);
           } catch (err) {
             logError("scheduler.fireTrigger failed", err);
@@ -134,7 +179,7 @@ export class Scheduler {
   }
 
   /** Records the trigger's fire for `at` (once) and creates its Job, unless one is going (one at a time) or the engine refuses it. */
-  private async fireTrigger(tx: Tx, trigger: typeof triggers.$inferSelect, at: Date): Promise<string | null> {
+  private async fireTrigger(tx: Tx, trigger: typeof triggers.$inferSelect, at: Date): Promise<Fired> {
     const id = newId("fire");
     const [fire] = await tx
       .insert(triggerFires)
@@ -142,7 +187,7 @@ export class Scheduler {
       .onConflictDoNothing()
       .returning({ id: triggerFires.id });
     // Already fired for this time (another process, or before a restart).
-    if (!fire) return null;
+    if (!fire) return { runId: null, result: "already" };
     const record = (status: ScheduleFireStatus, set: { runId?: string; message?: string }) =>
       tx.update(triggerFires).set({ status, ...set }).where(eq(triggerFires.id, id));
     if (trigger.concurrency === "one-at-a-time") {
@@ -153,7 +198,7 @@ export class Scheduler {
         .limit(1);
       if (active) {
         await record("skipped-overlap", {});
-        return null;
+        return { runId: null, result: "skipped-overlap" };
       }
     }
     const scheduledFor = at.toISOString();
@@ -169,16 +214,16 @@ export class Scheduler {
         }),
       );
       await record("started", { runId });
-      return runId;
+      return { runId, result: "started" };
     } catch (err) {
       if (!(err instanceof EngineError)) throw err;
       await record("refused", { message: err.message });
-      return null;
+      return { runId: null, result: "refused" };
     }
   }
 
   /** Records the fire for `at` (once) and creates its run unless one is going or the workflow can't run. */
-  private async fire(tx: Tx, workflowId: string, ownerId: string, at: Date): Promise<string | null> {
+  private async fire(tx: Tx, workflowId: string, ownerId: string, at: Date): Promise<Fired> {
     const id = newId("fire");
     const [fire] = await tx
       .insert(scheduleFires)
@@ -186,7 +231,7 @@ export class Scheduler {
       .onConflictDoNothing()
       .returning({ id: scheduleFires.id });
     // Already fired for this time (another process, or before a restart).
-    if (!fire) return null;
+    if (!fire) return { runId: null, result: "already" };
     const record = (status: ScheduleFireStatus, set: { runId?: string; message?: string }) =>
       tx.update(scheduleFires).set({ status, ...set }).where(eq(scheduleFires.id, id));
     const [active] = await tx
@@ -196,7 +241,7 @@ export class Scheduler {
       .limit(1);
     if (active) {
       await record("skipped-overlap", {});
-      return null;
+      return { runId: null, result: "skipped-overlap" };
     }
     const [current] = await tx
       .select({ def: workflowVersions.def })
@@ -206,11 +251,11 @@ export class Scheduler {
     const [issue] = current ? await runIssues(tx, ownerId, current.def) : [{ message: "The workflow no longer exists" }];
     if (issue) {
       await record("refused", { message: issue.message });
-      return null;
+      return { runId: null, result: "refused" };
     }
     const runId = await this.engine.createRun(tx, workflowId, { type: "schedule", scheduledFor: at.toISOString() });
     await record("started", { runId });
-    return runId;
+    return { runId, result: "started" };
   }
 }
 
