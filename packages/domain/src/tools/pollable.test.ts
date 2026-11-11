@@ -58,3 +58,12 @@ test("an action an agent must ask before using is never polled, whatever the own
   expect(actions.find((a) => a.name === "send")).toMatchObject({ allowed: true, askedBy: ["Clerk"], pollable: false });
   expect(actions.find((a) => a.name === "search")).toMatchObject({ pollable: true });
 });
+
+test("an agent that gets the tool only through a skill asks before every action, so none of them is polled", async () => {
+  const context = await setup();
+  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
+  const { packageId } = await call(router.skills.create, { name: "triage", description: "Triages mail.", instructions: "x", requiredToolIds: ["tool_mail"] }, { context });
+  await call(router.agents.create, { name: "Triager", harnessId: harness.id, systemPrompt: "", skillPackageIds: [packageId] }, { context });
+  expect((await call(router.tools.pollable, { id: "tool_mail" }, { context })).find((a) => a.name === "search")).toMatchObject({ askedBy: ["Triager"], pollable: false });
+});
