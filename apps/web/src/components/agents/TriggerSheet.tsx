@@ -43,7 +43,7 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
   const remove = useMutation(orpc.triggers.delete.mutationOptions({ onSuccess: done }));
   const [name, setName] = useState(trigger?.name ?? "");
   const [instructions, setInstructions] = useState(trigger?.instructions ?? "");
-  const [starts, setStarts] = useState<Starts>(trigger ? (trigger.config.kind === "schedule" ? "schedule" : trigger.config.placement) : "chat");
+  const [starts, setStarts] = useState<Starts>(trigger ? (trigger.config.kind === "manual" ? trigger.config.placement : "schedule") : "chat");
   const [schedule, setSchedule] = useState(
     trigger?.config.kind === "schedule" ? { cron: trigger.config.cron, timezone: trigger.config.timezone } : { cron: "0 9 * * *", timezone: localTimezone() },
   );

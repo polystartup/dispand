@@ -9,7 +9,7 @@ import {
   storable,
   TEXT,
 } from "@dispand/runner-protocol";
-import { and, asc, count, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import {
   agents,
@@ -60,6 +60,9 @@ type RunnerRow = typeof runners.$inferSelect;
 
 /** How many Jobs deep a chain of Jobs causing Jobs may go. */
 const MAX_CHAIN_DEPTH = 10;
+/** The most Jobs one chain makes, from its first Job (`cause.rootJobId`). */
+const MAX_CHAIN_JOBS = 100;
+export const CHAIN_LIMIT = "Chain limit reached";
 
 const traces = tracer("engine");
 const counts = meter("engine");
@@ -322,7 +325,14 @@ export class Engine {
     input: { ownerId: string; agentId: string; triggerId: string; cause: JobCause; firing: RunTrigger },
   ): Promise<string> {
     const { ownerId, agentId, triggerId, cause, firing } = input;
-    if (cause.depth > MAX_CHAIN_DEPTH) throw new EngineError("INVALID", "Chain limit reached");
+    if (cause.depth > MAX_CHAIN_DEPTH) throw new EngineError("INVALID", CHAIN_LIMIT);
+    if (cause.kind === "event" && cause.rootJobId) {
+      const [chain] = await tx
+        .select({ jobs: count() })
+        .from(runs)
+        .where(and(eq(runs.ownerId, ownerId), or(eq(runs.id, cause.rootJobId), sql`${runs.cause}->>'rootJobId' = ${cause.rootJobId}`)));
+      if (chain!.jobs >= MAX_CHAIN_JOBS) throw new EngineError("INVALID", CHAIN_LIMIT);
+    }
     // Shared with other starts, exclusive with a delete: the Job never outlives its agent. The
     // trigger first, then the agent: the order the scheduler and a delete take them in
     // (`jobs/active.ts`), so none of them waits on another.
@@ -848,7 +858,8 @@ export class Engine {
       const nodes = new Map(nodesOf(def).map((n) => [n.id, n]));
       let changed = false;
       const scheduledFor = run.trigger.type === "schedule" ? new Date(run.trigger.scheduledFor) : run.createdAt;
-      for (const action of nextActions(def, steps, { scheduledFor })) {
+      const outputs = run.trigger.type === "event" ? run.trigger.outputs : undefined;
+      for (const action of nextActions(def, steps, { scheduledFor, ...(outputs ? { outputs } : {}) })) {
         const out: RunEvent[] = [];
         if (action.type === "finish") {
           await this.finishRun(this.db, runId, action.status, null, out);

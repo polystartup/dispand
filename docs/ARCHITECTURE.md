@@ -212,7 +212,25 @@
   transaction, for due enabled schedule triggers, with the rules of workflow schedules: one
   fire per due time in `trigger_fires` (unique on `(trigger_id, scheduled_for)`),
   `skipped-overlap` when the trigger is one at a time and one of its Jobs is going, `refused`
-  with the engine's message, otherwise `started` with the Job. The agent's page
+  with the engine's message, otherwise `started` with the Job. A third claim takes the
+  outbox: first the `deferred` fires of `event_fires` (oldest first), then up to 100
+  unprocessed `events` (`FOR UPDATE SKIP LOCKED`), each matched against the owner's enabled
+  `primitive` triggers (`{ tableId, operations, fields? }`: an update fires only when one of
+  `fields` changed). Each match is one `event_fires` row (unique on `(trigger_id, event_id)`)
+  and the event is marked processed in the same transaction, so two schedulers never make an
+  event's Job twice. A fire is `skipped-same-agent` when the write was by a Job of the
+  trigger's own agent, `out-of-scope` when the agent no longer has `data` on the table (a
+  table that stopped being primitive, or was deleted, makes no more events), `deferred`
+  while the trigger has started `rate_cap` Jobs in the last hour (default 60, set on the
+  trigger) or, one at a time, has a Job going, and otherwise `started`. The Job's cause is
+  `event` with its depth (the writing Job's plus one, 0 for a person or a workflow) and the
+  chain's first Job (`rootJobId`); `createJob` refuses past depth 10 or at 100 Jobs from one
+  root (`chain-limit`). The trigger node's outputs are the change (`operation`, `table_id`,
+  `row_id`, `changed_field_ids`, `before`, `after`, JSON for the last three), carried in the
+  run's firing and written after the trigger's instructions (`CHANGE_PROMPT`); a row's
+  values never reach telemetry, whose `scheduler.fire` span has kind `event`. Creating or
+  changing a primitive trigger checks that the table is the owner's and primitive, the fields
+  are its own, and the agent has `data` on it. The agent's page
   (`/settings/agents/<id>`) has three tabs: Settings, Triggers (`components/agents/TriggerList`,
   `TriggerSheet`, which reuses the schedule panel) and Jobs (`JobList`). A manual trigger goes
   on a page as a `trigger-form` widget (`widgets.trigger_id`, one per trigger and page):
@@ -466,8 +484,8 @@
   changes nothing makes none), `deleted` with every field's last value, and the `actor`: the
   signed-in user, the Job whose tool wrote it, or the Data step (`writeRow` requires it;
   `actorOf` reads it from a procedure's context). Clearing references to deleted rows is an
-  event of each referring row, by the deleter. `processed_at` stays null until node C's
-  scheduler matches the event to triggers.
+  event of each referring row, by the deleter. `processed_at` is set once the scheduler has
+  matched the event to triggers (see Jobs).
   A schema change that rewrites cells (a choice removed, a retype, a field deleted) records
   no event: it changes the table's shape, not a row someone wrote, and starts no Job.
 - **Rows (Data):** every row write, from a procedure or a Data step, goes through

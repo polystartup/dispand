@@ -33,8 +33,10 @@ test("creates a manual chat trigger on the owner's agent", async () => {
     enabled: true,
     instructions: "",
     concurrency: "parallel",
+    rateCap: 60,
     config: { kind: "manual", placement: "chat" },
     lastFires: [],
+    lastEvents: [],
   });
   expect(await call(router.triggers.get, { id: created.id }, { context })).toEqual(created);
   expect(await call(router.triggers.list, { agentId: agent.id }, { context })).toEqual([created]);
