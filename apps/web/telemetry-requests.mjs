@@ -1,3 +1,6 @@
+import process from "node:process";
+import { URL } from "node:url";
+
 // Which requests the HTTP instrumentation leaves out (`telemetry-preload.mjs`). Kept apart so a
 // test can read it without starting the instrumentation.
 
