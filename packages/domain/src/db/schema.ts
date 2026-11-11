@@ -575,6 +575,35 @@ export const tables = pgTable(
   (t) => [uniqueIndex("tables_owner_name_idx").on(t.ownerId, sql`lower(${t.name})`)],
 );
 
+/** Who made a write: a person, a Job (its run), or a workflow's step. */
+export type EventActor = { type: "user"; userId: string } | { type: "job"; runId: string } | { type: "step"; runId: string; stepId: string };
+
+/**
+ * The outbox (node C): one row per write of a row of a primitive table, appended in the same
+ * transaction as the write. `before` and `after` hold the changed fields' values (every field of
+ * a deleted row). The scheduler marks each one processed once its triggers had their chance.
+ * Kept after processing: it is also the record of data changes.
+ */
+export const events = pgTable(
+  "events",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    tableId: text("table_id").notNull(),
+    rowId: text("row_id").notNull(),
+    operation: text("operation").$type<"created" | "updated" | "deleted">().notNull(),
+    changedFieldIds: jsonb("changed_field_ids").$type<string[]>().notNull(),
+    before: jsonb("before").$type<Record<string, Cell>>().notNull(),
+    after: jsonb("after").$type<Record<string, Cell>>().notNull(),
+    actor: jsonb("actor").$type<EventActor>().notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    processedAt: timestamp("processed_at"),
+  },
+  (t) => [index("events_unprocessed_idx").on(t.createdAt).where(sql`${t.processedAt} is null`), index("events_table_row_idx").on(t.tableId, t.rowId)],
+);
+
 export const fields = pgTable(
   "fields",
   {

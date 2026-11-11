@@ -267,6 +267,13 @@
       "when": 1794392230516,
       "tag": "0037_primitive_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794393328929,
+      "tag": "0038_events_outbox",
+      "breakpoints": true
     }
   ]
 }

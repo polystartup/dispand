@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
-import { rows, runs, stepRuns, tables, user } from "../db/schema.ts";
+import { events, rows, runs, stepRuns, tables, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { DataStep, WorkflowDef } from "../workflows/model.ts";
@@ -88,6 +88,16 @@ test("a chat's confirmed outputs become a row, and the step gives its row id", a
   const [row] = (await call(router.rows.list, { tableId: ids.tableId }, { context })).rows;
   expect(row!.values).toEqual({ [ids.nameId]: "Dispand", [ids.priceId]: 12.5 });
   expect(steps["n_data"]).toMatchObject({ status: "succeeded", outputs: { row_id: row!.id } });
+});
+
+test("a Data step's row of a primitive table is an event by that step", async () => {
+  const { context, adapter, engine, emit, workflow, ids } = await setup(chatThenCreate);
+  await call(router.tables.setPrimitive, { id: ids.tableId, primitive: true }, { context });
+  const runId = await engine.startRun(workflow.id);
+  await emit(adapter.starts[0]!.start.sessionId, { type: "outputs-accepted", values: { name: "Dispand", price: "1" } });
+  const { steps } = await runOf(engine, runId);
+  const recorded = await engine.db.select().from(events).where(eq(events.tableId, ids.tableId));
+  expect(recorded.map((e) => [e.operation, e.actor])).toEqual([["created", { type: "step", runId, stepId: steps["n_data"]!.id }]]);
 });
 
 test("an output that doesn't fit its field fails the step and writes no row", async () => {
