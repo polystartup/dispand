@@ -95,8 +95,9 @@ export function messageView(m: MessageRow) {
   return { id, runId, stepRunId, role, text, createdAt };
 }
 export function questionView(q: QuestionRow) {
-  const { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId } = q;
-  return { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId };
+  // `rootId`: a checkpoint's Approval (`roots.ts`), told apart by it and never by its tool name.
+  const { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId, rootId } = q;
+  return { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId, rootId };
 }
 
 /** What `runs.stream` forwards: each carries the whole row as it is now (upserts by id). */

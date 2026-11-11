@@ -125,7 +125,7 @@ test("an approval doesn't bring back a right taken since, nor skip the procedure
 test("every tool marked as a grant is refused without a proposal", async () => {
   const s = await setup(["data", "configure"]);
   const grants = PLATFORM_TOOLS.filter((t) => t.grant);
-  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "harnesses_set_limit", "tables_delete", "tools_add", "tools_delete", "triggers_create", "triggers_delete", "triggers_update"]);
+  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "harnesses_set_limit", "tables_delete", "tools_add", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
   const table = await call(router.tables.create, { name: "Clients" }, { context: s.context });
   const field = (await call(router.tables.get, { id: table.id }, { context: s.context })).fields[0]!;
   const inputs: Record<string, unknown> = {
@@ -140,6 +140,7 @@ test("every tool marked as a grant is refused without a proposal", async () => {
     tools_add: { name: "Mail", url: "https://mail.example.com/mcp", transport: "streamable-http" },
     tools_delete: { id: "tool_x" },
     harnesses_set_limit: { id: s.agent.harnessId, maxWorking: 10 },
+    workspace_set_checkpoint: { checkpoint: 500 },
   };
   for (const t of grants) expect(((await s.tool(t.name, inputs[t.name])) as { error: string }).error).toMatch(NEEDS);
 });
@@ -406,4 +407,14 @@ test("a harness's limit changes through an approved proposal, which names the ha
   await s.answer(q, "allow");
   expect(await s.tool("harnesses_set_limit", { id: s.harness.id, maxWorking: 2 })).toMatchObject({ ok: true, output: { maxWorking: 2 } });
   expect((await call(router.harnesses.limits, undefined, { context: s.context })).find((h) => h.id === s.harness.id)).toMatchObject({ maxWorking: 2 });
+});
+
+test("the workspace's checkpoint changes through an approved proposal only", async () => {
+  const s = await setup();
+  expect(await s.tool("workspace_checkpoint", {})).toMatchObject({ ok: true, output: { checkpoint: 100 } });
+  expect(((await s.tool("workspace_set_checkpoint", { checkpoint: 500 })) as { error: string }).error).toMatch(NEEDS);
+  const id = s.idOf(await s.propose([{ tool: "workspace_set_checkpoint", input: { checkpoint: 500 } }]));
+  await s.answer(await s.ask({ message: "May I?", proposal: id }), "allow");
+  expect(await s.tool("workspace_set_checkpoint", { checkpoint: 500 })).toMatchObject({ ok: true, output: { checkpoint: 500 } });
+  expect(await call(router.workspace.checkpoint, undefined, { context: s.context })).toEqual({ checkpoint: 500 });
 });

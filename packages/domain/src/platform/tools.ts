@@ -159,6 +159,8 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("agents.toolAsk", "configure", "Lists the actions of each tool an agent chose, with whether each asks the owner before use.", { tables: none }),
   tool("harnesses.limits", "configure", "Lists every harness with how many of its sessions may work at once, and how many work and wait now.", { tables: none }),
   tool("harnesses.setLimit", "configure", `Sets how many sessions of a harness may work at once: raising it lets agents spend more, lowering it holds back others' work. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool("workspace.checkpoint", "configure", "Gives the workspace's checkpoint: how many Jobs of one root cause go before a person is asked to let them go on.", { tables: none }),
+  tool("workspace.setCheckpoint", "configure", `Sets the workspace's checkpoint: raising it lets agents spend more before a person is asked, lowering it holds back others' work. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("agents.setToolAsk", "configure", `Makes one action of an agent's tool ask before use, or run without asking. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("tables.delete", "configure", `Deletes a table with its rows: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: named("id"), grant: true }),
   tool("fields.delete", "configure", `Deletes a field with its values in every row: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: tableOfField, grant: true }),

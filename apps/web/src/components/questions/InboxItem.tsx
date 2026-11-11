@@ -5,12 +5,16 @@ import { useState } from "react";
 import { type api, orpc } from "../../lib/api.ts";
 import { when } from "../workflow/Runs.tsx";
 import { ProposalItems } from "./ProposalItems.tsx";
-import { type About, approvalWords, QuestionForm } from "./QuestionForm.tsx";
+import { type About, approvalWords, checkpointInput, QuestionForm } from "./QuestionForm.tsx";
 
 export type InboxEntry = Awaited<ReturnType<typeof api.questions.list>>[number];
 
 /** What was asked, in a line or two, for an item that is done. */
-function askedText(payload: QuestionPayload, about?: About | null): string {
+function askedText(payload: QuestionPayload, about?: About | null, rootId?: string | null): string {
+  if (rootId) {
+    const c = checkpointInput(payload);
+    return `Checkpoint: ${c.root} had led to ${c.jobs} Jobs`;
+  }
   if (payload.kind === "choice") return payload.questions.map((q) => q.question).join(" · ");
   const words = approvalWords(payload);
   if (words !== null) return `Asked: ${words}`;
@@ -22,7 +26,8 @@ function askedText(payload: QuestionPayload, about?: About | null): string {
 }
 
 /** The answer in the owner's words. */
-export function answerLine(answer: Answer, payload?: QuestionPayload): string {
+export function answerLine(answer: Answer, payload?: QuestionPayload, rootId?: string | null): string {
+  if (rootId && answer.kind === "permission") return { allow: "Went on", "allow-always": "Went on, without asking again", deny: "Stopped" }[answer.decision];
   // An approval asked in words is approved or denied; a tool call is allowed or denied.
   if (payload && approvalWords(payload) !== null && answer.kind === "permission" && answer.decision !== "deny") return "Approved";
   if (answer.kind === "choice") {
@@ -91,11 +96,11 @@ export function InboxItem({ item }: { item: InboxEntry }) {
         <QuestionForm question={item} busy={answer.isPending} error={answer.error?.message ?? null} onAnswer={(a) => answer.mutate({ questionId: item.id, answer: a })} />
       ) : (
         <div className="space-y-2 text-[14px]">
-          <p className="whitespace-pre-wrap break-words text-muted">{askedText(item.payload, item.about)}</p>
+          <p className="whitespace-pre-wrap break-words text-muted">{askedText(item.payload, item.about, item.rootId)}</p>
           {item.proposal && <ProposalItems proposal={item.proposal} />}
           {item.status === "answered" && item.answer ? (
             <>
-              <p className="font-medium">{answerLine(item.answer, item.payload)}</p>
+              <p className="font-medium">{answerLine(item.answer, item.payload, item.rootId)}</p>
               <p className="text-[13px] text-faint">
                 Answered{item.answeredBy?.type === "user" ? " by you" : ""}
                 {item.answeredAt ? ` · ${when.format(item.answeredAt)}` : ""}
