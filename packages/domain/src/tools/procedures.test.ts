@@ -87,7 +87,7 @@ test("refresh keeps the last actions when the server is gone", async () => {
   expect(refreshed.refreshedAt).toEqual(tool.refreshedAt);
 });
 
-test("update: an omitted header is kept, an empty one removed, a new URL lists again", async () => {
+test("update: at the same address an omitted header is kept and an empty one removed", async () => {
   const context = await ownerContext();
   const first = await fake();
   const tool = await call(
@@ -95,11 +95,29 @@ test("update: an omitted header is kept, an empty one removed, a new URL lists a
     { name: "Echo", url: first.url, transport: "streamable-http", headers: { authorization: SECRET, "x-team": "a" } },
     { context },
   );
-  const second = await fake([{ name: "other" }]);
-  const updated = await call(router.tools.update, { id: tool.id, url: second.url, headers: { "x-team": "" } }, { context });
+  // Another path of the same origin: the same server, the headers stay.
+  const updated = await call(router.tools.update, { id: tool.id, url: `${first.url}?v=2`, headers: { "x-team": "" } }, { context });
   expect(updated.headerNames).toEqual(["authorization"]);
-  expect(updated.actions.map((a) => a.name)).toEqual(["other"]);
-  expect(second.requests.every((h) => h.authorization === SECRET && h["x-team"] === undefined)).toBe(true);
+  expect(first.requests.at(-1)).toMatchObject({ authorization: SECRET });
+  expect(first.requests.at(-1)!["x-team"]).toBeUndefined();
+});
+
+test("a tool's headers never follow it to another address: a new origin starts without them", async () => {
+  const context = await ownerContext();
+  const first = await fake();
+  const tool = await call(router.tools.create, { name: "Echo", url: first.url, transport: "streamable-http", headers: { authorization: SECRET, "x-team": "a" } }, { context });
+  // Another origin: nothing the owner entered for the first server reaches the second.
+  const second = await fake([{ name: "other" }]);
+  const moved = await call(router.tools.update, { id: tool.id, url: second.url }, { context });
+  expect(moved.headerNames).toEqual([]);
+  expect(moved.actions.map((a) => a.name)).toEqual(["other"]);
+  expect(second.requests.length).toBeGreaterThan(0);
+  expect(second.requests.every((h) => h.authorization === undefined && h["x-team"] === undefined)).toBe(true);
+  // Headers given with the move are for the new address: those are kept, and only those.
+  const third = await fake();
+  const again = await call(router.tools.update, { id: tool.id, url: third.url, headers: { authorization: "Bearer other" } }, { context });
+  expect(again.headerNames).toEqual(["authorization"]);
+  expect(third.requests.every((h) => h.authorization === "Bearer other")).toBe(true);
 });
 
 test("headers go only to https, or plain http on this machine; no credentials in the URL", async () => {

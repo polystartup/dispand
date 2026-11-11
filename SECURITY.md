@@ -352,7 +352,10 @@ changes it updates this file.
   action off the agent's asking ones: it holds for that agent from then on, until the owner
   puts it back, and no session keeps an allowance of its own.
   A tool's headers go only to its URL, which must be `https://` when it has headers (plain
-  http only to loopback) and can't carry credentials itself; MCP calls follow a redirect only
+  http only to loopback) and can't carry credentials itself. They are for the server they
+  were entered for: changing a tool's origin (scheme, host, port) or its transport drops
+  every saved header, and only those given with that change are kept, so the owner enters
+  them again for the new address; MCP calls follow a redirect only
   within the tool's origin, and a failure reaches the owner as a short reason made by
   Dispand (host, status), never the server's answer. Whatever the server sends back (action
   names and descriptions, results) has the header values, and each word of them but a scheme

@@ -52,6 +52,15 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
   const del = useMutation(orpc.tools.delete.mutationOptions({ onSuccess: invalidate }));
   const busy = create.isPending || update.isPending || del.isPending || refresh.isPending;
 
+  // Saved headers are for the server they were entered for: another origin or transport starts without them.
+  const origin = (value: string) => {
+    try {
+      return new URL(value).origin;
+    } catch {
+      return "";
+    }
+  };
+  const elsewhere = current?.kind === "http" && (origin(url.trim()) !== origin(current.url ?? "") || transport !== current.transport);
   const setRow = (key: number, patch: Partial<HeaderRow>) => setHeaders((rows) => rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
 
   async function save() {
@@ -144,6 +153,11 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
 
             <fieldset className="space-y-2">
               <legend className="mb-1.5 text-[13px] font-medium text-muted">Headers</legend>
+              {elsewhere && headers.some((r) => r.stored && !r.removed) && (
+                <p role="status" className="rounded-lg bg-hover px-3 py-2 text-[13px] text-muted">
+                  This is another address: the saved headers are not sent there. Enter again the ones this server needs.
+                </p>
+              )}
               {headers
                 .filter((r) => !r.removed)
                 .map((row) => (
@@ -163,7 +177,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
                       autoComplete="off"
                       value={row.value}
                       onChange={(e) => setRow(row.key, { value: e.target.value })}
-                      placeholder={row.stored ? "Set: leave empty to keep" : "Bearer …"}
+                      placeholder={row.stored ? (elsewhere ? "Not kept: enter it again" : "Set: leave empty to keep") : "Bearer …"}
                       maxLength={4000}
                       required={!row.stored}
                     />
