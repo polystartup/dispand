@@ -277,7 +277,22 @@ changes it updates this file.
   with an MCP client's default environment plus its `env`, from the home folder, its stderr
   dropped, one listing per tool at a time, stopped after 30 s; its `env` values are redacted from
   what it lists before anything reads it, and an error carries the runner's own words, never the
-  server's output. HTTP MCP servers come from the server with their headers, and are never
+  server's output. A poll's call (`tool.call`) runs outside any session and starts such a server
+  the same way; the runner calls the action only if that server marks it read-only
+  (`readOnlyHint`) or the server's `pollable` in the runner's config names it (an empty list
+  forbids polls), whatever the server asks, so a poll is never a way to make the machine act;
+  no approval stands between a poll and its call, so two guards stand instead. A call whose
+  arguments name a path sessions are kept from (the runner's config, the CLIs' homes and every
+  link out of them, `codexDenied`; each string read every way a file reader might: as given,
+  percent-decoded and as a file URL, from the home folder, `~` expanded; a `file:` string none of
+  these readings turns into a path is refused) is refused before the server starts. And, since a path check can miss a
+  spelling, every string value of the runner's and the CLIs' credential files (16 characters or
+  more, read at each call) is redacted from every result by value, with the runner's token and
+  the server's `env` values, keys inside items included; only each item's own keys and `type`
+  are kept. Out of scope: other files on the machine a server installed with access to them can
+  read (installing a filesystem server over the home folder, and marking its read action
+  pollable or leaving it read-only, is the owner's choice); Claude Code's `settings.json` is
+  among the redacted files, Codex's `config.toml` is not (it holds no credential by default). HTTP MCP servers come from the server with their headers, and are never
   written to the runner's state: Claude Code gets them through the SDK's control channel
   (`setMcpServers`), never on the CLI's command line, which other local users can read; Codex
   gets each header as a variable name (`env_http_headers`), the value only in the app-server's
@@ -304,18 +319,24 @@ changes it updates this file.
   shows: a tool input too large to show whole is denied to the agent, never shown cut. The runner holds no API key and never reads the CLIs' credentials; its token sits in
   `config.json`, mode 0600, written once with the config. AskUserQuestion questions or options
   that the cut to the protocol's limits makes identical are denied to the agent, never asked.
-- **Files uploaded to tables are the owner's only, and never run in the app's origin.** Each is
-  stored at `<filesDir>/<ownerId>/<attachmentId>`, both ids made by the server: nothing from the
-  upload (name, type) reaches the path. They are reachable only through the app, at
+- **Files uploaded to tables, or returned by a Job's tools, are the owner's only, and never run
+  in the app's origin.** Each is stored at `<filesDir>/<ownerId>/<attachmentId>`, both ids made
+  by the server: nothing from the upload or the tool's result (name, type, URI) reaches the path. They are reachable only through the app, at
   `GET /files/<id>`, which needs the owner's session and answers 404 for anyone else's id. A file
   is an image only if its first bytes are PNG, JPEG, GIF or WebP; only those are served inline,
   with that type. Everything else, SVG and HTML included whatever their name or declared type,
   is a download (`application/octet-stream`). Every file gets `X-Content-Type-Options: nosniff`
-  and `Content-Security-Policy: default-src 'none'; sandbox`. A cell only holds files uploaded to
-  its own table. Files are at most 10 MiB. Agents never get a file's content: no tool,
+  and `Content-Security-Policy: default-src 'none'; sandbox`. A cell only holds files of its own
+  table. Files are at most 10 MiB. Agents never get a file's content: no tool,
   prompt or runner message carries it. A Job with the `data` bundle sees a row's file names and
   ids, and can set a files cell to files already uploaded to that table (or empty it, after
-  which the unused files are swept), like any other value of the row.
+  which the unused files are swept), like any other value of the row. Files in the result of a
+  Job's HTTP tool call (images, embedded resources' blobs; at most 20 a result, each with the
+  same bounds and sniffing as an upload) are stored as that Job's, and the agent gets their ids
+  in place of the bytes. A Job can write in a cell only its own such files that no table has
+  yet, which then become that table's for good (`writeRow` takes the writer from the call, never
+  from its input): never another Job's, nor one a person writes. The bytes are stored as the
+  server sent them, not redacted like the result's text: only the owner can read them.
 - **Skill files never name a path outside their skill.** Every file of a skill package, made in
   the app or imported from a plugin, passes `isSafeRelativePath` (`packages/runner-protocol/src/paths.ts`)
   before it is stored: relative POSIX paths only, no `..`, `.` or empty segment, no `\`, NUL or

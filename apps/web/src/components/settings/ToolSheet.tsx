@@ -8,6 +8,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
 import { FormField } from "./parts.tsx";
+import { PollableActions } from "./PollableActions.tsx";
 
 export type Tool = Awaited<ReturnType<typeof api.tools.list>>[number];
 type Action = Tool["actions"][number];
@@ -250,6 +251,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
               </ul>
             </section>
           )}
+          {current && <PollableActions toolId={current.id} />}
         </div>
       </SheetContent>
     </Sheet>

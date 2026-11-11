@@ -22,6 +22,8 @@ export type Tooling = {
   httpTools: (ToolRow & { unasked: string[]; chosen: boolean })[];
   /** The agent they come from, when there is one. */
   agentId?: string;
+  /** The Job the session is a session of; none for a workflow run's. */
+  jobId?: string;
 };
 
 /** What a runner accepts as a skill's name (the protocol's rule): others are left out, or it would refuse the start. */
@@ -110,5 +112,7 @@ export async function sessionTooling(db: Db, sessionId: string): Promise<Tooling
         : undefined);
     agentId = def ? nodesOf(def).find((n) => n.id === nodeId)?.agentId || undefined : undefined;
   }
-  return agentId ? toolingOf(db, run, agentId) : NONE;
+  if (!agentId) return NONE;
+  const tooling = await toolingOf(db, run, agentId);
+  return run.source === "agent" ? { ...tooling, jobId: run.id } : tooling;
 }

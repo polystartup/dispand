@@ -213,6 +213,9 @@ export const NOT_TOOLS: string[] = [
   "tools.refresh",
   "tools.catalog",
   "tools.installFromCatalog",
+  // What polls may read: the owner's choice, never an agent's.
+  "tools.pollable",
+  "tools.setPollable",
   // What grants authority or can't be undone: a person does it (later, through a proposal).
   "fields.retype",
   "agents.delete",
