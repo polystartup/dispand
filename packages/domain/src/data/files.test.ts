@@ -72,7 +72,7 @@ test("a cell can only hold attachments of its own table and owner", async () => 
   const other = await call(router.tables.create, { name: "Other" }, { context });
   const mine = await upload(context, table.id, PNG, "a.png");
   const elsewhere = await upload(context, other.id, PNG, "b.png");
-  const write = (ids: string[]) => context.db.transaction((tx) => writeRow(tx, { ownerId: context.ownerId, tableId: table.id, values: { [logo.id]: ids } }));
+  const write = (ids: string[]) => context.db.transaction((tx) => writeRow(tx, { ownerId: context.ownerId, tableId: table.id, values: { [logo.id]: ids }, actor: { type: "user", userId: context.ownerId } }));
   expect(await write([mine.id])).toMatchObject({ row: { values: { [logo.id]: [mine.id] } } });
   expect(await write([mine.id, elsewhere.id])).toEqual({ problem: "“Logo”: no such file" });
   expect(await write(["att_missing"])).toEqual({ problem: "“Logo”: no such file" });
