@@ -5,6 +5,7 @@ import type { Db } from "../db/client.ts";
 import type { Engine } from "../engine/engine.ts";
 import type { RunnerHub } from "../runners/hub.ts";
 import type { SecretBox } from "../secrets.ts";
+import { annotate, meter, recordError, tracer } from "../telemetry/index.ts";
 import type { ToolConnector } from "../tools/mcp.ts";
 
 /** What the web server gives every request. */
@@ -41,16 +42,50 @@ export type InitialContext = {
 /** What an authenticated procedure sees. */
 export type Context = { db: Db; ownerId: string; secrets: SecretBox };
 
-export const base = os.$context<InitialContext>();
+const procedures = tracer("rpc");
+const durations = meter("rpc").histogram("dispand.rpc.duration", { unit: "ms", description: "How long a procedure took" });
+
+/** What a procedure ended as: "ok", the code of the error it answered with, or "error". */
+const resultOf = (err: unknown) => (err instanceof ORPCError ? err.code : "error");
+
+/**
+ * Every procedure in a span named after it, called from a request or by a Job's tool alike: its
+ * path and how it ended, never its input or its output. The owner is added once known (`authed`).
+ */
+const traced = os.$context<InitialContext>().middleware(({ path, next }) => {
+  // A call in process (a test) may name no path.
+  const method = path.join(".") || "rpc";
+  const started = performance.now();
+  return procedures.startActiveSpan(method, { attributes: { "rpc.method": method } }, async (span) => {
+    let result = "ok";
+    try {
+      return await next();
+    } catch (err) {
+      result = resultOf(err);
+      recordError(span, result);
+      throw err;
+    } finally {
+      span.setAttribute("dispand.result", result);
+      span.end();
+      durations.record(performance.now() - started, { "rpc.method": method, "dispand.result": result });
+    }
+  });
+});
+
+export const base = os.$context<InitialContext>().use(traced);
 
 /** Rejects requests without a session and hands the owner id to the procedure. */
-export const authed = base.middleware(async ({ context, next }) => {
-  if (context.job) return next({ context: { ownerId: context.job.ownerId } satisfies Pick<Context, "ownerId"> });
+export const authed = os.$context<InitialContext>().middleware(async ({ context, next }) => {
+  if (context.job) {
+    annotate({ "dispand.owner.id": context.job.ownerId, "dispand.job.id": context.job.runId });
+    return next({ context: { ownerId: context.job.ownerId } satisfies Pick<Context, "ownerId"> });
+  }
   const { headers, response: session } = await context.auth.api.getSession({
     headers: context.headers,
     returnHeaders: true,
   });
   for (const cookie of headers.getSetCookie()) context.resHeaders.append("set-cookie", cookie);
   if (!session) throw new ORPCError("UNAUTHORIZED");
+  annotate({ "dispand.owner.id": session.user.id });
   return next({ context: { ownerId: session.user.id } satisfies Pick<Context, "ownerId"> });
 });

@@ -50,6 +50,23 @@ changes it updates this file.
   is words cut short and a mark, so the question the owner answers also carries, from the
   server, the tool's name and the action's name and description in full. A session in `bypassPermissions` mode asks
   nothing, so its calls of these tools are refused.
+- **Telemetry carries no secret and no content.** One module knows OpenTelemetry's SDK
+  (`packages/domain/src/telemetry/`; a lint rule keeps it so), and everything it exports goes
+  through `redact.ts` first, whoever recorded it (our code, or a library's own spans): an
+  attribute whose name is a secret's (`authorization`, `cookie`, `token`, `code`, `state`,
+  `api_key`, `password`, `secret`) or a header is dropped; a URL keeps no query string,
+  fragment or credentials; an exception keeps its kind only, never its message or stack; a
+  span's status keeps no message; and any value equal to a secret the process opened (the
+  secret box remembers a salted hash of each, never the plaintext) is dropped. Errors are
+  recorded with `recordError` (the kind) and logged with `logError` (its whitelist). Spans and
+  logs carry ids, names, counts, durations and result kinds, never a procedure's input or
+  output; a metric keeps only the attributes `telemetry/metrics.ts` lists for it. Nothing is
+  sent unless `OTEL_EXPORTER_OTLP_*` names a collector, and then only there.
+  The HTTP server, the PostgreSQL driver and outbound fetch are instrumented by a preload
+  (`apps/web/telemetry-preload.mjs`): no header is recorded; pairing (`/runner/pair`), the
+  runner socket, OAuth callbacks and health checks make no span; a call out keeps only the
+  origin it went to (a tool's address may hold a secret in its path); a statement is recorded
+  without its values; a connection string keeps no password.
 - **A page loads from, and connects to, the app's own origin only.** Every HTML page is
   served with a Content-Security-Policy that keeps images (plus inline `data:` and `blob:`),
   media and fonts to the app's origin, connections to it too, and allows no frame, object,

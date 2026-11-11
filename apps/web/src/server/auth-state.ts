@@ -10,6 +10,8 @@ export async function authState() {
   const headers = new Headers(getRequestHeaders());
   const { needsSetup } = await call(router.auth.status, undefined, {
     context: { ...app, headers, resHeaders: new Headers() },
+    // Its name, for its span: a call in process has no path of its own.
+    path: ["auth", "status"],
   });
   if (needsSetup) return { needsSetup, user: null };
   const { headers: fresh, response: session } = await auth.api.getSession({ headers, returnHeaders: true });
