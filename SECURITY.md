@@ -50,6 +50,13 @@ changes it updates this file.
   is words cut short and a mark, so the question the owner answers also carries, from the
   server, the tool's name and the action's name and description in full. A session in `bypassPermissions` mode asks
   nothing, so its calls of these tools are refused.
+- **A page loads from, and connects to, the app's own origin only.** Every HTML page is
+  served with a Content-Security-Policy that keeps images (plus inline `data:` and `blob:`),
+  media and fonts to the app's origin, connections to it too, and allows no frame, object,
+  foreign `base` or form target, nor being framed (`server/page-security.ts`). Text an agent
+  wrote is shown in many places; whatever a renderer makes of it, the browser can't be made
+  to fetch from, or send to, another host. Scripts and styles are not restricted by it. A
+  served file keeps its own stricter policy (`default-src 'none'; sandbox`).
 - **An agent changes what agents may do only as a person approved it, write by write.** The
   tools that create or change an agent are marked as grants in the one registry of Dispand's
   tools, and `callPlatformTool`, the single way a Job calls them, runs a grant only when it
