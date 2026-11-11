@@ -2,9 +2,10 @@ import { JOB_SERVER_NAME, storable } from "@dispand/runner-protocol";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agents, harnesses, proposals, runners, skillPackages, tables, tools as toolsTable, type ProposalItem } from "../db/schema.ts";
+import { agents, fields, harnesses, proposals, runners, skillPackages, tables, tools as toolsTable, type ProposalItem } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { canonical } from "./approvals.ts";
+import type { TableScope } from "./bundles.ts";
 import type { JobIdentity } from "./call.ts";
 import type { PlatformTool } from "./tools.ts";
 
@@ -33,7 +34,7 @@ const everyString = (value: unknown, ok: (s: string) => boolean): boolean =>
  * use, with an input that tool accepts: it is kept as the tool parsed it, which is what a later
  * call is compared with. Refused with the reason when it couldn't be shown whole.
  */
-export async function createProposal(db: Db, job: JobIdentity, tools: PlatformTool[], input: unknown): Promise<{ proposalId: string } | { error: string }> {
+export async function createProposal(db: Db, job: JobIdentity, tools: PlatformTool[], scope: TableScope, input: unknown): Promise<{ proposalId: string } | { error: string }> {
   const parsed = ProposeInput.safeParse(input);
   if (!parsed.success) return { error: "propose needs items: each a tool's name and its input" };
   if (parsed.data.items.length === 0) return { error: "A proposal lists at least one write" };
@@ -49,6 +50,9 @@ export async function createProposal(db: Db, job: JobIdentity, tools: PlatformTo
     }
     const given = tool.input.safeParse(item.input);
     if (!given.success) return { error: `Item ${i + 1} (${item.tool}): ${given.error.issues.map((e) => `${e.path.join(".") || "input"}: ${e.message}`).join("; ")}` };
+    // Outside the Job's tables, or naming nothing: as for any call, and before a person is asked about it.
+    const touched = await tool.tables(db, job.ownerId, given.data);
+    if (touched.some((id) => id === null || (scope !== "all" && !scope.includes(id)))) return { error: `Item ${i + 1} (${tool.name}): Not found` };
     items.push({ tool: tool.name, input: given.data });
   }
   if (!everyString(items, storable)) return { error: "The proposal holds a character Dispand can't store (NUL or a lone surrogate)" };
@@ -109,53 +113,87 @@ export async function settleProposal(db: Db | Tx, questionId: string, approved: 
     .where(and(eq(proposals.questionId, questionId), eq(proposals.status, "asked")));
 }
 
-export type ProposalName = { kind: "agent" | "harness" | "tool" | "skill" | "table"; name: string; detail?: string };
+export type ProposalName = { kind: "agent" | "harness" | "tool" | "skill" | "table" | "field" | "trigger"; name: string; detail?: string };
+
+/**
+ * For each tool that can be proposed: the keys of its input that hold ids, and of what. Only
+ * these are read as names; any other value is shown as data.
+ */
+const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
+  agents_create: { harnessId: "harness", toolIds: "tool", skillPackageIds: "skill", dataTables: "table" },
+  agents_update: { id: "agent", harnessId: "harness", toolIds: "tool", skillPackageIds: "skill", dataTables: "table" },
+  agents_set_tool_ask: { agentId: "agent", toolId: "tool" },
+  tables_delete: { id: "table" },
+  fields_delete: { id: "field" },
+};
 
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : typeof value === "string" ? [value] : []);
 
 /**
- * A proposal as its owner reads it: every item whole, and a name for each id an item points at
- * (the agent it changes, the harness, the tools, skills and tables), as they are now. An id
- * with no name here names nothing of the owner's: the Inbox says so.
+ * A proposal as its owner reads it: every item whole, with the keys of its input that are ids
+ * (`refs`), and a name for each of those ids as they are now. An id with no name here names
+ * nothing of the owner's: the Inbox says so.
  */
 export async function proposalView(db: Db, ownerId: string, proposalId: string) {
   const [row] = await db.select().from(proposals).where(and(eq(proposals.id, proposalId), eq(proposals.ownerId, ownerId)));
   if (!row) return null;
-  const inputs = row.items.map((item) => (item.input ?? {}) as Record<string, unknown>);
-  const ids = (key: string) => [...new Set(inputs.flatMap((input) => strings(input[key])))];
+  const wanted = new Map<ProposalName["kind"], Set<string>>();
+  for (const item of row.items) {
+    for (const [key, kind] of Object.entries(REFS[item.tool] ?? {})) {
+      const ids = strings(((item.input ?? {}) as Record<string, unknown>)[key]).filter((id) => !(key === "dataTables" && id === "all"));
+      if (!wanted.has(kind)) wanted.set(kind, new Set());
+      for (const id of ids) wanted.get(kind)!.add(id);
+    }
+  }
   const names: Record<string, ProposalName> = {};
-  const found = async <T extends { id: string }>(wanted: string[], load: (wanted: string[]) => Promise<T[]>, name: (row: T) => ProposalName) => {
-    for (const r of wanted.length ? await load(wanted) : []) names[r.id] = name(r);
+  const found = async <T extends { id: string }>(kind: ProposalName["kind"], load: (ids: string[]) => Promise<T[]>, name: (row: T) => Omit<ProposalName, "kind">) => {
+    const ids = [...(wanted.get(kind) ?? [])];
+    for (const r of ids.length ? await load(ids) : []) names[r.id] = { kind, ...name(r) };
   };
   await found(
-    ids("id"),
+    "agent",
     (w) => db.select({ id: agents.id, name: agents.name }).from(agents).where(and(inArray(agents.id, w), eq(agents.ownerId, ownerId))),
-    (r) => ({ kind: "agent", name: r.name }),
+    (r) => ({ name: r.name }),
   );
   await found(
-    ids("harnessId"),
+    "harness",
     (w) =>
       db
         .select({ id: harnesses.id, name: harnesses.name, kind: harnesses.kind, permissionMode: harnesses.permissionMode, runner: runners.name })
         .from(harnesses)
         .leftJoin(runners, eq(runners.id, harnesses.runnerId))
         .where(and(inArray(harnesses.id, w), eq(harnesses.ownerId, ownerId))),
-    (r) => ({ kind: "harness", name: r.name, detail: [r.kind, r.runner ? `on ${r.runner}` : null, r.permissionMode ? `permission mode ${r.permissionMode}` : null].filter(Boolean).join(", ") }),
+    (r) => ({ name: r.name, detail: [r.kind, r.runner ? `on ${r.runner}` : null, r.permissionMode ? `permission mode ${r.permissionMode}` : null].filter(Boolean).join(", ") }),
   );
   await found(
-    ids("toolIds"),
+    "tool",
     (w) => db.select({ id: toolsTable.id, name: toolsTable.name, kind: toolsTable.kind, url: toolsTable.url }).from(toolsTable).where(and(inArray(toolsTable.id, w), eq(toolsTable.ownerId, ownerId))),
-    (r) => ({ kind: "tool", name: r.name, detail: r.kind === "http" ? (r.url ?? "") : "on a runner" }),
+    (r) => ({ name: r.name, detail: r.kind === "http" ? (r.url ?? "") : "on a runner" }),
   );
   await found(
-    ids("skillPackageIds"),
+    "skill",
     (w) => db.select({ id: skillPackages.id, name: skillPackages.name }).from(skillPackages).where(and(inArray(skillPackages.id, w), eq(skillPackages.ownerId, ownerId))),
-    (r) => ({ kind: "skill", name: r.name }),
+    (r) => ({ name: r.name }),
   );
   await found(
-    ids("dataTables").filter((id) => id !== "all"),
+    "table",
     (w) => db.select({ id: tables.id, name: tables.name }).from(tables).where(and(inArray(tables.id, w), eq(tables.ownerId, ownerId))),
-    (r) => ({ kind: "table", name: r.name }),
+    (r) => ({ name: r.name }),
   );
-  return { id: row.id, status: row.status, items: row.items.map(({ tool, input, usedAt }) => ({ tool, input, used: usedAt !== undefined })), names };
+  await found(
+    "field",
+    (w) =>
+      db
+        .select({ id: fields.id, name: fields.name, table: tables.name })
+        .from(fields)
+        .innerJoin(tables, eq(tables.id, fields.tableId))
+        .where(and(inArray(fields.id, w), eq(fields.ownerId, ownerId))),
+    (r) => ({ name: r.name, detail: `of the table ${r.table}` }),
+  );
+  return {
+    id: row.id,
+    status: row.status,
+    items: row.items.map(({ tool, input, usedAt }) => ({ tool, input, used: usedAt !== undefined, refs: Object.keys(REFS[tool] ?? {}) })),
+    names,
+  };
 }

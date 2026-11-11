@@ -49,7 +49,8 @@ Status: Prototype
     agent's page (under each tool) or by answering "Always allow" to an approval of that action. An action
     that reaches outside can carry what the agent read, so it is worth keeping it asking on
     an agent that reads confidential data.
-  - An agent that may configure the workspace can create or change agents only through a
+  - An agent that may configure the workspace can create or change agents, delete a table or
+    a field, and change which actions of an agent's tool ask before use, only through a
     proposal: it lists the exact changes, the Inbox shows each one whole with the names of
     what it points at, and approving lets that Job make exactly those changes, once each.
     Nothing else an agent says approves anything.

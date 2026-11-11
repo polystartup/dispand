@@ -84,7 +84,9 @@ async function tableOfField(db: Db, ownerId: string, input: unknown): Promise<(s
 const NEEDS_PROPOSAL = "Needs the owner's approval first: list the call with propose, ask with request_approval, then make it exactly as listed.";
 
 function tool(path: string, bundle: Bundle, description: string, rest: Pick<PlatformTool, "tables" | "filter" | "grant">): PlatformTool {
-  return { path, name: path.replace(".", "_"), bundle, description, input: procedureOf(router, path)["~orpc"].inputSchema ?? z.object({}), ...rest };
+  // `agents.setToolAsk` is `agents_set_tool_ask`: lower case with `_`, like every tool's name.
+  const name = path.replace(".", "_").replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+  return { path, name, bundle, description, input: procedureOf(router, path)["~orpc"].inputSchema ?? z.object({}), ...rest };
 }
 
 export const PLATFORM_TOOLS: PlatformTool[] = [
@@ -111,6 +113,10 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("agents.list", "configure", "Lists the agents, with their ids, harness, instructions and what their Jobs may do.", { tables: none }),
   tool("agents.get", "configure", "Gives one agent by its id, with its skills and tools.", { tables: none }),
   tool("agents.create", "configure", `Creates an agent. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool("agents.toolAsk", "configure", "Lists the actions of each tool an agent chose, with whether each asks the owner before use.", { tables: none }),
+  tool("agents.setToolAsk", "configure", `Makes one action of an agent's tool ask before use, or run without asking. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool("tables.delete", "configure", `Deletes a table with its rows: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: named("id"), grant: true }),
+  tool("fields.delete", "configure", `Deletes a field with its values in every row: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: tableOfField, grant: true }),
   tool("agents.update", "configure", `Changes an agent: give every field, as agents_get shows them. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
 ];
 
@@ -155,12 +161,8 @@ export const NOT_TOOLS: string[] = [
   "tools.catalog",
   "tools.installFromCatalog",
   // What grants authority or can't be undone: a person does it (later, through a proposal).
-  "tables.delete",
   "fields.retype",
-  "fields.delete",
   "agents.delete",
-  "agents.toolAsk",
-  "agents.setToolAsk",
   "triggers.create",
   "triggers.update",
   "triggers.delete",

@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agents, proposals, questions, stepRuns, tables as tablesTable, user } from "../db/schema.ts";
+import { agents, agentTools, fields as fieldsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { Bundle } from "./bundles.ts";
@@ -57,7 +57,7 @@ test("a proposal that can't be made is refused with the reason, and nothing is s
   const cases: [unknown, RegExp][] = [
     [[], /at least one/],
     // The refusal names what can be proposed, so the agent finds its way.
-    [[{ tool: "agents_delete", input: {} }], /agents_delete is not a write you can propose.*agents_create, agents_update/],
+    [[{ tool: "agents_delete", input: {} }], /agents_delete is not a write you can propose.*agents_create.*tables_delete/],
     // Not a write that needs a proposal: it is made directly.
     [[{ tool: "tables_create", input: { name: "X" } }], /tables_create/],
     [[{ tool: "agents_create", input: { ...s.newAgent, name: "" } }], /name/],
@@ -124,11 +124,17 @@ test("an approval doesn't bring back a right taken since, nor skip the procedure
 test("every tool marked as a grant is refused without a proposal", async () => {
   const s = await setup(["data", "configure"]);
   const grants = PLATFORM_TOOLS.filter((t) => t.grant);
-  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_update"]);
-  for (const t of grants) {
-    const input = t.name === "agents_update" ? { ...s.base, id: s.agent.id } : s.newAgent;
-    expect(((await s.tool(t.name, input)) as { error: string }).error).toMatch(NEEDS);
-  }
+  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "tables_delete"]);
+  const table = await call(router.tables.create, { name: "Clients" }, { context: s.context });
+  const field = (await call(router.tables.get, { id: table.id }, { context: s.context })).fields[0]!;
+  const inputs: Record<string, unknown> = {
+    agents_create: s.newAgent,
+    agents_update: { ...s.base, id: s.agent.id },
+    agents_set_tool_ask: { agentId: s.agent.id, toolId: "tool_x", action: "send", ask: false },
+    tables_delete: { id: table.id },
+    fields_delete: { id: field.id },
+  };
+  for (const t of grants) expect(((await s.tool(t.name, inputs[t.name])) as { error: string }).error).toMatch(NEEDS);
 });
 
 test("request_approval with a proposal's id asks for that proposal: the owner's yes approves it, and the listed write then runs", async () => {
@@ -214,4 +220,81 @@ test("propose takes a tool by the name a CLI session sees it under", async () =>
   expect(row!.items.map((i) => i.tool)).toEqual(["agents_create"]);
   // Another server's tool of that name is not ours.
   expect(await s.propose([{ tool: "mcp__other__agents_create", input: s.newAgent }])).toMatchObject({ ok: false });
+});
+
+/** Proposes the writes, has the owner approve them, and gives what each call then answers. */
+async function approved(s: Awaited<ReturnType<typeof setup>>, items: { tool: string; input: Record<string, unknown> }[]) {
+  const id = s.idOf(await s.propose(items));
+  await s.answer(await s.ask({ message: "May I?", proposal: id }), "allow");
+  const results = [];
+  for (const item of items) results.push(await s.tool(item.tool, item.input));
+  return results;
+}
+
+test("deleting a table or a field, and changing what asks before use, run once on an approved item", async () => {
+  const s = await setup();
+  const { context } = s;
+  const table = await call(router.tables.create, { name: "Clients" }, { context });
+  const extra = await call(router.fields.create, { tableId: table.id, name: "Phone", type: "text" }, { context });
+  const doomed = await call(router.tables.create, { name: "Old" }, { context });
+  await context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: context.ownerId, name: "Mail", kind: "http", url: "https://example.com/mcp", transport: "streamable-http", actions: [{ name: "send", description: "", inputSchema: { type: "object" } }] });
+  await call(router.agents.update, { ...s.base, id: s.agent.id, toolIds: ["tool_mail"] }, { context });
+  const flag = { agentId: s.agent.id, toolId: "tool_mail", action: "send", ask: false };
+  // The asking flags are read without a proposal.
+  expect(await s.tool("agents_tool_ask", { id: s.agent.id })).toMatchObject({ ok: true, output: [{ toolId: "tool_mail", actions: [{ name: "send", ask: true }] }] });
+  const results = await approved(s, [
+    { tool: "fields_delete", input: { id: extra.id } },
+    { tool: "tables_delete", input: { id: doomed.id } },
+    { tool: "agents_set_tool_ask", input: flag },
+  ]);
+  expect(results.map((r) => r.ok)).toEqual([true, true, true]);
+  expect((await call(router.tables.get, { id: table.id }, { context })).fields.map((f) => f.name)).not.toContain("Phone");
+  await expect(call(router.tables.get, { id: doomed.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  expect((await context.db.select().from(agentTools))[0]!.unasked).toEqual(["send"]);
+  // Once each.
+  expect(((await s.tool("agents_set_tool_ask", flag)) as { error: string }).error).toMatch(NEEDS);
+});
+
+test("a Job limited to some tables can't propose deleting another table, or a field of one", async () => {
+  const s = await setup();
+  const mine = await call(router.tables.create, { name: "Mine" }, { context: s.context });
+  const other = await call(router.tables.create, { name: "Other" }, { context: s.context });
+  const field = (await call(router.tables.get, { id: other.id }, { context: s.context })).fields[0]!;
+  await call(router.agents.update, { ...s.base, id: s.agent.id, dataTables: [mine.id] }, { context: s.context });
+  const job = await s.start();
+  for (const item of [{ tool: "tables_delete", input: { id: other.id } }, { tool: "fields_delete", input: { id: field.id } }]) {
+    expect(await s.propose([item], job)).toMatchObject({ ok: false, error: expect.stringContaining("Not found") });
+  }
+  expect(await s.propose([{ tool: "tables_delete", input: { id: mine.id } }], job)).toMatchObject({ ok: true });
+});
+
+test("the owner reads a name for the table, the field, the agent and the tool an item points at; what isn't theirs has none", async () => {
+  const s = await setup();
+  const { context } = s;
+  const table = await call(router.tables.create, { name: "Clients" }, { context });
+  const field = (await call(router.tables.get, { id: table.id }, { context })).fields[0]!;
+  await context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: context.ownerId, name: "Mail", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
+  await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
+  await context.db.insert(toolsTable).values({ id: "tool_eve", ownerId: "user_other", name: "Eve's", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
+  const id = s.idOf(
+    await s.propose([
+      { tool: "tables_delete", input: { id: table.id } },
+      { tool: "fields_delete", input: { id: field.id } },
+      { tool: "agents_set_tool_ask", input: { agentId: s.agent.id, toolId: "tool_mail", action: "send", ask: false } },
+      { tool: "agents_set_tool_ask", input: { agentId: s.agent.id, toolId: "tool_eve", action: "send", ask: false } },
+    ]),
+  );
+  const q = await s.ask({ message: "May I?", proposal: id });
+  const { proposal } = (await call(router.questions.list, { status: "pending" }, { context })).find((i) => i.id === q)!;
+  expect(proposal!.items.map((i) => i.refs)).toEqual([["id"], ["id"], ["agentId", "toolId"], ["agentId", "toolId"]]);
+  expect(proposal!.names).toMatchObject({
+    [table.id]: { kind: "table", name: "Clients" },
+    [field.id]: { kind: "field", name: field.name, detail: "of the table Clients" },
+    [s.agent.id]: { kind: "agent", name: "Builder" },
+    tool_mail: { kind: "tool", name: "Mail" },
+  });
+  expect(proposal!.names).not.toHaveProperty("tool_eve");
+  // `action` is not an id: it is never read as a name.
+  expect(proposal!.names).not.toHaveProperty("send");
+  void fieldsTable;
 });

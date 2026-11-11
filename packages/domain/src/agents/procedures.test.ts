@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { expect, test } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { agents as agentsTable, agentTools, harnesses, tables as tablesTable, tools, user } from "../db/schema.ts";
-import { NOT_TOOLS, PLATFORM_TOOLS } from "../platform/tools.ts";
+import { PLATFORM_TOOLS } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 
@@ -300,9 +300,7 @@ test("the owner takes an action off the asking ones and puts it back; nothing el
   expect(row!.unasked).toEqual(["search"]);
 });
 
-test("no Job reaches the asking flags: they are not platform tools", () => {
-  for (const path of ["agents.setToolAsk", "agents.toolAsk"]) {
-    expect(NOT_TOOLS).toContain(path);
-    expect(PLATFORM_TOOLS.map((t) => t.path)).not.toContain(path);
-  }
+test("a Job changes the asking flags only on a proposal a person approved: the write is marked as a grant", () => {
+  expect(PLATFORM_TOOLS.find((t) => t.path === "agents.setToolAsk")).toMatchObject({ bundle: "configure", grant: true });
+  expect(PLATFORM_TOOLS.find((t) => t.path === "agents.toolAsk")?.grant).toBeUndefined();
 });

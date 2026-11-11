@@ -10,8 +10,8 @@ const proposal: ProposalView = {
   id: "prop_1",
   status: "asked",
   items: [
-    { tool: "agents_create", used: false, input: { name: "Clerk", harnessId: "harness_1", systemPrompt: long, toolIds: ["tool_1", "tool_gone"], bundles: ["data", "configure"], dataTables: "all" } },
-    { tool: "agents_update", used: true, input: { id: "agent_1", name: "Builder", harnessId: "harness_1", systemPrompt: "New.", dataTables: ["table_1"] } },
+    { tool: "agents_create", used: false, refs: ["harnessId", "toolIds", "skillPackageIds", "dataTables"], input: { name: "Clerk", harnessId: "harness_1", systemPrompt: long, toolIds: ["tool_1", "tool_gone"], bundles: ["data", "configure"], dataTables: "all" } },
+    { tool: "agents_update", used: true, refs: ["id", "harnessId", "toolIds", "skillPackageIds", "dataTables"], input: { id: "agent_1", name: "Builder", harnessId: "harness_1", systemPrompt: "New.", dataTables: ["table_1"] } },
   ],
   names: {
     harness_1: { kind: "harness", name: "Claude", detail: "claude-code, on Workstation, permission mode default" },
@@ -45,4 +45,27 @@ test("each id is read with its name and what it is, and an id that names nothing
   expect(second!.textContent).toContain("Builder");
   expect(second!.textContent).toContain("Clients");
   expect(within(second!).queryByText(/not one of yours/)).toBeNull();
+});
+
+test("deletions and asking flags read as what they do, with names; a value that isn't an id is never read as one", () => {
+  const more: ProposalView = {
+    id: "prop_2",
+    status: "asked",
+    items: [
+      { tool: "tables_delete", used: false, refs: ["id"], input: { id: "table_1" } },
+      { tool: "fields_delete", used: false, refs: ["id"], input: { id: "field_1" } },
+      { tool: "agents_set_tool_ask", used: false, refs: ["agentId", "toolId"], input: { agentId: "agent_1", toolId: "tool_x", action: "table_1", ask: false } },
+    ],
+    names: { table_1: { kind: "table", name: "Clients" }, field_1: { kind: "field", name: "Phone", detail: "of the table Clients" }, agent_1: { kind: "agent", name: "Builder" } },
+  };
+  render(<ProposalItems proposal={more} />);
+  const [table, field, flag] = screen.getAllByRole("listitem");
+  expect(within(table!).getByText("Delete a table, with its rows")).toBeTruthy();
+  expect(table!.textContent).toContain("Clients");
+  expect(field!.textContent).toContain("Phone (of the table Clients)");
+  expect(within(flag!).getByText("Change whether an action asks before use")).toBeTruthy();
+  expect(within(flag!).getByText(/tool_x: not one of yours/)).toBeTruthy();
+  // The action happens to read like a table's id: it is shown as the text it is.
+  expect(within(flag!).getByText("table_1")).toBeTruthy();
+  expect(within(flag!).getByText("no")).toBeTruthy();
 });
