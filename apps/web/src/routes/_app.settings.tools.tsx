@@ -17,7 +17,7 @@ export const Route = createFileRoute("/_app/settings/tools")({ component: Tools,
 function Tools() {
   const tools = useQuery(orpc.tools.list.queryOptions());
   // `n` remounts the sheet with what the server saved. `runner`: a runner tool's sheet.
-  const [sheet, setSheet] = useState<{ tool?: Tool; n: number; runner?: boolean; suggested?: { name: string; runnerTool: string } } | null>(null);
+  const [sheet, setSheet] = useState<{ tool?: Tool; n: number; runner?: boolean; suggested?: { name: string; runnerTool: string; catalogId?: string } } | null>(null);
   const [browsing, setBrowsing] = useState(false);
   const queryClient = useQueryClient();
   const refresh = useMutation(orpc.tools.refresh.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.tools.key() }) }));
