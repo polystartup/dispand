@@ -1,9 +1,11 @@
-import { PROTOCOL_VERSION } from "@dispand/runner-protocol";
+import { PluginOperation, PROTOCOL_VERSION } from "@dispand/runner-protocol";
 import { ORPCError } from "@orpc/server";
 import { and, asc, count, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { harnesses, runners as runnersTable } from "../db/schema.ts";
 import { authed, base } from "../rpc/context.ts";
+import { newId } from "../ids.ts";
+import { RunnerRequestFailed } from "./hub.ts";
 import { createRunner, revokeRunner } from "./pairing.ts";
 
 const owner = base.use(authed);
@@ -64,4 +66,22 @@ const revoke = owner.input(z.object({ runnerId: z.string() })).handler(async ({ 
   await context.engine.runnerRevoked(input.runnerId);
 });
 
-export const runners = { create, list, update, revoke };
+const plugins = owner.input(z.object({ runnerId: z.string(), operation: PluginOperation })).handler(async ({ input, context }) => {
+  if (context.job) throw new ORPCError("FORBIDDEN", { message: "Native installation requires an owner session" });
+  const [runner] = await context.db.select({ id: runnersTable.id }).from(runnersTable)
+    .where(and(eq(runnersTable.id, input.runnerId), eq(runnersTable.ownerId, context.ownerId), isNull(runnersTable.revokedAt)));
+  if (!runner) throw new ORPCError("NOT_FOUND");
+  if ("targets" in input.operation) {
+    const available = await context.db.select({ kind: harnesses.kind }).from(harnesses)
+      .where(and(eq(harnesses.runnerId, runner.id), eq(harnesses.ownerId, context.ownerId), eq(harnesses.type, "cli")));
+    if (input.operation.targets.some((h) => !available.some((a) => a.kind === h))) throw new ORPCError("BAD_REQUEST", { message: "Each target needs a CLI harness on this runner" });
+  }
+  try {
+    return (await context.hub.plugins(runner.id, { type: "plugin.request", requestId: newId("req"), operation: input.operation })).report;
+  } catch (error) {
+    if (!(error instanceof RunnerRequestFailed)) throw error;
+    throw new ORPCError("CONFLICT", { message: "Runner unavailable or operation timed out. Refresh inventory before retrying; native changes may have completed." });
+  }
+});
+
+export const runners = { create, list, update, revoke, plugins };

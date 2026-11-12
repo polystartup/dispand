@@ -36,6 +36,8 @@ const RunnerConfig = z.object({
   server: z.string().refine(isAllowedServer, HTTPS_ONLY),
   roots: z.array(z.string().refine(isAbsolute, "must be an absolute path")).min(1),
   allowBypass: z.boolean().default(false),
+  /** Local opt-in: Skillshare target/account names; absent means native management is disabled. */
+  pluginTargets: z.object({ "claude-code": z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/).optional(), codex: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/).optional() }).optional(),
   /** The runner's token, in the same file so pairing writes both at once (mode 0600). */
   token: z.string().min(1).optional(),
   /** Which runner this machine is paired as: its state lives in `state/<runnerId>/`. One path segment. */
@@ -100,11 +102,15 @@ export function codexEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEn
 /**
  * What no session's working directory may contain or sit inside: the runner's own config dir,
  * Claude Code's user config dir (`CLAUDE_CONFIG_DIR`, else `~/.claude`), `~/.claude.json` and
- * Codex's home (`CODEX_HOME`, else `~/.codex`). File edits stay inside the working directory
+ * Codex's home (`CODEX_HOME`, else `~/.codex`), and Skillshare's config, state and data. File edits stay inside the working directory
  * (`boundary.ts`), so these stay out of reach.
  */
 export function machineConfigPaths(runnerConfigDir: string, env: NodeJS.ProcessEnv = process.env, home = homedir()): string[] {
-  return [runnerConfigDir, env.CLAUDE_CONFIG_DIR || join(home, ".claude"), join(home, ".claude.json"), env.CODEX_HOME || join(home, ".codex")];
+  return [runnerConfigDir, env.CLAUDE_CONFIG_DIR || join(home, ".claude"), join(home, ".claude.json"), env.CODEX_HOME || join(home, ".codex"),
+    env.SKILLSHARE_CONFIG ? dirname(resolve(env.SKILLSHARE_CONFIG)) : join(env.XDG_CONFIG_HOME || join(home, ".config"), "skillshare"),
+    join(env.XDG_STATE_HOME || join(home, ".local", "state"), "skillshare"),
+    join(env.XDG_DATA_HOME || join(home, ".local", "share"), "skillshare"),
+  ];
 }
 
 /** The first of `paths` that `dir` contains or sits inside (real paths), or undefined. */
@@ -133,7 +139,7 @@ function checkRoots(config: RunnerConfig, runnerConfigDir: string, env: NodeJS.P
   if (stateClash) throw new Error(`the runner's state dir ${state} must not contain or be inside ${stateClash}`);
   for (const root of config.roots) {
     if (isConfigPath(realOf(root))) throw new Error(`root ${root} must not be a project's .claude or .mcp.json, nor inside one`);
-    const clash = overlapping(root, [...machine, state]);
+    const clash = overlapping(root, [state, ...machine]);
     if (clash) throw new Error(`root ${root} must not contain or be inside ${clash}`);
   }
   return config;

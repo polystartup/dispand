@@ -527,7 +527,24 @@ changes it updates this file.
   directory); reads are allowed. The SDK loads them with `skipMcpDiscovery`. They are written
   again at every start or resume and removed when the session ends and when the runner starts,
   so a changed copy never outlives its session.
-- **Plugins bring files, never code that runs.** Marketplaces and plugins are fetched with
+- **Native plugins are an explicit runner-local opt-in.** The owner-authenticated
+  `runners.plugins` procedure checks runner ownership and CLI harness membership.
+  Protocol 14's native requests run only the maintained Skillshare executable on the
+  runner, from its home directory, with explicit global scope and target/account names
+  from local `pluginTargets`. The server cannot set commands or account config paths.
+  Sources are credential-free HTTPS Git URLs; no local paths or other transports.
+  Mutations select explicit targets and require a preview revision. Complete native
+  plugins may execute their native hooks, commands and MCP integrations: opting a target
+  in authorizes that native lifecycle, separately from sanitized workspace imports.
+  Skillshare config, data and state directories join the machine paths excluded from
+  roots and session access. Custom account config directories must be outside roots
+  and protected locally like CLI homes. Native replies expose a bounded projection,
+  never raw paths, identifiers or error text. One operation runs at a time, with bounded
+  output and time; failures and partial outcomes are reported, never automatically
+  retried. Removing a native binding does not change workspace imports. Registration
+  does not imply successful resource loading; native-first selection is not implemented
+  in this slice and session workspace loading remains unchanged.
+- **Workspace plugin imports bring files, never code that runs.** Marketplaces and plugins are fetched with
   `fetchGit` (`packages/domain/src/plugins/git.ts`): `https://` only (no credentials in the URL;
   `file://` only in a development build with `DISPAND_GIT_FILE_URLS=1`, for e2e fixtures),
   redirects not followed, no prompts, hooks, submodules, LFS or system and user git config,
