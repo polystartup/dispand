@@ -639,7 +639,15 @@
   `creates`, its `createdId` and whether it `failed`, and the names of those ids, a
   table-change trigger's table and fields and what used items created included); the web shows
   it with `ProposalItems`, which reads such a trigger's config in words (`ChangeConfig`) and a
-  reference as what the item it names creates.
+  reference as what the item it names creates. `propose` may name a business (`plugin`, kept
+  on the proposal, migration 0053): each time an item's call records a `createdId`
+  (through `proposal_apply` or a direct call), `recordInPlugin` adds every `createdId` of the
+  proposal's items, by kind, to the plugin
+  "Generated: <business>" (`plugins.source = 'generated'`, `created`; no marketplace, URL or
+  commit), creating it on first use (one per name, `plugins_owner_generated_idx`). It lists and
+  owns nothing: `agents.plugin_id` and `tools.plugin_id` cascade, so they stay unset, and
+  `plugins.uninstall` of a generated plugin deletes its row only; `plugins.update` refuses it;
+  `plugins.list` names what it lists as it is now, leaving out what was deleted since.
 - **Inbox:** every question a session asks is a row of `questions` with a `kind`: a permission
   is an `approval`, a choice or a confirmation a `question` (set when it is asked; migration
   `0030` moved the existing ones). An answer records who gave it (`answered_by`: a user, or an

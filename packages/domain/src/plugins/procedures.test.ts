@@ -91,7 +91,7 @@ test("install reads the skills a strict:false entry lists, and skills shows them
   await expect(call(router.skills.delete, { packageId: pkg!.packageId }, { context: ctx })).rejects.toMatchObject({ code: "FORBIDDEN" });
 
   const [installed] = await call(router.plugins.list, undefined, { context: ctx });
-  expect(installed).toMatchObject({ id: pluginId, marketplace: "acme", skills: [{ name: "pdf" }], available: { skills: [{ name: "docx" }] } });
+  expect(installed).toMatchObject({ id: pluginId, source: "marketplace", marketplace: "acme", tables: [], triggers: [], skills: [{ name: "pdf" }], available: { skills: [{ name: "docx" }] } });
   expect((await call(router.plugins.discover, { query: "document" }, { context: ctx }))[0]!.installed).toBe(true);
   await expect(
     call(router.plugins.install, { marketplaceId: market.id, entryName: "document-skills", skills: ["docx"] }, { context: ctx }),

@@ -9,6 +9,8 @@ export type ProposalView = {
    */
   items: { tool: string; input: unknown; used: boolean; refs: string[]; creates?: string | null; createdId?: string | null; failed?: boolean }[];
   names: Record<string, { kind: string; name: string; detail?: string }>;
+  /** The generated plugin ("Generated: <business name>") that records what the items create. */
+  plugin?: string | null;
 };
 
 const TITLES: Record<string, string> = {
@@ -215,6 +217,12 @@ function Value({ name, value, items, names, isRef, address }: { name: string; va
 /** The writes of a proposal, each whole: what the owner approves, read from the server and not from the agent's words. */
 export function ProposalItems({ proposal }: { proposal: ProposalView }) {
   return (
+    <>
+      {proposal.plugin && (
+        <p className="mb-2 text-[13px] text-muted">
+          What these items create is recorded in the plugin <span className="font-medium text-fg">{proposal.plugin}</span>.
+        </p>
+      )}
     <ol aria-label="What is proposed" className="space-y-3">
       {proposal.items.map((item, i) => (
         <li key={i} className="rounded-xl border border-line p-3">
@@ -240,5 +248,6 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
         </li>
       ))}
     </ol>
+    </>
   );
 }

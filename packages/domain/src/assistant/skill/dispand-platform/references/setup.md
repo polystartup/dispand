@@ -91,6 +91,10 @@ item naming what earlier ones create.
   instead, or not asked. An action that reaches outside (a send, a fetch) can carry what the
   agent read: keep it asking on an agent that reads confidential tables.
 
+Give every proposal of a setup the same `plugin`: the business or use case's name, such as
+"Acme Law". Once applied, what its items created is listed in the workspace's plugin
+"Generated: Acme Law", so the owner finds the whole setup in one place.
+
 Say in the approval message what the setup does as a whole, then let the items speak. After
 it is applied, end with each tool that needs the owner to sign in or enter a key: `tools_get`
 gives its `signIn` (`needed`, `connected` or `none`) and its `signInPath`. Link each one as

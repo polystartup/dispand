@@ -226,3 +226,11 @@ test("a trigger's rate cap and concurrency read in words, and a field's choices 
   expect(trigger!.textContent).not.toContain("rateCap");
   expect(trigger!.textContent).not.toContain("one-at-a-time");
 });
+
+test("a proposal names the generated plugin that will record what it creates; one without says nothing of it", () => {
+  const { unmount } = render(<ProposalItems proposal={{ ...proposal, plugin: "Generated: Acme Law" }} />);
+  expect(screen.getByText("Generated: Acme Law")).toBeTruthy();
+  unmount();
+  render(<ProposalItems proposal={proposal} />);
+  expect(screen.queryByText(/recorded in the plugin/)).toBeNull();
+});
