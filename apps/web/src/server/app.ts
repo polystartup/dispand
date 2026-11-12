@@ -51,7 +51,7 @@ const globalForApp = globalThis as { __dispandApp?: Promise<App> };
 
 async function start(): Promise<App> {
   const config = loadServerConfig();
-  // First: what starts below is traced. Sends over OTLP only where OTEL_EXPORTER_OTLP_* says.
+  // First: what starts below is traced. Logs go to the output; OTLP only where OTEL_EXPORTER_OTLP_* says.
   startTelemetry();
   // The production build copies the migrations next to the server bundle (see vite.config.ts).
   const migrations = config.mode === "production" ? fileURLToPath(new URL("../drizzle", import.meta.url)) : undefined;

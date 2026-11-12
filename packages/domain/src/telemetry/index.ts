@@ -20,7 +20,7 @@ import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
-import { BatchLogRecordProcessor, type LogRecordExporter, LoggerProvider, type ReadableLogRecord, SimpleLogRecordProcessor } from "@opentelemetry/sdk-logs";
+import { BatchLogRecordProcessor, ConsoleLogRecordExporter, type LogRecordExporter, LoggerProvider, type ReadableLogRecord, SimpleLogRecordProcessor } from "@opentelemetry/sdk-logs";
 import { createAllowListAttributesProcessor, MeterProvider, type MetricReader, PeriodicExportingMetricReader, type PushMetricExporter } from "@opentelemetry/sdk-metrics";
 import { BatchSpanProcessor, type ReadableSpan, SimpleSpanProcessor, type SpanExporter, type SpanProcessor, TracerProvider } from "@opentelemetry/sdk-trace";
 import { METRICS, type MetricName } from "./metrics.ts";
@@ -28,9 +28,9 @@ import { redactLogRecord, redactSpan } from "./redact.ts";
 
 // Dispand's telemetry: the one module that knows OpenTelemetry's SDK. Every other module gets a
 // tracer, a meter and a logger by name from here, and records errors with `recordError`.
-// Exporters exist only when the standard environment says where to send (`OTEL_EXPORTER_OTLP_*`);
-// the providers run anyway, so tests read what would have been sent. Whatever is exported first
-// goes through `redact.ts`.
+// OTLP exporters exist only when the standard environment says where to send (`OTEL_EXPORTER_OTLP_*`);
+// the providers run anyway, so tests read what would have been sent. Log records always also go
+// to the process's output. Whatever is exported or printed first goes through `redact.ts`.
 
 export { rememberSecret } from "./redact.ts";
 export type { Span } from "@opentelemetry/api";
@@ -38,8 +38,8 @@ export type { Span } from "@opentelemetry/api";
 const JOB = createContextKey("dispand.job");
 const JOB_ID = "dispand.job.id";
 
-/** Where telemetry goes: the OTLP exporters, or (tests) exporters given. */
-export type Exporters = { spans?: SpanExporter; logs?: LogRecordExporter; metrics?: PushMetricExporter; metricIntervalMs?: number; simple?: boolean };
+/** Where telemetry goes: the OTLP exporters, or (tests) exporters given; `console` prints each log record. */
+export type Exporters = { console?: boolean; spans?: SpanExporter; logs?: LogRecordExporter; metrics?: PushMetricExporter; metricIntervalMs?: number; simple?: boolean };
 
 type Started = { traces: TracerProvider; logs: LoggerProvider; metrics: MeterProvider; contextManager: AsyncLocalStorageContextManager };
 const STARTED = Symbol.for("dispand.telemetry");
@@ -75,11 +75,15 @@ const jobOnSpans: SpanProcessor = {
 
 const has = (env: NodeJS.ProcessEnv, ...names: string[]) => names.some((n) => !!env[n]);
 
-/** The OTLP exporters the environment asks for; none when it names no endpoint, or when the SDK is disabled. */
+/**
+ * The console, and the OTLP exporters the environment asks for: none when it names no endpoint, or
+ * when the SDK is disabled. Logs are printed even then: an install reads them in its output.
+ */
 export function exportersFromEnv(env: NodeJS.ProcessEnv = process.env): Exporters {
-  if (env.OTEL_SDK_DISABLED === "true") return {};
+  if (env.OTEL_SDK_DISABLED === "true") return { console: true };
   const all = has(env, "OTEL_EXPORTER_OTLP_ENDPOINT");
   return {
+    console: true,
     ...(all || has(env, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") ? { spans: new OTLPTraceExporter() } : {}),
     ...(all || has(env, "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") ? { logs: new OTLPLogExporter() } : {}),
     ...(all || has(env, "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT") ? { metrics: new OTLPMetricExporter() } : {}),
@@ -111,7 +115,14 @@ export function startTelemetry(exporters: Exporters = exportersFromEnv(), env: N
   const started: Started = {
     contextManager: new AsyncLocalStorageContextManager().enable(),
     traces: new TracerProvider({ resource, spanProcessors: [jobOnSpans, ...(exporters.spans ? [spanProcessor(exporters.spans)] : [])] }),
-    logs: new LoggerProvider({ resource, processors: exporters.logs ? [logProcessor(exporters.logs)] : [] }),
+    // Printed as each record is emitted, so a crash still shows the last one.
+    logs: new LoggerProvider({
+      resource,
+      processors: [
+        ...(exporters.console ? [new SimpleLogRecordProcessor({ exporter: redactedLogs(new ConsoleLogRecordExporter()) })] : []),
+        ...(exporters.logs ? [logProcessor(exporters.logs)] : []),
+      ],
+    }),
     // Each instrument keeps only the attributes it lists: a stray one is dropped here.
     metrics: new MeterProvider({
       resource,
