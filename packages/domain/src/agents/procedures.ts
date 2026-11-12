@@ -3,6 +3,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents as agentsTable, agentSkills, agentTools, harnesses, plugins, skillPackages, tables as tablesTable, tools as toolsTable } from "../db/schema.ts";
+import { MEMORY_TARGETS } from "../memory/model.ts";
 import { BUNDLES, type TableScope } from "../platform/bundles.ts";
 import { ModelName } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
@@ -51,6 +52,12 @@ const Fields = z.object({
     .max(BUNDLES.length)
     .transform((b) => [...new Set(b)])
     .optional(),
+  /** Where its Jobs may write memory; left out of an update, they stay as they are. Setting it is a grant. */
+  selfLearning: z
+    .array(z.enum(MEMORY_TARGETS))
+    .max(MEMORY_TARGETS.length)
+    .transform((t) => [...new Set(t)])
+    .optional(),
   /** The tables its Jobs may work on: all, or these. */
   dataTables: z.union([z.literal("all"), z.array(z.string().max(64)).max(100)]).optional(),
   /** The agents its Jobs may consult; left out of an update, they stay as they are. */
@@ -72,8 +79,8 @@ async function ownTables(db: Db, ownerId: string, scope: TableScope | undefined)
 }
 
 function toAgent(row: typeof agentsTable.$inferSelect) {
-  const { id, ownerId, name, description, harnessId, systemPrompt, model, bundles, dataTables, builtIn } = row;
-  return { id, ownerId, name, description, harnessId, systemPrompt, ...(model === null ? {} : { model }), bundles, dataTables, ...(builtIn === null ? {} : { builtIn }) };
+  const { id, ownerId, name, description, harnessId, systemPrompt, model, bundles, dataTables, selfLearning, builtIn } = row;
+  return { id, ownerId, name, description, harnessId, systemPrompt, ...(model === null ? {} : { model }), bundles, dataTables, selfLearning, ...(builtIn === null ? {} : { builtIn }) };
 }
 
 type Row = typeof agentsTable.$inferSelect;
@@ -183,13 +190,13 @@ async function withSkillsAndTools(db: Db, row: Row) {
 }
 
 const create = owner.input(Fields).handler(async ({ input, context }) => {
-  const { skillPackageIds, toolIds, bundles, consults: entries, ...fields } = input;
+  const { skillPackageIds, toolIds, bundles, selfLearning, consults: entries, ...fields } = input;
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
   const dataTables = await ownTables(context.db, context.ownerId, input.dataTables);
   const row = await context.db.transaction(async (tx) => {
     const [row] = await tx
       .insert(agentsTable)
-      .values({ ...fields, model: fields.model ?? null, bundles: bundles ?? [], dataTables: dataTables ?? "all", id: newId("agent"), ownerId: context.ownerId })
+      .values({ ...fields, model: fields.model ?? null, bundles: bundles ?? [], selfLearning: selfLearning ?? [], dataTables: dataTables ?? "all", id: newId("agent"), ownerId: context.ownerId })
       .returning();
     await attach(tx, context.ownerId, row!.id, skillPackageIds, toolIds, harness.runnerId);
     await consults(tx, context.ownerId, row!.id, entries);
@@ -199,7 +206,7 @@ const create = owner.input(Fields).handler(async ({ input, context }) => {
 });
 
 const update = owner.input(Fields.extend({ id: z.string() })).handler(async ({ input, context }) => {
-  const { id, skillPackageIds, toolIds, bundles, consults: entries, ...fields } = input;
+  const { id, skillPackageIds, toolIds, bundles, selfLearning, consults: entries, ...fields } = input;
   await find(context.db, context.ownerId, id);
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
   const dataTables = await ownTables(context.db, context.ownerId, input.dataTables);
@@ -209,7 +216,7 @@ const update = owner.input(Fields.extend({ id: z.string() })).handler(async ({ i
     await lockConsults(tx, context.ownerId);
     const [row] = await tx
       .update(agentsTable)
-      .set({ ...fields, model: fields.model ?? null, ...(bundles ? { bundles } : {}), ...(dataTables ? { dataTables } : {}) })
+      .set({ ...fields, model: fields.model ?? null, ...(bundles ? { bundles } : {}), ...(selfLearning ? { selfLearning } : {}), ...(dataTables ? { dataTables } : {}) })
       .where(and(eq(agentsTable.id, id), eq(agentsTable.ownerId, context.ownerId)))
       .returning();
     if (!row) throw new ORPCError("NOT_FOUND");

@@ -7,7 +7,7 @@ import { rightsOf, within, type JobIdentity, type Rights } from "../platform/rig
 // `interaction` trigger's agent and, for the `inbox` tools, for the calling Job.
 
 /** Who reads, and what it may use: its bundles and the tables they apply to. */
-export type InboxScope = Rights & { ownerId: string; agentId: string };
+export type InboxScope = Pick<Rights, "bundles" | "tables"> & { ownerId: string; agentId: string };
 
 /** At dispatch: the agent's rights as they are now. Null when it no longer exists. */
 export async function agentScope(db: Db | Tx, ownerId: string, agentId: string): Promise<InboxScope | null> {

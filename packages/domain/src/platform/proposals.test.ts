@@ -106,6 +106,23 @@ test("a grant write runs only on an approved, unused, identical item of the same
   expect(await names()).toEqual(["Builder", "Clerk"]);
 });
 
+test("setting an agent's self-learning targets from a Job is a grant: it runs only on an approved item", async () => {
+  const s = await setup();
+  const input = { ...s.base, id: s.agent.id, selfLearning: ["workspace"] };
+  const targets = async () => (await s.context.db.select({ selfLearning: agents.selfLearning }).from(agents).where(eq(agents.id, s.agent.id)))[0]!.selfLearning;
+  expect(((await s.tool("agents_update", input)) as { error: string }).error).toMatch(NEEDS);
+  expect(await targets()).toEqual([]);
+  const id = s.idOf(await s.propose([{ tool: "agents_update", input }]));
+  expect(((await s.tool("agents_update", input)) as { error: string }).error).toMatch(NEEDS);
+  await s.settle(id, "approved");
+  // Another target than the one approved gets nothing from it.
+  expect(((await s.tool("agents_update", { ...input, selfLearning: ["agent", "workspace"] })) as { error: string }).error).toMatch(NEEDS);
+  expect(await s.tool("agents_update", input)).toMatchObject({ ok: true, output: { selfLearning: ["workspace"] } });
+  expect(await targets()).toEqual(["workspace"]);
+  // A new agent's targets go through an approved item too.
+  expect(((await s.tool("agents_create", { ...s.newAgent, selfLearning: ["agent"] })) as { error: string }).error).toMatch(NEEDS);
+});
+
 test("one approved item, two calls at once: exactly one runs", async () => {
   const s = await setup();
   const id = s.idOf(await s.propose([{ tool: "agents_create", input: s.newAgent }]));

@@ -623,6 +623,10 @@
   (`memories.*`, not tools) back the workspace memory page under Settings (`MemoryPanel`).
   Every write is a `memory.write` span and `dispand.memory.writes` (scope, operation, result),
   never a path or a body.
+  An agent's self-learning switch (`agents.self_learning`: targets among `agent`, `data`,
+  `workspace`, empty by default) says where its Jobs may write memory. Setting it is part of
+  `agents.create` and `agents.update`, grants a Job reaches only through an approved proposal;
+  the Job's snapshot keeps the targets and `rightsOf` gives those the agent still has.
 - **Skills in cloud sessions** (`skills/cloud.ts`): the way Agent Skills work. At every model
   call `sessionSkills` reads the skills of the session's packages (`sessionTooling`: for a Job,
   its snapshot's that the agent still has); the system prompt lists each skill's name and

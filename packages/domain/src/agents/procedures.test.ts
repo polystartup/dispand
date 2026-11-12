@@ -31,6 +31,7 @@ test("agent create, get, list, update, delete", async () => {
     systemPrompt: "Be brief.",
     bundles: [],
     dataTables: "all",
+    selfLearning: [],
     plugin: null,
   });
   expect(await call(router.agents.get, { id: created.id }, { context })).toEqual({ ...created, skills: [], tools: [], consults: [] });
