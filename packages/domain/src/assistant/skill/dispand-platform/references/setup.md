@@ -19,7 +19,8 @@ These calls run only as an item of a proposal a person approved, in the same Job
 
 - `agents_create`, `agents_update`, `agents_set_tool_ask`;
 - `triggers_create`, `triggers_update`, `triggers_delete`;
-- `tools_add` (a name, a URL and a transport, no credentials), `tools_delete`;
+- `tools_add_from_catalog` (a catalog entry's id, and a name if you want another), `tools_add`
+  (a name, a URL and a transport), `tools_delete`: neither takes a credential;
 - `tables_delete`, `fields_delete` (they can't be undone);
 - `harnesses_set_limit`, `workspace_set_checkpoint`.
 
@@ -36,8 +37,8 @@ proposal so the owner sees the whole setup at once.
    again).
 3. Where an item needs the id of something an earlier item creates, put `{ "$item": n }`
    there instead, `n` being that earlier item's place in `items`, counted from 0. Only
-   `tables_create`, `fields_create`, `agents_create`, `triggers_create` and `tools_add` create
-   something to name. For example, item 0 creates a table and item 1 adds a field to it:
+   `tables_create`, `fields_create`, `agents_create`, `triggers_create`, `tools_add_from_catalog`
+   and `tools_add` create something to name. For example, item 0 creates a table and item 1 adds a field to it:
 
    ```json
    { "items": [
@@ -77,11 +78,21 @@ item naming what earlier ones create.
 - **Triggers** for each agent: a primitive trigger for work that follows a record's change, a
   schedule for recurring work, a poll for a service's new items, a button or chat for work
   started by hand.
-- **Tools**: list, for each agent, which of its tools' actions will run without asking
+- **Tools** come from the catalog first: `tools_catalog` lists its entries, each with the
+  actions it declares, whether each only reads, may be polled, and asks before use by default.
+  `tools_add_from_catalog` adds an entry's tool with those actions before its owner signs in,
+  so the same proposal can give it to agents, set its asking flags and make poll triggers on
+  its pollable actions. An entry that runs on a runner can't be added this way: tell the owner
+  to add it on their machine (the refusal gives the snippet). Add a tool by URL (`tools_add`)
+  only for a server the catalog doesn't have: it has no actions until it is signed in and lists
+  them, so propose its asking flags and poll triggers in a second proposal, once it lists.
+- **Asking flags**: list, for each agent, which of its tools' actions will run without asking
   (`agents_tool_ask`) and propose `agents_set_tool_ask` where the owner should be asked
   instead, or not asked. An action that reaches outside (a send, a fetch) can carry what the
   agent read: keep it asking on an agent that reads confidential tables.
 
 Say in the approval message what the setup does as a whole, then let the items speak. After
-it is applied, tell the owner which tools need them to sign in or enter a key, on each tool's
-page.
+it is applied, end with each tool that needs the owner to sign in or enter a key: `tools_get`
+gives its `signIn` (`needed`, `connected` or `none`) and its `signInPath`. Link each one as
+`[the tool's name](signInPath)`: the link opens its page in the app. Until then, nothing calls
+it, and its polls wait for it.

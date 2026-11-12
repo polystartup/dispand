@@ -4,7 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ tools: { authorize: vi.fn(), pollable: vi.fn(), setPollable: vi.fn(), create: vi.fn(), update: vi.fn(), refresh: vi.fn(), delete: vi.fn() } }));
+const fake = vi.hoisted(() => ({ tools: { authorize: vi.fn(), pollable: vi.fn(), setPollable: vi.fn(), create: vi.fn(), update: vi.fn(), refresh: vi.fn(), delete: vi.fn(), catalog: vi.fn(), fillSettings: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -38,11 +38,11 @@ const tool = {
   createdAt: new Date(),
 } as unknown as NonNullable<Tool>;
 
-function sheet() {
+function sheet(shown: NonNullable<Tool> = tool, onSaved: (t: NonNullable<Tool>) => void = () => {}) {
   fake.tools.pollable.mockResolvedValue([]);
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <ToolSheet tool={tool} onClose={() => {}} onSaved={() => {}} />
+      <ToolSheet tool={shown} onClose={() => {}} onSaved={onSaved} />
     </QueryClientProvider>,
   );
 }
@@ -74,4 +74,19 @@ test("a server that needs a client id it gave opens the client fields when Conne
   expect((await screen.findByRole("alert")).textContent).toMatch(/enter the client id it gave you/);
   expect(screen.getByLabelText("Client id")).toBeTruthy();
   expect(screen.getByLabelText("Client secret")).toBeTruthy();
+});
+
+test("a catalog tool added without its key asks for its entry's settings, and saves them sealed on the server", async () => {
+  const firecrawl = { ...tool, name: "Firecrawl", auth: "none", oauthStatus: null, catalogId: "firecrawl", signIn: "needed" } as unknown as NonNullable<Tool>;
+  fake.tools.catalog.mockResolvedValue([{ id: "firecrawl", kind: "http", name: "Firecrawl", settings: [{ key: "apiKey", label: "API key", help: "Your key." }] }]);
+  fake.tools.fillSettings.mockResolvedValue({ ...firecrawl, auth: "headers", signIn: "connected", headerNames: ["authorization"] });
+  const saved = vi.fn();
+  sheet(firecrawl, saved);
+  expect(await screen.findByText(/Needs sign-in: enter its API key/)).toBeTruthy();
+  const user = userEvent.setup();
+  await user.type(screen.getByLabelText("API key"), "fc-1");
+  await user.click(screen.getByRole("button", { name: "Save settings" }));
+  expect(fake.tools.fillSettings.mock.calls[0]![0]).toEqual({ id: "tool_mail", settings: { apiKey: "fc-1" } });
+  expect(saved).toHaveBeenCalledWith(expect.objectContaining({ signIn: "connected" }));
+  expect(await screen.findByText(/Connected\. Enter new settings/)).toBeTruthy();
 });

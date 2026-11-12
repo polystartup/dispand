@@ -42,6 +42,8 @@ type Options = {
     /** Every request but a tool call goes through without a token (as Google's Gmail server lists its actions). */
     openListing?: boolean;
   };
+  /** Every request must carry `authorization: Bearer <apiKey>`, or gets a 401 (as an API-key server). */
+  apiKey?: string;
 };
 
 function mcpServer(actions: FakeAction[], options: Options, pages: { count: number }): Server {
@@ -101,6 +103,10 @@ export async function startFakeMcp(
   const sse = new Map<string, LegacySseTransport>();
   const http = createServer((req, res) => {
     requests.push(req.headers);
+    if (options.apiKey !== undefined && req.headers.authorization !== `Bearer ${options.apiKey}`) {
+      res.writeHead(401).end();
+      return;
+    }
     void (async () => {
       if (transport === "streamable-http") {
         let body: unknown;

@@ -26,6 +26,7 @@ import { errorKind, logError } from "../log.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { fillLastPoll, itemsOf, MAX_ITEM_BYTES, nextToken, noPolls, type PollCaller } from "../tools/poll.ts";
 import { pollProblem } from "../tools/pollable.ts";
+import { signInOf } from "../tools/catalog.ts";
 import { agentScope, startable } from "../questions/inbox-scope.ts";
 import { canonicalJson, INTERACTION, type TriggerConfig } from "../triggers/model.ts";
 import { latestFireBetween, nextFireAfter } from "../workflows/schedule.ts";
@@ -67,6 +68,9 @@ const BATCH = 20;
 /** The most events, and deferred fires, one tick takes; the rest wait for the next. */
 const EVENT_BATCH = 100;
 const HOUR_MS = 3_600_000;
+
+/** What a poll of a tool waiting for its owner's sign-in says on its trigger. */
+export const NEEDS_SIGN_IN_POLL = "The tool needs sign-in: its owner enters its settings, or connects it, on its page in Settings → Tools";
 
 /** Polls a trigger keeps, the latest (what its sheet shows). */
 const POLLS_KEPT = 20;
@@ -287,12 +291,13 @@ export class Scheduler {
         .update(triggers)
         .set({ nextFireAt: new Date(now.getTime() + config.interval * 1000) })
         .where(eq(triggers.id, t.id));
-      const problem = await pollProblem(tx, t.ownerId, t.agentId, config.toolId, config.action);
+      const [tool] = await tx.select().from(tools).where(eq(tools.id, config.toolId));
+      // A tool waiting for its owner's sign-in is called by nothing, its polls included, until it is signed in.
+      const problem = (await pollProblem(tx, t.ownerId, t.agentId, config.toolId, config.action)) ?? (tool && signInOf(tool) === "needed" ? NEEDS_SIGN_IN_POLL : null);
       const pollId = newId("poll");
       await tx.insert(polls).values({ id: pollId, ownerId: t.ownerId, triggerId: t.id, at: now, status: problem ? "skipped" : "calling", message: problem });
       const kept = tx.select({ id: polls.id }).from(polls).where(eq(polls.triggerId, t.id)).orderBy(desc(polls.at), desc(polls.id)).limit(POLLS_KEPT);
       await tx.delete(polls).where(and(eq(polls.triggerId, t.id), notInArray(polls.id, kept)));
-      const [tool] = await tx.select().from(tools).where(eq(tools.id, config.toolId));
       if (problem || !tool) {
         counts.counter("dispand.polls").add(1, { "dispand.tool.kind": tool?.kind ?? "none", "dispand.result": "skipped" });
         continue;
@@ -339,7 +344,7 @@ export class Scheduler {
           const problem =
             !trigger?.enabled || canonicalJson(trigger.config) !== canonicalJson(c.trigger.config)
               ? "The trigger changed before its poll"
-              : await pollProblem(this.db, c.trigger.ownerId, c.trigger.agentId, toolId, action);
+              : ((await pollProblem(this.db, c.trigger.ownerId, c.trigger.agentId, toolId, action)) ?? (tool && signInOf(tool) === "needed" ? NEEDS_SIGN_IN_POLL : null));
           if (problem || !tool) {
             result = "skipped";
             await this.db.update(polls).set({ status: "skipped", message: problem ?? "The tool no longer exists" }).where(eq(polls.id, c.pollId));

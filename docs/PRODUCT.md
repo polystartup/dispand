@@ -53,8 +53,9 @@ Status: Prototype
     an agent that reads confidential data.
   - An agent that may configure the workspace can create or change agents, delete a table or
     a field, change which actions of an agent's tool ask before use, create, change or
-    delete an agent's triggers, and add a tool by its address (without credentials: the
-    owner enters those) or delete an unused one, only through a proposal: it lists the exact changes, the Inbox (and the chat it was asked in) shows each one whole with the names of
+    delete an agent's triggers, and add a tool from the catalog or by its address (without
+    credentials: the owner enters those, or signs in, on the tool's page, which the agent
+    links to; until then nothing calls the tool) or delete an unused one, only through a proposal: it lists the exact changes, the Inbox (and the chat it was asked in) shows each one whole with the names of
     what it points at, and approving lets that Job make exactly those changes, once each.
     A proposal may also list the tables and fields to create, so a whole setup is shown and
     approved at once (up to 60 changes), a later change naming what an earlier one creates

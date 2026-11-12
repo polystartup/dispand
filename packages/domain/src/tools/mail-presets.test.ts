@@ -129,8 +129,10 @@ test("Gmail: an OAuth tool whose sign-in asks for reading and drafts only, offli
 
   const installed = await call(router.tools.installFromCatalog, { catalogId: "gmail", settings: {} }, { context: w.context });
   if (!("tool" in installed)) throw new Error("expected a tool");
-  // Nothing is fetched before it is connected.
-  expect(installed.tool).toMatchObject({ name: "Gmail", url: "https://gmailmcp.googleapis.com/mcp/v1", auth: "oauth", oauthStatus: "authorize", catalogId: "gmail", actions: [] });
+  // Nothing is fetched before it is connected: it has the actions its entry declares, and needs sign-in.
+  expect(installed.tool).toMatchObject({ name: "Gmail", url: "https://gmailmcp.googleapis.com/mcp/v1", auth: "oauth", oauthStatus: "authorize", catalogId: "gmail", signIn: "needed" });
+  expect(installed.tool.actions.map((a) => a.name)).toContain("search_threads");
+  expect(installed.tool.refreshedAt).toBeNull();
   const id = installed.tool.id;
   // The fake stands where Google's server is.
   await w.context.db.update(tools).set({ url: mcp.url }).where(eq(tools.id, id));
@@ -144,7 +146,7 @@ test("Gmail: an OAuth tool whose sign-in asks for reading and drafts only, offli
   expect(asked.searchParams.get("redirect_uri")).toBe(`${APP}/oauth/callback`);
   const back = new URL((await fetch(url, { redirect: "manual" })).headers.get("location")!);
   expect(await finishToolAuthorization(w.context, w.context.ownerId, back.searchParams)).toEqual({ toolId: id, ok: true });
-  expect(await call(router.tools.get, { id }, { context: w.context })).toMatchObject({ oauthStatus: "connected", actions: expect.arrayContaining([expect.objectContaining({ name: "search_threads" })]) });
+  expect(await call(router.tools.get, { id }, { context: w.context })).toMatchObject({ oauthStatus: "connected", signIn: "connected", actions: expect.arrayContaining([expect.objectContaining({ name: "search_threads" })]) });
 
   // Given to an agent: the entry's flags, drafts included, trash asking.
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: w.harness.id, systemPrompt: "", toolIds: [id] }, { context: w.context });

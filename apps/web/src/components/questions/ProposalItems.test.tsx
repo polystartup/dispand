@@ -182,9 +182,47 @@ test("a reference to an earlier item reads as what that item creates, by name on
   expect(agent!.textContent).toContain("the table item 1 creates: Matters");
   expect(within(agent!).getByText("refused")).toBeTruthy();
   expect(trigger!.textContent).toContain("the agent item 2 creates");
-  expect(trigger!.textContent).toContain("A change to the table the table item 1 creates: Matters");
+  expect(trigger!.textContent).toContain("A change to the table item 1 creates: Matters");
   expect(primitive!.textContent).toContain("Clients");
   expect(primitive!.textContent).toContain("which every row must name");
   expect(screen.queryByText(/not one of yours/)).toBeNull();
   expect(document.body.textContent).not.toContain("[object Object]");
+});
+
+test("a reference in a sentence never repeats what it says: the table is named once", () => {
+  const setup: ProposalView = {
+    id: "prop_5",
+    status: "asked",
+    items: [
+      { tool: "tables_create", used: false, refs: [], creates: "table", createdId: null, input: { name: "Matters" } },
+      { tool: "triggers_create", used: false, refs: ["agentId"], creates: "trigger", createdId: null, input: { agentId: "agent_1", name: "New matter", config: { kind: "primitive", tableId: { $item: 0 }, operations: ["created"] } } },
+      { tool: "triggers_create", used: false, refs: ["agentId"], creates: "trigger", createdId: null, input: { agentId: "agent_1", name: "Other", config: { kind: "primitive", tableId: "table_1", operations: ["created"] } } },
+    ],
+    names: { agent_1: { kind: "agent", name: "Builder" }, table_1: { kind: "table", name: "Clients" } },
+  };
+  render(<ProposalItems proposal={setup} />);
+  const [, byRef, byId] = screen.getAllByRole("listitem");
+  expect(byRef!.textContent).toContain("A change to the table item 1 creates");
+  expect(byRef!.textContent).not.toMatch(/the table the table/);
+  expect(byId!.textContent).toContain("A change to the table Clients");
+});
+
+test("a trigger's rate cap and concurrency read in words, and a field's choices by their labels", () => {
+  const setup: ProposalView = {
+    id: "prop_6",
+    status: "asked",
+    items: [
+      { tool: "fields_create", used: false, refs: ["tableId"], creates: "field", createdId: null, input: { tableId: "table_1", name: "Status", type: "single-select", choices: [{ id: "c_new", label: "New" }, { id: "c_won", label: "Won" }] } },
+      { tool: "triggers_create", used: false, refs: ["agentId"], creates: "trigger", createdId: null, input: { agentId: "agent_1", name: "Poll", concurrency: "one-at-a-time", rateCap: 30, config: { kind: "primitive", tableId: "table_1", operations: ["created"] } } },
+    ],
+    names: { agent_1: { kind: "agent", name: "Builder" }, table_1: { kind: "table", name: "Clients" } },
+  };
+  render(<ProposalItems proposal={setup} />);
+  const [field, trigger] = screen.getAllByRole("listitem");
+  expect(field!.textContent).toContain("ChoicesNew, Won");
+  expect(field!.textContent).not.toMatch(/c_new|"label"/);
+  expect(trigger!.textContent).toContain("Jobs an hourAt most 30 an hour");
+  expect(trigger!.textContent).toContain("Jobs at onceOne at a time");
+  expect(trigger!.textContent).not.toContain("rateCap");
+  expect(trigger!.textContent).not.toContain("one-at-a-time");
 });
