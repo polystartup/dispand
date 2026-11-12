@@ -247,3 +247,50 @@ test("an answer too long to carry who gave it is refused, and the item still wai
   expect(await s.tool(job, "questions_answer", { questionId: q.id, answer: { kind: "choice", answers: { [SECRET]: "x".repeat(3990) } } })).toEqual({ ok: false, error: "An answer is too long" });
   expect((await s.questionOf(q.id)).status).toBe("pending");
 });
+
+test("a run shows a pending proposal Approval with its items, in its snapshot and its stream; once answered, without them", async () => {
+  const s = await setup();
+  const builder = await s.agent("Builder", ["configure"], "all");
+  const job = await s.jobOf(builder);
+  const input = { id: s.clerk.id, name: "Clerk", harnessId: (await s.context.db.select().from(agents).where(eq(agents.id, s.clerk.id)))[0]!.harnessId!, systemPrompt: "", skillPackageIds: [], toolIds: [], bundles: ["data", "inbox"], dataTables: [s.clients.id] };
+  const made = await s.tool(job, "propose", { items: [{ tool: "agents_update", input }] });
+  const proposal = (made as { output: { proposalId: string } }).output.proposalId;
+  const abort = new AbortController();
+  onTestFinished(() => abort.abort());
+  const stream = await call(router.runs.stream, { runId: job.runId }, { context: s.context, signal: abort.signal });
+  expect((await stream.next()).value).toMatchObject({ type: "snapshot" });
+  const approval = await s.ask(job.runId, { kind: "permission", toolName: "request_approval", input: { message: "Let Clerk answer questions", proposal } as never, canAlwaysAllow: false });
+  const shown = { id: proposal, status: "asked", items: [{ tool: "agents_update", input, used: false }], names: { [s.clerk.id]: { kind: "agent", name: "Clerk" } } };
+  let event = (await stream.next()).value as { type: string; question?: unknown };
+  while (event.type !== "question") event = (await stream.next()).value as typeof event;
+  expect(event.question).toMatchObject({ id: approval.id, proposalId: proposal, proposal: shown });
+  expect((await call(router.runs.get, { runId: job.runId }, { context: s.context })).questions).toMatchObject([{ id: approval.id, proposal: shown }]);
+  await call(router.questions.answer, { questionId: approval.id, answer: { kind: "permission", decision: "deny", message: "Only Clients, not Notes" } }, { context: s.context });
+  expect((await call(router.runs.get, { runId: job.runId }, { context: s.context })).questions).toMatchObject([{ id: approval.id, status: "answered", proposal: null }]);
+});
+
+test("a proposal declined with words in the chat: the agent is told them, the items stay refused, and a click after it is told it is answered", async () => {
+  const s = await setup();
+  const builder = await s.agent("Builder", ["configure"], "all");
+  const job = await s.jobOf(builder);
+  const input = { id: s.clerk.id, name: "Clerk", harnessId: (await s.context.db.select().from(agents).where(eq(agents.id, s.clerk.id)))[0]!.harnessId!, systemPrompt: "", skillPackageIds: [], toolIds: [], bundles: ["data", "inbox"], dataTables: [s.clients.id] };
+  const made = await s.tool(job, "propose", { items: [{ tool: "agents_update", input }] });
+  const proposal = (made as { output: { proposalId: string } }).output.proposalId;
+  const approval = await s.ask(job.runId, { kind: "permission", toolName: "request_approval", input: { message: "Let Clerk answer questions", proposal } as never, canAlwaysAllow: false });
+  const typed: Answer = { kind: "permission", decision: "deny", message: "Approve this, and give it Notes too" };
+  const allow: Answer = { kind: "permission", decision: "allow" };
+  const [words, click] = await Promise.allSettled([
+    call(router.questions.answer, { questionId: approval.id, answer: typed }, { context: s.context }),
+    call(router.questions.answer, { questionId: approval.id, answer: allow }, { context: s.context }),
+  ]);
+  // Whichever came first is the answer; the other is told the item was answered.
+  const wordsWon = words.status === "fulfilled";
+  expect([words.status, click.status].sort()).toEqual(["fulfilled", "rejected"]);
+  expect((wordsWon ? click : words) as PromiseRejectedResult).toMatchObject({ reason: { code: "CONFLICT" } });
+  const session = (await s.stepOf(job.runId)).sessionId!;
+  await vi.waitFor(() => expect(s.adapter.answers.filter((a) => a.sessionId === session).map((a) => a.answer)).toEqual([wordsWon ? typed : allow]));
+  if (!wordsWon) return;
+  // Words never approve, whatever they say.
+  expect(await s.tool(job, "agents_update", input)).toMatchObject({ ok: false, error: expect.stringMatching(/needs the owner's approval/) });
+  await expect(call(router.questions.answer, { questionId: approval.id, answer: allow }, { context: s.context })).rejects.toMatchObject({ code: "CONFLICT" });
+});

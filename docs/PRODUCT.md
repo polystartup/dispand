@@ -54,9 +54,11 @@ Status: Prototype
   - An agent that may configure the workspace can create or change agents, delete a table or
     a field, change which actions of an agent's tool ask before use, create, change or
     delete an agent's triggers, and add a tool by its address (without credentials: the
-    owner enters those) or delete an unused one, only through a proposal: it lists the exact changes, the Inbox shows each one whole with the names of
+    owner enters those) or delete an unused one, only through a proposal: it lists the exact changes, the Inbox (and the chat it was asked in) shows each one whole with the names of
     what it points at, and approving lets that Job make exactly those changes, once each.
-    Nothing else an agent says approves anything.
+    Nothing else an agent says approves anything. In a chat, the composer then offers
+    Approve (or Ctrl/⌘+Enter on an empty message); whatever you type and send instead declines
+    the proposal, and the agent is told your words to make a new one.
   - In a chat, the agent's words are shown formatted (headings, lists, code, emphasis). An
     image shows only when it is a file of the workspace, and a link says where it goes and
     opens only when clicked.

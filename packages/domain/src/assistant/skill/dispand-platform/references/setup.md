@@ -32,7 +32,9 @@ Everything else in your bundles you call directly.
    with. At most 20 items and 64 KiB; every item is checked by its tool when proposed, and a
    refused item comes back with the reason.
 3. Call `request_approval` with a short message and the proposal's id. The owner sees every
-   item whole and approves or declines it.
+   item whole and approves or declines it. A decline may come with the owner's words (what
+   they typed in the chat instead of approving): the proposal is then closed for good, so
+   propose again with what they asked for and request approval of the new one.
 4. Once approved, make each call exactly as listed (same tool, same input), once each. A call
    that differs, or one made twice, is refused.
 

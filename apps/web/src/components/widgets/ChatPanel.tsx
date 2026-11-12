@@ -1,12 +1,13 @@
 import { nodesOf, type WorkflowDef } from "@dispand/domain/workflows/model";
+import { SHORT } from "@dispand/runner-protocol";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUp, Check, CircleAlert, Loader2, MessageSquarePlus } from "lucide-react";
+import { ArrowUp, Check, CircleAlert, Loader2, MessageSquarePlus, ShieldCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api, orpc } from "../../lib/api.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import { useRun } from "../../lib/run-watch.ts";
-import { ChatInput, ChatThread } from "../chat/Thread.tsx";
+import { ChatInput, ChatThread, composerApproval } from "../chat/Thread.tsx";
 
 type Step = RunSnapshot["steps"][number];
 
@@ -49,7 +50,11 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
   const chatStep = run?.steps.find((s) => s.interactive) ?? run?.steps.find((s) => s.nodeId === chatField && s.status === "pending");
   // Until its stream answers, a run just started counts as open: the first message may still be on its way.
   const open = !runId || !run || (!!chatStep && (chatStep.status === "running" || chatStep.status === "waiting" || chatStep.status === "pending"));
-  const asking = !!run?.questions.some((q) => q.stepRunId === chatStep?.id && q.status === "pending");
+  // A proposal's Approval shown whole in the thread, alone in waiting: the composer answers it,
+  // Approve or the words typed, which decline it. Any other question is answered where it is
+  // shown, and sending waits for it.
+  const approval = composerApproval(run?.questions ?? [], chatStep?.id);
+  const asking = !approval && !!run?.questions.some((q) => q.stepRunId === chatStep?.id && q.status === "pending");
   const canSend = open && !asking;
 
   // Another conversation opened from outside (a list, the URL) starts without this one's draft;
@@ -69,6 +74,28 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
     if (runId) await api.runs.sendChat({ runId, text: words });
   };
 
+  /** Answers the chat's proposal Approval: a person's click, or their words, which decline it. */
+  async function answerApproval(answer: { decision: "allow" } | { decision: "deny"; message: string }) {
+    if (!approval) return;
+    await api.questions.answer({ questionId: approval.id, answer: { kind: "permission", ...answer } }).catch((err: unknown) => {
+      if ((err as { code?: string }).code === "CONFLICT") throw new Error("This proposal was already answered elsewhere.");
+      throw err;
+    }).finally(() => void queryClient.invalidateQueries({ queryKey: orpc.questions.key() }));
+  }
+
+  async function approve() {
+    if (!approval || sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      await answerApproval({ decision: "allow" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not approve");
+    } finally {
+      setSending(false);
+    }
+  }
+
   async function send() {
     const message = text.trim();
     if (!message || sending || !canSend) return;
@@ -76,6 +103,12 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
     setSending(true);
     setError(null);
     try {
+      if (approval) {
+        if (message.length > SHORT) throw new Error(`Say what should change in at most ${SHORT} characters.`);
+        await answerApproval({ decision: "deny", message });
+        setText((current) => (current === submitted ? "" : current));
+        return;
+      }
       let id = runId;
       if (!id) {
         id = (await (start ? start() : api.runs.start({ workflowId: workflowId ?? "" }))).runId;
@@ -111,6 +144,15 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
               </p>
             )}
             {asking && <p className="mb-2 px-1 text-[13px] text-muted">Answer the question above to continue.</p>}
+            {approval && open && (
+              <div className="mx-auto mb-2 flex max-w-3xl items-center gap-2 px-1">
+                <Button type="button" size="sm" disabled={sending} onClick={() => void approve()} className="rounded-full">
+                  <ShieldCheck aria-hidden />
+                  Approve
+                </Button>
+                <span className="text-[13px] text-muted">the changes above, or write what should change.</span>
+              </div>
+            )}
             <form
               className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-line bg-bg p-2 shadow-sm focus-within:border-accent"
               onSubmit={(e) => {
@@ -142,12 +184,18 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
                 minRows={1}
                 value={text}
                 disabled={!canSend}
-                placeholder={open ? "Message" : "This conversation is over"}
+                placeholder={!open ? "This conversation is over" : approval ? "What should change? Sending declines the proposal" : "Message"}
                 onChange={(e) => {
                   e.preventDefault(); // This controlled draft stays here until delivery succeeds.
                   setText(e.target.value);
                 }}
                 onKeyDown={(e) => {
+                  // The Approve shortcut, on an empty draft only: what was typed is never sent as a yes.
+                  if (approval && e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing && !text.trim()) {
+                    e.preventDefault();
+                    void approve();
+                    return;
+                  }
                   if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                     e.preventDefault();
                     void send();
@@ -159,7 +207,9 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
                 <ArrowUp aria-hidden />
               </Button>
             </form>
-            <p className="mx-auto mt-2 max-w-3xl px-1 text-[11px] text-faint">Enter to send · Shift+Enter for a new line</p>
+            <p className="mx-auto mt-2 max-w-3xl px-1 text-[11px] text-faint">
+              {approval ? `${MOD}+Enter to approve · Enter to send what should change · Shift+Enter for a new line` : "Enter to send · Shift+Enter for a new line"}
+            </p>
           </div>
         }
       >
@@ -168,6 +218,9 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
     </div>
   );
 }
+
+/** The key the Approve shortcut names: ⌘ on Apple systems, Ctrl elsewhere (both work everywhere). */
+const MOD = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
 
 /** Under the messages: why the conversation stopped, or the steps that follow it. */
 function AfterChat({ run, chatStepId, def }: { run: RunSnapshot | null; chatStepId: string | undefined; def: WorkflowDef | undefined }) {
