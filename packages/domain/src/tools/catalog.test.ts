@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { tools } from "../db/schema.ts";
+import { agentTools, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { CATALOG, searchCatalog } from "./catalog.ts";
@@ -81,4 +81,21 @@ test("a runner entry returns a snippet without any value", async () => {
   expect(result.runnerSnippet).not.toContain("should-not-appear");
   expect(targets).toEqual([]);
   expect(await call(router.tools.list, undefined, { context })).toEqual([]);
+});
+
+test("a catalog tool given to an agent asks for every action its entry doesn't declare, whatever the server says", async () => {
+  const { context } = await setup();
+  const listed = [
+    { name: "get_me", description: "", inputSchema: { type: "object" }, readOnly: true as const },
+    { name: "issue_write", description: "", inputSchema: { type: "object" }, readOnly: true as const },
+    { name: "list_gists", description: "", inputSchema: { type: "object" }, readOnly: true as const },
+  ];
+  const result = await call(router.tools.installFromCatalog, { catalogId: "github", settings: { token: "ghp_x123" } }, { context: { ...context, tools: { ...context.tools, listActions: async () => listed } } });
+  if (!("tool" in result)) throw new Error("expected a tool");
+  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
+  const agent = await call(router.agents.create, { name: "Reviewer", harnessId: harness.id, systemPrompt: "", toolIds: [result.tool.id] }, { context });
+  const [chosen] = await context.db.select({ unasked: agentTools.unasked }).from(agentTools).where(eq(agentTools.agentId, agent.id));
+  // `get_me` is declared read-only, `issue_write` declared asking: both keep the entry's setting. `list_gists` isn't declared: it asks.
+  expect(chosen!.unasked).toEqual(["get_me"]);
 });

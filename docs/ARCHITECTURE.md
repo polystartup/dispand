@@ -596,7 +596,7 @@
   at call time, before an approval is used. An action in the agent's `agent_tools.unasked`
   for that tool needs no approval, there and in a cloud session (`ask: false` on its spec):
   the list is filled from the actions' `readOnly` (the server's `readOnlyHint`, kept at
-  listing) when `agents.create` or `agents.update` adds the tool, kept as it is for a tool
+  listing), or for a catalog tool from its entry's `unasked` alone (`defaultUnasked`), when `agents.create` or `agents.update` adds the tool, kept as it is for a tool
   the agent already had, and changed by `agents.setToolAsk` only (`agents.toolAsk` reads it;
   neither is a platform tool). A Job's session start names those actions (`unasked`, their
   exposed names, at most 500; protocol 7), and the runner lets `mcp__job_tools__<name>` run
@@ -761,7 +761,9 @@
   (`<roots[0]>/runs/<runKey>`; `SessionStart.cwd` has no other mode) through `startClaudeSession`: the Claude Agent SDK's `query` in streaming-input mode,
   running the machine's `claude` with the user's settings only (`settingSources: ["user"]`,
   never the run folder's), resuming only a CLI session the runner recorded for that run key
-  (`sessions.json`). Permission prompts and
+  (`sessions.json`). Claude Code and Codex run as the runner machine's user, with that user's
+  profile (settings, instructions files, memory, hooks, sign-in), which the session's agent
+  sees and uses. Permission prompts and
   `AskUserQuestion` become `question` events; the agent returns its outputs through the
   `submit_outputs` tool of the in-process MCP server `dispand` (for a step outside a chat that
   expects none, the engine leaves its `outputs-accepted` aside and completes the step with the `result` that
@@ -996,7 +998,8 @@
   sent or stored). Settings → Tools
   has "Browse catalog" (`ToolCatalog.tsx`).
   Each HTTP entry declares its `actions` (name, description, read-only, pollable, and whether it
-  asks before use by default; its `unasked` and `pollable` are derived from them by `http()`),
+  asks before use by default; its `unasked` and `pollable` are derived from them by `http()`;
+  an action the entry doesn't declare asks, whatever the server's `readOnlyHint`),
   and a tool made from it starts with them (`declaredActions`) until a listing succeeds and
   replaces them. `tools.addFromCatalog({ catalogId, name? })`, the grant tool
   `tools_add_from_catalog` (it creates a tool, so an item may name it with `{ "$item": n }`),
@@ -1020,7 +1023,7 @@
   instead of the metadata's whole list, with `access_type=offline`; `gmail-runner`
   (`@artymclabin/gmail-mcp`) and `microsoft-365` (`@softeria/ms-365-mcp-server`, mail actions
   only) are runner entries, pinned. An entry may name `unasked` (the actions that run unasked when
-  a person gives the tool to an agent, `defaultUnasked`, in place of the read-only ones),
+  a person gives the tool to an agent, `defaultUnasked`; every other action asks, whatever the server says),
   `pollable` (written to `tools.pollable` at install) and `poll`, a poll trigger's preset that the
   trigger sheet fills in when the tool is picked. A runner tool created from the catalog's "Pick
   the runner" carries its `catalog_id` (`tools.create` takes a runner entry's id). A tool pointed
