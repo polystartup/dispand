@@ -945,7 +945,7 @@ export class Engine {
    * root's), in `tx`. A consult that ends so, with no answer, stops its consulted run, and so on
    * down its chain of consults.
    */
-  private async expire(tx: Tx, where: SQL, out: Out[]): Promise<void> {
+  private async expire(tx: Tx, where: SQL, out: Out[], stop?: StopReason): Promise<void> {
     // The consulted runs first, then the consults: the order a consulted run's end takes them in (`answerConsult`).
     const consulted = tx.select({ id: questions.consultRunId }).from(questions).where(and(where, eq(questions.status, "pending"), isNull(questions.rootId)));
     await tx.select({ id: runs.id }).from(runs).where(inArray(runs.id, consulted)).for("update");
@@ -962,7 +962,8 @@ export class Engine {
       consultEnded(q, "stopped");
       if (!q.consultRunId) continue;
       const [going] = await tx.select({ id: runs.id }).from(runs).where(and(eq(runs.id, q.consultRunId), inArray(runs.status, ACTIVE_RUN))).for("update");
-      if (going) out.push({ type: "end", steps: await this.stopIn(tx, going.id, out) });
+      // Stopped for the reason its asker was, if any (a declined checkpoint, a consult taken back).
+      if (going) out.push({ type: "end", steps: await this.stopIn(tx, going.id, out, stop) });
     }
   }
 
@@ -2162,7 +2163,7 @@ export class Engine {
       if (loop) out.push({ type: "step", step: stepView(loop) });
     }
     // A checkpoint's Approval asked on this run is its root's: it stays.
-    await this.expire(tx, eq(questions.runId, step.runId), out);
+    await this.expire(tx, eq(questions.runId, step.runId), out, stop);
     await this.finishRun(tx, step.runId, "failed", error, out, stop);
     // Nothing more of the run starts or resumes: its steps queued (to start, for an answer or a
     // message, or to resume) or handed a slot leave the queue. Its steps waiting on a question

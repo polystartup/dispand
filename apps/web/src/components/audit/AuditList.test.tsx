@@ -44,7 +44,7 @@ test("the Job page's Audit lists its rows: the action in words, the agent and it
   fake.agents.list.mockResolvedValue([{ id: "agent_1", name: "Writer" }]);
   fake.audit.traceUrl.mockResolvedValue({ traceUrl: null });
   fake.audit.list.mockResolvedValue({ rows: [row("aud_1"), row("aud_2", { action: "job.failed", result: "failed", details: { reason: "stopped" } })], next: null });
-  mount(<JobAudit jobId="run_1" />);
+  mount(<JobAudit jobId="run_1" live={false} />);
   const section = await screen.findByRole("region", { name: "Audit" });
   expect(await within(section).findByText("Job started")).toBeTruthy();
   expect(fake.audit.list.mock.calls[0]![0]).toEqual({ jobId: "run_1" });
@@ -96,4 +96,21 @@ test("nothing recorded says so", async () => {
   fake.audit.list.mockResolvedValue({ rows: [], next: null });
   mount(<AuditList />);
   expect(await screen.findByText("Nothing recorded yet")).toBeTruthy();
+});
+
+test("a Job's Audit is read once more when the Job ends", async () => {
+  fake.agents.list.mockResolvedValue([]);
+  fake.audit.traceUrl.mockResolvedValue({ traceUrl: null });
+  const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = (live: boolean) => (
+    <QueryClientProvider client={queries}>
+      <JobAudit jobId="run_1" live={live} />
+    </QueryClientProvider>
+  );
+  fake.audit.list.mockResolvedValue({ rows: [row("aud_1")], next: null });
+  const { rerender } = render(view(true));
+  expect(await screen.findByText("Job started")).toBeTruthy();
+  fake.audit.list.mockResolvedValue({ rows: [row("aud_2", { action: "job.finished", details: {} }), row("aud_1")], next: null });
+  rerender(view(false));
+  expect(await screen.findByText("Job finished")).toBeTruthy();
 });

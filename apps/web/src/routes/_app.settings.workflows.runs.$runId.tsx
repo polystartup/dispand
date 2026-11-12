@@ -73,7 +73,7 @@ function RunPage() {
       </header>
       {run.source === "agent" && <RunConsults runId={run.id} live={!run.finishedAt} />}
       <RunSteps state={state} def={workflow.data?.def ?? job.data} agentNames={agentNames} />
-      {run.source === "agent" && <JobAudit jobId={run.id} />}
+      {run.source === "agent" && <JobAudit jobId={run.id} live={!run.finishedAt} />}
     </>
   );
 }

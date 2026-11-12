@@ -134,14 +134,19 @@ function Trace({ traceId, traceUrl }: { traceId: string; traceUrl: string | null
  * it ended, the ids and names it names, and its trace, with a link where traces are opened
  * (`DISPAND_TRACE_URL`). "Load more" reads the next page.
  */
-export function AuditList({ filter = {} }: { filter?: Filter }) {
-  const pages = useInfiniteQuery(
-    orpc.audit.list.infiniteOptions({
-      input: (cursor: string | undefined) => ({ ...filter, ...(cursor ? { cursor } : {}) }),
-      initialPageParam: undefined,
-      getNextPageParam: (page) => page.next ?? undefined,
-    }),
-  );
+export function AuditList({ filter = {}, live = false }: { filter?: Filter; live?: boolean }) {
+  const options = orpc.audit.list.infiniteOptions({
+    input: (cursor: string | undefined) => ({ ...filter, ...(cursor ? { cursor } : {}) }),
+    initialPageParam: undefined,
+    getNextPageParam: (page) => page.next ?? undefined,
+  });
+  const pages = useInfiniteQuery({
+    ...options,
+    // A Job ending is read once more, whatever the polling had reached: its last rows came with it.
+    queryKey: [...options.queryKey, live],
+    // A Job still going writes rows as it goes.
+    refetchInterval: live ? 5000 : false,
+  });
   const trace = useQuery({ ...orpc.audit.traceUrl.queryOptions(), staleTime: Infinity });
   const agents = useQuery(orpc.agents.list.queryOptions());
   const agentNames = new Map(agents.data?.map((a) => [a.id, a.name]));
@@ -208,11 +213,11 @@ export function AuditList({ filter = {} }: { filter?: Filter }) {
 }
 
 /** A Job's page: what the Job did and met, as Audit recorded it. */
-export function JobAudit({ jobId }: { jobId: string }) {
+export function JobAudit({ jobId, live }: { jobId: string; live: boolean }) {
   return (
     <section aria-label="Audit" className="mt-8">
       <h2 className="mb-3 text-[13px] font-medium uppercase tracking-wide text-muted">Audit</h2>
-      <AuditList filter={{ jobId }} />
+      <AuditList filter={{ jobId }} live={live} />
     </section>
   );
 }
