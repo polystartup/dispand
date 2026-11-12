@@ -28,6 +28,9 @@ changes it updates this file.
   identity is set only by the authorizing function, never from a request. These calls ask the
   owner no question: the bundles are the permission. `configure` changes fields, not the rows
   under them: a Job can't remove a choice of a field, since that clears the rows that use it.
+  `configure` lists Jobs; a Job's transcript and definition hold whatever that Job read (rows,
+  other transcripts, answers, from tables deleted since), so only a Job on every table reads
+  them. A poll item's id (what the tool read) is never shown to a Job.
 - **A session gets its agent's skills and tools, and no more.** For a Job, what its snapshot
   holds and the agent still has; for a workflow run, the agent's as they are. A tool reached by
   URL is called on the server only, for cloud sessions, with its sealed headers opened for that

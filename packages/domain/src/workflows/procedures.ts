@@ -261,7 +261,7 @@ async function requireRun(db: Db, ownerId: string, runId: string) {
  * reads it (`proposalView`), so the chat shows its items whole and can offer Approve; any other, or
  * once answered, `proposal` is null.
  */
-async function runQuestion(db: Db, ownerId: string, q: ReturnType<typeof questionView>) {
+export async function runQuestion(db: Db, ownerId: string, q: ReturnType<typeof questionView>) {
   return { ...q, proposal: q.proposalId && q.status === "pending" ? await proposalView(db, ownerId, q.proposalId) : null };
 }
 
