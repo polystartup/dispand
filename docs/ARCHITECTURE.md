@@ -66,7 +66,7 @@
   `HarnessEvent`s, with `runnerId` `cloud` (`CLOUD_SOURCE`). Dispand runs the tool loop: the
   model gets the built-in `ask_user` (Claude Code's `AskUserQuestion` shape, a `choice`
   question) and, in a chat or a step that expects outputs, `submit_outputs` (`builtins.ts`, the
-  runner's rules and texts: `confirm-outputs` in a chat, one reminder elsewhere; any other step,
+  runner's rules and texts: `confirm-outputs` in a chat (with nothing to hand back, it asks to end the chat and lists no values), one reminder elsewhere; any other step,
   such as a consulted Job, ends with its last message as `result`), and the agent's tools through a `ToolCaller` (none until
   agents get tools); every other tool call asks a `permission` question, unless its spec says
   `ask: false` (read at every call). "Always allow", offered for a tool the agent chose, is

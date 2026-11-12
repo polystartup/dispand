@@ -41,8 +41,8 @@ const LABELS_OF: Record<string, Record<string, string>> = {
   fields_reorder: { tableId: "Table", fieldIds: "Fields, in order" },
   tables_delete: { id: "Table" },
   fields_delete: { id: "Field" },
-  triggers_create: { id: "Trigger", agentId: "Agent", instructions: "What the agent is told", config: "When it fires", concurrency: "Jobs at once", enabled: "On" },
-  triggers_update: { id: "Trigger", agentId: "Agent", instructions: "What the agent is told", config: "When it fires", concurrency: "Jobs at once", enabled: "On" },
+  triggers_create: { id: "Trigger", agentId: "Agent", instructions: "What the agent is told", config: "When it fires", concurrency: "Jobs at once", rateCap: "Jobs an hour", enabled: "On" },
+  triggers_update: { id: "Trigger", agentId: "Agent", instructions: "What the agent is told", config: "When it fires", concurrency: "Jobs at once", rateCap: "Jobs an hour", enabled: "On" },
   triggers_delete: { id: "Trigger" },
   tools_add: { name: "Name", url: "Address", transport: "Transport" },
   tools_add_from_catalog: { catalogId: "Catalog entry", name: "Name" },
@@ -50,6 +50,8 @@ const LABELS_OF: Record<string, Record<string, string>> = {
   agents_set_tool_ask: { agentId: "Agent", toolId: "Tool", action: "Action", ask: "Asks before use" },
   harnesses_set_limit: { id: "Harness", maxWorking: "At most at once" },
 };
+/** A trigger's `concurrency` in words. */
+const CONCURRENCY: Record<string, string> = { parallel: "Several at once", "one-at-a-time": "One at a time" };
 const LABELS: Record<string, string> = {
   id: "Agent",
   name: "Name",
@@ -136,7 +138,14 @@ function ChangeConfig({ config, items, names }: { config: { tableId?: unknown; o
   const fields = Array.isArray(config.fields) ? config.fields.filter((f) => typeof f === "string" || isItemRef(f)) : null;
   return (
     <span className="flex flex-col gap-1">
-      <span>{interaction ? "A Question or an Approval of another agent's Job" : <>A change to the table <Id value={config.tableId} items={items} names={names} /></>}</span>
+      <span>
+        {interaction ? (
+          "A Question or an Approval of another agent's Job"
+        ) : (
+          // A reference already says what it is ("the table item 1 creates"): "the table" isn't said twice.
+          <>A change to {isItemRef(config.tableId) ? "" : "the table "}<Id value={config.tableId} items={items} names={names} /></>
+        )}
+      </span>
       <span>When {operations.join(", or ") || "nothing"}</span>
       {fields && operations.length > 0 && (config.operations as unknown[]).includes("updated") && (
         <span className="flex flex-col">
@@ -150,7 +159,7 @@ function ChangeConfig({ config, items, names }: { config: { tableId?: unknown; o
   );
 }
 
-function Value({ value, items, names, isRef, address }: { value: unknown; items: Items; names: ProposalView["names"]; isRef: boolean; address: boolean }) {
+function Value({ name, value, items, names, isRef, address }: { name: string; value: unknown; items: Items; names: ProposalView["names"]; isRef: boolean; address: boolean }) {
   const list = Array.isArray(value) ? value : null;
   if (isItemRef(value)) return <ItemRef at={value.$item} items={items} names={names} />;
   // Read by name, never taken on trust ("all" tables is not an id).
@@ -175,6 +184,12 @@ function Value({ value, items, names, isRef, address }: { value: unknown; items:
         {parent.required === true ? ", which every row must name" : ""}
       </span>
     );
+  }
+  if (name === "rateCap" && typeof value === "number") return <span>At most {value} an hour</span>;
+  if (name === "concurrency" && typeof value === "string" && value in CONCURRENCY) return <span>{CONCURRENCY[value]}</span>;
+  // A choice field's choices by their labels, never as JSON.
+  if (name === "choices" && list && list.every((v) => typeof v === "object" && v !== null && typeof (v as { label?: unknown }).label === "string")) {
+    return <span>{list.length ? list.map((c) => (c as { label: string }).label).join(", ") : <span className="text-faint">none</span>}</span>;
   }
   if (address && typeof value === "string") {
     // The whole address, and the host it reaches set apart: that is where calls will go.
@@ -216,7 +231,7 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
                   {item.tool.startsWith("agents_") && name === "consults" ? (
                     <Consults value={value} items={proposal.items} names={proposal.names} />
                   ) : (
-                    <Value value={value} items={proposal.items} names={proposal.names} isRef={item.refs.includes(name)} address={item.tool === "tools_add" && name === "url"} />
+                    <Value name={name} value={value} items={proposal.items} names={proposal.names} isRef={item.refs.includes(name)} address={item.tool === "tools_add" && name === "url"} />
                   )}
                 </dd>
               </div>

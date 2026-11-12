@@ -314,15 +314,18 @@ function Confirm({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { ki
   const entries = Object.entries(payload.values);
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-[15px]">The agent has what it needs. Go ahead with these?</p>
-      <dl className="divide-y divide-line overflow-hidden rounded-xl bg-hover text-[14px]">
-        {entries.map(([k, v]) => (
-          <div key={k} className="grid gap-1 px-3 py-2 sm:grid-cols-[10rem_1fr]">
-            <dt className="font-medium text-muted">{k}</dt>
-            <dd className="whitespace-pre-wrap break-words">{v}</dd>
-          </div>
-        ))}
-      </dl>
+      {/* A chat that hands nothing back ends with this: there is no list to show, so it asks to end. */}
+      <p className="text-[15px]">{entries.length === 0 ? "The agent says it is done and has nothing to hand back. End this chat?" : "The agent has what it needs. Go ahead with these?"}</p>
+      {entries.length > 0 && (
+        <dl className="divide-y divide-line overflow-hidden rounded-xl bg-hover text-[14px]">
+          {entries.map(([k, v]) => (
+            <div key={k} className="grid gap-1 px-3 py-2 sm:grid-cols-[10rem_1fr]">
+              <dt className="font-medium text-muted">{k}</dt>
+              <dd className="whitespace-pre-wrap break-words">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
       <Textarea aria-label="Feedback" placeholder="What should change? (for “Not yet”)" value={feedback} onChange={(e) => setFeedback(e.target.value)} />
       <div className="flex flex-wrap gap-2">
         <Button disabled={busy} onClick={() => onAnswer({ kind: "confirm-outputs", confirmed: true })}>
