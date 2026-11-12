@@ -30,11 +30,15 @@ const fields: FieldSchema[] = [
   { id: "f_note", name: "Note", type: "text", choices: [] },
 ];
 
+const page = (rows: unknown[]) => ({ rows, total: rows.length, attachments: {}, references: {} });
+let client: QueryClient;
+
 function setup() {
-  fake.rows.list.mockResolvedValue({ rows: [], total: 0, attachments: {}, references: {} });
+  fake.rows.list.mockResolvedValue(page([]));
   fake.rows.stream.mockResolvedValue((async function* () {})());
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={client}>
       <Grid tableId="tbl_1" fields={fields} onSchemaChanged={() => {}} query={{ sort: [], filters: [] }} onQueryChange={() => {}} onOpenRow={() => {}} />
     </QueryClientProvider>,
   );
@@ -87,4 +91,38 @@ test("a value saved in a new row before the server creates it updates that row",
   await waitFor(() => expect(fake.rows.update).toHaveBeenCalledExactlyOnceWith({ id: "row_1", values: { f_note: "Agents" } }));
   expect(fake.rows.create).toHaveBeenCalledExactlyOnceWith({ tableId: "tbl_1", values: { f_name: "Dispand" } });
   expect(screen.getAllByRole("gridcell").map((c) => c.textContent)).toEqual(["Dispand", "Agents"]);
+});
+
+const nameCells = () => screen.getAllByRole("gridcell", { name: "Name" }).map((c) => c.textContent);
+const created = { id: "row_1", tableId: "tbl_1", values: { f_name: "Dispand" } };
+
+test("a list read already on its way when the row is created never shows it next to the draft", async () => {
+  const user = setup();
+  await user.click(await screen.findByRole("button", { name: "New row" }));
+  // A read of the list starts (a field was just added), and answers once the row exists.
+  let listed: (p: unknown) => void = () => {};
+  fake.rows.list.mockReturnValue(new Promise((resolve) => (listed = resolve)));
+  void client.invalidateQueries();
+  let answer: (row: unknown) => void = () => {};
+  fake.rows.create.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+  await user.type(screen.getByRole("textbox", { name: "Name" }), "Dispand{Enter}");
+  listed(page([created]));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(nameCells()).toEqual(["Dispand"]);
+  answer(created);
+  await screen.findByRole("button", { name: "Open row" });
+  expect(nameCells()).toEqual(["Dispand"]);
+});
+
+test("a list read that brings the row before its creation answers leaves one row", async () => {
+  const user = setup();
+  let answer: (row: unknown) => void = () => {};
+  fake.rows.create.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+  await user.click(await screen.findByRole("button", { name: "New row" }));
+  await user.type(screen.getByRole("textbox", { name: "Name" }), "Dispand{Enter}");
+  fake.rows.list.mockResolvedValue(page([created]));
+  await client.invalidateQueries();
+  answer(created);
+  await waitFor(() => expect(screen.getAllByRole("button", { name: "Open row" })).toHaveLength(1));
+  await waitFor(() => expect(nameCells()).toEqual(["Dispand"]));
 });

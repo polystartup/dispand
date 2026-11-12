@@ -17,7 +17,7 @@ import { CellView } from "./CellView.tsx";
 import { FieldMenu } from "./FieldMenu.tsx";
 import { FIELD_TYPE_UI } from "./field-types.ts";
 import { NewFieldPopover } from "./NewFieldPopover.tsx";
-import { patchListRows, rowWrites, setListCell } from "./row-writes.ts";
+import { type Pages, patchListRows, rowWrites, setListCell } from "./row-writes.ts";
 import { ViewBar } from "./ViewBar.tsx";
 
 const PAGE = 100;
@@ -151,12 +151,19 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
       input.row.id = row.id;
       return row;
     },
+    // A list read already on its way could bring the new row back next to the draft.
+    onMutate: () => queryClient.cancelQueries({ queryKey: listKey }),
     onSuccess: (row, input) => {
       setError(null);
       // Shown at the end of the loaded rows, where the draft was, with the values saved in the
-      // draft meanwhile (their updates follow); a reload puts it in its place in the order.
-      const created = { ...row, values: { ...row.values, ...input.row.values } };
-      patchRows((list, last) => (last ? [...list, created] : list), 1);
+      // draft meanwhile (their updates follow); a reload puts it in its place in the order. A
+      // list read since the creation may have brought it already: it then takes the draft's values.
+      const values = { ...row.values, ...input.row.values };
+      const listed = queryClient
+        .getQueriesData<Pages>({ queryKey: listKey })
+        .some(([, data]) => data?.pages?.some((p) => p.rows.some((r) => r.id === row.id)));
+      if (listed) patchRows((list) => list.map((r) => (r.id === row.id ? { ...r, values } : r)));
+      else patchRows((list, last) => (last ? [...list, { ...row, values }] : list), 1);
       setDraft((d) => (d?.row === input.row ? null : d));
     },
     onError: (err, input) => {
