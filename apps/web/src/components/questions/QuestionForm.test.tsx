@@ -96,3 +96,26 @@ test("a checkpoint names its root, Jobs and agents, and answers go on, don't ask
   expect(screen.queryByRole("button", { name: "Go on" })).toBeNull();
   expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
 });
+
+test("a consult's Approval names the agent consulted, shows the question whole and what a consult can do, and answers allow, don't ask again or deny", async () => {
+  const question = `Which plan?\n${"Context. ".repeat(500)}The end.`;
+  const payload: QuestionPayload = { kind: "permission", toolName: "consult", input: { agent: "Architect", question }, canAlwaysAllow: true };
+  const onAnswer = vi.fn<(a: Answer) => void>();
+  render(<QuestionForm question={{ payload, consultId: "q_consult" }} onAnswer={onAnswer} />);
+  expect(screen.getByText(/wants to consult/).textContent).toContain("Architect");
+  expect(screen.getByLabelText("Question").textContent).toBe(question);
+  expect(screen.getByText(/can steer this agent/)).toBeTruthy();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Allow" }));
+  await user.click(screen.getByRole("button", { name: "Don't ask again" }));
+  await user.click(screen.getByRole("button", { name: "Deny" }));
+  expect(onAnswer.mock.calls.map(([a]) => a)).toEqual([
+    { kind: "permission", decision: "allow" },
+    { kind: "permission", decision: "allow-always" },
+    { kind: "permission", decision: "deny" },
+  ]);
+  cleanup();
+  // The same tool name from an agent's own prompt is an ordinary permission: only the row's consult makes it one.
+  render(<QuestionForm question={{ payload }} onAnswer={onAnswer} />);
+  expect(screen.queryByText(/wants to consult/)).toBeNull();
+});

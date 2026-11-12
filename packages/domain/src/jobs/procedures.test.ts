@@ -123,3 +123,30 @@ test("runs.stop ends a Job, after which its agent can be deleted", async () => {
   await expect(call(router.runs.stop, { runId: "run_nobody" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await call(router.agents.delete, { id: agent.id }, { context });
 });
+
+test("runs.list keeps the chat Jobs of a trigger, each titled by its first message", async () => {
+  const { context, trigger } = await setup();
+  const chat = await trigger({ kind: "manual", placement: "chat" });
+  const button = await trigger({ kind: "manual", placement: "button" });
+  const first = (await call(router.jobs.start, { triggerId: chat.id }, { context })).runId;
+  const second = (await call(router.jobs.start, { triggerId: chat.id }, { context })).runId;
+  const third = (await call(router.jobs.start, { triggerId: chat.id }, { context })).runId;
+  const press = (await call(router.jobs.start, { triggerId: button.id }, { context })).runId;
+  await call(router.runs.sendChat, { runId: first, text: "Which agents touch Matters?" }, { context });
+  await call(router.runs.sendChat, { runId: first, text: "And when?" }, { context });
+  // Cut at 80 characters, its whitespace folded.
+  const long = `Set up\n\n${"my practice ".repeat(20)}`;
+  await call(router.runs.sendChat, { runId: second, text: long }, { context });
+
+  const list = await call(router.runs.list, { kind: "chat" }, { context });
+  // Newest first; the button's Job is no conversation; a conversation with no message has no title yet.
+  expect(list.map((r) => [r.id, r.title])).toEqual([
+    [third, null],
+    [second, long.slice(0, 80).replace(/\s+/g, " ").trim()],
+    [first, "Which agents touch Matters?"],
+  ]);
+  expect(list[1]!.title!.length).toBeLessThanOrEqual(80);
+  expect((await call(router.runs.list, { triggerId: chat.id }, { context })).map((r) => r.id)).toEqual([third, second, first]);
+  expect((await call(router.runs.list, {}, { context })).map((r) => r.id)).toContain(press);
+  await expect(call(router.runs.list, { kind: "button" as never }, { context })).rejects.toBeDefined();
+});

@@ -528,3 +528,37 @@ test("request_approval on Codex asks the owner in the agent's words and answers 
   expect(await s.replyTo("r1")).toEqual({ contentItems: [{ type: "inputText", text: "Denied." }], success: true });
   expect(await s.replyTo("r2")).toMatchObject({ success: false });
 });
+
+test("consult on Codex lists the start's agents, asks Dispand, and answers with the agent's answer or why there is none", async () => {
+  const consult = (callId: string, args: Record<string, unknown>) => request("item/tool/call", { callId, namespace: null, tool: "consult", arguments: args });
+  const answers: Answer[] = [
+    { kind: "consult", outcome: "answered", text: "Yes, in its own schema." },
+    { kind: "consult", outcome: "failed", text: "The owner declined this consult" },
+  ];
+  const s = await run({
+    start: { consults: [{ agentId: "agt_arch", name: "Architect", description: "Owns the schema." }] },
+    turns: [[consult("c1", { agent: "agt_arch", question: "May it add a table?" }), consult("c2", { agent: "agt_arch", question: "A column?" }), consult("c3", { agent: "agt_other", question: "Hi?" }), message("Done")]],
+    // The answer comes later, as it does once Dispand's consulted Job ends.
+    answer: () => answers.shift(),
+  });
+  await s.ended();
+  const [thread] = await s.sent("thread/start");
+  const tools = (thread!.params as { dynamicTools: { name: string; description: string }[] }).dynamicTools;
+  expect(tools.map((t) => t.name)).toEqual(["submit_outputs", "request_approval", "consult"]);
+  expect(tools[2]!.description).toContain("- agt_arch: Architect (Owns the schema.)");
+  expect(questions(s.events).map((q) => q.payload)).toEqual([
+    { kind: "consult", agentId: "agt_arch", question: "May it add a table?" },
+    { kind: "consult", agentId: "agt_arch", question: "A column?" },
+  ]);
+  expect(await s.replyTo("r0")).toEqual({ contentItems: [{ type: "inputText", text: "Answer from the agent Architect:\n\nYes, in its own schema." }], success: true });
+  expect(await s.replyTo("r1")).toEqual({ contentItems: [{ type: "inputText", text: "Your consult got no answer: The owner declined this consult" }], success: false });
+  // An agent the start didn't list: refused by the runner, and no question went to Dispand.
+  expect(await s.replyTo("r2")).toMatchObject({ contentItems: [{ text: expect.stringMatching(/agent listed in the consult tool/) }], success: false });
+});
+
+test("without agents to consult, a Codex session has no consult tool and a call of one is unknown", async () => {
+  const s = await run({ turns: [[request("item/tool/call", { callId: "c1", namespace: null, tool: "consult", arguments: { agent: "agt_arch", question: "Hi?" } }), message("Done")]] });
+  await s.ended();
+  expect(questions(s.events)).toEqual([]);
+  expect(await s.replyTo("r0")).toEqual({ contentItems: [{ type: "inputText", text: "unknown tool consult" }], success: false });
+});

@@ -5,15 +5,19 @@ import { useState } from "react";
 import { type api, orpc } from "../../lib/api.ts";
 import { when } from "../workflow/Runs.tsx";
 import { ProposalItems } from "./ProposalItems.tsx";
-import { type About, approvalWords, checkpointInput, QuestionForm } from "./QuestionForm.tsx";
+import { type About, approvalWords, checkpointInput, consultInput, QuestionForm } from "./QuestionForm.tsx";
 
 export type InboxEntry = Awaited<ReturnType<typeof api.questions.list>>[number];
 
 /** What was asked, in a line or two, for an item that is done. */
-function askedText(payload: QuestionPayload, about?: About | null, rootId?: string | null): string {
+function askedText(payload: QuestionPayload, about?: About | null, rootId?: string | null, consultId?: string | null): string {
   if (rootId) {
     const c = checkpointInput(payload);
     return `Checkpoint: ${c.root} had led to ${c.jobs} Jobs`;
+  }
+  if (consultId) {
+    const c = consultInput(payload);
+    return `Wanted to consult ${c.agent}: ${c.question}`;
   }
   if (payload.kind === "choice") return payload.questions.map((q) => q.question).join(" · ");
   const words = approvalWords(payload);
@@ -97,7 +101,7 @@ export function InboxItem({ item }: { item: InboxEntry }) {
         <QuestionForm question={item} busy={answer.isPending} error={answer.error?.message ?? null} onAnswer={(a) => answer.mutate({ questionId: item.id, answer: a })} />
       ) : (
         <div className="space-y-2 text-[14px]">
-          <p className="whitespace-pre-wrap break-words text-muted">{askedText(item.payload, item.about, item.rootId)}</p>
+          <p className="whitespace-pre-wrap break-words text-muted">{askedText(item.payload, item.about, item.rootId, item.consultId)}</p>
           {item.proposal && <ProposalItems proposal={item.proposal} />}
           {item.status === "answered" && item.answer ? (
             <>

@@ -64,7 +64,7 @@ test("replays unacked events after reconnect", async () => {
   conn.emit("ses_2", text("b"));
   await vi.waitFor(() => expect(sockets[1]?.received).toHaveLength(2));
   expect(sockets[0]!.req.url).toBe("/runner/ws");
-  expect(sockets[0]!.req.headers).toMatchObject({ authorization: "Bearer tok", "dispand-protocol": "11" });
+  expect(sockets[0]!.req.headers).toMatchObject({ authorization: "Bearer tok", "dispand-protocol": "12" });
   expect(sockets[0]!.received.map((m) => (m.type === "event" ? m.seq : m.type))).toEqual(["hello", 1, 2]);
   // The hello names the last event it resends, so the server can wait for it.
   expect(sockets[1]!.received).toEqual([{ ...hello(), lastSeq: 2 }, { type: "event", seq: 2, sessionId: "ses_2", event: text("b") }]);
