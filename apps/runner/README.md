@@ -237,3 +237,20 @@ This first slice exposes runner management through the authenticated API only.
 Session loading still uses sanitized workspace skill packages. Install checkboxes,
 Harness-page actions and native-first session matching/deduplication are follow-up
 work; do not enable native plugins expecting those selection guarantees yet.
+
+## Updating from Settings
+
+Settings → Harnesses → Runners shows **Update available** when an installer-managed runner's
+build differs from this server's downloadable build. Open the runner and choose **Update
+runner**. It runs the existing `install.sh --update` in a transient systemd user unit, keeps
+local configuration and pairing, then restarts; live sessions resume on reconnect.
+
+Updates are requested explicitly, never installed automatically. The small authenticated
+update control channel is independent of the session protocol, so a runner can update even
+when its session connection is refused as outdated. Requests are held in memory: if the
+server restarts before delivery, click again. A failed update can be retried; local diagnostics
+are in `journalctl --user -u dispand-runner-update`.
+
+Runners installed before this support need the manual update command once to gain it.
+Manually launched runners keep using the manual installer command. Development builds must
+run `pnpm --filter @dispand/runner build` to supply the downloadable build and its identity.

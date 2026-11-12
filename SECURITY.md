@@ -646,3 +646,12 @@ A change that weakens any of these is a vulnerability.
 ## Supported versions
 
 Only `main`.
+
+### Runner updates
+
+Installer-managed runners poll the authenticated `/runner/update` control channel independently
+of the session protocol. Only the signed-in owner can request an update of their runner.
+An update executes the existing installer from the runner's locally configured server (no
+redirects), in a transient systemd user unit so it survives restarting the runner. The server
+cannot supply a command, URL or local configuration through the update request. As with the
+initial installation, the configured Dispand operator is trusted to supply runner code.

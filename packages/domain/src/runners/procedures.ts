@@ -38,7 +38,8 @@ const list = owner.handler(async ({ context }) => {
     .orderBy(asc(runnersTable.createdAt), asc(runnersTable.id));
   // An outdated runner can't connect (the hub answers 426) until it is updated in place: its config and token stay.
   const updateCommand = `curl -fsSL ${context.auth.options.baseURL}/runner/install.sh | sh -s -- --update`;
-  return rows.map(({ protocolVersion, ...r }) => {
+  return rows.map(({ protocolVersion, ...row }) => {
+    const r = { ...row, runnerUpdate: context.hub.updates.status(row.id) };
     if (context.hub.isOnline(r.id)) return { ...r, status: "online" as const };
     if (protocolVersion !== null && protocolVersion < PROTOCOL_VERSION) return { ...r, status: "outdated" as const, updateCommand };
     return { ...r, status: "offline" as const };
@@ -84,4 +85,12 @@ const plugins = owner.input(z.object({ runnerId: z.string(), operation: PluginOp
   }
 });
 
-export const runners = { create, list, update, revoke, plugins };
+const installUpdate = owner.input(z.object({ runnerId: z.string() })).handler(async ({ input, context }) => {
+  if (context.job) throw new ORPCError("FORBIDDEN");
+  const [runner] = await context.db.select({ id: runnersTable.id }).from(runnersTable)
+    .where(and(eq(runnersTable.id, input.runnerId), eq(runnersTable.ownerId, context.ownerId), isNull(runnersTable.revokedAt)));
+  if (!runner) throw new ORPCError("NOT_FOUND");
+  if (!context.hub.updates.request(runner.id)) throw new ORPCError("CONFLICT", { message: "No update available or runner unreachable" });
+});
+
+export const runners = { create, list, update, revoke, plugins, installUpdate };

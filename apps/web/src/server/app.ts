@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   closeDb,
@@ -59,6 +60,12 @@ async function start(): Promise<App> {
   const db = await createDb(config.databaseUrl, migrations);
   const auth = createAuth(db, config);
   const hub = getHub(db);
+  try {
+    const manifest = JSON.parse(readFileSync(config.mode === "production" ? "dist/client/runner/build.json" : "public/runner/build.json", "utf8")) as { buildId: string };
+    hub.updates.buildId = manifest.buildId;
+  } catch {
+    // Development before the runner has been built: no downloadable update yet.
+  }
   const secrets = createSecretBox(config.secretKey);
   const dataEvents = getDataEvents();
   // Tool calls never reach the app's own addresses in production; development reaches local fakes (e2e).

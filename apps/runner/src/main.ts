@@ -1,4 +1,5 @@
 // The runner's command line: `pair` once (install.sh runs it), then `run` (the systemd user unit).
+import { startUpdates } from "./updates.ts";
 import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { accessSync, constants } from "node:fs";
@@ -207,6 +208,7 @@ async function run(args: string[]) {
     });
   }
   // Printed once the handlers are in place: from this line on, a signal stops the runner cleanly.
+  startUpdates(config.server, token, dir);
   conn.start();
   console.log(`dispand-runner ${pkg.version}: connecting to ${config.server}`);
 }

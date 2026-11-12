@@ -1,3 +1,4 @@
+import { RunnerUpdates } from "./updates.ts";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import {
@@ -84,6 +85,7 @@ type RunnerState = {
  * caught up after its `hello`; then the engine re-sends what wasn't delivered (`onCaughtUp`).
  */
 export class RunnerHub {
+  readonly updates = new RunnerUpdates();
   private readonly wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD_BYTES });
   private readonly connections = new Map<string, Connection>();
   private readonly connectionOf = new WeakMap<WebSocket, Connection>();

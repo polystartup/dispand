@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { parseRunnerMessage } from "@dispand/runner-protocol";
+import { parseRunnerMessage, PROTOCOL_VERSION } from "@dispand/runner-protocol";
 import { expect, test, vi } from "vitest";
 import { WebSocketServer } from "ws";
 
@@ -82,7 +82,7 @@ test("a valid pairing saves the config and token only once the code is accepted"
   }
 });
 
-test("run says hello with protocol 15, Claude Code's version and Codex's status", async () => {
+test("run says hello with the current protocol, Claude Code's version and Codex's status", async () => {
   const base = await realpath(await mkdtemp(join(tmpdir(), "hello-")));
   const bin = join(base, "bin");
   await mkdir(bin);
@@ -120,7 +120,7 @@ test("run says hello with protocol 15, Claude Code's version and Codex's status"
   });
   try {
     const { protocol, raw } = await hello;
-    expect(protocol).toBe("15");
+    expect(protocol).toBe(String(PROTOCOL_VERSION));
     expect(parseRunnerMessage(raw)).toMatchObject({
       type: "hello",
       clis: { claude: "2.1.300", codex: { version: "0.166.0", signedIn: false } },
