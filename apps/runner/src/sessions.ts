@@ -174,7 +174,7 @@ export class Sessions {
    * Handles a server message after the earlier ones for the same session; messages for other
    * sessions don't wait for it. Settles once this one is handled.
    */
-  handle(msg: Exclude<ServerToRunner, { type: "ack" | "tool.discover" | "tool.call" }>): Promise<void> {
+  handle(msg: Exclude<ServerToRunner, { type: "ack" | "tool.discover" | "tool.call" | "plugin.request" }>): Promise<void> {
     if (msg.type === "session.permissions") {
       const preparing = this.starting.get(msg.sessionId);
       if (preparing) {
@@ -198,7 +198,7 @@ export class Sessions {
     return done;
   }
 
-  private async dispatch(msg: Exclude<ServerToRunner, { type: "ack" | "tool.discover" | "tool.call" }>): Promise<void> {
+  private async dispatch(msg: Exclude<ServerToRunner, { type: "ack" | "tool.discover" | "tool.call" | "plugin.request" }>): Promise<void> {
     if (msg.type === "session.start") {
       const started = this.start(msg.start);
       this.inFlight.add(started);

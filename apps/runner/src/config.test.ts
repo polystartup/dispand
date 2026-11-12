@@ -221,3 +221,17 @@ test("the machine's MCP servers: names as the protocol allows, never dispand, at
   expect(await load({ fetch: { ...fetch, cwd: "/tmp" } })).toThrow();
   expect(await load(Object.fromEntries(Array.from({ length: 101 }, (_, i) => [`s${i}`, fetch])))).toThrow(/at most 100/);
 });
+
+test("Skillshare config, receipts and sources stay outside every runner root", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "native-config-"));
+  made.push(dir);
+  await mkdir(join(dir, "runner"));
+  const path = join(dir, "runner", "config.json");
+  const env = { XDG_CONFIG_HOME: join(dir, "config"), XDG_STATE_HOME: join(dir, "state"), XDG_DATA_HOME: join(dir, "data") };
+  const forbidden = machineConfigPaths(join(dir, "runner"), env, dir);
+  for (const base of [env.XDG_CONFIG_HOME, env.XDG_STATE_HOME, env.XDG_DATA_HOME]) {
+    expect(forbidden).toContain(join(base, "skillshare"));
+    await writeFile(path, JSON.stringify({ server: "https://dispand.test", roots: [join(base, "skillshare", "nested")] }));
+    expect(() => loadConfig(path, env, dir)).toThrow(/skillshare/);
+  }
+});

@@ -22,3 +22,5 @@ export {
   ServerToRunner,
   SessionStart,
 } from "./messages.ts";
+
+export { PluginHarness, PluginName, PluginSource, PluginOperation, PluginReport } from "./plugins.ts";

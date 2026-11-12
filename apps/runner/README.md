@@ -194,3 +194,46 @@ starts.
 `dist/dispand-runner.tgz` and copies it, with `install/install.sh`, to
 `apps/web/public/runner/` (gitignored), which the web app serves. From the source:
 `node apps/runner/src/main.ts run`.
+
+### Native plugins (protocol 14)
+
+Native management is opt-in on each runner. Install the maintained
+[Skillshare CLI](https://github.com/runkids/skillshare) alongside Claude Code/Codex,
+using its official release installer or Homebrew; this integration's JSON contract
+was checked against v0.30.6. The web server never installs or runs it. Initialize
+Skillshare locally before enabling it. In the runner's local `config.json`, add:
+
+```json
+{ "pluginTargets": { "claude-code": "claude", "codex": "codex" } }
+```
+
+Only list harnesses/accounts this machine authorizes for complete native plugins.
+For a separate account, put its named target in `pluginTargets` and configure that
+account's `agent` and `config_dir` in Skillshare's global config. Its config directory
+must match the runner CLI's `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, stay outside every
+runner root, and be protected like the default CLI home. No account directory or
+command comes from Dispand. Re-pairing preserves the local target choices.
+
+The owner-authenticated `runners.plugins` API accepts `list`, `discover`, `add` and
+`remove`. Discovery accepts credential-free HTTPS Git sources, optionally with
+`sourceRef`. Add selects one explicit marketplace `plugin`, a logical `name`, and
+one or both CLI harness kinds on that runner. Every mutation first uses
+`dryRun: true`; application repeats the same operation with `dryRun: false` and its
+preview `revision`. Skillshare refuses stale revisions. Targets become repeatable
+`--target` arguments, with explicit global scope; only locally opted-in targets
+can be changed. See [Skillshare's command reference](https://skillshare.runkids.cc/docs/reference/commands/plugin/).
+
+**Add/remove affects the whole native plugin**, including its native hooks, commands
+and MCP integrations, not just a skill. Native removal keeps Dispand's workspace
+plugin and skill copies. Skillshare manages only its own bindings; other native
+installs are not adopted. Inventory reports registration, enabled state when known,
+and pending operations; registration alone does not prove resources loaded in a
+session. Local paths, native error messages and credentials are never returned.
+Native failures, partial success, timeouts and stale revisions require refreshing
+inventory and an explicit new decision; Dispand does not retry or fall back after
+execution. One operation runs at a time per runner, capped at two minutes.
+
+This first slice exposes runner management through the authenticated API only.
+Session loading still uses sanitized workspace skill packages. Install checkboxes,
+Harness-page actions and native-first session matching/deduplication are follow-up
+work; do not enable native plugins expecting those selection guarantees yet.

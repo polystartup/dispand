@@ -14,6 +14,7 @@ import { ID } from "@dispand/runner-protocol";
 import { protocolString } from "./sanitize.ts";
 import { atLeast, MIN_CLAUDE, Sessions } from "./sessions.ts";
 import { codexRequired, codexStatus } from "./codex/version.ts";
+import { NativePlugins } from "./plugins.ts";
 import { shutdown } from "./shutdown.ts";
 
 const USAGE = `Usage:
@@ -55,10 +56,10 @@ async function pair(args: string[]) {
   const roots = values.root.map((root) => resolve(root));
   const dir = values.config ? resolve(values.config) : configDir();
   // A re-pair keeps what the machine's owner set by hand.
-  let kept: Pick<RunnerConfig, "allowBypass" | "mcpServers"> = { allowBypass: false };
+  let kept: Pick<RunnerConfig, "allowBypass" | "mcpServers" | "pluginTargets"> = { allowBypass: false };
   try {
-    const { allowBypass, mcpServers } = loadConfig(join(dir, "config.json"));
-    kept = { allowBypass, ...(mcpServers ? { mcpServers } : {}) };
+    const { allowBypass, mcpServers, pluginTargets } = loadConfig(join(dir, "config.json"));
+    kept = { allowBypass, ...(pluginTargets ? { pluginTargets } : {}), ...(mcpServers ? { mcpServers } : {}) };
   } catch {
     // First pairing.
   }
@@ -162,6 +163,7 @@ async function run(args: string[]) {
     ).finally(() => calling.delete(tool));
   };
 
+  const plugins = new NativePlugins(config.pluginTargets ?? {}, env);
   const conn: Connection = new Connection({
     server: config.server,
     token,
@@ -173,6 +175,10 @@ async function run(args: string[]) {
       return { type: "hello", runnerVersion: pkg.version, clis, tools: Object.keys(local), liveSessions: sessions.ids() };
     },
     onMessage: (msg) => {
+      if (msg.type === "plugin.request") {
+        void plugins.request(msg.operation).then((report) => conn.reply({ type: "plugin.replied", requestId: msg.requestId, report }));
+        return;
+      }
       if (msg.type === "tool.discover") return discover(msg.requestId, msg.tool);
       if (msg.type === "tool.call") return call(msg.requestId, msg.tool, msg.action, msg.arguments);
       // In order per session (`Sessions.handle`): one session's slow start holds up no other.

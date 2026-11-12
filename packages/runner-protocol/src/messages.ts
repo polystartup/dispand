@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { id, jsonObject, record, short, string, text } from "./bounds.ts";
 import { Answer, HarnessEvent, OutputField } from "./harness.ts";
+import { PluginOperation, PluginReport } from "./plugins.ts";
 import { isMemoryPath } from "./paths.ts";
 
 /**
@@ -159,6 +160,7 @@ export type SessionStart = z.infer<typeof SessionStart>;
 export type ClaudeSessionStart = Extract<SessionStart, { harness: "claude-code" }>;
 
 export const ServerToRunner = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("plugin.request"), requestId: id().min(1), operation: PluginOperation }),
   z.object({ type: z.literal("session.start"), start: SessionStart }),
   z.object({ type: z.literal("session.permissions"), sessionId: id(), servers: z.array(z.object({ name: SessionServerName, unasked: z.array(id().regex(/^[a-zA-Z0-9_-]{1,64}$/)).max(500) })).max(50) }),
   z.object({ type: z.literal("session.send"), sessionId: id(), text: text() }),
@@ -178,6 +180,7 @@ export const ServerToRunner = z.discriminatedUnion("type", [
 export type ServerToRunner = z.infer<typeof ServerToRunner>;
 
 export const RunnerToServer = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("plugin.replied"), requestId: id().min(1), report: PluginReport }),
   z.object({
     type: z.literal("hello"),
     runnerVersion: id(),
