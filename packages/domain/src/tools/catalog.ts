@@ -1,5 +1,5 @@
 import type { PollContinuation } from "../triggers/model.ts";
-import type { ToolTransport } from "./mcp.ts";
+import type { ToolAction, ToolTransport } from "./mcp.ts";
 import type { OAuthRequest } from "./oauth-provider.ts";
 
 /** A setting the owner fills in when installing an HTTP entry (`{key}` in its header templates). */
@@ -28,6 +28,15 @@ export type PollPreset = {
 type Shared = { id: string; name: string; description: string; unasked?: string[]; pollable?: string[]; poll?: PollPreset; docs?: string };
 
 /**
+ * An action an HTTP entry's server offers, as its documentation describes it: whether it only
+ * reads, whether a poll may read it, and whether an agent given the tool asks before using it
+ * (`ask`, the default for an action that doesn't only read). The tool starts with these, so its
+ * flags and poll triggers can be set before its owner signs in; the first listing that succeeds
+ * replaces them, as any listing does.
+ */
+export type CatalogAction = { name: string; description: string; readOnly?: true; pollable?: true; ask?: boolean };
+
+/**
  * A tool Dispand knows how to set up. `http` entries become HTTP tools, their headers filled
  * from the settings (and sealed), or signing in with OAuth (`oauth`: the scopes the sign-in asks
  * for, and the authorization request's extra parameters), connected afterwards on the tool's
@@ -42,6 +51,7 @@ export type CatalogEntry =
       headers: { name: string; template: string }[];
       settings: CatalogSetting[];
       oauth?: OAuthRequest;
+      actions: CatalogAction[];
     })
   | (Shared & { kind: "runner"; server: { command: string; args: string[]; env: string[] } });
 
@@ -58,12 +68,30 @@ const MICROSOFT_MAIL_TOOLS = [
   "create-reply-draft",
 ];
 
+type HttpEntry = Extract<CatalogEntry, { kind: "http" }>;
+
+/** Whether a declared action runs without asking when a person gives the tool to an agent. */
+const unaskedByDefault = (a: CatalogAction) => !(a.ask ?? !a.readOnly);
+
+/**
+ * An HTTP entry whose `unasked` and `pollable` come from its actions, so they can't disagree.
+ * `pollable`: the ones marked, or, when none is, the ones the server calls read-only (the tool's
+ * default). `unasked`: the declared ones that run unasked; an action the entry doesn't declare
+ * follows the server (`defaultUnasked`).
+ */
+const http = (entry: Omit<HttpEntry, "kind" | "unasked" | "pollable">): HttpEntry => {
+  const pollable = entry.actions.flatMap((a) => (a.pollable ? [a.name] : []));
+  return { ...entry, kind: "http", unasked: entry.actions.flatMap((a) => (unaskedByDefault(a) ? [a.name] : [])), ...(pollable.length ? { pollable } : {}) };
+};
+
+const read = (name: string, description: string, more: Partial<CatalogAction> = {}): CatalogAction => ({ name, description, readOnly: true, ...more });
+const write = (name: string, description: string, more: Partial<CatalogAction> = {}): CatalogAction => ({ name, description, ...more });
+
 export const CATALOG: readonly CatalogEntry[] = [
-  {
+  http({
     id: "github",
     name: "GitHub",
     description: "Repositories, issues, pull requests and code search, as the account of the token.",
-    kind: "http",
     url: "https://api.githubcopilot.com/mcp/",
     transport: "streamable-http",
     headers: [{ name: "authorization", template: "Bearer {token}" }],
@@ -74,17 +102,36 @@ export const CATALOG: readonly CatalogEntry[] = [
         help: "A GitHub personal access token; the tool acts as its account, with its permissions.",
       },
     ],
-  },
-  {
+    // Its documentation's main actions; the server lists many more once signed in.
+    actions: [
+      read("get_me", "Get my user profile"),
+      read("search_repositories", "Search repositories"),
+      read("get_file_contents", "Get file or directory contents"),
+      read("search_code", "Search code"),
+      read("list_issues", "List issues"),
+      read("search_issues", "Search issues"),
+      read("list_pull_requests", "List pull requests"),
+      read("list_notifications", "List notifications"),
+      write("issue_write", "Create or update issue/pull request"),
+    ],
+  }),
+  http({
     id: "firecrawl",
     name: "Firecrawl",
     description: "Scrape, crawl, map and search the web, with clean Markdown results.",
-    kind: "http",
     url: "https://mcp.firecrawl.dev/v2/mcp",
     transport: "streamable-http",
     headers: [{ name: "authorization", template: "Bearer {apiKey}" }],
     settings: [{ key: "apiKey", label: "API key", help: "Your Firecrawl API key (fc-…), from firecrawl.dev." }],
-  },
+    // Each call spends the account's credits, and what it fetches can carry what the Job read.
+    actions: [
+      write("firecrawl_scrape", "Scrape one page's content, as Markdown"),
+      write("firecrawl_map", "List the URLs of a site"),
+      write("firecrawl_search", "Search the web, with optional content of the results"),
+      write("firecrawl_crawl", "Crawl the pages under a site"),
+      read("firecrawl_check_crawl_status", "Check the status of a crawl"),
+    ],
+  }),
   {
     id: "fetch",
     name: "Fetch",
@@ -99,12 +146,11 @@ export const CATALOG: readonly CatalogEntry[] = [
     kind: "runner",
     server: { command: "npx", args: ["-y", "@brave/brave-search-mcp-server"], env: ["BRAVE_API_KEY"] },
   },
-  {
+  http({
     id: "gmail",
     name: "Gmail",
     description:
       "Search and read mail, and draft replies, through Google's hosted Gmail server. Only for Google Workspace accounts enrolled in Google's Workspace Developer Preview; any other account uses Gmail (on a runner). Signs in with your own Google Cloud OAuth client.",
-    kind: "http",
     url: "https://gmailmcp.googleapis.com/mcp/v1",
     transport: "streamable-http",
     headers: [],
@@ -113,8 +159,15 @@ export const CATALOG: readonly CatalogEntry[] = [
     // and for a refresh token (`access_type=offline`, which Google gives on consent).
     oauth: { scopes: GMAIL_SCOPES, params: { access_type: "offline", prompt: "consent" } },
     // Search, read and draft run; sending doesn't exist with these scopes, labels and trash ask.
-    unasked: ["search_threads", "get_thread", "get_message", "list_drafts", "get_draft", "list_labels", "create_draft"],
-    pollable: ["search_threads"],
+    actions: [
+      read("search_threads", "Search threads", { pollable: true }),
+      read("get_thread", "Get a thread"),
+      read("get_message", "Get a message"),
+      read("list_drafts", "List drafts"),
+      read("get_draft", "Get a draft"),
+      read("list_labels", "List labels"),
+      write("create_draft", "Create a draft", { ask: false }),
+    ],
     // A new thread is an item: a reply in a thread already seen starts no Job.
     poll: {
       action: "search_threads",
@@ -124,7 +177,7 @@ export const CATALOG: readonly CatalogEntry[] = [
       continuation: { path: "nextPageToken", argument: "pageToken" },
     },
     docs: "docs/services/gmail.md",
-  },
+  }),
   {
     id: "gmail-runner",
     name: "Gmail (on a runner)",
@@ -176,13 +229,19 @@ export const catalogEntry = (catalogId: string | null | undefined) => (catalogId
 
 /**
  * The actions that run unasked when a person gives the tool to an agent: its catalog entry's
- * choice, else the ones its server calls read-only. Read only then: later, neither changes
+ * choice (a runner entry's list, an HTTP entry's declared actions), else the ones its server
+ * calls read-only. Read only then: later, neither changes
  * anything by itself.
  */
 export function defaultUnasked(tool: { catalogId: string | null; actions: { name: string; readOnly?: boolean }[] }): string[] {
-  const chosen = catalogEntry(tool.catalogId)?.unasked;
-  if (chosen) return tool.actions.flatMap((a) => (chosen.includes(a.name) ? [a.name] : []));
-  return tool.actions.flatMap((a) => (a.readOnly ? [a.name] : []));
+  const entry = catalogEntry(tool.catalogId);
+  // A runner entry's list is the whole choice; an HTTP entry's covers its declared actions, and any other follows the server.
+  const declared = entry?.kind === "http" ? entry.actions.map((a) => a.name) : null;
+  const chosen = entry?.unasked;
+  return tool.actions.flatMap((a) => {
+    const unasked = chosen && (declared === null || declared.includes(a.name)) ? chosen.includes(a.name) : a.readOnly === true;
+    return unasked ? [a.name] : [];
+  });
 }
 
 /** Entries whose name or description contains `query`, ignoring case; all of them without one. */
@@ -193,7 +252,7 @@ export function searchCatalog(query?: string): CatalogEntry[] {
 }
 
 /** An HTTP entry's headers filled from `settings`. Throws naming the first setting left empty. */
-export function fillHeaders(entry: Extract<CatalogEntry, { kind: "http" }>, settings: Record<string, string>): Record<string, string> {
+export function fillHeaders(entry: HttpEntry, settings: Record<string, string>): Record<string, string> {
   for (const s of entry.settings) {
     if (!settings[s.key]?.trim()) throw new MissingSetting(s.label);
   }
@@ -217,4 +276,21 @@ export function runnerSnippet(entry: Extract<CatalogEntry, { kind: "runner" }>):
   const { command, args, env } = entry.server;
   const server = { command, args, ...(env.length ? { env: Object.fromEntries(env.map((name) => [name, "<your key>"])) } : {}) };
   return JSON.stringify({ [entry.id]: server }, null, 2);
+}
+
+/** An HTTP entry's actions as a tool lists them, until its first listing replaces them. */
+export const declaredActions = (entry: HttpEntry): ToolAction[] =>
+  entry.actions.map((a) => ({ name: a.name, description: a.description, inputSchema: { type: "object" }, ...(a.readOnly ? { readOnly: true as const } : {}) }));
+
+/**
+ * Whether a tool waits for its owner to sign in: an HTTP catalog entry with settings whose
+ * headers aren't filled, or an OAuth tool not connected (or to re-authorize). `none` for a tool
+ * that needs no sign-in of Dispand's (an open server, a runner's own).
+ */
+export function signInOf(row: { kind: string; catalogId: string | null; auth: string | null; oauthStatus: string | null; headersSealed: Record<string, unknown> }): "needed" | "connected" | "none" {
+  if (row.kind !== "http") return "none";
+  if (row.auth === "oauth") return row.oauthStatus === "connected" ? "connected" : "needed";
+  const entry = catalogEntry(row.catalogId);
+  if (entry?.kind === "http" && entry.settings.length > 0) return Object.keys(row.headersSealed).length > 0 ? "connected" : "needed";
+  return row.auth === "headers" ? "connected" : "none";
 }

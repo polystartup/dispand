@@ -7,6 +7,7 @@ import { agents, fields, harnesses, proposals, runners, skillPackages, tables, t
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
 import { canonical } from "./approvals.ts";
+import { catalogEntry } from "../tools/catalog.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
 import type { JobIdentity } from "./call.ts";
@@ -251,7 +252,7 @@ export async function settleProposal(db: Db | Tx, questionId: string, approved: 
     .where(and(eq(proposals.questionId, questionId), eq(proposals.status, "asked")));
 }
 
-export type ProposalName = { kind: "agent" | "harness" | "tool" | "skill" | "table" | "field" | "trigger"; name: string; detail?: string };
+export type ProposalName = { kind: "agent" | "harness" | "tool" | "skill" | "table" | "field" | "trigger" | "catalog"; name: string; detail?: string };
 
 /**
  * For each tool that can be proposed: the keys of its input that hold ids, and of what. Only
@@ -273,9 +274,9 @@ const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
   triggers_update: { id: "trigger" },
   triggers_delete: { id: "trigger" },
   tools_delete: { id: "tool" },
+  tools_add_from_catalog: { catalogId: "catalog" },
 };
 
-/** What each creating tool creates, for a reference to its item: "the table item 2 creates". */
 /** What each creating tool creates (its output's `id`): what `{ "$item": n }` may name, and how a reference reads: "the table item 2 creates". */
 export const CREATES: Record<string, ProposalName["kind"]> = {
   tables_create: "table",
@@ -283,6 +284,7 @@ export const CREATES: Record<string, ProposalName["kind"]> = {
   agents_create: "agent",
   triggers_create: "trigger",
   tools_add: "tool",
+  tools_add_from_catalog: "tool",
 };
 const createsOf = (tool: string): ProposalName["kind"] | undefined => CREATES[tool];
 
@@ -331,6 +333,11 @@ export async function proposalView(db: Db, ownerId: string, proposalId: string) 
     }
   }
   const names: Record<string, ProposalName> = {};
+  // A catalog entry, by its name and where its tool's calls go.
+  for (const id of wanted.get("catalog") ?? []) {
+    const entry = catalogEntry(id);
+    if (entry) names[id] = { kind: "catalog", name: entry.name, detail: entry.kind === "http" ? entry.url : "on a runner" };
+  }
   const found = async <T extends { id: string }>(kind: ProposalName["kind"], load: (ids: string[]) => Promise<T[]>, name: (row: T) => Omit<ProposalName, "kind">) => {
     const ids = [...(wanted.get(kind) ?? [])];
     for (const r of ids.length ? await load(ids) : []) names[r.id] = { kind, ...name(r) };
