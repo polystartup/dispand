@@ -421,6 +421,13 @@
       "when": 1794488380701,
       "tag": "0059_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1794490355420,
+      "tag": "0060_plugin_layout",
+      "breakpoints": true
     }
   ]
 }

@@ -27,6 +27,7 @@ export function refusal(e: unknown, fallback: string): string {
 type Preview = Awaited<ReturnType<typeof api.plugins.preview>>;
 
 const componentLabels: Record<Preview["notImported"][number]["component"], string> = {
+  manifest: "Manifest field",
   hook: "Hook",
   command: "Command",
   bin: "Programs",
