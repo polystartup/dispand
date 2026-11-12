@@ -37,7 +37,7 @@ test("tool names are unique, at most 64 characters, and their input is the proce
   }
 });
 
-test("the tools are exactly the data and configure ones, on tables, fields, rows, agents, harness limits, triggers, tools, Jobs, workflows and the checkpoint only", () => {
+test("the tools are exactly the data and configure ones, on tables, fields, rows, agents, harness limits, triggers, tools, Jobs, workflows, the checkpoint and the review only", () => {
   const of = (bundle: string) => PLATFORM_TOOLS.filter((t) => t.bundle === bundle).map((t) => t.name).sort();
   expect(of("data")).toEqual(["rows_create", "rows_delete", "rows_get", "rows_list", "rows_update", "tables_get", "tables_list"]);
   expect(of("configure")).toEqual([
@@ -73,9 +73,10 @@ test("the tools are exactly the data and configure ones, on tables, fields, rows
     "triggers_update",
     "workflows_list",
     "workspace_checkpoint",
+    "workspace_review",
     "workspace_set_checkpoint",
   ]);
-  expect(PLATFORM_TOOLS).toHaveLength(40);
+  expect(PLATFORM_TOOLS).toHaveLength(41);
   expect(PLATFORM_TOOLS.every((t) => ["tables", "fields", "rows", "agents", "harnesses", "triggers", "tools", "workspace", "jobs", "workflows"].includes(t.path.split(".")[0]!))).toBe(true);
   // Of Jobs and workflows, only reads: an agent never starts, stops or answers one through these.
   expect(PLATFORM_TOOLS.filter((t) => t.path.startsWith("jobs.") || t.path.startsWith("workflows.")).map((t) => t.path).sort()).toEqual(["jobs.def", "jobs.get", "jobs.list", "workflows.list"]);
