@@ -67,9 +67,13 @@ export function pollCaller(installed: InstalledTools, hub: Pick<RunnerHub, "call
   };
 }
 
-/** `{{lastPoll}}` in each string of the arguments (keys left as they are) becomes `lastPoll`. */
+/**
+ * In each string of the arguments (keys left as they are), `{{lastPoll}}` becomes `lastPoll` (an
+ * ISO time) and `{{lastPollEpoch}}` the same time in whole seconds since 1970, rounded down (Gmail's
+ * `after:`): earlier, never later, so the items at the boundary are read again and dropped as seen.
+ */
 export function fillLastPoll(value: unknown, lastPoll: string): unknown {
-  if (typeof value === "string") return value.replaceAll("{{lastPoll}}", lastPoll);
+  if (typeof value === "string") return value.replaceAll("{{lastPoll}}", lastPoll).replaceAll("{{lastPollEpoch}}", String(Math.floor(Date.parse(lastPoll) / 1000)));
   if (Array.isArray(value)) return value.map((v) => fillLastPoll(v, lastPoll));
   if (typeof value === "object" && value !== null) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, fillLastPoll(v, lastPoll)]));
   return value;

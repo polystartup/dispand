@@ -8,9 +8,11 @@ import { BUNDLES, type TableScope } from "../platform/bundles.ts";
 import { ModelName } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
+import { defaultUnasked } from "../tools/catalog.ts";
 import { StorableText } from "../workflows/model.ts";
 import { agentInUse } from "../workflows/procedures.ts";
 import { assistantGuard, ensureAssistant, findAssistant } from "./builtin.ts";
+import { consultsOf, pairProblem, setConsults, type ConsultEntry } from "./consults.ts";
 import { skillsAndTools } from "./skills-and-tools.ts";
 import { setAsk } from "./tool-ask.ts";
 import { effectiveTools } from "./tools.ts";
@@ -25,8 +27,16 @@ const Ids = z
   .default([])
   .transform((ids) => [...new Set(ids)]);
 
+/** The agents it may consult, each at most once (the last one given wins). */
+const Consults = z
+  .array(z.object({ agentId: z.string().max(64), ask: z.boolean() }))
+  .max(50)
+  .transform((entries) => [...new Map(entries.map((e) => [e.agentId, e])).values()]);
+
 const Fields = z.object({
   name: StorableText(100).trim().min(1),
+  /** What it is for and when to consult it; left out of an update, it stays as it is. */
+  description: StorableText(2000).optional(),
   harnessId: z.string(),
   systemPrompt: StorableText(100_000),
   /** Overrides the harness's model; absent, the harness's (or the CLI's default) is used. */
@@ -43,6 +53,8 @@ const Fields = z.object({
     .optional(),
   /** The tables its Jobs may work on: all, or these. */
   dataTables: z.union([z.literal("all"), z.array(z.string().max(64)).max(100)]).optional(),
+  /** The agents its Jobs may consult; left out of an update, they stay as they are. */
+  consults: Consults.optional(),
 });
 
 /**
@@ -60,8 +72,8 @@ async function ownTables(db: Db, ownerId: string, scope: TableScope | undefined)
 }
 
 function toAgent(row: typeof agentsTable.$inferSelect) {
-  const { id, ownerId, name, harnessId, systemPrompt, model, bundles, dataTables, builtIn } = row;
-  return { id, ownerId, name, harnessId, systemPrompt, ...(model === null ? {} : { model }), bundles, dataTables, ...(builtIn === null ? {} : { builtIn }) };
+  const { id, ownerId, name, description, harnessId, systemPrompt, model, bundles, dataTables, builtIn } = row;
+  return { id, ownerId, name, description, harnessId, systemPrompt, ...(model === null ? {} : { model }), bundles, dataTables, ...(builtIn === null ? {} : { builtIn }) };
 }
 
 type Row = typeof agentsTable.$inferSelect;
@@ -114,7 +126,7 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
   if (pkgs.length !== packageIds.length) throw new ORPCError("NOT_FOUND", { message: "Skill not found" });
   const found = toolIds.length
     ? await tx
-        .select({ id: toolsTable.id, actions: toolsTable.actions })
+        .select({ id: toolsTable.id, actions: toolsTable.actions, catalogId: toolsTable.catalogId })
         .from(toolsTable)
         .where(and(inArray(toolsTable.id, toolIds), eq(toolsTable.ownerId, ownerId)))
         .for("share")
@@ -133,8 +145,8 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
     if (tool.runnerId !== harnessRunnerId) throw new ORPCError("BAD_REQUEST", { message: `The tool “${tool.name}” runs on another runner than the agent's harness` });
   }
   await tx.delete(agentSkills).where(eq(agentSkills.agentId, agentId));
-  // A tool the agent keeps keeps its unasked actions; one added now starts with the actions its
-  // server calls read-only. Only here is that claim read: later, it changes nothing by itself.
+  // A tool the agent keeps keeps its unasked actions; one added now starts with its catalog
+  // entry's, or the actions its server calls read-only. Only here are those read: later, they change nothing by themselves.
   const kept = new Map((await tx.delete(agentTools).where(eq(agentTools.agentId, agentId)).returning()).map((t) => [t.toolId, t.unasked]));
   if (packageIds.length) await tx.insert(agentSkills).values(packageIds.map((packageId) => ({ agentId, packageId })));
   if (toolIds.length) {
@@ -142,20 +154,36 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
       toolIds.map((toolId) => ({
         agentId,
         toolId,
-        unasked: kept.get(toolId) ?? found.find((t) => t.id === toolId)!.actions.flatMap((a) => (a.readOnly ? [a.name] : [])),
+        unasked: kept.get(toolId) ?? defaultUnasked(found.find((t) => t.id === toolId)!),
       })),
     );
   }
 }
 
-/** The agent with its skill packages and the tools it gets: explicit ones, and the ones its packages require (locked). */
+/** Makes these the agents it may consult, refused with the reason a new entry can't be made. */
+async function consults(tx: Tx, ownerId: string, agentId: string, entries: ConsultEntry[] | undefined) {
+  if (entries === undefined) return;
+  const problem = await setConsults(tx, ownerId, agentId, entries);
+  if (problem) throw new ORPCError("BAD_REQUEST", { message: problem });
+}
+
+/**
+ * The agent with its skill packages, the tools it gets (explicit ones, and the ones its packages
+ * require, locked) and the agents it may consult, each with why it is inactive when a bundle
+ * change put the pair on two sides of `configure` since it was made.
+ */
 async function withSkillsAndTools(db: Db, row: Row) {
   const [agent] = await withPlugins(db, [row]);
-  return { ...agent!, ...(await skillsAndTools(db, row.id)) };
+  const entries = await consultsOf(db, row.id);
+  return {
+    ...agent!,
+    ...(await skillsAndTools(db, row.id)),
+    consults: await Promise.all(entries.map(async (e) => ({ ...e, inactive: await pairProblem(db, row.ownerId, row.id, e.agentId) }))),
+  };
 }
 
 const create = owner.input(Fields).handler(async ({ input, context }) => {
-  const { skillPackageIds, toolIds, bundles, ...fields } = input;
+  const { skillPackageIds, toolIds, bundles, consults: entries, ...fields } = input;
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
   const dataTables = await ownTables(context.db, context.ownerId, input.dataTables);
   const row = await context.db.transaction(async (tx) => {
@@ -164,13 +192,14 @@ const create = owner.input(Fields).handler(async ({ input, context }) => {
       .values({ ...fields, model: fields.model ?? null, bundles: bundles ?? [], dataTables: dataTables ?? "all", id: newId("agent"), ownerId: context.ownerId })
       .returning();
     await attach(tx, context.ownerId, row!.id, skillPackageIds, toolIds, harness.runnerId);
+    await consults(tx, context.ownerId, row!.id, entries);
     return row!;
   });
   return (await withPlugins(context.db, [row]))[0]!;
 });
 
 const update = owner.input(Fields.extend({ id: z.string() })).handler(async ({ input, context }) => {
-  const { id, skillPackageIds, toolIds, bundles, ...fields } = input;
+  const { id, skillPackageIds, toolIds, bundles, consults: entries, ...fields } = input;
   await find(context.db, context.ownerId, id);
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
   const dataTables = await ownTables(context.db, context.ownerId, input.dataTables);
@@ -183,6 +212,7 @@ const update = owner.input(Fields.extend({ id: z.string() })).handler(async ({ i
       .returning();
     if (!row) throw new ORPCError("NOT_FOUND");
     await attach(tx, context.ownerId, id, skillPackageIds, toolIds, harness.runnerId);
+    await consults(tx, context.ownerId, id, entries);
     return row;
   });
   return (await withPlugins(context.db, [row]))[0]!;

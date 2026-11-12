@@ -7,3 +7,6 @@ class NoResizeObserver {
 globalThis.ResizeObserver ??= NoResizeObserver as never;
 Element.prototype.scrollTo ??= function () {};
 Element.prototype.scrollIntoView ??= function () {};
+// Radix's Select opens on pointer events.
+Element.prototype.hasPointerCapture ??= () => false;
+Element.prototype.releasePointerCapture ??= function () {};

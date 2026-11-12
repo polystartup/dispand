@@ -10,6 +10,7 @@ import {
   type Tool,
   type Transport,
   UnauthorizedError,
+  auth as startAuthorization,
   type OAuthClientProvider,
 } from "@modelcontextprotocol/client";
 import { McpAction } from "@dispand/runner-protocol";
@@ -17,7 +18,7 @@ import { z } from "zod";
 import { MAX_ACTIONS, redact, screenedFetch } from "./inbound.ts";
 import { ToolError } from "./errors.ts";
 import { BlockedAddressError } from "./network.ts";
-import { createOAuthProvider, stateSecrets, type OAuthMode, type OAuthState, type OAuthStore } from "./oauth-provider.ts";
+import { createOAuthProvider, stateSecrets, type OAuthMode, type OAuthRequest, type OAuthState, type OAuthStore } from "./oauth-provider.ts";
 
 export { ToolError } from "./errors.ts";
 
@@ -39,6 +40,8 @@ export type ToolTarget = {
   urlSecrets?: string[];
   /** An OAuth tool's sealed state (`tools/oauth.ts`); its headers are empty then. */
   oauth?: OAuthStore;
+  /** What its sign-in asks for, from its catalog entry; otherwise the SDK's choice from the server's metadata. */
+  oauthRequest?: OAuthRequest;
 };
 
 /**
@@ -315,8 +318,14 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
   }
 
   async function authorize(target: ToolTarget & { oauth: OAuthStore }) {
-    const oauth = provider(target.oauth, { kind: "authorize" }, new Set());
+    const oauth = provider(target.oauth, { kind: "authorize", ...(target.oauthRequest ? { request: target.oauthRequest } : {}) }, new Set());
     try {
+      if (target.oauthRequest) {
+        // A catalog entry knows it signs in (Google's Gmail server lists its actions without a
+        // token, and answers 401 only to calls): the flow starts at once, through the same fetch.
+        await signInAt(target, oauth.provider, target.oauthRequest);
+        return oauth.started() ?? null;
+      }
       // Connecting without a token gets the server's 401, whose challenge names its resource
       // metadata; the SDK then runs discovery and hands the authorization URL to the provider.
       await withClient(target, fetcher, LIST_TIMEOUT_MS, undefined, async () => undefined, oauth);
@@ -326,6 +335,25 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
       if (started) return started;
       if (oauth.needsClient()) throw new ToolError(`${new URL(target.url).host}'s authorization server supports neither client metadata documents nor registration: enter the client id it gave you`);
       throw error;
+    }
+  }
+
+  /** Runs the SDK's discovery and authorization request for `request`'s scopes, over the connection's fetch. */
+  async function signInAt(target: ToolTarget, authProvider: OAuthClientProvider, request: OAuthRequest) {
+    const host = new URL(target.url).host;
+    const screen = screenedFetch(fetcher, () => undefined);
+    const deadline = AbortSignal.timeout(LIST_TIMEOUT_MS);
+    const fetchFn = httpsOnly(bareTokenErrors(screen.fetch));
+    try {
+      await Promise.race([
+        startAuthorization(authProvider, { serverUrl: target.url, scope: request.scopes.join(" "), fetchFn: (input, init) => fetchFn(input, { ...init, signal: deadline }) }),
+        new Promise<never>((_, reject) => deadline.addEventListener("abort", () => reject(new ToolError(`${host} didn't answer in time`)), { once: true })),
+      ]);
+    } catch (error) {
+      if (error instanceof ToolError) throw error;
+      const refused = screen.refused();
+      if (refused) throw new ToolError(`${host} ${refused}`);
+      throw reason(error, host, deadline.aborted);
     }
   }
 

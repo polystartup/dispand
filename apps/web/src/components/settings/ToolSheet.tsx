@@ -47,6 +47,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
   const [nextKey, setNextKey] = useState(headers.length);
   const [error, setError] = useState<string | null>(null);
   const [current, setCurrent] = useState(tool);
+  const [askClient, setAskClient] = useState(false);
 
   const queryClient = useQueryClient();
   const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.tools.key() });
@@ -109,7 +110,10 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
       const { url: to } = await authorize.mutateAsync({ id: current.id, ...(client !== undefined ? { client } : {}) });
       window.location.assign(to);
     } catch (e) {
-      setError(errorMessage(e, "Could not start the sign-in."));
+      const message = errorMessage(e, "Could not start the sign-in.");
+      setError(message);
+      // The server's authorization server wants a client id it gave the owner: its fields open.
+      if (/enter the client id/.test(message)) setAskClient(true);
     }
   }
 
@@ -274,7 +278,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
                 Save the new address before connecting: the sign-in is for the server the tool is saved with.
               </p>
             ) : (
-              <ToolSignIn status={current.oauthStatus} clientId={current.enteredClientId} busy={busy} onConnect={(client) => void connect(client)} />
+              <ToolSignIn status={current.oauthStatus} clientId={current.enteredClientId} busy={busy} askClient={askClient} onConnect={(client) => void connect(client)} />
             ))}
 
           {current && (

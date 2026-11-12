@@ -10,6 +10,8 @@ type Props = {
   /** The client id the owner entered, if any (its secret is never shown). */
   clientId: string | null;
   busy?: boolean;
+  /** The last Connect failed for want of a client id: its fields are shown. */
+  askClient?: boolean;
   /** Starts the sign-in, with the client the owner entered (or `null` to remove it); the page then leaves for the server's. */
   onConnect: (client?: { clientId: string; clientSecret?: string } | null) => void;
 };
@@ -25,8 +27,9 @@ const said: Record<OAuthStatus, { text: string; tone: string; action: string }> 
  * an authorization server gave the owner, for one that supports neither metadata documents nor
  * registration.
  */
-export function ToolSignIn({ status, clientId, busy, onConnect }: Props) {
-  const [open, setOpen] = useState(clientId !== null);
+export function ToolSignIn({ status, clientId, busy, askClient, onConnect }: Props) {
+  const [unfolded, setOpen] = useState(clientId !== null);
+  const open = unfolded || askClient === true;
   const [id, setId] = useState(clientId ?? "");
   const [secret, setSecret] = useState("");
   const { text, tone, action } = said[status];

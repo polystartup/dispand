@@ -1,5 +1,5 @@
 {
-  "id": "7f71ae32-fa34-465b-ada2-1a541dbf98b7",
+  "id": "02eebf2a-c9ad-4f5a-8157-29919916a411",
   "prevId": "ef0e2534-c1fa-44ff-82a5-4c5081f995cb",
   "version": "7",
   "dialect": "postgresql",
@@ -106,6 +106,89 @@
         }
       },
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.agent_consults": {
+      "name": "agent_consults",
+      "schema": "",
+      "columns": {
+        "agent_id": {
+          "name": "agent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "consulted_id": {
+          "name": "consulted_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ask": {
+          "name": "ask",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        }
+      },
+      "indexes": {
+        "agent_consults_consulted_idx": {
+          "name": "agent_consults_consulted_idx",
+          "columns": [
+            {
+              "expression": "consulted_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "agent_consults_agent_id_agents_id_fk": {
+          "name": "agent_consults_agent_id_agents_id_fk",
+          "tableFrom": "agent_consults",
+          "tableTo": "agents",
+          "columnsFrom": [
+            "agent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "agent_consults_consulted_id_agents_id_fk": {
+          "name": "agent_consults_consulted_id_agents_id_fk",
+          "tableFrom": "agent_consults",
+          "tableTo": "agents",
+          "columnsFrom": [
+            "consulted_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "agent_consults_agent_id_consulted_id_pk": {
+          "name": "agent_consults_agent_id_consulted_id_pk",
+          "columns": [
+            "agent_id",
+            "consulted_id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -303,6 +386,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
         },
         "model": {
           "name": "model",
@@ -3463,13 +3553,6 @@
           "notNull": true,
           "default": "'[]'::jsonb"
         },
-        "built_in": {
-          "name": "built_in",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -3485,24 +3568,7 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "skill_packages_one_built_in_idx": {
-          "name": "skill_packages_one_built_in_idx",
-          "columns": [
-            {
-              "expression": "owner_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"skill_packages\".\"built_in\"",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "skill_packages_owner_id_user_id_fk": {
           "name": "skill_packages_owner_id_user_id_fk",

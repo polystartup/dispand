@@ -176,6 +176,12 @@ export async function proposalView(db: Db, ownerId: string, proposalId: string) 
       if (!wanted.has(kind)) wanted.set(kind, new Set());
       for (const id of ids) wanted.get(kind)!.add(id);
     }
+    // An agent's consult entries name the agents it may consult.
+    const consults = ((item.input ?? {}) as { consults?: unknown }).consults;
+    if (item.tool.startsWith("agents_") && Array.isArray(consults)) {
+      if (!wanted.has("agent")) wanted.set("agent", new Set());
+      for (const entry of consults) for (const id of strings((entry as { agentId?: unknown } | null)?.agentId)) wanted.get("agent")!.add(id);
+    }
     // A table-change trigger names its table and fields inside its config.
     const config = ((item.input ?? {}) as { config?: { kind?: unknown; tableId?: unknown; fields?: unknown } }).config;
     if (item.tool.startsWith("triggers_") && config?.kind === "primitive") {

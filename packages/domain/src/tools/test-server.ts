@@ -34,7 +34,14 @@ type Options = {
    * Streamable HTTP only: the server is an OAuth protected resource of `authorizationServer`. A
    * request without a bearer `accepts` gets a 401 naming its resource metadata.
    */
-  oauth?: { authorizationServer: string; accepts: (token: string) => boolean };
+  oauth?: {
+    authorizationServer: string;
+    accepts: (token: string) => boolean;
+    /** The scopes its resource metadata lists. */
+    scopesSupported?: string[];
+    /** Every request but a tool call goes through without a token (as Google's Gmail server lists its actions). */
+    openListing?: boolean;
+  };
 };
 
 function mcpServer(actions: FakeAction[], options: Options, pages: { count: number }): Server {
@@ -96,11 +103,18 @@ export async function startFakeMcp(
     requests.push(req.headers);
     void (async () => {
       if (transport === "streamable-http") {
-        if (options.oauth && !protectedResource(req.url ?? "/", req.headers.authorization, res)) return;
+        let body: unknown;
+        if (options.oauth?.openListing && req.method === "POST") {
+          let text = "";
+          for await (const chunk of req) text += String(chunk);
+          body = JSON.parse(text);
+        }
+        const listing = options.oauth?.openListing === true && req.url !== metadataPath && (body as { method?: string } | undefined)?.method !== "tools/call";
+        if (options.oauth && !listing && !protectedResource(req.url ?? "/", req.headers.authorization, res)) return;
         const server = mcpServer(actions, options, pages);
         const t = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
         await server.connect(t);
-        await t.handleRequest(req, res);
+        await t.handleRequest(req, res, body);
         return;
       }
       const url = new URL(req.url ?? "/", "http://fake");
@@ -139,7 +153,7 @@ export async function startFakeMcp(
   function protectedResource(path: string, authorization: string | undefined, res: ServerResponse): boolean {
     const oauth = options.oauth!;
     if (path === metadataPath) {
-      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ resource: url, authorization_servers: [oauth.authorizationServer] }));
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ resource: url, authorization_servers: [oauth.authorizationServer], ...(oauth.scopesSupported ? { scopes_supported: oauth.scopesSupported } : {}) }));
       return false;
     }
     const token = authorization?.match(/^Bearer (.+)$/)?.[1];
