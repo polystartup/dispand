@@ -645,3 +645,44 @@ test("an event a consulted Job writes fires the asking agent's trigger, in the s
   expect(job).toMatchObject({ agentId: s.asker.id, rootId: (await s.run(asker.runId)).rootId });
   expect(job!.cause).toMatchObject({ kind: "event", jobId: expertRun });
 });
+
+test("each Job's page tells its consults: the asker's pending and answered ones, the consulted Job's origin", async () => {
+  const s = await setup();
+  const asker = await s.start();
+  const mine = { context: s.context };
+  // Nothing asked yet: no consult on either side.
+  expect(await call(router.jobs.consults, { runId: asker.runId }, mine)).toEqual({ asked: [], answering: null });
+  const q = await s.consult(asker.sessionId, s.expert.id, "Which plan?");
+  const expertRun = await s.consulted(q.id);
+  // While the consulted Job works: the asker waits on it, and the consulted Job says who asks.
+  expect((await call(router.jobs.consults, { runId: asker.runId }, mine)).asked).toEqual([
+    { questionId: q.id, agentId: s.expert.id, agent: "Expert", runId: expertRun, state: "waiting", question: "Which plan?", answer: null, createdAt: expect.any(Date) },
+  ]);
+  expect(await call(router.jobs.consults, { runId: expertRun }, mine)).toEqual({
+    asked: [],
+    answering: { runId: asker.runId, agentId: s.asker.id, agent: "Asker", question: "Which plan?" },
+  });
+  const [listed] = (await call(router.runs.list, { agentId: s.asker.id }, mine)).filter((r) => r.id === asker.runId);
+  expect(listed).toMatchObject({ waitingOn: "Expert", consultedBy: null });
+  expect((await call(router.runs.list, { agentId: s.expert.id }, mine)).find((r) => r.id === expertRun)).toMatchObject({ waitingOn: null, consultedBy: "Asker" });
+  // Answered: the answer is on the asker's page, and it waits on no one.
+  await s.emit(await s.sessionOf(expertRun), { type: "result", text: "Plan B." });
+  await s.answered(asker.sessionId);
+  expect((await call(router.jobs.consults, { runId: asker.runId }, mine)).asked).toMatchObject([{ state: "answered", answer: "Plan B." }]);
+  expect((await call(router.runs.list, { agentId: s.asker.id }, mine)).find((r) => r.id === asker.runId)).toMatchObject({ waitingOn: null });
+});
+
+test("a consult that got no answer says why, and a consult that made no Job has no link", async () => {
+  const s = await setup();
+  const asker = await s.start();
+  const refused = await s.consult(asker.sessionId, s.third.id);
+  await s.answered(asker.sessionId);
+  expect((await call(router.jobs.consults, { runId: asker.runId }, { context: s.context })).asked).toEqual([
+    expect.objectContaining({ questionId: refused.id, state: "failed", runId: null, answer: NOT_LISTED }),
+  ]);
+});
+
+test("a Job that is not there has no consult page", async () => {
+  const s = await setup();
+  await expect(call(router.jobs.consults, { runId: "run_nobody" }, { context: s.context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});

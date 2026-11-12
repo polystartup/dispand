@@ -80,7 +80,8 @@ function Iterations({ loop, step, body, state, card }: { loop: LoopStep; step: S
 
 function StepCard({ step, name, agent, state }: { step: Step; name: string; agent: string | null; state: RunSnapshot }) {
   const transcript = state.messages.filter((m) => m.stepRunId === step.id);
-  const asked = state.questions.filter((q) => q.stepRunId === step.id);
+  // A consult shows once, in the page's Consults section.
+  const asked = state.questions.filter((q) => q.stepRunId === step.id && q.payload.kind !== "consult");
   return (
     <section aria-label={name} className="rounded-2xl bg-surface px-5 py-4 shadow-card">
       <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">

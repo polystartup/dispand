@@ -4,6 +4,7 @@ import { z } from "zod";
 import { runs, stepRuns, triggers } from "../db/schema.ts";
 import { authed, base } from "../rpc/context.ts";
 import { engineError } from "../workflows/procedures.ts";
+import { consultsOfJob } from "./consults.ts";
 
 const owner = base.use(authed);
 
@@ -35,4 +36,14 @@ const def = owner.input(z.object({ runId: z.string() })).handler(async ({ input,
   return run.def;
 });
 
-export const jobs = { start, def };
+/** The consults of a Job, for its page: those it asked, and the one it answers (`consults.ts`). */
+const consults = owner.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
+  const [run] = await context.db
+    .select({ id: runs.id, ownerId: runs.ownerId, cause: runs.cause })
+    .from(runs)
+    .where(and(eq(runs.id, input.runId), eq(runs.ownerId, context.ownerId)));
+  if (!run) throw new ORPCError("NOT_FOUND");
+  return consultsOfJob(context.db, run);
+});
+
+export const jobs = { start, def, consults };

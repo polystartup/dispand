@@ -1,10 +1,10 @@
 import { ActionBarPrimitive, AuiIf, AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, type TextMessagePartComponent, type ToolCallMessagePartComponent } from "@assistant-ui/react";
 import type { Answer } from "@dispand/runner-protocol";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, Check, Copy, MessageSquare, Wrench } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowDown, Check, Copy, MessageSquare, Users, Wrench } from "lucide-react";
 import { createContext, type ComponentProps, type ReactNode, useContext, useState } from "react";
 import { orpc } from "../../lib/api.ts";
-import { QUESTION_TOOL, threadMessages, TRACE_TOOL, useRunThread } from "../../lib/assistant-runtime.ts";
+import { CONSULT_TOOL, QUESTION_TOOL, threadMessages, TRACE_TOOL, useRunThread } from "../../lib/assistant-runtime.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import { ProposalItems } from "../questions/ProposalItems.tsx";
 import { approvalWords, QuestionForm } from "../questions/QuestionForm.tsx";
@@ -43,6 +43,23 @@ const Trace: ToolCallMessagePartComponent<{ text: string }> = ({ args }) => (
     <span className="min-w-0 whitespace-pre-wrap break-words">{args.text}</span>
   </p>
 );
+
+/** A consult of the chat's agent, as one quiet line naming the agent it asks: the owner answers nothing. */
+const ConsultPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ args }) => {
+  const q = useContext(Questions).get(args.questionId);
+  const agents = useQuery(orpc.agents.list.queryOptions());
+  if (!q || q.payload.kind !== "consult") return null;
+  const agentId = q.payload.agentId;
+  const agent = agents.data ? (agents.data.find((a) => a.id === agentId)?.name ?? "a deleted agent") : "another agent";
+  const failed = q.status === "answered" && q.answer?.kind === "consult" && q.answer.outcome === "failed";
+  const text = q.status === "pending" ? `Consulting ${agent}…` : failed ? `${agent} gave no answer` : `Consulted ${agent}`;
+  return (
+    <p className="flex items-start gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-[13px] text-muted">
+      <Users size={14} className="mt-0.5 shrink-0" aria-hidden />
+      <span className="min-w-0 break-words">{text}</span>
+    </p>
+  );
+};
 
 function answeredText(q: Question): string {
   const a = q.answer;
@@ -133,7 +150,7 @@ const OwnerMessage = () => (
 
 const AgentMessage = () => (
   <MessagePrimitive.Root role="listitem">
-    <MessagePrimitive.Parts components={{ Text: AgentText, tools: { by_name: { [TRACE_TOOL]: Trace, [QUESTION_TOOL]: QuestionPart } } }} />
+    <MessagePrimitive.Parts components={{ Text: AgentText, tools: { by_name: { [TRACE_TOOL]: Trace, [QUESTION_TOOL]: QuestionPart, [CONSULT_TOOL]: ConsultPart } } }} />
     <MessageActions />
   </MessagePrimitive.Root>
 );

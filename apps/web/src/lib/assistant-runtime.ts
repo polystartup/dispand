@@ -13,6 +13,8 @@ type Question = RunSnapshot["questions"][number];
 export const TRACE_TOOL = "dispand_trace";
 /** A question of the chat: a tool call with no result while it waits, its answer as the result after. */
 export const QUESTION_TOOL = "dispand_question";
+/** A consult of the chat's agent: one line naming the agent it asks, with nothing to answer. */
+export const CONSULT_TOOL = "dispand_consult";
 
 /** A question's message id in the thread (its tool call's id is the question's own). */
 export const questionMessageId = (questionId: string) => `q:${questionId}`;
@@ -38,6 +40,10 @@ function ofQuestion(q: Question): ThreadMessageLike {
   };
 }
 
+function ofConsult(q: Question): ThreadMessageLike {
+  return { id: questionMessageId(q.id), role: "assistant", createdAt: new Date(q.createdAt), content: [{ type: "tool-call", toolCallId: q.id, toolName: CONSULT_TOOL, args: { questionId: q.id }, ...(q.status === "answered" ? { result: "done" } : {}) }] };
+}
+
 function kept<T extends object>(row: T, make: (row: T) => ThreadMessageLike): ThreadMessageLike {
   let message = converted.get(row);
   if (!message) converted.set(row, (message = make(row)));
@@ -46,14 +52,14 @@ function kept<T extends object>(row: T, make: (row: T) => ThreadMessageLike): Th
 
 /**
  * The chat of a run as a thread: the chat step's messages and its questions (but those that
- * expired, and consults), in the order they came.
+ * expired), in the order they came. A consult is a line, not a question.
  */
 export function threadMessages(run: RunSnapshot | null, chatStepId: string | undefined): ThreadMessageLike[] {
   if (!run || !chatStepId) return [];
   return [
     ...run.messages.filter((m) => m.stepRunId === chatStepId).map((m) => ({ at: new Date(m.createdAt).getTime(), message: kept(m, ofMessage) })),
-    // A consult asks nothing of the owner: it has no place to answer it here.
-    ...run.questions.filter((q) => q.stepRunId === chatStepId && q.status !== "expired" && q.payload.kind !== "consult").map((q) => ({ at: new Date(q.createdAt).getTime(), message: kept(q, ofQuestion) })),
+    // A consult asks nothing of the owner: it shows as a line, with nothing to answer.
+    ...run.questions.filter((q) => q.stepRunId === chatStepId && q.status !== "expired").map((q) => ({ at: new Date(q.createdAt).getTime(), message: kept(q, q.payload.kind === "consult" ? ofConsult : ofQuestion) })),
   ]
     .sort((a, b) => a.at - b.at)
     .map((item) => item.message);

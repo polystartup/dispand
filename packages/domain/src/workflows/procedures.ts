@@ -21,6 +21,7 @@ import { loadToolSchemas } from "../tools/executor.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { loadTableSchemas } from "../data/tables.ts";
+import { consultMarks } from "../jobs/consults.ts";
 import { tableIdsOf } from "./data-steps.ts";
 import { structuralIssues } from "./derive.ts";
 import { agentIdsOf, defaultWorkflowDef, StorableText, WorkflowDef } from "./model.ts";
@@ -365,7 +366,8 @@ export const TITLE_LENGTH = 80;
  * The latest runs of one workflow, the latest Jobs of one agent or of one trigger, or the owner's
  * latest runs of both kinds when none is given. `kind: "chat"` keeps the Jobs that are
  * conversations (their own definition opens with a chat); `title` is the first words of a
- * conversation's first message, null before it has one.
+ * conversation's first message, null before it has one. `waitingOn` and `consultedBy`: the agent a
+ * Job's pending consult waits on, and the agent that consulted it (`jobs/consults.ts`).
  */
 const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agentId: z.string().optional(), triggerId: z.string().optional(), kind: z.literal("chat").optional() })).handler(async ({ input, context }) => {
   if (input.triggerId) {
@@ -411,7 +413,8 @@ const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agent
         .orderBy(messages.runId, asc(messages.position))
     : [];
   const titles = new Map(firsts.map((m) => [m.runId, m.text.replace(/\s+/g, " ").trim() || null]));
-  return rows.map((r) => ({ ...runView(r), queued: queued.has(r.id), title: titles.get(r.id) ?? null }));
+  const marks = await consultMarks(context.db, rows);
+  return rows.map((r) => ({ ...runView(r), queued: queued.has(r.id), title: titles.get(r.id) ?? null, ...marks.get(r.id)! }));
 });
 
 export const runs = { start, sendChat, stop, get: getRun, stream, list: listRuns };
