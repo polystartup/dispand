@@ -35,6 +35,7 @@ const LABELS_OF: Record<string, Record<string, string>> = {
 const LABELS: Record<string, string> = {
   id: "Agent",
   name: "Name",
+  description: "Description",
   harnessId: "Harness",
   systemPrompt: "Instructions",
   model: "Model",
@@ -42,7 +43,28 @@ const LABELS: Record<string, string> = {
   toolIds: "Tools",
   bundles: "What its Jobs may do",
   dataTables: "Tables",
+  consults: "May consult",
 };
+
+/** What naming an agent on another's consult list gives each of them (`ConsultList` says it too). */
+export const CONSULT_LINE = "It can steer this agent with its questions, and its answers may quote what it reads in tables this agent can't.";
+
+/** An agent's consult entries: each agent by name, whether it asks first, and what the pair can do. */
+function Consults({ value, names }: { value: unknown; names: ProposalView["names"] }) {
+  const entries = Array.isArray(value) ? value.filter((e): e is { agentId: unknown; ask?: unknown } => typeof e === "object" && e !== null) : [];
+  if (entries.length === 0) return <span className="text-faint">none</span>;
+  return (
+    <span className="flex flex-col gap-1">
+      {entries.map((e, i) => (
+        <span key={i}>
+          <Ref id={String(e.agentId)} names={names} />
+          {e.ask === true ? " (asks before use)" : ""}
+        </span>
+      ))}
+      <span className="text-muted">{CONSULT_LINE}</span>
+    </span>
+  );
+}
 function Ref({ id, names }: { id: string; names: ProposalView["names"] }) {
   const found = names[id];
   if (!found) {
@@ -136,7 +158,11 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
               <div key={name} className="contents">
                 <dt className="text-muted">{LABELS_OF[item.tool]?.[name] ?? LABELS[name] ?? name}</dt>
                 <dd className="min-w-0">
-                  <Value value={value} names={proposal.names} isRef={item.refs.includes(name)} address={item.tool === "tools_add" && name === "url"} />
+                  {item.tool.startsWith("agents_") && name === "consults" ? (
+                    <Consults value={value} names={proposal.names} />
+                  ) : (
+                    <Value value={value} names={proposal.names} isRef={item.refs.includes(name)} address={item.tool === "tools_add" && name === "url"} />
+                  )}
                 </dd>
               </div>
             ))}

@@ -137,6 +137,8 @@ export const agents = pgTable("agents", {
     .notNull()
     .references(() => harnesses.id),
   systemPrompt: text("system_prompt").notNull(),
+  // What it is for and when to consult it: other agents read it in their `consult` tool.
+  description: text("description").notNull().default(""),
   // Overrides the harness's model when set.
   model: text("model"),
   // What its Jobs may do through Dispand's own tools, and on which tables (`platform/`).
@@ -210,6 +212,8 @@ export type AgentSnapshot = {
   /** Absent in Jobs created before bundles existed: none, on all tables. */
   bundles?: Bundle[];
   tables?: TableScope;
+  /** The agents it may consult (`agent_consults`); absent in Jobs created before consults existed: none. */
+  consults?: { agentId: string; ask: boolean }[];
 };
 /** What made a Job, and how many Jobs deep its chain is (0 for a user or a schedule): information only, never a limit. */
 export type JobCause = (
@@ -1044,6 +1048,24 @@ export const agentSkills = pgTable(
       .references(() => skillPackages.id),
   },
   (t) => [primaryKey({ columns: [t.agentId, t.packageId] }), index("agent_skills_package_idx").on(t.packageId)],
+);
+
+/**
+ * The agents an agent may consult (`agents/consults.ts`). Naming one is a grant: a person on the
+ * agent's page, or an approved proposal. `ask`: each consult asks the owner first.
+ */
+export const agentConsults = pgTable(
+  "agent_consults",
+  {
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    consultedId: text("consulted_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    ask: boolean("ask").notNull().default(false),
+  },
+  (t) => [primaryKey({ columns: [t.agentId, t.consultedId] }), index("agent_consults_consulted_idx").on(t.consultedId)],
 );
 
 export const agentTools = pgTable(

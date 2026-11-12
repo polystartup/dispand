@@ -109,7 +109,10 @@ changes it updates this file.
   checked first and as they are at the call, so an approval never brings back a bundle taken
   since, and the procedure's own checks still apply (what isn't the owner's stays refused). A
   person may approve more than the proposing agent holds: that is what a grant is, and why
-  the owner is shown every item whole.
+  the owner is shown every item whole. The agents an agent may consult, and its description
+  (which agents that may consult it read), change the same way: a person on the agent's page,
+  or an approved `agents_create` or `agents_update` item. An entry pairs only two agents that
+  both have `configure` or neither has, and never an agent with itself.
 - **Long work waits for a person; it is never cut.** The Jobs from one root cause pause at the
   workspace's checkpoint, and only a person's answer to its Approval lets them go on: no tool
   answers a question, and every path that makes a session work again reads the root's state
