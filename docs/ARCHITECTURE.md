@@ -512,8 +512,8 @@
   (`skill_packages.built_in`, migration 0050, a partial unique index), replacing its files when
   they differ from the build's; it runs at server start for every owner
   (`syncPlatformSkills`) and in `ensureAssistant`, which attaches it to the Assistant. It
-  reaches sessions like any skill package (a CLI start names it; cloud sessions don't get
-  skills yet). Any agent may be given it: it describes, it grants nothing.
+  reaches sessions like any skill package (a CLI start names it; a cloud session lists it and
+  reads it with `read_skill`). Any agent may be given it: it describes, it grants nothing.
 - **Skills and tools in sessions:** `engine/tooling.ts` says what a session's agent gives it
   (`sessionTooling`, from the session's step: the Job's agent, or the workflow node's): the
   agent's skill packages and effective tools as they are now, kept, for a Job, to those of its
@@ -553,7 +553,19 @@
   `platform/exposed.ts`) and marks the answer consumed, or brings the answer down to "allow"
   when the name stands for nothing the agent chose; the runner adds the name to the session's
   unasked ones. Workflow runs' CLI sessions have no Job token, so
-  no such tools; cloud sessions don't get skills yet.
+  no such tools.
+- **Skills in cloud sessions** (`skills/cloud.ts`): the way Agent Skills work. At every model
+  call `sessionSkills` reads the skills of the session's packages (`sessionTooling`: for a Job,
+  its snapshot's that the agent still has); the system prompt lists each skill's name and
+  description (`<package>:<name>` when two packages share a name), and the built-in
+  `read_skill` (`cloud/builtins.ts`, a name `tool-names.ts` reserves; offered only when there
+  are skills) reads one file of one of them, `SKILL.md` first, without asking the owner. A call
+  reads the skills again, refuses a path `isSafeRelativePath` refuses (`..`, `.`, absolute,
+  backslash), and looks the file up by its exact stored path `<skill>/<path>` in that package:
+  nothing is decoded or normalized and no filesystem is involved, so an encoded path names no
+  file. A missing file's answer lists the skill's files; a file that isn't UTF-8 text is
+  refused; a longer one than a tool result may hold is cut. Each read makes a `skill.read` span
+  and counts in `dispand.skill.reads` (how it ended only).
 - **What polls may read** (`tools/pollable.ts`): `tools.pollable` (the owner's list, migration
   0042; null: the actions the server marks read-only) says which of a tool's actions a poll may
   call, and `isPollable` adds that no agent holding the tool must ask before using it (the

@@ -14,6 +14,8 @@ import {
   CONSULT,
   consultQuestion,
   consultSpec,
+  READ_SKILL,
+  readSkillSpec,
   REQUEST_APPROVAL,
   approvalMessage,
   requestApprovalSpec,
@@ -28,6 +30,7 @@ import {
 } from "./builtins.ts";
 import { type ChatItem, type ClientHarness, createModelClient, type ModelClient, type ModelTurn, type ToolCall, type ToolSpec } from "./model-client.ts";
 import { DEFAULT_BASE_URLS } from "./models.ts";
+import { readSkill, sessionSkills, skillsPrompt } from "../skills/cloud.ts";
 import { toolNames } from "./tool-names.ts";
 
 /** The agent's tools (MCP), by key. The MCP-backed one is `mcpToolCaller`. */
@@ -370,16 +373,19 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     let turn: ModelTurn;
     try {
       const { specs, names } = await this.specs(row.id);
+      // The agent's skills as they are now, read at every turn like its tools.
+      const skills = await sessionSkills(this.db, id);
       const tools = [
         askUserSpec,
         submitOutputsSpec(start.expectedOutputs),
         requestApprovalSpec,
         ...(start.consults?.length ? [consultSpec(start.consults)] : []),
+        ...(skills.length > 0 ? [readSkillSpec] : []),
         ...specs.map((s) => ({ ...s.spec, name: names.toName(s.key) })),
       ];
       turn = await modelCall(harness.kind, id, () =>
         this.client(harness).turn({
-          system: [harness.systemPrompt, start.systemPrompt].filter(Boolean).join("\n\n"),
+          system: [harness.systemPrompt, start.systemPrompt, skillsPrompt(skills)].filter(Boolean).join("\n\n"),
           items,
           tools,
           signal: new AbortController().signal,
@@ -415,7 +421,8 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     const id = row.id;
     const items = (text: string, isError: boolean): ChatItem[] => [...row.items, { role: "tool", callId: call.id, name: call.name, result: text, isError }];
     const consults = row.start.consults ?? [];
-    const builtin = call.name === ASK_USER || call.name === SUBMIT_OUTPUTS || call.name === REQUEST_APPROVAL || (call.name === CONSULT && consults.length > 0);
+    // `read_skill` is reserved (`tool-names.ts`): no other tool can take its name.
+    const builtin = call.name === ASK_USER || call.name === SUBMIT_OUTPUTS || call.name === REQUEST_APPROVAL || call.name === READ_SKILL || (call.name === CONSULT && consults.length > 0);
     const { specs, names } = await this.specs(row.id);
     const key = builtin ? undefined : names.fromName(call.name);
     const label = cut(specs.find((s) => s.key === key)?.label ?? call.name, ID);
@@ -456,6 +463,12 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         // Dispand answers it with the consulted agent's Job (or why there is none): the owner isn't asked.
         const asked = consultQuestion(args, consults);
         await ("error" in asked ? done(asked.error, true) : ask({ kind: "consult", ...asked }));
+        return null;
+      }
+      if (call.name === READ_SKILL) {
+        // Reading what the agent was given asks nobody; what it may read is checked at the call.
+        const read = await readSkill(this.db, id, args);
+        await done(read.text, read.isError);
         return null;
       }
       if (call.name === SUBMIT_OUTPUTS) {

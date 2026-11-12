@@ -3,7 +3,8 @@ import type { ServerToRunner } from "@dispand/runner-protocol";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { agentSkills, proposals, runs, skillFiles, skillPackages } from "../db/schema.ts";
-import { CliHarnessAdapter } from "../engine/cli-harness.ts";
+import { fakeModel, say, use } from "../cloud/test-model.ts";
+import { CliHarnessAdapter, createEngine } from "../engine/cli-harness.ts";
 import { Engine } from "../engine/engine.ts";
 import { toolingOf } from "../engine/tooling.ts";
 import { callPlatformTool } from "../platform/call.ts";
@@ -120,6 +121,21 @@ test("the Assistant's Job gets the platform skill, on a runner and on a cloud ha
   const { runId } = await call(router.jobs.start, { triggerId }, { context });
   const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
   expect((await toolingOf(context.db, run!, agentId)).skills).toEqual([{ packageId, name: PLATFORM_SKILL }]);
+});
+
+test("the Assistant on a cloud harness reads the platform skill", async () => {
+  const { context, triggerId, fields } = await withAssistant();
+  const path = "SKILL.md";
+  const model = fakeModel(use("read_skill", { skill: PLATFORM_SKILL, path }), say("I know Dispand."));
+  const engine = createEngine(context.db, context.hub, context.secrets, context.dataEvents, { client: model.client });
+  onTestFinished(() => engine.stop());
+  const cloud = await call(router.harnesses.create, { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" }, { context });
+  await call(router.agents.update, { ...fields, harnessId: cloud.id }, { context });
+  await call(router.jobs.start, { triggerId }, { context: { ...context, engine } });
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
+  expect(model.inputs[0]!.system).toContain(`- ${PLATFORM_SKILL}: `);
+  const read = model.inputs[1]!.items.findLast((i) => i.role === "tool");
+  expect(read).toMatchObject({ result: build[`${PLATFORM_SKILL}/${path}`], isError: false });
 });
 
 test("another agent can be given the platform skill: it describes, and grants nothing", async () => {
