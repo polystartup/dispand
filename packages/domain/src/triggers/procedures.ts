@@ -3,6 +3,7 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
 import { agents, eventFires, fields, pollItems, polls, tables, triggerFires, triggers as triggersTable } from "../db/schema.ts";
+import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { pollProblem } from "../tools/pollable.ts";
@@ -175,6 +176,12 @@ async function view(db: Db, row: Row, forJob: boolean) {
   };
 }
 
+/** Refuses a change of the Assistant's chat (`agents/builtin.ts`), with its reason. */
+async function guard(db: Db | Tx, ownerId: string, agentId: string, change: Extract<AgentChange, { kind: "trigger" }>) {
+  const refused = await assistantGuard(db, ownerId, agentId, change);
+  if (refused) throw new ORPCError("FORBIDDEN", { message: refused });
+}
+
 async function find(db: Db, ownerId: string, id: string) {
   const [row] = await db
     .select()
@@ -230,6 +237,7 @@ const update = owner
         .where(and(eq(triggersTable.id, input.id), eq(triggersTable.ownerId, context.ownerId)))
         .for("update");
       if (!previous) throw new ORPCError("NOT_FOUND");
+      await guard(tx, context.ownerId, previous.agentId, { kind: "trigger", triggerId: previous.id, enabled: input.enabled, config: input.config });
       const config = input.config ?? previous.config;
       if (config.kind !== previous.kind) throw new ORPCError("BAD_REQUEST", { message: "A trigger's kind can't change" });
       // A primitive or poll trigger can always be turned off, even once what it watches has changed
@@ -264,7 +272,8 @@ const update = owner
   });
 
 const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  await find(context.db, context.ownerId, input.id);
+  const row = await find(context.db, context.ownerId, input.id);
+  await guard(context.db, context.ownerId, row.agentId, { kind: "trigger", triggerId: row.id, delete: true });
   await context.db.delete(triggersTable).where(eq(triggersTable.id, input.id));
 });
 

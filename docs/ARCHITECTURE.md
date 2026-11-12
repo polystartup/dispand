@@ -475,6 +475,18 @@
   without a question (Claude Code: `canUseTool` and the `PreToolUse` hook; Codex: its approval
   request for that server is accepted); every other MCP tool asks as before. The agent's page
   sets the bundles and tables (`components/settings/JobRights.tsx`).
+- **The Assistant:** the workspace's built-in agent, an `agents` row with `built_in =
+  'assistant'` (migration 0048; a partial unique index keeps one per owner). No procedure's
+  input carries `built_in`: `ensureAssistant` (`agents/builtin.ts`, behind the owner's
+  `agents.ensureAssistant`, not a tool) makes it on the harness the owner picks, with `data`
+  and `configure` on all tables and a chat trigger, and gives the one there is otherwise; it
+  runs at server start for every Assistant, so what a version adds reaches existing ones.
+  `assistantGuard` is the one check of what may change on it: `agents.update`,
+  `agents.delete`, `triggers.update`, `triggers.delete` and `createProposal` (for
+  `agents_update` and `triggers_*` items, refused when proposed with the reason) call it. Its
+  Jobs' system prompt starts with a fixed text (`jobSystemPrompt`, `engine/job-def.ts`), then
+  the owner's instructions. The web's `/assistant` (`components/assistant/AssistantChat.tsx`)
+  is its chat trigger's `ChatPanel`, or the harness picker while there is no Assistant.
 - **Skills and tools in sessions:** `engine/tooling.ts` says what a session's agent gives it
   (`sessionTooling`, from the session's step: the Job's agent, or the workflow node's): the
   agent's skill packages and effective tools as they are now, kept, for a Job, to those of its

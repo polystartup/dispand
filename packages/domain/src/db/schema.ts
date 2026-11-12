@@ -145,8 +145,10 @@ export const agents = pgTable("agents", {
   // The plugin it came from, and its name there (`plugins/`); it goes with the plugin.
   pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "cascade" }),
   pluginComponent: text("plugin_component"),
+  // `"assistant"`: the workspace's Assistant (`agents/builtin.ts`), one per owner. No input sets it.
+  builtIn: text("built_in").$type<"assistant">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [uniqueIndex("agents_one_assistant_idx").on(t.ownerId).where(sql`${t.builtIn} = 'assistant'`)]);
 
 // Workflows: the trigger and steps live in versions; a run keeps the version it started on.
 export const workflows = pgTable("workflows", {

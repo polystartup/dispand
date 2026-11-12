@@ -147,6 +147,13 @@ changes it updates this file.
   item once the agent lost the tool. Its call takes the tool's own path (the connector's address
   guard and redaction, or the runner's own checks), and what it reads (items, arguments,
   results) never reaches telemetry.
+- **No agent makes, unmakes or strips the Assistant.** The workspace's Assistant is the agent
+  marked `built_in = 'assistant'`, one per owner (a unique index). That mark is in no
+  procedure's input: only `agents.ensureAssistant`, the owner's and not a tool, makes it. One
+  check (`assistantGuard`, `agents/builtin.ts`) refuses deleting it, taking `data` or
+  `configure` from it, limiting it to some tables, and deleting, turning off or changing the
+  kind of its chat, in the owner's procedures and in a proposal's items alike. It holds no
+  more than any agent given those bundles: its writes that grant go through proposals.
 - **The server calls no address an agent chose before a person approved it, and an agent
   never handles a tool's credentials.** An agent adds a tool only as a proposal item
   (`tools.add`: a name, a URL and a transport, nothing else; a URL with credentials or any

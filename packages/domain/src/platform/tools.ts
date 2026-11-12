@@ -262,6 +262,9 @@ export const NOT_TOOLS: string[] = [
   // What grants authority or can't be undone: a person does it (later, through a proposal).
   "fields.retype",
   "agents.delete",
+  // The Assistant: made by the owner's action, never by an agent.
+  "agents.assistant",
+  "agents.ensureAssistant",
   "skills.create",
   "skills.update",
   "skills.delete",

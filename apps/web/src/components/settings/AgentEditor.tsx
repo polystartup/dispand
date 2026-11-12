@@ -97,6 +97,9 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
           void save();
         }}
       >
+        {agent?.builtIn === "assistant" && (
+          <p className="text-[13px] text-muted">The workspace's Assistant: it can't be deleted. Its name, harness, model and instructions are yours to change.</p>
+        )}
         {agent?.plugin && (
           <p className="text-[13px] text-muted">From the plugin {agent.plugin.name}: removed with it. Updating the plugin refreshes its system prompt.</p>
         )}
@@ -246,7 +249,12 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
             </p>
           )}
         </section>
-        <JobRights rights={rights} tables={tables.data ?? []} onChange={setRights} />
+        <JobRights
+          rights={rights}
+          tables={tables.data ?? []}
+          onChange={setRights}
+          {...(agent?.builtIn === "assistant" ? { locked: "The Assistant always works on data and changes tables, on every table." } : {})}
+        />
         <FormField label="System prompt" htmlFor="agent-prompt" hint="What this agent is and how it works. Sent at the start of every session.">
           <Textarea
             id="agent-prompt"

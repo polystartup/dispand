@@ -13,6 +13,7 @@ export { DataEvents, getDataEvents, type DataEvent } from "./data/events.ts";
 
 export { openAttachment, sweepAttachments, type AttachmentView } from "./data/files.ts";
 export { logError } from "./log.ts";
+export { ensureAssistants } from "./agents/builtin.ts";
 export { createMcpConnector, type ToolConnector } from "./tools/mcp.ts";
 export { InstalledTools } from "./tools/executor.ts";
 export { pollCaller } from "./tools/poll.ts";
