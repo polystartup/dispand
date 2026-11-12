@@ -66,7 +66,9 @@ async function world() {
     if (!proposed.ok) throw new Error((proposed as { error: string }).error);
     const proposalId = (proposed.output as { proposalId: string }).proposalId;
     await context.db.update(proposals).set({ status: "approved" }).where(eq(proposals.id, proposalId));
-    return tool("proposal_apply", { proposalId });
+    const applied = await tool("proposal_apply", { proposalId });
+    if (!applied.ok) throw new Error(applied.error);
+    return applied.output as { items: { outcome: string; id?: string }[] };
   };
   const lastPoll = async (triggerId: string) => (await context.db.select().from(polls).where(eq(polls.triggerId, triggerId)).orderBy(desc(polls.at)).limit(1))[0];
   return { context, time, scheduler, harness, tool, approveAndApply, lastPoll };
@@ -97,9 +99,8 @@ test("one approved proposal adds a catalog tool, sets a flag and makes a poll be
       input: { agentId: { $item: 1 }, name: "New mail", instructions: "Read it.", config: { kind: "poll", toolId: { $item: 0 }, action: "list_mail", arguments: {}, itemsPath: "items", idPath: "id", interval: 300 } },
     },
   ]);
-  expect(applied).toMatchObject({ ok: true });
-  const [{ outcome: added, id: toolId }, { id: agentId }, , { id: triggerId }] = (applied.output as { items: { outcome: string; id?: string }[] }).items as { outcome: string; id: string }[];
-  expect(added).toBe("made");
+  expect(applied.items.map((i) => i.outcome)).toEqual(["made", "made", "made", "made"]);
+  const [toolId, agentId, , triggerId] = applied.items.map((i) => i.id!) as [string, string, string, string];
 
   // No credential, the entry's actions, and no request to its server yet.
   const tool = await call(router.tools.get, { id: toolId }, { context: w.context });
@@ -161,7 +162,7 @@ test("a tool added by URL whose listing fails is not pollable until it lists", a
     },
   ]);
   // The tool and the agent are made; the poll is refused: the tool has no action to poll yet.
-  expect((applied.output as { items: { outcome: string }[] }).items.map((i) => i.outcome)).toEqual(["made", "made", "refused"]);
+  expect(applied.items.map((i) => i.outcome)).toEqual(["made", "made", "refused"]);
   const items = (await w.context.db.select().from(proposals))[0]!.items;
   expect(items.map((i) => i.failed === true)).toEqual([false, false, true]);
   const tool = await call(router.tools.get, { id: items[0]!.createdId! }, { context: w.context });
@@ -180,7 +181,7 @@ test("through a proposal, the Firecrawl entry needs sign-in with no header; fill
     },
   };
   const applied = await w.approveAndApply([{ tool: "tools_add_from_catalog", input: { catalogId: "firecrawl" } }]);
-  const toolId = (applied.output as { items: { id: string }[] }).items[0]!.id;
+  const toolId = applied.items[0]!.id!;
   expect(await call(router.tools.get, { id: toolId }, { context: w.context })).toMatchObject({ name: "Firecrawl", headerNames: [], signIn: "needed", auth: "none" });
   expect(listings).toEqual([]);
   await expect(call(router.tools.fillSettings, { id: toolId, settings: {} }, { context: w.context })).rejects.toThrow(/API key is required/);
@@ -204,6 +205,7 @@ test("a runner entry is refused when proposed, with the snippet its owner adds o
 test("tools_catalog lists the entries with their actions' default flags", async () => {
   const w = await world();
   const listed = await w.tool("tools_catalog", {});
+  if (!listed.ok) throw new Error(listed.error);
   const firecrawl = (listed.output as { id: string; actions?: { name: string; readOnly?: boolean }[] }[]).find((e) => e.id === "firecrawl")!;
   expect(firecrawl.actions!.map((a) => a.name)).toContain("firecrawl_scrape");
 });
