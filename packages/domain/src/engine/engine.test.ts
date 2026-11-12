@@ -1313,7 +1313,7 @@ test("deleting an agent keeps its finished Jobs, their link to it cleared and it
   expect(await engine.db.select({ id: runs.id, agentId: runs.agentId, agentName: runs.agentName, status: runs.status }).from(runs)).toEqual([
     { id: runId, agentId: null, agentName: "Order drafter", status: "succeeded" },
   ]);
-  expect((await runOf(engine, runId)).steps).toHaveLength(1);
+  expect(Object.keys((await runOf(engine, runId)).steps)).toHaveLength(1);
 });
 
 // Stopping a run by hand.
