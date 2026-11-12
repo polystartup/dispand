@@ -20,6 +20,8 @@ command:
   fires on.
 - [references/setup.md](references/setup.md): bundles, what needs a proposal, and how to
   propose a whole setup.
+- [references/review.md](references/review.md): reviewing the workspace for what could be
+  better (`workspace_review`), one proposal per signal.
 
 ## Working rules
 

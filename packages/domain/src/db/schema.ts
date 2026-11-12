@@ -347,12 +347,15 @@ export const triggers = pgTable(
     lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
     // A poll walking its tool's continuation: where the walk is (null between walks).
     pollCursor: jsonb("poll_cursor").$type<PollCursor>(),
+    // `"review"`: the Assistant's scheduled review of the workspace (`agents/builtin.ts`), one per agent. No input sets it.
+    builtIn: text("built_in").$type<"review">(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [
     index("triggers_agent_idx").on(t.agentId),
     index("triggers_due_idx").on(t.nextFireAt).where(sql`${t.enabled}`),
+    uniqueIndex("triggers_one_review_idx").on(t.agentId).where(sql`${t.builtIn} = 'review'`),
   ],
 );
 
