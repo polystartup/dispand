@@ -175,17 +175,12 @@ function parseAgent(text: string): AgentDefinition | string {
   if (!parts) return "It has no frontmatter";
   let meta: unknown;
   try {
-    meta = parse(parts.frontmatter);
+    // No alias at all: one can make a value that holds itself, or one that doubles at each level.
+    meta = parse(parts.frontmatter, { maxAliasCount: 0 });
   } catch {
-    return "Its frontmatter isn't valid YAML";
+    return "Its frontmatter isn't valid YAML without aliases";
   }
   if (!isObject(meta)) return "Its frontmatter isn't a mapping";
-  // YAML aliases can make a value that holds itself: nothing past this point could walk it.
-  try {
-    JSON.stringify(meta);
-  } catch {
-    return "Its frontmatter refers to itself";
-  }
   if (!allStorable(meta)) return "It holds a character Dispand can't store";
   const parsed = AgentFrontmatter.safeParse(meta);
   if (!parsed.success) return problem(parsed.error);

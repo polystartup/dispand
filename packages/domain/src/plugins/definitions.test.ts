@@ -135,6 +135,7 @@ test("a hostile plugin: each bad definition is skipped and listed alone, and its
     "com.dispand/triggers/ok.json": json({ agent: "Helper", name: "On a client", config: { kind: "primitive", table: "Clients", operations: ["created"] } }),
     "com.dispand/triggers/on-orphan.json": json({ agent: "Helper", name: "On an orphan", config: { kind: "primitive", table: "Orphan", operations: ["created"] } }),
     "com.dispand/agents/loop.md": agentMd("name: Loop\nconsults: &x [*x]"),
+    "com.dispand/agents/bomb.md": agentMd(`name: Bomb\na: &a [x]\n${Array.from({ length: 25 }, (_, i) => `b${i}: &b${i} [*${i ? `b${i - 1}` : "a"}, *${i ? `b${i - 1}` : "a"}]`).join("\n")}`),
   });
   expect(names(got)).toEqual({ agents: ["Helper"], primitives: ["Clients"], triggers: ["On a client"] });
   expect(reasons(got)).toEqual([
@@ -143,7 +144,8 @@ test("a hostile plugin: each bad definition is skipped and listed alone, and its
     "definition com.dispand/primitives/orphan.json: Its parent table “Elsewhere” isn't a primitive of the plugin",
     "definition com.dispand/agents/huge.md: Not a regular file, or larger than 2 MiB",
     "definition com.dispand/agents/x.md: Not a regular file, or larger than 2 MiB",
-    "definition com.dispand/agents/loop.md: Its frontmatter refers to itself",
+    "definition com.dispand/agents/bomb.md: Its frontmatter isn't valid YAML without aliases",
+    "definition com.dispand/agents/loop.md: Its frontmatter isn't valid YAML without aliases",
     "definition com.dispand/triggers/lost.json: Its agent “Nobody” isn't an agent of the plugin",
     "definition com.dispand/triggers/on-orphan.json: Its table “Orphan” is a definition of the plugin that wasn't read",
     "definition com.dispand/triggers/unknown-server.json: “elsewhere” isn't a server of the plugin's mcp.json",
