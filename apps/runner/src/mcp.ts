@@ -89,9 +89,9 @@ export function codexMcpServers(refs: McpServerRef[], local: RunnerConfig["mcpSe
         names[header] = `DISPAND_MCP_${i}_${j}`;
         env[`DISPAND_MCP_${i}_${j}`] = value;
       });
-      servers[name] = { url: config.url, env_http_headers: names };
+      servers[name] = { url: config.url, env_http_headers: names, default_tools_approval_mode: "prompt" };
     } else if (config.type === "stdio" || config.type === undefined) {
-      servers[name] = { command: config.command, args: config.args ?? [], env: config.env ?? {} };
+      servers[name] = { command: config.command, args: config.args ?? [], env: config.env ?? {}, default_tools_approval_mode: "prompt" };
     }
   });
   return { servers, env };

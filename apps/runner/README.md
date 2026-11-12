@@ -72,8 +72,11 @@ Uninstall: `systemctl --user disable --now dispand-runner`, then remove
   for a session id this runner recorded for that run key (`sessions.json`, mode 0600).
   Sessions load your user settings only: a run folder's own `.claude/` settings and hooks,
   `.mcp.json` and `CLAUDE.md` never load by themselves.
-- `allowBypass`: unless `true`, a session asking for `bypassPermissions` is refused, and
-  every session runs with `permissions.disableBypassPermissionsMode: "disable"`.
+- `allowBypass`: unless `true`, a session asking for `bypassPermissions` is refused.
+  When allowed, the runner automatically approves native commands and file operations, subject
+  to its protected-path checks; unresolved file paths still ask. Managed Job tools still follow their per-agent Run / Ask settings.
+  Claude Code always gets `permissions.disableBypassPermissionsMode: "disable"`: the runner
+  implements bypass so it cannot skip managed tool checks.
 - `mcpServers` (optional): the MCP servers this machine runs for Dispand's runner tools,
   by name (letters, digits, `_` and `-`, at most 64; not `dispand`; at most 100):
 
@@ -155,7 +158,8 @@ machine's config are declined without a question; others ask, each one. The agen
 become choice questions (one with a secret is never asked); MCP elicitations are declined, but
 Codex's approval before an MCP tool call, which asks the owner each time.
 Skills load as extra skill roots: call one as `$<skill>`. With `allowBypass`, a
-`bypassPermissions` session runs on Codex's `:danger-full-access` with approval policy `never`.
+`bypassPermissions` session runs on Codex's `:danger-full-access`. Approval policy stays
+`untrusted`; the runner automatically approves native commands and valid file changes.
 
 MCP servers: a session gets the MCP servers its agent's tools name. A runner tool is one of
 `mcpServers` above; an unknown name ends the start with an `error` before any folder is made.
@@ -164,9 +168,11 @@ An HTTP one comes with its headers: Claude Code gets them over the SDK's control
 (`env_http_headers`), their values only in its app-server's environment and never in shells.
 Codex has no SSE transport: an SSE server in a Codex session is refused. A server that doesn't
 connect ends the session before its first turn. A runner tool's server starts from your home
-folder, never the run folder (where the agent could plant an `.npmrc`). Every MCP tool call asks
-the owner outside `bypassPermissions`, each call (no "always allow", whatever your settings
-allow). Listing a runner tool's actions (`tool.discover`, from Settings → Tools) starts its
+folder, never the run folder (where the agent could plant an `.npmrc`). Managed Job tools follow
+the agent's per-action permissions in every session mode: Run actions proceed, Ask actions ask
+each time, with an option to remember the permission for the agent. Other MCP tools ask each
+time outside `bypassPermissions`. Codex servers use `default_tools_approval_mode: "prompt"`
+so read-only hints cannot skip these checks. Listing a runner tool's actions (`tool.discover`, from Settings → Tools) starts its
 server from your home folder with an MCP client's default environment plus its `env`, its
 stderr dropped, and stops it again (at most 30 s); its `env` values are redacted from the list.
 A poll's call (`tool.call`) starts the server the same way, outside any session, and calls the

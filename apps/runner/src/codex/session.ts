@@ -211,7 +211,9 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         // A second approval for one command is Codex offering to run it again outside the sandbox
         // ("retry without sandbox?"); additional permissions widen the profile: neither is asked.
         const extra = p.additionalPermissions && (p.additionalPermissions.network || p.additionalPermissions.fileSystem);
-        if (askedCommands.has(key) || extra) return { decision: "decline" };
+        if (extra) return { decision: "decline" };
+        if (bypass) return { decision: "accept" };
+        if (askedCommands.has(key)) return { decision: "decline" };
         // The owner approves only what they see: input for a running terminal (`writeStdin`) or a command Codex doesn't name.
         if (p.kind !== "command" || !p.command) return { decision: "decline" };
         askedCommands.add(key);
@@ -224,6 +226,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         const changes = fileChanges.get(r.params.itemId) ?? [];
         const paths = changes.flatMap((c) => [c.path, ...(c.kind.type === "update" && c.kind.move_path ? [c.kind.move_path] : [])]);
         if (paths.length === 0 || paths.some((path) => codexDeniedEdit(cwd, path, denied))) return { decision: "decline" };
+        if (bypass) return { decision: "accept" };
         const input = { changes: changes.map((c) => ({ path: c.path, kind: c.kind, diff: c.diff })), reason: r.params.reason ?? "" };
         // Each change asks: "for the session" could let later changes skip this check.
         const decision = await approve({ kind: "permission", toolName: "FileChange", input, canAlwaysAllow: false }, signal);
@@ -268,6 +271,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         if (runnerTool && !runnerArgumentsAllowed(input, mcpDenied)) return decline;
         if (unasked.has(toolName)) return { action: "accept" as const, content: {}, _meta: null };
         const jobTool = agentServers.includes(p.serverName);
+        if (bypass && !jobTool) return { action: "accept" as const, content: {}, _meta: null };
         const version = permissionsVersion;
         // Each call asks: Codex's "for the session" and "always" would persist beyond what the owner sees.
         // For one of the Job's agent's tools, "always" is the owner taking that action off the agent's
@@ -321,7 +325,8 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       const overrides = {
         cwd,
         model: start.model ?? null,
-        approvalPolicy: bypass ? ("never" as const) : ("untrusted" as const),
+        // Keep MCP approvals enabled even when native commands bypass questions.
+        approvalPolicy: "untrusted" as const,
         approvalsReviewer: "user" as const,
         config: codexConfig({ codexHome: (deps.env ?? process.env).CODEX_HOME, denied: sandboxDenied(denied, deps.codexPath), ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}), bypass, ...(deps.mcp ? { mcpServers: deps.mcp.servers } : {}) }),
         developerInstructions: start.systemPrompt || null,
