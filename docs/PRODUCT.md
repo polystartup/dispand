@@ -38,9 +38,9 @@ Status: Prototype
     data** (rows of all tables, or of chosen ones) and **Change tables and fields**. Within a
     bundle a Job asks nothing; outside it, it is refused. Taking a bundle or a table back
     applies to Jobs already running. Deleting a table or a field stays the owner's.
-  - A session gets the skills and tools of its agent: skills and the runner's own tools on a
-    CLI session, tools reached by URL on a cloud session and on a Job's CLI session (skills on
-    cloud sessions come later). A call of such a tool asks first, and on a CLI session an
+  - A session gets the skills and tools of its agent: skills on every session (a cloud session
+    lists them and reads a skill's files when it needs them), the runner's own tools on a CLI
+    session, tools reached by URL on a cloud session and on a Job's CLI session. A call of such a tool asks first, and on a CLI session an
     approval allows exactly the call that was shown, once. An agent whose harness bypasses
     permissions asks nothing, so it can only use the actions that run without asking.
   - Each action of a tool reached by URL that an agent chose either asks before use or runs
