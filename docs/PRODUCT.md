@@ -118,7 +118,7 @@ Status: Prototype
   answered (approved, don't ask again, or declined, with how many held events and Jobs it
   stopped); a consult asked and how it ended; and every Dispand tool a Job called, reads and
   refusals included (with the tool, the table, and why it was refused); every action of an
-  agent's tools a Job called, and how it ended; and every poll, with how many new items it found. Agents with `configure`
+  agent's tools a Job called, and how it ended; and every poll, with how many new items it found; and every change of a row of a primitive table, by a person or a Job, with the table, the operation and how many fields changed, when it was made (the Jobs it starts name the same event). Agents with `configure`
   read it too (`audit_list`), except rows about tables outside theirs. A row names what was touched (ids, names, counts and
   kinds), never what an agent read or wrote, and carries the trace it was recorded in: with
   `DISPAND_TRACE_URL` set, the trace id links to the tracing tool. Workflow runs have no rows.
