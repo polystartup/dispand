@@ -232,8 +232,9 @@ export function resumePrompt(
   unsent: MessageRow[],
   waiting: QuestionRow[],
 ): { prompt: string; answers: QuestionRow[]; messages: MessageRow[]; laterAnswers: QuestionRow[]; laterMessages: MessageRow[] } {
-  const parts = [original ?? RESUME_PROMPT];
-  let length = parts[0]!.length;
+  // An empty original (a chat whose trigger has no instructions) adds nothing.
+  const parts = original === "" ? [] : [original ?? RESUME_PROMPT];
+  let length = parts[0]?.length ?? 0;
   const waitingLine =
     waiting.length > 0 ? `Still waiting for the owner: ${waiting.map(questionText).join("; ")}. Their answer will come as a message.` : "";
   const room = TEXT - (waitingLine ? waitingLine.length + 2 : 0);

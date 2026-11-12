@@ -403,6 +403,17 @@ test("the prompt runs first, even when a message arrives while the thread opens"
   await s.session.done;
 });
 
+test("a chat with an empty prompt starts no turn: it waits, and the owner's first message is the first turn", async () => {
+  const s = await run({ turns: [[message("Hi")]], start: { interactive: true, prompt: "" } });
+  await vi.waitFor(() => expect(s.events).toEqual([{ type: "cli-session", cliSessionId: "thr_1" }, { type: "turn-end" }]));
+  expect(await s.sent("turn/start")).toHaveLength(0);
+  s.session.send("Hello");
+  await vi.waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(1));
+  expect((await s.sent("turn/start")).map((m) => (m.params as { input: { text: string }[] }).input[0]!.text)).toEqual(["Hello"]);
+  s.session.stop("test over");
+  await s.session.done;
+});
+
 test("a failed turn ends the session with its error", async () => {
   const s = await run({ turns: [[{ fail: "usage limit reached" }]] });
   await s.ended();

@@ -205,7 +205,9 @@
   `agent_id` and `trigger_id`, a `cause` (who or what made it, and its depth in a chain of Jobs,
   for information: there is no limit of depth), its root cause (`root_id`, below) and its own definition in `def`, built by the pure `jobDef`
   (`engine/job-def.ts`): the trigger as the firing, then one agent step whose prompt is the
-  trigger's instructions (a chat trigger has no step: the conversation is the Job). The engine's
+  trigger's instructions (a chat trigger has no step: the conversation is the Job; its session's
+  prompt is the instructions, and with none every harness starts it waiting between turns, so the
+  owner's first message is its first turn). The engine's
   `defOf` returns `run.def` when it is set and the workflow version otherwise, so sessions,
   questions, recovery and reconcile are the same code for both. A Job also keeps a `snapshot`
   of its agent (system prompt, model, harness, skills, tools, the agents it may consult) taken in `Engine.createJob`; its
