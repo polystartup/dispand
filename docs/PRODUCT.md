@@ -129,6 +129,10 @@ Status: Prototype
   Audit page ("Keep Audit for N days"), and older rows are deleted each hour. Agents can't read
   or change it, not even through a proposal: shortening it would erase the trail of what they
   did. Events and memory are not subject to it.
+- **Memory:** workspace entries are on the Memory page; each table and agent has its own
+  Memory tab. Entries can be added, edited, removed and restored. An agent's entry can be
+  reverted; one written without `configure` is marked "Not read by agents that configure"
+  until accepted. Accepting lets those agents read it too.
 - **Data** (the owner's memory, an Airtable-like grid):
   - **What it does:** tables of typed fields (text, long text, number, checkbox, date, URL,
     single select, files, and links to a row of another table) with inline editing; a table

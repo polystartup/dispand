@@ -12,6 +12,7 @@ vi.mock("../../lib/api.ts", async () => {
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
 const { MemoryPanel } = await import("./MemoryPanel.tsx");
+type Where = Parameters<typeof MemoryPanel>[0]["where"];
 
 afterEach(() => {
   cleanup();
@@ -33,11 +34,11 @@ const agents = {
   updatedAt: when,
 };
 
-function show(list: unknown) {
+function show(list: unknown, where: Where = { scope: "workspace" }) {
   fake.memories.list.mockResolvedValue(list);
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <MemoryPanel where={{ scope: "workspace" }} />
+      <MemoryPanel where={where} />
     </QueryClientProvider>,
   );
 }
@@ -101,4 +102,64 @@ test("a removed entry is listed under Removed with Restore", async () => {
   expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
   await user.click(screen.getByRole("button", { name: "Restore" }));
   expect(fake.memories.restore.mock.calls[0]![0]).toEqual({ id: "mem_2" });
+});
+
+// The table page and the agent page show the same panel under their own scope.
+const scopes: [string, Where][] = [
+  ["a table", { scope: "table", tableId: "tbl_1" }],
+  ["an agent", { scope: "agent", agentId: "agt_1" }],
+];
+
+test.each(scopes)("%s: lists its entries, and adds, edits, accepts, reverts and removes one in its scope", async (_name, where) => {
+  show({ index: "", entries: [mine, agents], removed: [] }, where);
+  fake.memories.write.mockResolvedValue({ id: "mem_3" });
+  fake.memories.accept.mockResolvedValue({ id: "mem_2" });
+  fake.memories.revert.mockResolvedValue({ id: "mem_2" });
+  fake.memories.remove.mockResolvedValue({ id: "mem_1" });
+  const user = userEvent.setup();
+  await screen.findByRole("button", { name: /Billing/ });
+  expect(fake.memories.list.mock.calls[0]![0]).toEqual(where);
+
+  await user.click(screen.getByRole("button", { name: "Add entry" }));
+  await user.type(screen.getByLabelText("Path"), "tone.md");
+  await user.type(screen.getByLabelText("Name"), "Tone");
+  await user.type(screen.getByLabelText("Description"), "How we write");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(fake.memories.write.mock.calls[0]![0]).toMatchObject({ where, entry: { path: "tone.md", name: "Tone" } });
+
+  await user.click(await screen.findByRole("button", { name: /Billing/ }));
+  await user.click(screen.getByRole("button", { name: "Edit" }));
+  await user.type(screen.getByLabelText("Body"), " More.");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(fake.memories.write.mock.calls[1]![0]).toMatchObject({ where, entry: { path: "billing.md", body: "Monthly. More." } });
+
+  await user.click(await screen.findByRole("button", { name: /Acme/ }));
+  await user.click(screen.getByRole("button", { name: "Accept" }));
+  expect(fake.memories.accept.mock.calls[0]![0]).toEqual({ id: "mem_2" });
+  await user.click(await screen.findByRole("button", { name: /Acme/ }));
+  await user.click(screen.getByRole("button", { name: "Revert" }));
+  expect(fake.memories.revert.mock.calls[0]![0]).toEqual({ id: "mem_2" });
+
+  await user.click(await screen.findByRole("button", { name: /Billing/ }));
+  await user.click(screen.getByRole("button", { name: "Remove" }));
+  expect(fake.memories.remove.mock.calls[0]![0]).toEqual({ id: "mem_1" });
+});
+
+test("an entry agents that configure don't read says so, with Accept; an accepted one, a person's and one written with configure don't", async () => {
+  const accepted = { ...agents, id: "mem_3", path: "a.md", name: "Accepted", description: "Taken", acceptedAt: when };
+  const configured = { ...agents, id: "mem_4", path: "b.md", name: "Configured", description: "Kept", author: { ...agents.author, configure: true } };
+  show({ index: "", entries: [mine, agents, accepted, configured], removed: [] }, { scope: "agent", agentId: "agt_1" });
+  const user = userEvent.setup();
+  expect(within(await screen.findByRole("button", { name: /Acme/ })).getByText(/Not read by agents that configure/)).toBeTruthy();
+  expect(screen.getAllByText(/Not read by agents that configure/)).toHaveLength(1);
+  await user.click(screen.getByRole("button", { name: /Acme/ }));
+  expect(within(screen.getByRole("dialog")).getByText("Not read by agents that configure")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Accept" })).toBeTruthy();
+  await user.keyboard("{Escape}");
+  for (const name of [/Accepted/, /Configured/]) {
+    await user.click(await screen.findByRole("button", { name }));
+    expect(screen.queryByRole("button", { name: "Accept" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Revert" })).toBeTruthy();
+    await user.keyboard("{Escape}");
+  }
 });
