@@ -67,6 +67,7 @@ const revoke = owner.input(z.object({ runnerId: z.string() })).handler(async ({ 
 });
 
 const plugins = owner.input(z.object({ runnerId: z.string(), operation: PluginOperation })).handler(async ({ input, context }) => {
+  if (context.job) throw new ORPCError("FORBIDDEN", { message: "Native installation requires an owner session" });
   const [runner] = await context.db.select({ id: runnersTable.id }).from(runnersTable)
     .where(and(eq(runnersTable.id, input.runnerId), eq(runnersTable.ownerId, context.ownerId), isNull(runnersTable.revokedAt)));
   if (!runner) throw new ORPCError("NOT_FOUND");

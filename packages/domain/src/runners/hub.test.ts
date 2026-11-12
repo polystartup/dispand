@@ -941,3 +941,9 @@ test("native plugin requests are owner-scoped, correlated, and counted without c
   expect(await t.metrics()).toContainEqual({ name: "dispand.runner.plugin_operations", attributes: { "dispand.result": "ok" } });
   expect(t.logs().some((l) => l.body === "native plugin operation completed")).toBe(true);
 });
+
+test("native plugin management rejects a Job even when it belongs to the owner", async () => {
+  const context = await ownerContext();
+  const jobContext = { ...context, job: { runId: "run_1", ownerId: context.ownerId, agentId: "agent_1" } };
+  await expect(call(router.runners.plugins, { runnerId: "runner_1", operation: { action: "list" } }, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN" });
+});
