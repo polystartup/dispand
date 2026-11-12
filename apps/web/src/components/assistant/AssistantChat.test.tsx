@@ -97,7 +97,7 @@ test("the Assistant's chat starts a Job of its chat trigger with the first messa
   // The empty thread opens the day-one conversation.
   expect(screen.getByText("Describe your business or use case and how you'd like to automate it.")).toBeTruthy();
   await waitFor(() => expect(fake.runs.sendChat.mock.calls[0]![0]).toEqual({ runId: "run_1", text: "Which agents touch Matters?" }));
-  expect(fake.jobs.start.mock.calls[0]![0]).toEqual({ triggerId: "trigger_chat" });
+  expect(fake.jobs.start.mock.calls[0]![0]).toEqual({ triggerId: "trigger_chat", timezone: localTimezone() });
   // Only the Assistant's chat Jobs are followed.
   expect(fake.runs.list.mock.calls[0]![0]).toEqual({ triggerId: "trigger_chat", kind: "chat" });
   // The URL takes the conversation it started.

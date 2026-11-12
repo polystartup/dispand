@@ -37,7 +37,7 @@ test("tool names are unique, at most 64 characters, and their input is the proce
   }
 });
 
-test("the tools are exactly the data and configure ones, on tables, fields, rows, agents, harness limits, triggers, tools, Jobs, workflows, the checkpoint and the review only", () => {
+test("the tools are exactly the data and configure ones, on tables, fields, rows, agents, harness limits, triggers, tools, Jobs, workflows, the checkpoint, the review and Audit only", () => {
   const of = (bundle: string) => PLATFORM_TOOLS.filter((t) => t.bundle === bundle).map((t) => t.name).sort();
   expect(of("data")).toEqual(["rows_create", "rows_delete", "rows_get", "rows_list", "rows_update", "tables_get", "tables_list"]);
   expect(of("configure")).toEqual([
@@ -47,6 +47,7 @@ test("the tools are exactly the data and configure ones, on tables, fields, rows
     "agents_set_tool_ask",
     "agents_tool_ask",
     "agents_update",
+    "audit_list",
     "fields_create",
     "fields_delete",
     "fields_reorder",
@@ -76,8 +77,8 @@ test("the tools are exactly the data and configure ones, on tables, fields, rows
     "workspace_review",
     "workspace_set_checkpoint",
   ]);
-  expect(PLATFORM_TOOLS).toHaveLength(41);
-  expect(PLATFORM_TOOLS.every((t) => ["tables", "fields", "rows", "agents", "harnesses", "triggers", "tools", "workspace", "jobs", "workflows"].includes(t.path.split(".")[0]!))).toBe(true);
+  expect(PLATFORM_TOOLS).toHaveLength(42);
+  expect(PLATFORM_TOOLS.every((t) => ["tables", "fields", "rows", "agents", "harnesses", "triggers", "tools", "workspace", "jobs", "workflows", "audit"].includes(t.path.split(".")[0]!))).toBe(true);
   // Of Jobs and workflows, only reads: an agent never starts, stops or answers one through these.
   expect(PLATFORM_TOOLS.filter((t) => t.path.startsWith("jobs.") || t.path.startsWith("workflows.")).map((t) => t.path).sort()).toEqual(["jobs.def", "jobs.get", "jobs.list", "workflows.list"]);
   // Of harnesses, only their limits (with what each is, never its key): an agent never changes a harness's runner, model or key.
@@ -85,7 +86,7 @@ test("the tools are exactly the data and configure ones, on tables, fields, rows
   // What changes what agents may do is marked: it runs only on a proposal a person approved.
   expect(PLATFORM_TOOLS.filter((t) => t.grant).map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "harnesses_set_limit", "tables_delete", "tools_add", "tools_add_from_catalog", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
   // What needs a person, and what agents never touch, are named as not tools.
-  for (const path of ["fields.retype", "auth.setup", "runners.create", "tools.create", "tools.update", "tools.refresh", "agents.delete", "jobs.start", "jobs.consults", "runs.get", "runs.list", "questions.list", "questions.answer", "files.upload"]) {
+  for (const path of ["fields.retype", "auth.setup", "runners.create", "tools.create", "tools.update", "tools.refresh", "agents.delete", "jobs.start", "jobs.consults", "runs.get", "runs.list", "questions.list", "questions.answer", "files.upload", "audit.traceUrl"]) {
     expect(NOT_TOOLS).toContain(path);
   }
 });
