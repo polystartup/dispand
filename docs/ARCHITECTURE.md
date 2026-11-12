@@ -1317,3 +1317,7 @@ owner's `agents.setToolPermission` chooses the mode and fans narrowing out to se
 remembering an approval checks under the same row lock that the action is still enabled.
 Agent setup proposals replay earlier permission items when freezing their unasked lists, and
 an agent update cannot use a frozen grant to restore an action that is currently Off.
+
+The permission write is `agents_set_tool_permission` with `permission: run | ask | off`, replacing
+the earlier `agents_set_tool_ask` boolean input. Pending proposals using the earlier tool name
+must be proposed again; their grants are not translated implicitly.

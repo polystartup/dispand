@@ -55,7 +55,7 @@ async function approve(page: Page, count: number, texts: string[]) {
   const card = chat.getByRole("region", { name: "Proposal" }).last();
   await expect(card.getByRole("list", { name: "What is proposed" }).getByRole("listitem")).toHaveCount(count);
   for (const text of texts) await expect(card).toContainText(text);
-  if (texts.includes("Every other action asks")) await page.screenshot({ path: test.info().outputPath("agent-tool-permissions.png"), animations: "disabled" });
+  if (texts.includes("Other enabled actions ask")) await page.screenshot({ path: test.info().outputPath("agent-tool-permissions.png"), animations: "disabled" });
   await chat.getByRole("button", { name: "Approve" }).click();
   await expect(approved).toHaveCount(before + 1);
 }
@@ -144,7 +144,7 @@ test("the lawyer: a fresh install's Assistant sets up the whole workspace from o
   // 2. The description; the proposal is one Approval in the chat, every item shown.
   await chat.getByRole("textbox", { name: "Message", exact: true }).fill(DESCRIPTION);
   await chat.getByRole("button", { name: "Send" }).click();
-  await approve(page, items.length, ["Clients", "Matters", "Research", "Gmail", "Case law", "Intake and research", "Drafting", "Matter upkeep", "New client email", "Do you want to modify anything", "Runs without asking:", "Every other action asks"]);
+  await approve(page, items.length, ["Clients", "Matters", "Research", "Gmail", "Case law", "Intake and research", "Drafting", "Matter upkeep", "New client email", "Do you want to modify anything", "Runs without asking:", "Other enabled actions ask"]);
 
   // 4. The last message links to the mail tool's page, which says it needs a sign-in.
   const link = chat.getByRole("button", { name: "Gmail", exact: true });
