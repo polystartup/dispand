@@ -1,5 +1,5 @@
 import { Workflow } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 export function AuthCard({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
   return (
@@ -31,10 +31,13 @@ export function Field({ label, ...props }: { label: string } & React.ComponentPr
 }
 
 export function SubmitButton({ busy, children }: { busy: boolean; children: ReactNode }) {
+  // The form submits through JS: before hydration, a click would post the page and lose the form.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
   return (
     <button
       type="submit"
-      disabled={busy}
+      disabled={busy || !hydrated}
       className="mt-2 w-full rounded-xl bg-accent py-2.5 text-[15px] font-medium text-accent-foreground transition hover:brightness-110 active:scale-[0.99] disabled:opacity-60"
     >
       {children}

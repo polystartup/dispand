@@ -20,3 +20,16 @@ export async function authState() {
   if (cookies.length) setResponseHeader("set-cookie", cookies);
   return { needsSetup, user: session ? { name: session.user.name, email: session.user.email } : null };
   }
+
+/** First launch, before the owner's Assistant is made: Home's guard sends the owner to its page. */
+export async function firstLaunch() {
+  const { getApp } = await import("./app.ts");
+  const app = await getApp();
+  const { router } = await import("@dispand/domain");
+  const { call } = await import("@orpc/server");
+  const { assistant } = await call(router.onboarding.status, undefined, {
+    context: { ...app, headers: new Headers(getRequestHeaders()), resHeaders: new Headers() },
+    path: ["onboarding", "status"],
+  });
+  return assistant === null;
+}

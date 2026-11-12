@@ -5,3 +5,7 @@ import { safe } from "./safe.ts";
 export const getAuthState = createServerFn({ method: "GET" }).handler(
   safe(async () => (await import("./auth-state.ts")).authState()),
 );
+
+export const getFirstLaunch = createServerFn({ method: "GET" }).handler(
+  safe(async () => (await import("./auth-state.ts")).firstLaunch()),
+);

@@ -117,6 +117,8 @@ async function setup() {
   /** The owner's answer from the Inbox. */
   const approve = (questionId: string, decision: "allow" | "allow-always" | "deny") =>
     call(router.questions.answer, { questionId, answer: { kind: "permission", decision } }, { context: { ...context, engine } });
+  /** A consult's Audit rows, oldest first. */
+  const consultRows = (id: string) => context.db.select().from(audit).where(eq(audit.resourceId, id)).orderBy(asc(audit.at), asc(audit.id));
   /** The Approvals of consults, oldest first. */
   const approvals = () =>
     context.db
@@ -149,6 +151,7 @@ async function setup() {
     edit,
     approve,
     approvals,
+    consultRows,
   };
 }
 
@@ -177,6 +180,20 @@ test("a Job consults an agent: a Job of that agent answers, and the asker goes o
   expect(done).toMatchObject({ status: "answered", answeredBy: { type: "agent", agentId: s.expert.id, runId: consultedId, name: "Expert" } });
   expect(answerText(done)).toBe("Answer from the agent Expert:\n\nPlan B.");
   expect(await s.stepOf(asker.runId)).toMatchObject({ status: "running" });
+  // Audited on the asking Job: asked by it, ended by the consulted Job, never the question or the answer.
+  const rows = await s.consultRows(q.id);
+  expect(rows).toEqual([
+    expect.objectContaining({ action: "consult.asked", actor: { type: "job", runId: asker.runId }, actorAgentId: s.asker.id, jobId: asker.runId, details: { agentId: s.expert.id } }),
+    expect.objectContaining({
+      action: "consult.ended",
+      result: "ok",
+      actor: { type: "job", runId: consultedId },
+      actorAgentId: s.expert.id,
+      jobId: asker.runId,
+      details: { agentId: s.expert.id, consultedJobId: consultedId, outcome: "answered" },
+    }),
+  ]);
+  expect(JSON.stringify(rows)).not.toMatch(/Which plan|Plan B/);
 });
 
 test("each refusal at the call answers the consult with its reason and makes no Job", async () => {
@@ -191,6 +208,21 @@ test("each refusal at the call answers the consult with its reason and makes no 
   };
   // Not on the list.
   expect(await refused(s.third.id)).toBe(NOT_LISTED);
+  const [notListed] = await s.context.db.select().from(questions).where(eq(questions.kind, "consult"));
+  expect((await s.consultRows(notListed!.id)).map((r) => [r.action, r.details])).toEqual([
+    ["consult.asked", { agentId: s.third.id }],
+    ["consult.ended", { agentId: s.third.id, outcome: "refused" }],
+  ]);
+  expect((await s.consultRows(notListed!.id)).map((r) => r.result)).toEqual(["ok", "refused"]);
+  // An agent id the asking agent made up is no agent's: the rows don't carry it.
+  expect(await refused("sentinel id, made up!")).toBe(NOT_LISTED);
+  const [madeUp] = await s.context.db.select().from(questions).where(eq(questions.payload, { kind: "consult", agentId: "sentinel id, made up!", question: "What is the answer?" }));
+  const madeUpRows = await s.consultRows(madeUp!.id);
+  expect(madeUpRows.map((r) => [r.action, r.details])).toEqual([
+    ["consult.asked", {}],
+    ["consult.ended", { outcome: "refused" }],
+  ]);
+  expect(JSON.stringify(madeUpRows)).not.toContain("sentinel");
   // Itself.
   expect(await refused(s.asker.id)).toBe(NOT_LISTED);
   // Taken off the agent since its Job started: the snapshot isn't enough.
@@ -499,6 +531,9 @@ test("a consult taken back stops the chain below it, each Job audited as consult
     const [failed] = await s.context.db.select().from(audit).where(and(eq(audit.jobId, id), eq(audit.action, "job.failed")));
     expect(failed).toMatchObject({ result: "failed", details: { reason: "consult-revoked" } });
   }
+  // Each consult in the chain ended stopped, its consulted Job named.
+  expect((await s.consultRows(q.id)).at(-1)).toMatchObject({ action: "consult.ended", result: "failed", details: { consultedJobId: expertRun, outcome: "stopped" } });
+  expect((await s.consultRows(q2.id)).at(-1)).toMatchObject({ action: "consult.ended", jobId: expertRun, details: { consultedJobId: thirdRun, outcome: "stopped" } });
   // The asker goes on: it was told why, not stopped.
   expect((await s.run(asker.runId)).status).not.toBe("failed");
 });

@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import type { Answer, QuestionPayload, ServerToRunner } from "@dispand/runner-protocol";
 import { and, eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { agents, events, questions, stepRuns } from "../db/schema.ts";
+import { agents, audit, events, questions, stepRuns } from "../db/schema.ts";
 import { CliHarnessAdapter } from "../engine/cli-harness.ts";
 import { answerText, attributed, Engine } from "../engine/engine.ts";
 import type { AgentAnswerer, HarnessAdapter } from "../engine/harness.ts";
@@ -116,6 +116,17 @@ test("an inbox Job lists, reads and answers another agent's Question on its tabl
   // The event is the answering Job's write.
   const [event] = await s.context.db.select().from(events).where(and(eq(events.tableId, INTERACTION), eq(events.rowId, q.id), eq(events.operation, "answered")));
   expect(event!.actor).toEqual({ type: "job", runId: job.runId });
+  // Audited on the asking Job, as the answering Job's: its kind and decision, never its words.
+  const rows = await s.context.db.select().from(audit).where(eq(audit.resourceId, q.id));
+  expect(rows.map((r) => r.action).sort()).toEqual(["question.answered", "question.asked"]);
+  expect(rows.find((r) => r.action === "question.answered")).toMatchObject({
+    actor: { type: "job", runId: job.runId },
+    actorAgentId: s.answerer.id,
+    jobId: asking,
+    resourceType: "question",
+    details: { questionKind: "question", decision: "choice", answeredBy: "agent" },
+  });
+  holdsNothing(rows);
 });
 
 test("a Question of a Job with configure, of the reader's own agent, or on tables beyond the reader's, and an Approval, are refused alike and wait for a person", async () => {
