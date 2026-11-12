@@ -37,6 +37,11 @@ export function rememberSecret(plain: string): void {
 
 const isSecret = (value: unknown) => typeof value === "string" && value.length >= MIN_SECRET && remembered.size > 0 && remembered.has(hash(value));
 
+/** Whether `value` is a secret this process opened: what Audit's writer drops too (`audit/record.ts`). */
+export function isOpenedSecret(value: string): boolean {
+  return isSecret(value);
+}
+
 const secretName = (key: string) => {
   const lower = key.toLowerCase();
   return SECRET_NAMES.has(lower) || SECRET_NAMES.has(lower.slice(lower.lastIndexOf(".") + 1)) || HEADER.test(lower);

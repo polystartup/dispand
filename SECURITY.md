@@ -19,11 +19,12 @@ changes it updates this file.
   exposed through OpenAPI.
 - **An agent's Job reaches the workspace's data only through declared tools, within what its
   agent was given.** A procedure is a tool only when the registry names it under a bundle
-  (`data` or `configure`), or declares it a Job's own tool (`inbox`); every other procedure is declared "not a tool", and a test fails on
+  (`data` or `configure`), or declares it a Job's own tool (`inbox`, memory); every other procedure is declared "not a tool", and a test fails on
   one that is in neither list. No tool exposes secrets, runner pairing, user or session
   management, or anything that deletes a table or a field. Every call is authorized in one
-  place: the Job must still be going, and the tool's bundle and every table the call touches
-  must be in the Job's snapshot and still on the agent, so a right taken back applies at once
+  place: the Job must still be going, and the tool's bundle (for the memory tools, its own
+  rule: `allowed` in `platform/tools.ts`) and every table the call touches must be in the
+  Job's snapshot and still on the agent, so a right taken back applies at once
   and a right added later never reaches a running Job. A call then runs as the Job's owner; that
   identity is set only by the authorizing function, never from a request. These calls ask the
   owner no question: the bundles are the permission. `configure` changes fields, not the rows
@@ -186,6 +187,17 @@ changes it updates this file.
   and the asking session is told which agent answered in the answer itself, so it never resumes
   on an agent's words taken for the owner's. `inbox` is granted like any bundle: by
   a person, or by an approved proposal.
+- **A Job writes memory only where its agent's self-learning says, and only as itself.** The
+  memory tools (`memory/tools.ts`) are the Job's own: `memory_read` reads the workspace's
+  memory, its own agent's, its tables' (with `data`) and another agent's only with
+  `configure`; `memory_add`, `memory_update` and `memory_remove` write the scope whose target
+  the Job's rights hold (`agent`: its own agent's memory only; `data`: a table within its
+  tables, with `data`; `workspace`), checked at every call with the rights as they are then.
+  Setting the targets is a grant (part of `agents.create` and `agents.update`). Every write goes
+  through `memory/store.ts`, which checks the entry and its path (`isMemoryPath`: never a file
+  a CLI loads as instructions) and keeps each revision with its author: the agent, its Job and
+  whether it had `configure`. `memory_add` never replaces an entry and `memory_update` never
+  creates one, and the owner can revert or restore any write.
 - **A poll is never a way around action approvals or an agent's tools.** The scheduler calls a
   tool outside any Job only for a poll trigger whose action the tool lets polls read and no agent
   must ask before using, of a tool its agent has (`pollProblem`): checked when the trigger is

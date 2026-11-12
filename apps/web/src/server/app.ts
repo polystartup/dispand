@@ -41,6 +41,7 @@ type App = {
   setupCode: string;
   filesDir: string;
   gitFileUrls: boolean;
+  traceUrl?: string;
   /** The app's public URL: OAuth tools' callback and client metadata document are there. */
   appUrl: string;
 };
@@ -68,7 +69,7 @@ async function start(): Promise<App> {
   const app = {} as App;
   const engine = getEngine(db, hub, secrets, dataEvents, { connector: tools, tools: platformToolCaller(() => app), filesDir: config.filesDir });
   // Filled before anything can call a tool: recovery below may already need it.
-  Object.assign(app, { db, auth, hub, engine, dataEvents, secrets, tools, setupCode: config.setupCode, filesDir: config.filesDir, gitFileUrls: config.gitFileUrls, appUrl: config.baseURL });
+  Object.assign(app, { db, auth, hub, engine, dataEvents, secrets, tools, setupCode: config.setupCode, filesDir: config.filesDir, gitFileUrls: config.gitFileUrls, traceUrl: config.traceUrl, appUrl: config.baseURL });
   // Every owner's platform skill holds this build's files, and each Assistant gets what this
   // version adds to it, before anything starts one of its Jobs.
   await syncPlatformSkills(db);

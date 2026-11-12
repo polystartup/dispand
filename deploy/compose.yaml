@@ -30,6 +30,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-dispand}
+      DISPAND_TRACE_URL: ${DISPAND_TRACE_URL:-}
     volumes:
       # Attachments, in /data/files. The volume is mounted on /data, which the image owns as the
       # app's user, so a new volume starts writable by it.

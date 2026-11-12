@@ -10,19 +10,25 @@ import { ApplyInput, CREATES, ProposeInput, type ProposalName } from "./proposal
 import type { JobIdentity, PlatformApp, ToolResult } from "./call.ts";
 import { signalsWithin } from "../assistant/review.ts";
 import { AnswerInput, answerQuestion, getQuestion, GetInput, listQuestions, ListInput } from "../questions/inbox.ts";
+import { readMemory, ReadInput, RemoveInput, removeMemoryTool, tablesOf, WriteInput, writeMemoryTool } from "../memory/tools.ts";
+import type { Rights } from "./rights.ts";
 
 export { BUNDLES, type Bundle, type TableScope } from "./bundles.ts";
 
 // Which of Dispand's procedures a Job's session gets as tools. By declaration, never by
 // omission: a procedure is a tool only when it is listed here under a bundle, every other one is
-// listed in NOT_TOOLS, and a test walks the router and fails on one that is in neither list.
+// listed in NOT_TOOLS, and a test walks the router and fails on one that is in neither list. The
+// Job's own tools that are no procedure (proposals, the Inbox's, memory) are declared here too.
 
 export type PlatformTool = {
   /** The procedure's path in the router: `rows.create`. */
   path: string;
   /** The tool's name: the path with `_`. */
   name: string;
-  bundle: Bundle;
+  /** The bundle that gives the tool; `null` for one that `available` gives instead. */
+  bundle: Bundle | null;
+  /** Whether the Job's rights give the tool, in place of its bundle (memory: the self-learning targets). */
+  available?(rights: Rights): boolean;
   /** What the agent reads about the tool. */
   description: string;
   input: z.ZodType;
@@ -47,8 +53,13 @@ export type PlatformTool = {
   /** What the call creates: its kind, and its id read from the output. An item may name it with `{ "$item": n }`. */
   creates?: { kind: ProposalName["kind"]; id(output: unknown): string | null };
   /** A tool that works for the Job itself, not as its owner: no procedure of the router, run here instead. */
-  run?(app: PlatformApp, job: JobIdentity, input: unknown): Promise<ToolResult>;
+  run?(app: PlatformApp, job: JobIdentity, input: unknown, rights: Rights): Promise<ToolResult>;
 };
+
+/** Whether the Job's rights give the tool: its bundle, or its own rule when it has one. */
+export function allowed(tool: PlatformTool, rights: Rights): boolean {
+  return tool.available ? tool.available(rights) : tool.bundle !== null && rights.bundles.includes(tool.bundle);
+}
 
 type Leaf = { "~orpc": { inputSchema?: z.ZodType } };
 
@@ -288,6 +299,58 @@ export const INBOX_TOOLS: PlatformTool[] = [
   },
 ];
 
+const tableOfScope = async (_db: Db, _ownerId: string, input: unknown) => tablesOf(input);
+const learns = (rights: Rights) => rights.selfLearning.length > 0;
+
+/**
+ * Memory (`memory/tools.ts`): every Job reads; a Job whose self-learning names a target writes
+ * there. A table scope's table must be within the Job's tables, like any call.
+ */
+export const MEMORY_TOOLS: PlatformTool[] = [
+  {
+    path: "",
+    name: "memory_read",
+    bundle: null,
+    available: () => true,
+    description:
+      "Reads a memory: the workspace's, your agent's, or a table's you work on. Without a path, its index (one line per entry, grouped by type); with a path, that entry, who wrote it and whether a person accepted it.",
+    input: ReadInput,
+    tables: tableOfScope,
+    run: (app, job, input, rights) => readMemory(app, job, input as never, rights),
+  },
+  {
+    path: "",
+    name: "memory_add",
+    bundle: null,
+    available: learns,
+    description:
+      "Adds an entry to a memory you may write (your agent's, a table's you work on, or the workspace's, as your self-learning allows): one fact the Jobs that come next need, at a path that has no entry yet. Memory is not a log.",
+    input: WriteInput,
+    tables: tableOfScope,
+    run: (app, job, input, rights) => writeMemoryTool(app, job, input as never, rights, "add"),
+  },
+  {
+    path: "",
+    name: "memory_update",
+    bundle: null,
+    available: learns,
+    description: "Rewrites the entry at a path of a memory you may write: give every field, as it should read now.",
+    input: WriteInput,
+    tables: tableOfScope,
+    run: (app, job, input, rights) => writeMemoryTool(app, job, input as never, rights, "update"),
+  },
+  {
+    path: "",
+    name: "memory_remove",
+    bundle: null,
+    available: learns,
+    description: "Removes the entry at a path of a memory you may write, once it is wrong or no longer needed. The owner can bring it back.",
+    input: RemoveInput,
+    tables: tableOfScope,
+    run: (app, job, input, rights) => removeMemoryTool(app, job, input as never, rights),
+  },
+];
+
 /** Every other procedure: not a tool. A new procedure goes here or above, or the walk test fails. */
 export const NOT_TOOLS: string[] = [
   // Signing in and the owner's account.
@@ -370,6 +433,9 @@ export const NOT_TOOLS: string[] = [
   "questions.count",
   "questions.stream",
   "questions.answer",
+  // Audit: the owner's page for now (an agent's read comes with its tool); where traces are opened.
+  "audit.list",
+  "audit.traceUrl",
   // The owner's memory pages; agents have their own memory tools, gated by their targets.
   "memories.list",
   "memories.get",
