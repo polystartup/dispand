@@ -1191,6 +1191,13 @@
   owner (`runItemsAsOwner`: each through its procedure with the owner's own context, stopping at
   the first refusal, every id recorded with `recordCreated`, which `recordInPlugin` uses too; span
   `plugins.setup`, metric `dispand.plugins.setups`). Both are owner-only and not tools.
+  Agents come after the tables, one `agents_create` each, on the harness picked: a copy of the
+  definition (prompt, description, bundles, self-learning) with no `plugin_id`, so
+  `plugins.update` never rewrites it. Its tables resolve as above, else wait; its skills give it
+  the plugin's skill package when one is installed in it; its tools are those already added for
+  the servers and catalog entries it names; its consults name the agents this setup makes before
+  it (`$item`, ordered so a consulted agent comes first) or those the plugin made earlier. A
+  missing skill, tool or consult is listed in `waiting` and the agent is made without it.
   `plugins.update` syncs the marketplace, then replaces the imported skills' files with the
   entry's current commit and the definitions with its current ones, leaving what was set up from
   them as it is;

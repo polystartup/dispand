@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ProposalItems } from "../questions/ProposalItems.tsx";
 import { type api, orpc } from "../../lib/api.ts";
@@ -13,26 +14,37 @@ type Outcome = Awaited<ReturnType<typeof api.plugins.setUp>>["outcomes"][number]
 function madeFrom(o: Outcome): string {
   if (o.from?.startsWith("primitive:")) return `Table ${o.from.slice("primitive:".length)}`;
   if (o.from?.startsWith("field:")) return `Field ${o.from.slice("field:".length)}`;
+  if (o.from?.startsWith("agent:")) return `Agent ${o.from.slice("agent:".length)}`;
   return o.tool === "tables_set_primitive" ? "Primitive table and parent" : o.tool;
 }
 
 const OUTCOMES: Record<Outcome["outcome"], string> = { made: "made", refused: "refused", "not made": "not made" };
 
 /**
- * Sets a workspace up from a plugin's table definitions: the owner ticks them, reads the items
- * that will be made (as an Approval shows a proposal's), and makes them. A run that stops keeps
- * what it made; setting up again resumes. Mount it only while open.
+ * Sets a workspace up from a plugin's definitions: the owner ticks its tables and agents (each on a
+ * harness), reads the items that will be made (as an Approval shows a proposal's), and makes them.
+ * A run that stops keeps what it made; setting up again resumes. Mount it only while open.
  */
 export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose: () => void }) {
   const queryClient = useQueryClient();
-  const primitives = plugin.definitions.primitives;
+  const { primitives, agents } = plugin.definitions;
+  const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   // All ticked: a table made by a run that stopped may still lack its fields, and a run only adds what is missing.
   const [picked, setPicked] = useState(() => new Set(primitives.map((d) => d.name)));
-  const pick = { primitives: primitives.map((d) => d.name).filter((n) => picked.has(n)) };
-  const preview = useQuery({ ...orpc.plugins.setupPreview.queryOptions({ input: { id: plugin.id, pick } }), enabled: picked.size > 0, retry: false });
+  const [pickedAgents, setPickedAgents] = useState(() => new Set(agents.filter((d) => !d.setUp).map((d) => d.name)));
+  const [chosen, setChosen] = useState<Record<string, string>>({});
+  // The harness picked for an agent, else the first of the kind its definition is written for.
+  const harnessOf = (d: (typeof agents)[number]) => chosen[d.name] ?? (harnesses.data?.find((h) => h.type === d.harness) ?? harnesses.data?.[0])?.id;
+  const agentPicks = agents.flatMap((d) => {
+    const harnessId = harnessOf(d);
+    return pickedAgents.has(d.name) && harnessId ? [{ name: d.name, harnessId }] : [];
+  });
+  const pick = { primitives: primitives.map((d) => d.name).filter((n) => picked.has(n)), ...(agentPicks.length ? { agents: agentPicks } : {}) };
+  const any = pick.primitives.length > 0 || agentPicks.length > 0;
+  const preview = useQuery({ ...orpc.plugins.setupPreview.queryOptions({ input: { id: plugin.id, pick } }), enabled: any, retry: false });
   const setUp = useMutation(
     orpc.plugins.setUp.mutationOptions({
-      onSettled: () => Promise.all([orpc.plugins, orpc.tables].map((procedures) => queryClient.invalidateQueries({ queryKey: procedures.key() }))),
+      onSettled: () => Promise.all([orpc.plugins, orpc.tables, orpc.agents].map((procedures) => queryClient.invalidateQueries({ queryKey: procedures.key() }))),
     }),
   );
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +65,7 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
       <SheetContent className="w-full overflow-y-auto bg-surface sm:max-w-lg">
         <SheetHeader className="px-6 pt-6">
           <SheetTitle className="text-[20px] tracking-tight">Set up {plugin.name}</SheetTitle>
-          <SheetDescription>Pick the tables to make from the plugin. They are yours: removing the plugin keeps them with their rows.</SheetDescription>
+          <SheetDescription>Pick the tables and agents to make from the plugin. They are yours: removing the plugin keeps them, with their rows and Jobs, and its updates never change them.</SheetDescription>
         </SheetHeader>
         <div className="space-y-6 px-6 pb-6">
           {outcomes ? (
@@ -77,16 +89,49 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
             </Section>
           ) : (
             <>
-              <Section id="setup-tables" title="Tables">
-                <ul className="space-y-1">
-                  {primitives.map((d) => (
-                    <li key={d.name}>
-                      <Check checked={picked.has(d.name)} onChange={() => setPicked((prev) => toggled(prev, d.name))} label={d.name} detail={d.setUp ? "Made: setting it up again adds what is missing" : "Not set up yet"} />
-                    </li>
-                  ))}
-                </ul>
-              </Section>
-              {picked.size > 0 && (
+              {primitives.length > 0 && (
+                <Section id="setup-tables" title="Tables">
+                  <ul className="space-y-1">
+                    {primitives.map((d) => (
+                      <li key={d.name}>
+                        <Check checked={picked.has(d.name)} onChange={() => setPicked((prev) => toggled(prev, d.name))} label={d.name} detail={d.setUp ? "Made: setting it up again adds what is missing" : "Not set up yet"} />
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
+              )}
+              {agents.length > 0 && (
+                <Section id="setup-agents" title="Agents">
+                  <ul className="space-y-2">
+                    {agents.map((d) => (
+                      <li key={d.name} className="space-y-1">
+                        <Check
+                          checked={pickedAgents.has(d.name)}
+                          onChange={() => setPickedAgents((prev) => toggled(prev, d.name))}
+                          label={d.name}
+                          detail={[d.setUp ? "Made: it stays as you have it" : d.description || "Not set up yet", d.selfLearning.length ? `Learns into: ${d.selfLearning.join(", ")}` : ""].filter(Boolean).join(" · ")}
+                        />
+                        {pickedAgents.has(d.name) && !d.setUp && harnesses.data && harnesses.data.length > 0 && (
+                          <Select value={harnessOf(d) ?? ""} onValueChange={(id) => setChosen((prev) => ({ ...prev, [d.name]: id }))}>
+                            <SelectTrigger aria-label={`Harness of ${d.name}`} className="ml-7 w-[calc(100%-1.75rem)]">
+                              <SelectValue placeholder="Pick a harness" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {harnesses.data.map((h) => (
+                                <SelectItem key={h.id} value={h.id}>
+                                  {h.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                  {harnesses.data?.length === 0 && <p className="text-[13px] text-faint">Add a harness first to set up agents.</p>}
+                </Section>
+              )}
+              {any && (
                 <Section id="setup-items" title="What will be made">
                   {preview.error ? (
                     <p role="alert" className="text-[13px] text-danger">
@@ -101,8 +146,8 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
                   )}
                   {preview.data && preview.data.waiting.length > 0 && (
                     <ul aria-label="Not made" className="space-y-1 text-[13px]">
-                      {preview.data.waiting.map((w) => (
-                        <li key={w.definition}>
+                      {preview.data.waiting.map((w, i) => (
+                        <li key={i}>
                           <span className="font-medium">{w.definition}</span> <span className="text-muted">{w.reason}</span>
                         </li>
                       ))}

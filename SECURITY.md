@@ -539,7 +539,10 @@ changes it updates this file.
   made by the procedure a direct call uses, by the owner or through an approved proposal, with
   that procedure's checks. The owner's setup (`plugins.setUp`) makes the items a proposal would
   list, each through its procedure with the owner's own session, and binds to what an earlier
-  setup made only by the id it recorded, never to a table by its name; an update replaces the definitions and never what was made from
+  setup made only by the id it recorded, never to a table by its name. An agent made from a
+  definition is a copy with no link to its plugin, made by `agents.create` with the bundles,
+  tables and self-learning the owner reads in the item, so its consults pass the same pair check
+  as any agent's; an update replaces the definitions and never what was made from
   them. Links are checked out
   as plain files (`core.symlinks=false`), then removed from the checkout and listed as not
   imported: nothing is ever written or read through one, and a file name that isn't UTF-8 refuses
