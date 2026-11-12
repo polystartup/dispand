@@ -6,7 +6,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import "../../test/jsdom-shims.ts";
 
-const fake = vi.hoisted(() => ({ questions: { answer: vi.fn() } }));
+const fake = vi.hoisted(() => ({ questions: { answer: vi.fn() }, agents: { list: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -96,4 +96,18 @@ test("copy actions copy the original message text, never a tool trace or questio
   update(run([message("m1", "user", "Hello", 1), message("m2", "assistant", "A **formatted** reply, continued", 2)]));
   await user.click(screen.getAllByRole("button", { name: "Copy message" })[1]!);
   expect(copy).toHaveBeenLastCalledWith("A **formatted** reply, continued");
+});
+
+test("a consult shows as a line naming the agent, with no control to answer it", async () => {
+  fake.agents.list.mockResolvedValue([{ id: "agent_2", name: "Architect" }]);
+  const consult = (status: string, answer: unknown = null) => question("q1", 2, { status, payload: { kind: "consult", agentId: "agent_2", question: "Which plan?" }, answer });
+  const { update } = mount(run([message("m1", "user", "Plan my day", 1)], [consult("pending")]));
+  expect(await screen.findByText("Consulting Architect…")).toBeTruthy();
+  const item = screen.getAllByRole("listitem")[1]!;
+  expect(within(item).queryByRole("button")).toBeNull();
+  expect(screen.queryByText("Which plan?")).toBeNull();
+  update(run([message("m1", "user", "Plan my day", 1)], [consult("answered", { kind: "consult", outcome: "answered", text: "Plan B." })]));
+  expect(await screen.findByText("Consulted Architect")).toBeTruthy();
+  update(run([message("m1", "user", "Plan my day", 1)], [consult("answered", { kind: "consult", outcome: "failed", text: "The consulted Job failed" })]));
+  expect(await screen.findByText("Architect gave no answer")).toBeTruthy();
 });

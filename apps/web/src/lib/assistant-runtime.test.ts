@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { RunSnapshot } from "./run-state.ts";
 import { applyRunEvent } from "./run-state.ts";
-import { QUESTION_TOOL, threadMessages, TRACE_TOOL } from "./assistant-runtime.ts";
+import { CONSULT_TOOL, QUESTION_TOOL, threadMessages, TRACE_TOOL } from "./assistant-runtime.ts";
 
 const at = (s: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, s));
 const message = (id: string, role: "assistant" | "user" | "tool", text: string, s: number, stepRunId = "s_chat") => ({ id, role, text, createdAt: at(s), stepRunId, runId: "run_1" });
@@ -39,9 +39,13 @@ test("a run's chat becomes a thread in the order things came: texts, a tool's tr
   expect(thread[3]!.content).toEqual([{ type: "tool-call", toolCallId: "q1", toolName: QUESTION_TOOL, args: { questionId: "q1" } }]);
 });
 
-test("a consult has no place in the chat: the owner doesn't answer it", () => {
+test("a consult is a line of the chat, not a question: the owner has nothing to answer", () => {
   const consult = { ...question("q1", 1), payload: { kind: "consult" as const, agentId: "agent_1", question: "Which plan?" } };
-  expect(threadMessages(snapshot([message("m1", "user", "Plan my day", 0)], [consult]), "s_chat").map((m) => m.id)).toEqual(["m1"]);
+  const thread = threadMessages(snapshot([message("m1", "user", "Plan my day", 0)], [consult]), "s_chat");
+  expect(thread.map((m) => m.id)).toEqual(["m1", "q:q1"]);
+  expect(thread[1]!.content).toEqual([{ type: "tool-call", toolCallId: "q1", toolName: CONSULT_TOOL, args: { questionId: "q1" } }]);
+  // One that expired with its step is left out, as any question is.
+  expect(threadMessages(snapshot([], [{ ...consult, status: "expired" as const }]), "s_chat")).toEqual([]);
 });
 
 test("an answered question carries its answer as the result", () => {

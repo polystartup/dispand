@@ -11,8 +11,9 @@ export const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", ti
 
 const paris = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
-/** What started a run: "Manual", or "Scheduled for 5 Nov, 09:00" (Paris time). */
+/** What started a run: "Manual", "Consulted by another agent", or "Scheduled for 5 Nov, 09:00" (Paris time). */
 export function triggerText(trigger: Run["trigger"]): string {
+  if (trigger.type === "consult") return "Consulted by another agent";
   return trigger.type === "schedule" ? `Scheduled for ${paris.format(new Date(trigger.scheduledFor))}` : "Manual";
 }
 

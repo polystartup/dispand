@@ -97,3 +97,19 @@ test("without the list's value the iterations are numbered without a total", () 
   show([row("s1", "n_each", 0, { status: "running" }), row("s2", "n_sum", 1, { status: "running", finishedAt: null })]);
   expect(screen.getAllByText(/^Iteration \d/).map((s) => s.textContent)).toEqual(["Iteration 1"]);
 });
+
+test("a consult is not listed among a step's questions: the Consults section shows it", () => {
+  seconds = 0;
+  const q = (id: string, payload: unknown) => ({ id, runId: "run_1", stepRunId: "s0", status: "pending", payload, answer: null }) as unknown as RunSnapshot["questions"][number];
+  const consult = q("q1", { kind: "consult", agentId: "agent_2", question: "Which plan?" });
+  const ask = q("q2", { kind: "choice", questions: [] });
+  const withQuestions = (questions: RunSnapshot["questions"]) => (
+    <RunSteps state={{ ...snapshot([row("s0", "n_brief", 0)]), questions }} def={workflow()} agentNames={new Map()} />
+  );
+  const { rerender } = render(withQuestions([consult, ask]));
+  expect(screen.getByText("Questions (1)")).toBeTruthy();
+  expect(screen.queryByText(/Which plan\?/)).toBeNull();
+  rerender(withQuestions([consult]));
+  expect(screen.queryByText(/Questions \(/)).toBeNull();
+  expect(screen.queryByText(/Which plan\?/)).toBeNull();
+});
