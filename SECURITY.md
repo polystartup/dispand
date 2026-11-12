@@ -658,3 +658,10 @@ A change that weakens any of these is a vulnerability.
 ## Supported versions
 
 Only `main`.
+
+Native installation identity records the resolved Git root at import and update. Only verified
+root plugins currently support native installation; older imports must be updated, and nested
+plugin imports keep their workspace skills. An explicit native-install intent requires the
+preview review token even when workspace components are also selected. Codex's local plugin
+cache, marketplace code and skills directories are readable in its sandbox; its parent config
+directory, settings and credentials remain denied, and native code is never writable by the session.

@@ -155,7 +155,7 @@ function InstallForm({
         skills: preview.skills.map((s) => s.name).filter((n) => skills.has(n)),
         mcpServers,
         reviewed: preview.reviewed,
-        ...(native && picked === 0 ? { nativeOnly: true } : {}),
+        ...(native ? { nativeInstall: true } : {}),
         agents: preview.agents.map((a) => a.name).filter((n) => agents.has(n)),
         ...(agents.size > 0 ? { harnessId } : {}),
         settings: Object.fromEntries(mcpServers.flatMap((n) => (settings[n] ? [[n, settings[n]]] : []))),

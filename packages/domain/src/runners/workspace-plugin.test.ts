@@ -17,7 +17,7 @@ async function setup() {
 
 async function pluginFixture(context: Awaited<ReturnType<typeof ownerContext>>) {
   await context.db.insert(marketplaces).values({ id: "market_1", ownerId: context.ownerId, name: "Team", url: "https://example.com/team.git" });
-  await context.db.insert(plugins).values({ id: "plugin_1", ownerId: context.ownerId, name: "A friendly display name", description: "Reviews", marketplaceId: "market_1", entryName: "review-tools", url: "https://example.com/review.git", sha: "a".repeat(40), components: { skills: [], mcpServers: [], agents: [] } });
+  await context.db.insert(plugins).values({ id: "plugin_1", ownerId: context.ownerId, name: "A friendly display name", description: "Reviews", marketplaceId: "market_1", entryName: "review-tools", nativeRoot: ".", url: "https://example.com/review.git", sha: "a".repeat(40), components: { skills: [], mcpServers: [], agents: [] } });
   await context.db.insert(skillPackages).values({ id: "skillpkg_plugin", ownerId: context.ownerId, name: "review-tools", description: "Reviews", pluginId: "plugin_1" });
 }
 
@@ -95,4 +95,16 @@ test("uninstall reuses a differently named Skillshare binding only by the verifi
   enabled = true;
   await call(router.runners.workspacePlugin, { ...base, action: "remove" }, { context });
   expect(request.mock.calls.at(-1)![1].operation).toEqual({ action: "remove", name: "already-managed", targets: ["codex"], dryRun: true });
+});
+
+test("unverified and subdirectory imports cannot select a different native root plugin", async () => {
+  const { context, request } = await setup();
+  await pluginFixture(context);
+  for (const nativeRoot of [null, "plugins/review"]) {
+    await context.db.update(plugins).set({ nativeRoot }).where(eq(plugins.id, "plugin_1"));
+    await expect(call(router.runners.workspacePlugin, base, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const inventory = await call(router.runners.workspaceSkills, undefined, { context });
+    expect(inventory[0]!.sourceKey).toBeUndefined();
+  }
+  expect(request).not.toHaveBeenCalled();
 });
