@@ -53,12 +53,16 @@ test("a table: fields, inline edits, rename, move, retype and delete", async ({ 
   await addField(page, "Repository URL", "URL");
   await addField(page, "Website URL", "URL");
 
-  // A row: type a name, Tab to the next cell and type there.
+  // A row: its form takes a name, Tab to the next field and type there, then it is created.
   await page.getByRole("button", { name: "New row" }).click();
   await page.getByRole("textbox", { name: "Name", exact: true }).fill("Dispand");
   await page.keyboard.press("Tab");
   await page.keyboard.type("Agents and workflows");
   await page.keyboard.press("Control+Enter");
+  await shots(page, "new-row-form");
+  await page.getByRole("button", { name: "Create row" }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(cell(page, "Name")).toHaveText("Dispand");
   await expect(cell(page, "Short description")).toHaveText("Agents and workflows");
   await cell(page, "Website URL").dblclick();
   await page.getByRole("textbox", { name: "Website URL" }).fill("not a url");
@@ -92,6 +96,8 @@ test("a table: fields, inline edits, rename, move, retype and delete", async ({ 
   await page.getByRole("button", { name: "New row" }).click();
   await page.getByRole("textbox", { name: "Name", exact: true }).fill("Someday");
   await page.keyboard.press("Enter");
+  await page.getByRole("button", { name: "Create row" }).click();
+  await expect(cell(page, "Name", 1)).toHaveText("Someday");
   await cell(page, "Budget", 1).click();
   await page.keyboard.type("about 20");
   await page.keyboard.press("Enter");
@@ -143,12 +149,15 @@ test("sort, filter, row detail and files", async ({ page }) => {
     await page.getByRole("textbox", { name: "Name", exact: true }).fill(name!);
     await page.keyboard.press("Tab");
     await page.keyboard.type(score!);
-    await page.keyboard.press("Enter");
-    await expect(page.getByRole("gridcell", { name: "Name", exact: true }).filter({ hasText: name! })).toBeVisible();
+    await page.getByRole("button", { name: "Create row" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
+    // The row shows once: it reaches the grid from the list only.
+    await expect(page.getByRole("gridcell", { name: "Name", exact: true }).filter({ hasText: name! })).toHaveCount(1);
   }
 
   // Filter: Name contains "Disp" shows 1 of 2 rows, and a reload keeps it. A row selected and
   // then hidden by the filter can't be deleted.
+  await expect(page.getByRole("button", { name: "Open row" })).toHaveCount(2);
   await page.getByRole("checkbox", { name: "Select row" }).nth(1).check();
   await expect(page.getByRole("button", { name: "Delete 1 row" })).toBeVisible();
   await page.getByRole("button", { name: "Filter" }).click();

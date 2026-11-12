@@ -5,7 +5,6 @@ import { type ColumnDef, flexRender, type RowSelectionState, rowSelectionFeature
 import { Maximize2, Plus, Trash2 } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { api, orpc } from "../../lib/api.ts";
@@ -17,6 +16,7 @@ import { CellView } from "./CellView.tsx";
 import { FieldMenu } from "./FieldMenu.tsx";
 import { FIELD_TYPE_UI } from "./field-types.ts";
 import { NewFieldPopover } from "./NewFieldPopover.tsx";
+import { NewRowDialog } from "./NewRowDialog.tsx";
 import { patchListRows, rowWrites, setListCell } from "./row-writes.ts";
 import { ViewBar } from "./ViewBar.tsx";
 
@@ -47,12 +47,12 @@ type Props = {
   query: RowQuery;
   onQueryChange: (query: RowQuery) => void;
   onOpenRow: (rowId: string) => void;
-  /** The table's required parent field: a new row is created with its parent, picked first. */
+  /** The table's required parent field: a new row is created with its parent, picked in its form. */
   requiredParent?: FieldSchema;
 };
 
 export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, onOpenRow, requiredParent }: Props) {
-  const [pickingParent, setPickingParent] = useState(false);
+  const [adding, setAdding] = useState(false);
   const queryClient = useQueryClient();
   const listKey = orpc.rows.list.key({ input: { tableId } });
   const rowsQuery = useInfiniteQuery(
@@ -126,18 +126,23 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
     },
   });
 
+  // A new row is created with the values of its form, in one `rows.create`, and reaches the grid
+  // the way every row does: by reading the list again. No cell is active while the form is open,
+  // so nothing moves under the cursor, and the grid never holds a row the server doesn't have.
   const create = useMutation({
     ...rowWrites(tableId),
-    mutationFn: (values: Record<string, Cell> = {}) => api.rows.create({ tableId, values }),
-    onSuccess: (row) => {
-      setError(null);
-      // Shown at the end of the loaded rows; a reload puts it in its place in the order.
-      patchRows((list, last) => (last ? [...list, row] : list), 1);
-      setActive({ row: rows.length, col: 0 });
-      setEditing({});
+    mutationFn: (values: Record<string, Cell>) => api.rows.create({ tableId, values }),
+    onSuccess: () => {
+      setAdding(false);
+      refresh();
     },
-    onError: (err) => setError(`Could not add a row: ${err.message}`),
   });
+  const startAdding = () => {
+    create.reset();
+    setActive(null);
+    setEditing(null);
+    setAdding(true);
+  };
 
   const remove = useMutation({
     ...rowWrites(tableId),
@@ -373,40 +378,26 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
         {rowsQuery.error && <p role="alert" className="px-4 py-3 text-[13px] text-danger">Could not load the rows.</p>}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {requiredParent ? (
-          // Every row belongs to a parent: it is picked before the row exists.
-          <Popover open={pickingParent} onOpenChange={setPickingParent}>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="sm" disabled={create.isPending}>
-                <Plus /> New row
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-64">
-              <p className="mb-2 text-[13px] text-muted">Which {requiredParent.name} does it belong to?</p>
-              <CellEditor
-                field={requiredParent}
-                value={null}
-                inline={false}
-                onCommit={(value) => {
-                  if (value === null) return;
-                  setPickingParent(false);
-                  create.mutate({ [requiredParent.id]: value });
-                }}
-                onCancel={() => setPickingParent(false)}
-              />
-            </PopoverContent>
-          </Popover>
-        ) : (
-          <Button variant="ghost" size="sm" disabled={create.isPending} onClick={() => create.mutate({})}>
-            <Plus /> New row
-          </Button>
-        )}
+        <Button variant="ghost" size="sm" onClick={startAdding}>
+          <Plus /> New row
+        </Button>
         {rowsQuery.hasNextPage && (
           <Button variant="outline" size="sm" disabled={rowsQuery.isFetchingNextPage} onClick={() => void rowsQuery.fetchNextPage()}>
             Load more
           </Button>
         )}
       </div>
+
+      {adding && (
+        <NewRowDialog
+          fields={fields}
+          requiredParent={requiredParent}
+          onCreate={(values) => create.mutate(values)}
+          onCancel={() => setAdding(false)}
+          pending={create.isPending}
+          error={create.error ? `Could not add the row: ${create.error.message}` : undefined}
+        />
+      )}
 
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent>
