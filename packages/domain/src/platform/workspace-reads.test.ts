@@ -121,10 +121,9 @@ async function readerJob(s: Awaited<ReturnType<typeof setup>>, bundles: Bundle[]
   return (name: string, input: unknown = {}) => callPlatformTool(s.context, job, name, input);
 }
 
-test("Jobs are read with configure only, and a transcript only within the reader's tables", async () => {
+test("Jobs are read with configure only, and a transcript only by a Job on every table", async () => {
   const s = await setup([say("Done.")]);
   const clients = await call(router.tables.create, { name: "Clients" }, { context: s.context });
-  const matters = await call(router.tables.create, { name: "Matters" }, { context: s.context });
   const clerk = await call(router.agents.create, { name: "Clerk", harnessId: s.cloud.id, systemPrompt: "", bundles: ["data"], dataTables: [clients.id] }, { context: s.context });
   const go = await call(router.triggers.create, { agentId: clerk.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: s.context });
   const { runId } = await call(router.jobs.start, { triggerId: go.id }, { context: s.context });
@@ -134,17 +133,26 @@ test("Jobs are read with configure only, and a transcript only within the reader
   for (const name of ["jobs_list", "jobs_get", "jobs_def", "workflows_list"]) {
     expect(await data(name, { id: runId, runId })).toEqual({ ok: false, error: `This agent may not use ${name}` });
   }
-  // On Clients (the Clerk's table), it reads the Clerk's Job; on Matters only, it lists it but can't read it.
+  // A transcript holds whatever its Job read, from any table: only a Job on every table reads it,
+  // even one listing the Clerk's table, which lists the Job and no more.
   const within = await readerJob(s, ["data", "configure"], [clients.id]);
-  expect(await within("jobs_get", { id: runId })).toMatchObject({ ok: true, output: { id: runId } });
-  expect(await within("jobs_def", { runId })).toMatchObject({ ok: true });
-  const outside = await readerJob(s, ["data", "configure"], [matters.id]);
-  expect(await outside("jobs_list", { agentId: clerk.id })).toMatchObject({ ok: true, output: [{ id: runId }] });
-  expect(await outside("jobs_get", { id: runId })).toEqual({ ok: false, error: "Not found" });
-  expect(await outside("jobs_def", { runId })).toEqual({ ok: false, error: "Not found" });
+  expect(await within("jobs_list", { agentId: clerk.id })).toMatchObject({ ok: true, output: [{ id: runId }] });
+  expect(await within("jobs_get", { id: runId })).toEqual({ ok: false, error: "Not found" });
+  expect(await within("jobs_def", { runId })).toEqual({ ok: false, error: "Not found" });
+  const all = await readerJob(s, ["configure"], "all");
+  expect(await all("jobs_get", { id: runId })).toMatchObject({ ok: true, output: { id: runId } });
+  expect(await all("jobs_def", { runId })).toMatchObject({ ok: true });
+  // Once its table is deleted, its Job is still the whole workspace's to read.
+  await call(router.tables.delete, { id: clients.id }, { context: s.context });
+  expect(await within("jobs_get", { id: runId })).toEqual({ ok: false, error: "Not found" });
   // An id that is no Job is not found.
-  expect(await outside("jobs_get", { id: "run_nobody" })).toEqual({ ok: false, error: "Not found" });
+  expect(await all("jobs_get", { id: "run_nobody" })).toEqual({ ok: false, error: "Not found" });
   // A Job lists itself, still going.
   expect(await within("jobs_list", { status: "running" })).toMatchObject({ ok: true, output: expect.arrayContaining([expect.objectContaining({ status: "running" })]) });
   expect(await within("workflows_list")).toEqual({ ok: true, output: [] });
+  // A poll item's id is what its tool read (a subject line): a Job lists the poll, not the item.
+  await s.context.db.update(runs).set({ cause: { kind: "poll", triggerId: go.id, itemId: "Re: the confidential deal", depth: 0 } }).where(eq(runs.id, runId));
+  const polled = await all("jobs_list", { agentId: clerk.id });
+  expect(polled).toMatchObject({ ok: true, output: [{ id: runId, cause: { kind: "poll", triggerId: go.id, depth: 0 } }] });
+  expect(JSON.stringify(polled)).not.toContain("confidential");
 });

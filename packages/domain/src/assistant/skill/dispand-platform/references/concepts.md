@@ -24,8 +24,8 @@ the data they write) share a root cause; past the workspace's checkpoint
 
 `jobs_list` lists the latest Jobs (of an agent, a trigger, or with a status), with what made
 each and its Questions still waiting; `jobs_get` gives one Job's transcript and its Questions
-and Approvals with their answers, and `jobs_def` the instructions it ran on. Answer "what did
-the agent do" from them.
+and Approvals with their answers, and `jobs_def` the instructions it ran on (both only for an
+agent on every table, as you are). Answer "what did the agent do" from them.
 
 ## Data
 

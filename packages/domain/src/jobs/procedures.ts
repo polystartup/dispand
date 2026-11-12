@@ -47,9 +47,14 @@ const consults = owner.input(z.object({ runId: z.string() })).handler(async ({ i
   return consultsOfJob(context.db, run);
 });
 
-/** A Job as `jobs.list` and `jobs.get` show it: what made it, how it went, never its token or snapshot. */
+/**
+ * A Job as `jobs.list` and `jobs.get` show it: what made it, how it went, never its token or
+ * snapshot. A poll item's id is what the tool read (it may be a subject line), so it stays out,
+ * as in a trigger's polls for a Job.
+ */
 function jobView(r: typeof runs.$inferSelect) {
-  const { id, agentId, triggerId, status, cause, error, createdAt, finishedAt } = r;
+  const { id, agentId, triggerId, status, error, createdAt, finishedAt } = r;
+  const cause = r.cause?.kind === "poll" ? { kind: r.cause.kind, triggerId: r.cause.triggerId, depth: r.cause.depth } : r.cause;
   return { id, agentId, triggerId, status, cause, error, createdAt, finishedAt };
 }
 

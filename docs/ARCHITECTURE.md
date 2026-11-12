@@ -239,9 +239,9 @@
   the latest 50 Jobs (no workflow run) with their cause and the ids of their pending Questions,
   `jobs.get` one Job with a page of its transcript (`offset`, `limit` up to 200, and
   `totalMessages`) and its Questions; these three and `workflows.list` are `configure` reads, so
-  the Assistant answers from them. A Job reads another's transcript or definition only when
-  every table that Job could read (its snapshot's, if it had `data`) is within its own, and
-  `runs.*` stay the owner's.
+  the Assistant answers from them. A transcript or a definition holds whatever its Job read,
+  so only a Job on every table reads one (its tool names the table `*`, which no list holds); a
+  poll item's id stays out of `cause`; `runs.*` stay the owner's.
   `runs.list` takes an `agentId`, a `triggerId` and `kind: "chat"` (the Jobs whose own definition opens with a chat), and gives each run a `title`: its first message's first 80 characters, whitespace folded, null before one. An agent is never deleted under a Job still going, by itself or
   with its plugin: both paths lock its triggers and the agent in the deleting transaction
   (`jobs/active.ts`; `createJob` and the scheduler take them in the same order), so a Job being created at that moment is seen; finished Jobs and triggers

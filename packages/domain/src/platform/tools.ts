@@ -2,7 +2,7 @@ import { isProcedure } from "@orpc/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { fields, rows, runs, tables as tablesTable, triggers } from "../db/schema.ts";
+import { fields, rows, runs, triggers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import { INTERACTION } from "../triggers/model.ts";
@@ -130,25 +130,21 @@ async function tableOfField(db: Db, ownerId: string, input: unknown): Promise<(s
 }
 
 /**
- * The tables a Job could read: its snapshot's, when it had `data` (every table of the owner's for
- * "all"). Its transcript holds what it read there, so a Job reads another's only within its own
- * tables. `null` for an id that is no Job of the owner's.
+ * What a call naming a Job touches: the whole workspace. A transcript holds whatever its Job
+ * read, through any tool (rows, other transcripts, Questions it answered, a consult's answer),
+ * and from tables deleted since, so only a Job on every table reads it; a list of tables never
+ * includes this. `null` for an id that is no Job of the owner's.
  */
-async function tablesOfJob(db: Db, ownerId: string, input: unknown): Promise<(string | null)[]> {
+export const WHOLE_WORKSPACE = "*";
+async function wholeWorkspace(db: Db, ownerId: string, input: unknown): Promise<(string | null)[]> {
   const id = str(input, "id") ?? str(input, "runId");
   const [job] = id
     ? await db
-        .select({ snapshot: runs.snapshot })
+        .select({ id: runs.id })
         .from(runs)
         .where(and(eq(runs.id, id), eq(runs.ownerId, ownerId), eq(runs.source, "agent")))
     : [];
-  if (!job) return [null];
-  // Jobs created before bundles existed had none, on all tables: nothing to read.
-  if (!job.snapshot?.bundles?.includes("data")) return [];
-  const scope = job.snapshot.tables ?? "all";
-  const existing = await db.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.ownerId, ownerId));
-  // A table deleted since holds nothing to read any more.
-  return existing.map((t) => t.id).filter((t) => scope === "all" || scope.includes(t));
+  return [job ? WHOLE_WORKSPACE : null];
 }
 
 const NEEDS_PROPOSAL = "Needs the owner's approval first: list the call with propose, ask with request_approval, then make it exactly as listed.";
@@ -215,8 +211,8 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("triggers.update", "configure", `Changes a trigger: its name, instructions, schedule, or whether it is on. ${NEEDS_PROPOSAL}`, { tables: triggerTables, grant: true }),
   tool("triggers.delete", "configure", `Deletes a trigger. ${NEEDS_PROPOSAL}`, { tables: triggerTables, grant: true }),
   tool("jobs.list", "configure", "Lists the latest Jobs, newest first, of one agent or trigger or with one status if given: what made each, how it went, when, and the ids of its Questions and Approvals still waiting.", { tables: none }),
-  tool("jobs.get", "configure", "Gives one Job with its transcript (a page of its messages, oldest first, and how many there are) and its Questions and Approvals with their answers. A Job that worked on tables you may not use is not found.", { tables: tablesOfJob }),
-  tool("jobs.def", "configure", "Gives a Job's definition as it was created: its agent, its trigger and the instructions it was given.", { tables: tablesOfJob }),
+  tool("jobs.get", "configure", "Gives one Job with its transcript (a page of its messages, oldest first, and how many there are) and its Questions and Approvals with their answers. Only an agent on every table reads it.", { tables: wholeWorkspace }),
+  tool("jobs.def", "configure", "Gives a Job's definition as it was created: its agent, its trigger and the instructions it was given. Only an agent on every table reads it.", { tables: wholeWorkspace }),
   tool("workflows.list", "configure", "Lists the workflows, with their ids, names and when each was last changed.", { tables: none }),
   tool("tools.list", "configure", "Lists the tools (MCP servers) agents can be given, with their ids, addresses and actions. Header values are never shown.", { tables: none }),
   tool("tools.get", "configure", "Gives one tool by its id.", { tables: none }),
