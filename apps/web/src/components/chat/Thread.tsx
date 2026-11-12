@@ -12,8 +12,21 @@ import { AgentText } from "./AgentText.tsx";
 
 type Question = RunSnapshot["questions"][number];
 
+/**
+ * The proposal Approval the chat's composer answers (Approve, or words that decline it): only
+ * when it is the one question of the chat that waits, and its items can be shown. With more than
+ * one waiting, each is answered on its own card, so a click can't go to another than the one read.
+ */
+export function composerApproval(questions: readonly Question[], chatStepId: string | undefined): Question | undefined {
+  const pending = questions.filter((q) => q.stepRunId === chatStepId && q.status === "pending");
+  const [only] = pending;
+  return pending.length === 1 && only!.proposalId && only!.proposal ? only : undefined;
+}
+
 /** The chat's questions by id: a question's part of the thread only carries its id. */
 const Questions = createContext<Map<string, Question>>(new Map());
+/** The id of the proposal Approval the composer answers (`composerApproval`). */
+const ComposerApproval = createContext<string | undefined>(undefined);
 
 const bubble = "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-[15px] leading-relaxed";
 
@@ -44,6 +57,7 @@ function answeredText(q: Question): string {
 /** A question of the chat, answered here or in the Inbox (whichever comes first). The answer goes through `questions.answer`, as everywhere. */
 const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ args }) => {
   const q = useContext(Questions).get(args.questionId);
+  const inComposer = useContext(ComposerApproval) === args.questionId;
   const queryClient = useQueryClient();
   const [conflict, setConflict] = useState(false);
   const answer = useMutation(
@@ -55,7 +69,7 @@ const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ ar
   if (!q) return null;
   if (q.status === "answered") return <p className="px-1 text-right text-[12px] text-faint">{answeredText(q)}</p>;
   // A proposal shown whole: approved or declined from the composer (`ChatPanel`), its one control.
-  if (q.proposalId && q.proposal) return <ProposalCard question={q} />;
+  if (inComposer) return <ProposalCard question={q} />;
   return (
     <div className="mr-6 rounded-2xl border border-line bg-surface p-4">
       {conflict ? (
@@ -142,36 +156,39 @@ export function ChatThread({ run, chatStepId, canSend, onSend, children, compose
   // Nothing said yet, and nothing went wrong: the invitation to start.
   const empty = threadMessages(run, chatStepId).length === 0 && run?.steps.find((s) => s.id === chatStepId)?.status !== "failed";
   const questions = new Map((run?.questions ?? []).map((q) => [q.id, q]));
+  const approval = composerApproval(run?.questions ?? [], chatStepId)?.id;
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <Questions.Provider value={questions}>
-        <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">
-          <ThreadPrimitive.Viewport className="min-h-0 flex-1 overflow-y-auto px-4 py-6" aria-live="polite">
-            {empty && <div className="flex min-h-36 flex-col items-center justify-center gap-3 text-center text-muted">
-              <MessageSquare size={28} className="text-accent" aria-hidden />
-              {welcome ? (
-                <p className="max-w-md text-[16px] font-medium text-fg">{welcome}</p>
-              ) : (
-                <>
-                  <p className="text-[16px] font-medium text-fg">Say hello to start.</p>
-                  <p className="max-w-64 text-[13px]">Ask a question or describe what you want to get done.</p>
-                </>
-              )}
-            </div>}
-            <div role="list" className="mx-auto flex w-full max-w-3xl flex-col gap-5">
-              <ThreadPrimitive.Messages components={{ UserMessage: OwnerMessage, AssistantMessage: AgentMessage }} />
-            </div>
-            <div className="mx-auto w-full max-w-3xl">
-              {children}
-            </div>
-            <div className="sticky bottom-0 flex h-0 justify-center">
-              <ThreadPrimitive.ScrollToBottom aria-label="Jump to latest message" title="Jump to latest message" className="absolute bottom-0 rounded-full border border-line bg-surface p-2 text-fg shadow-md disabled:invisible">
-                <ArrowDown size={18} aria-hidden />
-              </ThreadPrimitive.ScrollToBottom>
-            </div>
-          </ThreadPrimitive.Viewport>
-          {composer}
-        </ThreadPrimitive.Root>
+        <ComposerApproval.Provider value={approval}>
+          <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">
+            <ThreadPrimitive.Viewport className="min-h-0 flex-1 overflow-y-auto px-4 py-6" aria-live="polite">
+              {empty && <div className="flex min-h-36 flex-col items-center justify-center gap-3 text-center text-muted">
+                <MessageSquare size={28} className="text-accent" aria-hidden />
+                {welcome ? (
+                  <p className="max-w-md text-[16px] font-medium text-fg">{welcome}</p>
+                ) : (
+                  <>
+                    <p className="text-[16px] font-medium text-fg">Say hello to start.</p>
+                    <p className="max-w-64 text-[13px]">Ask a question or describe what you want to get done.</p>
+                  </>
+                )}
+              </div>}
+              <div role="list" className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+                <ThreadPrimitive.Messages components={{ UserMessage: OwnerMessage, AssistantMessage: AgentMessage }} />
+              </div>
+              <div className="mx-auto w-full max-w-3xl">
+                {children}
+              </div>
+              <div className="sticky bottom-0 flex h-0 justify-center">
+                <ThreadPrimitive.ScrollToBottom aria-label="Jump to latest message" title="Jump to latest message" className="absolute bottom-0 rounded-full border border-line bg-surface p-2 text-fg shadow-md disabled:invisible">
+                  <ArrowDown size={18} aria-hidden />
+                </ThreadPrimitive.ScrollToBottom>
+              </div>
+            </ThreadPrimitive.Viewport>
+            {composer}
+          </ThreadPrimitive.Root>
+        </ComposerApproval.Provider>
       </Questions.Provider>
     </AssistantRuntimeProvider>
   );

@@ -343,7 +343,8 @@
   renders it over the library's unstyled primitives, a question through `QuestionForm` and
   `questions.answer`. A pending Approval of a proposal carries its `proposalView` in the run's
   snapshot and stream (`runs.get`, `runs.stream`): the thread shows it whole (`ProposalItems`,
-  no control of its own) and `ChatPanel`'s composer answers it, Approve or Mod+Enter on an
+  no control of its own) and, while it is the chat's one waiting question (`composerApproval`; with
+  several, each card keeps `QuestionForm`'s own controls), `ChatPanel`'s composer answers it, Approve or Mod+Enter on an
   empty draft as `allow`, the text sent as `deny` with that text as the message. The agent's text goes through `components/chat/AgentText.tsx` (the library's markdown
   primitive with a `urlTransform`, `img` and `a` overrides and `skipHtml`). Nothing else
   imports the library. The thread uses message copy actions and a jump-to-latest control;

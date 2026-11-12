@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { api, orpc } from "../../lib/api.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import { useRun } from "../../lib/run-watch.ts";
-import { ChatInput, ChatThread } from "../chat/Thread.tsx";
+import { ChatInput, ChatThread, composerApproval } from "../chat/Thread.tsx";
 
 type Step = RunSnapshot["steps"][number];
 
@@ -50,12 +50,11 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
   const chatStep = run?.steps.find((s) => s.interactive) ?? run?.steps.find((s) => s.nodeId === chatField && s.status === "pending");
   // Until its stream answers, a run just started counts as open: the first message may still be on its way.
   const open = !runId || !run || (!!chatStep && (chatStep.status === "running" || chatStep.status === "waiting" || chatStep.status === "pending"));
-  const pending = run?.questions.filter((q) => q.stepRunId === chatStep?.id && q.status === "pending") ?? [];
-  // A proposal's Approval shown whole in the thread: the composer answers it, Approve or the words
-  // typed, which decline it. Any other question (or a proposal the thread can't show) is answered
-  // where it is shown, and sending waits for it.
-  const approval = pending.find((q) => q.proposalId && q.proposal);
-  const asking = pending.some((q) => q !== approval);
+  // A proposal's Approval shown whole in the thread, alone in waiting: the composer answers it,
+  // Approve or the words typed, which decline it. Any other question is answered where it is
+  // shown, and sending waits for it.
+  const approval = composerApproval(run?.questions ?? [], chatStep?.id);
+  const asking = !approval && !!run?.questions.some((q) => q.stepRunId === chatStep?.id && q.status === "pending");
   const canSend = open && !asking;
 
   // Another conversation opened from outside (a list, the URL) starts without this one's draft;

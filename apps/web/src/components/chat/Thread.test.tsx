@@ -96,6 +96,19 @@ test("a proposal in the chat shows every item whole, long instructions included,
   expect(screen.queryByRole("link", { name: /Inbox/ })).toBeNull();
 });
 
+test("two proposals waiting at once: each card answers its own, with every item shown", async () => {
+  const ask = (id: string, words: string) => ({ kind: "permission", toolName: "request_approval", input: { message: words, proposal: id }, canAlwaysAllow: false });
+  const view = (id: string, name: string) => ({ id, status: "asked", items: [{ tool: "agents_create", input: { name }, used: false, refs: [] }], names: {} });
+  fake.questions.answer.mockResolvedValue(undefined);
+  const { user } = mount(run([], [question("q1", 1, { payload: ask("prop_1", "Add a clerk"), proposalId: "prop_1", proposal: view("prop_1", "Clerk") }), question("q2", 2, { payload: ask("prop_2", "Add a typist"), proposalId: "prop_2", proposal: view("prop_2", "Typist") })]));
+  expect(screen.queryByRole("region", { name: "Proposal" })).toBeNull();
+  const second = screen.getAllByRole("listitem").find((li) => li.textContent?.includes("Add a typist"))!;
+  expect(within(second).getByText("Typist")).toBeTruthy();
+  await user.click(within(second).getByRole("button", { name: "Approve" }));
+  await waitFor(() => expect(fake.questions.answer).toHaveBeenCalledTimes(1));
+  expect(fake.questions.answer.mock.calls[0]![0]).toMatchObject({ questionId: "q2", answer: { kind: "permission", decision: "allow" } });
+});
+
 test("a proposal answered says approved, or declined with the owner's words", () => {
   const payload = { kind: "permission", toolName: "request_approval", input: { message: "May I add a clerk?", proposal: "prop_1" }, canAlwaysAllow: false };
   mount(run([], [question("q1", 1, { payload, proposalId: "prop_1", proposal: null, status: "answered", answer: { kind: "permission", decision: "deny", message: "Only on Clients" } })]));

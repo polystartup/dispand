@@ -252,3 +252,11 @@ test("a proposal answered elsewhere first says so, and the words stay in the com
   await waitFor(() => expect(fake.questions.answer).toHaveBeenCalledTimes(2));
   expect(screen.getByRole("alert").textContent).toBe("This proposal was already answered elsewhere.");
 });
+
+test("with two proposals waiting, the composer answers neither: each is answered on its card", async () => {
+  fake.runs.stream.mockImplementation(streamOf(snapshot([proposalQuestion(), { ...proposalQuestion(), id: "q2", proposalId: "prop_2" }])));
+  mount("run_1");
+  expect(await screen.findByText("Answer the question above to continue.")).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: "Approve" })).toHaveLength(2);
+  expect(screen.getByLabelText<HTMLTextAreaElement>("Message").disabled).toBe(true);
+});

@@ -206,7 +206,7 @@ changes it updates this file.
   an item points at (the agent, the harness, tools, skills, tables, a field with its table)
   as resolved for that owner; an id that names nothing of theirs is flagged. Which values of
   an input are ids is the server's own table per tool: any other value is shown as data. A question for a proposal is not
-  answerable where its items aren't shown: a run's view carries them (`runs.get`, `runs.stream`), and the chat shows them whole with an Approve control in its composer; when they can't be shown there, the chat sends the owner to the Inbox. Words typed in the chat while it waits decline it, whatever they say, and reach the agent as the reason. A request
+  answerable where its items aren't shown: a run's view carries them (`runs.get`, `runs.stream`), and the chat shows them whole with an Approve control in its composer, only while that question alone waits in the chat (with several, each card has its own controls, so a click never answers another than the one read); when they can't be shown there, the chat sends the owner to the Inbox. Words typed in the chat while it waits decline it, whatever they say, and reach the agent as the reason. A request
   naming a proposal that isn't attached (another run's, one already asked, none) is words only,
   and says so. A `proposal` argument that isn't an id is refused as a bad call by the runner
   and by cloud sessions, so it never becomes a request in words in its place.
