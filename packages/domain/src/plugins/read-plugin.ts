@@ -1,21 +1,26 @@
-import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
-import { basename, isAbsolute, join, normalize, relative, sep } from "node:path";
-import { isSafeRelativePath, storable } from "@dispand/runner-protocol";
+import { join } from "node:path";
+import { storable } from "@dispand/runner-protocol";
 import { parse } from "yaml";
-import { MAX_FILE_BYTES, MAX_FILES, PackageError, SKILL_NAME, type SkillFile, splitSkillMd, validatePackage } from "../skills/package.ts";
+import { MAX_FILE_BYTES, splitSkillMd } from "../skills/package.ts";
+import { isDir, kindAt, list, MAX_JSON_BYTES, type NotImported, Notes, PluginError, type PluginSkill, pluginPath, readJson, readRegular, readSkillFolders, resolvePluginRoot, spend, withBudget } from "./fs.ts";
 import { allStorable, type MarketplaceEntry } from "./marketplace.ts";
+import { readStandardPlugin } from "./standard.ts";
+
+export { type NotImported, PluginError, resolvePluginRoot };
 
 export type PluginMcpServer =
   | { name: string; type: "http"; url: string; transport: "streamable-http" | "sse"; headers: Record<string, string>; settings: string[] }
-  | { name: string; type: "stdio"; command: string; args: string[]; env: Record<string, string>; settings: string[] };
+  | { name: string; type: "stdio"; command: string; args: string[]; env: Record<string, string>; cwd?: string; settings: string[] };
 
 export type PluginAgent = { name: string; description: string; systemPrompt: string };
 
-export type NotImported = { component: "hook" | "command" | "bin" | "mcp-server" | "skill" | "file"; name: string; reason: string };
-
 export type PluginContents = {
+  /** `standard`: Agent Plugins (a root `plugin.json`, `standard.ts`); `claude`: the Claude plugin layout. */
+  layout: "claude" | "standard";
+  /** The manifest's `version`, when it has one. */
+  version: string | null;
   /** One entry per skill that can be imported, with its files (`<skill>/<path>`). */
-  skills: { name: string; description: string; files: SkillFile[] }[];
+  skills: PluginSkill[];
   mcpServers: PluginMcpServer[];
   agents: PluginAgent[];
   notImported: NotImported[];
@@ -37,183 +42,12 @@ export function componentsOf(contents: PluginContents): PluginComponents {
   };
 }
 
-export class PluginError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "PluginError";
-  }
-}
-
-const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_AGENT_PROMPT = 100_000;
-/** One read of a plugin looks at this many files and folders, and reads this many bytes, at most. */
-const MAX_ENTRIES = 20_000;
-const MAX_READ_BYTES = 64 * 1024 * 1024;
-/** Skills one plugin may offer. */
-const MAX_SKILLS = 200;
-
-/**
- * What the read under way has spent (`readPlugin` is synchronous: one at a time). Every listing
- * and every read goes through `spend`, so no shape of plugin can make a read do more work.
- */
-let spent: { entries: number; bytes: number } | null = null;
-
-function spend(entries: number, bytes = 0): void {
-  if (!spent) return;
-  spent.entries += entries;
-  spent.bytes += bytes;
-  if (spent.entries > MAX_ENTRIES || spent.bytes > MAX_READ_BYTES) {
-    throw new PluginError(`The plugin is too large to read: more than ${MAX_ENTRIES.toLocaleString("en")} files or 64 MiB`);
-  }
-}
-
-/**
- * What a read leaves out. Every item is charged to the read's budget, and only the first
- * `MAX_NOT_IMPORTED` are kept (the rest counted), so listing can't cost more than reading.
- */
-class Notes {
-  readonly items: NotImported[] = [];
-  private more = 0;
-
-  push(...notes: NotImported[]): void {
-    for (const note of notes) {
-      spend(1);
-      if (this.items.length < MAX_NOT_IMPORTED) this.items.push(note);
-      else this.more += 1;
-    }
-  }
-
-  /** Takes over another collector's notes (already charged). */
-  absorb(other: Notes): void {
-    for (const note of other.items) {
-      if (this.items.length < MAX_NOT_IMPORTED) this.items.push(note);
-      else this.more += 1;
-    }
-    this.more += other.more;
-  }
-
-  list(): NotImported[] {
-    return this.more > 0 ? [...this.items, { component: "file", name: "…", reason: `and ${this.more} more not imported` }] : this.items;
-  }
-}
-
-/** A folder's entries, counted against the read's budget. */
-function list(dir: string) {
-  const entries = readdirSync(dir, { withFileTypes: true });
-  spend(entries.length);
-  return entries;
-}
-
 /** MCP servers and agents one plugin may offer. */
 const MAX_SERVERS = 100;
 const MAX_AGENTS = 100;
-
-/** What is listed as not imported, at most; the rest is counted. */
-const MAX_NOT_IMPORTED = 200;
 const PLUGIN_ROOT_VAR = "CLAUDE_PLUGIN_ROOT";
 const VARIABLE = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}/g;
-
-/** Whether `child` (a real path) is `parent` or inside it. */
-function inside(parent: string, child: string): boolean {
-  const rel = relative(parent, child);
-  return rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel));
-}
-
-/**
- * The plugin's root folder inside a checkout: `path` (relative, `./` allowed) must name a real
- * folder, not a link, whose real path is inside the checkout. Throws `PluginError`.
- */
-export function resolvePluginRoot(checkout: string, path = "."): string {
-  if (isAbsolute(path) || path.includes("\\") || !storable(path)) throw new PluginError("The plugin's folder isn't a relative path");
-  const root = realpathSync(checkout);
-  const target = join(root, normalize(path));
-  if (!inside(root, target)) throw new PluginError("The plugin's folder is outside its repository");
-  let real: string;
-  try {
-    if (!lstatSync(target).isDirectory()) throw new Error();
-    real = realpathSync(target);
-  } catch {
-    throw new PluginError("The plugin's folder isn't in its repository");
-  }
-  if (!inside(root, real)) throw new PluginError("The plugin's folder is outside its repository");
-  return real;
-}
-
-/** A regular file under `root` at `rel`, read whole (at most `max` bytes), or null when it isn't one. */
-function readRegular(root: string, rel: string, max: number): Buffer | null {
-  const path = join(root, rel);
-  try {
-    const stat = lstatSync(path);
-    if (!stat.isFile() || stat.size > max) return null;
-    if (!inside(root, realpathSync(path))) return null;
-    spend(1, stat.size);
-    return readFileSync(path);
-  } catch (e) {
-    if (e instanceof PluginError) throw e;
-    return null;
-  }
-}
-
-function readJson(root: string, rel: string): unknown {
-  const bytes = readRegular(root, rel, MAX_JSON_BYTES);
-  if (!bytes) return undefined;
-  try {
-    return JSON.parse(bytes.toString("utf8"));
-  } catch {
-    return undefined;
-  }
-}
-
-function isDir(path: string): boolean {
-  try {
-    return lstatSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-/** A plugin-relative path from a manifest (`./x`, `x`), normalized, if it stays inside the plugin; else null. */
-function pluginPath(root: string, value: string): string | null {
-  if (isAbsolute(value) || value.includes("\\") || !storable(value)) return null;
-  const rel = normalize(value).replace(/\/+$/, "") || ".";
-  return inside(root, join(root, rel)) ? rel : null;
-}
-
-/** Every file under `<root>/<rel>`, as `<skill>/<path>`; links and other non-regular files are skipped and listed. */
-function skillFiles(root: string, rel: string, skill: string, notImported: Notes): SkillFile[] {
-  const files: SkillFile[] = [];
-  let visited = 0;
-  const walk = (dir: string, prefix: string) => {
-    let entries;
-    try {
-      entries = list(dir);
-    } catch (e) {
-      if (e instanceof PluginError) throw e;
-      return;
-    }
-    for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
-      // A skill holds at most MAX_FILES files: past twice that many entries, it isn't one.
-      if (++visited > MAX_FILES * 2) throw new PackageError(`a skill holds at most ${MAX_FILES} files`, skill);
-      const path = `${prefix}/${entry.name}`;
-      const full = join(dir, entry.name);
-      if (!isSafeRelativePath(path)) {
-        notImported.push({ component: "file", name: path, reason: "Its path isn't allowed in a skill" });
-        continue;
-      }
-      const stat = lstatSync(full);
-      if (stat.isSymbolicLink()) notImported.push({ component: "file", name: path, reason: "A symbolic link" });
-      else if (stat.isDirectory()) walk(full, path);
-      else if (!stat.isFile()) notImported.push({ component: "file", name: path, reason: "Not a regular file" });
-      else if (stat.size > MAX_FILE_BYTES) notImported.push({ component: "file", name: path, reason: "Larger than 2 MiB" });
-      else {
-        spend(0, stat.size);
-        files.push({ path, content: new Uint8Array(readFileSync(full)) });
-      }
-    }
-  };
-  walk(join(root, rel), skill);
-  return files;
-}
 
 function readSkills(root: string, entry: MarketplaceEntry, notImported: Notes): PluginContents["skills"] {
   let folders: string[];
@@ -224,55 +58,7 @@ function readSkills(root: string, entry: MarketplaceEntry, notImported: Notes): 
       .map((d) => `skills/${d.name}`)
       .sort();
   } else folders = [];
-  if (folders.length > MAX_SKILLS) throw new PluginError(`The plugin offers more than ${MAX_SKILLS} skills`);
-  const skills: PluginContents["skills"] = [];
-  const seen = new Set<string>();
-  const names = new Set<string>();
-  for (const folder of folders) {
-    const rel = pluginPath(root, folder);
-    // Each folder is read once, whether it imports or not.
-    const key = rel ?? folder;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const name = basename(rel ?? folder);
-    if (rel === null || rel === ".") {
-      notImported.push({ component: "skill", name: folder, reason: "Its folder is outside the plugin" });
-      continue;
-    }
-    const full = join(root, rel);
-    let real: string;
-    try {
-      if (!lstatSync(full).isDirectory()) throw new Error();
-      real = realpathSync(full);
-    } catch {
-      notImported.push({ component: "skill", name, reason: "Its folder isn't in the plugin (or is a link)" });
-      continue;
-    }
-    if (!inside(root, real)) {
-      notImported.push({ component: "skill", name, reason: "Its folder is outside the plugin" });
-      continue;
-    }
-    if (!SKILL_NAME.test(name)) {
-      notImported.push({ component: "skill", name, reason: "Its name isn't lowercase letters, digits and hyphens" });
-      continue;
-    }
-    if (names.has(name)) {
-      notImported.push({ component: "skill", name, reason: "Another skill of the plugin has its name" });
-      continue;
-    }
-    names.add(name);
-    const skipped = new Notes();
-    try {
-      const files = skillFiles(root, rel, name, skipped);
-      notImported.absorb(skipped);
-      const [skill] = validatePackage(files).skills;
-      skills.push({ name, description: skill!.description, files });
-    } catch (e) {
-      if (!(e instanceof PackageError)) throw e;
-      notImported.push({ component: "skill", name, reason: e.message });
-    }
-  }
-  return skills;
+  return readSkillFolders(root, folders, notImported);
 }
 
 /** `${VAR}` names in a server's strings, `CLAUDE_PLUGIN_ROOT` aside. */
@@ -416,17 +202,15 @@ function listNotRun(root: string, manifest: Record<string, unknown>, notImported
  * Every file is `lstat`ed: links are never followed.
  */
 export function readPlugin(root: string, entry: MarketplaceEntry, links: string[] = []): PluginContents {
-  spent = { entries: 0, bytes: 0 };
-  try {
-    return readWithin(root, entry, links);
-  } finally {
-    spent = null;
-  }
+  // A root `plugin.json` (or a link there, which the standard reader refuses) makes a standard
+  // plugin, whatever `.claude-plugin/` holds: it is the manifest with a version the reader checks.
+  const standard = kindAt(root, "plugin.json") !== "absent" || links.includes("plugin.json");
+  return withBudget(() => (standard ? readStandardPlugin(root, links) : readWithin(root, entry, links)));
 }
 
 function readWithin(root: string, entry: MarketplaceEntry, links: string[]): PluginContents {
   const file = readJson(root, ".claude-plugin/plugin.json");
-  const manifest = {
+  const manifest: Record<string, unknown> = {
     ...(typeof file === "object" && file !== null && !Array.isArray(file) ? (file as Record<string, unknown>) : {}),
     ...entry.manifest,
   };
@@ -437,5 +221,6 @@ function readWithin(root: string, entry: MarketplaceEntry, links: string[]): Plu
   const mcpServers = readServers(root, manifest, notImported);
   const agents = readAgents(root, notImported);
   listNotRun(root, manifest, notImported);
-  return { skills, mcpServers, agents, notImported: notImported.list() };
+  const version = typeof manifest.version === "string" && storable(manifest.version) ? cut(manifest.version, 100) : null;
+  return { layout: "claude", version, skills, mcpServers, agents, notImported: notImported.list() };
 }

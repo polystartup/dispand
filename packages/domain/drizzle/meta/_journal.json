@@ -414,6 +414,13 @@
       "when": 1794487030554,
       "tag": "0058_plugin_set_null",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1794489235569,
+      "tag": "0059_plugin_layout",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "plugins" ADD COLUMN "layout" text DEFAULT 'claude' NOT NULL;

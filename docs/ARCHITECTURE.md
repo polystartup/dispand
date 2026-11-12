@@ -1057,7 +1057,19 @@
   `sync_error`. An entry's source is a path in the marketplace's repository, or a Git repository
   (`github`, `url`, `git-subdir`, with its `ref`/`sha`); any other is unsupported, with its reason.
   `plugins.preview` fetches the entry and reads it (`read-plugin.ts` `readPlugin`, pure over the
-  checkout, links never followed): skills (`entry.skills`, else `skills/*`), MCP servers
+  checkout, links never followed; `plugins/fs.ts` holds what both layouts share: the root, the
+  read's budget, regular files and skill folders). A plugin with a root `plugin.json` is read in
+  the Agent Plugins 1.0.0 layout (`standard.ts` `readStandardPlugin`, `plugins.layout =
+  'standard'`), whatever else it holds: `plugin.json`'s `$schema` must be the 1.0.0 id (schemas
+  are known by id, never fetched), its closed fields are checked (an unknown one is listed and
+  ignored, as is an `extensions` that isn't an object; any other violation rejects the plugin);
+  skills are the immediate folders of `skills/` holding a regular `SKILL.md`; MCP servers come
+  from `mcp.json` only, checked whole (its `$schema` the same version, else no server is read)
+  then entry by entry (closed `stdio`, `streamable-http` and `sse` variants, a `./` or bare
+  command, a contained `cwd`, no `PLUGIN_ROOT`/`PLUGIN_DATA` in `env`, an https URL unless
+  loopback, valid headers, none holding `${…}`). Extension namespaces aren't read, and neither
+  is a marketplace entry's `skills` or manifest. Otherwise the Claude plugin layout is read:
+  skills (`entry.skills`, else `skills/*`), MCP servers
   (`.mcp.json`, the manifest's `mcpServers`), agents (`agents/*.md`) and what is never imported
   (hooks, commands, `bin/`, servers running `${CLAUDE_PLUGIN_ROOT}`, links, files a skill can't
   hold, skills `validatePackage` refuses). `plugins.install` stores the plugin (`plugins`: url,

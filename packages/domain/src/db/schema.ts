@@ -951,6 +951,8 @@ export const plugins = pgTable(
     /** The Git repository it was read from, at `sha`. */
     url: text("url"),
     sha: text("sha"),
+    /** How it was read: the Claude plugin layout, or Agent Plugins' (`standard`). */
+    layout: text("layout").$type<"claude" | "standard">().notNull().default("claude"),
     /** Everything the plugin offered when last read, imported or not. */
     components: jsonb("components").$type<PluginComponents>().notNull(),
     notImported: jsonb("not_imported").$type<NotImported[]>().notNull().default([]),
