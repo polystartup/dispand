@@ -399,6 +399,8 @@ export const NOT_TOOLS: string[] = [
   "plugins.list",
   "plugins.uninstall",
   "plugins.update",
+  "plugins.setupPreview",
+  "plugins.setUp",
   // Files and streams.
   "files.upload",
   "rows.editFiles",

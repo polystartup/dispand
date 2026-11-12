@@ -27,6 +27,8 @@ export const METRICS = {
   "dispand.inbox.calls": ["dispand.inbox.tool", "dispand.result"],
   // `proposal_apply` (`platform/call.ts`): every item made (done), some refused by an earlier call (partial), stopped at a refusal or at an item still being made, or refused at once.
   "dispand.proposals.applied": ["dispand.result"],
+  // A plugin's setup run by its owner (`plugins/setup.ts`): every item made (done), stopped at a refusal, or failed.
+  "dispand.plugins.setups": ["dispand.result"],
   // An Audit row written (`audit/record.ts`), by its action; `failed`: a write after the fact that didn't go through.
   "dispand.audit.rows": ["dispand.audit.action", "dispand.result"],
   // A memory write (`memory/store.ts`): its scope, operation and result, never a path or a body.
