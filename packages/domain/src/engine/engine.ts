@@ -53,7 +53,7 @@ import { REQUEST_APPROVAL } from "../cloud/builtins.ts";
 import { attachProposal, settleProposal } from "../platform/proposals.ts";
 import { issueJobToken } from "../platform/token.ts";
 import type { SecretBox } from "../secrets.ts";
-import { jobDef } from "./job-def.ts";
+import { jobDef, jobSystemPrompt } from "./job-def.ts";
 import { nextActions, outputsFor, toolValues, valuesFor } from "./next-actions.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import { pollProblem } from "../tools/pollable.ts";
@@ -429,7 +429,7 @@ export class Engine {
       id: agent.id,
       name: agent.name,
       harnessId: agent.harnessId,
-      systemPrompt: agent.systemPrompt,
+      systemPrompt: jobSystemPrompt(agent),
       ...(agent.model ? { model: agent.model } : {}),
       skills,
       tools: tools.map(({ toolId, name }) => ({ toolId, name })),

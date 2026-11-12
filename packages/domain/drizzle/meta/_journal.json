@@ -337,6 +337,13 @@
       "when": 1794438789225,
       "tag": "0047_tool_oauth",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794445100713,
+      "tag": "0048_assistant_agent",
+      "breakpoints": true
     }
   ]
 }

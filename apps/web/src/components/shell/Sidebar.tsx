@@ -7,6 +7,7 @@ import {
   Database,
   FileText,
   House,
+  MessageCircle,
   Puzzle,
   Sparkles,
   Workflow,
@@ -103,6 +104,7 @@ export function Sidebar({ user, onNavigate }: { user: { name: string; email: str
 
       <nav aria-label="Main" className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex flex-col gap-px">
+          <NavLink to="/assistant" label="Assistant" Icon={MessageCircle} onNavigate={onNavigate} />
           <NavLink to="/" label="Home" Icon={House} onNavigate={onNavigate} />
           <NewPageRow className={`${row} !text-muted`} onNavigate={onNavigate} />
           {pages.data

@@ -5,6 +5,7 @@ import {
   createDb,
   createMcpConnector,
   createSecretBox,
+  ensureAssistants,
   getDataEvents,
   getEngine,
   getHub,
@@ -67,6 +68,8 @@ async function start(): Promise<App> {
   const engine = getEngine(db, hub, secrets, dataEvents, { connector: tools, tools: platformToolCaller(() => app), filesDir: config.filesDir });
   // Filled before anything can call a tool: recovery below may already need it.
   Object.assign(app, { db, auth, hub, engine, dataEvents, secrets, tools, setupCode: config.setupCode, filesDir: config.filesDir, gitFileUrls: config.gitFileUrls, appUrl: config.baseURL });
+  // Each Assistant gets what this version adds to it before anything starts one of its Jobs.
+  await ensureAssistants(db);
   // Before any runner can connect (the upgrade handler waits for this app); cloud sessions go on.
   await engine.recover();
   // Fires what fell due while the app was down (once per schedule, for the latest time), then every 15 s.

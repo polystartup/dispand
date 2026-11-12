@@ -11,6 +11,7 @@ import { authed, base } from "../rpc/context.ts";
 import { defaultUnasked } from "../tools/catalog.ts";
 import { StorableText } from "../workflows/model.ts";
 import { agentInUse } from "../workflows/procedures.ts";
+import { assistantGuard, ensureAssistant, findAssistant } from "./builtin.ts";
 import { skillsAndTools } from "./skills-and-tools.ts";
 import { setAsk } from "./tool-ask.ts";
 import { effectiveTools } from "./tools.ts";
@@ -60,8 +61,8 @@ async function ownTables(db: Db, ownerId: string, scope: TableScope | undefined)
 }
 
 function toAgent(row: typeof agentsTable.$inferSelect) {
-  const { id, ownerId, name, harnessId, systemPrompt, model, bundles, dataTables } = row;
-  return { id, ownerId, name, harnessId, systemPrompt, ...(model === null ? {} : { model }), bundles, dataTables };
+  const { id, ownerId, name, harnessId, systemPrompt, model, bundles, dataTables, builtIn } = row;
+  return { id, ownerId, name, harnessId, systemPrompt, ...(model === null ? {} : { model }), bundles, dataTables, ...(builtIn === null ? {} : { builtIn }) };
 }
 
 type Row = typeof agentsTable.$inferSelect;
@@ -71,6 +72,12 @@ async function withPlugins(db: Db, rows: Row[]) {
   const ids = [...new Set(rows.flatMap((r) => (r.pluginId ? [r.pluginId] : [])))];
   const found = ids.length ? await db.select({ id: plugins.id, name: plugins.name }).from(plugins).where(inArray(plugins.id, ids)) : [];
   return rows.map((r) => ({ ...toAgent(r), plugin: found.find((p) => p.id === r.pluginId) ?? null }));
+}
+
+/** Refuses a change the Assistant can't take (`builtin.ts`), with its reason. */
+async function guard(db: Db, ownerId: string, agentId: string, change: Parameters<typeof assistantGuard>[3]) {
+  const refused = await assistantGuard(db, ownerId, agentId, change);
+  if (refused) throw new ORPCError("FORBIDDEN", { message: refused });
 }
 
 /** The harness, with the runner it runs on (none for a cloud harness). */
@@ -168,6 +175,7 @@ const update = owner.input(Fields.extend({ id: z.string() })).handler(async ({ i
   await find(context.db, context.ownerId, id);
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
   const dataTables = await ownTables(context.db, context.ownerId, input.dataTables);
+  await guard(context.db, context.ownerId, id, { kind: "update", bundles, dataTables });
   const row = await context.db.transaction(async (tx) => {
     const [row] = await tx
       .update(agentsTable)
@@ -183,6 +191,7 @@ const update = owner.input(Fields.extend({ id: z.string() })).handler(async ({ i
 
 const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const [agent] = await withPlugins(context.db, [await find(context.db, context.ownerId, input.id)]);
+  await guard(context.db, context.ownerId, input.id, { kind: "delete" });
   // A plugin's agent goes with its plugin.
   if (agent!.plugin) throw new ORPCError("FORBIDDEN", { message: `Remove the plugin ${agent!.plugin.name} instead` });
   if (await agentInUse(context.db, context.ownerId, input.id)) {
@@ -237,4 +246,13 @@ const setToolAsk = owner.input(z.object({ agentId: z.string(), toolId: z.string(
   return { ok: true as const };
 });
 
-export const agents = { create, update, delete: remove, list, get, toolAsk, setToolAsk };
+/** The workspace's Assistant and its chat trigger, or null when the owner has none yet. */
+const assistant = owner.handler(({ context }) => findAssistant(context.db, context.ownerId));
+
+/** Makes the owner's Assistant on this harness, or gives the one there is (left on its own harness). */
+const ensure = owner.input(z.object({ harnessId: z.string() })).handler(async ({ input, context }) => {
+  await requireHarness(context.db, context.ownerId, input.harnessId);
+  return ensureAssistant(context.db, context.ownerId, input.harnessId);
+});
+
+export const agents = { create, update, delete: remove, list, get, toolAsk, setToolAsk, assistant, ensureAssistant: ensure };

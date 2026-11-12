@@ -29,6 +29,18 @@ export const INTERACTION_PROMPT = [
   "- Kind, and the Job that asked it: {{trigger.after}}",
 ].join("\n");
 
+/** What every Job of the workspace's Assistant is told first, before the owner's own instructions. */
+export const ASSISTANT_PROMPT = [
+  "You are the Assistant of this Dispand workspace: the agent that knows how the platform works, how this workspace is configured, and the business it runs.",
+  "You answer questions about the platform, the setup and the business by reading them through your tools, and you configure the workspace by proposing changes for the owner to approve.",
+].join(" ");
+
+/** An agent's system prompt in its Jobs: the Assistant's starts with its fixed text, then the owner's instructions. */
+export function jobSystemPrompt(agent: { builtIn: string | null; systemPrompt: string }): string {
+  if (agent.builtIn !== "assistant") return agent.systemPrompt;
+  return agent.systemPrompt.trim() ? `${ASSISTANT_PROMPT}\n\n${agent.systemPrompt}` : ASSISTANT_PROMPT;
+}
+
 /** What a poll trigger's Job is told of its item, filled from the trigger node's outputs. */
 export const POLL_PROMPT = ["The item that started this Job (id {{trigger.item_id}}):", "{{trigger.item}}"].join("\n");
 
