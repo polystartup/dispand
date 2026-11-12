@@ -527,7 +527,9 @@ changes it updates this file.
   definitions (tables, agents, triggers) are data and grant nothing: install only stores them,
   each read as a regular file within the same budget and checked alone. What is made from one is
   made by the procedure a direct call uses, by the owner or through an approved proposal, with
-  that procedure's checks; an update replaces the definitions and never what was made from
+  that procedure's checks. The owner's setup (`plugins.setUp`) makes the items a proposal would
+  list, each through its procedure with the owner's own session, and binds to what an earlier
+  setup made only by the id it recorded, never to a table by its name; an update replaces the definitions and never what was made from
   them. Links are checked out
   as plain files (`core.symlinks=false`), then removed from the checkout and listed as not
   imported: nothing is ever written or read through one, and a file name that isn't UTF-8 refuses

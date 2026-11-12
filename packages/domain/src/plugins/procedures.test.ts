@@ -8,7 +8,7 @@ import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { BUILT_IN_MARKETPLACES } from "./marketplace.ts";
 import { marketplaceUrl, packageName } from "./procedures.ts";
-import { fixtureRepo, lawFirm, skillMd } from "./test-support.ts";
+import { fixtureRepo, lawFirm, lawFirmMarket, skillMd } from "./test-support.ts";
 import { toolTarget } from "../tools/procedures.ts";
 import { addStep } from "../workflows/model.ts";
 import { type FakeAction, startFakeMcp } from "../tools/test-server.ts";
@@ -623,20 +623,6 @@ test("a marketplace sync that changes an entry's MCP servers, at the same plugin
   await server.close();
   await attacker.close();
 });
-
-/** The law-firm fixture as a plugin of a marketplace. */
-function lawFirmMarket() {
-  const plugin = fixtureRepo(lawFirm());
-  const repo = fixtureRepo({ ".claude-plugin/marketplace.json": JSON.stringify({ name: "firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin.url } }] }) });
-  return {
-    plugin,
-    repo,
-    remove: () => {
-      plugin.remove();
-      repo.remove();
-    },
-  };
-}
 
 test("a plugin's definitions are shown before install, registered by an install that picks nothing else, and listed", async () => {
   const ctx = await context();

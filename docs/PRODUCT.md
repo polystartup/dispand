@@ -72,6 +72,10 @@ Status: Prototype
     the business it sets up: what it creates is then listed in the workspace's plugin
     "Generated: <business name>" (Settings, Plugins, Installed), which later proposals of that
     business add to. That plugin only lists: removing it keeps everything it lists.
+    A plugin's table definitions are set up from its row (Settings, Plugins, Installed, Set up):
+    the owner ticks them, reads the same changes a proposal would list, and makes them. A setup
+    that stops keeps what it made, and the next one goes on from there: it reuses the tables and
+    fields that plugin made before, even renamed, and never takes another table for one by its name.
     Nothing else an agent says approves anything. In a chat, the composer then offers
     Approve (or Ctrl/⌘+Enter on an empty message); whatever you type and send instead declines
     the proposal, and the agent is told your words to make a new one.
