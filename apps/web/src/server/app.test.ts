@@ -9,6 +9,7 @@ vi.mock("@dispand/domain", () => ({
   getDataEvents: () => ({}),
   createSecretBox: () => ({}),
   ensureAssistants: async () => {},
+  syncPlatformSkills: async () => {},
   createMcpConnector: () => ({}),
   guardedFetch: () => fetch,
   ownAddresses: () => ({}),
