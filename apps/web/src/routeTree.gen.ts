@@ -24,6 +24,7 @@ import { Route as McpJobRouteImport } from './routes/mcp/job'
 import { Route as OauthCallbackRouteImport } from './routes/oauth/callback'
 import { Route as OauthMetadataRouteImport } from './routes/oauth/metadata'
 import { Route as RunnerPairRouteImport } from './routes/runner/pair'
+import { Route as RunnerUpdateRouteImport } from './routes/runner/update'
 import { Route as AppPPageIdRouteImport } from './routes/_app.p.$pageId'
 import { Route as AppSettingsMemoryRouteImport } from './routes/_app.settings.memory'
 import { Route as AppSettingsSkillsRouteImport } from './routes/_app.settings.skills'
@@ -119,6 +120,11 @@ const OauthMetadataRoute = OauthMetadataRouteImport.update({
 const RunnerPairRoute = RunnerPairRouteImport.update({
   id: '/runner/pair',
   path: '/runner/pair',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RunnerUpdateRoute = RunnerUpdateRouteImport.update({
+  id: '/runner/update',
+  path: '/runner/update',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppPPageIdRoute = AppPPageIdRouteImport.update({
@@ -254,6 +260,7 @@ export interface FileRoutesByFullPath {
   '/oauth/callback': typeof OauthCallbackRoute
   '/oauth/metadata': typeof OauthMetadataRoute
   '/runner/pair': typeof RunnerPairRoute
+  '/runner/update': typeof RunnerUpdateRoute
   '/p/$pageId': typeof AppPPageIdRoute
   '/settings/memory': typeof AppSettingsMemoryRoute
   '/settings/skills': typeof AppSettingsSkillsRoute
@@ -291,6 +298,7 @@ export interface FileRoutesByTo {
   '/oauth/callback': typeof OauthCallbackRoute
   '/oauth/metadata': typeof OauthMetadataRoute
   '/runner/pair': typeof RunnerPairRoute
+  '/runner/update': typeof RunnerUpdateRoute
   '/': typeof AppIndexRoute
   '/p/$pageId': typeof AppPPageIdRoute
   '/settings/memory': typeof AppSettingsMemoryRoute
@@ -331,6 +339,7 @@ export interface FileRoutesById {
   '/oauth/callback': typeof OauthCallbackRoute
   '/oauth/metadata': typeof OauthMetadataRoute
   '/runner/pair': typeof RunnerPairRoute
+  '/runner/update': typeof RunnerUpdateRoute
   '/_app/': typeof AppIndexRoute
   '/_app/p/$pageId': typeof AppPPageIdRoute
   '/_app/settings/memory': typeof AppSettingsMemoryRoute
@@ -372,6 +381,7 @@ export interface FileRouteTypes {
     | '/oauth/callback'
     | '/oauth/metadata'
     | '/runner/pair'
+    | '/runner/update'
     | '/p/$pageId'
     | '/settings/memory'
     | '/settings/skills'
@@ -409,6 +419,7 @@ export interface FileRouteTypes {
     | '/oauth/callback'
     | '/oauth/metadata'
     | '/runner/pair'
+    | '/runner/update'
     | '/'
     | '/p/$pageId'
     | '/settings/memory'
@@ -448,6 +459,7 @@ export interface FileRouteTypes {
     | '/oauth/callback'
     | '/oauth/metadata'
     | '/runner/pair'
+    | '/runner/update'
     | '/_app/'
     | '/_app/p/$pageId'
     | '/_app/settings/memory'
@@ -483,6 +495,7 @@ export interface RootRouteChildren {
   OauthCallbackRoute: typeof OauthCallbackRoute
   OauthMetadataRoute: typeof OauthMetadataRoute
   RunnerPairRoute: typeof RunnerPairRoute
+  RunnerUpdateRoute: typeof RunnerUpdateRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiRpcSplatRoute: typeof ApiRpcSplatRoute
   McpJobToolsRoute: typeof McpJobToolsRoute
@@ -594,6 +607,13 @@ declare module '@tanstack/react-router' {
       path: '/runner/pair'
       fullPath: '/runner/pair'
       preLoaderRoute: typeof RunnerPairRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/runner/update': {
+      id: '/runner/update'
+      path: '/runner/update'
+      fullPath: '/runner/update'
+      preLoaderRoute: typeof RunnerUpdateRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/p/$pageId': {
@@ -819,6 +839,7 @@ const rootRouteChildren: RootRouteChildren = {
   OauthCallbackRoute: OauthCallbackRoute,
   OauthMetadataRoute: OauthMetadataRoute,
   RunnerPairRoute: RunnerPairRoute,
+  RunnerUpdateRoute: RunnerUpdateRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiRpcSplatRoute: ApiRpcSplatRoute,
   McpJobToolsRoute: McpJobToolsRoute,

@@ -60,7 +60,7 @@ function Runners() {
                   className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-hover"
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-[15px] font-medium">{r.name}</span>
+                    <span className="block truncate text-[15px] font-medium">{r.name}{r.runnerUpdate === "available" && <span className="ml-2 text-[12px] text-muted">Update available</span>}{r.runnerUpdate === "updating" && <span className="ml-2 text-[12px] text-muted">Updating…</span>}</span>
                     <span className="block truncate text-[13px] text-muted">{clis.length ? clis.join(" · ") : "No CLI reported yet"}</span>
                   </span>
                   <StatusDot status={r.status} />
@@ -71,7 +71,7 @@ function Runners() {
         </List>
       )}
 
-      {sheet && <RunnerSheet key={sheet.runner?.id ?? "new"} runner={sheet.runner} onClose={() => setSheet(null)} />}
+      {sheet && <RunnerSheet key={sheet.runner?.id ?? "new"} runner={sheet.runner ? runners.data?.find((r) => r.id === sheet.runner?.id) ?? sheet.runner : undefined} onClose={() => setSheet(null)} />}
     </>
   );
 }
