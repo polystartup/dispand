@@ -188,7 +188,8 @@ export async function takeItem(db: Db, job: JobIdentity, tool: string, input: un
         (item, i) => (at === undefined || i === at.index) && item.usedAt === undefined && item.tool === tool && canonical(resolveRefs(proposal.items, item.input)) === wanted,
       );
       if (index < 0) continue;
-      const items = proposal.items.map((item, i) => (i === index ? { ...item, usedAt: new Date().toISOString() } : item));
+      // Pending until its call ends (`recordOutcome`): an apply doesn't go past it meanwhile.
+      const items = proposal.items.map((item, i) => (i === index ? { ...item, usedAt: new Date().toISOString(), pending: true as const } : item));
       await tx.update(proposals).set({ items }).where(eq(proposals.id, proposal.id));
       return { proposalId: proposal.id, index };
     }
@@ -197,11 +198,16 @@ export async function takeItem(db: Db, job: JobIdentity, tool: string, input: un
 }
 
 /** Records how a used item's call ended: made (with what it created, for the items that name it), or failed. */
-export async function recordOutcome(db: Db, at: ItemAt, outcome: { done: true; createdId?: string } | { failed: true }): Promise<void> {
+export async function recordOutcome(db: Db, at: ItemAt, outcome: { createdId?: string } | { failed: true }): Promise<void> {
   await db.transaction(async (tx) => {
     const [row] = await tx.select({ items: proposals.items }).from(proposals).where(eq(proposals.id, at.proposalId)).for("update");
     if (!row) return;
-    const items = row.items.map((item, i) => (i === at.index ? { ...item, ...outcome } : item));
+    const items = row.items.map((item, i) => {
+      if (i !== at.index) return item;
+      const ended = { ...item, ...outcome };
+      delete ended.pending;
+      return ended;
+    });
     await tx.update(proposals).set({ items }).where(eq(proposals.id, at.proposalId));
   });
 }

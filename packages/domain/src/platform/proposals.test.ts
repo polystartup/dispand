@@ -622,11 +622,11 @@ test("apply waits for an item another call is still making: what comes after it 
     { tool: "tables_create", input: { name: "Matters" } },
     { tool: "tables_create", input: { name: "Invoices" } },
   ]);
-  // Item 0 taken by a call that hasn't ended: used, neither made nor refused yet.
+  // Item 0 taken by a call that hasn't ended yet.
   const [row] = await s.context.db.select().from(proposals).where(eq(proposals.id, id));
   await s.context.db
     .update(proposals)
-    .set({ items: row!.items.map((item, i) => (i === 0 ? { ...item, usedAt: new Date().toISOString() } : item)) })
+    .set({ items: row!.items.map((item, i) => (i === 0 ? { ...item, usedAt: new Date().toISOString(), pending: true as const } : item)) })
     .where(eq(proposals.id, id));
   const applied = (await s.tool("proposal_apply", { proposalId: id })) as Applied;
   expect(applied.output.items.map((i) => i.outcome)).toEqual(["being made", "not made"]);
@@ -642,4 +642,19 @@ test("applying again after a refusal never says every item is made", async () =>
   const again = (await s.tool("proposal_apply", { proposalId: id })) as Applied;
   expect(again.output.items.map((i) => i.outcome)).toEqual(["refused before"]);
   expect(again.output.next).toMatch(/^Every other item is made, but item 1 was refused before/);
+});
+
+test("an item used before items were marked pending reads as made: apply goes on after it", async () => {
+  const s = await setup();
+  const id = await approve(s, [
+    { tool: "tables_create", input: { name: "Matters" } },
+    { tool: "tables_create", input: { name: "Invoices" } },
+  ]);
+  // As a proposal stored by an earlier version keeps it: used, nothing else.
+  const [row] = await s.context.db.select().from(proposals).where(eq(proposals.id, id));
+  await s.context.db
+    .update(proposals)
+    .set({ items: row!.items.map((item, i) => (i === 0 ? { ...item, usedAt: new Date().toISOString() } : item)) })
+    .where(eq(proposals.id, id));
+  expect(outcomes(await s.tool("proposal_apply", { proposalId: id }))).toEqual(["made before", "made"]);
 });

@@ -78,7 +78,7 @@ export async function callPlatformTool(app: PlatformApp, job: JobIdentity, name:
     });
     // The item is made: what it created, for the items that name it.
     const created = taken && tool.creates?.id(output);
-    if (taken) await recordOutcome(app.db, taken, { done: true, ...(created ? { createdId: created } : {}) });
+    if (taken) await recordOutcome(app.db, taken, created ? { createdId: created } : {});
     return { ok: true, output: tool.filter ? tool.filter(output, scope) : output };
   } catch (err) {
     // A used item whose call failed: shown so, and the items naming it can't run.
@@ -113,7 +113,7 @@ function applyProposal(app: PlatformApp, job: JobIdentity, proposalId: string): 
         if (typeof items === "string") return { ok: false, error: items };
         const item = items[index]!;
         // Taken by a call still running (another apply, or a direct call): what comes after it waits for its outcome.
-        if (item.usedAt !== undefined && !item.done && !item.failed) {
+        if (item.pending) {
           outcomes.push({ $item: index, tool: item.tool, outcome: "being made" });
           stopped = `Item ${index + 1} (${item.tool}) is being made by another call`;
           continue;
