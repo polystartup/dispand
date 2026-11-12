@@ -51,9 +51,10 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
   const [outcomes, setOutcomes] = useState<Outcome[] | null>(null);
 
   async function submit() {
+    if (!preview.data) return;
     setError(null);
     try {
-      setOutcomes((await setUp.mutateAsync({ id: plugin.id, pick })).outcomes);
+      setOutcomes((await setUp.mutateAsync({ id: plugin.id, pick, reviewed: preview.data.reviewed })).outcomes);
     } catch (e) {
       setError(refusal(e, "Could not set the plugin up."));
     }
@@ -161,7 +162,7 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
                 </p>
               )}
               <div className="flex items-center gap-2">
-                <Button type="button" disabled={setUp.isPending || items.length === 0} onClick={() => void submit()}>
+                <Button type="button" disabled={setUp.isPending || preview.isFetching || items.length === 0} onClick={() => void submit()}>
                   {setUp.isPending ? "Setting up…" : "Set up"}
                 </Button>
                 <Button type="button" variant="ghost" onClick={onClose}>

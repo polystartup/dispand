@@ -6,7 +6,7 @@ import { agents as agentsTable, fields as fieldsTable, plugins, skillPackages, s
 import { agents } from "../agents/procedures.ts";
 import { fields, tables } from "../data/tables.ts";
 import { logError } from "../log.ts";
-import { CREATES, parseWithRefs, recordCreated, resolveRefs } from "../platform/proposals.ts";
+import { CREATES, parseWithRefs, recordCreated, resolveRefs, snapshotToolPermissions } from "../platform/proposals.ts";
 import type { InitialContext } from "../rpc/context.ts";
 import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
 import type { AgentDefinition, PrimitiveDefinition } from "./definitions.ts";
@@ -172,6 +172,9 @@ export async function setupItems(db: Db, ownerId: string, pluginId: string, pick
     const parsed = parseWithRefs(PROCEDURES[item.tool as SetupTool].procedure["~orpc"].inputSchema!, item.input);
     if ("error" in parsed) return { error: `Item ${i + 1} (${item.tool}): ${parsed.error}` };
     item.input = parsed.data;
+    const prepared = await snapshotToolPermissions(db, ownerId, items.slice(0, i), item);
+    if (typeof prepared === "string") return { error: `Item ${i + 1} (${item.tool}): ${prepared}` };
+    items[i] = prepared;
   }
   return { items, waiting };
 }
@@ -330,13 +333,14 @@ export function runItemsAsOwner(context: InitialContext & { ownerId: string }, p
           made.push(item);
           continue;
         }
-        const input = resolveRefs(made, item.input);
+        const input = resolveRefs(made, { ...(item.input as object), ...(item.toolPermissions ? { toolPermissions: item.toolPermissions } : {}) });
         let error: string | null = input === null ? "It names an item that created nothing" : null;
         let output: unknown;
         if (input !== null) {
           const { procedure, path } = PROCEDURES[item.tool as SetupTool];
           try {
-            output = await call(procedure as never, input as never, { context: context as never, path: [...path] });
+            const permissions = item.toolPermissions ? resolveRefs(made, item.toolPermissions) as { toolId: string; target: string }[] : undefined;
+            output = await call(procedure as never, input as never, { context: { ...context, approvedToolTargets: permissions } as never, path: [...path] });
           } catch (err) {
             if (err instanceof ORPCError) error = err.code === "NOT_FOUND" ? "Not found" : err.message;
             else {

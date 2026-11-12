@@ -6,6 +6,7 @@ import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import type { SetupPick } from "./setup.ts";
 import { fixtureRepo, lawFirmMarket } from "./test-support.ts";
+import { catalogEntry } from "../tools/catalog.ts";
 
 const ALL = { primitives: ["Clients", "Matters", "Research"] };
 
@@ -20,7 +21,10 @@ async function installed(skills: string[] = []) {
 
 type Ctx = Awaited<ReturnType<typeof installed>>["ctx"];
 
-const setUp = (ctx: Ctx, id: string, pick: SetupPick = ALL) => call(router.plugins.setUp, { id, pick }, { context: ctx });
+const setUp = async (ctx: Ctx, id: string, pick: SetupPick = ALL) => {
+  const { reviewed } = await call(router.plugins.setupPreview, { id, pick }, { context: ctx });
+  return call(router.plugins.setUp, { id, pick, reviewed }, { context: ctx });
+};
 const tableNamed = async (ctx: Ctx, name: string) => (await call(router.tables.list, undefined, { context: ctx })).find((t) => t.name === name);
 const createdOf = async (ctx: Ctx, id: string) => (await ctx.db.select({ created: pluginsTable.created }).from(pluginsTable).where(eq(pluginsTable.id, id)))[0]!.created;
 
@@ -163,6 +167,24 @@ const agentNamed = async (ctx: Ctx, name: string) => {
   const agent = (await call(router.agents.list, undefined, { context: ctx })).find((a) => a.name === name)!;
   return call(router.agents.get, { id: agent.id }, { context: ctx });
 };
+
+test("plugin setup shows the exact tool permissions and refuses a changed preview before making anything", async () => {
+  const { ctx, pluginId, remove } = await installed();
+  try {
+    const harnessId = await cloudHarness(ctx);
+    const action = catalogEntry("gmail")!.unasked![0]!;
+    await ctx.db.insert(toolsTable).values({ id: "tool_gmail", ownerId: ctx.ownerId, name: "Gmail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", catalogId: "gmail", actions: [{ name: action, description: "Read", inputSchema: { type: "object" }, readOnly: true }] });
+    const pick = { ...ALL, agents: [{ name: "Drafting", harnessId }] };
+    const before = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
+    expect(before.items.at(-1)!.tools).toEqual([{ toolId: "tool_gmail", runs: [action] }]);
+    await ctx.db.update(toolsTable).set({ actions: [] }).where(eq(toolsTable.id, "tool_gmail"));
+    await expect(call(router.plugins.setUp, { id: pluginId, pick, reviewed: before.reviewed }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await tableNamed(ctx, "Clients")).toBeUndefined();
+    const after = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
+    expect(after.items.at(-1)!.tools).toEqual([{ toolId: "tool_gmail", runs: [] }]);
+    expect((await call(router.plugins.setUp, { id: pluginId, pick, reviewed: after.reviewed }, { context: ctx })).outcomes.every((o) => o.outcome === "made")).toBe(true);
+  } finally { remove(); }
+});
 
 test("the fixture's agents are set up as copies with their tables, skill package, tools and consults", async () => {
   const { ctx, pluginId, remove } = await installed(["legal-research"]);

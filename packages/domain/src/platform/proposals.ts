@@ -3,11 +3,12 @@ import { randomBytes } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agents, type CREATED_KINDS, fields, harnesses, plugins, proposals, runners, skillPackages, tables, tools as toolsTable, triggers, type PluginCreated, type ProposalItem } from "../db/schema.ts";
+import { agents, agentTools, type CREATED_KINDS, fields, harnesses, plugins, proposals, runners, skillPackages, tables, tools as toolsTable, triggers, type PluginCreated, type ProposalItem } from "../db/schema.ts";
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
 import { canonical } from "./approvals.ts";
-import { catalogEntry } from "../tools/catalog.ts";
+import { catalogEntry, defaultUnasked } from "../tools/catalog.ts";
+import { toolPermissionTarget } from "../agents/tool-ask.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
 import type { JobIdentity } from "./call.ts";
@@ -100,6 +101,54 @@ export function parseWithRefs(schema: z.ZodType, input: unknown): { data: unknow
   return { data: kept };
 }
 
+/** Freeze an agent item's effective permissions when it is prepared, on the caller's proposal/setup span. */
+export async function snapshotToolPermissions(db: Db, ownerId: string, prior: ProposalItem[], item: ProposalItem): Promise<ProposalItem | string> {
+  if (item.tool !== "agents_create" && item.tool !== "agents_update") return item;
+  type Ref = string | ItemRef;
+  const input = item.input as { id?: Ref; toolIds: Ref[]; toolPermissions?: { toolId: Ref; unasked: string[] }[] };
+  const ids = input.toolIds ?? [];
+  const given = input.toolPermissions ?? [];
+  if (given.some((p) => p.unasked.some((name) => typeof name !== "string"))) return "An unasked action must be a literal action name";
+  const key = (id: Ref) => canonical(id);
+  if (given.some((p) => !ids.some((id) => key(id) === key(p.toolId)))) return "Each tool permission must name a chosen tool";
+  if (new Set(given.map((p) => key(p.toolId))).size !== given.length) return "List each tool's permissions once";
+  const direct = ids.filter((id): id is string => typeof id === "string");
+  const found = direct.length ? await db.select().from(toolsTable).where(and(inArray(toolsTable.id, direct), eq(toolsTable.ownerId, ownerId))) : [];
+  // An update keeps existing grants, including one an earlier item of this setup writes.
+  let kept = new Map<string, string[]>();
+  if (item.tool === "agents_update") {
+    const earlier = prior.findLast((p, i) =>
+      (p.tool === "agents_create" && isRef(input.id) && input.id.$item === i) ||
+      (p.tool === "agents_update" && canonical((p.input as { id?: Ref }).id) === canonical(input.id)),
+    );
+    if (earlier) kept = new Map((earlier.toolPermissions ?? []).map((p) => [key(p.toolId), p.unasked]));
+    else if (typeof input.id === "string") {
+      const rows = await db.select({ toolId: agentTools.toolId, unasked: agentTools.unasked }).from(agentTools).innerJoin(agents, eq(agents.id, agentTools.agentId)).where(and(eq(agents.id, input.id), eq(agents.ownerId, ownerId)));
+      kept = new Map(rows.map((p) => [key(p.toolId), p.unasked]));
+    }
+  }
+  const toolPermissions = ids.map((toolId) => {
+    let defaults: string[] = [];
+    let target = "unavailable";
+    if (typeof toolId === "string") {
+      const tool = found.find((t) => t.id === toolId);
+      if (tool) { defaults = defaultUnasked(tool); target = toolPermissionTarget(tool); }
+    } else {
+      const source = prior[toolId.$item];
+      if (source?.tool === "tools_add_from_catalog") {
+        const entry = catalogEntry((source.input as { catalogId: string }).catalogId);
+        defaults = [...(entry?.unasked ?? [])];
+        if (entry?.kind === "http") target = toolPermissionTarget({ kind: "http", url: entry.url, transport: entry.transport });
+      } else if (source?.tool === "tools_add") {
+        const fields = source.input as { url: string; transport?: string };
+        target = toolPermissionTarget({ kind: "http", url: fields.url, transport: fields.transport ?? "streamable-http" });
+      }
+    }
+    return { toolId, unasked: given.find((p) => key(p.toolId) === key(toolId))?.unasked ?? kept.get(key(toolId)) ?? defaults, target };
+  });
+  return { ...item, toolPermissions };
+}
+
 /** The agent an item would change and how, for the Assistant's guard; null for any other write. */
 async function agentChangeOf(db: Db, ownerId: string, tool: string, input: unknown): Promise<[string, AgentChange] | null> {
   // Parsed by the tool's own schema: these keys have these types.
@@ -177,7 +226,9 @@ export async function createProposal(db: Db, job: JobIdentity, tools: PlatformTo
     const kept = restoreRefs(given.data, placeholders);
     // A reference stands only where its text was kept whole: an id, not inside another text.
     if (!everyString(kept, (s) => !s.includes(nonce))) return { error: `${at}: a reference stands only where an id goes` };
-    items.push({ tool: tool.name, input: kept });
+    const prepared = await snapshotToolPermissions(db, job.ownerId, items, { tool: tool.name, input: kept });
+    if (typeof prepared === "string") return { error: `${at}: ${prepared}` };
+    items.push(prepared);
   }
   if (!everyString([items, parsed.data.plugin ?? ""], storable)) return { error: "The proposal holds a character Dispand can't store (NUL or a lone surrogate)" };
   if (Buffer.byteLength(JSON.stringify(items)) > MAX_BYTES) return { error: "The proposal is too large to show whole (at most 64 KiB): make several, or shorten the texts" };
@@ -187,7 +238,7 @@ export async function createProposal(db: Db, job: JobIdentity, tools: PlatformTo
 }
 
 /** An item of a proposal, by its index. */
-export type ItemAt = { proposalId: string; index: number };
+export type ItemAt = { proposalId: string; index: number; toolPermissions?: { toolId: string; unasked: string[]; target: string }[] };
 
 /**
  * Uses up one approved write of the Job: an item of one of its approved proposals (or the one
@@ -214,13 +265,17 @@ export async function takeItem(db: Db, job: JobIdentity, tool: string, input: un
       .for("update");
     for (const proposal of approved) {
       const index = proposal.items.findIndex(
-        (item, i) => (at === undefined || i === at.index) && item.usedAt === undefined && item.tool === tool && canonical(resolveRefs(proposal.items, item.input)) === wanted,
+        (item, i) => (at === undefined || i === at.index) && item.usedAt === undefined && item.tool === tool &&
+          // Old unconsumed agent grants did not record what runs unasked: propose those again.
+          (!(tool === "agents_create" || tool === "agents_update") || !(item.input as { toolIds?: unknown[] })?.toolIds?.length || item.toolPermissions !== undefined) &&
+          canonical(resolveRefs(proposal.items, item.input)) === wanted,
       );
       if (index < 0) continue;
       // Pending until its call ends (`recordOutcome`): an apply doesn't go past it meanwhile.
       const items = proposal.items.map((item, i) => (i === index ? { ...item, usedAt: new Date().toISOString(), pending: true as const } : item));
       await tx.update(proposals).set({ items }).where(eq(proposals.id, proposal.id));
-      return { proposalId: proposal.id, index };
+      const permissions = proposal.items[index]!.toolPermissions;
+      return { proposalId: proposal.id, index, ...(permissions ? { toolPermissions: resolveRefs(proposal.items, permissions) as ItemAt["toolPermissions"] } : {}) };
     }
     return null;
   });
@@ -480,7 +535,7 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
     (r) => ({ name: r.name, detail: `of the agent ${r.agent}` }),
   );
   return {
-    items: items.map(({ tool, input, usedAt, createdId, failed }) => ({
+    items: items.map(({ tool, input, usedAt, createdId, failed, toolPermissions }) => ({
       tool,
       input,
       used: usedAt !== undefined,
@@ -488,6 +543,7 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
       refs: Object.keys(REFS[tool] ?? {}),
       creates: createsOf(tool) ?? null,
       createdId: createdId ?? null,
+      ...(toolPermissions ? { tools: toolPermissions.map((p) => ({ toolId: p.toolId, runs: p.unasked })) } : {}),
     })),
     names,
   };

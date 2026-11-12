@@ -40,6 +40,7 @@ function mount(p: object = plugin) {
 test("every table is ticked, what is missing is shown as a proposal's items, and a stopped run says what stopped it", async () => {
   fake.harnesses.list.mockResolvedValue([]);
   fake.plugins.setupPreview.mockResolvedValue({
+    reviewed: "reviewed-setup",
     items: [
       { tool: "tables_create", input: { name: "Matters" }, used: false, failed: false, refs: [], creates: "table", createdId: null },
       { tool: "fields_create", input: { tableId: { $item: 0 }, name: "Clients", type: "reference", referencesTableId: "tbl_1" }, used: false, failed: false, refs: ["tableId", "referencesTableId"], creates: "field", createdId: null },
@@ -65,7 +66,7 @@ test("every table is ticked, what is missing is shown as a proposal's items, and
   expect(screen.getByRole("list", { name: "Not made" }).textContent).toContain("Every table has a Name field already");
 
   await userEvent.click(screen.getByRole("button", { name: "Set up" }));
-  expect(fake.plugins.setUp.mock.calls[0]![0]).toEqual({ id: "plugin_1", pick: { primitives: ["Clients", "Matters"] } });
+  expect(fake.plugins.setUp.mock.calls[0]![0]).toEqual({ id: "plugin_1", pick: { primitives: ["Clients", "Matters"] }, reviewed: "reviewed-setup" });
   const made = await screen.findByRole("region", { name: "What was made" });
   expect(made.textContent).toContain("Table Matters: refused");
   expect(made.textContent).toContain("A table is already called “Matters”");
@@ -78,7 +79,7 @@ test("agents not set up yet are ticked, each on the first harness of the kind it
     { id: "harness_cli", name: "Claude Code", type: "cli" },
     { id: "harness_cloud", name: "Claude API", type: "cloud" },
   ]);
-  fake.plugins.setupPreview.mockResolvedValue({ items: [{ tool: "agents_create", input: { name: "Drafting", harnessId: "harness_cloud" }, used: false, failed: false, refs: ["harnessId"], creates: "agent", createdId: null }], names: {}, waiting: [] });
+  fake.plugins.setupPreview.mockResolvedValue({ reviewed: "reviewed-agents", items: [{ tool: "agents_create", input: { name: "Drafting", harnessId: "harness_cloud" }, used: false, failed: false, refs: ["harnessId"], creates: "agent", createdId: null }], names: {}, waiting: [] });
   fake.plugins.setUp.mockResolvedValue({ outcomes: [{ $item: 0, tool: "agents_create", from: "agent:Drafting", outcome: "made", id: "agent_1" }], waiting: [] });
   mount({
     ...plugin,

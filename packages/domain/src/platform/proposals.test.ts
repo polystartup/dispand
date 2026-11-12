@@ -9,6 +9,8 @@ import type { Bundle } from "./bundles.ts";
 import { callPlatformTool, toolsOf, type JobIdentity } from "./call.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { PLATFORM_TOOLS } from "./tools.ts";
+import { proposalView } from "./proposals.ts";
+import { retarget } from "../tools/procedures.ts";
 
 /** An agent with `bundles`, a Job of it still going, and what its tools answer. */
 async function setup(bundles: Bundle[] = ["configure"]) {
@@ -41,6 +43,89 @@ async function setup(bundles: Bundle[] = ["configure"]) {
 }
 
 const NEEDS = /needs the owner's approval/;
+
+test.each([undefined, ["send_email"]])("agent setup shows and writes the approved unasked actions, even if defaults change: %j", async (unasked) => {
+  const s = await setup();
+  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, name: "Mail", kind: "runner", runnerId: s.harness.runnerId, runnerTool: "mail", catalogId: "gmail-runner" });
+  const input = { ...s.newAgent, toolIds: ["tool_mail"], ...(unasked ? { toolPermissions: [{ toolId: "tool_mail", unasked }] } : {}) };
+  const id = s.idOf(await s.propose([{ tool: "agents_create", input }]));
+  const view = await proposalView(s.context.db, s.context.ownerId, id);
+  const shown = view!.items[0]!.tools![0]!;
+  expect(shown.toolId).toBe("tool_mail");
+  if (unasked) expect(shown.runs).toEqual(unasked);
+  else {
+    expect(shown.runs).toEqual(expect.arrayContaining(["search_emails", "read_email", "draft_email"]));
+    expect(shown.runs).not.toContain("send_email");
+  }
+  await s.settle(id, "approved");
+  expect(await s.tool("agents_create", { ...input, toolPermissions: [{ toolId: "tool_mail", unasked: ["delete_email"] }] })).toMatchObject({ ok: false });
+  // Discovery/default changes between approval and execution cannot change the grant.
+  await s.context.db.update(toolsTable).set({ catalogId: null, actions: [] }).where(eq(toolsTable.id, "tool_mail"));
+  const made = await s.tool("agents_create", input) as { ok: boolean; output: { id: string } };
+  expect(made.ok).toBe(true);
+  const [saved] = await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, made.output.id));
+  expect(saved!.unasked).toEqual(shown.runs);
+});
+
+test("permissions can name a tool an earlier item creates", async () => {
+  const s = await setup();
+  expect(await s.propose([
+    { tool: "tools_add_from_catalog", input: { catalogId: "firecrawl" } },
+    { tool: "agents_create", input: { ...s.newAgent, toolIds: [{ $item: 0 }], toolPermissions: [{ toolId: { $item: 0 }, unasked: [{ $item: 0 }] }] } },
+  ])).toMatchObject({ ok: false, error: expect.stringContaining("literal action name") });
+  const id = s.idOf(await s.propose([
+    { tool: "tools_add_from_catalog", input: { catalogId: "firecrawl" } },
+    { tool: "agents_create", input: { ...s.newAgent, toolIds: [{ $item: 0 }], toolPermissions: [{ toolId: { $item: 0 }, unasked: ["firecrawl_scrape"] }] } },
+  ]));
+  expect((await proposalView(s.context.db, s.context.ownerId, id))!.items[1]!.tools).toEqual([{ toolId: { $item: 0 }, runs: ["firecrawl_scrape"] }]);
+  await s.settle(id, "approved");
+  expect(await s.tool("proposal_apply", { proposalId: id })).toMatchObject({ ok: true });
+  const [created] = await s.context.db.select().from(agents).where(eq(agents.name, "Clerk"));
+  expect(created).toBeDefined();
+  expect((await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, created!.id)))[0]!.unasked).toEqual(["firecrawl_scrape"]);
+});
+
+test.each([["agents_create", false], ["agents_create", true], ["agents_update", false], ["agents_update", true]] as const)("%s cannot restore an approved grant after retargeting (back to original: %s)", async (toolName, back) => {
+  const s = await setup();
+  const first = await startFakeMcp([{ name: "read_email", description: "Read", annotations: { readOnlyHint: true } }]);
+  const second = await startFakeMcp([{ name: "read_email", description: "Read", annotations: { readOnlyHint: true } }]);
+  onTestFinished(async () => { await first.close(); await second.close(); });
+  const tool = await call(router.tools.create, { name: "Mail", url: first.url, transport: "streamable-http", headers: {} }, { context: s.context });
+  const existing = await call(router.agents.create, { name: "Existing", harnessId: s.harness.id, systemPrompt: "", toolIds: [tool.id], toolPermissions: [{ toolId: tool.id, unasked: ["read_email"] }] }, { context: s.context });
+  const input = { ...s.newAgent, toolIds: [tool.id], ...(toolName === "agents_update" ? { id: existing.id } : {}) };
+  const id = s.idOf(await s.propose([{ tool: toolName, input }]));
+  await s.settle(id, "approved");
+  await call(router.tools.update, { id: tool.id, url: second.url }, { context: s.context });
+  if (back) {
+    const [current] = await s.context.db.select().from(toolsTable).where(eq(toolsTable.id, tool.id));
+    await retarget(s.context.db, current!, first.url, "streamable-http");
+  }
+  expect(await s.tool(toolName, input)).toMatchObject({ ok: false, error: expect.stringContaining("changed") });
+  expect((await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, existing.id)))[0]!.unasked).toEqual([]);
+});
+
+test("agent updates show retained permissions and reject permissions for tools outside the chosen list", async () => {
+  const s = await setup();
+  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http" });
+  const input = { ...s.newAgent, bundles: ["data"] as Bundle[], dataTables: "all" as const, toolIds: ["tool_mail"], toolPermissions: [{ toolId: "tool_mail", unasked: ["send_email"] }] };
+  const agent = await call(router.agents.create, input, { context: s.context });
+  const update = { ...s.newAgent, id: agent.id, toolIds: ["tool_mail"] };
+  const id = s.idOf(await s.propose([{ tool: "agents_update", input: update }]));
+  expect((await proposalView(s.context.db, s.context.ownerId, id))!.items[0]!.tools).toEqual([{ toolId: "tool_mail", runs: ["send_email"] }]);
+  await s.settle(id, "approved");
+  expect(await s.tool("agents_update", update)).toMatchObject({ ok: true });
+  const first = { ...update, toolPermissions: [{ toolId: "tool_mail", unasked: ["read_email"] }] };
+  const chain = s.idOf(await s.propose([{ tool: "agents_update", input: first }, { tool: "agents_update", input: update }]));
+  expect((await proposalView(s.context.db, s.context.ownerId, chain))!.items.map((item) => item.tools)).toEqual([
+    [{ toolId: "tool_mail", runs: ["read_email"] }], [{ toolId: "tool_mail", runs: ["read_email"] }],
+  ]);
+  await s.settle(chain, "approved");
+  expect(await s.tool("proposal_apply", { proposalId: chain })).toMatchObject({ ok: true });
+  expect((await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, agent.id)))[0]!.unasked).toEqual(["read_email"]);
+  const invalid = { ...input, toolIds: [] };
+  expect(await s.propose([{ tool: "agents_create", input: invalid }])).toMatchObject({ ok: false, error: expect.stringContaining("chosen tool") });
+  await expect(call(router.agents.create, invalid, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+});
 
 test("propose stores the listed writes as they parse, as a draft, and says what to do next", async () => {
   const s = await setup();

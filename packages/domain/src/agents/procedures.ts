@@ -15,7 +15,7 @@ import { assistantGuard, ensureAssistant, findAssistant } from "./builtin.ts";
 import { consultsOf, pairProblem, setConsults, type ConsultEntry } from "./consults.ts";
 import { lockConsults } from "../engine/consults.ts";
 import { skillsAndTools } from "./skills-and-tools.ts";
-import { setAsk } from "./tool-ask.ts";
+import { setAsk, toolPermissionTarget } from "./tool-ask.ts";
 import { effectiveTools } from "./tools.ts";
 
 const owner = base.use(authed);
@@ -47,6 +47,8 @@ export const AgentFields = z.object({
   skillPackageIds: Ids,
   /** Tools chosen for the agent itself, besides the ones its packages require. */
   toolIds: Ids,
+  /** Exact actions that run without asking; omitted tools keep their permission or start with their defaults. */
+  toolPermissions: z.array(z.object({ toolId: z.string().max(64), unasked: z.array(StorableText(1000).min(1)).max(2000).transform((names) => [...new Set(names)]) })).max(50).optional(),
   /** What its Jobs may do through Dispand's own tools; left out of an update, they stay as they are. */
   bundles: z
     .array(z.enum(BUNDLES))
@@ -123,7 +125,9 @@ async function find(db: Db, ownerId: string, id: string) {
  * are locked (shared) so a package or tool can't be deleted while it is being attached. Every
  * runner tool it gets, a skill's required ones included, must run on the harness's runner.
  */
-async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: string[], toolIds: string[], harnessRunnerId: string | null) {
+async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: string[], toolIds: string[], harnessRunnerId: string | null, permissions: { toolId: string; unasked: string[] }[] = [], targets?: { toolId: string; target: string }[]) {
+  if (permissions.some((p) => !toolIds.includes(p.toolId))) throw new ORPCError("BAD_REQUEST", { message: "Each tool permission must name a chosen tool" });
+  if (new Set(permissions.map((p) => p.toolId)).size !== permissions.length) throw new ORPCError("BAD_REQUEST", { message: "List each tool's permissions once" });
   const pkgs = packageIds.length
     ? await tx
         .select({ id: skillPackages.id, name: skillPackages.name, requiredToolIds: skillPackages.requiredToolIds })
@@ -134,12 +138,13 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
   if (pkgs.length !== packageIds.length) throw new ORPCError("NOT_FOUND", { message: "Skill not found" });
   const found = toolIds.length
     ? await tx
-        .select({ id: toolsTable.id, actions: toolsTable.actions, catalogId: toolsTable.catalogId })
+        .select({ id: toolsTable.id, actions: toolsTable.actions, catalogId: toolsTable.catalogId, kind: toolsTable.kind, url: toolsTable.url, urlSealed: toolsTable.urlSealed, transport: toolsTable.transport, runnerId: toolsTable.runnerId, runnerTool: toolsTable.runnerTool, permissionRevision: toolsTable.permissionRevision })
         .from(toolsTable)
         .where(and(inArray(toolsTable.id, toolIds), eq(toolsTable.ownerId, ownerId)))
         .for("share")
     : [];
   if (found.length !== toolIds.length) throw new ORPCError("NOT_FOUND", { message: "Tool not found" });
+  if (targets && found.some((tool) => targets.find((t) => t.toolId === tool.id)?.target !== toolPermissionTarget(tool))) throw new ORPCError("CONFLICT", { message: "A tool changed since this setup was reviewed: propose or review the setup again" });
   const effective = effectiveTools(toolIds, pkgs).map((t) => t.toolId);
   const runnerTools = effective.length
     ? await tx
@@ -162,7 +167,7 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
       toolIds.map((toolId) => ({
         agentId,
         toolId,
-        unasked: kept.get(toolId) ?? defaultUnasked(found.find((t) => t.id === toolId)!),
+        unasked: permissions.find((p) => p.toolId === toolId)?.unasked ?? kept.get(toolId) ?? defaultUnasked(found.find((t) => t.id === toolId)!),
       })),
     );
   }
@@ -191,7 +196,7 @@ async function withSkillsAndTools(db: Db, row: Row) {
 }
 
 const create = owner.input(AgentFields).handler(async ({ input, context }) => {
-  const { skillPackageIds, toolIds, bundles, selfLearning, consults: entries, ...fields } = input;
+  const { skillPackageIds, toolIds, toolPermissions, bundles, selfLearning, consults: entries, ...fields } = input;
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
   const dataTables = await ownTables(context.db, context.ownerId, input.dataTables);
   const row = await context.db.transaction(async (tx) => {
@@ -199,7 +204,7 @@ const create = owner.input(AgentFields).handler(async ({ input, context }) => {
       .insert(agentsTable)
       .values({ ...fields, model: fields.model ?? null, bundles: bundles ?? [], selfLearning: selfLearning ?? [], dataTables: dataTables ?? "all", id: newId("agent"), ownerId: context.ownerId })
       .returning();
-    await attach(tx, context.ownerId, row!.id, skillPackageIds, toolIds, harness.runnerId);
+    await attach(tx, context.ownerId, row!.id, skillPackageIds, toolIds, harness.runnerId, toolPermissions, context.approvedToolTargets);
     await consults(tx, context.ownerId, row!.id, entries);
     return row!;
   });
@@ -207,7 +212,7 @@ const create = owner.input(AgentFields).handler(async ({ input, context }) => {
 });
 
 const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async ({ input, context }) => {
-  const { id, skillPackageIds, toolIds, bundles, selfLearning, consults: entries, ...fields } = input;
+  const { id, skillPackageIds, toolIds, toolPermissions, bundles, selfLearning, consults: entries, ...fields } = input;
   await find(context.db, context.ownerId, id);
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
   const dataTables = await ownTables(context.db, context.ownerId, input.dataTables);
@@ -221,7 +226,7 @@ const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async
       .where(and(eq(agentsTable.id, id), eq(agentsTable.ownerId, context.ownerId)))
       .returning();
     if (!row) throw new ORPCError("NOT_FOUND");
-    await attach(tx, context.ownerId, id, skillPackageIds, toolIds, harness.runnerId);
+    await attach(tx, context.ownerId, id, skillPackageIds, toolIds, harness.runnerId, toolPermissions, context.approvedToolTargets);
     await consults(tx, context.ownerId, id, entries);
     // A right taken back (an entry removed, a flag added, a bundle change across `configure`) ends the consults in flight on it, at once.
     return { row, ended: await context.engine.endConsults(tx, context.ownerId, [id]) };

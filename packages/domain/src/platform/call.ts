@@ -142,8 +142,9 @@ async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, i
     seen.taken = taken;
     if (!taken && at) return refuse("item-used", ITEM_USED);
     if (!taken && tool.grant) return refuse("needs-proposal", NEEDS_PROPOSAL);
-    const output = await call(procedureOf(router, tool.path) as never, parsed.data as never, {
-      context: { ...app, job, headers: new Headers(), resHeaders: new Headers() } as never,
+    const approvedInput = taken?.toolPermissions ? { ...(parsed.data as object), toolPermissions: taken.toolPermissions } : parsed.data;
+    const output = await call(procedureOf(router, tool.path) as never, approvedInput as never, {
+      context: { ...app, job, approvedToolTargets: taken?.toolPermissions?.map((p) => ({ toolId: p.toolId, target: p.target })), headers: new Headers(), resHeaders: new Headers() } as never,
       // The procedure's name, for its span: a call in process has none of its own.
       path: tool.path.split("."),
     });

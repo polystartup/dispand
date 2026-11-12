@@ -562,7 +562,7 @@ export type QuestionKind = "question" | "approval" | "consult";
  * definition it is made from (`primitive:<name>`, `field:<table>.<field>`), recorded in the
  * plugin's `created.from` with what it creates.
  */
-export type ProposalItem = { tool: string; input: unknown; from?: string; usedAt?: string; pending?: true; createdId?: string; failed?: true };
+export type ProposalItem = { tool: string; input: unknown; from?: string; usedAt?: string; pending?: true; createdId?: string; failed?: true; toolPermissions?: { toolId: string | { $item: number }; unasked: string[]; target: string }[] };
 
 /**
  * Proposals (`platform/proposals.ts`): the writes a Job's agent asks a person to approve
@@ -1006,6 +1006,8 @@ export const tools = pgTable(
     // `http`: Dispand reaches it at `url`. `runner`: a runner runs it, the MCP server named
     // `runnerTool` in that runner's own config; Dispand never knows its command.
     kind: text("kind").$type<"http" | "runner">().notNull(),
+    // Retargeting invalidates reviewed grants, even when the tool is later pointed back.
+    permissionRevision: integer("permission_revision").notNull().default(0),
     // With `urlSealed`, the URL's template (with its `${VAR}` placeholders), shown in place of it. Null for a runner tool.
     url: text("url"),
     // A URL holding secrets (a plugin server's `${VAR}` filled in), sealed with them as JSON
