@@ -39,7 +39,7 @@ const componentLabels: Record<Preview["notImported"][number]["component"], strin
 
 const box = "mt-1 size-4 accent-[var(--color-accent)]";
 
-function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+export function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
     <section aria-labelledby={id} className="space-y-2">
       <h3 id={id} className="text-[13px] font-medium text-muted">
@@ -89,13 +89,13 @@ export function PluginInstallSheet({ marketplaceId, entryName, onClose }: { mark
 }
 
 /** A set with `name` toggled. */
-function toggled(set: Set<string>, name: string): Set<string> {
+export function toggled(set: Set<string>, name: string): Set<string> {
   const next = new Set(set);
   if (!next.delete(name)) next.add(name);
   return next;
 }
 
-function Check({ checked, onChange, label, detail, mono }: { checked: boolean; onChange: () => void; label: string; detail: string; mono?: boolean }) {
+export function Check({ checked, onChange, label, detail, mono }: { checked: boolean; onChange: () => void; label: string; detail: string; mono?: boolean }) {
   return (
     <label className="flex cursor-pointer items-start gap-2.5 rounded-lg px-2 py-1.5 transition hover:bg-hover">
       <input type="checkbox" checked={checked} onChange={onChange} className={box} />

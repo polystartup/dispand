@@ -29,6 +29,8 @@ import { agentName, hasPlaceholder, httpTool, toolName } from "./components.ts";
 import { fetchGit, GitError } from "./git.ts";
 import { BUILT_IN_MARKETPLACES, MarketplaceError, type MarketplaceEntry, type MarketplaceKind, parseMarketplace } from "./marketplace.ts";
 import { readWellKnownIndex, readWellKnownSkills, WellKnownError, wellKnownIndexUrl } from "./well-known.ts";
+import { itemsView } from "../platform/proposals.ts";
+import { runItemsAsOwner, SetupPick, setupItems } from "./setup.ts";
 import { componentsOf, PluginError, type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
 
 const owner = base.use(authed);
@@ -644,5 +646,25 @@ const update = owner.input(Id).handler(async ({ input, context }) => {
   return { sha };
 });
 
+const SetupInput = z.object({ id: z.string(), pick: SetupPick });
+
+/** The items `setUp` would make now, in words as a proposal shows them, and what can't be made yet. */
+const setupPreview = owner.input(SetupInput).handler(async ({ input, context }) => {
+  const setup = await setupItems(context.db, context.ownerId, input.id, input.pick);
+  if ("error" in setup) throw new ORPCError("BAD_REQUEST", { message: setup.error });
+  return { ...(await itemsView(context.db, context.ownerId, setup.items)), waiting: setup.waiting };
+});
+
+/**
+ * Sets up the definitions picked: the same items an approved proposal would make, made by the
+ * owner, who is the person approving. Stops at the first refusal; the next run resumes.
+ */
+const setUp = owner.input(SetupInput).handler(async ({ input, context }) => {
+  const setup = await setupItems(context.db, context.ownerId, input.id, input.pick);
+  if ("error" in setup) throw new ORPCError("BAD_REQUEST", { message: setup.error });
+  const { outcomes } = await runItemsAsOwner(context, input.id, setup.items);
+  return { outcomes, waiting: setup.waiting };
+});
+
 export const marketplaces = { list: listMarketplaces, add: addMarketplace, remove: removeMarketplace, sync };
-export const plugins = { discover, preview, install, list, uninstall, update };
+export const plugins = { discover, preview, install, list, uninstall, update, setupPreview, setUp };

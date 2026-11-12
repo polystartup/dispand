@@ -1157,6 +1157,16 @@
   on install: what is set up from one is the owner's, listed in `plugins.created` (by kind, and
   under `from` by definition key, `primitive:<name>`, `agent:<name>`, `trigger:<name>`), and
   `plugins.list` names it for every plugin and marks each definition whose row still exists.
+  `plugins/setup.ts` sets tables up from definitions: `setupItems` turns those picked into
+  proposal items (every `tables_create`, then every `fields_create`, then each
+  `tables_set_primitive`, with `{ "$item": n }` where an id goes, each parsed by its procedure's
+  input through `parseWithRefs`, as a proposal's are). What `created.from` records is reused by
+  id while its row exists; a name of one of the plugin's tables never binds by name, and any
+  other table name finds the workspace's table or waits (`waiting`). `plugins.setupPreview` shows
+  the items through `itemsView` (`proposalView`'s naming) and `plugins.setUp` makes them as the
+  owner (`runItemsAsOwner`: each through its procedure with the owner's own context, stopping at
+  the first refusal, every id recorded with `recordCreated`, which `recordInPlugin` uses too; span
+  `plugins.setup`, metric `dispand.plugins.setups`). Both are owner-only and not tools.
   `plugins.update` syncs the marketplace, then replaces the imported skills' files with the
   entry's current commit and the definitions with its current ones, leaving what was set up from
   them as it is;
