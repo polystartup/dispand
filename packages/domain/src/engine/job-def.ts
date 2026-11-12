@@ -41,6 +41,10 @@ export function jobSystemPrompt(agent: { builtIn: string | null; systemPrompt: s
   return agent.systemPrompt.trim() ? `${ASSISTANT_PROMPT}\n\n${agent.systemPrompt}` : ASSISTANT_PROMPT;
 }
 
+/** What a Job the owner started from their browser is told of their time zone, so the times it gives them are theirs. */
+export const timezonePrompt = (timezone: string) =>
+  `The owner's time zone is ${timezone}. Give every time you tell them in it, with the zone's name when useful, never in UTC: convert the UTC times your tools return.`;
+
 /** What a poll trigger's Job is told of its item, filled from the trigger node's outputs. */
 export const POLL_PROMPT = ["The item that started this Job (id {{trigger.item_id}}):", "{{trigger.item}}"].join("\n");
 

@@ -138,6 +138,21 @@ test("an empty memory adds nothing to the prompt", async () => {
   expect((await job()).systemPrompt).toBe("Be brief.");
 });
 
+test("a Job started from the owner's browser is told their time zone, between the instructions and the memory", async () => {
+  const { context, agent, adapter, engine, write } = await setup();
+  await write({ scope: "agent", agentId: agent.id }, "habits.md", "Sort by date.");
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } }, { context });
+  const runId = await engine.startJob(trigger.id, context.ownerId, "Europe/Paris");
+  const prompt = adapter.starts.at(-1)!.start.systemPrompt!;
+  expect(prompt).toMatch(/^Be brief\.\n\nThe owner's time zone is Europe\/Paris\. .*never in UTC.*\n\n# Memory\n\n/s);
+  const [run] = await context.db.select({ trigger: runs.trigger }).from(runs).where(eq(runs.id, runId));
+  expect(run!.trigger).toEqual({ type: "manual", timezone: "Europe/Paris" });
+  // A start with no zone has no such line, and the API refuses a zone that doesn't exist.
+  await engine.startJob(trigger.id, context.ownerId);
+  expect(adapter.starts.at(-1)!.start.systemPrompt).not.toContain("time zone");
+  await expect(call(router.jobs.start, { triggerId: trigger.id, timezone: "Mars/Olympus" }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+});
+
 test("reading a Job's memory is traced and counted, with counts and never its content", async () => {
   const { agent, write, job } = await setup();
   const t = await captureTelemetry();
