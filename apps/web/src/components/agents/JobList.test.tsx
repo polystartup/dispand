@@ -16,7 +16,7 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-const job = (id: string, triggerId: string | null, status: string, createdAt: string) => ({
+const job = (id: string, triggerId: string | null, status: string, createdAt: string, title: string | null = null) => ({
   id,
   source: "agent",
   workflowId: null,
@@ -28,6 +28,8 @@ const job = (id: string, triggerId: string | null, status: string, createdAt: st
   error: null,
   createdAt: new Date(createdAt),
   finishedAt: status === "succeeded" ? new Date(createdAt) : null,
+  queued: false,
+  title,
 });
 
 function mount() {
@@ -47,6 +49,15 @@ test("JobList shows the agent's Jobs newest first with their trigger name", asyn
   expect(rows.map((r) => r.textContent)).toEqual([expect.stringContaining("Morning mail"), expect.stringContaining("Deleted trigger")]);
   expect(rows[0]!.textContent).toContain("running");
   expect(fake.runs.list.mock.calls[0]![0]).toEqual({ agentId: "agent_1" });
+});
+
+test("JobList names a chat Job by its first message", async () => {
+  fake.runs.list.mockResolvedValue([job("run_1", "trigger_1", "running", "2026-11-05T10:00:00Z", "Which agents touch Matters?")]);
+  fake.triggers.list.mockResolvedValue([{ id: "trigger_1", name: "Chat" }]);
+  mount();
+  const [row] = await screen.findAllByRole("listitem");
+  expect(row!.textContent).toContain("Chat");
+  expect(row!.textContent).toContain("Which agents touch Matters?");
 });
 
 test("JobList says when the agent has no Job yet", async () => {
