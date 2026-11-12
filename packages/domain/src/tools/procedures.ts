@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 import { toolHolder } from "../agents/usage.ts";
 import type { Db, Tx } from "../db/client.ts";
@@ -470,7 +470,7 @@ const fillSettings = owner
     const entry = catalogEntry(current.catalogId);
     if (current.kind !== "http" || entry?.kind !== "http" || entry.settings.length === 0 || current.auth === "oauth") bad("This tool has no settings to fill");
     // Still at its entry's address (a tool pointed elsewhere loses its entry), and only there.
-    if (current.url !== entry.url || current.urlSealed !== null) bad("This tool no longer calls its catalog entry's address");
+    if (current.url !== entry.url || current.transport !== entry.transport || current.urlSealed !== null) bad("This tool no longer calls its catalog entry's address");
     let headers: Record<string, string>;
     try {
       headers = fillHeaders(entry, input.settings);
@@ -483,9 +483,20 @@ const fillSettings = owner
     const [row] = await context.db
       .update(toolsTable)
       .set({ headersSealed, auth: authOf(false, headersSealed) })
-      .where(and(eq(toolsTable.id, current.id), eq(toolsTable.ownerId, context.ownerId)))
+      // Only while it still calls the address checked above: a change meanwhile saves nothing.
+      .where(
+        and(
+          eq(toolsTable.id, current.id),
+          eq(toolsTable.ownerId, context.ownerId),
+          eq(toolsTable.url, entry.url),
+          isNull(toolsTable.urlSealed),
+          eq(toolsTable.transport, entry.transport),
+          eq(toolsTable.catalogId, entry.id),
+          ne(toolsTable.auth, "oauth"),
+        ),
+      )
       .returning();
-    if (!row) throw new ORPCError("NOT_FOUND");
+    if (!row) throw new ORPCError("CONFLICT", { message: "The tool changed meanwhile: open it again" });
     return view(context.db, await refreshActions(context.db, context.secrets, context.tools, row));
   });
 

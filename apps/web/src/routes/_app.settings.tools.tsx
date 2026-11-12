@@ -27,9 +27,11 @@ function Tools() {
   useEffect(() => {
     const tool = back ? tools.data?.find((t) => t.id === back) : undefined;
     if (!back || !tools.data) return;
+    // A tool made since the list was cached (by an agent's proposal): wait for the fresh list.
+    if (!tool && tools.isFetching) return;
     if (tool) setSheet({ tool, n: 0, runner: tool.kind === "runner" });
     void navigate({ search: {}, replace: true });
-  }, [back, tools.data, navigate]);
+  }, [back, tools.data, tools.isFetching, navigate]);
 
   const add = (
     <div className="flex flex-wrap gap-2">

@@ -220,3 +220,16 @@ test("every HTTP entry declares its actions, and what runs unasked or may be pol
     if (e.poll) expect(names, e.id).toContain(e.poll.action);
   }
 });
+
+test("a catalog tool's settings go only to its entry's address", async () => {
+  const w = await world();
+  const tool = await call(router.tools.addFromCatalog, { catalogId: "firecrawl" }, { context: w.context });
+  // Pointed elsewhere by the owner: it is no longer the entry, and has no settings to fill.
+  await call(router.tools.update, { id: tool.id, url: "https://other.example/mcp" }, { context: w.context });
+  await expect(call(router.tools.fillSettings, { id: tool.id, settings: { apiKey: "fc-test" } }, { context: w.context })).rejects.toThrow(/no settings to fill/);
+  // Its row moved without its entry going (as a save racing with another): refused, nothing sealed.
+  const other = await call(router.tools.addFromCatalog, { catalogId: "firecrawl", name: "Firecrawl 2" }, { context: w.context });
+  await w.context.db.update(toolsTable).set({ url: "https://other.example/mcp" }).where(eq(toolsTable.id, other.id));
+  await expect(call(router.tools.fillSettings, { id: other.id, settings: { apiKey: "fc-test" } }, { context: w.context })).rejects.toThrow(/no longer calls/);
+  expect((await call(router.tools.get, { id: other.id }, { context: w.context })).headerNames).toEqual([]);
+});
