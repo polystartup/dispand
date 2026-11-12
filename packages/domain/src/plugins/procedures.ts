@@ -295,6 +295,8 @@ function uniqueConstraint(err: unknown): string | null {
 const ServerSettings = z.record(z.string().max(100), HeaderValue).refine((s) => Object.keys(s).length <= 50, "At most 50 settings per MCP server");
 
 const InstallInput = EntryRef.extend({
+  /** Register the source for an owner-approved native install without importing components. */
+  nativeOnly: z.boolean().default(false),
   skills: z.array(z.string().max(64)).max(200).default([]),
   mcpServers: z.array(z.string().max(100)).max(100).default([]),
   agents: z.array(z.string().max(100)).max(100).default([]),
@@ -335,10 +337,10 @@ const install = owner
     const { contents, url, sha } = await readEntry(market, entry, !!context.gitFileUrls).catch(asBadRequest);
     // A plugin with definitions is worth installing for them alone: they are registered, and set up later.
     const { agents: agentDefs, primitives, triggers } = contents.definitions;
-    if (nothingPicked && !agentDefs.length && !primitives.length && !triggers.length) {
+    if (nothingPicked && !input.nativeOnly && !agentDefs.length && !primitives.length && !triggers.length) {
       throw new ORPCError("BAD_REQUEST", { message: "Pick at least one skill, MCP server or agent" });
     }
-    if (picked.mcpServers.length && reviewToken(sha, contents) !== input.reviewed) {
+    if ((picked.mcpServers.length || input.nativeOnly) && reviewToken(sha, contents) !== input.reviewed) {
       throw new ORPCError("CONFLICT", { message: `${entry.name} changed since you reviewed it: look at it again before installing` });
     }
     const chosen = picked.skills.length ? chosenSkills(contents, picked.skills) : null;

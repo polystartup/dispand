@@ -12,7 +12,7 @@
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with
-  `Authorization: Bearer <token>` and `Dispand-Protocol: 8` (`PROTOCOL_VERSION`, bumped by
+  `Authorization: Bearer <token>` and `Dispand-Protocol: 15` (`PROTOCOL_VERSION`, bumped by
   every change an older runner can't parse or honor). An older runner is refused with 426 "update
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
@@ -50,6 +50,19 @@
   session's file tools and never editable. They are written again at each start or resume and
   removed when the session ends (and on the runner's start). A plugin error at init that names one
   of them ends the session; a duplicate name doesn't.
+- **Native skill selection (protocol 15):** runner-local `pluginTargets` authorize Skillshare's
+  native lifecycle. The owner-only `runners.workspacePlugin` resolves a workspace plugin or
+  standalone skill package and one CLI harness, previews through Skillshare, then applies only
+  the reviewed revision. Complete plugins use their stored repository/commit/entry; standalone
+  packages use a persistent content-addressed skills-only plugin written by the session writer.
+  `runners.workspaceSkills` groups plugin skills together in the Harness inventory. Neither
+  procedure is exposed to agents. Install sheets import workspace components once before
+  reviewing selected native targets; native failures never repeat that import. At session start
+  and resume, `packageForRunner` supplies the stable native name and source key, and fresh native
+  inventory decides whether to omit the stripped copy. Only an installed, known-enabled matching
+  binding on the chosen harness, without pending or changed context, qualifies. Other states keep
+  the workspace copy. Complete plugin actions affect its hooks, commands and MCP integrations too;
+  the UI warns before apply. Native execution failures never retry with workspace skills.
 - **Harnesses:** a harness is `cli` (Claude Code on a runner, with a permission mode) or `cloud`
   (`anthropic`, `openai` or `openai-compatible`: base URL, model, system prompt, max tokens,
   effort, temperature for `openai-compatible` only), in `harnesses` with `type`

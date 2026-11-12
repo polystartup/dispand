@@ -1,8 +1,12 @@
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { lstat, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { PluginOperation, PluginReport, type PluginHarness } from "@dispand/runner-protocol";
+import { nativeSourceKey, PluginOperation, PluginReport, workspacePluginContent, type PluginHarness } from "@dispand/runner-protocol";
 import { z } from "zod";
+import { runnerStateDir } from "./config.ts";
+import { unlock, writeSkills } from "./skills.ts";
 
 // Skillshare's JSON contract: internal/plugin/model.go and targets.go. Parse only the
 // fields we use. Never forward native messages, local paths, source URLs or identifiers.
@@ -10,13 +14,15 @@ const name = z.string();
 const rows = <T extends z.ZodType>(item: T) => z.array(item).nullish().transform((v) => v ?? []);
 const Inventory = z.object({
   targetDefinitions: rows(z.object({ target: name, operations: rows(name) })),
-  packages: z.record(name, z.object({ bindings: z.record(name, z.object({ id: name, pending: name.optional() })).nullish() })),
+  packages: z.record(name, z.object({ bindings: z.record(name, z.object({ id: name, source: name.optional(), sourceRef: name.optional(), commit: name.optional(), plugin: name.optional(), pending: name.optional(), contextChanged: z.boolean().optional(), cleanup: z.boolean().optional(), refChanged: z.boolean().optional() })).nullish() })),
   hosts: rows(z.object({ target: name, status: name, error: name.optional(), installed: rows(z.object({ id: name.optional(), installed: z.boolean().optional(), enabledKnown: z.boolean(), enabled: z.boolean() })) })),
 });
 const Discovery = z.object({ candidates: rows(z.object({ name, targets: rows(name), problem: name.optional() })) });
 const Plan = z.object({ revision: name, blocked: z.boolean(), changes: rows(z.object({ name, target: name, action: name })) });
 const Result = z.object({ results: rows(z.object({ name, target: name, status: name })) });
 type Harness = z.infer<typeof PluginHarness>;
+// Native manifests use kebab-case; Skillshare's logical binding retains the workspace id.
+const workspacePluginName = (name: string) => name.toLowerCase().replace(/[._]/g, "-");
 export type PluginExec = (args: string[], env: NodeJS.ProcessEnv) => Promise<{ stdout: string; failed: boolean }>;
 
 const execute: PluginExec = (args, env) => new Promise((resolve) => {
@@ -53,8 +59,10 @@ export class NativePlugins {
   private readonly targets: Partial<Record<Harness, string>>;
   private readonly env: NodeJS.ProcessEnv;
   private readonly exec: PluginExec;
+  private readonly workspaceRoot: string;
   constructor(targets: Partial<Record<Harness, string>>, env: NodeJS.ProcessEnv, exec: PluginExec = execute) {
     this.targets = targets;
+    this.workspaceRoot = join(runnerStateDir(env), "native-skills");
     // Match machineConfigPaths even when the operator supplied relative local env paths:
     // Skillshare always runs from home, rather than from the runner service's directory.
     this.env = { ...env };
@@ -73,7 +81,31 @@ export class NativePlugins {
       if (!entries.length) return { error: "Native plugin management is disabled in this runner's local config" };
       if (new Set(entries.map(([, target]) => target)).size !== entries.length) return { error: "Native plugin targets must name separate accounts" };
       const harness = (target: string) => entries.find(([, t]) => target === t)?.[0];
-      const args = ["plugin", op.action, "--global", "--json", "--no-tui"];
+      const workspaceRoot = this.workspaceRoot;
+      const args = ["plugin", op.action === "add-workspace" ? "add" : op.action, "--global", "--json", "--no-tui"];
+      if (op.action === "add-workspace") {
+        const digest = createHash("sha256").update(workspacePluginContent(op.files)).digest("hex");
+        const dir = join(workspaceRoot, op.name, digest);
+        const plugin = workspacePluginName(op.name);
+        const root = join(dir, plugin);
+        await mkdir(workspaceRoot, { recursive: true, mode: 0o700 });
+        const existing = await lstat(root).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; });
+        if (existing && (!existing.isDirectory() || existing.isSymbolicLink())) throw new Error("invalid workspace plugin source");
+        // Content-addressed sources persist for Skillshare's maintained reinstall lifecycle.
+        // Only skills and our manifest are written, using the session writer's path/frontmatter rules.
+        if (!existing) {
+          await mkdir(dirname(dir), { recursive: true, mode: 0o700 });
+          const staging = await mkdtemp(join(dirname(dir), ".stage-"));
+          try {
+            await writeSkills(staging, [{ name: plugin, files: op.files.map((f) => ({ path: f.path, content: Buffer.from(f.base64, "base64") })) }]);
+            await rename(staging, dir);
+          } finally {
+            await unlock(staging);
+            await rm(staging, { recursive: true, force: true });
+          }
+        }
+        args.push(root, "--name", op.name, "--plugin", plugin);
+      }
       if (op.action === "discover" || op.action === "add") {
         args.push(op.source);
         if (op.sourceRef) args.push("--source-ref", op.sourceRef);
@@ -105,7 +137,10 @@ export class NativePlugins {
             if (!binding) return [];
             const host = inventory.hosts.find((h) => h.target === target);
             const native = host?.installed.find((i) => i.id === binding.id);
-            return [{ name, harness, installed: host?.status === "ready" && !host.error && !!native && (harness === "claude-code" || native.installed === true), enabled: native?.enabledKnown ? native.enabled : null, pending: !!binding.pending }];
+            const digest = binding.source && dirname(dirname(dirname(binding.source))) === workspaceRoot && basename(dirname(dirname(binding.source))) === name && basename(binding.source) === workspacePluginName(name) && binding.plugin === workspacePluginName(name) ? basename(dirname(binding.source)) : undefined;
+            const identity = nativeSourceKey(binding.source ?? "", binding.commit || binding.sourceRef || "", binding.plugin ?? "");
+            const sourceKey = digest && /^[a-f0-9]{64}$/.test(digest) ? `workspace:${digest}` : identity ? createHash("sha256").update(identity).digest("hex") : undefined;
+            return [{ name, ...(sourceKey ? { sourceKey } : {}), harness, installed: host?.status === "ready" && !host.error && !!native && (harness === "claude-code" || native.installed === true), enabled: native?.enabledKnown ? native.enabled : null, pending: !!binding.pending || !!binding.contextChanged || !!binding.cleanup || !!binding.refChanged }];
           })),
         };
       } else if (op.action === "discover") {

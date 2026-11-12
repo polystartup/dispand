@@ -18,11 +18,14 @@ import type { HarnessSession } from "./outcome.ts";
 import { codexMcpServers, mcpConfigFor, withJobServer } from "./mcp.ts";
 import { fetchPackages, removeSkills, sessionPluginsDir, writeSkills } from "./skills.ts";
 import { resolveWorkdir } from "./workdir.ts";
+import { fallbackPackages } from "./native-skills.ts";
+import type { NativePlugins } from "./plugins.ts";
 import { removeMemoryFiles, writeMemoryFiles } from "./memory.ts";
 
 type Emit = (sessionId: string, event: HarnessEvent) => void;
 
 export type SessionsOptions = {
+  nativePlugins?: Pick<NativePlugins, "request">;
   claude?: Omit<ClaudeDeps, "allowBypass">;
   /** The machine's `codex` and the version found at start (older than `MIN_CODEX` starts nothing). Without it, Codex sessions are refused. */
   codex?: Pick<CodexDeps, "codexPath" | "env"> & { version: string | undefined };
@@ -296,7 +299,10 @@ export class Sessions {
         cleanUp();
         return emit({ type: "error", message: refusal });
       }
-      const pluginRoots = pluginsDir ? await writeSkills(pluginsDir, packages) : [];
+      const native = packages.some((pkg) => pkg.nativePlugin) && this.options.nativePlugins
+        ? await this.options.nativePlugins.request({ action: "list" }) : {};
+      const fallback = fallbackPackages(packages, start.harness, native);
+      const pluginRoots = pluginsDir ? await writeSkills(pluginsDir, fallback) : [];
       // Writing them took time: check again that the runner may still launch.
       if (this.shuttingDown) return cleanUp();
       if (this.stops !== stops || (this.options.accepting && !this.options.accepting())) {

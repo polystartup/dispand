@@ -23,4 +23,4 @@ export {
   SessionStart,
 } from "./messages.ts";
 
-export { PluginHarness, PluginName, PluginSource, PluginOperation, PluginReport } from "./plugins.ts";
+export { PluginHarness, PluginName, PluginSource, PluginOperation, PluginReport, nativeSourceKey, workspacePluginContent } from "./plugins.ts";

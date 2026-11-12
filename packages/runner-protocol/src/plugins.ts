@@ -12,12 +12,25 @@ export const PluginSource = string(2048).url().refine((s) => {
     return false;
   }
 });
+/** Stable source identity; a logical/display name alone never proves a matching install. */
+export function nativeSourceKey(source: string, sourceRef: string, plugin: string): string | undefined {
+  if (!PluginSource.safeParse(source).success) return undefined;
+  return JSON.stringify([source.replace(/\/$/, "").replace(/\.git$/, ""), sourceRef, plugin]);
+}
+export const WorkspacePluginFiles = z.array(z.object({ path: string(255), base64: string(2_796_204).base64() })).min(1).max(500)
+  .refine((files) => files.reduce((sum, file) => sum + file.base64.length * 3 / 4 - (file.base64.endsWith("==") ? 2 : file.base64.endsWith("=") ? 1 : 0), 0) <= 8_388_608, "workspace package exceeds 8 MiB");
+/** The digest input is independent of database/file iteration order. */
+export function workspacePluginContent(files: { path: string; base64: string }[]): string {
+  return JSON.stringify(files.map(({ path, base64 }) => [path, base64]).sort((a, b) => a[0]! < b[0]! ? -1 : a[0]! > b[0]! ? 1 : 0));
+}
 const targets = z.array(PluginHarness).min(1).max(2).refine((v) => new Set(v).size === v.length, "duplicate target");
 const mutation = { name: PluginName, targets, dryRun: z.boolean(), revision: id().min(1).optional() };
 export const PluginOperation = z.discriminatedUnion("action", [
   z.object({ action: z.literal("list") }),
   z.object({ action: z.literal("discover"), source: PluginSource, sourceRef: id().min(1).optional() }),
   z.object({ action: z.literal("add"), ...mutation, source: PluginSource, sourceRef: id().min(1).optional(), plugin: PluginName }),
+  // Paths are package-relative files, never a server-selected local source directory.
+  z.object({ action: z.literal("add-workspace"), ...mutation, files: WorkspacePluginFiles }),
   z.object({ action: z.literal("remove"), ...mutation }),
 ]).refine((v) => !("dryRun" in v) || v.dryRun || v.revision !== undefined, "apply requires a preview revision");
 export type PluginOperation = z.infer<typeof PluginOperation>;
@@ -25,7 +38,7 @@ export type PluginOperation = z.infer<typeof PluginOperation>;
 export const PluginReport = z.object({
   targets: z.array(z.object({ harness: PluginHarness, available: z.boolean(), add: z.boolean(), remove: z.boolean() })).max(2).optional(),
   candidates: z.array(z.object({ name: PluginName, targets: z.array(PluginHarness).max(2), blocked: z.boolean() })).max(200).optional(),
-  packages: z.array(z.object({ name: PluginName, harness: PluginHarness, installed: z.boolean(), enabled: z.boolean().nullable(), pending: z.boolean() })).max(500).optional(),
+  packages: z.array(z.object({ name: PluginName, sourceKey: string(128).optional(), harness: PluginHarness, installed: z.boolean(), enabled: z.boolean().nullable(), pending: z.boolean() })).max(500).optional(),
   revision: id().min(1).optional(),
   blocked: z.boolean().optional(),
   changes: z.array(z.object({ name: PluginName, harness: PluginHarness.optional(), action: id().regex(/^[a-z_-]{1,40}$/) })).max(500).optional(),
