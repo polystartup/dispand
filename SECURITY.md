@@ -489,7 +489,9 @@ changes it updates this file.
   Protocol 18 can carry disabled runner actions in the initial refs and `session.permissions`
   updates. Both harnesses refuse them before unasked grants, bypass, or owner approval, and
   recheck after awaiting an answer. Initial denials also go to Codex's `disabled_tools` and
-  Claude's `disallowedTools`. Live denials accumulate; a removed server is refused in full,
+  Claude's `disallowedTools`. Denials use each harness's native action names: raw on Codex,
+  normalized on Claude. If two actions share a Claude alias, denying either blocks that alias.
+  Live denials accumulate; a removed server is refused in full,
   and no later update restores it or clears a denial in that session. A preparing session
   applies these restrictions before rebuilding native MCP configuration. Re-enabling applies
   on the next session; calls already executing are not cancelled.

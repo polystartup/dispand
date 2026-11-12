@@ -228,7 +228,7 @@ test("automatic runner grants use the poll guard for protected paths", () => {
 
 
 test("runner denials accumulate and removing a server cannot be undone in a live session", () => {
-  const permissions = deniedTools([{ name: "mail", type: "runner", tool: "gmail", denied: ["send.email"] }]);
+  const permissions = deniedTools([{ name: "mail", type: "runner", tool: "gmail", denied: ["send.email"] }], "codex");
   expect([...permissions.names]).toEqual(["mcp__mail__send.email"]);
   expect(permissions.blocks("mcp__mail__send.email")).toBe(true);
   expect(permissions.blocks("mcp__other__send.email")).toBe(false);
@@ -247,4 +247,29 @@ test("runner denials accumulate and removing a server cannot be undone in a live
 test("Codex hides denied runner actions from its native tool list", () => {
   const { servers } = codexMcpServers([{ name: "mail", type: "runner", tool: "gmail", denied: ["send.email"] }], { gmail: { command: "mail" } });
   expect(servers.mail).toMatchObject({ disabled_tools: ["send.email"], default_tools_approval_mode: "prompt" });
+});
+
+
+test.each([
+  ["send.email", "send_email"],
+  ["send email", "send_email"],
+  ["send/email", "send_email"],
+  ["send:email", "send_email"],
+  ["send😀email", "send__email"],
+  ["claude.ai  send.email", "claude_ai_send_email"],
+])("denied %s uses Claude's alias %s and preserves Codex's raw action name", (action, alias) => {
+  const ref = { name: "mail", type: "runner" as const, tool: "gmail", denied: [action] };
+  for (const initial of [true, false]) {
+    const refs = [{ ...ref, denied: initial ? [action] : [] }];
+    const claude = deniedTools(refs, "claude-code");
+    const codex = deniedTools(refs, "codex");
+    if (!initial) {
+      claude.narrow([{ name: "mail", unasked: [], denied: [action] }]);
+      codex.narrow([{ name: "mail", unasked: [], denied: [action] }]);
+    }
+    expect([...claude.names]).toEqual([`mcp__mail__${alias}`]);
+    expect(claude.blocks(`mcp__mail__${alias}`)).toBe(true);
+    expect(codex.blocks(`mcp__mail__${action}`)).toBe(true);
+    expect(codex.blocks(`mcp__mail__${alias}`)).toBe(false);
+  }
 });

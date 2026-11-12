@@ -223,7 +223,7 @@ export function startClaudeSession(
    * of the agent's tools that it lets run unasked: the owner isn't asked.
    */
   const { names: unasked, servers: agentServers } = unaskedTools(start.mcpServers, deps.jobServer === undefined ? undefined : (deps.unasked ?? []));
-  const denied = deniedTools(start.mcpServers);
+  const denied = deniedTools(start.mcpServers, "claude-code");
   let permissionsVersion = 0;
   const runnerTool = (name: string) => agentServers.some((server) => server !== "job_tools" && name.startsWith(`mcp__${server}__`));
   const mcpDenied = codexDenied([...(deps.secrets ?? []), join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...pluginRoots]);

@@ -195,7 +195,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
    */
   const { names: unasked, servers: agentServers } = unaskedTools(start.mcpServers, deps.jobServer === undefined ? undefined : (deps.unasked ?? []));
 
-  const deniedToolsState = deniedTools(start.mcpServers);
+  const deniedToolsState = deniedTools(start.mcpServers, "codex");
   let permissionsVersion = 0;
 
   async function approve(payload: Extract<QuestionPayload, { kind: "permission" }>, signal: AbortSignal) {

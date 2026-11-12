@@ -50,10 +50,17 @@ export function unaskedTools(refs: McpServerRef[], jobTools: string[] | undefine
   };
 }
 
+/** Claude's MCP normalizer is private in the SDK; mirror its naming at this boundary only. */
+function claudeActionName(action: string): string {
+  const name = action.replace(/[^a-zA-Z0-9_-]/g, "_");
+  return action.startsWith("claude.ai ") ? name.replace(/_+/g, "_").replace(/^_|_$/g, "") : name;
+}
+
 /** Denials only accumulate during a session; removing a runner server blocks all its actions. */
-export function deniedTools(refs: McpServerRef[]) {
+export function deniedTools(refs: McpServerRef[], harness: "claude-code" | "codex") {
+  const key = (server: string, action: string) => `mcp__${server}__${harness === "claude-code" ? claudeActionName(action) : action}`;
   const servers = refs.filter((ref) => ref.type === "runner");
-  const names = new Set(servers.flatMap((ref) => (ref.denied ?? []).map((action) => `mcp__${ref.name}__${action}`)));
+  const names = new Set(servers.flatMap((ref) => (ref.denied ?? []).map((action) => key(ref.name, action))));
   const removed = new Set<string>();
   return {
     names,
@@ -62,7 +69,7 @@ export function deniedTools(refs: McpServerRef[]) {
       for (const server of servers) {
         const current = update.find((ref) => ref.name === server.name);
         if (!current) removed.add(server.name);
-        else for (const action of current.denied ?? []) names.add(`mcp__${server.name}__${action}`);
+        else for (const action of current.denied ?? []) names.add(key(server.name, action));
       }
     },
   };

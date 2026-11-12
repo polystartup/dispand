@@ -177,7 +177,9 @@ server from your home folder with an MCP client's default environment plus its `
 stderr dropped, and stops it again (at most 30 s); its `env` values are redacted from the list.
 Runner action denials in protocol 18 are enforced before automatic grants, bypass, or owner
 approval. Codex removes initially denied actions with `disabled_tools`; Claude gets exact
-`disallowedTools` names and also refuses them in its hook and permission callback. Live updates
+`disallowedTools` names and also refuses them in its hook and permission callback. Claude
+normalizes punctuation to underscores; actions sharing an alias are blocked together when
+either is disabled. Codex keeps server-local action names unchanged. Live updates
 can add denials or remove a whole server, but cannot restore access in that session. An answer
 that arrives after an action is disabled cannot authorize it. Restrictions received while
 skills load are applied before the native MCP configuration is built. Re-enabling an action

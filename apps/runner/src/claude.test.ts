@@ -1602,7 +1602,12 @@ test("unasked Claude runner tools refuse targets linked from protected config di
 });
 
 
-test.each(["default", "bypassPermissions"] as const)("denied Claude runner actions never ask or run in %s mode", async (permissionMode) => {
+test.each([
+  { permissionMode: "default", action: "send_email" },
+  { permissionMode: "bypassPermissions", action: "send_email" },
+  { permissionMode: "default", action: "send.email" },
+  { permissionMode: "bypassPermissions", action: "send.email" },
+] as const)("denied Claude $action never asks or runs in $permissionMode mode", async ({ permissionMode, action }) => {
   const decisions: unknown[] = [];
   let hook: unknown;
   const fake = fakeQuery(async function* ({ next, options }) {
@@ -1613,7 +1618,7 @@ test.each(["default", "bypassPermissions"] as const)("denied Claude runner actio
     yield result();
   });
   const events: HarnessEvent[] = [];
-  const session: ClaudeSession = startClaudeSession({ ...start, permissionMode, mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["send_email"], denied: ["send_email"] }] }, "/work", (e) => {
+  const session: ClaudeSession = startClaudeSession({ ...start, permissionMode, mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["send_email"], denied: [action] }] }, "/work", (e) => {
     events.push(e);
     if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "allow-always" }));
   }, { query: fake.query, allowBypass: true, jobServer: "job" });
@@ -1625,11 +1630,13 @@ test.each(["default", "bypassPermissions"] as const)("denied Claude runner actio
 });
 
 test.each([
-  { decision: "allow", removed: false },
-  { decision: "allow-always", removed: false },
-  { decision: "allow", removed: true },
-  { decision: "allow-always", removed: true },
-] as const)("a late Claude $decision answer cannot override a restriction (removed: $removed)", async ({ decision, removed }) => {
+  { decision: "allow", removed: false, action: "draft_email" },
+  { decision: "allow-always", removed: false, action: "draft_email" },
+  { decision: "allow", removed: true, action: "draft_email" },
+  { decision: "allow-always", removed: true, action: "draft_email" },
+  { decision: "allow", removed: false, action: "draft.email" },
+  { decision: "allow-always", removed: false, action: "draft.email" },
+] as const)("a late Claude $decision answer cannot override $action (removed: $removed)", async ({ decision, removed, action }) => {
   const decisions: unknown[] = [];
   const fake = fakeQuery(async function* ({ next, options }) {
     await next();
@@ -1640,7 +1647,7 @@ test.each([
   const session: ClaudeSession = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] }, "/work", (e) => {
     if (e.type !== "question") return;
     asked++;
-    session.narrowPermissions!(removed ? [] : [{ name: "mail", unasked: [], denied: ["draft_email"] }]);
+    session.narrowPermissions!(removed ? [] : [{ name: "mail", unasked: [], denied: [action] }]);
     queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision }));
   }, { query: fake.query, jobServer: "job" });
   await session.done;
