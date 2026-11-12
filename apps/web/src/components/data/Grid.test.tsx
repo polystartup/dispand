@@ -128,13 +128,16 @@ test("a list read that brings the row before its creation answers leaves one row
   await waitFor(() => expect(screen.getAllByRole("gridcell").map((c) => c.textContent)).toEqual(["Dispand", "Agents"]));
 });
 
-test("a row created before the first page of rows answers shows once it does", async () => {
+test("New row waits for the first page of rows, so the draft never moves under the cursor", async () => {
   let listed: (p: unknown) => void = () => {};
   const user = setup(new Promise((resolve) => (listed = resolve)));
+  const button = await screen.findByRole("button", { name: "New row" });
+  expect(button.hasAttribute("disabled")).toBe(true);
+  listed(page([{ id: "row_0", tableId: "tbl_1", values: { f_name: "Before" } }]));
+  await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
   fake.rows.create.mockResolvedValue(created);
-  await user.click(await screen.findByRole("button", { name: "New row" }));
+  await user.click(button);
   await user.type(screen.getByRole("textbox", { name: "Name" }), "Dispand{Enter}");
-  await waitFor(() => expect(fake.rows.create).toHaveBeenCalledOnce());
-  listed(page([created]));
-  await waitFor(() => expect(nameCells()).toEqual(["Dispand"]));
+  await waitFor(() => expect(nameCells()).toEqual(["Before", "Dispand"]));
+  expect(fake.rows.update).not.toHaveBeenCalled();
 });

@@ -152,7 +152,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
       return row;
     },
     // A list read already on its way could bring the new row back next to the draft. A first
-    // load is left alone: there is no list to show the row in without it.
+    // load (of another sort or filter) is left alone: there is no list to show the row in without it.
     onMutate: () => queryClient.cancelQueries({ queryKey: listKey, predicate: (q) => q.state.data !== undefined }),
     onSuccess: (row, input) => {
       setError(null);
@@ -225,7 +225,10 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
   // Only rows shown can be deleted: a row selected, then hidden by a filter, is left alone.
   const selectedIds = rows.filter((r) => selection[r.id]).map((r) => r.id);
 
-  /** Adds a draft row; with `values` (a parent picked first), the row is created with them at once. */
+  /**
+   * Adds a draft row after the loaded rows (so "New row" waits for the first page: rows arriving
+   * later would move it); with `values` (a parent picked first), the row is created with them at once.
+   */
   const newRow = (values: Record<string, Cell> = {}) => {
     const row: NewRow = { id: null, values };
     latest.current = row;
@@ -429,7 +432,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
           // Every row belongs to a parent: it is picked before the row exists.
           <Popover open={pickingParent} onOpenChange={setPickingParent}>
             <PopoverTrigger asChild>
-              <Button variant="ghost" size="sm" disabled={create.isPending}>
+              <Button variant="ghost" size="sm" disabled={create.isPending || rowsQuery.isPending}>
                 <Plus /> New row
               </Button>
             </PopoverTrigger>
@@ -449,7 +452,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
             </PopoverContent>
           </Popover>
         ) : (
-          <Button variant="ghost" size="sm" disabled={create.isPending} onClick={() => newRow()}>
+          <Button variant="ghost" size="sm" disabled={create.isPending || rowsQuery.isPending} onClick={() => newRow()}>
             <Plus /> New row
           </Button>
         )}
