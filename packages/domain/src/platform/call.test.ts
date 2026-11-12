@@ -85,7 +85,8 @@ test("another owner's row is refused the same way", async () => {
 test("a tool of a bundle the Job doesn't have is refused", async () => {
   const { context, tool, job } = await setup();
   expect(await tool("tables_create", { name: "New" })).toEqual({ ok: false, error: "This agent may not use tables_create" });
-  expect((await toolsOf(context.db, job)).map((t) => t.name).sort()).toEqual(["rows_create", "rows_delete", "rows_get", "rows_list", "rows_update", "tables_get", "tables_list"]);
+  // Memory is read by every Job, and written only within its self-learning targets (none here).
+  expect((await toolsOf(context.db, job)).map((t) => t.name).sort()).toEqual(["memory_read", "rows_create", "rows_delete", "rows_get", "rows_list", "rows_update", "tables_get", "tables_list"]);
 });
 
 test("a bundle or a table removed from the agent applies to its running Job", async () => {
@@ -99,7 +100,7 @@ test("a bundle or a table removed from the agent applies to its running Job", as
   expect(await tool("rows_get", { id: r1.id })).toEqual(notFound);
   await setAgent({ bundles: [], dataTables: "all" });
   expect(await tool("rows_get", { id: r1.id })).toEqual({ ok: false, error: "This agent may not use rows_get" });
-  expect(await toolsOf(context.db, job)).toEqual([]);
+  expect((await toolsOf(context.db, job)).map((t) => t.name)).toEqual(["memory_read"]);
 });
 
 test("a bundle or a table added to the agent after the Job was created is not the Job's", async () => {

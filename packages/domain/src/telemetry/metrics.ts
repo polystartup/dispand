@@ -31,6 +31,8 @@ export const METRICS = {
   "dispand.audit.rows": ["dispand.audit.action", "dispand.result"],
   // A memory write (`memory/store.ts`): its scope, operation and result, never a path or a body.
   "dispand.memory.writes": ["dispand.memory.scope", "dispand.memory.op", "dispand.result"],
+  // A Job's `memory_read` (`memory/tools.ts`): its scope and result.
+  "dispand.memory.reads": ["dispand.memory.scope", "dispand.result"],
   "dispand.checkpoints.reached": [],
   "dispand.checkpoints.answered": ["dispand.checkpoint.answer"],
   "dispand.roots.paused": [],

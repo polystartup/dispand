@@ -4,7 +4,7 @@ import { z } from "zod";
 import { agents, memories } from "../db/schema.ts";
 import { ID as MAX_ID } from "@dispand/runner-protocol";
 import { authed, base } from "../rpc/context.ts";
-import { MAX_MEMORY_BODY, type MemoryAuthor, type MemoryScope } from "./model.ts";
+import { type MemoryAuthor, MemoryEntryShape, type MemoryScope } from "./model.ts";
 import {
   acceptMemory,
   memoryIndex,
@@ -31,14 +31,7 @@ const Scope = z.discriminatedUnion("scope", [
   z.object({ scope: z.literal("agent"), agentId: ID }),
 ]);
 
-/** The fields' types and coarse bounds; the entry's own rule (`MemoryEntryInput`) is the store's, so a refusal reads the same for a person and an agent. */
-const Entry = z.object({
-  path: z.string().max(1000),
-  name: z.string().max(1000),
-  description: z.string().max(1000),
-  type: z.string().max(100),
-  body: z.string().max(MAX_MEMORY_BODY * 2),
-});
+const Entry = z.object(MemoryEntryShape);
 
 const PERSON: MemoryAuthor = { type: "user" };
 
