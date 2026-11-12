@@ -19,10 +19,12 @@ type Props = {
   runId: string | null;
   onRunStarted: (runId: string) => void;
   onNewConversation: () => void;
+  /** What an empty conversation invites the owner to say (default: a plain hello). */
+  welcome?: string;
 };
 
 /** A workflow's Chat field or an agent's chat trigger: the conversation with the agent, then the progress of the steps after it. */
-export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConversation }: Props) {
+export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConversation, welcome }: Props) {
   const run = useRun(runId);
   // Names and nodes as the run's version had them: the workflow may have changed since.
   const version = run?.run.version;
@@ -85,6 +87,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
         chatStepId={chatStep?.id}
         canSend={canSend}
         onSend={sendText}
+        welcome={welcome}
         composer={
           <div className="border-t border-line bg-surface px-3 py-3">
             {error && (
