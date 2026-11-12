@@ -17,6 +17,8 @@ afterEach(async () => {
 
 const SECRET = "Bearer s3cret-value";
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+// Allow database-backed engine transitions to finish on shared test runners.
+const ENGINE_WAIT = { timeout: 10_000 };
 
 /** A cloud agent with the HTTP tool "GitHub" (`create_repository`, `list_repos`), and an engine wired as the app's. */
 async function setup(script: Script[]) {
@@ -46,13 +48,13 @@ async function setup(script: Script[]) {
     vi.waitFor(async () => {
       const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
       if (run!.status !== status) throw new Error(`run is ${run!.status}`);
-    });
+    }, ENGINE_WAIT);
   const pending = (runId: string) =>
     vi.waitFor(async () => {
-      const [q] = await context.db.select().from(questions).where(eq(questions.runId, runId));
+      const [q] = await context.db.select().from(questions).where(and(eq(questions.runId, runId), eq(questions.status, "pending")));
       if (q?.status !== "pending") throw new Error("no pending question yet");
       return q;
-    });
+    }, ENGINE_WAIT);
   const start = async () => (await call(router.jobs.start, { triggerId: trigger.id }, { context })).runId;
   return { context, engine, model, server, calls, tool, agent, fields, start, until, pending };
 }
@@ -85,7 +87,7 @@ test("a cloud Job's tool call leaves one Audit row naming the tool and action, w
     const [q] = await s.context.db.select().from(questions).where(and(eq(questions.runId, runId), eq(questions.status, "pending")));
     if (!q) throw new Error("no second question yet");
     await s.engine.answer(q.id, { kind: "permission", decision: "deny" });
-  });
+  }, ENGINE_WAIT);
   await s.until(runId, "succeeded");
   const rows = await s.context.db.select().from(audit).where(eq(audit.action, "tool.call"));
   expect(rows).toHaveLength(1);
@@ -226,12 +228,7 @@ test("always allow takes the action off the asking ones on the agent; put back, 
   expect(first.payload).toMatchObject({ canAlwaysAllow: true });
   await s.engine.answer(first.id, { kind: "permission", decision: "allow-always" });
   // The second call ran unasked, the third asks again.
-  const third = await vi.waitFor(async () => {
-    const all = await s.context.db.select().from(questions).where(eq(questions.runId, runId));
-    const q = all.find((x) => x.status === "pending");
-    if (!q) throw new Error("no new question yet");
-    return q;
-  });
+  const third = await s.pending(runId);
   expect(third.id).not.toBe(first.id);
   expect(s.calls).toEqual([["list_repos", {}], ["list_repos", {}]]);
   expect(await asks()).toBe(true);
