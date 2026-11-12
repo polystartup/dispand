@@ -105,7 +105,7 @@ test("a step's text and result reach the engine, with both system prompts", asyn
   expect(transcript.map((m) => [m.role, m.text])).toEqual([["assistant", "Here is the note."]]);
   expect(model.inputs[0]!.system).toBe("You work for Dispand.\n\nBe brief.");
   expect(model.inputs[0]!.items).toEqual([{ role: "user", text: "Write a note." }]);
-  expect(model.inputs[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "submit_outputs", "request_approval"]);
+  expect(model.inputs[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "request_approval"]);
 });
 
 test("ask_user becomes a choice question and the answer resumes the loop", async () => {
@@ -167,6 +167,24 @@ test("reminds once then fails", async () => {
   expect(model.inputs[1]!.items.at(-1)).toEqual({ role: "user", text: "Call submit_outputs with: idea" });
 });
 
+test("a chat whose values nothing uses still ends with submit_outputs", async () => {
+  const model = fakeModel(say("What shall we build?"), use("submit_outputs", {}), say("The plan."));
+  const plain = (agentId: string): WorkflowDef => ({ ...chat(agentId), steps: [{ ...chat(agentId).steps[0]!, prompt: "Plan something." }] as WorkflowDef["steps"] });
+  const { engine, workflow } = await setup(plain, { client: model.client });
+  const runId = await engine.startRun(workflow.id);
+  await vi.waitFor(async () => {
+    const [s] = await engine.db.select().from(cloudSessions);
+    if (s?.status !== "idle") throw new Error("turn not ended");
+  });
+  expect(model.inputs[0]!.tools.map((t) => t.name)).toContain("submit_outputs");
+  await engine.sendChat(runId, "Anything");
+  const q = await pendingQuestion(engine, runId);
+  expect(q).toMatchObject({ payload: { kind: "confirm-outputs", values: {} } });
+  await engine.answer(q.id, { kind: "confirm-outputs", confirmed: true });
+  await until(engine, runId, "succeeded");
+  expect((await stepOf(engine, runId, "n_chat")).status).toBe("succeeded");
+});
+
 test("submit_outputs outside a chat completes the step at once; missing values are asked again", async () => {
   const model = fakeModel(use("submit_outputs", {}, "c1"), use("submit_outputs", { idea: "boats" }, "c2"), say("Used."));
   const { engine, workflow } = await setup(stepWithOutputs, { client: model.client });
@@ -187,7 +205,7 @@ test("a denied tool call returns an error result to the model", async () => {
   await until(engine, runId, "succeeded");
   expect(calls).toEqual([]);
   expect(lastTool(model.inputs[1]!.items)).toMatchObject({ callId: "call_GitHub_create_repo", result: "Not today.", isError: true });
-  expect(model.inputs[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "submit_outputs", "request_approval", "GitHub_create_repo", "GitHub_list_repos"]);
+  expect(model.inputs[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "request_approval", "GitHub_create_repo", "GitHub_list_repos"]);
 });
 
 test("always allow skips the next question for that tool only", async () => {
@@ -386,7 +404,7 @@ test("request_approval asks the owner and tells the model the answer", async () 
   const q = await pendingQuestion(engine, runId);
   expect(q.payload).toEqual({ kind: "permission", toolName: "request_approval", input: { message: "Send this draft to the client?" }, canAlwaysAllow: false });
   expect(q.kind).toBe("approval");
-  expect(model.inputs.at(0)!.tools.map((t) => t.name)).toEqual(["ask_user", "submit_outputs", "request_approval"]);
+  expect(model.inputs.at(0)!.tools.map((t) => t.name)).toEqual(["ask_user", "request_approval"]);
   await engine.answer(q.id, { kind: "permission", decision: "allow" });
   await until(engine, runId, "succeeded");
   expect(lastTool(model.inputs[1]!.items)).toMatchObject({ callId: "call_request_approval", result: "Approved.", isError: false });
