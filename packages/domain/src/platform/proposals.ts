@@ -1,9 +1,9 @@
 import { JOB_SERVER_NAME, storable } from "@dispand/runner-protocol";
 import { randomBytes } from "node:crypto";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agents, fields, harnesses, proposals, runners, skillPackages, tables, tools as toolsTable, triggers, type ProposalItem } from "../db/schema.ts";
+import { agents, fields, harnesses, plugins, proposals, runners, skillPackages, tables, tools as toolsTable, triggers, type PluginCreated, type ProposalItem } from "../db/schema.ts";
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
 import { canonical } from "./approvals.ts";
@@ -22,6 +22,8 @@ import type { PlatformTool } from "./tools.ts";
 /** A proposal is shown whole: no more writes than this, and no more than this as JSON. */
 export const MAX_ITEMS = 60;
 export const MAX_BYTES = 64 * 1024;
+/** A generated plugin's business name, at most this long. */
+export const MAX_PLUGIN = 100;
 
 const CLI_PREFIX = `mcp__${JOB_SERVER_NAME}__`;
 
@@ -31,6 +33,13 @@ export const ProposeInput = z.object({
     .describe(
       'The writes to approve, in order: each a tool\'s name (such as tables_create or agents_create) and the exact input you will call it with. Where an id goes, { "$item": n } names what the earlier item n (counted from 0) creates.',
     ),
+  plugin: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_PLUGIN)
+    .optional()
+    .describe('The business or use case this setup is for, such as "Acme Law": once applied, what the items create is recorded in the workspace\'s plugin "Generated: <this name>". Give the same name to every proposal of one setup.'),
 });
 
 export const ApplyInput = z.object({ proposalId: z.string().describe("The id propose gave you, of a proposal the owner approved") });
@@ -151,10 +160,10 @@ export async function createProposal(db: Db, job: JobIdentity, tools: PlatformTo
     if (!everyString(kept, (s) => !s.includes(nonce))) return { error: `${at}: a reference stands only where an id goes` };
     items.push({ tool: tool.name, input: kept });
   }
-  if (!everyString(items, storable)) return { error: "The proposal holds a character Dispand can't store (NUL or a lone surrogate)" };
+  if (!everyString([items, parsed.data.plugin ?? ""], storable)) return { error: "The proposal holds a character Dispand can't store (NUL or a lone surrogate)" };
   if (Buffer.byteLength(JSON.stringify(items)) > MAX_BYTES) return { error: "The proposal is too large to show whole (at most 64 KiB): make several, or shorten the texts" };
   const id = newId("prop");
-  await db.insert(proposals).values({ id, ownerId: job.ownerId, runId: job.runId, agentId: job.agentId, items });
+  await db.insert(proposals).values({ id, ownerId: job.ownerId, runId: job.runId, agentId: job.agentId, items, plugin: parsed.data.plugin ?? null });
   return { proposalId: id };
 }
 
@@ -228,6 +237,45 @@ export async function approvedItems(db: Db, job: JobIdentity, proposalId: string
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
+/** The name a generated plugin goes by. */
+export const generatedName = (business: string): string => `Generated: ${business}`;
+
+/**
+ * Records in the generated plugin a proposal names what its items created (made by this apply,
+ * an earlier one or a direct call), creating the plugin on first use. Ids are only added: the
+ * plugin lists, it never owns, so nothing references it. Null when the proposal names no plugin
+ * or nothing was created yet.
+ */
+export async function recordInPlugin(db: Db, ownerId: string, proposalId: string): Promise<string | null> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ items: proposals.items, plugin: proposals.plugin })
+      .from(proposals)
+      .where(and(eq(proposals.id, proposalId), eq(proposals.ownerId, ownerId)));
+    if (!row?.plugin) return null;
+    const made = row.items.flatMap((item) => {
+      const kind = createsOf(item.tool);
+      return kind && item.createdId ? [[kind, item.createdId] as const] : [];
+    });
+    if (made.length === 0) return null;
+    const name = generatedName(row.plugin);
+    // One per name (`plugins_owner_generated_idx`): of two applies at once, one inserts it.
+    await tx
+      .insert(plugins)
+      .values({ id: newId("plugin"), ownerId, name, description: `What approved proposals created for ${row.plugin}`, source: "generated", components: { skills: [], mcpServers: [], agents: [] } })
+      .onConflictDoNothing();
+    const [plugin] = await tx
+      .select({ id: plugins.id, created: plugins.created })
+      .from(plugins)
+      .where(and(eq(plugins.ownerId, ownerId), eq(plugins.source, "generated"), eq(plugins.name, name)))
+      .for("update");
+    const created: PluginCreated = { ...plugin!.created };
+    for (const [kind, id] of made) created[kind] = [...new Set([...(created[kind] ?? []), id])];
+    await tx.update(plugins).set({ created, updatedAt: sql`now()` }).where(eq(plugins.id, plugin!.id));
+    return plugin!.id;
+  });
+}
+
 /**
  * A `request_approval` that names a proposal: the draft of that run becomes the one this
  * question asks for. One conditional update, so a proposal has one question, whatever asks
@@ -278,7 +326,7 @@ const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
 };
 
 /** What each creating tool creates (its output's `id`): what `{ "$item": n }` may name, and how a reference reads: "the table item 2 creates". */
-export const CREATES: Record<string, ProposalName["kind"]> = {
+export const CREATES: Record<string, keyof PluginCreated> = {
   tables_create: "table",
   fields_create: "field",
   agents_create: "agent",
@@ -286,7 +334,7 @@ export const CREATES: Record<string, ProposalName["kind"]> = {
   tools_add: "tool",
   tools_add_from_catalog: "tool",
 };
-const createsOf = (tool: string): ProposalName["kind"] | undefined => CREATES[tool];
+const createsOf = (tool: string): keyof PluginCreated | undefined => CREATES[tool];
 
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : typeof value === "string" ? [value] : []);
 
@@ -395,6 +443,7 @@ export async function proposalView(db: Db, ownerId: string, proposalId: string) 
   return {
     id: row.id,
     status: row.status,
+    plugin: row.plugin ? generatedName(row.plugin) : null,
     items: row.items.map(({ tool, input, usedAt, createdId, failed }) => ({
       tool,
       input,

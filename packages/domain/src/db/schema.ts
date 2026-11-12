@@ -559,6 +559,8 @@ export const proposals = pgTable(
       .references(() => runs.id, { onDelete: "cascade" }),
     agentId: text("agent_id").notNull(),
     items: jsonb("items").$type<ProposalItem[]>().notNull(),
+    /** The business name of the generated plugin that records what its items create, if any. */
+    plugin: text("plugin"),
     status: text("status").$type<"draft" | "asked" | "approved" | "declined">().notNull().default("draft"),
     // The Approval it was asked with.
     questionId: text("question_id"),
@@ -915,8 +917,13 @@ export const marketplaces = pgTable(
   (t) => [unique("marketplaces_owner_url").on(t.ownerId, t.url)],
 );
 
+/** What a generated plugin lists, by kind: the ids its proposals' items created. */
+export type PluginCreated = Partial<Record<"table" | "field" | "agent" | "trigger" | "tool", string[]>>;
+
 // Installed plugins: an entry of a marketplace, read at commit `sha`. What it brings (a skill
-// package now; tools and agents later) references it and goes with it.
+// package, tools, agents) references it and goes with it. A `generated` one ("Generated: <business
+// name>") records what approved proposals naming it created (`created`) and owns nothing: no row
+// references it, so removing it removes the record only.
 export const plugins = pgTable(
   "plugins",
   {
@@ -926,20 +933,24 @@ export const plugins = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     description: text("description").notNull(),
-    marketplaceId: text("marketplace_id")
-      .notNull()
-      .references(() => marketplaces.id),
-    entryName: text("entry_name").notNull(),
+    source: text("source").$type<"marketplace" | "generated">().notNull().default("marketplace"),
+    /** A marketplace plugin's entry; null for a generated one, as are `url` and `sha`. */
+    marketplaceId: text("marketplace_id").references(() => marketplaces.id),
+    entryName: text("entry_name"),
     /** The Git repository it was read from, at `sha`. */
-    url: text("url").notNull(),
-    sha: text("sha").notNull(),
+    url: text("url"),
+    sha: text("sha"),
     /** Everything the plugin offered when last read, imported or not. */
     components: jsonb("components").$type<PluginComponents>().notNull(),
     notImported: jsonb("not_imported").$type<NotImported[]>().notNull().default([]),
+    created: jsonb("created").$type<PluginCreated>().notNull().default({}),
     installedAt: timestamp("installed_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [unique("plugins_owner_entry").on(t.ownerId, t.marketplaceId, t.entryName)],
+  (t) => [
+    unique("plugins_owner_entry").on(t.ownerId, t.marketplaceId, t.entryName),
+    uniqueIndex("plugins_owner_generated_idx").on(t.ownerId, t.name).where(sql`${t.source} = 'generated'`),
+  ],
 );
 
 /**

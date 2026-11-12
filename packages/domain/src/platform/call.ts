@@ -4,7 +4,7 @@ import { logError } from "../log.ts";
 import type { InitialContext } from "../rpc/context.ts";
 import { router } from "../rpc/router.ts";
 import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
-import { approvedItems, createProposal, issues, recordOutcome, resolveRefs, takeItem, type ItemAt } from "./proposals.ts";
+import { approvedItems, createProposal, issues, recordInPlugin, recordOutcome, resolveRefs, takeItem, type ItemAt } from "./proposals.ts";
 import { rightsOf, type JobIdentity } from "./rights.ts";
 import { APPLY, INBOX_TOOLS, PLATFORM_TOOLS, procedureOf, PROPOSE, type PlatformTool } from "./tools.ts";
 
@@ -137,6 +137,9 @@ function applyProposal(app: PlatformApp, job: JobIdentity, proposalId: string): 
       const refusedBefore = outcomes.filter((o) => o.outcome === "refused before").map((o) => o.$item + 1);
       result = stopped ? "stopped" : refusedBefore.length ? "partial" : "done";
       span.setAttributes({ "dispand.proposal.items": first.length, "dispand.proposal.made": made });
+      // What was made, stopped or not, is recorded in the generated plugin the proposal names.
+      const plugin = await recordInPlugin(app.db, job.ownerId, proposalId);
+      if (plugin) span.setAttribute("dispand.plugin.id", plugin);
       if (stopped) {
         recordError(span, "stopped");
         emitLog("platform", "info", "proposal apply stopped", { "dispand.proposal.id": proposalId, "dispand.proposal.items": first.length, "dispand.proposal.made": made });

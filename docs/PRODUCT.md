@@ -60,7 +60,10 @@ Status: Prototype
     A proposal may also list the tables and fields to create, so a whole setup is shown and
     approved at once (up to 60 changes), a later change naming what an earlier one creates
     ("the table item 1 creates"); once approved, the agent has Dispand make them in order, and
-    a change refused on the way stops the rest, with what was made kept.
+    a change refused on the way stops the rest, with what was made kept. A proposal may name
+    the business it sets up: what it creates is then listed in the workspace's plugin
+    "Generated: <business name>" (Settings, Plugins, Installed), which later proposals of that
+    business add to. That plugin only lists: removing it keeps everything it lists.
     Nothing else an agent says approves anything. In a chat, the composer then offers
     Approve (or Ctrl/⌘+Enter on an empty message); whatever you type and send instead declines
     the proposal, and the agent is told your words to make a new one.

@@ -118,7 +118,9 @@ changes it updates this file.
   when it was used, so a reference can't be pointed at anything else. `proposal_apply` makes
   an approved proposal's unused items in order, each through `callPlatformTool` as that very
   item, with the Job's rights read again for each: it can do nothing the Job couldn't do by
-  calling them itself, and stops at the first refusal. An item is used up when its call
+  calling them itself, and stops at the first refusal. A proposal naming a business has what
+  its items created listed in a generated plugin, which owns none of it (no `plugin_id` is set),
+  so removing that plugin deletes nothing else. An item is used up when its call
   starts, whether or not the procedure then accepts it. The Job's rights are
   checked first and as they are at the call, so an approval never brings back a bundle taken
   since, and the procedure's own checks still apply (what isn't the owner's stays refused). A
