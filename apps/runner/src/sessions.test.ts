@@ -590,7 +590,7 @@ test("revoking a grant during skill fetching narrows the start before the CLI la
   const message = { ...start("ses_1", "run_a"), jobToken: "token", skills: [{ packageId: "pkg_1", name: "hello" }], mcpServers: [{ name: "mail", type: "runner" as const, tool: "gmail", unasked: ["draft_email"] }] };
   const slow = sessions.handle({ type: "session.start", start: message });
   await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
-  await sessions.handle({ type: "session.permissions", sessionId: "ses_1", servers: [] });
+  await sessions.handle({ type: "session.permissions", sessionId: "ses_1", servers: [{ name: "mail", unasked: [] }] });
   // A later update cannot restore the removed grant while the start is still preparing.
   await sessions.handle({ type: "session.permissions", sessionId: "ses_1", servers: [{ name: "mail", unasked: ["draft_email", "send_email"] }] });
   release();
@@ -617,4 +617,44 @@ test("a verified native installation replaces its injected copy; disabling it re
   expect(fake.calls[0]!.plugins).toBeUndefined();
   expect(fake.calls[1]!.plugins).toHaveLength(1);
   expect(request).toHaveBeenCalledTimes(2);
+});
+
+
+test.each([
+  { harness: "claude-code", change: "deny" },
+  { harness: "codex", change: "deny" },
+  { harness: "claude-code", change: "remove" },
+  { harness: "codex", change: "remove" },
+] as const)("$harness applies startup $change updates before native MCP configuration", async ({ harness, change }) => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "sessions-restricted-")));
+  made.push(base);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const fetch = vi.fn(async () => { await gate; return []; });
+  const fake = fakeQuery();
+  const codex = await fakeCodex(made);
+  const events: [string, HarnessEvent][] = [];
+  const sessions = new Sessions(
+    { server: "https://dispand.test", roots: [join(base, "root")], allowBypass: false, mcpServers: { gmail: { command: process.execPath } } },
+    (id, event) => events.push([id, event]),
+    { claude: { query: fake.query }, codex: { codexPath: codex.path, env: codex.env, version: "0.167.0" }, resumeMap: join(base, "sessions.json"), claudeVersion: "2.1.311", skills: { server: "https://dispand.test", token: "t", stateDir: join(base, "state"), fetch } },
+  );
+  const message = { ...start("ses_1", "run_a"), harness, permissionMode: "default", jobToken: "token", skills: [{ packageId: "pkg_1", name: "hello" }], mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["draft_email"] }] } as SessionStart;
+  const slow = sessions.handle({ type: "session.start", start: message });
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+  const servers = change === "remove" ? [] : [{ name: "mail", unasked: [], denied: ["draft_email"] }];
+  await sessions.handle({ type: "session.permissions", sessionId: "ses_1", servers });
+  // Later messages cannot resurrect a removed server or clear its action denials.
+  await sessions.handle({ type: "session.permissions", sessionId: "ses_1", servers: [{ name: "mail", unasked: ["draft_email"], denied: [] }] });
+  release();
+  await slow;
+  await ended(events, "ses_1");
+  if (harness === "codex") {
+    const thread = (await codex.received()).find((m) => m.method === "thread/start")!;
+    const configured = (thread.params as { config: { mcp_servers: Record<string, unknown> } }).config.mcp_servers;
+    if (change === "remove") expect(configured).not.toHaveProperty("mail");
+    else expect(configured.mail).toMatchObject({ disabled_tools: ["draft_email"] });
+  } else if (change === "remove") expect(fake.servers[0]).not.toHaveProperty("mail");
+  else expect(fake.calls[0]!.disallowedTools).toContain("mcp__mail__draft_email");
+  await sessions.shutdown();
 });

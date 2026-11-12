@@ -626,7 +626,7 @@ test("on Codex, runner grants run only the named action and revocations take eff
     start: { mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["draft_email"] }] },
     turns: [[approval("mail", "draft_email"), approval("mail", "send_email"), approval("mail", "draft_email"), approval("other", "draft_email"), message("Done")]],
     deps: { jobServer: "job", unasked: [] },
-    answer: () => { active.narrowPermissions!([]); return { kind: "permission", decision: "deny" }; },
+    answer: () => { active.narrowPermissions!([{ name: "mail", unasked: [] }]); return { kind: "permission", decision: "deny" }; },
   });
   const active = s.session;
   await s.ended();
@@ -647,7 +647,7 @@ test("on Codex an old always answer cannot restore a revoked runner grant", asyn
     deps: { jobServer: "job" },
     turns: [[localApproval("draft_email"), localApproval("draft_email"), message("Done")]],
     answer: () => {
-      if (++asked === 1) { active.narrowPermissions!([]); return { kind: "permission", decision: "allow-always" }; }
+      if (++asked === 1) { active.narrowPermissions!([{ name: "mail", unasked: [] }]); return { kind: "permission", decision: "allow-always" }; }
       return { kind: "permission", decision: "deny" };
     },
   });
@@ -686,4 +686,40 @@ test("unasked Codex runner tools refuse targets linked from protected config dir
   await s.ended();
   expect(await s.replyTo("r0")).toMatchObject({ action: "decline" });
   expect(questions(s.events)).toEqual([]);
+});
+
+
+test.each(["default", "bypassPermissions"] as const)("denied Codex runner actions never ask or run in %s mode", async (permissionMode) => {
+  const s = await run({
+    start: { permissionMode, mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["send_email"], denied: ["send_email"] }] },
+    deps: { allowBypass: true, jobServer: "job" },
+    ...(permissionMode === "bypassPermissions" ? { env: { FAKE_CODEX_PROFILE: ":danger-full-access" } } : {}),
+    turns: [[localApproval("send_email"), message("Done")]],
+    answer: () => ({ kind: "permission", decision: "allow-always" }),
+  });
+  await s.ended();
+  expect(questions(s.events)).toEqual([]);
+  expect(await s.replyTo("r0")).toMatchObject({ action: "decline" });
+});
+
+test.each([
+  { decision: "allow", removed: false },
+  { decision: "allow-always", removed: false },
+  { decision: "allow", removed: true },
+  { decision: "allow-always", removed: true },
+] as const)("a late Codex $decision answer cannot override a restriction (removed: $removed)", async ({ decision, removed }) => {
+  const s = await run({
+    start: { mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] },
+    deps: { jobServer: "job" },
+    turns: [[localApproval("draft_email"), localApproval("draft_email"), message("Done")]],
+    answer: () => {
+      active.narrowPermissions!(removed ? [] : [{ name: "mail", unasked: [], denied: ["draft_email"] }]);
+      return { kind: "permission", decision };
+    },
+  });
+  const active = s.session;
+  await s.ended();
+  expect(questions(s.events)).toHaveLength(1);
+  expect(await s.replyTo("r0")).toMatchObject({ action: "decline" });
+  expect(await s.replyTo("r1")).toMatchObject({ action: "decline" });
 });

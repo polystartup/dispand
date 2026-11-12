@@ -1295,7 +1295,7 @@
     front of the app sets it to the peer it saw, and only that proxy may reach the app's port.
   - `routeTree.gen.ts` is committed so `typecheck` works before `build`.
 
-Runner protocol 14 carries runner-tool `unasked` actions and `session.permissions` updates. Both CLI harnesses derive MCP tool names locally. Updates can only remove grants; reconnect reconciliation sends current restrictions before further delivery. Owner action changes fan out to live Job and workflow sessions. Migration 0062 fills empty catalog runner-tool lists from the catalog defaults.
+Runner protocol 14 introduced runner-tool `unasked` actions and `session.permissions` updates. Both CLI harnesses derive MCP tool names locally. Updates can only remove grants; reconnect reconciliation sends current restrictions before further delivery. Owner action changes fan out to live Job and workflow sessions. Migration 0062 fills empty catalog runner-tool lists from the catalog defaults.
 
 Runner MCP aliases are hashes of the tool id, runner id and local server key. They survive renames and other tools’ removal, and change on retargeting. Pending persistent answers are checked against the current binding and permission before delivery; permission updates invalidate local caching of older approvals. Updates arriving during skill fetching narrow the start before CLI launch. Automatic runner calls share the poll path guard for protected machine and session configuration.
 
@@ -1303,3 +1303,12 @@ Native support currently requires `plugins.native_root = '.'`, recorded from the
 checkout when importing or updating. Legacy rows have null until updated. Nested imports are
 reported as unsupported for native installation because Skillshare cannot reproduce their
 identity from the stored marketplace entry alone; they continue to supply workspace skills.
+
+
+Runner protocol 18 adds optional runner-action `denied` lists to session starts and permission
+updates. The runner accumulates denials and blocks all actions of a removed server. Both native
+harnesses check the same state before automatic approvals and again after a pending answer;
+initial denials also configure native tool filters. Updates received during asynchronous startup
+narrow its refs before native MCP configuration is rebuilt. Later messages cannot re-enable an
+action or server in that session; a new session uses the current configuration. This protocol
+support prepares the per-agent Off control; the existing agent UI still offers Run / Ask.

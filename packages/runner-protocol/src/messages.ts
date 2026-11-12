@@ -8,7 +8,7 @@ import { isMemoryPath } from "./paths.ts";
  * Sent by the runner as the `Dispand-Protocol` header when it connects. Bumped by every
  * change a runner of the previous version can't parse or honor; the hub turns older runners away.
  */
-export const PROTOCOL_VERSION = 17;
+export const PROTOCOL_VERSION = 18;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -61,6 +61,8 @@ export const McpServerRef = z.discriminatedUnion("type", [
       .array(id().regex(/^[a-zA-Z0-9_-]{1,64}$/))
       .max(500)
       .optional(),
+    /** Disabled actions, by their full server-local names. Denials only restrict access. */
+    denied: z.array(id()).max(500).optional(),
   }),
 ]);
 export type McpServerRef = z.infer<typeof McpServerRef>;
@@ -159,10 +161,18 @@ export const SessionStart = z.discriminatedUnion("harness", [
 export type SessionStart = z.infer<typeof SessionStart>;
 export type ClaudeSessionStart = Extract<SessionStart, { harness: "claude-code" }>;
 
+/** A live session update can remove grants and add denials, never restore a removed server. */
+export const SessionToolPermissions = z.object({
+  name: SessionServerName,
+  unasked: z.array(id().regex(/^[a-zA-Z0-9_-]{1,64}$/)).max(500),
+  denied: z.array(id()).max(500).optional(),
+});
+export type SessionToolPermissions = z.infer<typeof SessionToolPermissions>;
+
 export const ServerToRunner = z.discriminatedUnion("type", [
   z.object({ type: z.literal("plugin.request"), requestId: id().min(1), operation: PluginOperation }),
   z.object({ type: z.literal("session.start"), start: SessionStart }),
-  z.object({ type: z.literal("session.permissions"), sessionId: id(), servers: z.array(z.object({ name: SessionServerName, unasked: z.array(id().regex(/^[a-zA-Z0-9_-]{1,64}$/)).max(500) })).max(50) }),
+  z.object({ type: z.literal("session.permissions"), sessionId: id(), servers: z.array(SessionToolPermissions).max(50) }),
   z.object({ type: z.literal("session.send"), sessionId: id(), text: text() }),
   z.object({ type: z.literal("session.answer"), sessionId: id(), questionId: id(), answer: Answer }),
   z.object({ type: z.literal("session.interrupt"), sessionId: id() }),

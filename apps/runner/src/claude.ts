@@ -13,7 +13,7 @@ import {
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { ClaudeSessionStart, HarnessEvent, QuestionPayload } from "@dispand/runner-protocol";
-import { runnerArgumentsAllowed, narrowUnasked, unaskedTools } from "./mcp.ts";
+import { deniedTools, runnerArgumentsAllowed, narrowUnasked, unaskedTools } from "./mcp.ts";
 import { z } from "zod";
 import { codexDenied, permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
 import { askChoices, MAX_WAITING, MAX_WAITING_BYTES, BypassRefused, type ChoiceQuestion, consult, CONSULT, consultDescription, type HarnessSession, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome, TURN_DENIED } from "./outcome.ts";
@@ -223,6 +223,7 @@ export function startClaudeSession(
    * of the agent's tools that it lets run unasked: the owner isn't asked.
    */
   const { names: unasked, servers: agentServers } = unaskedTools(start.mcpServers, deps.jobServer === undefined ? undefined : (deps.unasked ?? []));
+  const denied = deniedTools(start.mcpServers, "claude-code");
   let permissionsVersion = 0;
   const runnerTool = (name: string) => agentServers.some((server) => server !== "job_tools" && name.startsWith(`mcp__${server}__`));
   const mcpDenied = codexDenied([...(deps.secrets ?? []), join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...pluginRoots]);
@@ -297,6 +298,7 @@ export function startClaudeSession(
 
   const canUseTool: CanUseTool = async (toolName, toolInput, { signal, suggestions }): Promise<PermissionResult> => {
     if (toolName !== REQUEST_APPROVAL_TOOL && !(await turnApproved())) return { behavior: "deny", message: TURN_DENIED };
+    if (denied.blocks(toolName)) return { behavior: "deny", message: "This tool action is disabled for this session." };
     if (protectedArgs(toolName, toolInput)) return { behavior: "deny", message: PROTECTED_DENIAL };
     // `request_approval` asks the owner itself, in the agent's words: no second question about calling it.
     if (toolName === SUBMIT_OUTPUTS || toolName === REQUEST_APPROVAL_TOOL || (toolName === CONSULT_TOOL && consults.length > 0) || isJobTool(toolName)) return { behavior: "allow", updatedInput: toolInput };
@@ -341,6 +343,7 @@ export function startClaudeSession(
       return { behavior: "deny", message: "The tool input is too large to show for approval (or holds characters that can't be shown): split it up." };
     }
     const answer = await ask(payload, signal);
+    if (denied.blocks(toolName)) return { behavior: "deny", message: "This tool action is disabled for this session." };
     if (answer?.kind !== "permission" || answer.decision === "deny") {
       return { behavior: "deny", message: (answer?.kind === "permission" && answer.message) || "The owner denied this." };
     }
@@ -374,6 +377,7 @@ export function startClaudeSession(
       // Skill packages only: the runner wrote nothing but plugin.json and skills/ there.
       ...(pluginRoots.length > 0 ? { plugins: pluginRoots.map((path) => ({ type: "local" as const, path, skipMcpDiscovery: true })) } : {}),
       canUseTool,
+      disallowedTools: [...denied.names],
       // The highest-priority settings layer the user controls; disallowed edits are also refused in canUseTool.
       // Plans default to ~/.claude/plans, which the boundary denies: keep them in the run folder.
       // No skill or command runs shell commands as it loads (`!` substitutions): the owner approves every command.
@@ -392,6 +396,7 @@ export function startClaudeSession(
                 else if (!(await turnApproved())) {
                   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: TURN_DENIED } };
                 }
+                if (denied.blocks(call.tool_name)) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "This tool action is disabled for this session." } };
                 // Relative paths are against the CLI's own current directory (after any `cd`).
                 const current = typeof call.cwd === "string" ? call.cwd : null;
                 const edit = boundary.editDecision(call.tool_name, toolInput, current);
@@ -527,7 +532,7 @@ export function startClaudeSession(
       if (unanswered.length > MAX_WAITING || waiting + Buffer.byteLength(text) > MAX_WAITING_BYTES) return finish({ type: "error", message: "too many messages waiting for the agent: the session was stopped" });
       say(text);
     },
-    narrowPermissions: (servers) => { permissionsVersion++; narrowUnasked(unasked, agentServers.filter((s) => s !== "job_tools"), servers); },
+    narrowPermissions: (servers) => { permissionsVersion++; denied.narrow(servers); narrowUnasked(unasked, agentServers.filter((s) => s !== "job_tools"), servers); },
     answer: questions.answer,
     interrupt: async () => {
       // Idle: nothing to cut short, and no later error may pass for an interrupted turn.

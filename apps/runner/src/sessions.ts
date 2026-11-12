@@ -181,11 +181,15 @@ export class Sessions {
     if (msg.type === "session.permissions") {
       const preparing = this.starting.get(msg.sessionId);
       if (preparing) {
-        for (const ref of preparing.mcpServers) {
-          if (ref.type !== "runner") continue;
-          const allowed = msg.servers.find((s) => s.name === ref.name)?.unasked ?? [];
-          ref.unasked = (ref.unasked ?? []).filter((action) => allowed.includes(action));
-        }
+        preparing.mcpServers = preparing.mcpServers.filter((ref) => {
+          if (ref.type !== "runner") return true;
+          const current = msg.servers.find((s) => s.name === ref.name);
+          if (!current) return false;
+          const denied = [...new Set([...(ref.denied ?? []), ...(current.denied ?? [])])];
+          ref.denied = denied;
+          ref.unasked = (ref.unasked ?? []).filter((action) => current.unasked.includes(action) && !denied.includes(action));
+          return true;
+        });
         return Promise.resolve();
       }
     }
@@ -252,12 +256,17 @@ export class Sessions {
     // The session's MCP servers: a runner tool must be one of this machine's own (ToolRefused).
     let claudeMcp: ReturnType<typeof mcpConfigFor> = {};
     let codexMcp: ReturnType<typeof codexMcpServers> | undefined;
-    try {
+    const prepareMcp = () => {
+      claudeMcp = {};
+      codexMcp = undefined;
       const refs = withJobServer(start.mcpServers, this.config.server, start.jobToken);
       if (refs.length > 0) {
         if (start.harness === "codex") codexMcp = codexMcpServers(refs, this.config.mcpServers);
         else claudeMcp = mcpConfigFor(refs, this.config.mcpServers);
       }
+    };
+    try {
+      prepareMcp();
     } catch (err) {
       return emit({ type: "error", message: (err as Error).message });
     }
@@ -309,6 +318,8 @@ export class Sessions {
         cleanUp();
         return emit({ type: "error", message: this.stops !== stops ? this.stopMessage : refusal });
       }
+      // A permission update may have narrowed the start while its files were fetched/written.
+      prepareMcp();
       const jobServer = start.jobToken === undefined ? {} : { jobServer: JOB_SERVER_NAME, ...(start.unasked ? { unasked: start.unasked } : {}) };
       const session =
         start.harness === "codex"

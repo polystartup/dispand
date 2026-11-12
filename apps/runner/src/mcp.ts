@@ -6,7 +6,7 @@ import { isAbsolute, resolve } from "node:path";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { Client, type Tool } from "@modelcontextprotocol/client";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import { JOB_SERVER_NAME, JOB_TOOLS_SERVER, McpAction, type McpServerRef, SHORT } from "@dispand/runner-protocol";
+import { JOB_SERVER_NAME, JOB_TOOLS_SERVER, McpAction, type McpServerRef, type SessionToolPermissions, SHORT } from "@dispand/runner-protocol";
 import { overlapping, type RunnerConfig } from "./config.ts";
 import type { JsonValue } from "./codex/protocol/serde_json/JsonValue.ts";
 import { cleanJson, FRAME_BUDGET, protocolString } from "./sanitize.ts";
@@ -50,6 +50,31 @@ export function unaskedTools(refs: McpServerRef[], jobTools: string[] | undefine
   };
 }
 
+/** Claude's MCP normalizer is private in the SDK; mirror its naming at this boundary only. */
+function claudeActionName(action: string): string {
+  const name = action.replace(/[^a-zA-Z0-9_-]/g, "_");
+  return action.startsWith("claude.ai ") ? name.replace(/_+/g, "_").replace(/^_|_$/g, "") : name;
+}
+
+/** Denials only accumulate during a session; removing a runner server blocks all its actions. */
+export function deniedTools(refs: McpServerRef[], harness: "claude-code" | "codex") {
+  const key = (server: string, action: string) => `mcp__${server}__${harness === "claude-code" ? claudeActionName(action) : action}`;
+  const servers = refs.filter((ref) => ref.type === "runner");
+  const names = new Set(servers.flatMap((ref) => (ref.denied ?? []).map((action) => key(ref.name, action))));
+  const removed = new Set<string>();
+  return {
+    names,
+    blocks: (name: string) => names.has(name) || [...removed].some((server) => name.startsWith(`mcp__${server}__`)),
+    narrow(update: SessionToolPermissions[]) {
+      for (const server of servers) {
+        const current = update.find((ref) => ref.name === server.name);
+        if (!current) removed.add(server.name);
+        else for (const action of current.denied ?? []) names.add(key(server.name, action));
+      }
+    },
+  };
+}
+
 /**
  * The CLI's MCP servers for `refs`, in the SDK's shapes. A runner tool is the machine's own
  * server of that name (`mcpServers` in its config): the server names one, and never says what
@@ -82,6 +107,8 @@ export function codexMcpServers(refs: McpServerRef[], local: RunnerConfig["mcpSe
   const servers: Record<string, JsonValue> = {};
   const env: Record<string, string> = {};
   Object.entries(mcpConfigFor(refs, local, dir)).forEach(([name, config], i) => {
+    const ref = refs.find((ref) => ref.name === name);
+    const disabled = ref?.type === "runner" && ref.denied?.length ? { disabled_tools: ref.denied } : {};
     if (config.type === "sse") throw new ToolRefused(`Codex can't use the MCP server ${name}: it only speaks SSE`);
     if (config.type === "http") {
       const names: Record<string, string> = {};
@@ -89,9 +116,9 @@ export function codexMcpServers(refs: McpServerRef[], local: RunnerConfig["mcpSe
         names[header] = `DISPAND_MCP_${i}_${j}`;
         env[`DISPAND_MCP_${i}_${j}`] = value;
       });
-      servers[name] = { url: config.url, env_http_headers: names, default_tools_approval_mode: "prompt" };
+      servers[name] = { url: config.url, env_http_headers: names, default_tools_approval_mode: "prompt", ...disabled };
     } else if (config.type === "stdio" || config.type === undefined) {
-      servers[name] = { command: config.command, args: config.args ?? [], env: config.env ?? {}, default_tools_approval_mode: "prompt" };
+      servers[name] = { command: config.command, args: config.args ?? [], env: config.env ?? {}, default_tools_approval_mode: "prompt", ...disabled };
     }
   });
   return { servers, env };
@@ -333,7 +360,7 @@ export function credentialValues(files: string[]): string[] {
 }
 
 /** Revocations intersect the current grant; an update can never add an action or server. */
-export function narrowUnasked(names: Set<string>, servers: string[], update: { name: string; unasked: string[] }[]): void {
+export function narrowUnasked(names: Set<string>, servers: string[], update: SessionToolPermissions[]): void {
   const allowed = new Set(update.flatMap((ref) => ref.unasked.map((action) => `mcp__${ref.name}__${action}`)));
   for (const name of names) {
     if (servers.some((server) => name.startsWith(`mcp__${server}__`)) && !allowed.has(name)) names.delete(name);
