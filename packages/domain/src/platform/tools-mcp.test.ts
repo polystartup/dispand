@@ -1,8 +1,8 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { call } from "@orpc/server";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterEach, expect, onTestFinished, test } from "vitest";
-import { questions, runs, stepRuns, tools as toolsTable } from "../db/schema.ts";
+import { audit, questions, runs, stepRuns, tools as toolsTable } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp, type FakeMcp } from "../tools/test-server.ts";
@@ -98,6 +98,37 @@ test("refuses a call nobody approved, a denied one, and one whose arguments chan
   await s.approve(`mcp__job_tools__${list}`, { title: "Other" });
   await refused({ title: "Other" });
   expect(s.calls).toEqual([]);
+});
+
+test("a call leaves one Audit row naming the tool and action, a refused one too, never the arguments or the result", async () => {
+  const s = await setup();
+  const create = await named(s.client, "github_create_issue");
+  expect((await s.client.callTool({ name: create, arguments: { title: "Bug-sentinel" } })).isError).toBe(true);
+  await s.approve(`mcp__job_tools__${create}`, { title: "Bug-sentinel" });
+  expect(textOf(await s.client.callTool({ name: create, arguments: { title: "Bug-sentinel" } }))).toBe("created #1");
+  const rows = await s.context.db.select().from(audit).where(eq(audit.action, "tool.call")).orderBy(audit.at, audit.id);
+  const common = { actor: { type: "job", runId: s.runId }, actorAgentId: s.agent.id, jobId: s.runId, resourceType: "tool", resourceId: s.tool.id };
+  const details = { toolId: s.tool.id, toolName: "GitHub", action: "create_issue" };
+  expect(rows).toMatchObject([
+    { ...common, result: "refused", details: { ...details, reason: "not-approved" } },
+    { ...common, result: "ok", details },
+  ]);
+  expect(rows[1]!.details).not.toHaveProperty("reason");
+  expect(JSON.stringify(rows)).not.toContain("sentinel");
+  expect(JSON.stringify(rows)).not.toContain("created #1");
+});
+
+test("a call's result reaches the session unchanged when its Audit row can't be written", async () => {
+  const s = await setup();
+  const create = await named(s.client, "github_create_issue");
+  await s.context.db.execute(sql`alter table audit add constraint audit_closed check (action <> 'tool.call') not valid`);
+  onTestFinished(() => s.context.db.execute(sql`alter table audit drop constraint audit_closed`).then(() => undefined));
+  expect(textOf(await s.client.callTool({ name: create, arguments: { title: "Bug" } }))).toMatch(NEEDS);
+  await s.approve(`mcp__job_tools__${create}`, { title: "Bug" });
+  const result = await s.client.callTool({ name: create, arguments: { title: "Bug" } });
+  expect(result.isError).toBeFalsy();
+  expect(textOf(result)).toBe("created #1");
+  expect(s.calls).toEqual([["create_issue", { title: "Bug" }]]);
 });
 
 test("an approval runs one call", async () => {
