@@ -36,6 +36,23 @@ export function patchListRows(
   );
 }
 
+/**
+ * Puts a row just created at the end of each cached list, with `values` over its own. A list read
+ * since the creation may hold it already: that list only takes `values`, keeping its newer cells.
+ */
+export function addListRow(queryClient: QueryClient, tableId: string, row: ListRow, values: Record<string, Cell>) {
+  queryClient.setQueriesData<Pages>({ queryKey: orpc.rows.list.key({ input: { tableId } }) }, (data) => {
+    if (!data?.pages) return data;
+    const listed = data.pages.some((p) => p.rows.some((r) => r.id === row.id));
+    const pages = data.pages.map((p, i) =>
+      listed
+        ? { ...p, rows: p.rows.map((r) => (r.id === row.id ? { ...r, values: { ...r.values, ...values } } : r)) }
+        : { ...p, rows: i === data.pages.length - 1 ? [...p.rows, { ...row, values: { ...row.values, ...values } }] : p.rows, total: p.total + 1 },
+    );
+    return { ...data, pages };
+  });
+}
+
 /** Sets one cell of a cached row (the row's other cells stay), unless `unless` says the cell already moved on. */
 export function setListCell(queryClient: QueryClient, tableId: string, rowId: string, fieldId: string, value: Cell, unless?: (current: Cell | undefined) => boolean) {
   patchListRows(queryClient, tableId, (list) => list.map((r) => (r.id === rowId && !unless?.(r.values[fieldId]) ? { ...r, values: { ...r.values, [fieldId]: value } } : r)));
