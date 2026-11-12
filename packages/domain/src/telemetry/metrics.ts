@@ -39,6 +39,8 @@ export const METRICS = {
   "dispand.runner.tool_calls": ["dispand.result"],
   "dispand.runner.tool_call.duration": ["dispand.result"],
   "dispand.tool.calls": ["dispand.result"],
+  // A cloud session's `read_skill` (`skills/cloud.ts`): read, not found or refused.
+  "dispand.skill.reads": ["dispand.result"],
   "dispand.tool.duration": ["dispand.result"],
   // A step of an OAuth tool's sign-in (`authorize`, `callback`, `refresh`) and how it ended.
   "dispand.tool.oauth": ["dispand.oauth.step", "dispand.result"],

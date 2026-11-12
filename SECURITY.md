@@ -33,7 +33,10 @@ changes it updates this file.
   URL is called on the server only, for cloud sessions, with its sealed headers opened for that
   call: a session start never carries a tool's address or headers, only the names of the
   runner's own MCP servers the agent was given (and only those of the harness's runner). Every
-  call of such a tool asks the owner first, in a cloud session as on a runner.
+  call of such a tool asks the owner first, in a cloud session as on a runner. A cloud session's
+  `read_skill` reads only a file of a skill in those packages, checked again at each call, by
+  its exact stored path inside the skill's folder (an unsafe path is refused, nothing is
+  decoded): it reaches no other package and no file on the server.
 - **An agent's tool reached by URL is called on the server, and on a runner only after the
   owner approved that exact call.** A Job's CLI session gets these tools from a second
   endpoint, `/mcp/job/tools` (same Job token, address built by the runner like the Job

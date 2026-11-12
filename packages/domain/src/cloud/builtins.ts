@@ -9,6 +9,7 @@ export const ASK_USER = "ask_user";
 export const SUBMIT_OUTPUTS = "submit_outputs";
 export const REQUEST_APPROVAL = "request_approval";
 export const CONSULT = "consult";
+export const READ_SKILL = "read_skill";
 /** The most characters an approval request's words may hold: the owner reads them whole. */
 export const MAX_APPROVAL_MESSAGE = 4000;
 
@@ -149,6 +150,16 @@ export function consultSpec(agents: ConsultTarget[]): ToolSpec {
     }),
   };
 }
+
+/** `read_skill`: a file of one of the session's skills. Only in a session whose agent has skills. */
+export const readSkillSpec: ToolSpec = {
+  name: READ_SKILL,
+  description: "Read a file of one of your skills (listed in your instructions): its SKILL.md first, then the files it points to, by their path inside the skill's folder.",
+  inputSchema: strictObject({
+    skill: { type: "string", description: "The skill's name, as listed" },
+    path: { type: "string", description: "The file's path inside the skill's folder: SKILL.md, or a file it names (references/setup.md)" },
+  }),
+};
 
 /** `consult` arguments as the question to send, or the error the model gets back. */
 export function consultQuestion(args: unknown, agents: ConsultTarget[]): { agentId: string; question: string } | { error: string } {
