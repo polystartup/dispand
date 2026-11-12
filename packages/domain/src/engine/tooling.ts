@@ -18,7 +18,7 @@ export type Tooling = {
    * Tools that run on a runner: `tool` is the name of the runner's own MCP server. `unasked`
    * names the actions that run without asking the owner, as the agent has them now.
    */
-  runnerTools: { id: string; name: string; tool: string; runnerId: string; actions: ToolRow["actions"]; unasked: string[] }[];
+  runnerTools: { id: string; name: string; tool: string; runnerId: string; actions: ToolRow["actions"]; unasked: string[]; denied: string[] }[];
   /**
    * Tools reached by URL: called on the server only, where their sealed headers stay. `unasked`
    * names the actions that run without asking the owner, as the agent has them now.
@@ -50,18 +50,18 @@ export async function toolingOf(db: Db, run: { ownerId: string; snapshot: AgentS
         .where(and(inArray(tools.id, toolIds), eq(tools.ownerId, run.ownerId)))
     : [];
   rows.sort((a, b) => a.name.localeCompare(b.name));
-  const chosen = await db.select({ toolId: agentTools.toolId, unasked: agentTools.unasked }).from(agentTools).where(eq(agentTools.agentId, agentId));
+  const chosen = await db.select({ toolId: agentTools.toolId, unasked: agentTools.unasked, denied: agentTools.denied }).from(agentTools).where(eq(agentTools.agentId, agentId));
   return {
     skills,
     runnerTools: rows.flatMap((t) =>
       t.kind === "runner" && t.runnerId && t.runnerTool
-        ? [{ id: t.id, name: t.name, tool: t.runnerTool, runnerId: t.runnerId, actions: t.actions, unasked: chosen.find((c) => c.toolId === t.id)?.unasked ?? [] }]
+        ? [{ id: t.id, name: t.name, tool: t.runnerTool, runnerId: t.runnerId, actions: t.actions.filter((a) => !chosen.find((c) => c.toolId === t.id)?.denied.includes(a.name)), unasked: chosen.find((c) => c.toolId === t.id)?.unasked ?? [], denied: chosen.find((c) => c.toolId === t.id)?.denied ?? [] }]
         : [],
     ),
     // `chosen`: the agent's own choice, which carries the unasked actions; a tool that only comes with a skill has none.
     httpTools: rows.filter((t) => t.kind === "http").map((t) => {
       const mine = chosen.find((c) => c.toolId === t.id);
-      return { ...t, unasked: mine?.unasked ?? [], chosen: mine !== undefined };
+      return { ...t, actions: t.actions.filter((a) => !mine?.denied.includes(a.name)), unasked: mine?.unasked ?? [], chosen: mine !== undefined };
     }),
     agentId,
   };

@@ -170,6 +170,24 @@ test("an agent gets a skill with its tool locked, and another tool; neither tool
   await page.reload();
   await chosen.getByText("1 action, 0 ask before use").click();
   await expect(ask).not.toBeChecked();
+  const enable = chosen.getByRole("checkbox", { name: /^Enable Search / });
+  await enable.click();
+  await expect(enable).not.toBeChecked();
+  await expect(chosen.getByText("1 action, 0 ask before use, 1 off")).toBeVisible();
+  await page.reload();
+  await chosen.getByText("1 action, 0 ask before use, 1 off").click();
+  await expect(enable).not.toBeChecked();
+  await expect(ask).toHaveCount(0);
+  await shots(page, "agent-action-off");
+  await enable.click();
+  await expect(enable).toBeChecked();
+  await expect(ask).toBeChecked();
+  await expect(chosen.getByText("1 action, 1 asks before use")).toBeVisible();
+  await page.reload();
+  await chosen.getByText("1 action, 1 asks before use").click();
+  await expect(enable).toBeChecked();
+  await expect(ask).toBeChecked();
+  await shots(page, "agent-action-ask");
 
   await page.goto("/settings/tools");
   await page.getByRole("button", { name: /^Notes/ }).click();

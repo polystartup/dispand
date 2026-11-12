@@ -41,7 +41,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
   // Which actions of the agent's own tools ask before use: saved one by one, apart from the form.
   const toolAsk = useQuery({ ...orpc.agents.toolAsk.queryOptions({ input: { id: agent?.id ?? "" } }), enabled: agent !== undefined });
   const asks = new Map((toolAsk.data ?? []).map((t) => [t.toolId, t.actions]));
-  const setAsk = useMutation(orpc.agents.setToolAsk.mutationOptions({ onSuccess: invalidate }));
+  const setPermission = useMutation(orpc.agents.setToolPermission.mutationOptions({ onSuccess: invalidate }));
   const [name, setName] = useState(agent?.name ?? "");
   const [harnessId, setHarnessId] = useState(agent?.harnessId ?? defaultHarnessId ?? "");
   const [systemPrompt, setSystemPrompt] = useState(agent?.systemPrompt ?? "");
@@ -238,8 +238,8 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
                     <ToolAsk
                       tool={t.name}
                       actions={asks.get(t.toolId)!}
-                      busy={setAsk.isPending}
-                      onChange={(action, ask) => setAsk.mutate({ agentId: agent!.id, toolId: t.toolId, action, ask })}
+                      busy={setPermission.isPending}
+                      onChange={(action, permission) => setPermission.mutate({ agentId: agent!.id, toolId: t.toolId, action, permission })}
                     />
                   ) : (
                     t.lockedBy.length === 0 && agent && toolAsk.isSuccess && <p className="text-[12px] text-faint">Save the agent to choose which of its actions ask before use.</p>

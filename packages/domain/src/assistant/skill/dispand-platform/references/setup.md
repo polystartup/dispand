@@ -17,7 +17,7 @@ A call outside the Job's bundles or tables is refused.
 
 These calls run only as an item of a proposal a person approved, in the same Job:
 
-- `agents_create`, `agents_update`, `agents_set_tool_ask`;
+- `agents_create`, `agents_update`, `agents_set_tool_permission`;
 - `triggers_create`, `triggers_update`, `triggers_delete`;
 - `tools_add_from_catalog` (a catalog entry's id, and a name if you want another), `tools_add`
   (a name, a URL and a transport), `tools_delete`: neither takes a credential;
@@ -90,9 +90,12 @@ item naming what earlier ones create.
   to add it on their machine (the refusal gives the snippet). Add a tool by URL (`tools_add`)
   only for a server the catalog doesn't have: it has no actions until it is signed in and lists
   them, so propose its asking flags and poll triggers in a second proposal, once it lists.
-- **Asking flags**: list, for each agent, which of its tools' actions will run without asking
-  (`agents_tool_ask`) and propose `agents_set_tool_ask` where the owner should be asked
-  instead, or not asked. An action that reaches outside (a send, a fetch) can carry what the
+- **Action permissions**: `agents_tool_ask` lists each chosen tool's actions with permission
+  `run`, `ask`, or `off`. Propose `agents_set_tool_permission` with a literal `action` name and
+  `permission` to change one. Off actions cannot run; re-enable with `ask`, and use `run` only
+  for an explicit grant. An agent update keeps retained tools' permissions; an unasked list
+  cannot restore an Off action. Changing a permission and then updating the agent in the same
+  proposal preserves that permission. An action that reaches outside (a send, a fetch) can carry what the
   agent read: keep it asking on an agent that reads confidential tables.
 
 - **The business itself**: until the workspace has a memory, keep what the owner told you about

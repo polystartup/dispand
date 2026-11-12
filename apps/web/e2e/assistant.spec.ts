@@ -124,7 +124,7 @@ test("the lawyer: a fresh install's Assistant sets up the whole workspace from o
     /* 9 */ { tool: "agents_create", input: agent("Intake and research", "Read each new client email, find its client and matter, research it and record what you found.", [{ $item: 7 }, { $item: 8 }], [{ $item: 0 }, { $item: 2 }, { $item: 5 }]) },
     /* 10 */ { tool: "agents_create", input: agent("Drafting", "Draft the reply to the client from the research recorded, as a draft in the mailbox.", [{ $item: 7 }], [{ $item: 2 }, { $item: 5 }]) },
     /* 11 */ { tool: "agents_create", input: agent("Matter upkeep", "Keep each matter's conclusions up to date.", [], [{ $item: 2 }]) },
-    /* 12 */ { tool: "agents_set_tool_ask", input: { agentId: { $item: 9 }, toolId: { $item: 7 }, action: "create_draft", ask: true } },
+    /* 12 */ { tool: "agents_set_tool_permission", input: { agentId: { $item: 9 }, toolId: { $item: 7 }, action: "create_draft", permission: "ask" } },
     /* 13 */ {
       tool: "triggers_create",
       input: { agentId: { $item: 9 }, name: "New client email", instructions: "A new email arrived.", config: { kind: "poll", toolId: { $item: 7 }, action: "search_threads", arguments: { query: "in:inbox after:{{lastPollEpoch}}", pageSize: 50 }, itemsPath: "threads", idPath: "id", continuation: { path: "nextPageToken", argument: "pageToken" } } },

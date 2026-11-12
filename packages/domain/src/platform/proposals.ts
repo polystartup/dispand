@@ -103,6 +103,7 @@ export function parseWithRefs(schema: z.ZodType, input: unknown): { data: unknow
 
 /** Freeze an agent item's effective permissions when it is prepared, on the caller's proposal/setup span. */
 export async function snapshotToolPermissions(db: Db, ownerId: string, prior: ProposalItem[], item: ProposalItem): Promise<ProposalItem | string> {
+  if (item.tool === "agents_set_tool_permission" && typeof (item.input as { action: unknown }).action !== "string") return "An action permission must name a literal action";
   if (item.tool !== "agents_create" && item.tool !== "agents_update") return item;
   type Ref = string | ItemRef;
   const input = item.input as { id?: Ref; toolIds: Ref[]; toolPermissions?: { toolId: Ref; unasked: string[] }[] };
@@ -114,17 +115,29 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
   if (new Set(given.map((p) => key(p.toolId))).size !== given.length) return "List each tool's permissions once";
   const direct = ids.filter((id): id is string => typeof id === "string");
   const found = direct.length ? await db.select().from(toolsTable).where(and(inArray(toolsTable.id, direct), eq(toolsTable.ownerId, ownerId))) : [];
-  // An update keeps existing grants, including one an earlier item of this setup writes.
-  let kept = new Map<string, string[]>();
+  // Replay earlier permission writes as well as agent updates: an unrelated update must not
+  // freeze an old Run grant over a preceding Off/Ask item in the same setup.
+  let kept = new Map<string, { unasked: string[]; denied: string[] }>();
   if (item.tool === "agents_update") {
-    const earlier = prior.findLast((p, i) =>
-      (p.tool === "agents_create" && isRef(input.id) && input.id.$item === i) ||
-      (p.tool === "agents_update" && canonical((p.input as { id?: Ref }).id) === canonical(input.id)),
-    );
-    if (earlier) kept = new Map((earlier.toolPermissions ?? []).map((p) => [key(p.toolId), p.unasked]));
-    else if (typeof input.id === "string") {
-      const rows = await db.select({ toolId: agentTools.toolId, unasked: agentTools.unasked }).from(agentTools).innerJoin(agents, eq(agents.id, agentTools.agentId)).where(and(eq(agents.id, input.id), eq(agents.ownerId, ownerId)));
-      kept = new Map(rows.map((p) => [key(p.toolId), p.unasked]));
+    if (typeof input.id === "string") {
+      const rows = await db.select({ toolId: agentTools.toolId, unasked: agentTools.unasked, denied: agentTools.denied }).from(agentTools).innerJoin(agents, eq(agents.id, agentTools.agentId)).where(and(eq(agents.id, input.id), eq(agents.ownerId, ownerId)));
+      kept = new Map(rows.map((p) => [key(p.toolId), { unasked: p.unasked, denied: p.denied }]));
+    }
+    for (const [index, previous] of prior.entries()) {
+      const fields = previous.input as { id?: Ref; agentId?: Ref; toolId?: Ref; action?: string; permission?: string };
+      const created = previous.tool === "agents_create" && isRef(input.id) && input.id.$item === index;
+      if (created || (previous.tool === "agents_update" && canonical(fields.id) === canonical(input.id))) {
+        kept = new Map((previous.toolPermissions ?? []).map((p) => [key(p.toolId), { unasked: p.unasked, denied: created ? [] : kept.get(key(p.toolId))?.denied ?? [] }]));
+      } else if (previous.tool === "agents_set_tool_permission" && canonical(fields.agentId) === canonical(input.id) && fields.toolId && fields.action) {
+        const state = kept.get(key(fields.toolId));
+        if (!state) continue;
+        const unasked = state.unasked.filter((name) => name !== fields.action);
+        const denied = state.denied.filter((name) => name !== fields.action);
+        if (fields.permission === "run") unasked.push(fields.action);
+        if (fields.permission === "off") denied.push(fields.action);
+        const listed = typeof fields.toolId === "string" ? found.find((t) => t.id === fields.toolId)?.actions : undefined;
+        kept.set(key(fields.toolId), { unasked: listed ? unasked.filter((name) => listed.some((a) => a.name === name)) : unasked, denied: listed ? denied.filter((name) => listed.some((a) => a.name === name)) : denied });
+      }
     }
   }
   const toolPermissions = ids.map((toolId) => {
@@ -144,8 +157,9 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
         target = toolPermissionTarget({ kind: "http", url: fields.url, transport: fields.transport ?? "streamable-http" });
       }
     }
-    return { toolId, unasked: given.find((p) => key(p.toolId) === key(toolId))?.unasked ?? kept.get(key(toolId)) ?? defaults, target };
+    return { toolId, unasked: given.find((p) => key(p.toolId) === key(toolId))?.unasked ?? kept.get(key(toolId))?.unasked ?? defaults, target };
   });
+  if (toolPermissions.some((p) => p.unasked.some((action) => kept.get(key(p.toolId))?.denied.includes(action)))) return "An action is disabled: change its permission explicitly before granting it";
   return { ...item, toolPermissions };
 }
 
@@ -398,7 +412,7 @@ export type ProposalName = { kind: "agent" | "harness" | "tool" | "skill" | "tab
 const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
   agents_create: { harnessId: "harness", toolIds: "tool", skillPackageIds: "skill", dataTables: "table" },
   agents_update: { id: "agent", harnessId: "harness", toolIds: "tool", skillPackageIds: "skill", dataTables: "table" },
-  agents_set_tool_ask: { agentId: "agent", toolId: "tool" },
+  agents_set_tool_permission: { agentId: "agent", toolId: "tool" },
   harnesses_set_limit: { id: "harness" },
   tables_rename: { id: "table" },
   tables_set_primitive: { id: "table" },

@@ -24,7 +24,7 @@ const TITLES: Record<string, string> = {
   fields_reorder: "Reorder a table's fields",
   agents_create: "Create an agent",
   agents_update: "Change an agent",
-  agents_set_tool_ask: "Change whether an action asks before use",
+  agents_set_tool_permission: "Set an action to Run, Ask, or Off",
   harnesses_set_limit: "Change how many sessions of a harness work at once",
   tables_delete: "Delete a table, with its rows",
   fields_delete: "Delete a field, with its values",
@@ -51,7 +51,7 @@ const LABELS_OF: Record<string, Record<string, string>> = {
   tools_add: { name: "Name", url: "Address", transport: "Transport" },
   tools_add_from_catalog: { catalogId: "Catalog entry", name: "Name" },
   tools_delete: { id: "Tool" },
-  agents_set_tool_ask: { agentId: "Agent", toolId: "Tool", action: "Action", ask: "Asks before use" },
+  agents_set_tool_permission: { agentId: "Agent", toolId: "Tool", action: "Action", permission: "Permission" },
   harnesses_set_limit: { id: "Harness", maxWorking: "At most at once" },
 };
 /** A trigger's `concurrency` in words. */
@@ -259,7 +259,7 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
                         <div key={index} className="flex flex-col gap-1">
                           <Id value={tool.toolId} items={proposal.items} names={proposal.names} />
                           <span>Runs without asking: {tool.runs.length ? tool.runs.join(", ") : "none"}</span>
-                          <span className="text-muted">Every other action asks</span>
+                          <span className="text-muted">Other enabled actions ask</span>
                         </div>
                       ))}
                     </div>

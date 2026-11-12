@@ -224,7 +224,7 @@ test("a poll whose action an owner unticked, or an agent must now ask before usi
   expect((await s.pollsOf(trigger.id)).at(-1)).toMatchObject({ status: "skipped", message: expect.stringContaining("A poll may not read this action") });
 
   await call(router.tools.setPollable, { id: s.tool.id, actions: ["list_mail"] }, { context: s.context });
-  await call(router.agents.setToolAsk, { agentId: s.clerk.id, toolId: s.tool.id, action: "list_mail", ask: true }, { context: s.context });
+  await call(router.agents.setToolPermission, { agentId: s.clerk.id, toolId: s.tool.id, action: "list_mail", permission: "ask" }, { context: s.context });
   s.time.add(5 * MINUTE);
   s.mailbox.push({ id: "m1", subject: "Hello" });
   expect(await scheduler.tick()).toEqual([]);

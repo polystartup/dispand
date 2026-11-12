@@ -50,8 +50,12 @@ Status: Prototype
     session, tools reached by URL on a cloud session and on a Job's CLI session. A call of such a tool asks first, and on a CLI session an
     approval allows exactly the call that was shown, once. Managed tools keep these permissions
     even when the harness bypasses native command and file approvals.
-  - Each action of a tool that an agent chose either asks before use or runs
-    without asking (runner tools use these permissions in Job sessions too, and changing a tool's address makes all its actions ask again). When
+  - Each action of a tool that an agent chose is **Run**, **Ask**, or **Off**. Its checkbox
+    enables or disables it; when enabled, its Ask before use switch chooses Ask or Run. Enabling
+    an Off action starts with Ask. Off actions are unavailable and cannot be called. An unrelated
+    edit to the agent keeps these permissions. On a running CLI session, disabling applies at
+    once; re-enabling applies in a new session
+    (runner tools use these permissions in Job sessions too, and changing a tool's address makes all its enabled actions ask again). When
     a tool is added to an agent, the actions the tool calls read-only start without asking
     and the others ask (for a tool from the catalog, the actions its entry lets run start without
     asking, and every other one asks, whatever the tool says); after that only the owner changes it, action by action, on the
