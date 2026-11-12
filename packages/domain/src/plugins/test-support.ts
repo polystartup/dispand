@@ -77,3 +77,16 @@ export function fakeSite(routes: Record<string, Route>) {
   return asked;
 }
 
+/** The law-firm fixture as a plugin of a marketplace. */
+export function lawFirmMarket() {
+  const plugin = fixtureRepo(lawFirm());
+  const repo = fixtureRepo({ ".claude-plugin/marketplace.json": JSON.stringify({ name: "firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin.url } }] }) });
+  return {
+    plugin,
+    repo,
+    remove: () => {
+      plugin.remove();
+      repo.remove();
+    },
+  };
+}

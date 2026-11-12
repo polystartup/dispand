@@ -81,6 +81,25 @@ export function resolveRefs(items: ProposalItem[], input: unknown): unknown {
   return missing ? null : resolved;
 }
 
+/**
+ * `input` parsed by `schema` as `createProposal` parses an item: each `{ "$item": n }` stands for
+ * an id while it is parsed, and is kept where it was. The parse's problems otherwise.
+ */
+export function parseWithRefs(schema: z.ZodType, input: unknown): { data: unknown } | { error: string } {
+  const nonce = randomBytes(12).toString("hex");
+  const placeholders = new Map<string, number>();
+  const substituted = mapRefs(input, (ref) => {
+    const placeholder = `${nonce}${String((ref as ItemRef).$item)}`;
+    placeholders.set(placeholder, (ref as ItemRef).$item);
+    return placeholder;
+  });
+  const given = schema.safeParse(substituted);
+  if (!given.success) return { error: issues(given.error) };
+  const kept = restoreRefs(given.data, placeholders);
+  if (!everyString(kept, (s) => !s.includes(nonce))) return { error: "a reference stands only where an id goes" };
+  return { data: kept };
+}
+
 /** The agent an item would change and how, for the Assistant's guard; null for any other write. */
 async function agentChangeOf(db: Db, ownerId: string, tool: string, input: unknown): Promise<[string, AgentChange] | null> {
   // Parsed by the tool's own schema: these keys have these types.
@@ -271,10 +290,23 @@ export async function recordInPlugin(db: Db, ownerId: string, proposalId: string
       .for("update");
     // Removed by the owner since the insert: the next item made creates it again.
     if (!plugin) return null;
-    const created: PluginCreated = { ...plugin.created };
-    for (const [kind, id] of made) created[kind] = [...new Set([...(created[kind] ?? []), id])];
-    await tx.update(plugins).set({ created, updatedAt: sql`now()` }).where(eq(plugins.id, plugin.id));
+    for (const [kind, id] of made) await recordCreated(tx, plugin.id, kind, id);
     return plugin.id;
+  });
+}
+
+/**
+ * Lists `id` in a plugin's `created`, under its kind, and under `from` (a definition's key) when
+ * it was made from one: a resumed setup finds it there, by id. Ids are only added.
+ */
+export async function recordCreated(db: Db | Tx, pluginId: string, kind: (typeof CREATED_KINDS)[number], id: string, from?: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [plugin] = await tx.select({ created: plugins.created }).from(plugins).where(eq(plugins.id, pluginId)).for("update");
+    // Removed meanwhile: nothing lists what was made.
+    if (!plugin) return;
+    const created: PluginCreated = { ...plugin.created, [kind]: [...new Set([...(plugin.created[kind] ?? []), id])] };
+    if (from) created.from = { ...plugin.created.from, [from]: id };
+    await tx.update(plugins).set({ created, updatedAt: sql`now()` }).where(eq(plugins.id, pluginId));
   });
 }
 
@@ -348,8 +380,13 @@ const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filt
 export async function proposalView(db: Db, ownerId: string, proposalId: string) {
   const [row] = await db.select().from(proposals).where(and(eq(proposals.id, proposalId), eq(proposals.ownerId, ownerId)));
   if (!row) return null;
+  return { id: row.id, status: row.status, plugin: row.plugin ? generatedName(row.plugin) : null, ...(await itemsView(db, ownerId, row.items)) };
+}
+
+/** Items as their owner reads them, as in a proposal (`proposalView`): a plugin's setup shows its own so. */
+export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) {
   const wanted = new Map<ProposalName["kind"], Set<string>>();
-  for (const item of row.items) {
+  for (const item of items) {
     for (const [key, kind] of Object.entries(REFS[item.tool] ?? {})) {
       const ids = strings(((item.input ?? {}) as Record<string, unknown>)[key]).filter((id) => !(key === "dataTables" && id === "all"));
       if (!wanted.has(kind)) wanted.set(kind, new Set());
@@ -443,10 +480,7 @@ export async function proposalView(db: Db, ownerId: string, proposalId: string) 
     (r) => ({ name: r.name, detail: `of the agent ${r.agent}` }),
   );
   return {
-    id: row.id,
-    status: row.status,
-    plugin: row.plugin ? generatedName(row.plugin) : null,
-    items: row.items.map(({ tool, input, usedAt, createdId, failed }) => ({
+    items: items.map(({ tool, input, usedAt, createdId, failed }) => ({
       tool,
       input,
       used: usedAt !== undefined,
