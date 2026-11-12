@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import type { Answer } from "@dispand/runner-protocol";
 import { and, asc, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { eventFires, events, harnesses, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
+import { audit, eventFires, events, harnesses, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
@@ -130,9 +130,17 @@ test("a loop of two agents pauses at the checkpoint with one Approval; approving
   expect(asked!.payload).toMatchObject({ kind: "permission", toolName: "checkpoint", canAlwaysAllow: true, input: { root: "A change to a table", jobs: 4, agents: ["Auditor", "Clerk"] } });
   // The last Jobs' writes wait, unclaimed: nothing is lost.
   expect(await s.unprocessed()).toHaveLength(2);
+  // Audited as the root's, by the Job that reached it, with the count; its Approval is a Question's row.
+  expect(await s.context.db.select().from(audit).where(eq(audit.action, "checkpoint.reached"))).toEqual([
+    expect.objectContaining({ actor: { type: "job", runId: made[3] }, jobId: made[3], resourceType: "root", resourceId: root.id, details: { questionId: asked!.id, jobs: 4 } }),
+  ]);
+  expect(await s.context.db.select({ action: audit.action }).from(audit).where(eq(audit.resourceId, asked!.id))).toEqual([{ action: "question.asked" }]);
 
   await s.engine.answer(asked!.id, approve, by(s));
   expect((await s.rootOf(made[0]!)).state).toBe("going");
+  expect(await s.context.db.select().from(audit).where(eq(audit.action, "checkpoint.answered"))).toEqual([
+    expect.objectContaining({ actor: { type: "user", userId: s.context.ownerId }, resourceId: root.id, details: { questionId: asked!.id, decision: "approve" } }),
+  ]);
   const next = await relay(s, 10);
   expect(next).toHaveLength(4);
   expect(await s.rootOf(made[0]!)).toMatchObject({ jobs: 8, state: "paused", countedFrom: 4 });
@@ -203,8 +211,15 @@ test("declining stops the root's Jobs, processes its held events, closes its def
   const going = (await s.context.db.select().from(runs).where(inArray(runs.status, ["running", "waiting"]))).map((r) => r.id);
   const sessions = (await s.context.db.select().from(stepRuns).where(inArray(stepRuns.runId, going))).map((st) => st.sessionId).filter((id): id is string => !!id);
 
+  const held = (await s.context.db.select().from(events).where(and(eq(events.rootId, asked!.rootId!), isNull(events.processedAt)))).length;
   await s.engine.answer(asked!.id, decline, by(s));
   expect(await s.rootOf(made[0]!)).toMatchObject({ state: "stopped" });
+  // One row for the decline, with the counts (its Approval's answer, an event of the root, among the held events); each stopped Job's own.
+  const [declined, ...more] = await s.context.db.select().from(audit).where(and(eq(audit.action, "checkpoint.answered"), eq(audit.details, { questionId: asked!.id, decision: "decline", events: held + 1, jobs: going.length })));
+  expect(more).toEqual([]);
+  expect(declined).toMatchObject({ actor: { type: "user", userId: s.context.ownerId }, resourceType: "root", resourceId: asked!.rootId });
+  const stopped = await s.context.db.select().from(audit).where(and(eq(audit.action, "job.failed"), inArray(audit.jobId, going)));
+  expect(stopped.map((r) => r.details)).toEqual(going.map(() => ({ reason: "stopped-checkpoint" })));
   const jobs = await s.context.db.select().from(runs);
   expect(jobs.every((r) => r.status === "failed" && r.error === STOPPED)).toBe(true);
   expect(s.adapter.stops.sort()).toEqual(sessions.sort());

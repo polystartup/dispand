@@ -2,6 +2,7 @@ import type { QuestionPayload } from "@dispand/runner-protocol";
 import { and, asc, count, eq, isNotNull } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { agents, questions, roots, runs, stepRuns, workspaceSettings, type RootKind } from "../db/schema.ts";
+import { recordAudit } from "../audit/record.ts";
 import { newId } from "../ids.ts";
 import { jobAgentNameSql } from "../jobs/agent-name.ts";
 import { meter, spanEvent } from "../telemetry/index.ts";
@@ -90,6 +91,15 @@ export async function pause(tx: Tx, root: typeof roots.$inferSelect, jobs: numbe
     rootId: root.id,
   });
   await recordInteraction(tx, { id, ownerId: root.ownerId, runId: chat ? root.runId! : reachedBy, stepRunId: chat?.id ?? null, kind: "approval" }, "created");
+  // The root's own row, besides its Approval's: the Job that reached it, and how many it counts.
+  await recordAudit(tx, {
+    ownerId: root.ownerId,
+    actor: { type: "job", runId: reachedBy },
+    jobId: reachedBy,
+    action: "checkpoint.reached",
+    resource: { type: "root", id: root.id },
+    details: { questionId: id, jobs },
+  });
   counts.counter("dispand.checkpoints.reached").add(1);
   counts.counter("dispand.questions.opened").add(1, { "dispand.question.kind": "approval" });
   spanEvent("engine.checkpoint", { "dispand.root.id": root.id, "dispand.root.kind": root.kind, "dispand.root.jobs": jobs });
