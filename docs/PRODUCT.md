@@ -69,6 +69,8 @@ Status: Prototype
     harness, model and instructions are the owner's to change. It is made when the owner picks
     its harness. Until then, Home opens the Assistant's page, a fresh install's first page,
     which adds a harness when there is none and then starts the Assistant on the one picked.
+    Its conversations are listed beside the chat, newest first, each named by its first
+    message; "New conversation" starts another, and the page's address reopens one.
   - The **platform skill** (`dispand-platform`, in Settings › Skills, built in and read-only)
     tells an agent how Dispand works and how to propose a setup. It comes with each version of
     Dispand. The Assistant always has it; any other agent may be given it, which grants nothing.

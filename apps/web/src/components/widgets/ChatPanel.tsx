@@ -1,7 +1,7 @@
 import { nodesOf, type WorkflowDef } from "@dispand/domain/workflows/model";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, Check, CircleAlert, Loader2, MessageSquarePlus } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api, orpc } from "../../lib/api.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
@@ -52,6 +52,18 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
   const asking = !!run?.questions.some((q) => q.stepRunId === chatStep?.id && q.status === "pending");
   const canSend = open && !asking;
 
+  // Another conversation opened from outside (a list, the URL) starts without this one's draft;
+  // the one this panel started itself keeps what is still being typed.
+  const started = useRef<string | null>(null);
+  useEffect(() => {
+    if (runId === started.current) {
+      started.current = null;
+      return;
+    }
+    setText("");
+    setError(null);
+  }, [runId]);
+
   /** The library's composer path (not shown today: the panel keeps its own, which keeps a draft that failed to send). */
   const sendText = async (words: string) => {
     if (runId) await api.runs.sendChat({ runId, text: words });
@@ -67,10 +79,13 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
       let id = runId;
       if (!id) {
         id = (await (start ? start() : api.runs.start({ workflowId: workflowId ?? "" }))).runId;
+        started.current = id;
         onRunStarted(id);
         void queryClient.invalidateQueries({ queryKey: orpc.runs.list.key() });
       }
       await api.runs.sendChat({ runId: id, text: message });
+      // The conversation's list now has its title.
+      void queryClient.invalidateQueries({ queryKey: orpc.runs.list.key() });
       // Only the draft that was sent: what was typed meanwhile (or a new conversation) stays.
       setText((current) => (current === submitted ? "" : current));
     } catch (err) {
