@@ -10,6 +10,7 @@ import { rows } from "../data/rows.ts";
 import { fields, tables } from "../data/tables.ts";
 import { onboarding } from "../onboarding.ts";
 import { jobs } from "../jobs/procedures.ts";
+import { memoriesRouter as memories } from "../memory/procedures.ts";
 import { harnesses } from "../harnesses/procedures.ts";
 import { workspace } from "../workspace/procedures.ts";
 import { pages, widgets } from "../pages/procedures.ts";
@@ -94,6 +95,7 @@ export const router = {
   files,
   tools,
   workspace,
+  memories,
 };
 
 export type Router = typeof router;
