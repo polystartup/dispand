@@ -845,9 +845,14 @@
   to the cell as stored, holding the row, never a list read earlier (`apps/web/src/components/data/row-writes.ts`). An edited row
   stays where it is, even when the edit changes its place under the sort or takes it out of the
   filter, until the list is loaded again (a reload, a change of sort or filter): rows never
-  move under the owner's cursor, so a keyboard edit can't land on another row. No write re-asks
+  move under the owner's cursor, so a keyboard edit can't land on another row. No edit re-asks
   the list: every one (the grid's, the detail's, deletes) patches its own rows in the cached
-  pages (`setListCell`, `patchListRows`). Deleting acts only
+  pages (`setListCell`, `patchListRows`). A new row is the exception: "New row" opens a form
+  (`NewRowDialog.tsx`) with the table's fields (a required parent among them, files left to the
+  row detail), saving it creates the row with those values in one `rows.create`, and the list is
+  read again before the form closes, so no cell is active when the row arrives. The grid never holds a row the server doesn't have, so a list that refreshes,
+  streams, sorts or filters has nothing to reconcile, and a trigger on `created` gets the row's
+  values; cancelling creates nothing. Deleting acts only
   on the selected rows that are shown. A table's sort and filter live in its URL only, `?q=<RowQuery as JSON>`, with
   no saved views; `?row=<id>` opens the row detail. `parseDataSearch`
   (`apps/web/src/lib/data-search.ts`) drops what doesn't parse, so an old link still opens the
