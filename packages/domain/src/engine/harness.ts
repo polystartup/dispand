@@ -36,7 +36,7 @@ export function isCloud(h: Harness): h is CloudHarness {
  */
 export type StartParams = Omit<ClaudeSessionStart, "harness" | "cwd" | "permissionMode" | "model" | "skills" | "mcpServers"> & {
   runKey: string;
-  /** The agents a Job's cloud session may consult (its `consult` tool), as they were when it started; absent when none. */
+  /** The agents a Job's session may consult (its `consult` tool), as they were when it started; absent when none. */
   consults?: ConsultTarget[];
 };
 

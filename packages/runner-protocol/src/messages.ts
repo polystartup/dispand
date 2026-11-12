@@ -6,7 +6,7 @@ import { Answer, HarnessEvent, OutputField } from "./harness.ts";
  * Sent by the runner as the `Dispand-Protocol` header when it connects. Bumped by every
  * change a runner of the previous version can't parse or honor; the hub turns older runners away.
  */
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -100,6 +100,14 @@ const StartFields = {
         .refine((n) => !n.includes("__"), "no double underscore"),
     )
     .max(500)
+    .optional(),
+  /**
+   * The agents a Job's session may consult (its `consult` tool), by id with their name and
+   * description: absent when none. The runner sends a `consult` question only for an id listed here.
+   */
+  consults: z
+    .array(z.object({ agentId: id().min(1), name: short(), description: text() }))
+    .max(50)
     .optional(),
 };
 
