@@ -1,4 +1,5 @@
 import { setAsk } from "../agents/tool-ask.ts";
+import { recordToolCall } from "../audit/tool-call.ts";
 import type { ToolCaller } from "../cloud/runner.ts";
 import { keepJobFiles } from "../data/files.ts";
 import type { Db } from "../db/client.ts";
@@ -40,11 +41,13 @@ export function installedToolCaller(db: Db, installed: InstalledTools, filesDir?
     async call(sessionId, key, args, signal) {
       if (!key.startsWith(PREFIX)) return GONE;
       const { toolId, action: actionName } = ofKey(key);
-      const { httpTools, jobId } = await sessionTooling(db, sessionId);
+      const { httpTools, jobId, agentId } = await sessionTooling(db, sessionId);
       const tool = httpTools.find((t) => t.id === toolId);
       if (!tool?.actions.some((a) => a.name === actionName)) return GONE;
       if (typeof args !== "object" || args === null || Array.isArray(args)) return { text: "The arguments must be an object.", isError: true };
       const called = await installed.call(tool, actionName, args as Record<string, unknown>, signal);
+      // A Job's call leaves its Audit row; a workflow run's session writes none.
+      if (jobId) await recordToolCall(db, { ownerId: tool.ownerId, runId: jobId, agentId }, tool, actionName, called);
       if (!called.ok) return { text: called.error, isError: true };
       if (!jobId || !filesDir) return { text: called.result.text, isError: called.result.isError };
       const result = await keepJobFiles(db, filesDir, { ownerId: tool.ownerId, runId: jobId }, called.result).catch((err: unknown) => {

@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { asc, eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { pollItems, polls, runs, tools, triggers } from "../db/schema.ts";
+import { audit, pollItems, polls, runs, tools, triggers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import type { RunnerHub } from "../runners/hub.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
@@ -162,6 +162,39 @@ test("the first poll records what exists and starts nothing; a new item starts o
   await scheduler.tick();
   expect(s.calls[3]).toEqual({ filter: `receivedDateTime gt ${second.toISOString()}` });
   expect((await call(router.triggers.get, { id: trigger.id }, { context: s.context })).lastPolls[0]).toMatchObject({ status: "polled", found: 3, fresh: 0 });
+});
+
+test("each poll that ends leaves one Audit row on its trigger, with the new items counted and none of them", async () => {
+  const s = await setup();
+  const scheduler = s.scheduler();
+  const trigger = await s.watch();
+  s.mailbox.push({ id: "m1", subject: "Hello" });
+  await scheduler.tick();
+  s.time.add(5 * MINUTE);
+  s.mailbox.push({ id: "m2", subject: "Invoice" }, { id: "m3", subject: "Contract" });
+  await scheduler.tick();
+  await call(router.tools.setPollable, { id: s.tool.id, actions: [] }, { context: s.context });
+  s.time.add(5 * MINUTE);
+  await scheduler.tick();
+  const rows = await s.context.db.select().from(audit).where(eq(audit.action, "poll.run")).orderBy(asc(audit.at), asc(audit.id));
+  const common = { triggerId: trigger.id, toolId: s.tool.id, action: "list_mail" };
+  expect(rows.map((r) => [r.result, r.details])).toEqual([
+    ["ok", { ...common, status: "baseline", found: 1 }],
+    ["ok", { ...common, status: "polled", found: 2 }],
+    ["ok", { ...common, status: "skipped", found: 0 }],
+  ]);
+  for (const row of rows) expect(row).toMatchObject({ ownerId: s.context.ownerId, actor: { type: "scheduler" }, actorAgentId: s.clerk.id, jobId: null, resourceType: "trigger", resourceId: trigger.id });
+  const serialized = JSON.stringify(rows);
+  for (const content of ["Hello", "Invoice", "Contract", "receivedDateTime"]) expect(serialized).not.toContain(content);
+});
+
+test("a poll that fails leaves a failed Audit row", async () => {
+  const s = await setup();
+  const trigger = await s.watch({ itemsPath: "items" });
+  await s.scheduler().tick();
+  expect(await s.pollsOf(trigger.id)).toMatchObject([{ status: "failed" }]);
+  const rows = await s.context.db.select().from(audit).where(eq(audit.action, "poll.run"));
+  expect(rows).toMatchObject([{ result: "failed", details: { triggerId: trigger.id, status: "failed", found: 0 } }]);
 });
 
 test("a trigger is made only on a pollable action of a tool its agent has", async () => {

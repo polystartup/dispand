@@ -531,7 +531,17 @@
   procedure's `ORPCError` code in lower case), `tableId` only for a table of the owner's within
   the Job's, `proposalId` and `item` for a proposal's item; the resource from `auditResource`
   (`audit/resource.ts`: its type from the tool, its id only from what the call created or
-  returned, never from a refused call's input). `audit.list` (owner, or a `configure` Job as
+  returned, never from a refused call's input); a Job's call of one of its agent's tools
+  (`tool.call`, `audit/tool-call.ts`, written after the call by `tools/cloud.ts` for a cloud
+  session and `platform/tools-mcp.ts` for a runner session, where the Job is known, not by
+  `InstalledTools`, which serves Tool steps too): on the tool, by the Job, with the tool's name
+  and the action, `ok`, `failed` (`reason` `tool-error` when the tool reported an error,
+  `call-failed` when it couldn't be reached) or `refused` (`not-approved`, a runner call with no
+  approval of its own); and each poll that ends (`poll.run`, on the trigger, by the scheduler for
+  the trigger's agent, with the tool, the action, `status` `baseline`, `polled`, `skipped` or
+  `failed`, and `found`, the new items it recorded; in the claim's transaction for a poll skipped
+  before its call, after the call otherwise). A runner session's calls of the runner's own MCP
+  servers never reach the server: their permission prompts are its Approvals' rows. `audit.list` (owner, or a `configure` Job as
   `audit_list`, which gets only rows naming no table or one of its own; keyset pages of 50 on
   `(at, id)`, the cursor carrying `at` to the microsecond) filters by actor type, agent, Job,
   action or family, resource, result and dates; `audit.traceUrl` gives the page

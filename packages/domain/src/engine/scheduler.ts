@@ -22,7 +22,7 @@ import {
   type ScheduleFireStatus,
 } from "../db/schema.ts";
 import { newId } from "../ids.ts";
-import { recordAudit } from "../audit/record.ts";
+import { type AuditEntry, recordAudit, recordAuditAfter } from "../audit/record.ts";
 import { errorKind, logError } from "../log.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { fillLastPoll, itemsOf, MAX_ITEM_BYTES, nextToken, noPolls, type PollCaller } from "../tools/poll.ts";
@@ -55,6 +55,23 @@ function skipped(tx: Tx, trigger: Pick<TriggerRow, "id" | "ownerId" | "agentId" 
     result: reason === "refused" || reason === "out-of-scope" ? "refused" : "ok",
     details: { triggerId: trigger.id, triggerName: trigger.name, agentId: trigger.agentId, firing, reason, ...extra },
   });
+}
+
+/**
+ * A poll that ended (`poll.run`), on its trigger: the tool and action, how it ended, and how many
+ * new items it recorded, never an item or its id. In the claim's transaction for one skipped
+ * before its call, after the call (never throwing) for one that called.
+ */
+function pollRun(trigger: Pick<TriggerRow, "id" | "ownerId" | "agentId">, config: PollConfig, status: Exclude<PollStatus, "calling">, found: number): AuditEntry {
+  return {
+    ownerId: trigger.ownerId,
+    actor: { type: "scheduler" },
+    agentId: trigger.agentId,
+    action: "poll.run",
+    resource: { type: "trigger", id: trigger.id },
+    result: status === "failed" ? "failed" : "ok",
+    details: { triggerId: trigger.id, toolId: config.toolId, action: config.action, status, found },
+  };
 }
 
 /** What firing one schedule came to: the run it created, or why none. */
@@ -109,7 +126,7 @@ type PollConfig = Extract<TriggerConfig, { kind: "poll" }>;
  */
 type Claimed = { pollId: string; trigger: TriggerRow & { config: PollConfig }; tool: typeof tools.$inferSelect; at: Date; lastPoll: string; startedAt: Date; token: string | null };
 /** One page of a poll recorded: what it found, and where the walk is. */
-type Page = { status: PollStatus; found: number; fresh: number; runIds: string[]; token: string | null };
+type Page = { status: Exclude<PollStatus, "calling">; found: number; fresh: number; runIds: string[]; token: string | null };
 
 /** Whether a primitive trigger watches this event: its table, its operation and, for an update, one of its fields. */
 function watches(trigger: TriggerRow, event: EventRow): boolean {
@@ -316,6 +333,7 @@ export class Scheduler {
       const kept = tx.select({ id: polls.id }).from(polls).where(eq(polls.triggerId, t.id)).orderBy(desc(polls.at), desc(polls.id)).limit(POLLS_KEPT);
       await tx.delete(polls).where(and(eq(polls.triggerId, t.id), notInArray(polls.id, kept)));
       if (problem || !tool) {
+        await recordAudit(tx, pollRun(t, config, "skipped", 0));
         counts.counter("dispand.polls").add(1, { "dispand.tool.kind": tool?.kind ?? "none", "dispand.result": "skipped" });
         continue;
       }
@@ -344,15 +362,15 @@ export class Scheduler {
     const kind = c.tool.kind;
     return traces.startActiveSpan("scheduler.poll", { attributes: { "dispand.trigger.id": c.trigger.id, "dispand.tool.id": c.tool.id, "dispand.tool.kind": kind } }, async (span) => {
       const started = performance.now();
-      let result: PollStatus = "failed";
+      let result: Exclude<PollStatus, "calling"> = "failed";
       let pages = 0;
       let token = c.token;
       // Jobs committed by earlier pages: returned even when a later one throws, so they go on.
       const runIds: string[] = [];
+      const totals = { found: 0, fresh: 0 };
       try {
         const { toolId, action, arguments: args, itemsPath, idPath, continuation } = c.trigger.config;
         const query = fillLastPoll(args, c.lastPoll) as Record<string, unknown>;
-        const totals = { found: 0, fresh: 0 };
         do {
           // Checked again right before each call, against the trigger, the tool and the agent as
           // they are now: a poll may have waited for others of its runner's tool meanwhile.
@@ -389,6 +407,7 @@ export class Scheduler {
       } catch (err) {
         recordError(span, errorKind(err));
         logError("scheduler.poll failed", err, { ref: c.trigger.id });
+        result = "failed";
         await this.db
           .update(polls)
           .set({ status: "failed", message: "The poll failed" })
@@ -396,6 +415,7 @@ export class Scheduler {
           .catch(() => undefined);
         return runIds;
       } finally {
+        await recordAuditAfter(this.db, pollRun(c.trigger, c.trigger.config, result, totals.fresh));
         span.setAttribute("dispand.result", result);
         span.end();
         counts.counter("dispand.polls").add(1, { "dispand.tool.kind": kind, "dispand.result": result });
@@ -423,7 +443,7 @@ export class Scheduler {
     walk: { last: boolean; more: boolean; pages: number; totals: { found: number; fresh: number } },
     now: Date,
   ): Promise<Page> {
-    const finish = async (status: PollStatus, set: { found?: number; fresh?: number; message?: string | null } = {}, runIds: string[] = [], next: string | null = null) => {
+    const finish = async (status: Exclude<PollStatus, "calling">, set: { found?: number; fresh?: number; message?: string | null } = {}, runIds: string[] = [], next: string | null = null) => {
       await tx.update(polls).set({ status, ...set }).where(eq(polls.id, c.pollId));
       return { status, found: set.found ?? 0, fresh: set.fresh ?? 0, runIds, token: next };
     };
