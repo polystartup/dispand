@@ -1946,18 +1946,20 @@ export class Engine {
   }
 
   /**
-   * A start as it is sent: a Job's gets its memory as it is now, after its agent's instructions,
-   * read with the Job's rights at this moment, and the owner's time zone when they started it from
-   * their browser. The stored start never holds the memory, so a start sent again (a reconcile, a
-   * slot handed over, a resume) reads it again.
+   * A start as it is sent: a Job's gets its memory as it is now, after its agent's instructions
+   * (and on a runner as files too), read with the Job's rights at this moment, and the owner's
+   * time zone when they started it from their browser. The stored start never holds the memory,
+   * so a start sent again (a reconcile, a slot handed over, a resume) reads it again.
    */
-  private async withMemory(step: StepRow, start: StartParams): Promise<StartParams> {
+  private async withMemory(harness: Harness, step: StepRow, start: StartParams): Promise<StartParams> {
     const [run] = await this.db.select().from(runs).where(eq(runs.id, step.runId));
     if (run?.source !== "agent" || !run.snapshot) return start;
-    // Built from the snapshot's instructions, whatever the stored start holds.
-    const memory = await jobMemoryPrompt(this.db, run);
+    // Built from the snapshot's instructions, whatever the stored start holds. On a runner, the
+    // same reading also goes as files (`CliHarnessAdapter.start`).
+    const onRunner = !isCloud(harness);
+    const { prompt, memory } = await jobMemoryPrompt(this.db, run, onRunner);
     const timezone = run.trigger.type === "manual" && run.trigger.timezone ? timezonePrompt(run.trigger.timezone) : "";
-    return { ...start, systemPrompt: [run.snapshot.systemPrompt, timezone, memory].filter(Boolean).join("\n\n") };
+    return { ...start, systemPrompt: [run.snapshot.systemPrompt, timezone, prompt].filter(Boolean).join("\n\n"), ...(onRunner ? { jobMemory: memory } : {}) };
   }
 
   /** A step's session, started in its own span (inside the Job's, for a Job). */
@@ -2096,7 +2098,7 @@ export class Engine {
    * waiting for it to arrive: every start, first or sent again, goes this way.
    */
   private async launch(harness: Harness, start: StartParams, step: StepRow, held: string[] = [], written?: () => Promise<void>) {
-    const sent = await this.withMemory(step, start);
+    const sent = await this.withMemory(harness, step, start);
     // Stopped while its memory was read: it never starts. A stop committed after this read is sent
     // after the start, on the same connection.
     const [now] = await this.db.select({ status: stepRuns.status }).from(stepRuns).where(eq(stepRuns.id, step.id));

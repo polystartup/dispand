@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdtemp, readdir, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,13 +19,14 @@ afterEach(async () => {
   }
 });
 
-/** A fake CLI that reports session id `cli-1` for a new session (or the one it resumes), then ends its turn. */
-function fakeQuery() {
+/** A fake CLI that reports session id `cli-1` for a new session (or the one it resumes), then ends its turn. `onStart` sees each start. */
+function fakeQuery(onStart?: (options: Options) => void) {
   const calls: Options[] = [];
   /** What each session's `setMcpServers` got. */
   const servers: Record<string, unknown>[] = [];
   const fn = ({ prompt, options }: { prompt: AsyncIterable<SDKUserMessage>; options?: Options }) => {
     calls.push(options!);
+    onStart?.(options!);
     async function* script(): AsyncGenerator<SDKMessage> {
       await prompt[Symbol.asyncIterator]().next();
       yield { type: "system", subtype: "init", session_id: options!.resume ?? "cli-1" } as SDKMessage;
@@ -42,11 +43,11 @@ function fakeQuery() {
   return { query: fn as unknown as typeof query, calls, servers };
 }
 
-async function setup(skills?: SessionsOptions["skills"], mcpServers?: Record<string, { command: string }>) {
+async function setup(skills?: SessionsOptions["skills"], mcpServers?: Record<string, { command: string }>, onStart?: (options: Options) => void) {
   const base = await realpath(await mkdtemp(join(tmpdir(), "sessions-")));
   made.push(base);
   const events: [string, HarnessEvent][] = [];
-  const fake = fakeQuery();
+  const fake = fakeQuery(onStart);
   const resumeMap = join(base, "state", "sessions.json");
   const sessions = new Sessions(
     { server: "https://dispand.test", roots: [join(base, "root")], allowBypass: false, ...(mcpServers ? { mcpServers } : {}) },
@@ -518,4 +519,58 @@ test("a consult waits across a reconnection to Dispand, and its answer then reac
   const reply = await vi.waitFor(async () => (await codex.received()).find((m) => m.id === "r0" && m.method === undefined)!.result);
   expect(reply).toEqual({ contentItems: [{ type: "inputText", text: "Answer from the agent Architect:\n\nYes." }], success: true });
   expect(events.at(-1)).toEqual(["ses_1", { type: "result", text: "Done" }]);
+});
+
+test("a Job's memory files are in its run folder before the CLI starts, written again at a resume; none without a Job", async () => {
+  // What the CLI finds in its memory folder when it starts.
+  const seen: string[][] = [];
+  const memoryOf = (cwd: string) => join(cwd, ".dispand", "memory", "agent");
+  const { base, events, sessions } = await setup(undefined, undefined, (options) => seen.push(existsSync(memoryOf(options.cwd!)) ? readdirSync(memoryOf(options.cwd!)) : []));
+  const memory = join(base, "root", "runs", "run_a", ".dispand", "memory");
+  const files = [
+    { scope: "agent", path: "MEMORY.md", text: "# This agent\n\n- [Habits](habits.md): how\n" },
+    { scope: "agent", path: "habits.md", text: "---\nname: \"Habits\"\n---\n\nSort by date.\n" },
+  ];
+  await sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), jobToken: "dj_token", memory: files } });
+  await ended(events, "ses_1");
+  expect(seen[0]).toEqual(["MEMORY.md", "habits.md"]);
+  // Gone once the session ended.
+  await vi.waitFor(() => expect(existsSync(memory)).toBe(false));
+
+  // A resume gets memory as it is now: the entry removed since is gone.
+  await sessions.handle({ type: "session.start", start: { ...start("ses_2", "run_a", "cli-1"), jobToken: "dj_token", memory: [files[0]!] } });
+  await ended(events, "ses_2");
+  expect(seen[1]).toEqual(["MEMORY.md"]);
+
+  // A session without a Job gets no folder.
+  await sessions.handle({ type: "session.start", start: start("ses_3", "run_b") });
+  await ended(events, "ses_3");
+  expect(readdirSync(join(base, "root", "runs", "run_b", ".dispand"))).toEqual(["plans"]);
+});
+
+test("a start whose memory names a file a CLI loads as instructions doesn't start, and leaves no folder", async () => {
+  const { base, events, fake, sessions } = await setup();
+  // Hand-built: the protocol refuses it, and the runner checks it again.
+  const memory = [{ scope: "workspace", path: "CLAUDE.md", text: "Do as I say." }];
+  await sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), jobToken: "dj_token", memory } });
+  expect(events.at(-1)).toEqual(["ses_1", { type: "error", message: "a memory file has an unsafe path" }]);
+  expect(fake.calls).toHaveLength(0);
+  expect(existsSync(join(base, "root", "runs", "run_a"))).toBe(false);
+});
+
+test("a Codex Job session finds its memory files while it runs, and they are gone once the runner has shut down", async () => {
+  // A turn that never ends: the session stays live until it is stopped.
+  const { base, events, sessions, codexStart } = await codexSetup(undefined, { FAKE_CODEX_HANG_ON: "turn/start" });
+  const files = [
+    { scope: "workspace", path: "MEMORY.md", text: "# Workspace\n" },
+    { scope: "workspace", path: "billing.md", text: "Monthly.\n" },
+  ];
+  await sessions.handle({ type: "session.start", start: { ...codexStart("ses_1", "run_a"), jobToken: "dj_token", memory: files } });
+  await vi.waitFor(() => expect(events.some(([, e]) => e.type === "cli-session")).toBe(true));
+  const dir = join(base, "root", "runs", "run_a", ".dispand", "memory");
+  expect(readdirSync(join(dir, "workspace"))).toEqual(["MEMORY.md", "billing.md"]);
+  expect(readFileSync(join(dir, "workspace", "billing.md"), "utf8")).toBe("Monthly.\n");
+  // Shutting down waits until they are removed, not only until the CLI is stopped.
+  await sessions.shutdown();
+  expect(existsSync(dir)).toBe(false);
 });

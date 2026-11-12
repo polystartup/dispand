@@ -18,6 +18,7 @@ import type { HarnessSession } from "./outcome.ts";
 import { codexMcpServers, mcpConfigFor, withJobServer } from "./mcp.ts";
 import { fetchPackages, removeSkills, sessionPluginsDir, writeSkills } from "./skills.ts";
 import { resolveWorkdir } from "./workdir.ts";
+import { removeMemoryFiles, writeMemoryFiles } from "./memory.ts";
 
 type Emit = (sessionId: string, event: HarnessEvent) => void;
 
@@ -107,6 +108,8 @@ export class Sessions {
   private stops = 0;
   private shuttingDown = false;
   private readonly inFlight = new Set<Promise<void>>();
+  /** Sessions that ended, until what they leave behind is removed. */
+  private readonly ending = new Set<Promise<unknown>>();
   /** Sessions between their start message and their launch: they count against the limit too. */
   private readonly starting = new Set<string>();
   private stopMessage = "";
@@ -153,6 +156,8 @@ export class Sessions {
     const all = [...this.live.values()];
     for (const session of all) session.abort();
     await Promise.allSettled(all.map((s) => s.done));
+    // Then what ended sessions leave to remove (their memory files, their skills).
+    await Promise.allSettled([...this.ending]);
   }
 
   /** Ends every live session now with `message` as its error, stopping their CLIs. */
@@ -253,15 +258,22 @@ export class Sessions {
     const pluginsDir = skills && start.skills.length > 0 ? sessionPluginsDir(skills.stateDir, start.sessionId) : undefined;
     const dropSkills = () => (pluginsDir ? removeSkills(pluginsDir).catch(() => undefined) : Promise.resolve());
     // A folder this start created, while no CLI session is filed under it, goes again if the start fails.
+    let memoryIn: string | undefined;
     const cleanUp = () => {
       if (created && !recorded) rmSync(created, { recursive: true, force: true });
-      void dropSkills();
+      const memory = !(created && !recorded) && memoryIn ? removeMemoryFiles(memoryIn).catch(() => undefined) : undefined;
+      return Promise.all([memory, dropSkills()]).then(() => undefined);
     };
     try {
       // Fetched before the run folder exists: a failed fetch leaves nothing behind.
       const packages = skills && pluginsDir ? await (skills.fetch ?? fetchPackages)(skills.server, skills.token, start.skills) : [];
       const cwd = await resolveWorkdir(this.config, start.cwd, this.options.forbidden, resuming);
       if (!resuming) created = cwd;
+      // A Job's memory as Dispand sent it now (a resume gets it again, as it is), gone when the session ends.
+      if (start.jobToken !== undefined) {
+        memoryIn = cwd;
+        await writeMemoryFiles(cwd, start.memory ?? []);
+      }
       // Checked again right before launching: shutdown or stopAll may have run, or the backlog filled, meanwhile.
       if (this.shuttingDown) return cleanUp();
       if (this.stops !== stops) {
@@ -301,10 +313,15 @@ export class Sessions {
             });
       this.live.set(start.sessionId, session);
       this.toldNotRunning.delete(start.sessionId);
-      void session.done.finally(() => {
-        this.live.delete(start.sessionId);
-        cleanUp();
-      });
+      // Shutdown waits for it: memory files must not outlive their session.
+      const ended = session.done
+        .finally(() => {
+          this.live.delete(start.sessionId);
+          return cleanUp();
+        })
+        .catch(() => undefined)
+        .finally(() => this.ending.delete(ended));
+      this.ending.add(ended);
     } catch (err) {
       cleanUp();
       // WorkdirRefused and the like: the server learns why the session didn't start.

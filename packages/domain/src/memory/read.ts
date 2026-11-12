@@ -1,3 +1,4 @@
+import { MEMORY_INDEX, type MemoryFile } from "@dispand/runner-protocol";
 import { asc, eq } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { runs, tables } from "../db/schema.ts";
@@ -7,7 +8,7 @@ import { MEMORY_TYPES, type MemoryScope, type MemoryType } from "./model.ts";
 import { listMemory, type MemoryEntry, memoryIndex } from "./store.ts";
 
 // What a Job reads of memory at each session start (design 6.5), decided once here, and its
-// renderings: the system prompt's block (and the runner's files after it). Read at the start,
+// renderings: the system prompt's block and, on a runner, its files. Read at the start,
 // not snapshotted: memory is information, not authority, and what the last Job wrote reaches the
 // next one. Rights are read as they are now, so a table or `data` taken back is left out.
 
@@ -15,6 +16,7 @@ type RunRow = typeof runs.$inferSelect;
 
 const traces = tracer("memory");
 const prompts = meter("memory").counter("dispand.memory.prompts", { description: "Memory put in a Job's session start: none, whole or cut to its budget" });
+const filesSent = meter("memory").counter("dispand.memory.files", { description: "Memory files put in a Job's runner session start: none, whole or cut to what the frame leaves" });
 
 /** One scope a Job reads: its label, its entries in index order, and how many were withheld from a Job that configures. */
 export type JobMemoryScope = { where: MemoryScope; label: string; entries: MemoryEntry[]; withheld: number };
@@ -143,48 +145,114 @@ export function fitMemory(memory: JobMemory, budget: number, layout: MemoryLayou
   return { scopes: kept, leftOut: closingList(leftOut) };
 }
 
+/** A scope's index, then the line counting what was withheld: the same in the prompt and in its `MEMORY.md`. */
+const indexLines = (s: JobMemoryScope) => [
+  ...(s.entries.length ? [memoryIndex(s.entries)] : []),
+  ...(s.withheld ? [`${s.withheld} ${s.withheld === 1 ? "entry" : "entries"} written by agents that don't configure the workspace, and not accepted by a person, left out here: read them with memory_read.`] : []),
+];
+
+const closingLine = (leftOut: string[]) => `More memory, with memory_read: ${leftOut.join("; ")}.`;
+
 /** The system prompt's memory block, each part with the blank line before it. */
 export const PROMPT_LAYOUT: MemoryLayout = {
   head: [
     "# Memory",
     "What earlier Jobs and the owner kept for the Jobs that come next. Write to it with memory_add, memory_update and memory_remove when your instructions ask you to; it is not a log.",
   ].join("\n\n"),
-  index: (s) =>
-    [
-      `\n\n## ${s.label}`,
-      ...(s.entries.length ? [memoryIndex(s.entries)] : []),
-      ...(s.withheld ? [`${s.withheld} ${s.withheld === 1 ? "entry" : "entries"} written by agents that don't configure the workspace, and not accepted by a person, left out here: read them with memory_read.`] : []),
-    ].join("\n\n"),
+  index: (s) => [`\n\n## ${s.label}`, ...indexLines(s)].join("\n\n"),
   entry: (_s, e) => `\n\n### ${e.path}\n\n${e.body}`,
-  closing: (leftOut) => (leftOut.length ? `\n\nMore memory, with memory_read: ${leftOut.join("; ")}.` : ""),
+  closing: (leftOut) => (leftOut.length ? `\n\n${closingLine(leftOut)}` : ""),
   size: (part) => part.length,
 };
 
+/** Where a runner session finds its memory as files, relative to its working folder. */
+export const MEMORY_FILES_DIR = ".dispand/memory";
+
+/** The block of a runner session's prompt: it also says where the files are. */
+export const RUNNER_PROMPT_LAYOUT: MemoryLayout = {
+  ...PROMPT_LAYOUT,
+  head: `${PROMPT_LAYOUT.head}\n\nOn this machine it is also in files, under ${MEMORY_FILES_DIR}/ of your working folder: workspace/, agent/ and tables/<table id>/, each with its index in ${MEMORY_INDEX}. Read them with your file tools; write memory with the tools above, never in these files.`,
+};
+
 /** What a Job's system prompt gets of its memory, within `MEMORY_PROMPT_BUDGET`; empty when there is nothing. */
-export function memoryPrompt(memory: JobMemory): string {
-  return renderPrompt(memory, fitMemory(memory, MEMORY_PROMPT_BUDGET, PROMPT_LAYOUT));
+export function memoryPrompt(memory: JobMemory, onRunner = false): string {
+  const layout = onRunner ? RUNNER_PROMPT_LAYOUT : PROMPT_LAYOUT;
+  return renderPrompt(memory, fitMemory(memory, MEMORY_PROMPT_BUDGET, layout), layout);
 }
 
-function renderPrompt(memory: JobMemory, fitted: FittedMemory): string {
+/** The scope as read, every entry listed: an index is always whole, whatever entries were kept. */
+const whole = (memory: JobMemory, s: FittedScope) => memory.scopes.find((m) => m.where === s.where)!;
+
+function renderPrompt(memory: JobMemory, fitted: FittedMemory, layout: MemoryLayout): string {
   if (fitted.scopes.length === 0 && fitted.leftOut.length === 0) return "";
-  const parts = [PROMPT_LAYOUT.head];
-  // The index lists every entry of the scope, kept or not: the index is always whole.
-  for (const s of fitted.scopes) parts.push(PROMPT_LAYOUT.index(memory.scopes.find((m) => m.where === s.where)!));
-  for (const s of fitted.scopes) for (const e of s.entries) parts.push(PROMPT_LAYOUT.entry(s, e));
-  parts.push(PROMPT_LAYOUT.closing(fitted.leftOut));
+  const parts = [layout.head];
+  for (const s of fitted.scopes) parts.push(layout.index(whole(memory, s)));
+  for (const s of fitted.scopes) for (const e of s.entries) parts.push(layout.entry(s, e));
+  parts.push(layout.closing(fitted.leftOut));
   return parts.join("");
 }
 
+/** A scope's folder among the files: `workspace`, `agent` or `tables/<table id>`. */
+const folderOf = (where: MemoryScope) => (where.scope === "table" ? `tables/${where.tableId}` : where.scope);
+
+/** A scope's `MEMORY.md`: its label, its index, what was withheld. */
+const indexFile = (s: JobMemoryScope, closing = ""): MemoryFile => ({
+  scope: folderOf(s.where),
+  path: MEMORY_INDEX,
+  text: `${[`# ${s.label}`, ...indexLines(s), ...(closing ? [closing] : [])].join("\n\n")}\n`,
+});
+
+/** An entry's file: its frontmatter (strings quoted as JSON, which YAML reads), then its body. */
+const entryFile = (s: JobMemoryScope, e: MemoryEntry): MemoryFile => ({
+  scope: folderOf(s.where),
+  path: e.path,
+  text: `---\nname: ${JSON.stringify(e.name)}\ndescription: ${JSON.stringify(e.description)}\ntype: ${e.type}\n---\n\n${e.body}\n`,
+});
+
+const WORKSPACE: JobMemoryScope = { where: { scope: "workspace" }, label: "Workspace", entries: [], withheld: 0 };
+
 /**
- * A Job's memory block for its session start, in a `memory.prompt` span and counted: how many
- * scopes, entries sent, withheld and left out, never a path, a name or a body.
+ * The files' layout: each part is a file as it sits in the start message's `memory` array (its
+ * JSON and the comma after it), measured in UTF-8 bytes. The closing line goes in the workspace's
+ * `MEMORY.md`: kept aside as a whole file of its own, which is more than appending it costs.
  */
-export function jobMemoryPrompt(db: Db, run: RunRow): Promise<string> {
+const FILES_LAYOUT: MemoryLayout = {
+  head: `,"memory":[]`,
+  index: (s) => JSON.stringify(indexFile(s)),
+  entry: (s, e) => JSON.stringify(entryFile(s, e)),
+  closing: (leftOut) => (leftOut.length ? JSON.stringify(indexFile(WORKSPACE, closingLine(leftOut))) : ""),
+  size: (part) => (part ? Buffer.byteLength(part) + 1 : 0),
+};
+
+/**
+ * A Job's memory as runner files, within `budget` bytes of the start message, by the same fill
+ * rule as the prompt (`fitMemory`): each scope's `MEMORY.md` (its whole index) and the entries that
+ * fit, the closing line in the workspace's `MEMORY.md` (made for it if the workspace has none).
+ */
+export function memoryFiles(memory: JobMemory, budget: number): MemoryFile[] {
+  return renderFiles(memory, fitMemory(memory, budget, FILES_LAYOUT));
+}
+
+function renderFiles(memory: JobMemory, fitted: FittedMemory): MemoryFile[] {
+  const closing = fitted.leftOut.length ? closingLine(fitted.leftOut) : "";
+  const files = fitted.scopes.map((s) => indexFile(whole(memory, s), s.where.scope === "workspace" ? closing : ""));
+  if (closing && fitted.scopes[0]?.where.scope !== "workspace") files.unshift(indexFile(WORKSPACE, closing));
+  for (const s of fitted.scopes) for (const e of s.entries) files.push(entryFile(s, e));
+  return files;
+}
+
+/**
+ * A Job's memory as read for its session start, and its block for the prompt (`onRunner`: the one
+ * that says where its files are), in a `memory.prompt` span and counted: how many scopes, entries
+ * sent, withheld and left out, never a path, a name or a body.
+ */
+export function jobMemoryPrompt(db: Db, run: RunRow, onRunner = false): Promise<{ prompt: string; memory: JobMemory }> {
   return traces.startActiveSpan("memory.prompt", { attributes: { "dispand.job.id": run.id } }, async (span) => {
     let result = "error";
     try {
       const memory = await memoryForJob(db, run);
-      const fitted = fitMemory(memory, MEMORY_PROMPT_BUDGET, PROMPT_LAYOUT);
+      const layout = onRunner ? RUNNER_PROMPT_LAYOUT : PROMPT_LAYOUT;
+      const fitted = fitMemory(memory, MEMORY_PROMPT_BUDGET, layout);
       const sent = fitted.scopes.reduce((n, s) => n + s.entries.length, 0);
       span.setAttributes({
         "dispand.memory.scopes": fitted.scopes.length,
@@ -192,9 +260,9 @@ export function jobMemoryPrompt(db: Db, run: RunRow): Promise<string> {
         "dispand.memory.withheld": memory.scopes.reduce((n, s) => n + s.withheld, 0),
         "dispand.memory.left_out": fitted.leftOut.length,
       });
-      const text = renderPrompt(memory, fitted);
-      result = text === "" ? "none" : fitted.leftOut.length ? "cut" : "whole";
-      return text;
+      const prompt = renderPrompt(memory, fitted, layout);
+      result = prompt === "" ? "none" : fitted.leftOut.length ? "cut" : "whole";
+      return { prompt, memory };
     } catch (err) {
       recordError(span, "error");
       throw err;
@@ -203,5 +271,26 @@ export function jobMemoryPrompt(db: Db, run: RunRow): Promise<string> {
       prompts.add(1, { "dispand.result": result });
       span.end();
     }
+  });
+}
+
+/**
+ * A Job's memory files for its runner session start, within `budget` bytes, in a `memory.files`
+ * span and counted: how many files and bytes, and how many scopes left out, never a path or a text.
+ */
+export function jobMemoryFiles(memory: JobMemory, budget: number): MemoryFile[] {
+  return traces.startActiveSpan("memory.files", (span) => {
+    const fitted = fitMemory(memory, budget, FILES_LAYOUT);
+    const files = renderFiles(memory, fitted);
+    const result = files.length === 0 ? "none" : fitted.leftOut.length ? "cut" : "whole";
+    span.setAttributes({
+      "dispand.memory.files": files.length,
+      "dispand.memory.bytes": files.reduce((n, f) => n + Buffer.byteLength(f.text), 0),
+      "dispand.memory.left_out": fitted.leftOut.length,
+      "dispand.result": result,
+    });
+    filesSent.add(1, { "dispand.result": result });
+    span.end();
+    return files;
   });
 }
