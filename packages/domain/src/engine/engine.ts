@@ -9,7 +9,7 @@ import {
   storable,
   TEXT,
 } from "@dispand/runner-protocol";
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, or, type SQL, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import {
   agents,
@@ -30,6 +30,7 @@ import {
   type JobCause,
   type PendingAction,
   type QueueClass,
+  type RootKind,
   type RunStatus,
   type RunTrigger,
   type StepStatus,
@@ -45,7 +46,7 @@ import { loopOf, nodesOf, type WorkflowDef, type WorkflowNode } from "../workflo
 import { renderTemplate } from "../workflows/template.ts";
 import { toolIdsOf, validateToolSteps } from "../workflows/tool-steps.ts";
 import type { CloudKind } from "../harnesses/cloud.ts";
-import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, isCloud, type StartParams } from "./harness.ts";
+import { CLOUD_SOURCE, type CliHarness, type ConsultTarget, type Harness, type HarnessAdapter, isCloud, type StartParams } from "./harness.ts";
 import { runDataStep } from "./data-step.ts";
 import { aboutExposed, isExposedName, stopAsking } from "../platform/exposed.ts";
 import { annotate, currentTraceId, meter, recordError, spanEvent, tracer, withJob } from "../telemetry/index.ts";
@@ -53,9 +54,10 @@ import { REQUEST_APPROVAL } from "../cloud/builtins.ts";
 import { attachProposal, settleProposal } from "../platform/proposals.ts";
 import { issueJobToken } from "../platform/token.ts";
 import type { SecretBox } from "../secrets.ts";
-import { jobDef, jobSystemPrompt } from "./job-def.ts";
+import { consultOutputs, jobDef, jobSystemPrompt } from "./job-def.ts";
+import { agentName, consultEnd, consultProblem, deliveryProblem, failed } from "./consults.ts";
 import { nextActions, outputsFor, toolValues, valuesFor } from "./next-actions.ts";
-import { consultsOf } from "../agents/consults.ts";
+import { consultsOf, type ConsultEntry } from "../agents/consults.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import { pollProblem } from "../tools/pollable.ts";
 import { give, next, take } from "./slots.ts";
@@ -112,8 +114,20 @@ export type RunEvent =
   | { type: "message"; message: ReturnType<typeof messageView> }
   | { type: "question"; question: ReturnType<typeof questionView> };
 
-/** What a transaction leaves to do once it commits: its run's events, and the steps it handed a slot to (`slots.ts`). */
-type Out = RunEvent | { type: "slot"; runId: string; stepId: string };
+/**
+ * What a transaction leaves to do once it commits: its runs' events, the steps it handed a slot
+ * to (`slots.ts`), the Jobs it made (a consult's: they start), and the sessions of the steps it
+ * stopped (told to end).
+ */
+type Out = RunEvent | { type: "slot"; runId: string; stepId: string } | { type: "job"; runId: string } | { type: "end"; steps: StepRow[] };
+
+/** The run an event is about, which `publish` sends it to. */
+function runOf(e: RunEvent): string {
+  if (e.type === "run") return e.run.id;
+  if (e.type === "step") return e.step.runId;
+  if (e.type === "message") return e.message.runId;
+  return e.question.runId;
+}
 
 /** Why the runner would refuse this start (the protocol's `SessionStart`), in the owner's words; null if it wouldn't. */
 export function startProblem(harness: CliHarness, { runKey, ...start }: StartParams): string | null {
@@ -173,6 +187,12 @@ function approvalWords(payload: QuestionPayload): string | null {
 
 export function answerText(q: Pick<QuestionRow, "payload" | "answer"> & Partial<Pick<QuestionRow, "answeredBy">>): string {
   const a = q.answer!;
+  if (a.kind === "consult") {
+    // The answer of the agent consulted, which the asker is told it is from; or why there is none.
+    if (a.outcome === "failed") return `Your consult got no answer: ${a.text}`.slice(0, TEXT);
+    const name = q.answeredBy?.type === "agent" ? q.answeredBy.name : "consulted";
+    return `Answer from the agent ${name}:\n\n${a.text}`.slice(0, TEXT);
+  }
   if (a.kind === "choice") {
     const parts = Object.entries(a.answers).map(([question, answer]) => `“${question}”: ${Array.isArray(answer) ? answer.join(", ") : answer}`);
     return `${q.answeredBy?.type === "agent" ? answeredByAgent(q.answeredBy.name) : "The owner answered"}: ${parts.join("; ")}.`;
@@ -194,6 +214,7 @@ function questionText(q: QuestionRow): string {
   const p = q.payload;
   if (p.kind === "choice") return p.questions.map((x) => `“${x.question}”`).join(", ");
   if (approvalWords(p) !== null) return "your approval request";
+  if (p.kind === "consult") return "the answer of the agent you consulted";
   if (p.kind === "permission") return `permission to use ${p.toolName}`;
   return "confirmation of your values";
 }
@@ -244,6 +265,21 @@ export function resumePrompt(
  */
 function holdsSlot(step: Pick<StepRow, "working" | "harnessId">): boolean {
   return step.working || !step.harnessId;
+}
+
+/** A consult ended: how, and how long its asker waited (never its question or its answer). */
+function consultEnded(q: QuestionRow, outcome: "answered" | "refused" | "failed" | "stopped") {
+  counts.counter("dispand.consults.ended").add(1, { "dispand.consult.outcome": outcome });
+  counts.histogram("dispand.consult.wait", { unit: "ms", description: "From a consult to its answer, or its end" }).record(Date.now() - q.createdAt.getTime(), { "dispand.consult.outcome": outcome });
+}
+
+/** The agents `entries` names that `agentId` may still consult, with their names and descriptions as they are now. */
+async function consultTargets(db: Db, entries: ConsultEntry[], agentId: string): Promise<ConsultTarget[]> {
+  const now = new Set((await consultsOf(db, agentId)).map((e) => e.agentId));
+  const ids = entries.map((e) => e.agentId).filter((id) => now.has(id));
+  if (ids.length === 0) return [];
+  const rows = await db.select({ agentId: agents.id, name: agents.name, description: agents.description }).from(agents).where(inArray(agents.id, ids)).orderBy(asc(agents.name));
+  return rows;
 }
 
 /** What keeps `def` from running: its own issues, its data steps' against the owner's tables and its Tool steps' against the owner's tools. */
@@ -380,7 +416,7 @@ export class Engine {
     const asked = await this.db.select().from(questions).where(inArray(questions.id, ids));
     for (const q of asked) {
       this.checkpointed.delete(q.id);
-      this.publish(q.runId, [{ type: "question", question: questionView(q) }]);
+      this.publish([{ type: "question", question: questionView(q) }]);
     }
     for (const [id, at] of this.checkpointed) if (Date.now() - at > 60_000) this.checkpointed.delete(id);
   }
@@ -396,7 +432,7 @@ export class Engine {
    */
   async createJob(
     tx: Tx,
-    input: { ownerId: string; agentId: string; triggerId: string; cause: JobCause; firing: RunTrigger; rootId?: string },
+    input: { ownerId: string; agentId: string; triggerId?: string; cause: JobCause; firing: RunTrigger; rootId?: string },
   ): Promise<string> {
     const { ownerId, agentId, triggerId, cause, firing } = input;
     const runId = newId("run");
@@ -411,19 +447,22 @@ export class Engine {
     // Shared with other starts, exclusive with a delete: the Job never outlives its agent. The
     // trigger first, then the agent: the order the scheduler and a delete take them in
     // (`jobs/active.ts`), so none of them waits on another.
-    const [trigger] = await tx
-      .select()
-      .from(triggers)
-      .where(and(eq(triggers.id, triggerId), eq(triggers.agentId, agentId), eq(triggers.ownerId, ownerId)))
-      .for("share");
+    // A consulted Job has no trigger: its firing is the consult, and its root the asking Job's.
+    const [trigger] = triggerId
+      ? await tx
+          .select()
+          .from(triggers)
+          .where(and(eq(triggers.id, triggerId), eq(triggers.agentId, agentId), eq(triggers.ownerId, ownerId)))
+          .for("share")
+      : [];
     const [agent] = await tx
       .select()
       .from(agents)
       .where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)))
       .for("share");
     if (!agent) throw new EngineError("NOT_FOUND", "Agent not found");
-    if (!trigger || !trigger.enabled) throw new EngineError("NOT_FOUND", "Trigger not found");
-    const root = given ?? (await lockRoot(await newRoot(tx, ownerId, cause.kind, runId)));
+    if (firing.type === "consult" ? triggerId || !given : !trigger || !trigger.enabled) throw new EngineError("NOT_FOUND", "Trigger not found");
+    const root = given ?? (await lockRoot(await newRoot(tx, ownerId, cause.kind as RootKind, runId)));
     const rootId = root.id;
     const { skills, tools } = await skillsAndTools(tx, agentId);
     const snapshot: AgentSnapshot = {
@@ -438,7 +477,7 @@ export class Engine {
       tables: agent.dataTables,
       consults: await consultsOf(tx, agentId),
     };
-    const def = jobDef({ agent: snapshot, trigger });
+    const def = jobDef({ agent: snapshot, trigger: trigger ?? null });
     const token = this.secrets ? issueJobToken(this.secrets, runId) : undefined;
     await tx.insert(runs).values({
       id: runId,
@@ -447,7 +486,7 @@ export class Engine {
       ...(token ? { tokenHash: token.hash, tokenSealed: token.sealed } : {}),
       version: 0,
       agentId,
-      triggerId,
+      triggerId: triggerId ?? null,
       def,
       snapshot,
       cause,
@@ -486,7 +525,7 @@ export class Engine {
       if (!ACTIVE_RUN.includes(run.status)) throw new EngineError("CLOSED", "This run is over");
       return this.stopIn(tx, runId, out);
     });
-    this.publish(runId, out);
+    this.publish(out);
     this.endSessions(sessions);
   }
 
@@ -561,7 +600,7 @@ export class Engine {
       if (got === "queued") await this.pushStep(tx, chat.id, out);
       return { row: row!, working: got === "working" };
     });
-    this.publish(runId, out);
+    this.publish(out);
     if (chat.sessionId) {
       if (working) this.deliverMessage(chat.sessionId, row);
       return;
@@ -580,7 +619,7 @@ export class Engine {
       if (now.harnessId && (await take(tx, { id: now.id, harnessId: now.harnessId }, "person", { kind: "deliver" })) === "queued") await this.pushStep(tx, now.id, late);
       return true;
     });
-    this.publish(runId, late);
+    this.publish(late);
     if (going) await this.redeliverMessage(row.id);
   }
 
@@ -610,7 +649,7 @@ export class Engine {
       const out: Out[] = [];
       const action = step.pendingAction;
       await this.db.transaction((tx) => this.hold(tx, stepId, action, out));
-      return this.publish(step.runId, out);
+      return this.publish(out);
     }
     if (step.pendingAction.kind === "start") {
       // A session whose start was never written (its runner was away): it goes again.
@@ -651,7 +690,9 @@ export class Engine {
   /** Records the owner's answer (once) and sends it to the session. */
   async answer(questionId: string, answer: Answer, by?: AnsweredBy): Promise<void> {
     // Any answer may have to go as words (its session lost and resumed): those must fit a message.
-    const [asked] = await this.db.select({ payload: questions.payload }).from(questions).where(eq(questions.id, questionId));
+    const [asked] = await this.db.select({ payload: questions.payload, kind: questions.kind }).from(questions).where(eq(questions.id, questionId));
+    // Nothing answers in a consulted agent's place: only its Job does (`answerConsult`).
+    if (asked?.kind === "consult") throw new EngineError("NOT_FOUND", "Question not found");
     if (asked) {
       const words = answerText({ payload: asked.payload, answer, answeredBy: by ?? null });
       if (words.length > TEXT || !storable(words)) throw new EngineError("INVALID", `The answer is too long (at most about ${TEXT - 100} characters)`);
@@ -690,22 +731,7 @@ export class Engine {
       if (q.proposalId && answer.kind === "permission" && (answer.decision === "deny" || by?.type === "user")) {
         await settleProposal(tx as unknown as Db, q.id, answer.decision !== "deny");
       }
-      out.push({ type: "question", question: questionView(q) });
-      await this.syncWaiting(tx, q.stepRunId!, q.runId, out);
-      // Nothing left to wait on: the session goes back to work once it holds a slot. Until then,
-      // and while another question is pending, the answers given stay undelivered.
-      const [step] = await tx.select().from(stepRuns).where(eq(stepRuns.id, q.stepRunId!));
-      if (step?.status !== "running" || !step.sessionId) return { q, step: null };
-      // Its root paused at a checkpoint: the answer is kept, and goes once the root goes on.
-      if (!(await rootGoing(tx, step.runId))) {
-        await this.hold(tx, step.id, { kind: "deliver" }, out);
-        return { q, step: null };
-      }
-      if (step.harnessId && (await take(tx, { id: step.id, harnessId: step.harnessId }, "resume", { kind: "deliver" })) === "queued") {
-        await this.pushStep(tx, step.id, out);
-        return { q, step: null };
-      }
-      return { q, step };
+      return { q, step: await this.toSession(tx, q, out) };
     });
     const { q, step } = settled ?? {};
     const root = settled && "root" in settled ? settled.root : undefined;
@@ -713,13 +739,121 @@ export class Engine {
     const decision = q.answer?.kind === "permission" ? q.answer.decision : q.answer?.kind ?? "none";
     counts.counter("dispand.questions.answered").add(1, { "dispand.question.kind": q.kind, "dispand.answer.decision": decision, "dispand.answer.by": q.answeredBy?.type ?? "user" });
     counts.histogram("dispand.question.wait", { unit: "ms", description: "From a question to its answer" }).record(q.answeredAt!.getTime() - q.createdAt.getTime(), { "dispand.question.kind": q.kind });
-    this.publish(q.runId, out);
+    this.publish(out);
     if (step) await this.flush(step.id, step.sessionId!);
     if (root?.stopped) {
-      for (const [runId, events] of root.stopped.outs) this.publish(runId, events);
+      for (const events of root.stopped.outs.values()) this.publish(events);
       this.endSessions(root.stopped.sessions);
     }
     if (root?.goOn) await this.goOn(root.goOn);
+  }
+
+  /**
+   * An answer was recorded, in `tx`: the step stops waiting when nothing else of it is pending, and
+   * its session goes back to work once it holds a slot. Until then, and while another question is
+   * pending, the answers given stay undelivered. Returns the step when it holds one now: its
+   * answers go once `tx` commits.
+   */
+  private async toSession(tx: Tx, q: QuestionRow, out: Out[]): Promise<StepRow | null> {
+    out.push({ type: "question", question: questionView(q) });
+    await this.syncWaiting(tx, q.stepRunId!, q.runId, out);
+    const [step] = await tx.select().from(stepRuns).where(eq(stepRuns.id, q.stepRunId!));
+    if (step?.status !== "running" || !step.sessionId) return null;
+    // Its root paused at a checkpoint: the answer is kept, and goes once the root goes on.
+    if (!(await rootGoing(tx, step.runId))) {
+      await this.hold(tx, step.id, { kind: "deliver" }, out);
+      return null;
+    }
+    if (step.harnessId && (await take(tx, { id: step.id, harnessId: step.harnessId }, "resume", { kind: "deliver" })) === "queued") {
+      await this.pushStep(tx, step.id, out);
+      return null;
+    }
+    return step;
+  }
+
+  /**
+   * A consult was asked, in the transaction that recorded its row: refused (answered `failed` at
+   * once, with no Job), left pending while its root is paused (`goOn` opens it), or its consulted
+   * Job is made, in the asking Job's root, and starts once `tx` commits.
+   */
+  private async openConsult(tx: Tx, q: QuestionRow, out: Out[]): Promise<void> {
+    if (q.payload.kind !== "consult") return;
+    const consultedId = q.payload.agentId;
+    const problem = await consultProblem(tx, q.runId, consultedId);
+    if (problem) return this.settleConsult(tx, q.id, failed(problem), null, out, "refused");
+    const [asker] = await tx.select().from(runs).where(eq(runs.id, q.runId));
+    const [root] = await tx.select({ state: roots.state }).from(roots).where(eq(roots.id, asker!.rootId!)).for("update");
+    if (root?.state !== "going") return;
+    const askingAgent = asker!.snapshot?.name ?? (await agentName(tx, asker!.agentId!));
+    let runId: string;
+    try {
+      runId = await this.createJob(tx, {
+        ownerId: q.ownerId,
+        agentId: consultedId,
+        cause: { kind: "consult", questionId: q.id, jobId: q.runId, depth: (asker!.cause?.depth ?? 0) + 1 },
+        firing: { type: "consult", questionId: q.id, outputs: consultOutputs({ question: q.payload.question, askingAgent, askingJobId: q.runId }) },
+        rootId: asker!.rootId!,
+      });
+    } catch (err) {
+      if (!(err instanceof EngineError)) throw err;
+      return this.settleConsult(tx, q.id, failed(`The consulted Job couldn't be created: ${err.message}`), null, out, "failed");
+    }
+    await tx.update(questions).set({ consultRunId: runId }).where(eq(questions.id, q.id));
+    out.push({ type: "job", runId });
+  }
+
+  /**
+   * The consulted run ended, in the transaction that ended it: its consult is answered with its
+   * result, or with why it has none; or with why the asker may no longer have it, when a right
+   * was taken back since.
+   */
+  private async answerConsult(tx: Tx, run: RunRow, out: Out[]): Promise<void> {
+    if (run.trigger.type !== "consult") return;
+    const [q] = await tx.select().from(questions).where(and(eq(questions.id, run.trigger.questionId), eq(questions.status, "pending")));
+    if (!q) return;
+    const problem = await deliveryProblem(tx, q);
+    const answer = problem ? failed(problem) : await consultEnd(tx, run);
+    const by: AnsweredBy = { type: "agent", agentId: run.agentId!, runId: run.id, name: run.snapshot?.name ?? (await agentName(tx, run.agentId!)) };
+    await this.settleConsult(tx, q.id, answer, by, out, answer.outcome === "answered" ? "answered" : run.error === STOPPED ? "stopped" : "failed");
+  }
+
+  /** Records a consult's answer (once: a row no longer pending is left as it is) and sends it on, like `answer` does in its transaction. */
+  private async settleConsult(tx: Tx, questionId: string, answer: Answer, by: AnsweredBy | null, out: Out[], outcome: "answered" | "refused" | "failed" | "stopped") {
+    const [q] = await tx
+      .update(questions)
+      .set({ status: "answered", answer, answeredAt: new Date(), answeredBy: by })
+      .where(and(eq(questions.id, questionId), eq(questions.status, "pending")))
+      .returning();
+    if (!q) return;
+    consultEnded(q, outcome);
+    const step = await this.toSession(tx, q, out);
+    // It holds a slot: its answers go once `tx` commits, as a step handed one does (`handOver`).
+    if (step) {
+      await tx.update(stepRuns).set({ pendingAction: { kind: "deliver" } }).where(eq(stepRuns.id, step.id));
+      out.push({ type: "slot", runId: step.runId, stepId: step.id });
+    }
+  }
+
+  /**
+   * Expires the pending questions `where` selects (a checkpoint's Approval excepted, which is its
+   * root's), in `tx`. A consult that ends so, with no answer, stops its consulted run, and so on
+   * down its chain of consults.
+   */
+  private async expire(tx: Tx, where: SQL, out: Out[]): Promise<void> {
+    const expired = await tx
+      .update(questions)
+      .set({ status: "expired" })
+      .where(and(where, eq(questions.status, "pending"), isNull(questions.rootId)))
+      .returning();
+    await recordInteractions(tx, expired.filter((q) => q.kind !== "consult"), "expired");
+    for (const q of expired) out.push({ type: "question", question: questionView(q) });
+    for (const q of expired) {
+      if (q.kind !== "consult") continue;
+      consultEnded(q, "stopped");
+      if (!q.consultRunId) continue;
+      const [going] = await tx.select({ id: runs.id }).from(runs).where(and(eq(runs.id, q.consultRunId), inArray(runs.status, ACTIVE_RUN))).for("update");
+      if (going) out.push({ type: "end", steps: await this.stopIn(tx, going.id, out) });
+    }
   }
 
   /**
@@ -775,6 +909,7 @@ export class Engine {
    */
   private async goOn(rootId: string) {
     const going = await this.db.select({ id: runs.id }).from(runs).where(and(eq(runs.rootId, rootId), inArray(runs.status, ACTIVE_RUN)));
+    await this.openWaitingConsults(going.map((r) => r.id));
     for (const { id } of going) {
       const steps = await this.db
         .select()
@@ -783,6 +918,28 @@ export class Engine {
       for (const step of steps) await this.wake(step);
       await this.advance(id);
     }
+  }
+
+  /**
+   * The consults of these runs asked while their root was paused, which have no Job yet: each is
+   * opened now (`openConsult`), unless its root is paused again. Also on boot, for a root that
+   * went on before the process could open them.
+   */
+  private async openWaitingConsults(runIds: string[]) {
+    if (runIds.length === 0) return;
+    const waiting = await this.db
+      .select({ id: questions.id })
+      .from(questions)
+      .where(and(inArray(questions.runId, runIds), eq(questions.kind, "consult"), eq(questions.status, "pending"), isNull(questions.consultRunId)));
+    for (const { id } of waiting) {
+      const out: Out[] = [];
+      await this.db.transaction(async (tx) => {
+        const [q] = await tx.select().from(questions).where(and(eq(questions.id, id), eq(questions.status, "pending"), isNull(questions.consultRunId))).for("update");
+        if (q) await this.openConsult(tx, q, out);
+      });
+      this.publish(out);
+    }
+    await this.announceCheckpoints();
   }
 
   /** A held step takes a slot for what it waits to do, and does it once it holds one (`handOver`). */
@@ -800,7 +957,7 @@ export class Engine {
       else await this.pushStep(tx, step.id, out);
       return got;
     });
-    this.publish(step.runId, out);
+    this.publish(out);
     if (got === "working") await this.handOver(step.id);
   }
 
@@ -857,6 +1014,17 @@ export class Engine {
   private async applyEvent(sessionId: string, event: HarnessEvent, from: { runnerId: string; seq: number }): Promise<void> {
     const out: Out[] = [];
     const result = await this.db.transaction(async (tx) => {
+      // A consult makes a Job in the asking Job's root: that root is locked first, as a
+      // checkpoint's answer locks it before the runs and steps it stops.
+      if (event.type === "question" && event.payload.kind === "consult") {
+        await tx
+          .select({ id: roots.id })
+          .from(stepRuns)
+          .innerJoin(runs, eq(runs.id, stepRuns.runId))
+          .innerJoin(roots, eq(roots.id, runs.rootId))
+          .where(and(eq(stepRuns.sessionId, sessionId), eq(stepRuns.runnerId, from.runnerId)))
+          .for("update", { of: roots });
+      }
       const [step] = await tx
         .update(stepRuns)
         .set({ eventSeq: from.seq, ...(event.type === "error" ? {} : { lastActivityAt: new Date() }) })
@@ -872,7 +1040,7 @@ export class Engine {
       await this.retryAdvance(sessionId, from.runnerId);
       return;
     }
-    this.publish(result.step.runId, out);
+    this.publish(out);
     if (result.next === "advance") await this.advance(result.step.runId);
     // Only database work is awaited: the start itself goes out without waiting.
     if (result.next === "resume" && !this.inFlight.has(`start:${sessionId}`)) await this.resume(result.step);
@@ -895,7 +1063,7 @@ export class Engine {
     for (const step of open) {
       const out: Out[] = [];
       await this.db.transaction((tx) => this.fail(tx, step, "The agent's runner was revoked", out));
-      this.publish(step.runId, out);
+      this.publish(out);
     }
   }
 
@@ -938,6 +1106,19 @@ export class Engine {
         ),
       );
     for (const { step } of held) await this.wake(step);
+    // Consults whose consulted run ended before the process could answer them, and consults of a
+    // root that went on before the process could open them.
+    const unanswered = await this.db
+      .select({ run: runs })
+      .from(questions)
+      .innerJoin(runs, eq(runs.id, questions.consultRunId))
+      .where(and(eq(questions.kind, "consult"), eq(questions.status, "pending"), inArray(runs.status, ["succeeded", "failed"])));
+    for (const { run } of unanswered) {
+      const out: Out[] = [];
+      await this.db.transaction((tx) => this.answerConsult(tx, run, out));
+      this.publish(out);
+    }
+    await this.openWaitingConsults(active.map((r) => r.id));
     // A cloud session of a paused root isn't run again here: reconciled as lost, it is held to resume.
     if (this.cloud) await this.reconcile(CLOUD_SOURCE, await this.cloud.recover((runId) => rootGoing(this.db, runId)));
   }
@@ -953,7 +1134,7 @@ export class Engine {
     });
     if (handed.length === 0) return;
     const rows = await this.db.select({ id: stepRuns.id, runId: stepRuns.runId }).from(stepRuns).where(inArray(stepRuns.id, handed));
-    for (const r of rows) this.publish(r.runId, [{ type: "slot", runId: r.runId, stepId: r.id }]);
+    for (const r of rows) this.publish([{ type: "slot", runId: r.runId, stepId: r.id }]);
   }
 
   /**
@@ -999,7 +1180,7 @@ export class Engine {
           if (!step.startDeliveredAt || lost) {
             const out: Out[] = [];
             await this.db.transaction((tx) => this.hold(tx, step.id, { kind: lost ? "resume" : "start" }, out));
-            this.publish(step.runId, out);
+            this.publish(out);
           }
           continue;
         }
@@ -1049,7 +1230,7 @@ export class Engine {
     // Its root paused at a checkpoint: it resumes once the root goes on (`goOn`).
     if (!(await rootGoing(this.db, step.runId))) {
       await this.db.transaction((tx) => this.hold(tx, step.id, { kind: "resume" }, out));
-      return this.publish(step.runId, out);
+      return this.publish(out);
     }
     // A resume is a turn: it takes a slot first, or queues and resumes once handed one.
     if (step.harnessId) {
@@ -1059,7 +1240,7 @@ export class Engine {
         if (got === "queued") await this.pushStep(tx, step.id, out);
         return got;
       });
-      if (got === "queued") return this.publish(step.runId, out);
+      if (got === "queued") return this.publish(out);
     }
     const waiting = await this.db
       .update(questions)
@@ -1067,7 +1248,7 @@ export class Engine {
       .where(and(eq(questions.sessionId, sessionId), eq(questions.status, "pending")))
       .returning();
     for (const q of waiting) out.push({ type: "question", question: questionView(q) });
-    this.publish(step.runId, out);
+    this.publish(out);
     // Deliveries still under way are carried too (they never mark a lost session's rows delivered).
     const answered = await this.undeliveredAnswers(sessionId);
     const unsent = await this.undeliveredMessages(step.id);
@@ -1133,12 +1314,30 @@ export class Engine {
       .where(and(eq(questions.sessionId, step.sessionId!), eq(questions.status, "answered"), gte(questions.deliveredAt, since)));
   }
 
-  private undeliveredAnswers(sessionId: string) {
-    return this.db
+  private async undeliveredAnswers(sessionId: string) {
+    const rows = await this.db
       .select()
       .from(questions)
       .where(and(eq(questions.sessionId, sessionId), eq(questions.status, "answered"), isNull(questions.deliveredAt)))
       .orderBy(asc(questions.answeredAt));
+    return Promise.all(rows.map((q) => this.checkedAnswer(q)));
+  }
+
+  /**
+   * A consult's answer, as its asker may get it now: when a right was taken back since it was
+   * recorded, its recorded answer is replaced by the reason, for good, and never sent. Every
+   * path that sends answers reads them through here (`undeliveredAnswers`, `redeliverAnswer`).
+   */
+  private async checkedAnswer(q: QuestionRow): Promise<QuestionRow> {
+    if (q.kind !== "consult" || q.answer?.kind !== "consult" || q.answer.outcome === "failed") return q;
+    const problem = await deliveryProblem(this.db, q);
+    if (!problem) return q;
+    const [replaced] = await this.db
+      .update(questions)
+      .set({ answer: failed(problem) })
+      .where(and(eq(questions.id, q.id), isNull(questions.deliveredAt)))
+      .returning();
+    return replaced ?? q;
   }
 
   private undeliveredMessages(stepRunId: string) {
@@ -1207,7 +1406,7 @@ export class Engine {
             sessionId: step.sessionId!,
             runnerQuestionId: event.questionId,
             placement: step.start?.interactive ? "chat" : "notifications",
-            kind: event.payload.kind === "permission" ? "approval" : "question",
+            kind: event.payload.kind === "permission" ? "approval" : event.payload.kind === "consult" ? "consult" : "question",
             about,
             payload: event.payload,
             status: "pending",
@@ -1216,7 +1415,8 @@ export class Engine {
           .returning();
         if (row) {
           counts.counter("dispand.questions.opened").add(1, { "dispand.question.kind": row.kind });
-          await recordInteraction(tx, row, "created");
+          // A consult asks nothing of a person: it is no interaction, and no Inbox item.
+          if (row.kind !== "consult") await recordInteraction(tx, row, "created");
           // A request for approval that names a proposal of this run: the question is for that proposal.
           if (event.payload.kind === "permission" && event.payload.toolName === REQUEST_APPROVAL) {
             row.proposalId = await attachProposal(tx as unknown as Db, { runId: step.runId, ownerId: step.ownerId }, row.id, event.payload.input);
@@ -1224,13 +1424,11 @@ export class Engine {
           }
           out.push({ type: "question", question: questionView(row) });
           // The resumed session asks for itself now: questions of the session it replaced expire.
-          const expired = await tx
-            .update(questions)
-            .set({ status: "expired" })
-            .where(and(eq(questions.stepRunId, step.id), eq(questions.status, "pending"), eq(questions.orphaned, true)))
-            .returning();
-          await recordInteractions(tx, expired, "expired");
-          for (const q of expired) out.push({ type: "question", question: questionView(q) });
+          await this.expire(tx, and(eq(questions.stepRunId, step.id), eq(questions.orphaned, true))!, out);
+          if (row.kind === "consult") {
+            counts.counter("dispand.consults.asked").add(1);
+            await this.openConsult(tx, row, out);
+          }
         }
         await this.syncWaiting(tx, step.id, step.runId, out);
         return null;
@@ -1279,17 +1477,17 @@ export class Engine {
       const nodes = new Map(nodesOf(def).map((n) => [n.id, n]));
       let changed = false;
       const scheduledFor = run.trigger.type === "schedule" ? new Date(run.trigger.scheduledFor) : run.createdAt;
-      const outputs = run.trigger.type === "event" || run.trigger.type === "poll" ? run.trigger.outputs : undefined;
+      const outputs = run.trigger.type === "event" || run.trigger.type === "poll" || run.trigger.type === "consult" ? run.trigger.outputs : undefined;
       for (const action of nextActions(def, steps, { scheduledFor, ...(outputs ? { outputs } : {}) })) {
         const out: Out[] = [];
         if (action.type === "finish") {
-          await this.finishRun(this.db, runId, action.status, null, out);
-          this.publish(runId, out);
+          await this.db.transaction((tx) => this.finishRun(tx, runId, action.status, null, out));
+          this.publish(out);
           return;
         }
         if (action.type === "open-iteration") {
           changed = (await this.openIteration(run, def, action.loopId, action.iteration, out)) || changed;
-          this.publish(runId, out);
+          this.publish(out);
           continue;
         }
         const step = steps.find((s) => s.nodeId === action.nodeId && s.iteration === action.iteration)!;
@@ -1297,7 +1495,7 @@ export class Engine {
         else if (action.type === "skip") changed = (await this.skip(step, out)) || changed;
         else if (action.type === "data") {
           const ran = await this.runData(run, def, steps, step, out);
-          this.publish(runId, out);
+          this.publish(out);
           if (ran === "failed") return;
           changed = ran === "succeeded" || changed;
           continue;
@@ -1306,11 +1504,11 @@ export class Engine {
         else if (action.type === "fail") {
           // The run fails with the step: nothing else of it starts.
           await this.db.transaction((tx) => this.fail(tx, step, action.error, out));
-          this.publish(runId, out);
+          this.publish(out);
           return;
         } else if (nodes.get(action.nodeId)!.type === "loop") changed = (await this.startLoop(step, out)) || changed;
         else await this.startSession(run, def, steps, nodes.get(action.nodeId)!, step);
-        this.publish(runId, out);
+        this.publish(out);
       }
       if (!changed) return;
     }
@@ -1376,7 +1574,7 @@ export class Engine {
         if (result.ok) await this.complete(tx, claimed, result.outputs, settled);
         else await this.fail(tx, claimed, result.error, settled);
       });
-      this.publish(run.id, settled);
+      this.publish(settled);
       if (result.ok) await this.advance(run.id);
     })
       .catch((err: unknown) => logError("tool step failed", err, { ref: claimed.id }))
@@ -1397,7 +1595,7 @@ export class Engine {
       if (def.steps.find((s) => s.id === step.nodeId)?.type !== "tool" || this.inFlight.has(`tool:${step.id}`)) continue;
       const out: Out[] = [];
       await this.db.transaction((tx) => this.fail(tx, step, TOOL_RESTARTED, out));
-      this.publish(runId, out);
+      this.publish(out);
     }
   }
 
@@ -1475,7 +1673,7 @@ export class Engine {
     if (!agent || !h) {
       const out: Out[] = [];
       await this.db.transaction((tx) => this.fail(tx, step, "The step's agent no longer exists", out));
-      this.publish(run.id, out);
+      this.publish(out);
       return;
     }
     const model = agent.model ?? h.model;
@@ -1490,7 +1688,7 @@ export class Engine {
       if (problem) {
         const out: Out[] = [];
         await this.db.transaction((tx) => this.fail(tx, step, problem, out));
-        this.publish(run.id, out);
+        this.publish(out);
         return;
       }
       harness = {
@@ -1512,6 +1710,10 @@ export class Engine {
         deriveExpectedOutputs(def, await loadTableSchemas(this.db, run.ownerId, tableIdsOf(def)), await loadToolSchemas(this.db, run.ownerId, toolIdsOf(def)))[node.id] ?? [],
       interactive: node.kind === "trigger",
     };
+    // A Job's cloud session consults the agents of its snapshot that its agent still has (each
+    // call is checked again, `consultProblem`); a workflow's agent step has no such tool.
+    const consults = run.snapshot && isCloud(harness) ? await consultTargets(this.db, run.snapshot.consults ?? [], run.agentId!) : [];
+    if (consults.length) start.consults = consults;
     if (await this.refusedForScope(step)) return;
     // A person waits on a manual run; the other starts are new work.
     const cls: QueueClass = run.trigger.type === "manual" ? "person" : "new";
@@ -1538,11 +1740,11 @@ export class Engine {
         .where(eq(stepRuns.id, step.id))
         .returning();
     });
-    this.publish(run.id, held);
-    if (queued) this.publish(run.id, [{ type: "step", step: stepView(queued) }]);
+    this.publish(held);
+    if (queued) this.publish([{ type: "step", step: stepView(queued) }]);
     if (!started) return;
     annotate({ "dispand.harness.kind": harness.kind, "dispand.session.id": start.sessionId });
-    this.publish(run.id, [{ type: "step", step: stepView(started) }]);
+    this.publish([{ type: "step", step: stepView(started) }]);
     // Chat messages sent while it was queued go once the start is written (an unwritten one is
     // resent with them by the runner's reconcile).
     this.launch(harness, start, started, [], start.interactive ? () => this.flush(started.id, start.sessionId) : undefined);
@@ -1562,7 +1764,7 @@ export class Engine {
       const out: Out[] = [];
       const failed = this.db
         .transaction((tx) => this.fail(tx, step, problem, out))
-        .then(() => this.publish(step.runId, out))
+        .then(() => this.publish(out))
         .catch((err: unknown) => logError("session start failed", err, { ref: step.id }));
       this.keep(failed);
       return;
@@ -1583,7 +1785,7 @@ export class Engine {
       logError("session start failed", err, { ref: step.id });
       const out: Out[] = [];
       await this.db.transaction((tx) => this.fail(tx, step, "The session could not start", out));
-      this.publish(step.runId, out);
+      this.publish(out);
     });
     this.keep(sent);
   }
@@ -1599,7 +1801,7 @@ export class Engine {
     if (!problem) return false;
     const out: Out[] = [];
     await this.db.transaction((tx) => this.fail(tx, step, problem, out));
-    this.publish(step.runId, out);
+    this.publish(out);
     return true;
   }
 
@@ -1666,7 +1868,7 @@ export class Engine {
       .from(questions)
       .innerJoin(stepRuns, eq(stepRuns.id, questions.stepRunId))
       .where(eq(questions.id, id));
-    if (row?.q.status === "answered" && !row.q.deliveredAt && holdsSlot(row.step)) this.deliverAnswer(row.q);
+    if (row?.q.status === "answered" && !row.q.deliveredAt && holdsSlot(row.step)) this.deliverAnswer(await this.checkedAnswer(row.q));
   }
 
   private async redeliverMessage(id: string) {
@@ -1706,13 +1908,7 @@ export class Engine {
     out.push({ type: "step", step: stepView(row) });
     await this.release(tx, row, out);
     // A checkpoint's Approval asked in a chat is the root's, not the step's: it stays.
-    const expired = await tx
-      .update(questions)
-      .set({ status: "expired" })
-      .where(and(eq(questions.stepRunId, step.id), eq(questions.status, "pending"), isNull(questions.rootId)))
-      .returning();
-    await recordInteractions(tx, expired, "expired");
-    for (const q of expired) out.push({ type: "question", question: questionView(q) });
+    await this.expire(tx, eq(questions.stepRunId, step.id), out);
     await this.syncWaiting(tx, step.id, step.runId, out);
     return true;
   }
@@ -1743,13 +1939,7 @@ export class Engine {
       if (loop) out.push({ type: "step", step: stepView(loop) });
     }
     // A checkpoint's Approval asked on this run is its root's: it stays.
-    const expired = await tx
-      .update(questions)
-      .set({ status: "expired" })
-      .where(and(eq(questions.runId, step.runId), eq(questions.status, "pending"), isNull(questions.rootId)))
-      .returning();
-    await recordInteractions(tx, expired, "expired");
-    for (const q of expired) out.push({ type: "question", question: questionView(q) });
+    await this.expire(tx, eq(questions.runId, step.runId), out);
     await this.finishRun(tx, step.runId, "failed", error, out);
     // Nothing more of the run starts or resumes: its steps queued (to start, for an answer or a
     // message, or to resume) or handed a slot leave the queue. Its steps waiting on a question
@@ -1778,7 +1968,8 @@ export class Engine {
     for (const r of rows) out.push({ type: "slot", runId: r.runId, stepId: r.id });
   }
 
-  private async finishRun(tx: Tx | Db, runId: string, status: "succeeded" | "failed", error: string | null, out: Out[]) {
+  /** Ends the run, in `tx`; a consulted run's consult is answered with it (`answerConsult`). */
+  private async finishRun(tx: Tx, runId: string, status: "succeeded" | "failed", error: string | null, out: Out[]) {
     const [row] = await tx
       .update(runs)
       .set({ status, error, finishedAt: new Date() })
@@ -1789,6 +1980,7 @@ export class Engine {
       const attributes = { "dispand.run.source": row.source, "dispand.run.status": status };
       counts.counter("dispand.runs.finished").add(1, attributes);
       counts.histogram("dispand.run.duration", { unit: "ms", description: "From a run's creation to its end" }).record(row.finishedAt!.getTime() - row.createdAt.getTime(), attributes);
+      await this.answerConsult(tx, row, out);
     }
   }
 
@@ -1840,11 +2032,15 @@ export class Engine {
     return row.def;
   }
 
-  private publish(runId: string, out: Out[]) {
+  private publish(out: Out[]) {
     for (const e of out) {
       // A step handed a slot does what it waited to do (`handOver`).
       if (e.type === "slot") this.keep(this.handOver(e.stepId).catch((err: unknown) => logError("slot hand-over failed", err, { ref: e.stepId })));
-      else this.events.publish(runId, e);
+      else if (e.type === "job") {
+        const started = this.announceCheckpoints().then(() => this.continueRun(e.runId));
+        this.keep(started.catch((err: unknown) => logError("consulted Job start failed", err, { ref: e.runId })));
+      } else if (e.type === "end") this.endSessions(e.steps);
+      else this.events.publish(runOf(e), e);
     }
     if (out.some((e) => e.type === "question")) this.questionChanges.publish("changed", true);
   }

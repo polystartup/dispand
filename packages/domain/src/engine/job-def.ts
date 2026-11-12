@@ -68,15 +68,35 @@ export function eventOutputs(event: {
   };
 }
 
+/** The trigger node of a consulted Job, which has no trigger row: its firing is the consult. */
+export const CONSULT_NODE = "consult";
+
+/** What a consulted Job is told: who asks, and the question, filled from the trigger node's outputs. Nothing else of the asking Job. */
+export const CONSULT_PROMPT =
+  "{{trigger.asking_agent}} (Job {{trigger.asking_job_id}}) consults you. Answer its question; your last message is your answer, and it gets nothing else of your work.\n\n{{trigger.question}}";
+
+/** A consulted Job's trigger node outputs: the question, the asking agent's name and its Job's id. */
+export function consultOutputs(input: { question: string; askingAgent: string; askingJobId: string }): Record<string, string> {
+  return { question: input.question, asking_agent: input.askingAgent, asking_job_id: input.askingJobId };
+}
+
 /**
  * The definition of a Job: its trigger as the firing, then the agent with the trigger's
- * instructions as prompt. A chat placement has no step: the conversation is the Job.
+ * instructions as prompt. A chat placement has no step: the conversation is the Job. A consulted
+ * Job has no trigger: its prompt is the consult.
  */
 export function jobDef(input: {
   agent: AgentSnapshot;
-  trigger: { id: string; name: string; config: TriggerConfig; instructions: string };
+  trigger: { id: string; name: string; config: TriggerConfig; instructions: string } | null;
 }): WorkflowDef {
   const { agent, trigger } = input;
+  if (!trigger) {
+    return {
+      trigger: { type: "manual", field: { id: CONSULT_NODE, key: "trigger", label: "Consult", type: "button" } },
+      steps: [{ id: JOB_STEP, key: JOB_STEP, type: "agent", name: agent.name, agentId: agent.id, prompt: CONSULT_PROMPT }],
+      edges: [{ from: CONSULT_NODE, to: JOB_STEP }],
+    };
+  }
   const { config } = trigger;
   const field = { id: trigger.id, key: "trigger", label: trigger.name };
   if (config.kind === "manual" && config.placement === "chat") {

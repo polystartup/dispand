@@ -37,6 +37,12 @@ export const QuestionPayload = z.discriminatedUnion("kind", [
     kind: z.literal("confirm-outputs"),
     values: record(text(), 100),
   }),
+  // A question to another agent (a consult): Dispand answers it with that agent's Job, never a person.
+  z.object({
+    kind: z.literal("consult"),
+    agentId: id(),
+    question: text(),
+  }),
 ]);
 export type QuestionPayload = z.infer<typeof QuestionPayload>;
 
@@ -56,6 +62,12 @@ export const Answer = z.discriminatedUnion("kind", [
     kind: z.literal("confirm-outputs"),
     confirmed: z.boolean(),
     feedback: text().optional(),
+  }),
+  // The consulted agent's answer, or why there is none.
+  z.object({
+    kind: z.literal("consult"),
+    outcome: z.enum(["answered", "failed"]),
+    text: text(),
   }),
 ]);
 export type Answer = z.infer<typeof Answer>;

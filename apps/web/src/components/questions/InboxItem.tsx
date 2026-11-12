@@ -39,6 +39,7 @@ export function answerLine(answer: Answer, payload?: QuestionPayload, rootId?: s
     if (answer.decision === "deny") return answer.message ? `Denied: ${answer.message}` : "Denied";
     return answer.decision === "allow-always" ? "Allowed, always" : "Allowed";
   }
+  if (answer.kind === "consult") return answer.outcome === "answered" ? "Answered by the agent consulted" : "No answer";
   return answer.confirmed ? "Confirmed" : answer.feedback ? `Not confirmed: ${answer.feedback}` : "Not confirmed";
 }
 
