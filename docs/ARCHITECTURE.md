@@ -213,8 +213,10 @@
   may consult, each with an "ask before use" flag (`agents/consults.ts`): an entry is made only
   between two agents that both have `configure` or neither has (`pairProblem`), and goes with
   either agent; one a later bundle change puts across that line is kept and shown inactive.
-  A Job's cloud session gets a `consult` tool listing them (`StartParams.consults`): a call is a
-  `questions` row of kind `consult` (protocol 11) that `Engine.openConsult` checks
+  A Job's session gets a `consult` tool listing them (`StartParams.consults`; a runner session's
+  start carries at most 50, by name, in protocol 12, and the runner's `consult` in
+  `apps/runner/src/outcome.ts`, a tool of its `dispand` server on Claude Code and a dynamic tool
+  on Codex, asks only about those): a call is a `questions` row of kind `consult` (protocol 11) that `Engine.openConsult` checks
   (`consultProblem`) and answers at once when refused, puts to the owner first when its entry is
   flagged (an `approval` row whose `consult_id` names the consult and that no session waits on:
   a yes opens the consult, a no answers it), or turns into a Job of the consulted agent

@@ -407,10 +407,10 @@ test("a start still fetching its skills holds up only its own session's messages
 });
 
 /** Sessions whose Codex is the fake one, version `version` (null: no Codex on the machine). */
-async function codexSetup(version: string | null = "0.166.0") {
+async function codexSetup(version: string | null = "0.166.0", env?: Record<string, string>) {
   const base = await realpath(await mkdtemp(join(tmpdir(), "sessions-")));
   made.push(base);
-  const codex = await fakeCodex(made);
+  const codex = await fakeCodex(made, env);
   const events: [string, HarnessEvent][] = [];
   const sessions = new Sessions(
     { server: "https://dispand.test", roots: [join(base, "root")], allowBypass: false },
@@ -496,4 +496,26 @@ test("a start with a Job token gives the CLI the Job server at the runner's own 
   await sessions.handle({ type: "session.start", start: start("ses_2", "run_b") });
   await ended(events, "ses_2");
   expect(Object.keys(fake.servers[1] ?? {})).not.toContain("job");
+});
+
+test("a consult waits across a reconnection to Dispand, and its answer then reaches the session's tool call", async () => {
+  const call = { request: "item/tool/call", params: { threadId: "$THREAD", turnId: "$TURN", callId: "c1", namespace: null, tool: "consult", arguments: { agent: "agt_arch", question: "May it add a table?" } } };
+  const done = { notify: "item/completed", params: { threadId: "$THREAD", item: { type: "agentMessage", id: "m1", text: "Done" } } };
+  const { codex, events, sessions, codexStart } = await codexSetup("0.166.0", { FAKE_CODEX_TURNS: JSON.stringify([[call, done]]) });
+  const consults = [{ agentId: "agt_arch", name: "Architect", description: "" }];
+  await sessions.handle({ type: "session.start", start: { ...codexStart("ses_1", "run_a"), consults } });
+  const question = await vi.waitFor(() => {
+    const found = events.find(([, e]) => e.type === "question")?.[1];
+    expect(found).toBeDefined();
+    return found as Extract<HarnessEvent, { type: "question" }>;
+  });
+  expect(question.payload).toEqual({ kind: "consult", agentId: "agt_arch", question: "May it add a table?" });
+  // The connection drops and comes back: the session keeps waiting, and Dispand sends the answer then.
+  sessions.connected();
+  expect(sessions.ids()).toEqual(["ses_1"]);
+  await sessions.handle({ type: "session.answer", sessionId: "ses_1", questionId: question.questionId, answer: { kind: "consult", outcome: "answered", text: "Yes." } });
+  await ended(events, "ses_1");
+  const reply = await vi.waitFor(async () => (await codex.received()).find((m) => m.id === "r0" && m.method === undefined)!.result);
+  expect(reply).toEqual({ contentItems: [{ type: "inputText", text: "Answer from the agent Architect:\n\nYes." }], success: true });
+  expect(events.at(-1)).toEqual(["ses_1", { type: "result", text: "Done" }]);
 });

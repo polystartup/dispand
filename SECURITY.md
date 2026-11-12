@@ -117,8 +117,9 @@ changes it updates this file.
   or an approved `agents_create` or `agents_update` item. An entry pairs only two agents that
   both have `configure` or neither has, and never an agent with itself.
 - **A consult reaches only an agent its Job may consult, and nothing answers in that agent's
-  place.** A Job's `consult` tool (cloud sessions; absent when its agent may consult none, and
-  in workflow steps) names an agent by id. At the call the engine checks that the entry is in
+  place.** A Job's `consult` tool (cloud and runner sessions; absent when its agent may consult
+  none, and in workflow steps) names an agent by id. A runner sends a consult only for an agent
+  its session's start listed, so a session never names one the server didn't offer. At the call the engine checks that the entry is in
   the Job's snapshot and on its agent now, that the pair still passes the `configure`
   rule, that the agent isn't already higher in the same chain of consults (A asks B, B asks A),
   and that the root isn't stopped (`engine/consults.ts`); a refusal is the answer. An entry
