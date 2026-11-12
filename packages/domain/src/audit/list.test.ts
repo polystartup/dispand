@@ -34,7 +34,7 @@ test("audit.list pages newest first, and filters by Job and by action family", a
   expect((await call(router.audit.list, { action: "question" }, { context })).rows).toEqual([]);
   expect((await call(router.audit.list, { actorType: "user" }, { context })).rows).toEqual([]);
   expect((await call(router.audit.list, { actorType: "job", agentId: "agent_1", resourceType: "job", resourceId: "run_2", result: "ok" }, { context })).rows).toHaveLength(4);
-  expect((await call(router.audit.list, { to: new Date(0) }, { context })).rows).toEqual([]);
+  expect((await call(router.audit.list, { to: new Date(0).toISOString() }, { context })).rows).toEqual([]);
 });
 
 test("another owner's rows never appear, and a forged cursor is a bad request", async () => {
