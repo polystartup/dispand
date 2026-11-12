@@ -146,3 +146,13 @@ test("Claude registrations are installed without the Codex installed flag", asyn
     expect(report.packages).toEqual([expect.objectContaining({ installed: true, enabled: true })]);
   }
 });
+
+test("filtered native registrations cannot replace an entire workspace package", async () => {
+  const exec = vi.fn().mockResolvedValue({ failed: false, stdout: JSON.stringify({
+    targetDefinitions: [],
+    packages: { review: { bindings: { codex: { id: "review@market", source: "https://example.com/review.git", commit: "a".repeat(40), plugin: "review" } } } },
+    hosts: [{ target: "codex", status: "ready", installed: [{ id: "review@market", installed: true, enabledKnown: true, enabled: true, filtered: true }] }],
+  }) });
+  const report = await new NativePlugins({ codex: "codex" }, {}, exec).request({ action: "list" });
+  expect(report.packages![0]!.sourceKey).toBeUndefined();
+});

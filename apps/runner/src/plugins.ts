@@ -15,7 +15,7 @@ const rows = <T extends z.ZodType>(item: T) => z.array(item).nullish().transform
 const Inventory = z.object({
   targetDefinitions: rows(z.object({ target: name, operations: rows(name) })),
   packages: z.record(name, z.object({ bindings: z.record(name, z.object({ id: name, source: name.optional(), sourceRef: name.optional(), commit: name.optional(), plugin: name.optional(), pending: name.optional(), contextChanged: z.boolean().optional(), cleanup: z.boolean().optional(), refChanged: z.boolean().optional() })).nullish() })),
-  hosts: rows(z.object({ target: name, status: name, error: name.optional(), installed: rows(z.object({ id: name.optional(), installed: z.boolean().optional(), enabledKnown: z.boolean(), enabled: z.boolean() })) })),
+  hosts: rows(z.object({ target: name, status: name, error: name.optional(), installed: rows(z.object({ id: name.optional(), installed: z.boolean().optional(), filtered: z.boolean().optional(), enabledKnown: z.boolean(), enabled: z.boolean() })) })),
 });
 const Discovery = z.object({ candidates: rows(z.object({ name, targets: rows(name), problem: name.optional() })) });
 const Plan = z.object({ revision: name, blocked: z.boolean(), changes: rows(z.object({ name, target: name, action: name })) });
@@ -139,7 +139,7 @@ export class NativePlugins {
             const native = host?.installed.find((i) => i.id === binding.id);
             const digest = binding.source && dirname(dirname(dirname(binding.source))) === workspaceRoot && basename(dirname(dirname(binding.source))) === name && basename(binding.source) === workspacePluginName(name) && binding.plugin === workspacePluginName(name) ? basename(dirname(binding.source)) : undefined;
             const identity = nativeSourceKey(binding.source ?? "", binding.commit || binding.sourceRef || "", binding.plugin ?? "");
-            const sourceKey = digest && /^[a-f0-9]{64}$/.test(digest) ? `workspace:${digest}` : identity ? createHash("sha256").update(identity).digest("hex") : undefined;
+            const sourceKey = native?.filtered ? undefined : digest && /^[a-f0-9]{64}$/.test(digest) ? `workspace:${digest}` : identity ? createHash("sha256").update(identity).digest("hex") : undefined;
             return [{ name, ...(sourceKey ? { sourceKey } : {}), harness, installed: host?.status === "ready" && !host.error && !!native && (harness === "claude-code" || native.installed === true), enabled: native?.enabledKnown ? native.enabled : null, pending: !!binding.pending || !!binding.contextChanged || !!binding.cleanup || !!binding.refChanged }];
           })),
         };
