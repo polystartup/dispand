@@ -90,7 +90,7 @@ test("a plugin's definitions are listed by kind, each marked once something was 
         { name: "Clients", setUp: true },
         { name: "Matters", setUp: false },
       ],
-      agents: [{ name: "Drafting", description: "", setUp: false }],
+      agents: [{ name: "Drafting", description: "", harness: null, selfLearning: [], setUp: false }],
       triggers: [{ name: "Research recorded", agent: "Drafting", setUp: false }],
     },
   });

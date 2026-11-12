@@ -58,7 +58,7 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {p.definitions.primitives.length > 0 && (
+          {(p.definitions.primitives.length > 0 || p.definitions.agents.length > 0) && (
             <Button size="sm" variant="ghost" aria-label={`Set up ${p.name}`} disabled={busy} onClick={() => setSettingUp(true)}>
               Set up
             </Button>

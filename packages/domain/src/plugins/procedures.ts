@@ -478,7 +478,7 @@ function definitionsView(row: PluginRow, named: Record<CreatedKind, Named[]>) {
   };
   const { agents, primitives, triggers } = row.definitions;
   return {
-    agents: agents.map((d) => ({ name: d.name, description: d.description, setUp: setUp("agent", d.name) })),
+    agents: agents.map((d) => ({ name: d.name, description: d.description, harness: d.harness ?? null, selfLearning: d.selfLearning ?? [], setUp: setUp("agent", d.name) })),
     primitives: primitives.map((d) => ({ name: d.name, setUp: setUp("primitive", d.name) })),
     triggers: triggers.map((d) => ({ name: d.name, agent: d.agent, setUp: setUp("trigger", d.name) })),
   };
