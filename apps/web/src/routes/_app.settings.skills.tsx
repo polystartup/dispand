@@ -62,12 +62,12 @@ function Skills() {
                     <span className="min-w-0">
                       <span className="block truncate text-[15px] font-medium">{p.name}</span>
                       <span className="block truncate text-[13px] text-muted">
-                        {p.plugin ? `From plugin ${p.plugin.name} · ` : ""}
+                        {p.builtIn ? "Built in · " : p.plugin ? `From plugin ${p.plugin.name} · ` : ""}
                         {p.skills.length === 1 ? p.description : `${p.skills.length} skills`}
                       </span>
                     </span>
                   </button>
-                  {p.plugin ? (
+                  {p.plugin || p.builtIn ? (
                     <span className="shrink-0 text-[12px] text-faint">Read-only</span>
                   ) : (
                     <Button variant="ghost" size="sm" aria-label={`Edit ${p.name}`} onClick={() => setSheet({ pkg: p })}>

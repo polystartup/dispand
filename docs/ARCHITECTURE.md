@@ -484,14 +484,24 @@
   'assistant'` (migration 0048; a partial unique index keeps one per owner). No procedure's
   input carries `built_in`: `ensureAssistant` (`agents/builtin.ts`, behind the owner's
   `agents.ensureAssistant`, not a tool) makes it on the harness the owner picks, with `data`
-  and `configure` on all tables and a chat trigger, and gives the one there is otherwise; it
-  runs at server start for every Assistant, so what a version adds reaches existing ones.
-  `assistantGuard` is the one check of what may change on it: `agents.update`,
+  and `configure` on all tables, the platform skill and a chat trigger, and gives the one there
+  is otherwise; it runs at server start for every Assistant, so what a version adds reaches
+  existing ones. `assistantGuard` is the one check of what may change on it (its bundles, its
+  tables, its platform skill, its chat): `agents.update`,
   `agents.delete`, `triggers.update`, `triggers.delete` and `createProposal` (for
   `agents_update` and `triggers_*` items, refused when proposed with the reason) call it. Its
   Jobs' system prompt starts with a fixed text (`jobSystemPrompt`, `engine/job-def.ts`), then
   the owner's instructions. The web's `/assistant` (`components/assistant/AssistantChat.tsx`)
   is its chat trigger's `ChatPanel`, or the harness picker while there is no Assistant.
+- **The platform skill:** the skill package `dispand-platform` (`assistant/skill/`: its
+  `SKILL.md` and references on Dispand's concepts, triggers and how to propose a setup), bundled
+  into the build by Vite's `import.meta.glob` (`assistant/skill.ts`), so its files are the
+  application's. `syncPlatformSkill` writes it as each owner's one built-in package
+  (`skill_packages.built_in`, migration 0050, a partial unique index), replacing its files when
+  they differ from the build's; it runs at server start for every owner
+  (`syncPlatformSkills`) and in `ensureAssistant`, which attaches it to the Assistant. It
+  reaches sessions like any skill package (a CLI start names it; cloud sessions don't get
+  skills yet). Any agent may be given it: it describes, it grants nothing.
 - **Skills and tools in sessions:** `engine/tooling.ts` says what a session's agent gives it
   (`sessionTooling`, from the session's step: the Job's agent, or the workflow node's): the
   agent's skill packages and effective tools as they are now, kept, for a Job, to those of its
@@ -882,7 +892,8 @@
   all. `skills.create`/`update` make a user-made package of one skill named like it from a name,
   description, Markdown instructions (written as `SKILL.md`) and files (base64); an update without
   `files` keeps the stored ones. A plugin's package (`plugin_id`, from plugin installs) is
-  read-only: update and delete are `FORBIDDEN`; it shows "From plugin X". `requiredToolIds` must be the owner's tools;
+  read-only: update and delete are `FORBIDDEN`; it shows "From plugin X". So is the built-in
+  platform skill (`built_in`, shown "Built in"), whose name no other package may take. `requiredToolIds` must be the owner's tools;
   until MCP tools land the owner has none, so any id is `NOT_FOUND`. Settings › Skills lists the
   packages (a row expands to its skills) and edits user-made ones in a sheet.
 - **Plugins:** Settings › Plugins has Discover (every marketplace's entries, searchable, and the

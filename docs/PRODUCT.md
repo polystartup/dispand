@@ -65,8 +65,12 @@ Status: Prototype
   - An agent can ask for an approval in its own words before it acts; each request waits for
     its own answer, whatever the agent's permission mode.
   - The Assistant can't be deleted, nor lose its rights (working on data and changing tables, on
-    every table) or its chat, by the owner or through a proposal; its name, harness, model and
-    instructions are the owner's to change. It is made when the owner picks its harness.
+    every table), its platform skill or its chat, by the owner or through a proposal; its name,
+    harness, model and instructions are the owner's to change. It is made when the owner picks
+    its harness.
+  - The **platform skill** (`dispand-platform`, in Settings › Skills, built in and read-only)
+    tells an agent how Dispand works and how to propose a setup. It comes with each version of
+    Dispand. The Assistant always has it; any other agent may be given it, which grants nothing.
   - A button or schedule trigger must say what the agent does (its instructions); a chat starts
     with the owner's words.
   - A Tool step cut by a restart **fails and is never called again**: the owner checks the tool
