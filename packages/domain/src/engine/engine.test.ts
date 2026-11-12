@@ -1225,7 +1225,7 @@ test("a manual button Job runs the agent and finishes", async () => {
     cause: { kind: "user", depth: 0 },
     trigger: { type: "manual" },
   });
-  expect(run.snapshot).toEqual({ id: agent.id, name: "Writer", harnessId: agent.harnessId, systemPrompt: "Be brief.", skills: [], tools: [], bundles: [], tables: "all", consults: [] });
+  expect(run.snapshot).toEqual({ id: agent.id, name: "Writer", harnessId: agent.harnessId, systemPrompt: "Be brief.", skills: [], tools: [], bundles: [], tables: "all", selfLearning: [], consults: [] });
   expect(steps.job).toMatchObject({ status: "succeeded", outputs: { result: "Sorted." } });
 });
 
