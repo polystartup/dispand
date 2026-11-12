@@ -131,8 +131,11 @@ test("the Assistant on a cloud harness reads the platform skill", async () => {
   onTestFinished(() => engine.stop());
   const cloud = await call(router.harnesses.create, { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" }, { context });
   await call(router.agents.update, { ...fields, harnessId: cloud.id }, { context });
-  await call(router.jobs.start, { triggerId }, { context: { ...context, engine } });
+  const { runId } = await call(router.jobs.start, { triggerId }, { context: { ...context, engine } });
+  // Its chat has no instructions: the owner's first message is its first turn.
+  await engine.sendChat(runId, "What is Dispand?");
   await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
+  expect(model.inputs[0]!.items).toEqual([{ role: "user", text: "What is Dispand?" }]);
   expect(model.inputs[0]!.system).toContain(`- ${PLATFORM_SKILL}: `);
   const read = model.inputs[1]!.items.findLast((i) => i.role === "tool");
   expect(read).toMatchObject({ result: build[`${PLATFORM_SKILL}/${path}`], isError: false });
