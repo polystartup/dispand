@@ -1,3 +1,4 @@
+import { runnerServers } from "./tooling.ts";
 import { call } from "@orpc/server";
 import { McpServerRef } from "@dispand/runner-protocol";
 import { eq } from "drizzle-orm";
@@ -38,7 +39,7 @@ test("a workflow run's session gets the agent's skills and tools as they are", a
   const tooling = await toolingOf(context.db, run, agent.id);
   expect(summary(tooling)).toEqual({ skills: ["review"], runner: ["Fetch:fetch"], http: ["Firecrawl", "GitHub"] });
   expect(tooling.skills).toEqual([{ packageId: review, name: "review" }]);
-  expect(tooling.runnerTools[0]).toEqual({ name: "Fetch", tool: "fetch", runnerId });
+  expect(tooling.runnerTools[0]).toEqual({ id: "tool_fetch", name: "Fetch", tool: "fetch", runnerId, actions: [], unasked: [] });
   const lint = await skill("lint");
   await setAgent({ skillPackageIds: [lint], toolIds: [] });
   expect(summary(await toolingOf(context.db, run, agent.id))).toEqual({ skills: ["lint"], runner: [], http: [] });
@@ -80,4 +81,14 @@ test("server names are unambiguous and never reserved", () => {
 test("a tool is never named like the Job's tools server", () => {
   const taken = new Set<string>();
   expect(["Job Tools", "job_tools", "job-tools"].map((n) => serverName(n, taken))).toEqual(["job_tools_2", "job_tools_3", "job-tools"]);
+});
+
+test("runner bindings survive alias collisions, removals and renames, but not retargeting", () => {
+  const first = { id: "tool_a", name: "Mail!", runnerId: "runner_1", tool: "mail_a", actions: [], unasked: ["draft_email"] };
+  const second = { ...first, id: "tool_b", name: "Mail?", tool: "mail_b" };
+  const before = runnerServers({ runnerTools: [first, second] }, "runner_1");
+  const after = runnerServers({ runnerTools: [{ ...second, name: "New name" }] }, "runner_1");
+  expect(after[0]!.server).toBe(before[1]!.server);
+  expect(after[0]!.server).not.toBe(before[0]!.server);
+  expect(runnerServers({ runnerTools: [{ ...second, tool: "replacement" }] }, "runner_1")[0]!.server).not.toBe(before[1]!.server);
 });

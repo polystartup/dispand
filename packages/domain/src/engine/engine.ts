@@ -51,7 +51,8 @@ import { toolIdsOf, validateToolSteps } from "../workflows/tool-steps.ts";
 import type { CloudKind } from "../harnesses/cloud.ts";
 import { CLOUD_SOURCE, type CliHarness, type ConsultTarget, type Harness, type HarnessAdapter, isCloud, type StartParams } from "./harness.ts";
 import { runDataStep } from "./data-step.ts";
-import { aboutExposed, isExposedName, stopAsking } from "../platform/exposed.ts";
+import { sessionTooling } from "./tooling.ts";
+import { aboutExposed, runnerGrantCurrent, stopAsking } from "../platform/exposed.ts";
 import { annotate, currentTraceId, meter, recordError, spanEvent, tracer, withJob } from "../telemetry/index.ts";
 import { CONSULT, REQUEST_APPROVAL } from "../cloud/builtins.ts";
 import { attachProposal, settleProposal } from "../platform/proposals.ts";
@@ -403,6 +404,17 @@ export class Engine {
     /** Seals each Job's token; without one, Jobs get no token (and no Job endpoint). */
     private readonly secrets?: SecretBox,
   ) {}
+
+  /** Revoke grants in every live session of this agent, including workflow steps. */
+  async narrowSessions(agentId: string, db: Db = this.db): Promise<void> {
+    const sessions = await db.select({ sessionId: stepRuns.sessionId }).from(stepRuns)
+      .innerJoin(runs, eq(runs.id, stepRuns.runId))
+      .where(and(inArray(runs.status, ACTIVE_RUN), inArray(stepRuns.status, ACTIVE_STEP), isNotNull(stepRuns.sessionId)));
+    for (const { sessionId } of sessions) {
+      if ((await sessionTooling(db, sessionId!)).agentId === agentId) await this.adapter.narrowPermissions?.(sessionId!, db);
+    }
+    spanEvent("session.permissions.narrowed", { "agent.id": agentId });
+  }
 
   /** Starts a run of the workflow's current version and returns its id. */
   async startRun(workflowId: string): Promise<string> {
@@ -796,9 +808,10 @@ export class Engine {
       // came second grants nothing). The answer is used up as it is given: the call it is for
       // needs no approval any more, and it must not stay for a later one. When the name stands
       // for nothing the agent chose, nothing is granted and the answer allows this call only:
-      // the runner must not stop prompting for a call the endpoint would still refuse.
-      if (by?.type === "user" && answer.kind === "permission" && answer.decision === "allow-always" && q.payload.kind === "permission" && isExposedName(q.payload.toolName)) {
-        const stopped = await stopAsking(tx as unknown as Db, q.runId, q.payload.toolName);
+      // the runner must not stop prompting for a call the endpoint would still refuse, nor for
+      // an action of a runner tool the agent doesn't let run unasked.
+      if (by?.type === "user" && answer.kind === "permission" && answer.decision === "allow-always" && q.payload.kind === "permission" && q.payload.toolName.startsWith("mcp__")) {
+        const stopped = await stopAsking(tx as unknown as Db, q.runId, q.payload.toolName, q.about);
         const [settled] = await tx
           .update(questions)
           .set(stopped ? { consumedAt: new Date() } : { answer: { ...answer, decision: "allow" } })
@@ -1438,6 +1451,7 @@ export class Engine {
         let step = row;
         const sessionId = step.sessionId!;
         if (this.inFlight.has(`start:${sessionId}`)) continue;
+        if (liveSessions.includes(sessionId)) await this.adapter.narrowPermissions?.(sessionId);
         // Its events came (its CLI session id among them): the start reached the runner, though the
         // server stopped before recording its write. Resending it would hit the folder it made.
         if (!step.startDeliveredAt && (step.cliSessionId || step.lastActivityAt)) {
@@ -1628,6 +1642,7 @@ export class Engine {
    * path that sends answers reads them through here (`undeliveredAnswers`, `redeliverAnswer`).
    */
   private async checkedAnswer(q: QuestionRow): Promise<QuestionRow> {
+    if (q.about?.toolId && q.payload.kind === "permission" && q.answer?.kind === "permission" && q.answer.decision === "allow-always" && !(await runnerGrantCurrent(this.db, q.runId, q.payload.toolName, q.about))) return { ...q, answer: { ...q.answer, decision: "allow" } };
     if (q.kind !== "consult" || q.answer?.kind !== "consult") return q;
     // A failure too: its reason may quote the consulted Job's error.
     const problem = await deliveryProblem(this.db, q);
@@ -1690,12 +1705,17 @@ export class Engine {
         return null;
       }
       case "question": {
-        // A call of one of the Job's exposed tools is asked under a short name: say which tool and action it is.
+        // A call of one of the Job's exposed tools is asked under a short name, a runner tool's
+        // under its session server's: say which tool and action it is.
         const [asking] =
           event.payload.kind === "permission"
             ? await tx.select({ id: runs.id, ownerId: runs.ownerId, agentId: runs.agentId }).from(runs).where(eq(runs.id, step.runId))
             : [];
-        const about = asking?.agentId && event.payload.kind === "permission" ? await aboutExposed(tx as unknown as Db, { runId: asking.id, ownerId: asking.ownerId, agentId: asking.agentId }, event.payload.toolName) : null;
+        const [harness] = asking?.agentId && step.harnessId ? await tx.select({ runnerId: harnesses.runnerId }).from(harnesses).where(eq(harnesses.id, step.harnessId)) : [];
+        const about =
+          asking?.agentId && event.payload.kind === "permission"
+            ? await aboutExposed(tx as unknown as Db, { runId: asking.id, ownerId: asking.ownerId, agentId: asking.agentId, runnerId: harness?.runnerId ?? null }, event.payload.toolName)
+            : null;
         const [row] = await tx
           .insert(questions)
           .values({
@@ -2193,6 +2213,7 @@ export class Engine {
     const sessionId = q.sessionId!;
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`q:${q.id}`, async () => {
+      q = await this.checkedAnswer(q);
       // Who answered goes with the answer itself: an agent's is never shown as the owner's.
       const ok = q.orphaned
         ? await this.adapter.send(sessionId, answerText(q))

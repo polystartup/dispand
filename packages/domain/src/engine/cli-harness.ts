@@ -4,7 +4,7 @@ import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
 import { runs, stepRuns } from "../db/schema.ts";
 import { usedOnRunner } from "../skills/runner-access.ts";
-import { serverName, sessionTooling } from "./tooling.ts";
+import { runnerServers, sessionTooling } from "./tooling.ts";
 import { exposedName } from "../platform/exposed.ts";
 import { jobTokenOf } from "../platform/token.ts";
 import { jobMemoryFiles } from "../memory/read.ts";
@@ -22,6 +22,7 @@ import { RoutingAdapter } from "./routing-adapter.ts";
 /** The frame a start message fits in, and what is left spare in it. */
 const MAX_FRAME_BYTES = 1024 * 1024;
 const FRAME_MARGIN_BYTES = 32 * 1024;
+const RUNNER_ACTION = /^[a-zA-Z0-9_-]{1,64}$/;
 
 /** CLI harnesses: sessions run on a runner, reached through the hub. */
 export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
@@ -48,21 +49,22 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
    * like the token: a resume carries them as they are then. HTTP tools never travel: their
    * address and headers stay on the server. Only a tool of the harness's own runner is sent.
    */
-  private async tooling(sessionId: string, runnerId: string): Promise<Pick<SessionStart, "skills" | "mcpServers"> & { unasked: string[] }> {
-    const tooling = await sessionTooling(this.db, sessionId);
-    const taken = new Set<string>();
+  private async tooling(sessionId: string, runnerId: string, db: Db = this.db): Promise<Pick<SessionStart, "skills" | "mcpServers"> & { unasked: string[] }> {
+    const tooling = await sessionTooling(db, sessionId);
     // Only the packages this runner is served (`usedOnRunner`): one it would be refused, as when
     // the agent moved to a harness elsewhere since the Job was created, would fail the start.
     const skills: typeof tooling.skills = [];
     for (const skill of tooling.skills) {
-      if (skills.length < 50 && (await usedOnRunner(this.db, runnerId, skill.packageId))) skills.push(skill);
+      if (skills.length < 50 && (await usedOnRunner(db, runnerId, skill.packageId))) skills.push(skill);
     }
     return {
       skills,
-      mcpServers: tooling.runnerTools
-        .filter((t) => t.runnerId === runnerId)
-        .slice(0, 20)
-        .map((t) => ({ name: serverName(t.name, taken), type: "runner" as const, tool: t.tool })),
+      // With each, the actions the agent lets run unasked: the runner doesn't prompt for these
+      // (only in a Job's session, as for the tools endpoint's).
+      mcpServers: runnerServers(tooling, runnerId).map((t) => {
+        const unasked = tooling.jobId ? t.actions.filter((a) => t.unasked.includes(a.name) && RUNNER_ACTION.test(a.name)).map((a) => a.name).slice(0, 500) : [];
+        return { name: t.server, type: "runner" as const, tool: t.tool, ...(unasked.length ? { unasked } : {}) };
+      }),
       // The actions the agent lets run unasked, under the names the tools endpoint lists them:
       // the CLI doesn't prompt for these. As many as the protocol carries; it prompts for the
       // rest, and the endpoint, which decides alone, runs them all the same.
@@ -96,6 +98,12 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
       if (memory.length) msg.start.memory = memory;
     }
     return this.deliver(harness.runnerId, msg);
+  }
+
+  async narrowPermissions(sessionId: string, db: Db = this.db): Promise<boolean> {
+    const runnerId = await this.runnerOf(sessionId);
+    const { mcpServers } = await this.tooling(sessionId, runnerId, db);
+    return this.deliver(runnerId, { type: "session.permissions", sessionId, servers: mcpServers.flatMap((ref) => ref.type === "runner" ? [{ name: ref.name, unasked: ref.unasked ?? [] }] : []) });
   }
 
   async send(sessionId: string, text: string): Promise<boolean> {

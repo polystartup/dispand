@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
-import { callTool, codexMcpServers, credentialValues, discoverTool, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
+import { runnerArgumentsAllowed, narrowUnasked, unaskedTools, callTool, codexMcpServers, credentialValues, discoverTool, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
 import { codexDenied } from "./boundary.ts";
 
 const echo = { command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")] };
@@ -204,4 +204,24 @@ test("a credential's value is redacted from a result however the server reached 
   } finally {
     await rm(base, { recursive: true, force: true });
   }
+});
+
+test("runner grants are namespaced, require a Job, and can only shrink live", () => {
+  const refs = [{ name: "mail", type: "runner" as const, tool: "gmail", unasked: ["draft_email"] }];
+  expect([...unaskedTools(refs, undefined).names]).toEqual([]);
+  const { names, servers } = unaskedTools(refs, []);
+  expect([...names]).toEqual(["mcp__mail__draft_email"]);
+  expect(names.has("mcp__other__draft_email")).toBe(false);
+  narrowUnasked(names, servers, [{ name: "mail", unasked: ["draft_email", "send_email"] }]);
+  expect([...names]).toEqual(["mcp__mail__draft_email"]);
+  narrowUnasked(names, servers, []);
+  expect([...names]).toEqual([]);
+  narrowUnasked(names, servers, [{ name: "mail", unasked: ["draft_email"] }]);
+  expect([...names]).toEqual([]);
+});
+
+test("automatic runner grants use the poll guard for protected paths", () => {
+  const forbidden = ["/guarded/config.json"];
+  for (const path of ["/guarded/config.json", "file:///guarded/config.json", "%2Fguarded%2Fconfig.json", "/allowed/" + "../".repeat(1500) + "guarded/config.json"]) expect(runnerArgumentsAllowed({ nested: [{ path }] }, forbidden)).toBe(false);
+  expect(runnerArgumentsAllowed({ path: "/allowed/note.txt" }, forbidden)).toBe(true);
 });

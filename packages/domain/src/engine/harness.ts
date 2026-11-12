@@ -1,3 +1,4 @@
+import type { Db } from "../db/client.ts";
 import type { Answer, ClaudeSessionStart, SessionStart } from "@dispand/runner-protocol";
 import type { AnsweredBy } from "../db/schema.ts";
 import type { CloudKind } from "../harnesses/cloud.ts";
@@ -58,6 +59,7 @@ export type ConsultTarget = { agentId: string; name: string; description: string
 export interface HarnessAdapter<H extends Harness = Harness> {
   start(harness: H, start: StartParams): Promise<boolean>;
   send(sessionId: string, text: string): Promise<boolean>;
+  narrowPermissions?(sessionId: string, db?: Db): Promise<boolean>;
   /** `by`: the agent that gave it (`inbox`), which the session is told with the answer; none for a person's. */
   answer(sessionId: string, questionId: string, answer: Answer, by?: AgentAnswerer): Promise<boolean>;
   /**

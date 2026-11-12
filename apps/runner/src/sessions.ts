@@ -111,7 +111,7 @@ export class Sessions {
   /** Sessions that ended, until what they leave behind is removed. */
   private readonly ending = new Set<Promise<unknown>>();
   /** Sessions between their start message and their launch: they count against the limit too. */
-  private readonly starting = new Set<string>();
+  private readonly starting = new Map<string, SessionStart>();
   private stopMessage = "";
 
   constructor(config: RunnerConfig, emit: Emit, options: SessionsOptions) {
@@ -175,6 +175,17 @@ export class Sessions {
    * sessions don't wait for it. Settles once this one is handled.
    */
   handle(msg: Exclude<ServerToRunner, { type: "ack" | "tool.discover" | "tool.call" }>): Promise<void> {
+    if (msg.type === "session.permissions") {
+      const preparing = this.starting.get(msg.sessionId);
+      if (preparing) {
+        for (const ref of preparing.mcpServers) {
+          if (ref.type !== "runner") continue;
+          const allowed = msg.servers.find((s) => s.name === ref.name)?.unasked ?? [];
+          ref.unasked = (ref.unasked ?? []).filter((action) => allowed.includes(action));
+        }
+        return Promise.resolve();
+      }
+    }
     const id = msg.type === "session.start" ? msg.start.sessionId : msg.sessionId;
     const before = this.queues.get(id);
     // Nothing before it: handled now, as the message arrives.
@@ -199,7 +210,8 @@ export class Sessions {
     // A stop for a session that isn't here has nothing to end, and nothing for Dispand to resume.
     if (!session) return msg.type === "session.stop" ? undefined : this.notRunning(msg.sessionId);
     if (msg.type === "session.stop") return session.stop(STOPPED);
-    if (msg.type === "session.send") session.send(msg.text);
+    if (msg.type === "session.permissions") session.narrowPermissions?.(msg.servers);
+    else if (msg.type === "session.send") session.send(msg.text);
     else if (msg.type === "session.answer") session.answer(msg.questionId, msg.answer);
     else await session.interrupt();
   }
@@ -251,7 +263,7 @@ export class Sessions {
     if (start.resumeCliSessionId !== undefined && !resuming) {
       return emit({ type: "error", message: "can't resume: this runner didn't run that CLI session in that folder" });
     }
-    this.starting.add(start.sessionId);
+    this.starting.set(start.sessionId, start);
     let created: string | undefined;
     // The session's skill packages, written again at every start or resume, gone when it ends.
     const skills = this.options.skills;
@@ -306,6 +318,7 @@ export class Sessions {
             })
           : startClaudeSession(start, cwd, emit, {
               ...this.options.claude,
+              secrets: this.options.forbidden ?? [],
               allowBypass: this.config.allowBypass,
               pluginRoots,
               mcpServers: claudeMcp,

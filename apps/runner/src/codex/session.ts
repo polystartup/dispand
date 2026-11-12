@@ -1,9 +1,9 @@
 // One Codex session: a `codex app-server` of its own, confined by Dispand's permission profile.
 import { join } from "node:path";
 import type { HarnessEvent, QuestionPayload, SessionStart } from "@dispand/runner-protocol";
-import { JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
 import { codexDenied, codexDeniedEdit, sandboxDenied } from "../boundary.ts";
 import { askChoices, BypassRefused, consult, CONSULT, consultDescription, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "../outcome.ts";
+import { runnerArgumentsAllowed, narrowUnasked, unaskedTools } from "../mcp.ts";
 import { fitsWhole } from "../sanitize.ts";
 import { BYPASS_PROFILE, codexConfig, PROFILE } from "./config.ts";
 import type { JsonValue } from "./protocol/serde_json/JsonValue.ts";
@@ -62,6 +62,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   if (bypass && !deps.allowBypass) throw new BypassRefused();
   /** What the session may neither read nor write, symlinks inside followed: its profile and file changes deny it. */
   const denied = codexDenied(deps.secrets);
+  const mcpDenied = [...denied, ...codexDenied([join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...(deps.pluginRoots ?? [])])];
   /** Set once the session has its outcome (result or error): nothing runs or is emitted after it. */
   let finished = false;
   const emit = (e: HarnessEvent) => {
@@ -188,8 +189,13 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   }
 
   /** Asks a permission question, unless the owner couldn't see it whole: null then, as when it is withdrawn or denied. */
-  /** The tools of the Job's tools server that run without a question: the start's, and those the owner always allowed since. */
-  const unasked = new Set(deps.unasked ?? []);
+  /**
+   * The agent's tools that run without a question, as `mcp__<server>__<tool>` (the Job's tools
+   * server's and the runner tools'): the start's, and those the owner always allowed since.
+   */
+  const { names: unasked, servers: agentServers } = unaskedTools(start.mcpServers, deps.jobServer === undefined ? undefined : (deps.unasked ?? []));
+
+  let permissionsVersion = 0;
 
   async function approve(payload: Extract<QuestionPayload, { kind: "permission" }>, signal: AbortSignal) {
     if (!fitsWhole({ type: "question", questionId: "", payload })) return null;
@@ -255,15 +261,19 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         // Dispand's own tools: authorized by Dispand on every call, so the owner isn't asked.
         if (deps.jobServer !== undefined && p.serverName === deps.jobServer) return { action: "accept" as const, content: {}, _meta: null };
         const tool = typeof meta.tool_name === "string" ? meta.tool_name : "";
-        // An action the agent lets run unasked: the server runs it without an approval.
-        const jobTool = deps.jobServer !== undefined && p.serverName === JOB_TOOLS_SERVER;
-        if (jobTool && unasked.has(tool)) return { action: "accept" as const, content: {}, _meta: null };
+        const toolName = `mcp__${p.serverName}__${tool}`;
+        // An action the agent lets run unasked: no question (the tools server runs it without an approval).
         const input = isObject(meta.tool_params) ? meta.tool_params : {};
+        const runnerTool = agentServers.includes(p.serverName) && p.serverName !== "job_tools";
+        if (runnerTool && !runnerArgumentsAllowed(input, mcpDenied)) return decline;
+        if (unasked.has(toolName)) return { action: "accept" as const, content: {}, _meta: null };
+        const jobTool = agentServers.includes(p.serverName);
+        const version = permissionsVersion;
         // Each call asks: Codex's "for the session" and "always" would persist beyond what the owner sees.
-        // For one of the Job's tools, "always" is the owner taking that action off the agent's asking
-        // ones, on the server: here it only means this session stops asking about it too.
-        const decision = await approve({ kind: "permission", toolName: `mcp__${p.serverName}__${tool}`, input, canAlwaysAllow: jobTool }, signal);
-        if (decision === "allow-always" && jobTool) unasked.add(tool);
+        // For one of the Job's agent's tools, "always" is the owner taking that action off the agent's
+        // asking ones, on the server: here it only means this session stops asking about it too.
+        const decision = await approve({ kind: "permission", toolName, input, canAlwaysAllow: jobTool }, signal);
+        if (decision === "allow-always" && jobTool && version === permissionsVersion) unasked.add(toolName);
         return decision ? { action: "accept" as const, content: {}, _meta: null } : decline;
       }
       case "item/tool/call": {
@@ -387,6 +397,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       }
       say(text);
     },
+    narrowPermissions: (servers) => { permissionsVersion++; narrowUnasked(unasked, agentServers.filter((s) => s !== "job_tools"), servers); },
     answer: questions.answer,
     interrupt: async () => {
       // Idle: nothing to cut short, and no later turn may pass for an interrupted one.
