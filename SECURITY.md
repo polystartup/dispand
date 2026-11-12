@@ -113,6 +113,23 @@ changes it updates this file.
   (which agents that may consult it read), change the same way: a person on the agent's page,
   or an approved `agents_create` or `agents_update` item. An entry pairs only two agents that
   both have `configure` or neither has, and never an agent with itself.
+- **A consult reaches only an agent its Job may consult, and nothing answers in that agent's
+  place.** A Job's `consult` tool (cloud sessions; absent when its agent may consult none, and
+  in workflow steps) names an agent by id. At the call the engine checks that the entry is in
+  the Job's snapshot and on its agent now, that neither flags it "ask before use" (refused
+  until the owner's Approval of a consult exists), that the pair still passes the `configure`
+  rule, that the agent isn't already higher in the same chain of consults (A asks B, B asks A),
+  and that the root isn't stopped (`engine/consults.ts`); a refusal is the answer. The
+  consulted Job is a Job of its own agent, with its own snapshot and rights, created in the
+  asking Job's root (it counts toward the checkpoint) and told the question, the asking
+  agent's name and Job id, nothing else. Its result is the answer, recorded by the engine as
+  that agent's; the same rights are checked again before the answer is sent, every time it is
+  sent, and a right taken back turns it into the reason. A consult is a `questions` row of kind
+  `consult` that no person and no `inbox` agent answers: the Inbox, its count, `questions.answer`,
+  the `inbox` tools and approvals all leave it out, and it records no interaction event.
+  Stopping or failing the asker stops its consulted Job, and so on down the chain. Accepted:
+  through a pair a person approved, what the asker read can steer the consulted agent within
+  what it does without an approval, and the answer can carry what the consulted agent read.
 - **Long work waits for a person; it is never cut.** The Jobs from one root cause pause at the
   workspace's checkpoint, and only a person's answer to its Approval lets them go on: no tool
   answers a question, and every path that makes a session work again reads the root's state

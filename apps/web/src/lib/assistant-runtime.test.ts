@@ -39,6 +39,11 @@ test("a run's chat becomes a thread in the order things came: texts, a tool's tr
   expect(thread[3]!.content).toEqual([{ type: "tool-call", toolCallId: "q1", toolName: QUESTION_TOOL, args: { questionId: "q1" } }]);
 });
 
+test("a consult has no place in the chat: the owner doesn't answer it", () => {
+  const consult = { ...question("q1", 1), payload: { kind: "consult" as const, agentId: "agent_1", question: "Which plan?" } };
+  expect(threadMessages(snapshot([message("m1", "user", "Plan my day", 0)], [consult]), "s_chat").map((m) => m.id)).toEqual(["m1"]);
+});
+
 test("an answered question carries its answer as the result", () => {
   const [q] = threadMessages(snapshot([], [question("q1", 1, "answered")]), "s_chat");
   expect(q!.content).toEqual([{ type: "tool-call", toolCallId: "q1", toolName: QUESTION_TOOL, args: { questionId: "q1" }, result: { kind: "choice", answers: { "Who?": "Me" } } }]);
