@@ -262,7 +262,8 @@
   once at a time), each checked again right before its call (the trigger unchanged, its tool
   there, `pollProblem`), as it may have waited for another (`tools/poll.ts`: an HTTP tool through `InstalledTools` and the connector, a runner tool
   through `hub.call`), with `{{lastPoll}}` in its arguments' strings filled with the newest
-  `first_seen` of the trigger's items (the trigger's creation before any), never a call's time,
+  `first_seen` of the trigger's items (the trigger's creation before any), never a call's time
+  (`{{lastPollEpoch}}`: the same time in seconds since 1970, rounded down, for Gmail's `after:`),
   so a poll that recorded nothing never moves it. Its data is the result's structured content,
   else its text as JSON; its items are the list at `itemsPath` (keys between dots, empty: the
   result), each identified by a string or a number at `idPath` (items without one are counted
@@ -853,6 +854,18 @@
   `mcpServers` snippet for the runner's config with `"<your key>"` placeholders (no value is
   sent or stored). Settings → Tools
   has "Browse catalog" (`ToolCatalog.tsx`).
+  The mail entries (`docs/services/`): `gmail` is an OAuth HTTP entry for Google's hosted Gmail
+  server, whose `oauth` (scopes and authorization parameters) goes into the tool's `ToolTarget`
+  (`oauthRequest`, while `catalog_id` names it): `tools.authorize` then starts the flow with the
+  SDK's `auth` at once (the server lists its actions without a token), asking for those scopes
+  instead of the metadata's whole list, with `access_type=offline`; `gmail-runner`
+  (`@artymclabin/gmail-mcp`) and `microsoft-365` (`@softeria/ms-365-mcp-server`, mail actions
+  only) are runner entries, pinned. An entry may name `unasked` (the actions that run unasked when
+  a person gives the tool to an agent, `defaultUnasked`, in place of the read-only ones),
+  `pollable` (written to `tools.pollable` at install) and `poll`, a poll trigger's preset that the
+  trigger sheet fills in when the tool is picked. A runner tool created from the catalog's "Pick
+  the runner" carries its `catalog_id` (`tools.create` takes a runner entry's id). A tool pointed
+  at another URL, transport or runner tool loses its `catalog_id`.
 - **Skills:** a skill package (`skill_packages`, owner-scoped) holds one or more skills, a folder
   each with its `SKILL.md` (YAML frontmatter `name`, equal to the folder, and `description`), and
   their files (`skill_files`, `bytea`, keyed by package and `<skill>/<path>`); `skills` lists each

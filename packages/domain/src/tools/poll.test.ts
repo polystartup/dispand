@@ -9,6 +9,13 @@ test("{{lastPoll}} is filled in every string, nested ones included, and keys are
   });
 });
 
+test("{{lastPollEpoch}} is the same time in whole seconds, rounded down", () => {
+  expect(fillLastPoll({ query: "in:inbox after:{{lastPollEpoch}}", since: "{{lastPoll}}" }, "2026-11-12T09:00:00.999Z")).toEqual({
+    query: "in:inbox after:1794474000",
+    since: "2026-11-12T09:00:00.999Z",
+  });
+});
+
 test("items are the list at the path, each with its id; without an id they are counted, twice kept once, too large kept without content", () => {
   const big = "x".repeat(MAX_ITEM_BYTES);
   const data = { page: { value: [{ id: "a" }, { meta: { id: 7 } }, { id: "a" }, { id: { x: 1 } }, { id: "b", body: big }] } };

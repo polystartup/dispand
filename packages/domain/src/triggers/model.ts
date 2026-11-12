@@ -47,7 +47,8 @@ export const TriggerConfig = z.discriminatedUnion("kind", [
     .refine((c) => c.tableId !== INTERACTION || !c.fields, { message: "A Question or an Approval has no fields", path: ["fields"] }),
   /**
    * Fired by a poll: every `interval` seconds the scheduler calls `action` of the tool with
-   * `arguments` (where `{{lastPoll}}` stands for the time the newest recorded item was found),
+   * `arguments` (where `{{lastPoll}}` stands for the time the newest recorded item was found, and
+   * `{{lastPollEpoch}}` for that time in seconds since 1970),
    * takes the list at `itemsPath` of its result (dots between keys; empty: the result itself) and
    * starts a Job for each item whose `idPath` it hasn't seen. With a `continuation`, it walks
    * the result's pages; without one, each poll reads one call's result ("newer than" alone).
