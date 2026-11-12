@@ -6,7 +6,8 @@ import { createContext, type ComponentProps, type ReactNode, useContext, useStat
 import { orpc } from "../../lib/api.ts";
 import { QUESTION_TOOL, threadMessages, TRACE_TOOL, useRunThread } from "../../lib/assistant-runtime.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
-import { QuestionForm } from "../questions/QuestionForm.tsx";
+import { ProposalItems } from "../questions/ProposalItems.tsx";
+import { approvalWords, QuestionForm } from "../questions/QuestionForm.tsx";
 import { AgentText } from "./AgentText.tsx";
 
 type Question = RunSnapshot["questions"][number];
@@ -34,6 +35,7 @@ function answeredText(q: Question): string {
   const a = q.answer;
   if (!a) return "Answered";
   if (a.kind === "choice") return `You answered ${Object.values(a.answers).flat().join(", ")}`;
+  if (a.kind === "permission" && q.proposalId) return a.decision === "deny" ? `You declined it${a.message ? `: ${a.message}` : ""}` : "You approved it";
   if (a.kind === "permission") return a.decision === "deny" ? "You denied it" : "You allowed it";
   if (a.kind === "consult") return a.outcome === "answered" ? "Answered by the agent consulted" : "No answer";
   return a.confirmed ? "You said go ahead" : "You said not yet";
@@ -52,6 +54,8 @@ const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ ar
   );
   if (!q) return null;
   if (q.status === "answered") return <p className="px-1 text-right text-[12px] text-faint">{answeredText(q)}</p>;
+  // A proposal shown whole: approved or declined from the composer (`ChatPanel`), its one control.
+  if (q.proposalId && q.proposal) return <ProposalCard question={q} />;
   return (
     <div className="mr-6 rounded-2xl border border-line bg-surface p-4">
       {conflict ? (
@@ -69,6 +73,24 @@ const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ ar
     </div>
   );
 };
+
+/** A proposal's Approval in the chat: every item whole, and the agent's words. Never cut: the thread scrolls. */
+function ProposalCard({ question }: { question: Question }) {
+  const asked = approvalWords(question.payload);
+  return (
+    <section aria-label="Proposal" className="mr-6 flex flex-col gap-3 rounded-2xl border border-line bg-surface p-4">
+      <p className="text-[15px]">The agent asks you to approve these changes. Approving lets it make exactly these, once each.</p>
+      <ProposalItems proposal={question.proposal!} />
+      {asked !== null && (
+        <>
+          <p className="text-[13px] text-muted">The agent says:</p>
+          <p className="whitespace-pre-wrap break-words text-[15px]">{asked}</p>
+        </>
+      )}
+      <p className="text-[13px] text-muted">Approve below, or write what should change: sending it declines these changes and tells the agent.</p>
+    </section>
+  );
+}
 
 /** Copy only text messages: tool traces and questions have their own controls. */
 const MessageActions = () => (

@@ -16,6 +16,7 @@ import {
   workflowVersions,
 } from "../db/schema.ts";
 import { EngineError, messageView, questionView, runIssues, runView, stepView, type RunEvent } from "../engine/engine.ts";
+import { proposalView } from "../platform/proposals.ts";
 import { loadToolSchemas } from "../tools/executor.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -254,8 +255,17 @@ async function requireRun(db: Db, ownerId: string, runId: string) {
   return row;
 }
 
+/**
+ * A question as a run shows it. A pending Approval of a proposal carries the proposal as its owner
+ * reads it (`proposalView`), so the chat shows its items whole and can offer Approve; any other, or
+ * once answered, `proposal` is null.
+ */
+async function runQuestion(db: Db, ownerId: string, q: ReturnType<typeof questionView>) {
+  return { ...q, proposal: q.proposalId && q.status === "pending" ? await proposalView(db, ownerId, q.proposalId) : null };
+}
+
 /** The run as it is now: every row read here, so a stream's snapshot can't be older than its subscription. */
-async function snapshot(db: Db, runId: string) {
+async function snapshot(db: Db, ownerId: string, runId: string) {
   const [[run], steps, transcript, asked] = await Promise.all([
     db.select().from(runsTable).where(eq(runsTable.id, runId)),
     db.select().from(stepRuns).where(eq(stepRuns.runId, runId)),
@@ -266,7 +276,7 @@ async function snapshot(db: Db, runId: string) {
     run: runView(run!),
     steps: steps.map(stepView),
     messages: transcript.map(messageView),
-    questions: asked.map(questionView),
+    questions: await Promise.all(asked.map((q) => runQuestion(db, ownerId, questionView(q)))),
   };
 }
 
@@ -306,7 +316,7 @@ const stop = owner.input(z.object({ runId: z.string() })).handler(async ({ input
 
 const getRun = owner.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
   await requireRun(context.db, context.ownerId, input.runId);
-  return snapshot(context.db, input.runId);
+  return snapshot(context.db, context.ownerId, input.runId);
 });
 
 /** The run as it is, then every change to it while the client listens. */
@@ -328,12 +338,15 @@ const stream = owner.input(z.object({ runId: z.string() })).handler(async functi
   const stop = () => wake?.();
   signal?.addEventListener("abort", stop);
   try {
-    yield { type: "snapshot" as const, ...(await snapshot(context.db, input.runId)) };
+    yield { type: "snapshot" as const, ...(await snapshot(context.db, context.ownerId, input.runId)) };
     while (!signal?.aborted) {
       if (behind) {
         behind = false;
-        yield { type: "snapshot" as const, ...(await snapshot(context.db, input.runId)) };
-      } else if (queue.length > 0) yield queue.shift()! satisfies RunEvent;
+        yield { type: "snapshot" as const, ...(await snapshot(context.db, context.ownerId, input.runId)) };
+      } else if (queue.length > 0) {
+        const change = queue.shift()! satisfies RunEvent;
+        yield change.type === "question" ? { ...change, question: await runQuestion(context.db, context.ownerId, change.question) } : change;
+      }
       else await new Promise<void>((resolve) => (wake = resolve));
     }
   } finally {

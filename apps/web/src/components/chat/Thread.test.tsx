@@ -74,13 +74,33 @@ test("a question answered elsewhere first says so instead of taking a second ans
   expect(await screen.findByText("This question was already answered elsewhere.")).toBeTruthy();
 });
 
-test("a question for a proposal is not answered in the chat: it sends the owner to the Inbox", () => {
+test("a proposal the run can't show is not answered in the chat: it sends the owner to the Inbox", () => {
   const payload = { kind: "permission", toolName: "request_approval", input: { message: "May I add a clerk?", proposal: "prop_1" }, canAlwaysAllow: false };
-  mount(run([], [question("q1", 1, { payload, proposalId: "prop_1" })]));
+  mount(run([], [question("q1", 1, { payload, proposalId: "prop_1", proposal: null })]));
   expect(screen.getByRole("link", { name: /Inbox/ })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
 });
 
+test("a proposal in the chat shows every item whole, long instructions included, with no control of its own", () => {
+  const payload = { kind: "permission", toolName: "request_approval", input: { message: "May I add a clerk?", proposal: "prop_1" }, canAlwaysAllow: false };
+  const instructions = Array.from({ length: 400 }, (_, i) => `Rule ${i + 1}: file every letter of a client under its matter.`).join("\n");
+  const proposal = { id: "prop_1", status: "asked", items: [{ tool: "agents_create", input: { name: "Clerk", systemPrompt: instructions }, used: false, refs: [] }], names: {} };
+  mount(run([], [question("q1", 1, { payload, proposalId: "prop_1", proposal })]));
+  const card = screen.getByRole("region", { name: "Proposal" });
+  expect(within(card).getByText("Create an agent")).toBeTruthy();
+  expect(within(card).getByText("May I add a clerk?")).toBeTruthy();
+  expect(card.textContent).toContain(instructions);
+  // Nothing in the card clips it: the thread scrolls.
+  for (const el of [card, ...card.querySelectorAll("*")]) expect(el.className).not.toMatch(/max-h-|line-clamp|truncate|overflow-hidden/);
+  expect(within(card).queryByRole("button")).toBeNull();
+  expect(screen.queryByRole("link", { name: /Inbox/ })).toBeNull();
+});
+
+test("a proposal answered says approved, or declined with the owner's words", () => {
+  const payload = { kind: "permission", toolName: "request_approval", input: { message: "May I add a clerk?", proposal: "prop_1" }, canAlwaysAllow: false };
+  mount(run([], [question("q1", 1, { payload, proposalId: "prop_1", proposal: null, status: "answered", answer: { kind: "permission", decision: "deny", message: "Only on Clients" } })]));
+  expect(screen.getByText("You declined it: Only on Clients")).toBeTruthy();
+});
 
 test("copy actions copy the original message text, never a tool trace or question", async () => {
   const { user, update } = mount(run([message("m1", "user", "Hello", 1), message("m2", "assistant", "A **formatted** reply", 2), message("m3", "tool", "Read", 3)], [question("q1", 4)]));

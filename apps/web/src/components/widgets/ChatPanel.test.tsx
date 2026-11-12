@@ -71,6 +71,7 @@ test("while the chat's question waits, sending is off with a hint", async () => 
           id: "q1",
           about: null,
           proposalId: null,
+          proposal: null,
           rootId: null,
           consultId: null,
           runId: "run_1",
@@ -163,4 +164,91 @@ test("Enter sends while the agent works; Shift+Enter adds a line, and a new conv
   await user.type(box, "Unsent");
   await user.click(screen.getByRole("button", { name: "New conversation" }));
   expect(box.value).toBe("");
+});
+
+const proposalPayload = { kind: "permission" as const, toolName: "request_approval", input: { message: "May I let Clerk answer questions?", proposal: "prop_1" }, canAlwaysAllow: false };
+/** The chat's Approval of a proposal, with the proposal as the run shows it (`proposal: null`: one the thread can't show). */
+function proposalQuestion(shown = true): RunSnapshot["questions"][number] {
+  return {
+    id: "q1",
+    about: null,
+    proposalId: "prop_1",
+    proposal: shown ? { id: "prop_1", status: "asked", items: [{ tool: "agents_update", input: { id: "agt_1", name: "Clerk" }, used: false, refs: ["id"] }], names: { agt_1: { kind: "agent", name: "Clerk" } } } : null,
+    rootId: null,
+    consultId: null,
+    runId: "run_1",
+    stepRunId: "s_chat",
+    placement: "chat",
+    status: "pending",
+    answer: null,
+    createdAt: at,
+    payload: proposalPayload,
+  };
+}
+
+test("Approve shows in the composer only while a proposal waits, and a click approves it", async () => {
+  fake.runs.stream.mockImplementation(streamOf(snapshot()));
+  mount("run_1");
+  await screen.findByLabelText("Message");
+  expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+  cleanup();
+  fake.runs.stream.mockImplementation(streamOf(snapshot([proposalQuestion()])));
+  fake.questions.answer.mockResolvedValue(undefined);
+  const user = mount("run_1");
+  await user.click(await screen.findByRole("button", { name: "Approve" }));
+  await waitFor(() => expect(fake.questions.answer).toHaveBeenCalledTimes(1));
+  expect(fake.questions.answer.mock.calls[0]![0]).toEqual({ questionId: "q1", answer: { kind: "permission", decision: "allow" } });
+  expect(fake.runs.sendChat).not.toHaveBeenCalled();
+});
+
+test("a proposal the thread can't show offers no Approve, and sending waits", async () => {
+  fake.runs.stream.mockImplementation(streamOf(snapshot([proposalQuestion(false)])));
+  mount("run_1");
+  expect(await screen.findByText("Answer the question above to continue.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+  expect(screen.getByLabelText<HTMLTextAreaElement>("Message").disabled).toBe(true);
+});
+
+test("words sent while a proposal waits decline it with them, and never approve it", async () => {
+  fake.runs.stream.mockImplementation(streamOf(snapshot([proposalQuestion()])));
+  fake.questions.answer.mockResolvedValue(undefined);
+  const user = mount("run_1");
+  const box = await screen.findByLabelText<HTMLTextAreaElement>("Message");
+  expect(box.disabled).toBe(false);
+  expect(box.placeholder).toMatch(/declines the proposal/);
+  // An empty send does nothing.
+  await user.click(box);
+  await user.keyboard("{Enter}");
+  expect(fake.questions.answer).not.toHaveBeenCalled();
+  // Words, even with the Approve shortcut, are sent as a decline.
+  await user.type(box, "Approve, but only on Clients");
+  await user.keyboard("{Control>}{Enter}{/Control}");
+  await waitFor(() => expect(fake.questions.answer).toHaveBeenCalledTimes(1));
+  expect(fake.questions.answer.mock.calls[0]![0]).toEqual({ questionId: "q1", answer: { kind: "permission", decision: "deny", message: "Approve, but only on Clients" } });
+  expect(fake.runs.sendChat).not.toHaveBeenCalled();
+  await waitFor(() => expect(box.value).toBe(""));
+});
+
+test("the shortcut on an empty composer approves", async () => {
+  fake.runs.stream.mockImplementation(streamOf(snapshot([proposalQuestion()])));
+  fake.questions.answer.mockResolvedValue(undefined);
+  const user = mount("run_1");
+  await user.click(await screen.findByLabelText("Message"));
+  await user.keyboard("{Meta>}{Enter}{/Meta}");
+  await waitFor(() => expect(fake.questions.answer).toHaveBeenCalledTimes(1));
+  expect(fake.questions.answer.mock.calls[0]![0]).toEqual({ questionId: "q1", answer: { kind: "permission", decision: "allow" } });
+});
+
+test("a proposal answered elsewhere first says so, and the words stay in the composer", async () => {
+  fake.runs.stream.mockImplementation(streamOf(snapshot([proposalQuestion()])));
+  fake.questions.answer.mockRejectedValue(Object.assign(new Error("This question is no longer waiting for an answer"), { code: "CONFLICT" }));
+  const user = mount("run_1");
+  const box = await screen.findByLabelText<HTMLTextAreaElement>("Message");
+  await user.type(box, "Not this one");
+  await user.keyboard("{Enter}");
+  expect((await screen.findByRole("alert")).textContent).toBe("This proposal was already answered elsewhere.");
+  expect(box.value).toBe("Not this one");
+  await user.click(screen.getByRole("button", { name: "Approve" }));
+  await waitFor(() => expect(fake.questions.answer).toHaveBeenCalledTimes(2));
+  expect(screen.getByRole("alert").textContent).toBe("This proposal was already answered elsewhere.");
 });
