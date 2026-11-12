@@ -9,7 +9,7 @@ type Plugin = Awaited<ReturnType<typeof api.plugins.list>>[number];
 /**
  * An installed plugin: where it came from and what it added, with Update and Remove. Removing
  * one keeps its agents and tools; a generated one lists what approved proposals created, which
- * removing it keeps too.
+ * removing it keeps too. Its definitions are listed, each marked once something was set up from it.
  */
 export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   const queryClient = useQueryClient();
@@ -119,6 +119,20 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
           <span className="text-muted">Triggers: </span>
           {p.triggers.map((t) => t.name).join(", ")}
         </p>
+      )}
+      {(
+        [
+          ["Table definitions", p.definitions.primitives],
+          ["Agent definitions", p.definitions.agents],
+          ["Trigger definitions", p.definitions.triggers],
+        ] as const
+      ).map(([label, defs]) =>
+        defs.length > 0 ? (
+          <p key={label} className="text-[13px]">
+            <span className="text-muted">{label}: </span>
+            {defs.map((d) => (d.setUp ? `${d.name} (set up)` : d.name)).join(", ")}
+          </p>
+        ) : null,
       )}
       {available.length > 0 && (
         <p className="text-[13px]">

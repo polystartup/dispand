@@ -5,7 +5,7 @@ import { MAX_FILE_BYTES, MAX_FILES, PackageError, SKILL_NAME, type SkillFile, va
 
 /** What both plugin readers share: the root, the read's budget, regular files and skill folders. */
 
-export type NotImported = { component: "manifest" | "hook" | "command" | "bin" | "mcp-server" | "skill" | "file"; name: string; reason: string };
+export type NotImported = { component: "manifest" | "hook" | "command" | "bin" | "mcp-server" | "skill" | "definition" | "file"; name: string; reason: string };
 
 export type PluginSkill = { name: string; description: string; files: SkillFile[] };
 

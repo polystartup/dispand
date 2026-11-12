@@ -34,7 +34,8 @@ const Consults = z
   .max(50)
   .transform((entries) => [...new Map(entries.map((e) => [e.agentId, e])).values()]);
 
-const Fields = z.object({
+/** An agent's fields as `agents.create` takes them; a plugin's agent definitions take some of them as they are. */
+export const AgentFields = z.object({
   name: StorableText(100).trim().min(1),
   /** What it is for and when to consult it; left out of an update, it stays as it is. */
   description: StorableText(2000).optional(),
@@ -189,7 +190,7 @@ async function withSkillsAndTools(db: Db, row: Row) {
   };
 }
 
-const create = owner.input(Fields).handler(async ({ input, context }) => {
+const create = owner.input(AgentFields).handler(async ({ input, context }) => {
   const { skillPackageIds, toolIds, bundles, selfLearning, consults: entries, ...fields } = input;
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
   const dataTables = await ownTables(context.db, context.ownerId, input.dataTables);
@@ -205,7 +206,7 @@ const create = owner.input(Fields).handler(async ({ input, context }) => {
   return (await withPlugins(context.db, [row]))[0]!;
 });
 
-const update = owner.input(Fields.extend({ id: z.string() })).handler(async ({ input, context }) => {
+const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async ({ input, context }) => {
   const { id, skillPackageIds, toolIds, bundles, selfLearning, consults: entries, ...fields } = input;
   await find(context.db, context.ownerId, id);
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);

@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { expect, vi } from "vitest";
 
 /** A file of a fixture: its text, or a symbolic link to `link`. */
@@ -17,6 +17,19 @@ export function writeTree(dir: string, files: Record<string, FixtureFile>): void
     if (typeof content === "string") writeFileSync(full, content);
     else symlinkSync(content.link, full);
   }
+}
+
+/** The law-firm fixture (`fixtures/law-firm/`, an Agent Plugins plugin with `com.dispand` definitions), as files to write. */
+export function lawFirm(): Record<string, string> {
+  const root = fileURLToPath(new URL("./fixtures/law-firm/", import.meta.url));
+  return Object.fromEntries(
+    readdirSync(root, { recursive: true, withFileTypes: true })
+      .filter((d) => d.isFile())
+      .map((d) => {
+        const full = join(d.parentPath, d.name);
+        return [relative(root, full), readFileSync(full, "utf8")];
+      }),
+  );
 }
 
 const gitEnv = {

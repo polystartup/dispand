@@ -11,7 +11,8 @@ Status: Prototype
   server), skills and tools (MCP servers), gives them memory in data tables, wires them into
   workflows that run by hand or on a schedule, and works with them from dashboards. Plugins
   bring skills, agents and tools from Git repositories and skill sites, in the Claude plugin
-  layout or the Agent Plugins standard's. The **Assistant**, a
+  layout or the Agent Plugins standard's, whose Dispand extension also defines tables, agents
+  and triggers a workspace can be set up from. The **Assistant**, a
   built-in agent at the top of the sidebar, is a chat with an agent that may work on the data
   and configure the workspace.
 - **For whom:** a single owner per install who wants to hand recurring business work to AI

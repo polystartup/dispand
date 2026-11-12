@@ -1099,17 +1099,36 @@
   from `mcp.json` only, checked whole (its `$schema` the same version, else no server is read)
   then entry by entry (closed `stdio`, `streamable-http` and `sse` variants, a `./` or bare
   command, a contained `cwd`, no `PLUGIN_ROOT`/`PLUGIN_DATA` in `env`, an https URL unless
-  loopback, valid headers, none holding `${…}`). Extension namespaces aren't read, and neither
-  is a marketplace entry's `skills` or manifest. Otherwise the Claude plugin layout is read:
+  loopback, valid headers, none holding `${…}`). Of the extension namespaces, only `com.dispand`
+  is read (its manifest key may hold a `description`, nothing else), and neither is a marketplace
+  entry's `skills` or manifest. Its definitions (`definitions.ts` `readDefinitions`) are files
+  under `com.dispand/`: `primitives/*.json` (a table: `fields.create`'s input with the referenced
+  table's name for its id, the primitive flag and a parent naming one of its reference fields,
+  whose table must be a primitive of the plugin), `agents/*.md` (frontmatter `name`,
+  `description`, a `harness` kind hint, the plugin's `skills`, `tools` as `mcp.json` names or
+  `catalog:<id>`, `bundles`, `tables` by name or `all`, `consults` of its other agents,
+  `selfLearning`; the body is the system prompt) and `triggers/*.json` (`triggers.create`'s
+  input with its agent's definition name, a primitive trigger's table and fields by name, a
+  poll's `server` or `catalog` for its tool). Each is a regular file of at most 2 MiB (100 of
+  each kind), parsed with a Zod schema built from its procedure's input, and checked against
+  the plugin: a skill, server, catalog entry, agent or parent it names must exist. A table it
+  names that the plugin doesn't define is left to the setup to find in the workspace. A bad
+  definition, or one naming a skipped definition, is listed as not imported alone. Otherwise the Claude plugin layout is read:
   skills (`entry.skills`, else `skills/*`), MCP servers
   (`.mcp.json`, the manifest's `mcpServers`), agents (`agents/*.md`) and what is never imported
   (hooks, commands, `bin/`, servers running `${CLAUDE_PLUGIN_ROOT}`, links, files a skill can't
   hold, skills `validatePackage` refuses). `plugins.install` stores the plugin (`plugins`: url,
-  sha, what it offered, what wasn't imported) and one read-only skill package named after it with
+  sha, what it offered, its definitions (`plugins.definitions`, migration 0061), what wasn't
+  imported; a plugin with definitions installs with nothing else ticked) and one read-only skill package named after it with
   the ticked skills. Ticked HTTP MCP servers become HTTP tools (only as reviewed: the server
   definitions at that commit, else `CONFLICT`; a stdio server that runs a command is refused) and
-  ticked agents become a system prompt on the harness the owner picks. `plugins.update` syncs the
-  marketplace, then replaces the imported skills' files with the entry's current commit;
+  ticked agents become a system prompt on the harness the owner picks. A definition makes nothing
+  on install: what is set up from one is the owner's, listed in `plugins.created` (by kind, and
+  under `from` by definition key, `primitive:<name>`, `agent:<name>`, `trigger:<name>`), and
+  `plugins.list` names it for every plugin and marks each definition whose row still exists.
+  `plugins.update` syncs the marketplace, then replaces the imported skills' files with the
+  entry's current commit and the definitions with its current ones, leaving what was set up from
+  them as it is;
   `plugins.uninstall` removes the plugin's record and keeps the owner's data: `agents.plugin_id`,
   `tools.plugin_id` and `skill_packages.plugin_id` are `on delete set null` (migration 0058), so
   its agents (with their Jobs) and tools (with their headers) stay, unlinked, and a reinstall names

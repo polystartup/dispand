@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "law-firm",
+  "version": "1.0.0",
+  "description": "A small law firm's workspace: clients, their matters and the research on them.",
+  "license": "Apache-2.0",
+  "extensions": {
+    "com.dispand": { "description": "Tables for clients, matters and research, agents that take in client mail, research and draft, and the triggers that start them." }
+  }
+}
