@@ -594,6 +594,22 @@
   when the name stands for nothing the agent chose; the runner adds the name to the session's
   unasked ones. Workflow runs' CLI sessions have no Job token, so
   no such tools.
+- **Memory** (`memory/`): the workspace, each Data table and each agent have a memory, one
+  `memories` row per entry (scope, its table or agent, `path`, `name`, a one-line
+  `description`, a `type` among `business`, `practice`, `fact`, `reference`, `body`, the
+  `author` of its current revision, `accepted_at`, `removed_at`) and every revision, a removal
+  included, in the append-only `memory_revisions`. A table's or an agent's memory goes with it.
+  `memory/store.ts` is the one writer: an entry is checked by `MemoryEntryInput`
+  (`memory/model.ts`, which holds the caps: 100 live entries per scope), its path by
+  `isMemoryPath` (runner protocol: a safe relative `.md` path of at most 120 characters, never
+  `CLAUDE.md`, `AGENTS.md`, `AGENTS.override.md` nor `MEMORY.md`), and writes to one scope are
+  serialized by a transaction lock. The index (`memoryIndex`) is never stored: it is made from
+  the entries, grouped by type. A person's write makes the person the author; an agent's clears
+  the acceptance a person gave (`memories.accept`). Revert brings back the previous revision,
+  author included, and restore a removed entry as it last was. The owner's procedures
+  (`memories.*`, not tools) back the workspace memory page under Settings (`MemoryPanel`).
+  Every write is a `memory.write` span and `dispand.memory.writes` (scope, operation, result),
+  never a path or a body.
 - **Skills in cloud sessions** (`skills/cloud.ts`): the way Agent Skills work. At every model
   call `sessionSkills` reads the skills of the session's packages (`sessionTooling`: for a Job,
   its snapshot's that the agent still has); the system prompt lists each skill's name and
@@ -1031,7 +1047,7 @@
   ticked agents become a system prompt on the harness the owner picks. `plugins.update` syncs the
   marketplace, then replaces the imported skills' files with the entry's current commit;
   `plugins.uninstall` removes the plugin's record and keeps the owner's data: `agents.plugin_id`,
-  `tools.plugin_id` and `skill_packages.plugin_id` are `on delete set null` (migration 0055), so
+  `tools.plugin_id` and `skill_packages.plugin_id` are `on delete set null` (migration 0056), so
   its agents (with their Jobs) and tools (with their headers) stay, unlinked, and a reinstall names
   its copies apart (`agentName`, `toolName`). Its skill package is deleted unless an agent uses
   it; then it stays as the owner's own, editable. `db/cascades.test.ts` walks every cascading
