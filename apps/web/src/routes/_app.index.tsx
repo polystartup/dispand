@@ -17,7 +17,9 @@ function Home() {
   );
 
   // First launch, a fresh install's or one from before the Assistant: its page, which starts it.
-  if (onboarding.data?.assistant === null) return <Navigate to="/assistant" replace />;
+  // Only on a status just read: a cached one may predate the Assistant.
+  const firstLaunch = onboarding.data?.assistant === null;
+  if (firstLaunch && !onboarding.isFetching) return <Navigate to="/assistant" replace />;
   if ((home.error && !home.data) || (onboarding.error && !onboarding.data)) {
     return (
       <>
@@ -29,7 +31,7 @@ function Home() {
     );
   }
   // Wait for both: no flash of the dashboard before the redirect.
-  if (!home.data || !onboarding.data) return <header className="mb-8">{heading}</header>;
+  if (!home.data || !onboarding.data || firstLaunch) return <header className="mb-8">{heading}</header>;
   return (
     <PageView
       page={home.data}

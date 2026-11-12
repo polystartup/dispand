@@ -27,7 +27,10 @@ async function shots(page: Page, name: string) {
 test("create a skill with a file, see it in the list, edit it and delete it", async ({ page }) => {
   await signIn(page);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Skills" }).click();
-  await expect(page.getByText("No skill yet")).toBeVisible();
+  // Only the platform skill, which the Assistant brought (settings.spec.ts started it).
+  const platform = page.getByRole("button", { name: /^dispand-platform/ });
+  await expect(platform).toBeVisible();
+  await expect(page.getByRole("button", { name: /^hello-check/ })).toHaveCount(0);
   await page.waitForLoadState("networkidle");
   await page.getByRole("button", { name: "Create skill" }).click();
 
@@ -68,5 +71,6 @@ test("create a skill with a file, see it in the list, edit it and delete it", as
   await expect(sheet.getByText("greet.sh", { exact: true })).toBeVisible();
   await sheet.getByRole("button", { name: "Delete" }).click();
   await expect(sheet).toBeHidden();
-  await expect(page.getByText("No skill yet")).toBeVisible();
+  await expect(row).toHaveCount(0);
+  await expect(platform).toBeVisible();
 });
