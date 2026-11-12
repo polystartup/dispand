@@ -133,6 +133,8 @@ test("a hostile plugin: each bad definition is skipped and listed alone, and its
     "com.dispand/triggers/lost.json": json({ agent: "Nobody", name: "Lost", config: { kind: "manual", placement: "chat" } }),
     "com.dispand/triggers/unknown-server.json": json({ agent: "Helper", name: "Poll elsewhere", config: { kind: "poll", server: "elsewhere", action: "list", idPath: "id" } }),
     "com.dispand/triggers/ok.json": json({ agent: "Helper", name: "On a client", config: { kind: "primitive", table: "Clients", operations: ["created"] } }),
+    "com.dispand/triggers/on-orphan.json": json({ agent: "Helper", name: "On an orphan", config: { kind: "primitive", table: "Orphan", operations: ["created"] } }),
+    "com.dispand/agents/loop.md": agentMd("name: Loop\nconsults: &x [*x]"),
   });
   expect(names(got)).toEqual({ agents: ["Helper"], primitives: ["Clients"], triggers: ["On a client"] });
   expect(reasons(got)).toEqual([
@@ -141,7 +143,9 @@ test("a hostile plugin: each bad definition is skipped and listed alone, and its
     "definition com.dispand/primitives/orphan.json: Its parent table “Elsewhere” isn't a primitive of the plugin",
     "definition com.dispand/agents/huge.md: Not a regular file, or larger than 2 MiB",
     "definition com.dispand/agents/x.md: Not a regular file, or larger than 2 MiB",
+    "definition com.dispand/agents/loop.md: Its frontmatter refers to itself",
     "definition com.dispand/triggers/lost.json: Its agent “Nobody” isn't an agent of the plugin",
+    "definition com.dispand/triggers/on-orphan.json: Its table “Orphan” is a definition of the plugin that wasn't read",
     "definition com.dispand/triggers/unknown-server.json: “elsewhere” isn't a server of the plugin's mcp.json",
   ]);
 });

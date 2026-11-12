@@ -180,6 +180,12 @@ function parseAgent(text: string): AgentDefinition | string {
     return "Its frontmatter isn't valid YAML";
   }
   if (!isObject(meta)) return "Its frontmatter isn't a mapping";
+  // YAML aliases can make a value that holds itself: nothing past this point could walk it.
+  try {
+    JSON.stringify(meta);
+  } catch {
+    return "Its frontmatter refers to itself";
+  }
   if (!allStorable(meta)) return "It holds a character Dispand can't store";
   const parsed = AgentFrontmatter.safeParse(meta);
   if (!parsed.success) return problem(parsed.error);
@@ -244,11 +250,13 @@ function agentProblem(a: AgentDefinition, kept: Read<AgentDefinition>[], names: 
   return null;
 }
 
-function triggerProblem(t: TriggerDefinition, agents: Read<AgentDefinition>[], primitives: Read<PrimitiveDefinition>[], names: PluginNames): string | null {
+function triggerProblem(t: TriggerDefinition, agents: Read<AgentDefinition>[], primitives: Read<PrimitiveDefinition>[], skipped: string[], names: PluginNames): string | null {
   if (!agents.some((a) => same(a.value.name, t.agent))) return `Its agent “${t.agent}” isn't an agent of the plugin`;
   const { config } = t;
   if (config.kind === "primitive") {
-    // A table the plugin doesn't define is looked for in the workspace when it is set up.
+    // A table the plugin doesn't define is looked for in the workspace when it is set up; one it
+    // defines but skipped is no workspace table.
+    if (skipped.some((name) => same(name, config.table))) return `Its table “${config.table}” is a definition of the plugin that wasn't read`;
     const table = primitives.find((p) => same(p.value.name, config.table))?.value;
     if (table && !table.primitive) return `“${table.name}” isn't a primitive: no trigger watches it`;
     const field = table && config.fields?.find((f) => !table.fields.some((tf) => same(tf.name, f)));
@@ -288,16 +296,14 @@ export function readDefinitions(root: string, names: PluginNames, notImported: N
     notImported.push({ component: "definition", name: FOLDER, reason: "Not a folder: no definition is read" });
     return { agents: [], primitives: [], triggers: [] };
   }
-  const primitives = prune(
-    parseAll(readFiles(root, "primitives", ".json", notImported), notImported, (text) => parseJson(PrimitiveDefinition, text)),
-    notImported,
-    primitiveProblem,
-  );
+  const parsedPrimitives = parseAll(readFiles(root, "primitives", ".json", notImported), notImported, (text) => parseJson(PrimitiveDefinition, text));
+  const primitives = prune(parsedPrimitives, notImported, primitiveProblem);
+  const skipped = parsedPrimitives.filter((p) => !primitives.includes(p)).map((p) => p.value.name);
   const agents = prune(parseAll(readFiles(root, "agents", ".md", notImported), notImported, parseAgent), notImported, (a, kept) => agentProblem(a, kept, names));
   const triggers = prune(
     parseAll(readFiles(root, "triggers", ".json", notImported), notImported, (text) => parseJson(TriggerDefinition, text)),
     notImported,
-    (t) => triggerProblem(t, agents, primitives, names),
+    (t) => triggerProblem(t, agents, primitives, skipped, names),
   );
   return { agents: agents.map((r) => r.value), primitives: primitives.map((r) => r.value), triggers: triggers.map((r) => r.value) };
 }
