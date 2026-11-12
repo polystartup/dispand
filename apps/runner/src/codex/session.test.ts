@@ -634,3 +634,21 @@ test("on Codex unasked runner tools cannot read protected configuration paths", 
   expect(await s.replyTo("r1")).toMatchObject({ action: "accept" });
   expect(questions(s.events)).toEqual([]);
 });
+
+test("unasked Codex runner tools refuse targets linked from protected config directories", async () => {
+  const base = await mkdtemp(join(tmpdir(), "runner-linked-"));
+  made.push(base);
+  const config = join(base, "config");
+  const target = join(base, "auth.json");
+  await mkdir(config);
+  await writeFile(target, "{}");
+  await symlink(target, join(config, "auth.json"));
+  const s = await run({
+    start: { mcpServers: [{ name: "mail", type: "runner", tool: "files", unasked: ["read_file"] }] },
+    deps: { jobServer: "job", secrets: [config] },
+    turns: [[localApproval("read_file", { path: target }), message("Done")]],
+  });
+  await s.ended();
+  expect(await s.replyTo("r0")).toMatchObject({ action: "decline" });
+  expect(questions(s.events)).toEqual([]);
+});

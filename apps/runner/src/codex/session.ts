@@ -62,6 +62,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   if (bypass && !deps.allowBypass) throw new BypassRefused();
   /** What the session may neither read nor write, symlinks inside followed: its profile and file changes deny it. */
   const denied = codexDenied(deps.secrets);
+  const mcpDenied = [...denied, ...codexDenied([join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...(deps.pluginRoots ?? [])])];
   /** Set once the session has its outcome (result or error): nothing runs or is emitted after it. */
   let finished = false;
   const emit = (e: HarnessEvent) => {
@@ -264,7 +265,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         // An action the agent lets run unasked: no question (the tools server runs it without an approval).
         const input = isObject(meta.tool_params) ? meta.tool_params : {};
         const runnerTool = agentServers.includes(p.serverName) && p.serverName !== "job_tools";
-        if (runnerTool && !runnerArgumentsAllowed(input, [...deps.secrets, join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...(deps.pluginRoots ?? [])])) return decline;
+        if (runnerTool && !runnerArgumentsAllowed(input, mcpDenied)) return decline;
         if (unasked.has(toolName)) return { action: "accept" as const, content: {}, _meta: null };
         const jobTool = agentServers.includes(p.serverName);
         const version = permissionsVersion;

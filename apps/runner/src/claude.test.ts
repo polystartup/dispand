@@ -1517,11 +1517,35 @@ test("an always answer queued across a revocation cannot restore a runner grant"
 });
 
 test("an unasked runner MCP action cannot read a protected configuration file", async () => {
+  let decision: unknown;
   const fake = fakeQuery(async function* ({ next, options }) {
     await next();
-    expect(await options.canUseTool!("mcp__mail__read_file", { path: "/guarded/config.json" }, ctx())).toMatchObject({ behavior: "deny" });
+    decision = await options.canUseTool!("mcp__mail__read_file", { path: "/guarded/config.json" }, ctx());
     yield result();
   });
   const session = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "files", unasked: ["read_file"] }] }, "/work", () => undefined, { query: fake.query, jobServer: "job", secrets: ["/guarded/config.json"] });
   await session.done;
+  expect(decision).toMatchObject({ behavior: "deny" });
+});
+
+test("unasked Claude runner tools refuse targets linked from protected config directories", async () => {
+  const { mkdtemp, mkdir, writeFile, symlink, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const base = await mkdtemp(join(tmpdir(), "runner-linked-"));
+  try {
+    const config = join(base, "config");
+    const target = join(base, "auth.json");
+    await mkdir(config);
+    await writeFile(target, "{}");
+    await symlink(target, join(config, "auth.json"));
+    let decision: unknown;
+    const fake = fakeQuery(async function* ({ next, options }) {
+      await next();
+      decision = await options.canUseTool!("mcp__files__read_file", { path: target }, ctx());
+      yield result();
+    });
+    const session = startClaudeSession({ ...start, mcpServers: [{ name: "files", type: "runner", tool: "files", unasked: ["read_file"] }] }, "/work", () => undefined, { query: fake.query, jobServer: "job", secrets: [config] });
+    await session.done;
+    expect(decision).toMatchObject({ behavior: "deny" });
+  } finally { await rm(base, { recursive: true, force: true }); }
 });
