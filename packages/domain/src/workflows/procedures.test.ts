@@ -69,7 +69,7 @@ test("an agent used by a run still going cannot be deleted, even once the workfl
     ["n_step", "running"],
     [wf.def.trigger.field.id, "succeeded"],
   ]);
-  expect(await call(router.runs.list, { workflowId: wf.id }, { context })).toEqual([{ ...got.run, queued: false }]);
+  expect(await call(router.runs.list, { workflowId: wf.id }, { context })).toEqual([{ ...got.run, queued: false, title: null }]);
   await expect(call(router.runs.sendChat, { runId, text: "hi" }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
 });
 
