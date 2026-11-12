@@ -30,6 +30,8 @@ const job = (id: string, triggerId: string | null, status: string, createdAt: st
   finishedAt: status === "succeeded" ? new Date(createdAt) : null,
   queued: false,
   title,
+  waitingOn: null as string | null,
+  consultedBy: null as string | null,
 });
 
 function mount() {
@@ -65,4 +67,19 @@ test("JobList says when the agent has no Job yet", async () => {
   fake.triggers.list.mockResolvedValue([]);
   mount();
   expect(await screen.findByText("No Job yet")).toBeTruthy();
+});
+
+test("JobList shows an asker waiting on the agent it consulted, and a consulted Job's origin in place of its trigger", async () => {
+  fake.runs.list.mockResolvedValue([
+    { ...job("run_2", null, "running", "2026-11-05T10:00:00Z"), trigger: { type: "consult", questionId: "q1", outputs: {} }, consultedBy: "Asker" },
+    { ...job("run_1", "trigger_1", "waiting", "2026-11-05T09:00:00Z"), waitingOn: "Architect" },
+  ]);
+  fake.triggers.list.mockResolvedValue([{ id: "trigger_1", name: "Morning mail" }]);
+  mount();
+  const rows = await screen.findAllByRole("listitem");
+  expect(rows[0]!.textContent).toContain("Consulted by Asker");
+  expect(rows[0]!.textContent).not.toContain("Deleted trigger");
+  expect(rows[0]!.textContent).not.toContain("Manual");
+  expect(rows[1]!.textContent).toContain("Morning mail");
+  expect(rows[1]!.textContent).toContain("waiting on Architect");
 });

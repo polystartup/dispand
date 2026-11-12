@@ -311,6 +311,7 @@ export const NOT_TOOLS: string[] = [
   "runs.list",
   "jobs.start",
   "jobs.def",
+  "jobs.consults",
   "questions.list",
   "questions.count",
   "questions.stream",

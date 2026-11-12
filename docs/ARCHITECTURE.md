@@ -230,7 +230,11 @@
   (`deliveryProblem`). A consult row that expires (its asker stopped, failed, or a resumed session
   asked again) stops its consulted run, recursively, and expires its Approval. `agents.update`
   calls `Engine.endConsults` in its transaction: the consults on either side of the agent that its
-  pair no longer allows end there, with the reason.
+  pair no longer allows end there, with the reason. The owner sees consults, read-only
+  (`jobs/consults.ts`): `jobs.consults` gives a Job's page the consults it asked (the agent, the state, the
+  consulted Job to open, the question and the answer or why there is none) and the one that made it;
+  `runs.list` gives each Job `waitingOn` (the agent its pending consult asks) and `consultedBy`;
+  in a chat a consult is one line naming the agent, not a question to answer.
   `jobs.start` starts a manual trigger's Job, `jobs.def` gives a Job's definition, and
   `runs.list` takes an `agentId`, a `triggerId` and `kind: "chat"` (the Jobs whose own definition opens with a chat), and gives each run a `title`: its first message's first 80 characters, whitespace folded, null before one. An agent is never deleted under a Job still going, by itself or
   with its plugin: both paths lock its triggers and the agent in the deleting transaction

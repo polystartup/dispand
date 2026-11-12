@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
+import { RunConsults } from "../components/runs/RunConsults.tsx";
 import { RunSteps } from "../components/runs/RunSteps.tsx";
 import { StopRun } from "../components/runs/StopRun.tsx";
 import { duration, Status, when } from "../components/workflow/Runs.tsx";
@@ -69,6 +70,7 @@ function RunPage() {
           </p>
         )}
       </header>
+      {run.source === "agent" && <RunConsults runId={run.id} live={!run.finishedAt} />}
       <RunSteps state={state} def={workflow.data?.def ?? job.data} agentNames={agentNames} />
     </>
   );
