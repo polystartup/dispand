@@ -363,9 +363,9 @@ test("a session's skills are fetched, loaded as plugins, readable during it, and
   const dir = sessionPluginsDir(stateDir, "ses_1");
   expect(fake.calls[0]!.plugins).toEqual([{ type: "local", path: join(dir, "hello-check"), skipMcpDiscovery: true }]);
   expect(seen).toEqual(['---\nname: hello-check\ndescription: ""\n---\n\n']);
-  // The session folder is gone after the session ends.
-  await vi.waitFor(() => expect(() => readFileSync(join(dir, "hello-check", ".claude-plugin", "plugin.json"))).toThrow());
-  await expect(stat(join(dir, ".."))).rejects.toThrow();
+  // The session folder is gone after the session ends. It is removed after the result is sent,
+  // its files before the folder itself: wait for the folder, not only for a file in it.
+  await vi.waitFor(() => expect(stat(join(dir, ".."))).rejects.toThrow());
 });
 
 test("a skill package that can't be fetched ends the start before any folder is made", async () => {
