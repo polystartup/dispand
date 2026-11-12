@@ -11,6 +11,7 @@
     "./data/*": "./src/data/*.ts",
     "./workflows/*": "./src/workflows/*.ts",
     "./pages/*": "./src/pages/*.ts",
+    "./audit/model": "./src/audit/model.ts",
     "./test-support": "./src/runners/test-support.ts"
   },
   "scripts": {

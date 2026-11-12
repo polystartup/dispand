@@ -14,6 +14,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppAssistantRouteImport } from './routes/_app.assistant'
+import { Route as AppAuditRouteImport } from './routes/_app.audit'
 import { Route as AppHelpRouteImport } from './routes/_app.help'
 import { Route as AppInboxRouteImport } from './routes/_app.inbox'
 import { Route as AppNotificationsRouteImport } from './routes/_app.notifications'
@@ -67,6 +68,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
 const AppAssistantRoute = AppAssistantRouteImport.update({
   id: '/assistant',
   path: '/assistant',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAuditRoute = AppAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
   getParentRoute: () => AppRoute,
 } as any)
 const AppHelpRoute = AppHelpRouteImport.update({
@@ -232,6 +238,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
   '/assistant': typeof AppAssistantRoute
+  '/audit': typeof AppAuditRoute
   '/help': typeof AppHelpRoute
   '/inbox': typeof AppInboxRoute
   '/notifications': typeof AppNotificationsRoute
@@ -267,6 +274,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
   '/assistant': typeof AppAssistantRoute
+  '/audit': typeof AppAuditRoute
   '/help': typeof AppHelpRoute
   '/inbox': typeof AppInboxRoute
   '/notifications': typeof AppNotificationsRoute
@@ -305,6 +313,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
   '/_app/assistant': typeof AppAssistantRoute
+  '/_app/audit': typeof AppAuditRoute
   '/_app/help': typeof AppHelpRoute
   '/_app/inbox': typeof AppInboxRoute
   '/_app/notifications': typeof AppNotificationsRoute
@@ -344,6 +353,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/setup'
     | '/assistant'
+    | '/audit'
     | '/help'
     | '/inbox'
     | '/notifications'
@@ -379,6 +389,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/setup'
     | '/assistant'
+    | '/audit'
     | '/help'
     | '/inbox'
     | '/notifications'
@@ -416,6 +427,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/setup'
     | '/_app/assistant'
+    | '/_app/audit'
     | '/_app/help'
     | '/_app/inbox'
     | '/_app/notifications'
@@ -500,6 +512,13 @@ declare module '@tanstack/react-router' {
       path: '/assistant'
       fullPath: '/assistant'
       preLoaderRoute: typeof AppAssistantRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/audit': {
+      id: '/_app/audit'
+      path: '/audit'
+      fullPath: '/audit'
+      preLoaderRoute: typeof AppAuditRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/help': {
@@ -717,6 +736,7 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppAssistantRoute: typeof AppAssistantRoute
+  AppAuditRoute: typeof AppAuditRoute
   AppHelpRoute: typeof AppHelpRoute
   AppInboxRoute: typeof AppInboxRoute
   AppNotificationsRoute: typeof AppNotificationsRoute
@@ -742,6 +762,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppAssistantRoute: AppAssistantRoute,
+  AppAuditRoute: AppAuditRoute,
   AppHelpRoute: AppHelpRoute,
   AppInboxRoute: AppInboxRoute,
   AppNotificationsRoute: AppNotificationsRoute,
