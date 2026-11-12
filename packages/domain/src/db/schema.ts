@@ -148,8 +148,8 @@ export const agents = pgTable("agents", {
   dataTables: jsonb("data_tables").$type<TableScope>().notNull().default(sql`'"all"'::jsonb`),
   // Where its Jobs may write memory (`memory/model.ts`); empty, they learn nothing.
   selfLearning: jsonb("self_learning").$type<MemoryTarget[]>().notNull().default([]),
-  // The plugin it came from, and its name there (`plugins/`); it goes with the plugin.
-  pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "cascade" }),
+  // The plugin it came from, and its name there (`plugins/`); it stays when the plugin goes.
+  pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
   pluginComponent: text("plugin_component"),
   // `"assistant"`: the workspace's Assistant (`agents/builtin.ts`), one per owner. No input sets it.
   builtIn: text("built_in").$type<"assistant">(),
@@ -998,8 +998,8 @@ export const tools = pgTable(
     refreshedAt: timestamp("refreshed_at"),
     // The catalog entry it was installed from (`tools/catalog.ts`), if any.
     catalogId: text("catalog_id"),
-    // The plugin it came from, and its MCP server's name there; it goes with the plugin.
-    pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "cascade" }),
+    // The plugin it came from, and its MCP server's name there; it stays when the plugin goes.
+    pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
     pluginComponent: text("plugin_component"),
     // A runner tool's runner, and the server's name in its config (one the runner reported in `hello`).
     runnerId: text("runner_id").references(() => runners.id),
@@ -1024,7 +1024,8 @@ const bytea = customType<{ data: Uint8Array; driverData: Uint8Array }>({ dataTyp
 
 // Skill packages: one or more skills (a folder each, with its `SKILL.md`) and their files. A
 // user-made package holds one skill named like it; a plugin's (`plugin_id`, set by plugin installs)
-// holds the plugin's skills and is read-only, like the built-in one (`built_in`, one per owner:
+// holds the plugin's skills and is read-only while the plugin is installed (an uninstall deletes it,
+// or detaches it as the owner's own when an agent uses it), like the built-in one (`built_in`, one per owner:
 // the platform skill, written from the build's files by `syncPlatformSkill`). Every file path
 // passes `isSafeRelativePath`.
 export const skillPackages = pgTable(
@@ -1036,7 +1037,7 @@ export const skillPackages = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     description: text("description").notNull(),
-    pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "cascade" }),
+    pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
     /** Tools an agent gets, locked, with this package. */
     requiredToolIds: jsonb("required_tool_ids").$type<string[]>().notNull().default([]),
     builtIn: boolean("built_in").notNull().default(false),

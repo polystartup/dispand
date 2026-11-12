@@ -230,10 +230,8 @@ const update = owner.input(Fields.extend({ id: z.string() })).handler(async ({ i
 });
 
 const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  const [agent] = await withPlugins(context.db, [await find(context.db, context.ownerId, input.id)]);
+  await find(context.db, context.ownerId, input.id);
   await guard(context.db, context.ownerId, input.id, { kind: "delete" });
-  // A plugin's agent goes with its plugin.
-  if (agent!.plugin) throw new ORPCError("FORBIDDEN", { message: `Remove the plugin ${agent!.plugin.name} instead` });
   if (await agentInUse(context.db, context.ownerId, input.id)) {
     throw new ORPCError("CONFLICT", { message: "A workflow uses this agent" });
   }

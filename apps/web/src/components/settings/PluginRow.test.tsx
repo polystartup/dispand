@@ -58,6 +58,7 @@ test("a marketplace plugin reads as before: where it came from, its commit, Upda
   mount({ ...base, id: "plugin_2", name: "superpowers", source: "marketplace", marketplace: "acme", url: "https://example.com/p.git", sha: "0123456789abcdef", skills: [{ name: "tdd", description: "" }] });
   const row = screen.getByRole("listitem", { name: "superpowers" });
   expect(row.textContent).toContain("From acme · 0123456");
+  expect(row.textContent).toContain("Removing it: its agents, tools and what it set up stay in your workspace");
   expect(row.textContent).toContain("tdd");
   expect(screen.getByRole("button", { name: "Update superpowers" })).toBeTruthy();
 });
