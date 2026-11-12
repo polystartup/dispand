@@ -4,7 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ plugins: { setupPreview: vi.fn(), setUp: vi.fn() }, tables: {} }));
+const fake = vi.hoisted(() => ({ plugins: { setupPreview: vi.fn(), setUp: vi.fn() }, tables: {}, agents: {}, harnesses: { list: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -29,15 +29,16 @@ const plugin = {
   },
 };
 
-function mount() {
+function mount(p: object = plugin) {
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <PluginSetupSheet plugin={plugin as never} onClose={() => undefined} />
+      <PluginSetupSheet plugin={p as never} onClose={() => undefined} />
     </QueryClientProvider>,
   );
 }
 
 test("every table is ticked, what is missing is shown as a proposal's items, and a stopped run says what stopped it", async () => {
+  fake.harnesses.list.mockResolvedValue([]);
   fake.plugins.setupPreview.mockResolvedValue({
     items: [
       { tool: "tables_create", input: { name: "Matters" }, used: false, failed: false, refs: [], creates: "table", createdId: null },
@@ -70,4 +71,32 @@ test("every table is ticked, what is missing is shown as a proposal's items, and
   expect(made.textContent).toContain("A table is already called “Matters”");
   expect(made.textContent).toContain("Field Matters.Clients: not made");
   expect(made.textContent).toContain("set up again");
+});
+
+test("agents not set up yet are ticked, each on the first harness of the kind it is written for, and their outcomes read as agents", async () => {
+  fake.harnesses.list.mockResolvedValue([
+    { id: "harness_cli", name: "Claude Code", type: "cli" },
+    { id: "harness_cloud", name: "Claude API", type: "cloud" },
+  ]);
+  fake.plugins.setupPreview.mockResolvedValue({ items: [{ tool: "agents_create", input: { name: "Drafting", harnessId: "harness_cloud" }, used: false, failed: false, refs: ["harnessId"], creates: "agent", createdId: null }], names: {}, waiting: [] });
+  fake.plugins.setUp.mockResolvedValue({ outcomes: [{ $item: 0, tool: "agents_create", from: "agent:Drafting", outcome: "made", id: "agent_1" }], waiting: [] });
+  mount({
+    ...plugin,
+    definitions: {
+      primitives: [],
+      agents: [
+        { name: "Intake", description: "Takes mail in.", harness: "cloud", selfLearning: [], setUp: true },
+        { name: "Drafting", description: "Drafts replies.", harness: "cloud", selfLearning: ["agent"], setUp: false },
+      ],
+      triggers: [],
+    },
+  });
+  expect((screen.getByRole("checkbox", { name: /Intake/ }) as HTMLInputElement).checked).toBe(false);
+  expect(screen.getByRole("checkbox", { name: /Drafting/ }).closest("label")!.textContent).toContain("Learns into: agent");
+  await screen.findByRole("list", { name: "What is proposed" });
+  expect(fake.plugins.setupPreview.mock.calls.at(-1)![0]).toEqual({ id: "plugin_1", pick: { primitives: [], agents: [{ name: "Drafting", harnessId: "harness_cloud" }] } });
+  expect(screen.getByRole("combobox", { name: "Harness of Drafting" }).textContent).toContain("Claude API");
+
+  await userEvent.click(screen.getByRole("button", { name: "Set up" }));
+  expect((await screen.findByRole("region", { name: "What was made" })).textContent).toContain("Agent Drafting: made");
 });
