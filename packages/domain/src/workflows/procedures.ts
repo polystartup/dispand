@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, count, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import type { Tx } from "../db/client.ts";
@@ -345,8 +345,16 @@ const stream = owner.input(z.object({ runId: z.string() })).handler(async functi
 /** How many changes a run stream holds for a slow client before it resynchronizes it. */
 export const STREAM_BUFFER = 1000;
 
-/** The latest runs of one workflow, the latest Jobs of one agent or of one trigger, or the owner's latest runs of both kinds when none is given. */
-const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agentId: z.string().optional(), triggerId: z.string().optional() })).handler(async ({ input, context }) => {
+/** How many characters of a conversation's first message name it in a list. */
+export const TITLE_LENGTH = 80;
+
+/**
+ * The latest runs of one workflow, the latest Jobs of one agent or of one trigger, or the owner's
+ * latest runs of both kinds when none is given. `kind: "chat"` keeps the Jobs that are
+ * conversations (their own definition opens with a chat); `title` is the first words of a
+ * conversation's first message, null before it has one.
+ */
+const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agentId: z.string().optional(), triggerId: z.string().optional(), kind: z.literal("chat").optional() })).handler(async ({ input, context }) => {
   if (input.triggerId) {
     const [trigger] = await context.db
       .select({ id: triggers.id })
@@ -371,6 +379,7 @@ const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agent
         input.workflowId ? eq(runsTable.workflowId, input.workflowId) : undefined,
         input.agentId ? eq(runsTable.agentId, input.agentId) : undefined,
         input.triggerId ? eq(runsTable.triggerId, input.triggerId) : undefined,
+        input.kind ? sql`${runsTable.def} -> 'trigger' -> 'field' ->> 'type' = ${input.kind}` : undefined,
       ),
     )
     .orderBy(desc(runsTable.createdAt), desc(runsTable.id))
@@ -380,7 +389,16 @@ const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agent
   const queued = ids.length
     ? new Set((await context.db.selectDistinct({ runId: stepRuns.runId }).from(stepRuns).where(and(inArray(stepRuns.runId, ids), isNotNull(stepRuns.queuedAt)))).map((r) => r.runId))
     : new Set<string>();
-  return rows.map((r) => ({ ...runView(r), queued: queued.has(r.id) }));
+  // Each run's first message of the owner, cut in the database: a message can be long.
+  const firsts = ids.length
+    ? await context.db
+        .selectDistinctOn([messages.runId], { runId: messages.runId, text: sql<string>`left(${messages.text}, ${TITLE_LENGTH})` })
+        .from(messages)
+        .where(and(inArray(messages.runId, ids), eq(messages.role, "user")))
+        .orderBy(messages.runId, asc(messages.position))
+    : [];
+  const titles = new Map(firsts.map((m) => [m.runId, m.text.replace(/\s+/g, " ").trim() || null]));
+  return rows.map((r) => ({ ...runView(r), queued: queued.has(r.id), title: titles.get(r.id) ?? null }));
 });
 
 export const runs = { start, sendChat, stop, get: getRun, stream, list: listRuns };
