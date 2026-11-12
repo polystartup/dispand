@@ -8,11 +8,13 @@ import { questions, runs } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
+import type { MemoryTarget } from "../memory/model.ts";
+import { listMemory } from "../memory/store.ts";
 import type { Bundle } from "./bundles.ts";
 import { platformToolCaller } from "./cloud.ts";
 
 /** A cloud agent with `bundles` on the table "Clients", and an engine whose cloud sessions get Dispand's tools (or `tools`). */
-async function setup(bundles: Bundle[], script: Script[], tools?: ToolCaller) {
+async function setup(bundles: Bundle[], script: Script[], tools?: ToolCaller, selfLearning: MemoryTarget[] = []) {
   const base = await ownerContext();
   const model = fakeModel(...script);
   const engine = createEngine(base.db, base.hub, base.secrets, base.dataEvents, { tools: tools ?? platformToolCaller(() => context), client: model.client });
@@ -26,7 +28,7 @@ async function setup(bundles: Bundle[], script: Script[], tools?: ToolCaller) {
   const table = await call(router.tables.create, { name: "Clients" }, { context });
   const other = await call(router.tables.create, { name: "Matters" }, { context });
   const name = (await call(router.tables.get, { id: table.id }, { context })).fields[0]!;
-  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief.", bundles, dataTables: [table.id] }, { context });
+  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief.", bundles, dataTables: [table.id], selfLearning }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Add the client.", config: { kind: "manual", placement: "button" } }, { context });
   const until = (runId: string, status: string) =>
     vi.waitFor(async () => {
@@ -63,6 +65,15 @@ test("the model sees a refusal as a tool error and the Job goes on", async () =>
   const { runId } = await call(router.jobs.start, { triggerId: again.trigger.id }, { context: again.context });
   await again.until(runId, "succeeded");
   expect(lastTool(again.model.inputs[1]!.items)).toMatchObject({ isError: true, result: "Not found" });
+});
+
+test("a cloud Job that learns writes its agent's memory with memory_add", async () => {
+  const s = await setup(["data"], [use("memory_add", { scope: "agent", path: "habits.md", name: "Habits", description: "How the owner likes it", type: "practice", body: "Short answers." }), say("Noted.")], undefined, ["agent"]);
+  const { runId } = await call(router.jobs.start, { triggerId: s.trigger.id }, { context: s.context });
+  await s.until(runId, "succeeded");
+  expect(s.model.inputs[0]!.tools.map((t) => t.name)).toEqual(expect.arrayContaining(["memory_read", "memory_add", "memory_update", "memory_remove"]));
+  expect(lastTool(s.model.inputs[1]!.items)).toMatchObject({ isError: false });
+  expect(await listMemory(s.context.db, s.context.ownerId, { scope: "agent", agentId: s.agent.id })).toMatchObject([{ path: "habits.md", body: "Short answers.", author: { type: "agent", runId } }]);
 });
 
 test("a workflow run's cloud session gets no platform tool", async () => {

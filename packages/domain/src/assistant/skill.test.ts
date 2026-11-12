@@ -9,7 +9,7 @@ import { CliHarnessAdapter, createEngine } from "../engine/cli-harness.ts";
 import { Engine } from "../engine/engine.ts";
 import { toolingOf } from "../engine/tooling.ts";
 import { callPlatformTool } from "../platform/call.ts";
-import { APPLY, INBOX_TOOLS, PLATFORM_TOOLS, PROPOSE } from "../platform/tools.ts";
+import { APPLY, INBOX_TOOLS, MEMORY_TOOLS, PLATFORM_TOOLS, PROPOSE } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
 import type { RunnerHub } from "../runners/hub.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
@@ -39,7 +39,7 @@ test("the build's files are a valid package of one skill, and name only tools Di
   expect(Object.keys(build)).toContain(`${PLATFORM_SKILL}/SKILL.md`);
   expect(Object.keys(build).every((path) => path.startsWith(`${PLATFORM_SKILL}/`))).toBe(true);
   // A tool the skill names in code (`rows_list`) is one an agent can be given.
-  const names = new Set([...PLATFORM_TOOLS, PROPOSE, APPLY, ...INBOX_TOOLS].map((t) => t.name).concat([ASK_USER, REQUEST_APPROVAL, READ_SKILL, SUBMIT_OUTPUTS]));
+  const names = new Set([...PLATFORM_TOOLS, PROPOSE, APPLY, ...INBOX_TOOLS, ...MEMORY_TOOLS].map((t) => t.name).concat([ASK_USER, REQUEST_APPROVAL, READ_SKILL, SUBMIT_OUTPUTS]));
   const named = Object.values(build).flatMap((md) => [...md.matchAll(/`([a-z]+(?:_[a-z]+)+|propose)`/g)].map((m) => m[1]!));
   expect(named.length).toBeGreaterThan(10);
   expect(named.filter((n) => !names.has(n))).toEqual([]);

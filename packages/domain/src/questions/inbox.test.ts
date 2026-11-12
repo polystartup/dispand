@@ -101,7 +101,7 @@ test("an inbox Job lists, reads and answers another agent's Question on its tabl
   const asking = await s.jobOn(s.clerk, s.clients);
   const q = await s.ask(asking);
   const job = await s.jobOf(s.answerer);
-  expect((await toolsOf(s.context.db, job)).map((t) => t.name)).toEqual(["questions_list", "questions_get", "questions_answer"]);
+  expect((await toolsOf(s.context.db, job)).map((t) => t.name)).toEqual(["questions_list", "questions_get", "questions_answer", "memory_read"]);
   const item = { id: q.id, askedBy: { agent: { id: s.clerk.id, name: "Clerk" }, jobId: asking }, questions: (choice as { questions: unknown[] }).questions };
   expect(await s.tool(job, "questions_list")).toMatchObject({ ok: true, output: [item] });
   expect(await s.tool(job, "questions_get", { questionId: q.id })).toMatchObject({ ok: true, output: item });
