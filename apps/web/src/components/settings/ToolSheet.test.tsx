@@ -62,3 +62,16 @@ test("an address not saved yet takes Connect away: a sign-in and its client are 
   expect(screen.getByText(/Save the new address before connecting/)).toBeTruthy();
   expect(fake.tools.authorize).not.toHaveBeenCalled();
 });
+
+test("a server that needs a client id it gave opens the client fields when Connect fails for want of one", async () => {
+  fake.tools.authorize.mockRejectedValue(
+    Object.assign(new Error("mail.example.com's authorization server supports neither client metadata documents nor registration: enter the client id it gave you"), { code: "BAD_REQUEST" }),
+  );
+  sheet();
+  expect(screen.queryByLabelText("Client id")).toBeNull();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Connect" }));
+  expect((await screen.findByRole("alert")).textContent).toMatch(/enter the client id it gave you/);
+  expect(screen.getByLabelText("Client id")).toBeTruthy();
+  expect(screen.getByLabelText("Client secret")).toBeTruthy();
+});

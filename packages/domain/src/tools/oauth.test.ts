@@ -117,7 +117,17 @@ test("an entered client id and secret, where the server supports neither metadat
   const tool = await oauthTool(ctx, mcp.url);
   await expect(call(router.tools.authorize, { id: tool.id }, { context: ctx })).rejects.toThrow(/supports neither client metadata documents nor registration/);
 
-  await connect(ctx, tool.id, { clientId: "given-id", clientSecret: "given-s3cret" });
+  // The SDK reads the entered client stamped with its issuer (SEP-2352), never unstamped.
+  const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  try {
+    await connect(ctx, tool.id, { clientId: "given-id", clientSecret: "given-s3cret" });
+    expect(JSON.stringify(warned.mock.calls)).not.toContain("SEP-2352");
+  } finally {
+    warned.mockRestore();
+  }
+  const sealed = (await row(ctx, tool.id)).oauthSealed;
+  expect(openState(ctx.secrets, tool.id, sealed).entered?.issuer).toBe(as.url);
+  expect(tokensOf(ctx, await row(ctx, tool.id)).issuer).toBe(as.url);
   const view = await call(router.tools.get, { id: tool.id }, { context: ctx });
   expect(view).toMatchObject({ oauthStatus: "connected", enteredClientId: "given-id", actions: [{ name: "echo" }] });
   expect(JSON.stringify(view)).not.toContain("given-s3cret");

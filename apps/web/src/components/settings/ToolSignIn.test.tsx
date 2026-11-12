@@ -43,3 +43,9 @@ test("ToolSignIn keeps a stored client unless it is changed or cleared, and neve
   await user.click(screen.getByRole("button", { name: "Re-authorize" }));
   expect(connect).toHaveBeenLastCalledWith(null);
 });
+
+test("ToolSignIn shows the client fields when asked for a client id", () => {
+  render(<ToolSignIn status="authorize" clientId={null} askClient onConnect={() => {}} />);
+  expect(screen.getByLabelText("Client id")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Enter a client id" })).toBeNull();
+});

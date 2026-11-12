@@ -166,7 +166,12 @@ export function createOAuthProvider(store: OAuthStore, mode: OAuthMode, appUrl: 
           throw new ToolError("The server now names another authorization server than the one its client id was entered for: enter the client id that server gave you");
         }
         if (entered.client_secret) secrets.add(entered.client_secret);
-        return entered;
+        if (entered.issuer || !ctx) return entered;
+        // First use: bound to this issuer now, and handed stamped so the SDK's issuer check applies (SEP-2352).
+        await store.change((state) => {
+          if (state.entered?.client_id === entered.client_id) state.entered.issuer ??= ctx.issuer;
+        });
+        return { ...entered, issuer: ctx.issuer };
       }
       const info = state.issuers[issuer ?? ""]?.client;
       if (info) client = true;
