@@ -58,6 +58,8 @@ test("the tools are exactly the data and configure ones, on tables, fields, rows
     "tables_rename",
     "tables_set_primitive",
     "tools_add",
+    "tools_add_from_catalog",
+    "tools_catalog",
     "tools_delete",
     "tools_get",
     "tools_list",
@@ -69,12 +71,12 @@ test("the tools are exactly the data and configure ones, on tables, fields, rows
     "workspace_checkpoint",
     "workspace_set_checkpoint",
   ]);
-  expect(PLATFORM_TOOLS).toHaveLength(34);
+  expect(PLATFORM_TOOLS).toHaveLength(36);
   expect(PLATFORM_TOOLS.every((t) => ["tables", "fields", "rows", "agents", "harnesses", "triggers", "tools", "workspace"].includes(t.path.split(".")[0]!))).toBe(true);
   // Of harnesses, only their limits: an agent never sees or changes a harness's runner, model or key.
   expect(PLATFORM_TOOLS.filter((t) => t.path.startsWith("harnesses.")).map((t) => t.path)).toEqual(["harnesses.limits", "harnesses.setLimit"]);
   // What changes what agents may do is marked: it runs only on a proposal a person approved.
-  expect(PLATFORM_TOOLS.filter((t) => t.grant).map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "harnesses_set_limit", "tables_delete", "tools_add", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
+  expect(PLATFORM_TOOLS.filter((t) => t.grant).map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "harnesses_set_limit", "tables_delete", "tools_add", "tools_add_from_catalog", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
   // What needs a person, and what agents never touch, are named as not tools.
   for (const path of ["fields.retype", "auth.setup", "runners.create", "tools.create", "tools.update", "tools.refresh", "agents.delete", "jobs.start", "questions.answer", "files.upload"]) {
     expect(NOT_TOOLS).toContain(path);

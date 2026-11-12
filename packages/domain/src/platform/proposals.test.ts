@@ -130,7 +130,7 @@ test("an approval doesn't bring back a right taken since, nor skip the procedure
 test("every tool marked as a grant is refused without a proposal", async () => {
   const s = await setup(["data", "configure"]);
   const grants = PLATFORM_TOOLS.filter((t) => t.grant);
-  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "harnesses_set_limit", "tables_delete", "tools_add", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
+  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "harnesses_set_limit", "tables_delete", "tools_add", "tools_add_from_catalog", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
   const table = await call(router.tables.create, { name: "Clients" }, { context: s.context });
   const field = (await call(router.tables.get, { id: table.id }, { context: s.context })).fields[0]!;
   const inputs: Record<string, unknown> = {
@@ -143,6 +143,7 @@ test("every tool marked as a grant is refused without a proposal", async () => {
     triggers_update: { id: "trigger_x", enabled: false },
     triggers_delete: { id: "trigger_x" },
     tools_add: { name: "Mail", url: "https://mail.example.com/mcp", transport: "streamable-http" },
+    tools_add_from_catalog: { catalogId: "firecrawl" },
     tools_delete: { id: "tool_x" },
     harnesses_set_limit: { id: s.agent.harnessId, maxWorking: 10 },
     workspace_set_checkpoint: { checkpoint: 500 },

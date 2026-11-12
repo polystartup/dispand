@@ -934,6 +934,24 @@
   `mcpServers` snippet for the runner's config with `"<your key>"` placeholders (no value is
   sent or stored). Settings → Tools
   has "Browse catalog" (`ToolCatalog.tsx`).
+  Each HTTP entry declares its `actions` (name, description, read-only, pollable, and whether it
+  asks before use by default; its `unasked` and `pollable` are derived from them by `http()`),
+  and a tool made from it starts with them (`declaredActions`) until a listing succeeds and
+  replaces them. `tools.addFromCatalog({ catalogId, name? })`, the grant tool
+  `tools_add_from_catalog` (it creates a tool, so an item may name it with `{ "$item": n }`),
+  adds an HTTP entry's tool with no header value; its zod schema refuses a runner entry with its
+  snippet, so the refusal comes when proposed. `tools_catalog` is a `configure` read.
+  `signInOf(row)` derives `signIn`: `needed` for an HTTP catalog entry with settings and no
+  header, or an OAuth tool not connected; `connected`; or `none`. `tools.get`/`list` give it with
+  `signInPath` (`/settings/tools?tool=<id>`). `connectionTarget` refuses a tool that needs
+  sign-in before any request, so nothing lists or calls it, and the scheduler records such a
+  poll `skipped` with "needs sign-in" at claim and again before the call (`pollProblem`, which
+  also gates a trigger's creation, doesn't look at it: a poll trigger is made before the
+  sign-in). The tool's sheet shows the entry's settings (`CatalogSettings.tsx`), saved by
+  `tools.fillSettings` (owner only, not a tool), which seals them as the entry's headers and
+  lists the actions. An agent's text links to a tool's page with its `signInPath`: `AgentText`
+  navigates in the app for a path with one leading `/` and no `.` or `..` segment (`isAppPath`);
+  every other link stays a button that opens a new tab.
   The mail entries (`docs/services/`): `gmail` is an OAuth HTTP entry for Google's hosted Gmail
   server, whose `oauth` (scopes and authorization parameters) goes into the tool's `ToolTarget`
   (`oauthRequest`, while `catalog_id` names it): `tools.authorize` then starts the flow with the

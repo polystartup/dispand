@@ -1,10 +1,12 @@
 import { MarkdownTextPrimitive, type CodeHeaderProps } from "@assistant-ui/react-markdown";
-import { type ComponentProps, useState } from "react";
+import { useRouter } from "@tanstack/react-router";
+import { type ComponentProps, type ReactNode, useState } from "react";
 import { Check, Copy } from "lucide-react";
 
 // Text an agent wrote, shown formatted. Whatever it holds, the browser is not made to fetch
 // anything from elsewhere: an image shows only when it is one of the app's own files, a link is a
-// button that says where it goes and opens on a click, and raw HTML is not rendered at all. The
+// button that says where it goes and opens on a click (a page of the app's, in the app), and raw
+// HTML is not rendered at all. The
 // page's Content-Security-Policy is the second line behind this one.
 
 /** The app's own files, by id: no scheme, no host, no `..`. */
@@ -12,10 +14,30 @@ const FILE = /^\/files\/[A-Za-z0-9_-]{1,64}$/;
 /** Where a link may go when clicked. */
 const LINK = /^(https?:|mailto:)/i;
 
+/**
+ * A page of the app (a tool's `signInPath`): a path from the root with one `/`, without `.` or
+ * `..` segments or a backslash, so it can't name another host or climb out of the path it reads as.
+ */
+export function isAppPath(url: string): boolean {
+  if (!url.startsWith("/") || url.startsWith("//") || url.includes("\\")) return false;
+  const path = url.split(/[?#]/)[0]!;
+  return path.split("/").every((segment) => segment !== "." && segment !== ".." && !/%2e/i.test(segment) && !/%2f|%5c/i.test(segment));
+}
+
 function urlTransform(url: string, key: string): string | null {
   if (key === "src") return FILE.test(url) ? url : null;
-  if (key === "href") return LINK.test(url) ? url : null;
+  if (key === "href") return LINK.test(url) || isAppPath(url) ? url : null;
   return null;
+}
+
+/** A link to a page of the app: it navigates in the app, in place, on a click. */
+function AppLink({ href, children }: { href: string; children: ReactNode }) {
+  const router = useRouter({ warn: false }) as ReturnType<typeof useRouter> | null;
+  return (
+    <button type="button" title={href} className="text-left text-accent underline" onClick={() => (router ? void router.navigate({ href }) : window.location.assign(href))}>
+      {children}
+    </button>
+  );
 }
 
 function CodeHeader({ language, code }: CodeHeaderProps) {
@@ -46,7 +68,9 @@ const components: ComponentProps<typeof MarkdownTextPrimitive>["components"] = {
   img: ({ src, alt }) =>
     typeof src === "string" && FILE.test(src) ? <img src={src} alt={alt ?? ""} className="my-1 max-h-64 rounded-lg" /> : <span className="text-faint">[image not shown: {alt || "no description"}]</span>,
   a: ({ href, children }) =>
-    typeof href === "string" && LINK.test(href) ? (
+    typeof href === "string" && isAppPath(href) ? (
+      <AppLink href={href}>{children}</AppLink>
+    ) : typeof href === "string" && LINK.test(href) ? (
       <button type="button" title={href} className="text-left text-accent underline" onClick={() => window.open(href, "_blank", "noopener,noreferrer")}>
         {children} <span className="text-[12px] text-faint no-underline">({href})</span>
       </button>

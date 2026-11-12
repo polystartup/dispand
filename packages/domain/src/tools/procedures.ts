@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 import { toolHolder } from "../agents/usage.ts";
 import type { Db, Tx } from "../db/client.ts";
@@ -11,8 +11,8 @@ import { logError } from "../log.ts";
 import { authed, base } from "../rpc/context.ts";
 import { type RunnerHub, RunnerRequestFailed } from "../runners/hub.ts";
 import { secretAad, type SecretBox } from "../secrets.ts";
-import { CATALOG, catalogEntry, fillHeaders, MissingSetting, runnerSnippet, searchCatalog } from "./catalog.ts";
-import { AUTHS, ToolError, TRANSPORTS, type ToolAuth, type ToolConnector, type ToolTarget, type ToolTransport } from "./mcp.ts";
+import { CATALOG, catalogEntry, declaredActions, fillHeaders, MissingSetting, runnerSnippet, searchCatalog, signInOf } from "./catalog.ts";
+import { AUTHS, ToolError, TRANSPORTS, type ToolAction, type ToolAuth, type ToolConnector, type ToolTarget, type ToolTransport } from "./mcp.ts";
 import { oauthStep, oauthStore } from "./oauth-store.ts";
 import { pollableActions } from "./pollable.ts";
 import type { InitialContext } from "../rpc/context.ts";
@@ -72,6 +72,9 @@ function toView(row: Row, plugin: PluginRef | null) {
     // OAuth: connected, needs authorization, or re-authorize; and the client id the owner entered (its secret stays sealed).
     oauthStatus: row.auth === "oauth" ? (row.oauthStatus ?? "authorize") : null,
     enteredClientId: row.oauthClientId,
+    // Whether it waits for its owner to sign in, and where in the app they do it.
+    signIn: signInOf(row),
+    signInPath: `/settings/tools?tool=${encodeURIComponent(row.id)}`,
     actions: row.actions,
     actionsError: row.actionsError,
     refreshedAt: row.refreshedAt,
@@ -141,6 +144,9 @@ export function toolTarget(row: Row, secrets: SecretBox): ToolTarget {
   return { url: secret.url, transport: row.transport, headers, urlSecrets: secret.secrets, ...request };
 }
 
+/** What a catalog tool whose settings aren't filled says on each listing, call or poll. */
+export const NEEDS_SIGN_IN = (name: string) => `${name} needs sign-in: fill its settings on its page in Settings → Tools`;
+
 /** What a sign-in that stopped working says on each call, until its owner re-authorizes the tool. */
 export const REAUTHORIZE = "The sign-in to this tool stopped working: re-authorize it on its page in Settings → Tools";
 
@@ -151,6 +157,8 @@ export const REAUTHORIZE = "The sign-in to this tool stopped working: re-authori
  */
 export function connectionTarget(db: Db, secrets: SecretBox, row: Row): ToolTarget {
   const target = toolTarget(row, secrets);
+  // A catalog tool added before its key: never called without it (some servers answer keyless).
+  if (row.auth !== "oauth" && signInOf(row) === "needed") throw new ToolError(NEEDS_SIGN_IN(row.name));
   if (row.auth !== "oauth") return target;
   if (row.oauthStatus === "reauthorize") throw new ToolError(REAUTHORIZE);
   if (row.oauthStatus !== "connected") throw new ToolError(`${row.name} isn't connected yet: connect it on its page in Settings → Tools`);
@@ -234,6 +242,8 @@ export type ToolFields = {
   catalogId?: string;
   /** The actions a poll may read (a catalog entry's); absent: the ones the server calls read-only. */
   pollable?: string[];
+  /** The actions it starts with (a catalog entry's), until its first listing. */
+  actions?: ToolAction[];
   /** The URL to call when it holds secrets (named in `secrets`); `url` is then its template, shown in its place. */
   secretUrl?: { url: string; secrets: string[] };
   plugin?: { id: string; component: string };
@@ -274,6 +284,7 @@ export async function insertTool(db: Db | Tx, secrets: SecretBox, ownerId: strin
       oauthStatus: input.oauth ? "authorize" : null,
       catalogId: input.catalogId ?? null,
       pollable: input.pollable ?? null,
+      actions: input.actions ?? [],
       pluginId: input.plugin?.id ?? null,
       pluginComponent: input.plugin?.component ?? null,
     })
@@ -306,8 +317,8 @@ export async function retarget(db: Db | Tx, row: Row, url: string, transport: To
 
 async function createTool(context: Pick<InitialContext, "db" | "secrets" | "tools"> & { ownerId: string }, input: ToolFields) {
   const row = await insertTool(context.db, context.secrets, context.ownerId, input);
-  // An OAuth tool lists its actions once connected.
-  return view(context.db, row.auth === "oauth" ? row : await refreshActions(context.db, context.secrets, context.tools, row));
+  // A tool waiting for its sign-in (an OAuth tool, a catalog tool without its key) lists its actions once signed in.
+  return view(context.db, row.auth === "oauth" || signInOf(row) === "needed" ? row : await refreshActions(context.db, context.secrets, context.tools, row));
 }
 
 const RunnerTool = z.object({
@@ -375,6 +386,19 @@ const add = owner
 /** The catalog's entries, searched by name and description. Templates and setting names only: no value. */
 const catalog = owner.input(z.object({ query: z.string().max(100).optional() })).handler(({ input }) => searchCatalog(input.query));
 
+type HttpEntry = Extract<(typeof CATALOG)[number], { kind: "http" }>;
+
+/** A tool's fields from an HTTP entry: its address, the actions it declares, and what polls may read. */
+const fromEntry = (entry: HttpEntry, name: string | undefined) => ({
+  name: name ?? entry.name,
+  url: entry.url,
+  transport: entry.transport,
+  headers: {},
+  catalogId: entry.id,
+  pollable: entry.pollable,
+  actions: declaredActions(entry),
+});
+
 /**
  * Installs a catalog entry: an HTTP entry becomes a tool with its headers filled from `settings`
  * (and sealed); a runner entry only gives the snippet to add to the runner's config, with
@@ -393,7 +417,7 @@ const installFromCatalog = owner
     if (!entry) throw new ORPCError("NOT_FOUND", { message: "Not in the catalog" });
     if (entry.kind === "runner") return { runnerSnippet: runnerSnippet(entry) };
     // An OAuth entry is connected afterwards, on the tool's page, with the owner's own client.
-    if (entry.oauth) return { tool: await createTool(context, { name: input.name ?? entry.name, url: entry.url, transport: entry.transport, headers: {}, oauth: true, catalogId: entry.id, pollable: entry.pollable }) };
+    if (entry.oauth) return { tool: await createTool(context, { ...fromEntry(entry, input.name), oauth: true }) };
     let headers: Record<string, string>;
     try {
       headers = fillHeaders(entry, input.settings);
@@ -401,8 +425,79 @@ const installFromCatalog = owner
       if (error instanceof MissingSetting) bad(error.message);
       throw error;
     }
-    const tool = await createTool(context, { name: input.name ?? entry.name, url: entry.url, transport: entry.transport, headers, catalogId: entry.id, pollable: entry.pollable });
+    const tool = await createTool(context, { ...fromEntry(entry, input.name), headers });
     return { tool };
+  });
+
+/**
+ * Adds a catalog entry's tool with no credential: what an agent may propose. An HTTP entry is
+ * added with the actions its entry declares, so their flags and poll triggers can be set before
+ * its owner signs in on the tool's page (`signInPath`): enters its settings, or connects it. A
+ * runner entry is refused when proposed, with the snippet its owner adds on their machine.
+ */
+const addFromCatalog = owner
+  .input(
+    z.strictObject({
+      catalogId: z
+        .string()
+        .max(64)
+        .superRefine((id, ctx) => {
+          const entry = catalogEntry(id);
+          if (!entry) ctx.addIssue({ code: "custom", message: "Not in the catalog: tools_catalog lists its entries" });
+          else if (entry.kind === "runner") {
+            ctx.addIssue({
+              code: "custom",
+              message: `${entry.name} runs on the owner's machine: they add this under mcpServers in their runner's config.json, then pick the runner in Settings → Tools. ${runnerSnippet(entry)}`,
+            });
+          }
+        }),
+      name: Name.optional(),
+    }),
+  )
+  .handler(async ({ input, context }) => {
+    const entry = catalogEntry(input.catalogId) as HttpEntry;
+    return createTool(context, { ...fromEntry(entry, input.name), headers: {}, oauth: entry.oauth !== undefined });
+  });
+
+/**
+ * Fills a catalog tool's settings (its key), sealed in its headers as its entry says, then
+ * lists its actions: the first listing that succeeds replaces the ones it was added with.
+ */
+const fillSettings = owner
+  .input(z.object({ id: z.string(), settings: z.record(z.string().max(64), HeaderValue).refine((s) => Object.keys(s).length <= MAX_HEADERS, `At most ${MAX_HEADERS} settings`) }))
+  .handler(async ({ input, context }) => {
+    const current = await find(context.db, context.ownerId, input.id);
+    const entry = catalogEntry(current.catalogId);
+    if (current.kind !== "http" || entry?.kind !== "http" || entry.settings.length === 0 || current.auth === "oauth") bad("This tool has no settings to fill");
+    // Still at its entry's address (a tool pointed elsewhere loses its entry), and only there.
+    if (current.url !== entry.url || current.transport !== entry.transport || current.urlSealed !== null) bad("This tool no longer calls its catalog entry's address");
+    let headers: Record<string, string>;
+    try {
+      headers = fillHeaders(entry, input.settings);
+    } catch (error) {
+      if (error instanceof MissingSetting) bad(error.message);
+      throw error;
+    }
+    checkTarget(entry.url, true);
+    const headersSealed = Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, context.secrets.seal(value, headerAad(current.id, name))]));
+    const [row] = await context.db
+      .update(toolsTable)
+      .set({ headersSealed, auth: authOf(false, headersSealed) })
+      // Only while it still calls the address checked above: a change meanwhile saves nothing.
+      .where(
+        and(
+          eq(toolsTable.id, current.id),
+          eq(toolsTable.ownerId, context.ownerId),
+          eq(toolsTable.url, entry.url),
+          isNull(toolsTable.urlSealed),
+          eq(toolsTable.transport, entry.transport),
+          eq(toolsTable.catalogId, entry.id),
+          ne(toolsTable.auth, "oauth"),
+        ),
+      )
+      .returning();
+    if (!row) throw new ORPCError("CONFLICT", { message: "The tool changed meanwhile: open it again" });
+    return view(context.db, await refreshActions(context.db, context.secrets, context.tools, row));
   });
 
 /**
@@ -596,4 +691,4 @@ const setPollable = owner.input(z.object({ id: z.string(), actions: z.array(z.st
   return (await pollableActions(context.db, context.ownerId, row.id))!;
 });
 
-export const tools = { create, add, update, delete: remove, list, get, refresh, authorize, catalog, installFromCatalog, pollable, setPollable };
+export const tools = { create, add, update, delete: remove, list, get, refresh, authorize, catalog, installFromCatalog, addFromCatalog, fillSettings, pollable, setPollable };
