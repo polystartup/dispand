@@ -6,7 +6,7 @@ import { fields, rows, triggers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import { INTERACTION } from "../triggers/model.ts";
-import { ProposeInput } from "./proposals.ts";
+import { ApplyInput, CREATES, ProposeInput, type ProposalName } from "./proposals.ts";
 import type { JobIdentity, PlatformApp, ToolResult } from "./call.ts";
 import { AnswerInput, answerQuestion, getQuestion, GetInput, listQuestions, ListInput } from "../questions/inbox.ts";
 
@@ -38,6 +38,13 @@ export type PlatformTool = {
    * approved for that Job (`platform/proposals.ts`), checked in `callPlatformTool`.
    */
   grant?: true;
+  /**
+   * A configuration write that needs no proposal but may be listed in one, so a whole setup is
+   * approved at once. A grant is a write too. Reads are neither, and are never proposal items.
+   */
+  write?: true;
+  /** What the call creates: its kind, and its id read from the output. An item may name it with `{ "$item": n }`. */
+  creates?: { kind: ProposalName["kind"]; id(output: unknown): string | null };
   /** A tool that works for the Job itself, not as its owner: no procedure of the router, run here instead. */
   run?(app: PlatformApp, job: JobIdentity, input: unknown): Promise<ToolResult>;
 };
@@ -124,10 +131,17 @@ async function tableOfField(db: Db, ownerId: string, input: unknown): Promise<(s
 
 const NEEDS_PROPOSAL = "Needs the owner's approval first: list the call with propose, ask with request_approval, then make it exactly as listed.";
 
-function tool(path: string, bundle: Bundle, description: string, rest: Pick<PlatformTool, "tables" | "filter" | "grant">): PlatformTool {
+/** The id of what a create returned: its view's `id`. */
+const idOf = (output: unknown): string | null => {
+  const id = (output as { id?: unknown } | null)?.id;
+  return typeof id === "string" ? id : null;
+};
+
+function tool(path: string, bundle: Bundle, description: string, rest: Pick<PlatformTool, "tables" | "filter" | "grant" | "write">): PlatformTool {
   // `agents.setToolAsk` is `agents_set_tool_ask`: lower case with `_`, like every tool's name.
   const name = path.replace(".", "_").replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
-  return { path, name, bundle, description, input: procedureOf(router, path)["~orpc"].inputSchema ?? z.object({}), ...rest };
+  const kind = CREATES[name];
+  return { path, name, bundle, description, input: procedureOf(router, path)["~orpc"].inputSchema ?? z.object({}), ...rest, ...(kind ? { creates: { kind, id: idOf } } : {}) };
 }
 
 export const PLATFORM_TOOLS: PlatformTool[] = [
@@ -146,20 +160,22 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
       return withReferring(db, ownerId, tablesOfRows(db, ownerId, Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []));
     },
   }),
-  tool("tables.create", "configure", "Creates a table. Add its fields next with fields_create.", { tables: none }),
-  tool("tables.rename", "configure", "Renames a table.", { tables: named("id") }),
+  tool("tables.create", "configure", "Creates a table. Add its fields next with fields_create.", { tables: none, write: true }),
+  tool("tables.rename", "configure", "Renames a table.", { tables: named("id"), write: true }),
   tool("tables.setPrimitive", "configure", "Makes a table primitive (each change of its rows is an event that can start agents' Jobs) or not, and sets its parent table.", {
     tables: async (_db, _ownerId, input) => {
       const parent = (input as { parent?: { tableId?: unknown } | null } | null)?.parent;
       return [str(input, "id"), ...(parent && typeof parent.tableId === "string" ? [parent.tableId] : [])];
     },
+    write: true,
   }),
   tool("fields.create", "configure", "Adds a field to a table: a name, a type and, for a choice field, its choices; for a reference, the table whose rows it names.", {
     // A reference names a second table: it too must be within the Job's tables.
     tables: async (_db, _ownerId, input) => [str(input, "tableId"), ...(str(input, "referencesTableId") === null ? [] : [str(input, "referencesTableId")])],
+    write: true,
   }),
-  tool("fields.update", "configure", "Renames a field or changes its choices.", { tables: tableOfField }),
-  tool("fields.reorder", "configure", "Sets the order of a table's fields: give every field id, in the new order.", { tables: named("tableId") }),
+  tool("fields.update", "configure", "Renames a field or changes its choices.", { tables: tableOfField, write: true }),
+  tool("fields.reorder", "configure", "Sets the order of a table's fields: give every field id, in the new order.", { tables: named("tableId"), write: true }),
   tool("agents.list", "configure", "Lists the agents, with their ids, harness, instructions and what their Jobs may do.", { tables: none }),
   tool("agents.get", "configure", "Gives one agent by its id, with its skills and tools.", { tables: none }),
   tool("agents.create", "configure", `Creates an agent. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
@@ -192,8 +208,19 @@ export const PROPOSE: PlatformTool = {
   name: "propose",
   bundle: "configure",
   description:
-    "Lists writes that need the owner's approval (the tools that say so), each with the exact input you will call it with. Then ask for it with request_approval, giving the proposal's id; once approved, make each call exactly as listed, once.",
+    'Lists configuration writes for the owner to approve at once: those that need it (the tools that say so) and any other you want shown with them, each with the exact input. Where an id goes, { "$item": n } names what the earlier item n (from 0) creates. Then ask with request_approval, giving the proposal\'s id; once approved, call proposal_apply with it.',
   input: ProposeInput,
+  tables: none,
+};
+
+/** `proposal_apply`: like `propose`, the Job's own, handled by `callPlatformTool`, which runs each item through itself. */
+export const APPLY: PlatformTool = {
+  path: "",
+  name: "proposal_apply",
+  bundle: "configure",
+  description:
+    "Makes the calls of an approved proposal of yours for you, in order, each exactly as listed and checked like a direct call; a reference to an earlier item becomes the id that item created. Stops at the first call refused and gives each item's outcome. Call it again to go on from the first item not made yet.",
+  input: ApplyInput,
   tables: none,
 };
 

@@ -108,8 +108,15 @@ changes it updates this file.
   tools, and `callPlatformTool`, the single way a Job calls them, runs a grant only when it
   finds and uses up an item of a proposal of that same Job that the owner approved: the same
   tool, the same input (key order aside), not used yet. A proposal is made by the agent
-  (`propose`: at most 20 writes and 64 KiB, each validated by its tool and kept as parsed), and
-  belongs to its Job: no other Job uses it, and it ends with the Job. The Job's rights are
+  (`propose`: at most 60 configuration writes and 64 KiB, each validated by its tool and kept
+  as parsed), and belongs to its Job: no other Job uses it, and it ends with the Job. An item
+  may name what an earlier item of the same proposal creates (`{ "$item": n }`, where an id
+  goes); it matches a call only with the id that earlier item's own call created, recorded
+  when it was used, so a reference can't be pointed at anything else. `proposal_apply` makes
+  an approved proposal's unused items in order, each through `callPlatformTool` as that very
+  item, with the Job's rights read again for each: it can do nothing the Job couldn't do by
+  calling them itself, and stops at the first refusal. An item is used up when its call
+  starts, whether or not the procedure then accepts it. The Job's rights are
   checked first and as they are at the call, so an approval never brings back a bundle taken
   since, and the procedure's own checks still apply (what isn't the owner's stays refused). A
   person may approve more than the proposing agent holds: that is what a grant is, and why

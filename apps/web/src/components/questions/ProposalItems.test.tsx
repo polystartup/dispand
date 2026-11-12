@@ -156,3 +156,35 @@ test("an agent's consult entries read by name, with their flag and what a consul
   expect(within(item).getByText(/agent_gone: not one of yours/)).toBeTruthy();
   expect(within(item).getByText("It can steer this agent with its questions, and its answers may quote what it reads in tables this agent can't.")).toBeTruthy();
 });
+
+test("a reference to an earlier item reads as what that item creates, by name once made; a refused item says so", () => {
+  const setup: ProposalView = {
+    id: "prop_3",
+    status: "approved",
+    items: [
+      { tool: "tables_create", used: true, failed: false, refs: [], creates: "table", createdId: "table_1", input: { name: "Matters" } },
+      { tool: "agents_create", used: true, failed: true, refs: ["dataTables"], creates: "agent", createdId: null, input: { name: "Clerk", dataTables: [{ $item: 0 }] } },
+      {
+        tool: "triggers_create",
+        used: false,
+        refs: ["agentId"],
+        creates: "trigger",
+        createdId: null,
+        input: { agentId: { $item: 1 }, name: "New matter", config: { kind: "primitive", tableId: { $item: 0 }, operations: ["created"] } },
+      },
+      { tool: "tables_set_primitive", used: false, refs: ["id"], creates: null, createdId: null, input: { id: { $item: 0 }, primitive: true, parent: { tableId: "table_2", required: true } } },
+    ],
+    names: { table_1: { kind: "table", name: "Matters" }, table_2: { kind: "table", name: "Clients" } },
+  };
+  render(<ProposalItems proposal={setup} />);
+  const [table, agent, trigger, primitive] = screen.getAllByRole("listitem");
+  expect(table!.textContent).toContain("1.Create a table");
+  expect(agent!.textContent).toContain("the table item 1 creates: Matters");
+  expect(within(agent!).getByText("refused")).toBeTruthy();
+  expect(trigger!.textContent).toContain("the agent item 2 creates");
+  expect(trigger!.textContent).toContain("A change to the table the table item 1 creates: Matters");
+  expect(primitive!.textContent).toContain("Clients");
+  expect(primitive!.textContent).toContain("which every row must name");
+  expect(screen.queryByText(/not one of yours/)).toBeNull();
+  expect(document.body.textContent).not.toContain("[object Object]");
+});

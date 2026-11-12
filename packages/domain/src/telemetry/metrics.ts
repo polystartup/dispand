@@ -25,6 +25,8 @@ export const METRICS = {
   "dispand.consult.wait": ["dispand.consult.outcome"],
   // The `inbox` bundle's tools (`questions/inbox.ts`).
   "dispand.inbox.calls": ["dispand.inbox.tool", "dispand.result"],
+  // `proposal_apply` (`platform/call.ts`): every item made (done), some refused by an earlier call (partial), stopped at a refusal or at an item still being made, or refused at once.
+  "dispand.proposals.applied": ["dispand.result"],
   "dispand.checkpoints.reached": [],
   "dispand.checkpoints.answered": ["dispand.checkpoint.answer"],
   "dispand.roots.paused": [],

@@ -1,4 +1,5 @@
 import { JOB_SERVER_NAME, storable } from "@dispand/runner-protocol";
+import { randomBytes } from "node:crypto";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
@@ -12,12 +13,13 @@ import type { JobIdentity } from "./call.ts";
 import type { PlatformTool } from "./tools.ts";
 
 // Proposals: what changes what agents may do is a person's decision. An agent lists the exact
-// writes it wants to make (each a tool marked `grant`, with its input), asks for them with
-// `request_approval`, and may then make exactly those, once each. The owner reads the list from
-// this row, never from the agent's words.
+// writes it wants to make (each a configuration write, with its input), asks for them with
+// `request_approval`, and may then make exactly those, once each, or have `proposal_apply` make
+// them. The owner reads the list from this row, never from the agent's words. A grant runs only
+// on such an item; any other listed write may also be made directly, as without a proposal.
 
 /** A proposal is shown whole: no more writes than this, and no more than this as JSON. */
-export const MAX_ITEMS = 20;
+export const MAX_ITEMS = 60;
 export const MAX_BYTES = 64 * 1024;
 
 const CLI_PREFIX = `mcp__${JOB_SERVER_NAME}__`;
@@ -25,8 +27,49 @@ const CLI_PREFIX = `mcp__${JOB_SERVER_NAME}__`;
 export const ProposeInput = z.object({
   items: z
     .array(z.object({ tool: z.string(), input: z.record(z.string(), z.unknown()) }))
-    .describe("The writes to approve: each a tool's name (such as agents_create) and the exact input you will call it with"),
+    .describe(
+      'The writes to approve, in order: each a tool\'s name (such as tables_create or agents_create) and the exact input you will call it with. Where an id goes, { "$item": n } names what the earlier item n (counted from 0) creates.',
+    ),
 });
+
+export const ApplyInput = z.object({ proposalId: z.string().describe("The id propose gave you, of a proposal the owner approved") });
+
+/** A Zod error in the words a direct call gives: each problem, at its path. */
+export const issues = (error: z.ZodError): string => error.issues.map((e) => `${e.path.join(".") || "input"}: ${e.message}`).join("; ");
+
+/** `{ "$item": n }`: what item `n` of the same proposal created. */
+type ItemRef = { $item: number };
+const isRef = (value: unknown): value is ItemRef => value !== null && typeof value === "object" && !Array.isArray(value) && Object.hasOwn(value, "$item");
+
+/** `value` with every reference replaced by `to(n)`: a placeholder when proposed, a created id when used. */
+function mapRefs(value: unknown, to: (ref: unknown) => unknown): unknown {
+  if (isRef(value)) return to(value);
+  if (Array.isArray(value)) return value.map((v) => mapRefs(v, to));
+  if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, mapRefs(v, to)]));
+  return value;
+}
+
+/** `value` with each of these strings put back as the reference it stood for. */
+function restoreRefs(value: unknown, placeholders: Map<string, number>): unknown {
+  if (typeof value === "string") return placeholders.has(value) ? { $item: placeholders.get(value)! } : value;
+  if (Array.isArray(value)) return value.map((v) => restoreRefs(v, placeholders));
+  if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, restoreRefs(v, placeholders)]));
+  return value;
+}
+
+/**
+ * An item's input with its references replaced by what the items they name created; null when
+ * one of those wasn't used, or created nothing.
+ */
+export function resolveRefs(items: ProposalItem[], input: unknown): unknown {
+  let missing = false;
+  const resolved = mapRefs(input, (ref) => {
+    const created = items[(ref as ItemRef).$item]?.createdId;
+    if (created === undefined) missing = true;
+    return created;
+  });
+  return missing ? null : resolved;
+}
 
 /** The agent an item would change and how, for the Assistant's guard; null for any other write. */
 async function agentChangeOf(db: Db, ownerId: string, tool: string, input: unknown): Promise<[string, AgentChange] | null> {
@@ -52,35 +95,60 @@ async function agentChangeOf(db: Db, ownerId: string, tool: string, input: unkno
 const everyString = (value: unknown, ok: (s: string) => boolean): boolean =>
   typeof value === "string" ? ok(value) : Array.isArray(value) ? value.every((v) => everyString(v, ok)) : value !== null && typeof value === "object" ? Object.entries(value).every(([k, v]) => ok(k) && everyString(v, ok)) : true;
 
+/** Whether a tool's call may be an item: a configuration write. */
+export const proposable = (tool: PlatformTool): boolean => tool.bundle === "configure" && (tool.grant === true || tool.write === true);
+
 /**
- * Stores the writes a Job's agent proposes, as a draft. Each must be a grant tool the Job may
- * use, with an input that tool accepts: it is kept as the tool parsed it, which is what a later
- * call is compared with. Refused with the reason when it couldn't be shown whole.
+ * Stores the writes a Job's agent proposes, as a draft. Each must be a configuration write the
+ * Job may use, with an input that tool accepts: it is kept as the tool parsed it, which is what
+ * a later call is compared with. A reference to an earlier item is parsed as an id would be and
+ * kept as the reference. Refused with the reason when it couldn't be shown whole.
  */
 export async function createProposal(db: Db, job: JobIdentity, tools: PlatformTool[], scope: TableScope, input: unknown): Promise<{ proposalId: string } | { error: string }> {
   const parsed = ProposeInput.safeParse(input);
-  if (!parsed.success) return { error: "propose needs items: each a tool's name and its input" };
+  if (!parsed.success) return { error: `propose needs items, each a tool's name and its input: ${issues(parsed.error)}` };
   if (parsed.data.items.length === 0) return { error: "A proposal lists at least one write" };
   if (parsed.data.items.length > MAX_ITEMS) return { error: `A proposal lists at most ${MAX_ITEMS} writes: make several` };
+  // What a reference stands for while its item is parsed: no text an agent could write.
+  const nonce = randomBytes(12).toString("hex");
   const items: ProposalItem[] = [];
   for (const [i, item] of parsed.data.items.entries()) {
+    const at = `Item ${i + 1} (${item.tool})`;
     // A CLI session sees the Job server's tools as `mcp__job__<name>`: either name is that tool.
     const name = item.tool.startsWith(CLI_PREFIX) ? item.tool.slice(CLI_PREFIX.length) : item.tool;
-    const tool = tools.find((t) => t.name === name && t.grant);
+    const tool = tools.find((t) => t.name === name && proposable(t));
     if (!tool) {
-      const proposable = tools.filter((t) => t.grant).map((t) => t.name);
-      return { error: `Item ${i + 1}: ${item.tool} is not a write you can propose. What you can propose: ${proposable.join(", ") || "nothing"}. Other tools are called directly.` };
+      const writes = tools.filter(proposable).map((t) => t.name);
+      return { error: `Item ${i + 1}: ${item.tool} is not a write you can propose. What you can propose: ${writes.join(", ") || "nothing"}.` };
     }
-    const given = tool.input.safeParse(item.input);
-    if (!given.success) return { error: `Item ${i + 1} (${item.tool}): ${given.error.issues.map((e) => `${e.path.join(".") || "input"}: ${e.message}`).join("; ")}` };
-    // Outside the Job's tables, or naming nothing: as for any call, and before a person is asked about it.
+    // Each reference names an earlier item that creates something.
+    const placeholders = new Map<string, number>();
+    let wrong: string | null = null;
+    const substituted = mapRefs(item.input, (ref) => {
+      const n = (ref as { $item: unknown }).$item;
+      const named = typeof n === "number" ? items[n] : undefined;
+      if (Object.keys(ref as object).length !== 1 || !Number.isInteger(n)) wrong ??= `a reference is { "$item": n } alone, n an earlier item's index (from 0)`;
+      else if (!named) wrong ??= `{ "$item": ${String(n)} } must name an earlier item: this one is { "$item": ${i} }, the first is { "$item": 0 }`;
+      else if (!tools.find((t) => t.name === named.tool)?.creates) wrong ??= `{ "$item": ${String(n)} } names ${named.tool}, which creates nothing to name`;
+      const placeholder = `${nonce}${String(n)}`;
+      placeholders.set(placeholder, n as number);
+      return placeholder;
+    });
+    if (wrong) return { error: `${at}: ${wrong}` };
+    const given = tool.input.safeParse(substituted);
+    if (!given.success) return { error: `${at}: ${issues(given.error)}` };
+    // Outside the Job's tables, or naming nothing: as for any call, and before a person is asked
+    // about it. A table an earlier item creates is outside a Job limited to some tables.
     const touched = await tool.tables(db, job.ownerId, given.data);
-    if (touched.some((id) => id === null || (scope !== "all" && !scope.includes(id)))) return { error: `Item ${i + 1} (${tool.name}): Not found` };
+    if (touched.some((id) => id === null || (scope !== "all" && !scope.includes(id)))) return { error: `${at}: Not found` };
     // What the Assistant can't lose is refused now, with the reason, not after a person approved it.
     const change = await agentChangeOf(db, job.ownerId, tool.name, given.data);
     const refused = change && (await assistantGuard(db, job.ownerId, change[0], change[1]));
-    if (refused) return { error: `Item ${i + 1} (${tool.name}): ${refused}` };
-    items.push({ tool: tool.name, input: given.data });
+    if (refused) return { error: `${at}: ${refused}` };
+    const kept = restoreRefs(given.data, placeholders);
+    // A reference stands only where its text was kept whole: an id, not inside another text.
+    if (!everyString(kept, (s) => !s.includes(nonce))) return { error: `${at}: a reference stands only where an id goes` };
+    items.push({ tool: tool.name, input: kept });
   }
   if (!everyString(items, storable)) return { error: "The proposal holds a character Dispand can't store (NUL or a lone surrogate)" };
   if (Buffer.byteLength(JSON.stringify(items)) > MAX_BYTES) return { error: "The proposal is too large to show whole (at most 64 KiB): make several, or shorten the texts" };
@@ -89,29 +157,72 @@ export async function createProposal(db: Db, job: JobIdentity, tools: PlatformTo
   return { proposalId: id };
 }
 
+/** An item of a proposal, by its index. */
+export type ItemAt = { proposalId: string; index: number };
+
 /**
- * Uses up one approved write of the Job: an item of one of its approved proposals, for that
- * tool, with the same input (key order aside), not used yet. One row lock per proposal, so of
- * two calls that match the same item one takes it.
+ * Uses up one approved write of the Job: an item of one of its approved proposals (or the one
+ * `at` names), for that tool, with the same input (key order aside, references read as what
+ * their items created), not used yet. One row lock per proposal, so of two calls that match the
+ * same item one takes it. Used, the item stays used whatever its call does next.
  */
-export async function takeItem(db: Db, job: JobIdentity, tool: string, input: unknown): Promise<boolean> {
+export async function takeItem(db: Db, job: JobIdentity, tool: string, input: unknown, at?: ItemAt): Promise<ItemAt | null> {
   const wanted = canonical(input);
   return db.transaction(async (tx) => {
     const approved = await tx
       .select({ id: proposals.id, items: proposals.items })
       .from(proposals)
-      .where(and(eq(proposals.runId, job.runId), eq(proposals.ownerId, job.ownerId), eq(proposals.agentId, job.agentId), eq(proposals.status, "approved")))
+      .where(
+        and(
+          eq(proposals.runId, job.runId),
+          eq(proposals.ownerId, job.ownerId),
+          eq(proposals.agentId, job.agentId),
+          eq(proposals.status, "approved"),
+          ...(at ? [eq(proposals.id, at.proposalId)] : []),
+        ),
+      )
       .orderBy(asc(proposals.createdAt), asc(proposals.id))
       .for("update");
     for (const proposal of approved) {
-      const at = proposal.items.findIndex((item) => item.usedAt === undefined && item.tool === tool && canonical(item.input) === wanted);
-      if (at < 0) continue;
-      const items = proposal.items.map((item, i) => (i === at ? { ...item, usedAt: new Date().toISOString() } : item));
+      const index = proposal.items.findIndex(
+        (item, i) => (at === undefined || i === at.index) && item.usedAt === undefined && item.tool === tool && canonical(resolveRefs(proposal.items, item.input)) === wanted,
+      );
+      if (index < 0) continue;
+      // Pending until its call ends (`recordOutcome`): an apply doesn't go past it meanwhile.
+      const items = proposal.items.map((item, i) => (i === index ? { ...item, usedAt: new Date().toISOString(), pending: true as const } : item));
       await tx.update(proposals).set({ items }).where(eq(proposals.id, proposal.id));
-      return true;
+      return { proposalId: proposal.id, index };
     }
-    return false;
+    return null;
   });
+}
+
+/** Records how a used item's call ended: made (with what it created, for the items that name it), or failed. */
+export async function recordOutcome(db: Db, at: ItemAt, outcome: { createdId?: string } | { failed: true }): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [row] = await tx.select({ items: proposals.items }).from(proposals).where(eq(proposals.id, at.proposalId)).for("update");
+    if (!row) return;
+    const items = row.items.map((item, i) => {
+      if (i !== at.index) return item;
+      const ended = { ...item, ...outcome };
+      delete ended.pending;
+      return ended;
+    });
+    await tx.update(proposals).set({ items }).where(eq(proposals.id, at.proposalId));
+  });
+}
+
+/** A proposal of the Job's, for `proposal_apply`: its items when approved, or why not. */
+export async function approvedItems(db: Db, job: JobIdentity, proposalId: string): Promise<ProposalItem[] | string> {
+  const [row] = await db
+    .select({ status: proposals.status, items: proposals.items })
+    .from(proposals)
+    .where(and(eq(proposals.id, proposalId), eq(proposals.runId, job.runId), eq(proposals.ownerId, job.ownerId), eq(proposals.agentId, job.agentId)));
+  if (!row) return "No proposal of this Job has this id";
+  if (row.status === "draft") return "This proposal wasn't asked for yet: call request_approval with its id";
+  if (row.status === "asked") return "This proposal waits for the owner's answer";
+  if (row.status === "declined") return "The owner declined this proposal: propose again with what they asked for";
+  return row.items;
 }
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -151,13 +262,29 @@ const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
   agents_update: { id: "agent", harnessId: "harness", toolIds: "tool", skillPackageIds: "skill", dataTables: "table" },
   agents_set_tool_ask: { agentId: "agent", toolId: "tool" },
   harnesses_set_limit: { id: "harness" },
+  tables_rename: { id: "table" },
+  tables_set_primitive: { id: "table" },
   tables_delete: { id: "table" },
+  fields_create: { tableId: "table", referencesTableId: "table" },
+  fields_update: { id: "field" },
+  fields_reorder: { tableId: "table", fieldIds: "field" },
   fields_delete: { id: "field" },
   triggers_create: { agentId: "agent" },
   triggers_update: { id: "trigger" },
   triggers_delete: { id: "trigger" },
   tools_delete: { id: "tool" },
 };
+
+/** What each creating tool creates, for a reference to its item: "the table item 2 creates". */
+/** What each creating tool creates (its output's `id`): what `{ "$item": n }` may name, and how a reference reads: "the table item 2 creates". */
+export const CREATES: Record<string, ProposalName["kind"]> = {
+  tables_create: "table",
+  fields_create: "field",
+  agents_create: "agent",
+  triggers_create: "trigger",
+  tools_add: "tool",
+};
+const createsOf = (tool: string): ProposalName["kind"] | undefined => CREATES[tool];
 
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : typeof value === "string" ? [value] : []);
 
@@ -181,6 +308,18 @@ export async function proposalView(db: Db, ownerId: string, proposalId: string) 
     if (item.tool.startsWith("agents_") && Array.isArray(consults)) {
       if (!wanted.has("agent")) wanted.set("agent", new Set());
       for (const entry of consults) for (const id of strings((entry as { agentId?: unknown } | null)?.agentId)) wanted.get("agent")!.add(id);
+    }
+    // A primitive table's parent is a table too.
+    const parent = ((item.input ?? {}) as { parent?: { tableId?: unknown } | null }).parent;
+    if (item.tool === "tables_set_primitive" && parent) {
+      if (!wanted.has("table")) wanted.set("table", new Set());
+      for (const id of strings(parent.tableId)) wanted.get("table")!.add(id);
+    }
+    // What a used item created, named as it is now.
+    const kind = createsOf(item.tool);
+    if (kind && item.createdId) {
+      if (!wanted.has(kind)) wanted.set(kind, new Set());
+      wanted.get(kind)!.add(item.createdId);
     }
     // A table-change trigger names its table and fields inside its config.
     const config = ((item.input ?? {}) as { config?: { kind?: unknown; tableId?: unknown; fields?: unknown } }).config;
@@ -249,7 +388,15 @@ export async function proposalView(db: Db, ownerId: string, proposalId: string) 
   return {
     id: row.id,
     status: row.status,
-    items: row.items.map(({ tool, input, usedAt }) => ({ tool, input, used: usedAt !== undefined, refs: Object.keys(REFS[tool] ?? {}) })),
+    items: row.items.map(({ tool, input, usedAt, createdId, failed }) => ({
+      tool,
+      input,
+      used: usedAt !== undefined,
+      failed: failed === true,
+      refs: Object.keys(REFS[tool] ?? {}),
+      creates: createsOf(tool) ?? null,
+      createdId: createdId ?? null,
+    })),
     names,
   };
 }
