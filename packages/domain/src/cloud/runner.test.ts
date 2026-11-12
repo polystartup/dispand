@@ -9,6 +9,7 @@ import type { Engine } from "../engine/engine.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
+import { writeMemory } from "../memory/store.ts";
 import { TEXTS } from "./builtins.ts";
 import { type ChatItem, createModelClient } from "./model-client.ts";
 import { fakeModel, say, use, type Script } from "./test-model.ts";
@@ -299,6 +300,40 @@ test("on boot, a cloud turn of a root paused at a checkpoint isn't run again unt
   await until(engine3, runId, "succeeded");
   expect(after.inputs).toHaveLength(1);
   expect(lastTool(after.inputs[0]!.items)).toMatchObject({ callId: "c1", result: TEXTS.restarted, isError: true });
+});
+
+test("a resumed cloud Job's model calls read its memory as it is at the resume", async () => {
+  const held = fakeTools(true);
+  const model = fakeModel(use("GitHub_create_repo", { name: "x" }, "c1"));
+  const { context, engine, agent } = await setup(buttonStep, { client: model.client, tools: held.tools });
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Write a note.", config: { kind: "manual", placement: "button" } }, { context });
+  const remember = (path: string, body: string) =>
+    writeMemory(context.db, context.ownerId, { scope: "agent", agentId: agent.id }, { path, name: path, description: path, type: "fact", body }, { type: "user" }, "upsert");
+  await remember("before.md", "Known before the start.");
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const q = await pendingQuestion(engine, runId);
+  expect(model.inputs[0]!.system).toContain("Known before the start.");
+  await engine.answer(q.id, { kind: "permission", decision: "allow" });
+  await vi.waitFor(async () => {
+    const [s] = await engine.db.select().from(cloudSessions);
+    if (!s?.inFlight) throw new Error("not in flight yet");
+  });
+  // Paused at a checkpoint across a restart, then resumed: what was written meanwhile is read.
+  await engine.db.insert(roots).values({ id: "root_1", ownerId: context.ownerId, kind: "user", state: "paused" });
+  await engine.db.update(runs).set({ rootId: "root_1" }).where(eq(runs.id, runId));
+  const after = fakeModel(say("Done."));
+  const engine2 = createEngine(context.db, context.hub, context.secrets, context.dataEvents, { client: after.client, tools: fakeTools().tools });
+  onTestFinished(() => engine2.stop());
+  await engine2.recover();
+  await remember("before.md", "Rewritten while paused.");
+  await engine.db.update(roots).set({ state: "going" }).where(eq(roots.id, "root_1"));
+  const engine3 = createEngine(context.db, context.hub, context.secrets, context.dataEvents, { client: after.client, tools: fakeTools().tools });
+  onTestFinished(() => engine3.stop());
+  await engine3.recover();
+  await until(engine3, runId, "succeeded");
+  expect(after.inputs[0]!.system).toContain("Rewritten while paused.");
+  expect(after.inputs[0]!.system).not.toContain("Known before the start.");
+  expect(after.inputs[0]!.system.match(/# Memory/g)).toHaveLength(1);
 });
 
 test("on boot, the last event is handed to the engine again", async () => {
