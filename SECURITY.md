@@ -527,23 +527,33 @@ changes it updates this file.
   directory); reads are allowed. The SDK loads them with `skipMcpDiscovery`. They are written
   again at every start or resume and removed when the session ends and when the runner starts,
   so a changed copy never outlives its session.
-- **Native plugins are an explicit runner-local opt-in.** The owner-authenticated
-  `runners.plugins` procedure checks runner ownership and CLI harness membership.
-  Protocol 14's native requests run only the maintained Skillshare executable on the
-  runner, from its home directory, with explicit global scope and target/account names
-  from local `pluginTargets`. The server cannot set commands or account config paths.
-  Sources are credential-free HTTPS Git URLs; no local paths or other transports.
-  Mutations select explicit targets and require a preview revision. Complete native
-  plugins may execute their native hooks, commands and MCP integrations: opting a target
-  in authorizes that native lifecycle, separately from sanitized workspace imports.
-  Skillshare config, data and state directories join the machine paths excluded from
-  roots and session access. Custom account config directories must be outside roots
-  and protected locally like CLI homes. Native replies expose a bounded projection,
-  never raw paths, identifiers or error text. One operation runs at a time, with bounded
-  output and time; failures and partial outcomes are reported, never automatically
-  retried. Removing a native binding does not change workspace imports. Registration
-  does not imply successful resource loading; native-first selection is not implemented
-  in this slice and session workspace loading remains unchanged.
+- **Native plugins are an explicit runner-local opt-in.** The owner-authenticated `runners.plugins`
+  and `runners.workspacePlugin` procedures check runner ownership and CLI harness membership. They
+  reject Job contexts and are absent from management tools. Protocol 15's native requests run only
+  the maintained Skillshare executable on the runner, from its home directory, with explicit global
+  scope and target/account names from local `pluginTargets`. The server cannot set commands or
+  account config paths. Complete plugin sources are credential-free HTTPS Git URLs, pinned to the
+  workspace source commit and entry identity; no server-selected local paths or other transports.
+  Standalone workspace packages use `add-workspace`: bounded package-relative files, staged
+  atomically under the runner state directory at
+  `native-skills/<native-name>/<digest>/<native-name>/`. The session writer checks paths and
+  rewrites frontmatter, producing only a skills directory and its own manifest. The staged source
+  persists for Skillshare's reinstall lifecycle; it stays outside roots and cannot change CLI
+  settings. Mutations select explicit targets and require a preview revision. Complete native
+  plugins may execute their native hooks, commands and MCP integrations: opting a target in
+  authorizes that native lifecycle, separately from sanitized workspace imports. Skillshare config,
+  data and state directories join the machine paths excluded from roots and session access. Custom
+  account config directories must be outside roots and protected locally like CLI homes. Native
+  replies expose a bounded projection, never raw paths, identifiers or error text. One operation
+  runs at a time, with bounded output and time; failures and partial outcomes are reported, never
+  automatically retried. Removing a native binding does not change workspace imports. Registration
+  does not imply successful resource loading. On each start/resume the runner omits a workspace
+  package only for a matching source key associated with its workspace entry: repository URL,
+  resolved commit and entry, or the standalone package content digest. The native binding must be installed,
+  enabled and free of pending operations or changed account/source context on that session's
+  harness. Missing, disabled, unknown, mismatched or unavailable native inventory retains the
+  stripped workspace copy. Native execution failures never trigger automatic fallback or retries.
+  The locally authorized Skillshare target must name the same CLI account sessions use.
 - **Workspace plugin imports bring files, never code that runs.** Marketplaces and plugins are fetched with
   `fetchGit` (`packages/domain/src/plugins/git.ts`): `https://` only (no credentials in the URL;
   `file://` only in a development build with `DISPAND_GIT_FILE_URLS=1`, for e2e fixtures),
@@ -648,3 +658,10 @@ A change that weakens any of these is a vulnerability.
 ## Supported versions
 
 Only `main`.
+
+Native installation identity records the resolved Git root at import and update. Only verified
+root plugins currently support native installation; older imports must be updated, and nested
+plugin imports keep their workspace skills. An explicit native-install intent requires the
+preview review token even when workspace components are also selected. Codex's local plugin
+cache, marketplace code and skills directories are readable in its sandbox; its parent config
+directory, settings and credentials remain denied, and native code is never writable by the session.

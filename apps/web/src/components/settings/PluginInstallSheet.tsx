@@ -7,6 +7,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
 import { FormField } from "./parts.tsx";
+import { NativePluginAction, NativeTargetPicker, nativeWarning } from "./NativeSkills.tsx";
 
 export const pluginTabs = [
   { to: "/settings/plugins", label: "Discover" },
@@ -122,6 +123,7 @@ function InstallForm({
 }) {
   const queryClient = useQueryClient();
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
+  const runners = useQuery(orpc.runners.list.queryOptions());
   const install = useMutation(
     orpc.plugins.install.mutationOptions({
       onSuccess: () =>
@@ -134,6 +136,10 @@ function InstallForm({
   const [servers, setServers] = useState(() => new Set<string>());
   const [agents, setAgents] = useState(() => new Set(preview.agents.map((a) => a.name)));
   const [harnessId, setHarnessId] = useState("");
+  const [native, setNative] = useState(false);
+  const [nativeTargets, setNativeTargets] = useState(() => new Set<string>());
+  // Workspace installation is committed once; failed native operations never resubmit it.
+  const [nativeStep, setNativeStep] = useState<{ pluginId: string; targets: string[]; index: number } | null>(null);
   // Server name → `${VAR}` → value. Sent only for the ticked servers, never shown again.
   const [settings, setSettings] = useState<Record<string, Record<string, string>>>({});
   const [error, setError] = useState<string | null>(null);
@@ -143,17 +149,19 @@ function InstallForm({
     setError(null);
     const mcpServers = httpServers.map((s) => s.name).filter((n) => servers.has(n));
     try {
-      await install.mutateAsync({
+      const result = await install.mutateAsync({
         marketplaceId,
         entryName,
         skills: preview.skills.map((s) => s.name).filter((n) => skills.has(n)),
         mcpServers,
         reviewed: preview.reviewed,
+        ...(native ? { nativeInstall: true } : {}),
         agents: preview.agents.map((a) => a.name).filter((n) => agents.has(n)),
         ...(agents.size > 0 ? { harnessId } : {}),
         settings: Object.fromEntries(mcpServers.flatMap((n) => (settings[n] ? [[n, settings[n]]] : []))),
       });
-      onClose();
+      if (native && nativeTargets.size) setNativeStep({ pluginId: result.pluginId, targets: [...nativeTargets], index: 0 });
+      else onClose();
     } catch (e) {
       const message = refusal(e, "Could not install the plugin.");
       if (typeof e === "object" && e !== null && "code" in e && e.code === "CONFLICT") onChanged(message);
@@ -164,6 +172,23 @@ function InstallForm({
   const { definitions } = preview;
   const defined = definitions.primitives.length + definitions.agents.length + definitions.triggers.length;
   const picked = skills.size + servers.size + agents.size;
+  if (nativeStep) {
+    const target = nativeStep.targets[nativeStep.index]!;
+    return (
+      <div className="space-y-4">
+        <p role="status" className="text-[13px]">Installed in the workspace. Review native target {nativeStep.index + 1} of {nativeStep.targets.length}: {harnesses.data?.find((h) => h.id === target)?.name ?? "CLI harness"}.</p>
+        <NativePluginAction
+          key={target}
+          harnessId={target}
+          resource={{ kind: "plugin", id: nativeStep.pluginId }}
+          name={entryName}
+          action="add"
+          doneLabel={nativeStep.index + 1 < nativeStep.targets.length ? "Next target" : "Done"}
+          onDone={() => nativeStep.index + 1 < nativeStep.targets.length ? setNativeStep({ ...nativeStep, index: nativeStep.index + 1 }) : onClose()}
+        />
+      </div>
+    );
+  }
   return (
     <form
       className="space-y-6"
@@ -184,6 +209,15 @@ function InstallForm({
             ))}
           </ul>
         )}
+      </Section>
+
+      <Section id="install-native" title="Native installation (optional)">
+        <Check checked={native} onChange={() => setNative((value) => !value)} label="Install the complete native plugin" detail="Keep workspace copies for fallback. After import, review and apply each native installation separately." />
+        {native && <>
+          <p className="text-[13px] text-muted">{nativeWarning}</p>
+          <NativeTargetPicker harnesses={harnesses.data ?? []} runners={runners.data ?? []} selected={nativeTargets} onChange={(id) => setNativeTargets((prev) => toggled(prev, id))} />
+          {(harnesses.error || runners.error) && <p role="alert" className="text-[13px] text-danger">Could not load native targets.</p>}
+        </>}
       </Section>
 
       {preview.mcpServers.length > 0 && (
@@ -305,7 +339,7 @@ function InstallForm({
         </p>
       )}
       <div className="flex items-center gap-2">
-        <Button type="submit" disabled={install.isPending || (picked === 0 && defined === 0) || (agents.size > 0 && !harnessId)}>
+        <Button type="submit" disabled={install.isPending || (picked === 0 && defined === 0 && !native) || (agents.size > 0 && !harnessId) || (native && nativeTargets.size === 0)}>
           {install.isPending ? "Installing…" : "Install"}
         </Button>
         <Button type="button" variant="ghost" onClick={onClose}>

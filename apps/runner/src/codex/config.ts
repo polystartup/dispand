@@ -1,4 +1,7 @@
 // The config overrides every Codex session starts with: Dispand's permission profile.
+import { join } from "node:path";
+import { homedir } from "node:os";
+import { realOf } from "../boundary.ts";
 import type { JsonValue } from "./protocol/serde_json/JsonValue.ts";
 
 /** The permission profile Codex sessions run under, unless the machine allows bypass. */
@@ -15,11 +18,18 @@ export const BYPASS_PROFILE = ":danger-full-access";
  * `AGENTS.md`, `AGENTS.override.md`) read-only. Network on, as for Claude Code's Bash. No
  * `DISPAND_*` variable reaches a shell. The runner never marks a project trusted.
  */
-export function codexConfig(o: { denied: string[]; pluginsDir?: string; bypass: boolean; mcpServers?: Record<string, JsonValue> }): Record<string, JsonValue> {
+export function codexConfig(o: { denied: string[]; codexHome?: string; pluginsDir?: string; bypass: boolean; mcpServers?: Record<string, JsonValue> }): Record<string, JsonValue> {
   const shell = { shell_environment_policy: { exclude: ["DISPAND_*"] }, ...(o.mcpServers && Object.keys(o.mcpServers).length > 0 ? { mcp_servers: o.mcpServers } : {}) };
   if (o.bypass) return { default_permissions: BYPASS_PROFILE, ...shell };
   const filesystem: Record<string, JsonValue> = {};
   for (const path of o.denied) filesystem[path] = "deny";
+  // Native plugin code and skills are readable; config, credentials and plugin state
+  // remain under the existing deny rules. Paths come only from the runner's local environment.
+  const home = o.codexHome || join(homedir(), ".codex");
+  for (const path of [join(home, "plugins", "cache"), join(home, "plugins", "marketplaces"), join(home, "skills")]) {
+    filesystem[path] = "read";
+    filesystem[realOf(path)] = "read";
+  }
   if (o.pluginsDir) filesystem[o.pluginsDir] = "read";
   filesystem[":workspace_roots"] = { ".": "write", ".codex": "read", ".agents": "read", "AGENTS.md": "read", "AGENTS.override.md": "read" };
   return {

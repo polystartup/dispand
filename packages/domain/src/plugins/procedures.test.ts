@@ -668,6 +668,21 @@ test("a plugin with neither definitions nor a pick installs nothing", async () =
   repo.remove();
 });
 
+test("native-only registration requires a reviewed source and imports no workspace components", async () => {
+  const ctx = await context();
+  const plugin = superpowers();
+  const repo = marketplace(plugin);
+  try {
+    const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
+    const ref = { marketplaceId: market.id, entryName: "superpowers", nativeInstall: true };
+    await expect(call(router.plugins.install, ref, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    const reviewed = (await call(router.plugins.preview, ref, { context: ctx })).reviewed;
+    const { pluginId } = await call(router.plugins.install, { ...ref, reviewed }, { context: ctx });
+    expect(await call(router.skills.list, undefined, { context: ctx })).toEqual([]);
+    expect((await call(router.runners.workspaceSkills, undefined, { context: ctx })).find((r) => r.resource.id === pluginId)).toMatchObject({ resource: { kind: "plugin", id: pluginId }, skills: [] });
+  } finally { plugin.remove(); repo.remove(); }
+});
+
 test("list names what a marketplace plugin's created holds, and a definition reads as set up while what it made exists", async () => {
   const ctx = await context();
   const fx = lawFirmMarket();
@@ -726,4 +741,19 @@ test("update replaces the definitions: what was set up stays as the owner has it
   expect(await call(router.triggers.get, { id: trigger.id }, { context: ctx })).toMatchObject({ name: "Research recorded" });
   expect(await call(router.tables.get, { id: table.id }, { context: ctx })).toMatchObject({ name: "Matters" });
   fx.remove();
+});
+
+test("mixed native and workspace installs require the displayed source review", async () => {
+  const ctx = await context();
+  const fx = superpowers();
+  const repo = marketplace(fx);
+  try {
+    const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
+    const ref = { marketplaceId: market.id, entryName: "superpowers", nativeInstall: true, skills: ["brainstorming"] };
+    await expect(call(router.plugins.install, ref, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    const { reviewed } = await call(router.plugins.preview, ref, { context: ctx });
+    const installed = await call(router.plugins.install, { ...ref, reviewed }, { context: ctx });
+    const [row] = await ctx.db.select().from(pluginsTable).where(eq(pluginsTable.id, installed.pluginId));
+    expect(row!.nativeRoot).toBe(".");
+  } finally { fx.remove(); repo.remove(); }
 });

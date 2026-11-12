@@ -323,7 +323,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         model: start.model ?? null,
         approvalPolicy: bypass ? ("never" as const) : ("untrusted" as const),
         approvalsReviewer: "user" as const,
-        config: codexConfig({ denied: sandboxDenied(denied, deps.codexPath), ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}), bypass, ...(deps.mcp ? { mcpServers: deps.mcp.servers } : {}) }),
+        config: codexConfig({ codexHome: (deps.env ?? process.env).CODEX_HOME, denied: sandboxDenied(denied, deps.codexPath), ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}), bypass, ...(deps.mcp ? { mcpServers: deps.mcp.servers } : {}) }),
         developerInstructions: start.systemPrompt || null,
       };
       const approvalSpec = {

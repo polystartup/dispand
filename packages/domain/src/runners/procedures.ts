@@ -7,6 +7,7 @@ import { authed, base } from "../rpc/context.ts";
 import { newId } from "../ids.ts";
 import { RunnerRequestFailed } from "./hub.ts";
 import { createRunner, revokeRunner } from "./pairing.ts";
+import { workspacePlugin, workspaceSkills } from "./workspace-plugin.ts";
 
 const owner = base.use(authed);
 
@@ -84,4 +85,4 @@ const plugins = owner.input(z.object({ runnerId: z.string(), operation: PluginOp
   }
 });
 
-export const runners = { create, list, update, revoke, plugins };
+export const runners = { create, list, update, revoke, plugins, workspacePlugin, workspaceSkills };
