@@ -435,6 +435,26 @@ test("a model call is a span with the harness's kind, how the turn ended and how
   for (const sentinel of ["sentinel-model-answer", "You work for Dispand.", "Be brief."]) expect(all).not.toContain(sentinel);
 });
 
+test("a chat with no instructions makes no model call until the owner writes: the first message is the first turn", async () => {
+  const model = fakeModel(say("Hello there."));
+  const noInstructions = (agentId: string): WorkflowDef => {
+    const def = chat(agentId);
+    return { ...def, trigger: { ...def.trigger, field: { ...def.trigger.field, prompt: "" } } as WorkflowDef["trigger"] };
+  };
+  const { engine, workflow } = await setup(noInstructions, { client: model.client });
+  const runId = await engine.startRun(workflow.id);
+  await vi.waitFor(async () => {
+    const [s] = await engine.db.select().from(cloudSessions);
+    if (s?.status !== "idle") throw new Error("not waiting yet");
+  });
+  // Waiting for the owner, it holds no slot.
+  expect((await stepOf(engine, runId, "n_chat")).working).toBe(false);
+  expect(model.inputs).toHaveLength(0);
+  await engine.sendChat(runId, "Hi");
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(1));
+  expect(model.inputs[0]!.items).toEqual([{ role: "user", text: "Hi" }]);
+});
+
 test("a cloud session holds its harness's slot only while it works: not between chat turns, nor while it asks", async () => {
   const model = fakeModel(say("What shall we build?"), use("ask_user", { questions: [{ question: "Which stack?", header: "Stack", options: [{ label: "Node", description: "" }], multiSelect: false }] }), say("Done."));
   const { context, engine, workflow, agent, harness } = await setup(chat, { client: model.client });
