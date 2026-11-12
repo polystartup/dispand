@@ -1,5 +1,5 @@
 {
-  "id": "1241c361-f138-45ae-a0f8-cd5a01c31eda",
+  "id": "76cc25fa-0b6b-4d67-a4dc-861bb134c4b7",
   "prevId": "02eebf2a-c9ad-4f5a-8157-29919916a411",
   "version": "7",
   "dialect": "postgresql",
@@ -2377,12 +2377,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "consult_run_id": {
-          "name": "consult_run_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -2391,21 +2385,6 @@
           "columns": [
             {
               "expression": "run_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "questions_consult_run_idx": {
-          "name": "questions_consult_run_idx",
-          "columns": [
-            {
-              "expression": "consult_run_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -2484,19 +2463,6 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "questions_consult_run_id_runs_id_fk": {
-          "name": "questions_consult_run_id_runs_id_fk",
-          "tableFrom": "questions",
-          "tableTo": "runs",
-          "columnsFrom": [
-            "consult_run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -3587,6 +3553,13 @@
           "notNull": true,
           "default": "'[]'::jsonb"
         },
+        "built_in": {
+          "name": "built_in",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -3602,7 +3575,24 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "skill_packages_one_built_in_idx": {
+          "name": "skill_packages_one_built_in_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"skill_packages\".\"built_in\"",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "skill_packages_owner_id_user_id_fk": {
           "name": "skill_packages_owner_id_user_id_fk",

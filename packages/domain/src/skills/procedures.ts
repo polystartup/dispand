@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agentUsingPackage } from "../agents/usage.ts";
+import { PLATFORM_SKILL } from "../assistant/skill.ts";
 import { plugins, skillFiles, skillPackages, skills as skillsTable, tools as toolsTable } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -93,12 +94,19 @@ async function find(db: Db | Tx, ownerId: string, packageId: string, lock = fals
   return row;
 }
 
-/** A plugin's package changes only with its plugin. */
-function refusePlugin(row: typeof skillPackages.$inferSelect) {
+/** A plugin's package changes only with its plugin, the platform skill only with the application. */
+function refuseReadOnly(row: typeof skillPackages.$inferSelect) {
+  if (row.builtIn) throw new ORPCError("FORBIDDEN", { message: "The platform skill is built in: it is read-only" });
   if (row.pluginId !== null) throw new ORPCError("FORBIDDEN", { message: "Remove the plugin instead: its skills are read-only" });
 }
 
+/** The platform skill's name stays free for it (`assistant/skill.ts`). */
+function refuseReservedName(name: string) {
+  if (name === PLATFORM_SKILL) throw new ORPCError("CONFLICT", { message: `A skill is already called “${name}”` });
+}
+
 const create = owner.input(Fields).handler(async ({ input, context }) => {
+  refuseReservedName(input.name);
   const files = userFiles(input, decoded(input.files ?? []));
   const { skills } = checked(files);
   const packageId = newId("skillpkg");
@@ -123,7 +131,8 @@ const update = owner.input(Fields.extend(PackageId.shape)).handler(async ({ inpu
   await context.db
     .transaction(async (tx) => {
       const row = await find(tx, context.ownerId, packageId, true);
-      refusePlugin(row);
+      refuseReadOnly(row);
+      refuseReservedName(fields.name);
       await requireTools(tx, context.ownerId, fields.requiredToolIds);
       let extra;
       if (fields.files) extra = decoded(fields.files);
@@ -149,7 +158,7 @@ const update = owner.input(Fields.extend(PackageId.shape)).handler(async ({ inpu
 
 const remove = owner.input(PackageId).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
-    refusePlugin(await find(tx, context.ownerId, input.packageId, true));
+    refuseReadOnly(await find(tx, context.ownerId, input.packageId, true));
     const agent = await agentUsingPackage(tx, input.packageId);
     if (agent) throw new ORPCError("CONFLICT", { message: `The agent “${agent}” uses this skill` });
     await tx.delete(skillPackages).where(eq(skillPackages.id, input.packageId));
@@ -172,6 +181,7 @@ async function views(db: Db, rows: PackageRow[]) {
     packageId: r.id,
     name: r.name,
     description: r.description,
+    builtIn: r.builtIn,
     plugin: pluginRows.find((p) => p.id === r.pluginId) ?? null,
     skills: skillRows.filter((s) => s.packageId === r.id).map((s) => ({ name: s.name, description: s.description })),
     requiredTools: r.requiredToolIds.flatMap((id) => toolRows.filter((t) => t.id === id)),

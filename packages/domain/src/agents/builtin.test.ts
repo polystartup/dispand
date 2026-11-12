@@ -20,7 +20,7 @@ async function withAssistant() {
   const s = await setup();
   const ids = await call(router.agents.ensureAssistant, { harnessId: s.harness.id }, { context: s.context });
   const agent = await call(router.agents.get, { id: ids.agentId }, { context: s.context });
-  const fields = { id: agent.id, name: agent.name, harnessId: agent.harnessId, systemPrompt: agent.systemPrompt, skillPackageIds: [], toolIds: [] };
+  const fields = { id: agent.id, name: agent.name, harnessId: agent.harnessId, systemPrompt: agent.systemPrompt, skillPackageIds: agent.skills.map((s) => s.packageId), toolIds: [] };
   return { ...s, ...ids, agent, fields };
 }
 
@@ -64,7 +64,9 @@ test("no input makes or unmakes an Assistant: builtIn is in no agent schema", as
   expect(made).not.toHaveProperty("builtIn");
   expect(await call(router.agents.assistant, undefined, { context })).toBeNull();
   const ids = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context });
-  await call(router.agents.update, { id: ids.agentId, name: "Assistant", harnessId: harness.id, systemPrompt: "", builtIn: null } as never, { context });
+  const { skills } = await call(router.agents.get, { id: ids.agentId }, { context });
+  const skillPackageIds = skills.map((s) => s.packageId);
+  await call(router.agents.update, { id: ids.agentId, name: "Assistant", harnessId: harness.id, systemPrompt: "", skillPackageIds, builtIn: null } as never, { context });
   expect((await call(router.agents.get, { id: ids.agentId }, { context })).builtIn).toBe("assistant");
 });
 

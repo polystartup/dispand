@@ -1,0 +1,2 @@
+ALTER TABLE "skill_packages" ADD COLUMN "built_in" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "skill_packages_one_built_in_idx" ON "skill_packages" USING btree ("owner_id") WHERE "skill_packages"."built_in";

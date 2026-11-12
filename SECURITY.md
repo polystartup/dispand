@@ -172,7 +172,10 @@ changes it updates this file.
   procedure's input: only `agents.ensureAssistant`, the owner's and not a tool, makes it. One
   check (`assistantGuard`, `agents/builtin.ts`) refuses deleting it, taking `data` or
   `configure` from it, limiting it to some tables, and deleting, turning off or changing the
-  kind of its chat, in the owner's procedures and in a proposal's items alike. It holds no
+  kind of its chat, or dropping its platform skill, in the owner's procedures and in a
+  proposal's items alike. The platform skill is the application's: its files come from the
+  build, nobody can change or delete the package, and each start puts the build's files back.
+  It holds no
   more than any agent given those bundles: its writes that grant go through proposals.
 - **The server calls no address an agent chose before a person approved it, and an agent
   never handles a tool's credentials.** An agent adds a tool only as a proposal item

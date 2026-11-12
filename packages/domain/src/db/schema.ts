@@ -995,7 +995,9 @@ const bytea = customType<{ data: Uint8Array; driverData: Uint8Array }>({ dataTyp
 
 // Skill packages: one or more skills (a folder each, with its `SKILL.md`) and their files. A
 // user-made package holds one skill named like it; a plugin's (`plugin_id`, set by plugin installs)
-// holds the plugin's skills and is read-only. Every file path passes `isSafeRelativePath`.
+// holds the plugin's skills and is read-only, like the built-in one (`built_in`, one per owner:
+// the platform skill, written from the build's files by `syncPlatformSkill`). Every file path
+// passes `isSafeRelativePath`.
 export const skillPackages = pgTable(
   "skill_packages",
   {
@@ -1008,10 +1010,11 @@ export const skillPackages = pgTable(
     pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "cascade" }),
     /** Tools an agent gets, locked, with this package. */
     requiredToolIds: jsonb("required_tool_ids").$type<string[]>().notNull().default([]),
+    builtIn: boolean("built_in").notNull().default(false),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [unique("skill_packages_owner_name").on(t.ownerId, t.name)],
+  (t) => [unique("skill_packages_owner_name").on(t.ownerId, t.name), uniqueIndex("skill_packages_one_built_in_idx").on(t.ownerId).where(sql`${t.builtIn}`)],
 );
 
 export const skills = pgTable(
