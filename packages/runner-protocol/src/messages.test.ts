@@ -33,6 +33,8 @@ const start: SessionStart = {
 const codexStart: SessionStart = { ...start, harness: "codex", permissionMode: "bypassPermissions", skills: [], mcpServers: [] };
 
 const serverMessages: ServerToRunner[] = [
+  { type: "plugin.request", requestId: "req_native", operation: { action: "list" } },
+  { type: "plugin.request", requestId: "req_preview", operation: { action: "remove", name: "demo", targets: ["codex"], dryRun: true } },
   { type: "session.start", start },
   { type: "session.start", start: { ...start, expectedOutputs: [] } },
   { type: "session.start", start: codexStart },
@@ -64,6 +66,7 @@ const serverMessages: ServerToRunner[] = [
 ];
 
 const runnerMessages: RunnerToServer[] = [
+  { type: "plugin.replied", requestId: "req_native", report: { targets: [], packages: [] } },
   {
     type: "hello",
     runnerVersion: "0.1.0",

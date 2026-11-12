@@ -264,7 +264,7 @@ export class Connection {
   }
 
   /** Sends a reply that isn't an event (no seq, never kept): dropped while not connected, and the server times out. */
-  reply(msg: Extract<RunnerToServer, { type: "tool.discovered" | "tool.called" }>): void {
+  reply(msg: Extract<RunnerToServer, { type: "tool.discovered" | "tool.called" | "plugin.replied" }>): void {
     if (this.ready && this.ws) this.write(this.ws, JSON.stringify(msg));
   }
 

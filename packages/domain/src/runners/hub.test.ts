@@ -919,3 +919,31 @@ test("a runner's connection is counted, each message counted and traced but stre
   const all = await t.all();
   for (const sentinel of ["sentinel-streamed-words", "sentinel-result-text", token]) expect(all).not.toContain(sentinel);
 });
+
+test("native plugin requests are owner-scoped, correlated, and counted without content", async () => {
+  const t = await captureTelemetry();
+  onTestFinished(() => t.stop());
+  const { context, runnerId, token, url } = await pairedRunner();
+  const runner = fakeRunner(url, token);
+  await runner.opened;
+  runner.send(hello);
+  await vi.waitFor(() => expect(context.hub.isOnline(runnerId)).toBe(true));
+  await expect(call(router.runners.plugins, { runnerId: "another", operation: { action: "list" } }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.runners.plugins, { runnerId, operation: { action: "remove", name: "demo", targets: ["codex"], dryRun: true } }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  const pending = call(router.runners.plugins, { runnerId, operation: { action: "list" } }, { context });
+  const request = await runner.next();
+  expect(request.type).toBe("plugin.request");
+  if (request.type !== "plugin.request") throw new Error("expected plugin request");
+  runner.send({ type: "tool.discovered", requestId: request.requestId, actions: [] });
+  runner.send({ type: "plugin.replied", requestId: request.requestId, report: { packages: [] } });
+  expect(await pending).toEqual({ packages: [] });
+  expect(t.spans().some((s) => s.name === "runner.plugins")).toBe(true);
+  expect(await t.metrics()).toContainEqual({ name: "dispand.runner.plugin_operations", attributes: { "dispand.result": "ok" } });
+  expect(t.logs().some((l) => l.body === "native plugin operation completed")).toBe(true);
+});
+
+test("native plugin management rejects a Job even when it belongs to the owner", async () => {
+  const context = await ownerContext();
+  const jobContext = { ...context, job: { runId: "run_1", ownerId: context.ownerId, agentId: "agent_1" } };
+  await expect(call(router.runners.plugins, { runnerId: "runner_1", operation: { action: "list" } }, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN" });
+});
