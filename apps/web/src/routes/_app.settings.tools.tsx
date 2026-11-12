@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LayoutGrid, Plus, RefreshCw, Server } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Empty, List } from "../components/settings/parts.tsx";
 import { RunnerToolSheet } from "../components/settings/RunnerToolSheet.tsx";
@@ -10,7 +11,8 @@ import { ToolSheet, type Tool } from "../components/settings/ToolSheet.tsx";
 import { PageHeader } from "../components/Placeholder.tsx";
 import { orpc } from "../lib/api.ts";
 
-export const Route = createFileRoute("/_app/settings/tools")({ component: Tools });
+// `tool`: the tool whose sheet opens, as an OAuth sign-in comes back to it.
+export const Route = createFileRoute("/_app/settings/tools")({ component: Tools, validateSearch: z.object({ tool: z.string().max(100).optional() }) });
 
 function Tools() {
   const tools = useQuery(orpc.tools.list.queryOptions());
@@ -19,6 +21,14 @@ function Tools() {
   const [browsing, setBrowsing] = useState(false);
   const queryClient = useQueryClient();
   const refresh = useMutation(orpc.tools.refresh.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.tools.key() }) }));
+  const { tool: back } = Route.useSearch();
+  const navigate = Route.useNavigate();
+  useEffect(() => {
+    const tool = back ? tools.data?.find((t) => t.id === back) : undefined;
+    if (!back || !tools.data) return;
+    if (tool) setSheet({ tool, n: 0, runner: tool.kind === "runner" });
+    void navigate({ search: {}, replace: true });
+  }, [back, tools.data, navigate]);
 
   const add = (
     <div className="flex flex-wrap gap-2">
@@ -67,7 +77,9 @@ function Tools() {
                     {t.actions.length === 1 ? "1 action" : `${t.actions.length} actions`}
                     {t.plugin && ` · from plugin ${t.plugin.name}`}
                   </span>
-                  {t.actionsError && <span className="block truncate text-[13px] text-danger">{t.actionsError}</span>}
+                  {t.oauthStatus === "authorize" && <span className="block truncate text-[13px] text-muted">Not connected yet</span>}
+                  {t.oauthStatus === "reauthorize" && <span className="block truncate text-[13px] text-danger">Re-authorize: its sign-in stopped working</span>}
+                  {t.actionsError && t.oauthStatus !== "reauthorize" && <span className="block truncate text-[13px] text-danger">{t.actionsError}</span>}
                 </span>
               </button>
               <Button
