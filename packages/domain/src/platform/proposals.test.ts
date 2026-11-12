@@ -45,7 +45,7 @@ test("propose stores the listed writes as they parse, as a draft, and says what 
   const s = await setup();
   expect((await toolsOf(s.context.db, s.job)).map((t) => t.name)).toEqual(expect.arrayContaining(["propose", "agents_create", "agents_update", "agents_list", "agents_get"]));
   const made = await s.propose([{ tool: "agents_create", input: s.newAgent }, { tool: "agents_update", input: { ...s.base, id: s.agent.id, systemPrompt: "New." } }]);
-  expect(made).toMatchObject({ ok: true, output: { proposalId: expect.stringMatching(/^prop_/), next: expect.stringContaining("request_approval") } });
+  expect(made).toMatchObject({ ok: true, output: { proposalId: expect.stringMatching(/^prop_/), next: expect.stringMatching(/the tool request_approval \(in Claude Code it is mcp__dispand__request_approval, not a tool of the job server\)/) } });
   const [row] = await s.context.db.select().from(proposals);
   expect(row).toMatchObject({ id: s.idOf(made), ownerId: s.context.ownerId, runId: s.job.runId, agentId: s.agent.id, status: "draft", questionId: null });
   expect(row!.items.map((i) => i.tool)).toEqual(["agents_create", "agents_update"]);
