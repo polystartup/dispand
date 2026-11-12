@@ -574,3 +574,29 @@ test("a Codex Job session finds its memory files while it runs, and they are gon
   await sessions.shutdown();
   expect(existsSync(dir)).toBe(false);
 });
+
+test("revoking a grant during skill fetching narrows the start before the CLI launches", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "sessions-permissions-")));
+  made.push(base);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const fetch = vi.fn(async () => { await gate; return []; });
+  const fake = fakeQuery();
+  const sessions = new Sessions(
+    { server: "https://dispand.test", roots: [join(base, "root")], allowBypass: false, mcpServers: { gmail: { command: process.execPath } } },
+    () => undefined,
+    { claude: { query: fake.query }, resumeMap: join(base, "sessions.json"), claudeVersion: "2.1.311", skills: { server: "https://dispand.test", token: "t", stateDir: join(base, "state"), fetch } },
+  );
+  const message = { ...start("ses_1", "run_a"), jobToken: "token", skills: [{ packageId: "pkg_1", name: "hello" }], mcpServers: [{ name: "mail", type: "runner" as const, tool: "gmail", unasked: ["draft_email"] }] };
+  const slow = sessions.handle({ type: "session.start", start: message });
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+  await sessions.handle({ type: "session.permissions", sessionId: "ses_1", servers: [] });
+  // A later update cannot restore the removed grant while the start is still preparing.
+  await sessions.handle({ type: "session.permissions", sessionId: "ses_1", servers: [{ name: "mail", unasked: ["draft_email", "send_email"] }] });
+  release();
+  await slow;
+  expect(fake.calls).toHaveLength(1);
+  const hook = fake.calls[0]!.hooks!.PreToolUse!.flatMap((m) => m.hooks)[0]!;
+  expect(await hook({ hook_event_name: "PreToolUse", tool_name: "mcp__mail__draft_email", tool_input: {}, tool_use_id: "tu", session_id: "ses_1", transcript_path: "", cwd: base } as never, "tu", { signal: new AbortController().signal })).toMatchObject({ hookSpecificOutput: { permissionDecision: "ask" } });
+  await sessions.shutdown();
+});

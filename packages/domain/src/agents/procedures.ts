@@ -227,6 +227,7 @@ const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async
     return { row, ended: await context.engine.endConsults(tx, context.ownerId, [id]) };
   });
   context.engine.settled(ended);
+  await context.engine.narrowSessions(id, context.db);
   return (await withPlugins(context.db, [row]))[0]!;
 });
 
@@ -255,9 +256,8 @@ const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, co
 });
 
 /**
- * The actions of each tool reached by URL the agent chose, with whether each asks the owner
- * before use. A tool that only comes with a skill isn't here (all its actions ask), nor a
- * runner's own tool (its CLI asks for each call).
+ * The actions of each tool the agent chose (reached by URL or on a runner), with whether each
+ * asks the owner before use. A tool that only comes with a skill isn't here (all its actions ask).
  */
 const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const agent = await find(context.db, context.ownerId, input.id);
@@ -265,7 +265,7 @@ const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input
     .select({ toolId: toolsTable.id, name: toolsTable.name, actions: toolsTable.actions, unasked: agentTools.unasked })
     .from(agentTools)
     .innerJoin(toolsTable, eq(toolsTable.id, agentTools.toolId))
-    .where(and(eq(agentTools.agentId, agent.id), eq(toolsTable.ownerId, context.ownerId), eq(toolsTable.kind, "http")))
+    .where(and(eq(agentTools.agentId, agent.id), eq(toolsTable.ownerId, context.ownerId), inArray(toolsTable.kind, ["http", "runner"])))
     .orderBy(asc(toolsTable.name));
   return rows.map(({ toolId, name, actions, unasked }) => ({
     toolId,
@@ -280,6 +280,7 @@ const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input
  */
 const setToolAsk = owner.input(z.object({ agentId: z.string(), toolId: z.string(), action: z.string(), ask: z.boolean() })).handler(async ({ input, context }) => {
   if (!(await setAsk(context.db, context.ownerId, input))) throw new ORPCError("NOT_FOUND");
+  if (input.ask) await context.engine.narrowSessions(input.agentId, context.db);
   return { ok: true as const };
 });
 

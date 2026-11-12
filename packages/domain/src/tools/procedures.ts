@@ -504,7 +504,7 @@ const fillSettings = owner
  * Renames a runner tool, or points it at another runner or server name, which that runner must
  * report. While an agent or a skill uses it, it stays on its runner: the agent's harness runs there.
  */
-async function updateRunnerTool(context: Pick<InitialContext, "db" | "hub"> & { ownerId: string }, current: Row, input: { name?: string; runnerId?: string; runnerTool?: string }) {
+async function updateRunnerTool(context: Pick<InitialContext, "db" | "hub" | "engine"> & { ownerId: string }, current: Row, input: { name?: string; runnerId?: string; runnerTool?: string }) {
   const runnerId = input.runnerId ?? current.runnerId;
   const runnerTool = input.runnerTool ?? current.runnerTool;
   const moved = runnerId !== current.runnerId || runnerTool !== current.runnerTool;
@@ -523,6 +523,11 @@ async function updateRunnerTool(context: Pick<InitialContext, "db" | "hub"> & { 
     .returning()
     .catch((e: unknown) => nameTaken(e, input.name ?? current.name));
   if (!row) throw new ORPCError("NOT_FOUND");
+  if (moved) {
+    const holders = await context.db.select({ agentId: agentTools.agentId }).from(agentTools).where(eq(agentTools.toolId, row.id));
+    await askAgain(context.db, row.id);
+    for (const holder of holders) await context.engine.narrowSessions(holder.agentId, context.db);
+  }
   return view(context.db, moved ? await refreshRunnerActions(context.db, context.hub, row) : row);
 }
 
@@ -586,7 +591,11 @@ const update = owner
       .returning()
       .catch((e: unknown) => nameTaken(e, input.name ?? current.name));
     if (!row) throw new ORPCError("NOT_FOUND");
-    if (moved) await askAgain(context.db, row.id);
+    if (moved) {
+    const holders = await context.db.select({ agentId: agentTools.agentId }).from(agentTools).where(eq(agentTools.toolId, row.id));
+    await askAgain(context.db, row.id);
+    for (const holder of holders) await context.engine.narrowSessions(holder.agentId, context.db);
+  }
     const changed = moved || (input.headers !== undefined && Object.keys(input.headers).length > 0) || row.auth !== current.auth;
     // An OAuth tool lists its actions once connected.
     const listable = row.auth !== "oauth" || row.oauthStatus === "connected";

@@ -34,6 +34,23 @@ export function withJobServer(refs: McpServerRef[], server: string, jobToken: st
 }
 
 /**
+ * In a Job's session (`jobTools`, the Job's unasked tools of its tools server): the MCP tools
+ * that run without a question, by the name the CLI gives them (`mcp__<server>__<tool>`), and the
+ * servers whose tools "always allow" adds to them (the Job's tools server and the runner tools,
+ * which are the Job's agent's own). The runner makes every name itself from a server the session
+ * starts and an action Dispand named: nothing here can name a command, a file tool or another
+ * server's tool. Nothing for a session without a Job.
+ */
+export function unaskedTools(refs: McpServerRef[], jobTools: string[] | undefined): { names: Set<string>; servers: string[] } {
+  if (jobTools === undefined) return { names: new Set(), servers: [] };
+  const runner = refs.flatMap((ref) => (ref.type === "runner" ? [ref] : []));
+  return {
+    names: new Set([...jobTools.map((name) => `mcp__${JOB_TOOLS_SERVER}__${name}`), ...runner.flatMap((ref) => (ref.unasked ?? []).map((action) => `mcp__${ref.name}__${action}`))]),
+    servers: [JOB_TOOLS_SERVER, ...runner.map((ref) => ref.name)],
+  };
+}
+
+/**
  * The CLI's MCP servers for `refs`, in the SDK's shapes. A runner tool is the machine's own
  * server of that name (`mcpServers` in its config): the server names one, and never says what
  * it runs. It starts from `dir` (the home folder), never the CLI's working directory, where the
@@ -193,8 +210,7 @@ export async function callTool(
   if (server.pollable?.length === 0) throw new CallFailed(`the MCP server ${name} allows no polls on this runner`);
   // No approval stands between a poll and its call: a path the runner keeps sessions out of
   // (its own config, the CLIs' credentials) is refused in any argument, as sessions are kept from it.
-  const paths = pathsIn(args);
-  if (paths === null || paths.some((path) => overlapping(path, guard.forbidden))) throw new CallFailed(`the call names a path this runner keeps out of reach`);
+  if (!runnerArgumentsAllowed(args, guard.forbidden)) throw new CallFailed(`the call names a path this runner keeps out of reach`);
   const transport = new StdioClientTransport({
     command: server.command,
     args: server.args ?? [],
@@ -261,7 +277,7 @@ function pathsIn(args: unknown): string[] | null {
     out.push(isAbsolute(expanded) ? expanded : resolve(homedir(), expanded));
   };
   const walk = (v: unknown) => {
-    if (typeof v === "string" && v.length > 0 && v.length <= 4096) {
+    if (typeof v === "string" && v.length > 0) {
       const readings = new Set<string>([v]);
       try {
         readings.add(decodeURIComponent(v));
@@ -314,4 +330,18 @@ export function credentialValues(files: string[]): string[] {
     }
   }
   return out;
+}
+
+/** Revocations intersect the current grant; an update can never add an action or server. */
+export function narrowUnasked(names: Set<string>, servers: string[], update: { name: string; unasked: string[] }[]): void {
+  const allowed = new Set(update.flatMap((ref) => ref.unasked.map((action) => `mcp__${ref.name}__${action}`)));
+  for (const name of names) {
+    if (servers.some((server) => name.startsWith(`mcp__${server}__`)) && !allowed.has(name)) names.delete(name);
+  }
+}
+
+/** The same protected-path guard for automatic session grants and polls. */
+export function runnerArgumentsAllowed(args: unknown, forbidden: string[]): boolean {
+  const paths = pathsIn(args);
+  return paths !== null && !paths.some((path) => overlapping(path, forbidden));
 }

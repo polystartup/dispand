@@ -379,3 +379,13 @@ test("a start's memory files are a scope's index or entry paths a CLI never load
   for (const scope of ["tables", "tables/", "tables/../x", "tables/a/b", "other", "../workspace", "/workspace"]) expect(withMemory(file(scope, "MEMORY.md")), scope).toThrow(ProtocolError);
   expect(withMemory(Array.from({ length: 10_001 }, () => file("agent", "MEMORY.md")[0]))).toThrow(ProtocolError);
 });
+
+test("permission updates carry bounded server-local action names", () => {
+  const update = { type: "session.permissions", sessionId: "session_1", servers: [{ name: "mail", unasked: ["draft_email"] }] };
+  expect(parseServerMessage(JSON.stringify(update))).toEqual(update);
+  for (const servers of [
+    [{ name: "mcp__other", unasked: ["draft_email"] }],
+    [{ name: "mail", unasked: ["Bash(*)"] }],
+    [{ name: "mail", unasked: Array.from({ length: 501 }, () => "draft_email") }],
+  ]) expect(() => parseServerMessage(JSON.stringify({ ...update, servers }))).toThrow(ProtocolError);
+});
