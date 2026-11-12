@@ -33,6 +33,8 @@ const features = tableFeatures({ rowSelectionFeature });
 
 
 const same = (a: Cell | undefined, b: Cell) => JSON.stringify(a ?? null) === JSON.stringify(b);
+/** The id of the new row shown before it exists. */
+const DRAFT = "draft";
 
 /**
  * The table's rows, editable in place. Rows load 100 at a time ("Load more"). A cell edit is
@@ -79,6 +81,13 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
   const [selection, setSelection] = useState<RowSelectionState>({});
   const [confirmDelete, setConfirmDelete] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
+  // "New row" adds a draft at the end, on the client only. The row is created with the first
+  // value saved in it, so a trigger on `created` gets that value, never an empty row; values
+  // saved before the server answers wait behind the creation in the queue of row writes.
+  const [draft, setDraft] = useState<{ values: Record<string, Cell>; sent: boolean } | null>(null);
+  const draftValues = useRef<Record<string, Cell>>({});
+  const createdId = useRef<string | null>(null);
+  const shown = useMemo(() => (draft ? [...rows, { id: DRAFT, tableId, values: draft.values } as Row] : rows), [rows, draft, tableId]);
 
   // Changes made elsewhere (another tab, a workflow) reach the grid, but never while the owner is on
   // a cell: rows don't move under the cursor. What came meanwhile is read once the cell is left.
@@ -105,7 +114,12 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
   // saved, so it never undoes a newer edit shown meanwhile.
   const update = useMutation({
     ...rowWrites(tableId),
-    mutationFn: (input: { id: string; fieldId: string; value: Cell }) => api.rows.update({ id: input.id, values: { [input.fieldId]: input.value } }),
+    mutationFn: (input: { id: string; fieldId: string; value: Cell }) => {
+      // The draft's row was created by the write queued before this one.
+      const id = input.id === DRAFT ? createdId.current : input.id;
+      if (!id) throw new Error("the row wasn't added");
+      return api.rows.update({ id, values: { [input.fieldId]: input.value } });
+    },
     onMutate: async (input) => {
       await queryClient.cancelQueries({ queryKey: listKey });
       const before = rows.find((r) => r.id === input.id)?.values[input.fieldId] ?? null;
@@ -128,15 +142,23 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
 
   const create = useMutation({
     ...rowWrites(tableId),
-    mutationFn: (values: Record<string, Cell> = {}) => api.rows.create({ tableId, values }),
+    mutationFn: async (values: Record<string, Cell>) => {
+      const row = await api.rows.create({ tableId, values });
+      createdId.current = row.id;
+      return row;
+    },
     onSuccess: (row) => {
       setError(null);
-      // Shown at the end of the loaded rows; a reload puts it in its place in the order.
-      patchRows((list, last) => (last ? [...list, row] : list), 1);
-      setActive({ row: rows.length, col: 0 });
-      setEditing({});
+      // Shown at the end of the loaded rows, where the draft was, with the values saved in the
+      // draft meanwhile (their updates follow); a reload puts it in its place in the order.
+      const created = { ...row, values: { ...row.values, ...draftValues.current } };
+      patchRows((list, last) => (last ? [...list, created] : list), 1);
+      setDraft(null);
     },
-    onError: (err) => setError(`Could not add a row: ${err.message}`),
+    onError: (err) => {
+      setDraft(null);
+      setError(`Could not add a row: ${err.message}`);
+    },
   });
 
   const remove = useMutation({
@@ -186,7 +208,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
 
   const table = useTable({
     features,
-    data: rows,
+    data: shown,
     columns,
     getRowId: (r) => r.id,
     state: { rowSelection: selection },
@@ -197,28 +219,46 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
   // Only rows shown can be deleted: a row selected, then hidden by a filter, is left alone.
   const selectedIds = rows.filter((r) => selection[r.id]).map((r) => r.id);
 
+  const newRow = (values: Record<string, Cell>) => {
+    draftValues.current = values;
+    createdId.current = null;
+    setDraft({ values, sent: false });
+    setActive({ row: rows.length, col: 0 });
+    setEditing({});
+  };
+
   const commit = (pos: GridPos, value: Cell) => {
-    const row = rows[pos.row];
+    const row = shown[pos.row];
     const field = fields[pos.col];
     if (!row || !field || same(row.values[field.id], value)) return;
+    if (row.id === DRAFT && draft) {
+      draftValues.current = { ...draftValues.current, [field.id]: value };
+      setDraft({ values: draftValues.current, sent: true });
+      if (!draft.sent) return create.mutate(draftValues.current);
+    }
     update.mutate({ id: row.id, fieldId: field.id, value });
   };
+
+  // A draft left before anything was saved in it goes away: no row is created.
+  useEffect(() => {
+    if (draft && !draft.sent && active?.row !== rows.length) setDraft(null);
+  }, [active, draft, rows.length]);
 
   const focusGrid = () => gridRef.current?.focus({ preventScroll: true });
 
   const endEdit = (value: Cell | undefined, move?: CommitMove) => {
     if (active && value !== undefined) commit(active, value);
     setEditing(null);
-    if (active && move) setActive(nextCell(active, move, { rows: rows.length, cols: fields.length }));
+    if (active && move) setActive(nextCell(active, move, { rows: shown.length, cols: fields.length }));
     focusGrid();
   };
 
   const startEdit = (pos: GridPos, initialText?: string) => {
     const field = fields[pos.col];
-    const row = rows[pos.row];
+    const row = shown[pos.row];
     if (!field || !row) return;
     if (field.type === "checkbox") return commit(pos, row.values[field.id] !== true);
-    if (field.type === "attachment") return onOpenRow(row.id);
+    if (field.type === "attachment") return row.id === DRAFT ? undefined : onOpenRow(row.id);
     setEditing({ initialText });
   };
 
@@ -227,7 +267,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
     const key = e.key === "Tab" && e.shiftKey ? "ShiftTab" : e.key;
     if (MOVES.has(e.key)) {
       e.preventDefault();
-      setActive(nextCell(active, key as GridKey, { rows: rows.length, cols: fields.length }));
+      setActive(nextCell(active, key as GridKey, { rows: shown.length, cols: fields.length }));
     } else if (e.key === "Enter" || (e.key === " " && fields[active.col]?.type === "checkbox")) {
       e.preventDefault();
       startEdit(active);
@@ -267,7 +307,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
         ref={gridRef}
         role="grid"
         aria-label="Rows"
-        aria-rowcount={total + 1}
+        aria-rowcount={total + (draft ? 2 : 1)}
         tabIndex={0}
         onKeyDown={onKeyDown}
         className="overflow-auto rounded-2xl bg-surface shadow-card outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
@@ -317,7 +357,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
                   if (i === 0) {
                     return (
                       <td key={cell.id} className="sticky left-0 z-[5] h-10 w-[4.5rem] border-b border-line bg-surface px-2 group-hover:bg-hover">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        {row.id !== DRAFT && flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     );
                   }
@@ -390,14 +430,14 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
                 onCommit={(value) => {
                   if (value === null) return;
                   setPickingParent(false);
-                  create.mutate({ [requiredParent.id]: value });
+                  newRow({ [requiredParent.id]: value });
                 }}
                 onCancel={() => setPickingParent(false)}
               />
             </PopoverContent>
           </Popover>
         ) : (
-          <Button variant="ghost" size="sm" disabled={create.isPending} onClick={() => create.mutate({})}>
+          <Button variant="ghost" size="sm" disabled={create.isPending} onClick={() => newRow({})}>
             <Plus /> New row
           </Button>
         )}
