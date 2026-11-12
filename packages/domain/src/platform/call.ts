@@ -54,7 +54,7 @@ export async function callPlatformTool(app: PlatformApp, job: JobIdentity, name:
       if ("error" in made) return { ok: false, error: made.error };
       return {
         ok: true,
-        output: { ...made, next: `Now call request_approval with a message saying what you propose and why, and proposal: "${made.proposalId}". Once approved, make each call exactly as listed.` },
+        output: { ...made, next: `Now call the tool request_approval (in Claude Code it is mcp__dispand__request_approval, not a tool of the job server) with a message saying what you propose and why, and proposal: "${made.proposalId}". Once approved, make each call exactly as listed.` },
       };
     }
     if (tool.run) return await tool.run(app, job, parsed.data);
