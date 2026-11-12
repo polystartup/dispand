@@ -130,6 +130,9 @@ function nextCall(items: ChatItem[]): ToolCall | undefined {
 
 const cut = (s: string, max: number) => storableText(s.slice(0, max));
 
+/** Whether the session has `submit_outputs`: in a chat, which ends with it, or when the step expects outputs. */
+const offersSubmit = (start: { interactive: boolean; expectedOutputs: unknown[] }) => start.interactive || start.expectedOutputs.length > 0;
+
 /**
  * Cloud harness sessions, run in process: Dispand runs the tool loop itself and reports to the
  * engine with the same events a runner sends (spec 5.1). Each session is a `cloud_sessions` row:
@@ -377,8 +380,9 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       const skills = await sessionSkills(this.db, id);
       const tools = [
         askUserSpec,
-        // Only with values to hand back: a Job without them answers with its last message.
-        ...(start.expectedOutputs.length > 0 ? [submitOutputsSpec(start.expectedOutputs)] : []),
+        // A chat ends with it; elsewhere it is offered only with values to hand back, and a step
+        // without them answers with its last message.
+        ...(offersSubmit(start) ? [submitOutputsSpec(start.expectedOutputs)] : []),
         requestApprovalSpec,
         ...(start.consults?.length ? [consultSpec(start.consults)] : []),
         ...(skills.length > 0 ? [readSkillSpec] : []),
@@ -422,10 +426,9 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     const id = row.id;
     const items = (text: string, isError: boolean): ChatItem[] => [...row.items, { role: "tool", callId: call.id, name: call.name, result: text, isError }];
     const consults = row.start.consults ?? [];
-    const fields = row.start.expectedOutputs;
     // `read_skill` is reserved (`tool-names.ts`): no other tool can take its name.
     const builtin =
-      call.name === ASK_USER || (call.name === SUBMIT_OUTPUTS && fields.length > 0) || call.name === REQUEST_APPROVAL || call.name === READ_SKILL || (call.name === CONSULT && consults.length > 0);
+      call.name === ASK_USER || (call.name === SUBMIT_OUTPUTS && offersSubmit(row.start)) || call.name === REQUEST_APPROVAL || call.name === READ_SKILL || (call.name === CONSULT && consults.length > 0);
     const { specs, names } = await this.specs(row.id);
     const key = builtin ? undefined : names.fromName(call.name);
     const label = cut(specs.find((s) => s.key === key)?.label ?? call.name, ID);
@@ -474,8 +477,8 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         await done(read.text, read.isError);
         return null;
       }
-      if (call.name === SUBMIT_OUTPUTS && fields.length > 0) {
-        const given = outputValues(args, fields);
+      if (call.name === SUBMIT_OUTPUTS && offersSubmit(row.start)) {
+        const given = outputValues(args, row.start.expectedOutputs);
         if ("error" in given) await done(given.error, true);
         else if (row.start.interactive) await ask({ kind: "confirm-outputs", values: given.values });
         else await this.emit(id, { items: items(TEXTS.confirmed, false), status: "done" }, { type: "outputs-accepted", values: given.values });

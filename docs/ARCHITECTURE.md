@@ -65,8 +65,8 @@
   `RoutingAdapter` hands cloud sessions to it and CLI ones to the hub, and it reports the same
   `HarnessEvent`s, with `runnerId` `cloud` (`CLOUD_SOURCE`). Dispand runs the tool loop: the
   model gets the built-in `ask_user` (Claude Code's `AskUserQuestion` shape, a `choice`
-  question) and, when the step expects outputs, `submit_outputs` (`builtins.ts`, the runner's
-  rules and texts: `confirm-outputs` in a chat, one reminder elsewhere; a step that expects none,
+  question) and, in a chat or a step that expects outputs, `submit_outputs` (`builtins.ts`, the
+  runner's rules and texts: `confirm-outputs` in a chat, one reminder elsewhere; any other step,
   such as a consulted Job, ends with its last message as `result`), and the agent's tools through a `ToolCaller` (none until
   agents get tools); every other tool call asks a `permission` question, unless its spec says
   `ask: false` (read at every call). "Always allow", offered for a tool the agent chose, is
@@ -672,8 +672,8 @@
   never the run folder's), resuming only a CLI session the runner recorded for that run key
   (`sessions.json`). Permission prompts and
   `AskUserQuestion` become `question` events; the agent returns its outputs through the
-  `submit_outputs` tool of the in-process MCP server `dispand` (for a step that expects none, the
-  engine leaves its `outputs-accepted` aside and completes the step with the `result` that
+  `submit_outputs` tool of the in-process MCP server `dispand` (for a step outside a chat that
+  expects none, the engine leaves its `outputs-accepted` aside and completes the step with the `result` that
   follows, the last message). `bypassPermissions` needs
   `allowBypass: true` in the machine's config. `boundary.ts` is the one permission boundary
   every session runs inside: file edits stay inside the working directory, minus any
