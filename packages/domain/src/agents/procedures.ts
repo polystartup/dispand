@@ -174,7 +174,7 @@ const update = owner.input(Fields.extend({ id: z.string() })).handler(async ({ i
   await find(context.db, context.ownerId, id);
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
   const dataTables = await ownTables(context.db, context.ownerId, input.dataTables);
-  await guard(context.db, context.ownerId, id, { kind: "update", bundles, dataTables });
+  await guard(context.db, context.ownerId, id, { kind: "update", bundles, dataTables, skillPackageIds });
   const row = await context.db.transaction(async (tx) => {
     const [row] = await tx
       .update(agentsTable)

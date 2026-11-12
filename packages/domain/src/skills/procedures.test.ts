@@ -24,6 +24,7 @@ test("create writes SKILL.md with name and description", async () => {
       packageId,
       name: "hello-check",
       description: "Answers HELLO-CHECK.",
+      builtIn: false,
       plugin: null,
       skills: [{ name: "hello-check", description: "Answers HELLO-CHECK." }],
       requiredTools: [],

@@ -19,6 +19,7 @@ import {
   startTelemetry,
   stopTelemetry,
   sweepAttachments,
+  syncPlatformSkills,
   type Auth,
   type DataEvents,
   type Db,
@@ -68,7 +69,9 @@ async function start(): Promise<App> {
   const engine = getEngine(db, hub, secrets, dataEvents, { connector: tools, tools: platformToolCaller(() => app), filesDir: config.filesDir });
   // Filled before anything can call a tool: recovery below may already need it.
   Object.assign(app, { db, auth, hub, engine, dataEvents, secrets, tools, setupCode: config.setupCode, filesDir: config.filesDir, gitFileUrls: config.gitFileUrls, appUrl: config.baseURL });
-  // Each Assistant gets what this version adds to it before anything starts one of its Jobs.
+  // Every owner's platform skill holds this build's files, and each Assistant gets what this
+  // version adds to it, before anything starts one of its Jobs.
+  await syncPlatformSkills(db);
   await ensureAssistants(db);
   // Before any runner can connect (the upgrade handler waits for this app); cloud sessions go on.
   await engine.recover();

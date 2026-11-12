@@ -31,8 +31,15 @@ export const ProposeInput = z.object({
 /** The agent an item would change and how, for the Assistant's guard; null for any other write. */
 async function agentChangeOf(db: Db, ownerId: string, tool: string, input: unknown): Promise<[string, AgentChange] | null> {
   // Parsed by the tool's own schema: these keys have these types.
-  const { id = "", bundles, dataTables, enabled, config } = input as { id?: string; bundles?: Bundle[]; dataTables?: TableScope; enabled?: boolean; config?: TriggerConfig };
-  if (tool === "agents_update") return [id, { kind: "update", bundles, dataTables }];
+  const { id = "", bundles, dataTables, skillPackageIds, enabled, config } = input as {
+    id?: string;
+    bundles?: Bundle[];
+    dataTables?: TableScope;
+    skillPackageIds?: string[];
+    enabled?: boolean;
+    config?: TriggerConfig;
+  };
+  if (tool === "agents_update") return [id, { kind: "update", bundles, dataTables, skillPackageIds }];
   if (tool !== "triggers_update" && tool !== "triggers_delete") return null;
   const [trigger] = await db
     .select({ agentId: triggers.agentId })
