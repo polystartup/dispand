@@ -1,5 +1,5 @@
 import { call } from "@orpc/server";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import { agents, agentTools, fields as fieldsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
@@ -658,4 +658,121 @@ test("an item used before items were marked pending reads as made: apply goes on
     .set({ items: row!.items.map((item, i) => (i === 0 ? { ...item, usedAt: new Date().toISOString() } : item)) })
     .where(eq(proposals.id, id));
   expect(outcomes(await s.tool("proposal_apply", { proposalId: id }))).toEqual(["made before", "made"]);
+});
+
+/** Proposes `items` for the generated plugin of `business`, and has the owner approve it. */
+async function approveFor(s: Awaited<ReturnType<typeof setup>>, business: string, items: unknown[]) {
+  const made = await s.tool("propose", { items, plugin: business });
+  expect(made, JSON.stringify(made)).toMatchObject({ ok: true });
+  const id = s.idOf(made);
+  await s.answer(await s.ask({ message: "May I?", proposal: id }), "allow");
+  return id;
+}
+
+test("what an applied proposal creates is recorded in its generated plugin, which a second proposal adds to and which owns nothing", async () => {
+  const s = await setup();
+  const { context } = s;
+  const server = await startFakeMcp([{ name: "search" }]);
+  onTestFinished(() => server.close());
+  const first = await approveFor(s, "Acme Law", [
+    { tool: "tables_create", input: { name: "Matters" } },
+    { tool: "fields_create", input: { tableId: { $item: 0 }, name: "Status", type: "text" } },
+    { tool: "tools_add", input: { name: "Search", url: server.url, transport: "streamable-http" } },
+    { tool: "agents_create", input: { ...s.newAgent, dataTables: [{ $item: 0 }], toolIds: [{ $item: 2 }] } },
+    { tool: "triggers_create", input: { agentId: { $item: 3 }, name: "Ask", instructions: "Answer.", config: { kind: "manual", placement: "button" } } },
+  ]);
+  // The owner reads which plugin records it, with the items.
+  const view = (await call(router.questions.list, { status: "all" }, { context })).find((q) => q.proposal?.id === first)!.proposal!;
+  expect(view.plugin).toBe("Generated: Acme Law");
+  const applied = (await s.tool("proposal_apply", { proposalId: first })) as Applied;
+  const [table, field, tool, agent, trigger] = applied.output.items.map((i) => i.id!);
+  const [plugin] = await call(router.plugins.list, undefined, { context });
+  expect(plugin).toMatchObject({
+    name: "Generated: Acme Law",
+    source: "generated",
+    marketplace: null,
+    sha: null,
+    tables: [{ id: table, name: "Matters" }],
+    fields: [{ id: field, name: "Matters.Status" }],
+    tools: [{ id: tool, name: "Search" }],
+    agents: [{ id: agent, name: "Clerk" }],
+    triggers: [{ id: trigger, name: "Clerk: Ask" }],
+  });
+  // It owns nothing: what it lists has no plugin.
+  expect((await context.db.select().from(agents).where(eq(agents.id, agent!)))[0]!.pluginId).toBeNull();
+  expect((await context.db.select().from(toolsTable).where(eq(toolsTable.id, tool!)))[0]!.pluginId).toBeNull();
+  // A second proposal of the same business adds to the same plugin; applying again adds nothing twice.
+  const second = await approveFor(s, "Acme Law", [{ tool: "tables_create", input: { name: "Invoices" } }]);
+  const invoices = ((await s.tool("proposal_apply", { proposalId: second })) as Applied).output.items[0]!.id;
+  await s.tool("proposal_apply", { proposalId: first });
+  const plugins = await call(router.plugins.list, undefined, { context });
+  expect(plugins).toHaveLength(1);
+  expect(plugins[0]!.tables.map((t) => t.id)).toEqual([table, invoices]);
+  expect(plugins[0]!.agents).toHaveLength(1);
+  // Nothing to update it from; removing it removes the record, never what it lists.
+  await expect(call(router.plugins.update, { id: plugin!.id }, { context })).rejects.toThrow(/generated/);
+  await call(router.plugins.uninstall, { id: plugin!.id }, { context });
+  expect(await call(router.plugins.list, undefined, { context })).toEqual([]);
+  expect(await call(router.tables.get, { id: table! }, { context })).toMatchObject({ name: "Matters", fields: [{ name: "Name" }, { id: field }] });
+  expect(await call(router.agents.get, { id: agent! }, { context })).toMatchObject({ name: "Clerk", tools: [{ toolId: tool }] });
+  expect(await call(router.triggers.get, { id: trigger! }, { context })).toMatchObject({ agentId: agent });
+  expect(await call(router.tools.get, { id: tool! }, { context })).toMatchObject({ name: "Search" });
+});
+
+test("a generated plugin lists only what was made: no plugin before anything is, none without a name, and one for two applies at once", async () => {
+  const s = await setup();
+  const { context } = s;
+  await call(router.tables.create, { name: "Clients" }, { context });
+  // Refused at its first item: nothing made, no plugin.
+  const refused = await approveFor(s, "Acme", [{ tool: "tables_create", input: { name: "Clients" } }]);
+  await s.tool("proposal_apply", { proposalId: refused });
+  // No business named: nothing recorded.
+  const unnamed = await approve(s, [{ tool: "tables_create", input: { name: "Notes" } }]);
+  await s.tool("proposal_apply", { proposalId: unnamed });
+  expect(await call(router.plugins.list, undefined, { context })).toEqual([]);
+  // An item made by a direct call is recorded too.
+  await approveFor(s, "Direct", [{ tool: "tables_create", input: { name: "Leads" } }]);
+  expect(await s.tool("tables_create", { name: "Leads" })).toMatchObject({ ok: true });
+  expect((await call(router.plugins.list, undefined, { context })).find((p) => p.name === "Generated: Direct")!.tables.map((t) => t.name)).toEqual(["Leads"]);
+  await call(router.plugins.uninstall, { id: (await call(router.plugins.list, undefined, { context }))[0]!.id }, { context });
+  // Stopped after one item made: that one is recorded. Two proposals applied at once share one plugin.
+  const stopped = await approveFor(s, "Acme", [
+    { tool: "tables_create", input: { name: "Matters" } },
+    { tool: "tables_create", input: { name: "Clients" } },
+  ]);
+  const other = await approveFor(s, "Acme", [{ tool: "tables_create", input: { name: "Invoices" } }]);
+  await Promise.all([s.tool("proposal_apply", { proposalId: stopped }), s.tool("proposal_apply", { proposalId: other })]);
+  const plugins = await call(router.plugins.list, undefined, { context });
+  expect(plugins).toHaveLength(1);
+  expect(plugins[0]!.tables.map((t) => t.name).sort()).toEqual(["Invoices", "Matters"]);
+  // A table deleted since is no longer listed.
+  const matters = plugins[0]!.tables.find((t) => t.name === "Matters")!.id;
+  await call(router.tables.delete, { id: matters }, { context });
+  expect((await call(router.plugins.list, undefined, { context }))[0]!.tables.map((t) => t.name)).toEqual(["Invoices"]);
+});
+
+test("a proposal's business name is checked like its items, and never reaches telemetry", async () => {
+  const s = await setup();
+  const items = [{ tool: "tables_create", input: { name: "Matters" } }];
+  for (const plugin of ["", "x".repeat(101), "a\u0000b"]) expect(await s.tool("propose", { items, plugin })).toMatchObject({ ok: false });
+  const telemetry = await captureTelemetry();
+  onTestFinished(() => telemetry.stop());
+  const id = await approveFor(s, "Secret business", items);
+  await s.tool("proposal_apply", { proposalId: id });
+  expect(await call(router.plugins.list, undefined, { context: s.context })).toMatchObject([{ name: "Generated: Secret business" }]);
+  expect(await telemetry.all()).not.toContain("Secret");
+});
+
+test("a generated plugin that can't be recorded never turns a write that was made into a refusal", async () => {
+  const s = await setup();
+  // Every new plugin row is refused from now on.
+  await s.context.db.execute(sql`ALTER TABLE plugins ADD CONSTRAINT no_new_plugins CHECK (false) NOT VALID`);
+  // The database outlives this test (`testDb`): its constraints with it.
+  onTestFinished(() => s.context.db.execute(sql`ALTER TABLE plugins DROP CONSTRAINT no_new_plugins`).then(() => undefined));
+  const id = await approveFor(s, "Acme", [
+    { tool: "tables_create", input: { name: "Matters" } },
+    { tool: "tables_create", input: { name: "Invoices" } },
+  ]);
+  expect(outcomes(await s.tool("proposal_apply", { proposalId: id }))).toEqual(["made", "made"]);
+  expect(outcomes(await s.tool("proposal_apply", { proposalId: id }))).toEqual(["made before", "made before"]);
 });

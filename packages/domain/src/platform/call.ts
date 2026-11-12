@@ -4,7 +4,7 @@ import { logError } from "../log.ts";
 import type { InitialContext } from "../rpc/context.ts";
 import { router } from "../rpc/router.ts";
 import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
-import { approvedItems, createProposal, issues, recordOutcome, resolveRefs, takeItem, type ItemAt } from "./proposals.ts";
+import { approvedItems, createProposal, issues, recordInPlugin, recordOutcome, resolveRefs, takeItem, type ItemAt } from "./proposals.ts";
 import { rightsOf, type JobIdentity } from "./rights.ts";
 import { APPLY, INBOX_TOOLS, PLATFORM_TOOLS, procedureOf, PROPOSE, type PlatformTool } from "./tools.ts";
 
@@ -79,6 +79,9 @@ export async function callPlatformTool(app: PlatformApp, job: JobIdentity, name:
     // The item is made: what it created, for the items that name it.
     const created = taken && tool.creates?.id(output);
     if (taken) await recordOutcome(app.db, taken, created ? { createdId: created } : {});
+    // Made by `proposal_apply` or by a direct call alike: listed in the generated plugin the proposal names.
+    // Bookkeeping only: a failure here never turns the write that was made into a refusal.
+    if (taken && created) await recordInPlugin(app.db, job.ownerId, taken.proposalId).catch((e: unknown) => logError("generated plugin not recorded", e, { ref: taken!.proposalId }));
     return { ok: true, output: tool.filter ? tool.filter(output, scope) : output };
   } catch (err) {
     // A used item whose call failed: shown so, and the items naming it can't run.

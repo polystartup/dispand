@@ -9,12 +9,16 @@ import {
   agents as agentsTable,
   agentSkills,
   agentTools,
+  fields as fieldsTable,
   harnesses,
   marketplaces as marketplacesTable,
   plugins as pluginsTable,
   skillPackages,
   skills as skillsTable,
+  tables as tablesTable,
   tools as toolsTable,
+  triggers as triggersTable,
+  type PluginCreated,
 } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -417,6 +421,46 @@ async function findPlugin(db: Db | Tx, ownerId: string, id: string, lock = false
   return row;
 }
 
+type Named = { id: string; name: string };
+
+/**
+ * For each generated plugin, what it lists as it is now, by kind: a row deleted since is left
+ * out, and a field or trigger reads with its table or agent.
+ */
+async function createdNames(db: Db, ownerId: string, rows: PluginRow[]) {
+  const all = (kind: keyof PluginCreated) => [...new Set(rows.flatMap((r) => (r.source === "generated" ? (r.created[kind] ?? []) : [])))];
+  const load = async (ids: string[], query: (ids: string[]) => Promise<Named[]>) => new Map((ids.length ? await query(ids) : []).map((r) => [r.id, r]));
+  const found = {
+    table: await load(all("table"), (ids) =>
+      db.select({ id: tablesTable.id, name: tablesTable.name }).from(tablesTable).where(and(inArray(tablesTable.id, ids), eq(tablesTable.ownerId, ownerId))),
+    ),
+    field: await load(all("field"), (ids) =>
+      db
+        .select({ id: fieldsTable.id, name: sql<string>`${tablesTable.name} || '.' || ${fieldsTable.name}` })
+        .from(fieldsTable)
+        .innerJoin(tablesTable, eq(tablesTable.id, fieldsTable.tableId))
+        .where(and(inArray(fieldsTable.id, ids), eq(fieldsTable.ownerId, ownerId))),
+    ),
+    agent: await load(all("agent"), (ids) =>
+      db.select({ id: agentsTable.id, name: agentsTable.name }).from(agentsTable).where(and(inArray(agentsTable.id, ids), eq(agentsTable.ownerId, ownerId))),
+    ),
+    trigger: await load(all("trigger"), (ids) =>
+      db
+        .select({ id: triggersTable.id, name: sql<string>`${agentsTable.name} || ': ' || ${triggersTable.name}` })
+        .from(triggersTable)
+        .innerJoin(agentsTable, eq(agentsTable.id, triggersTable.agentId))
+        .where(and(inArray(triggersTable.id, ids), eq(triggersTable.ownerId, ownerId))),
+    ),
+    tool: await load(all("tool"), (ids) =>
+      db.select({ id: toolsTable.id, name: toolsTable.name }).from(toolsTable).where(and(inArray(toolsTable.id, ids), eq(toolsTable.ownerId, ownerId))),
+    ),
+  };
+  const kinds = ["table", "field", "agent", "trigger", "tool"] as const;
+  return new Map(
+    rows.map((r) => [r.id, Object.fromEntries(kinds.map((kind) => [kind, (r.created[kind] ?? []).flatMap((id) => found[kind].get(id) ?? [])])) as Record<(typeof kinds)[number], Named[]>]),
+  );
+}
+
 const list = owner.handler(async ({ context }) => {
   const rows = await context.db.select().from(pluginsTable).where(eq(pluginsTable.ownerId, context.ownerId)).orderBy(asc(pluginsTable.name));
   const ids = rows.map((r) => r.id);
@@ -448,7 +492,29 @@ const list = owner.handler(async ({ context }) => {
         .where(inArray(agentsTable.pluginId, ids))
         .orderBy(asc(agentsTable.name))
     : [];
+  const generated = await createdNames(context.db, context.ownerId, rows);
   return rows.map((r) => {
+    if (r.source === "generated") {
+      const named = generated.get(r.id)!;
+      return {
+        id: r.id,
+        name: r.name,
+        description: r.description,
+        source: r.source,
+        marketplace: null,
+        url: null,
+        sha: null,
+        updatedAt: r.updatedAt,
+        skills: [],
+        tools: named.tool,
+        agents: named.agent,
+        tables: named.table,
+        fields: named.field,
+        triggers: named.trigger,
+        available: { skills: [], mcpServers: [], agents: [] },
+        notImported: [],
+      };
+    }
     const pkg = packages.find((p) => p.pluginId === r.id);
     const imported = skillRows.filter((s) => s.packageId === pkg?.id).map((s) => ({ name: s.name, description: s.description }));
     const tools = toolRows.filter((t) => t.pluginId === r.id);
@@ -457,6 +523,7 @@ const list = owner.handler(async ({ context }) => {
       id: r.id,
       name: r.name,
       description: r.description,
+      source: r.source,
       marketplace: markets.find((m) => m.id === r.marketplaceId)?.name ?? "",
       url: r.url,
       sha: r.sha,
@@ -464,6 +531,9 @@ const list = owner.handler(async ({ context }) => {
       skills: imported,
       tools: tools.map(({ id, name }) => ({ id, name })),
       agents: agents.map(({ id, name }) => ({ id, name })),
+      tables: [],
+      fields: [],
+      triggers: [],
       // What the plugin offers that wasn't imported (or was added upstream since).
       available: {
         skills: r.components.skills.filter((s) => !imported.some((i) => i.name === s.name)),
@@ -477,6 +547,11 @@ const list = owner.handler(async ({ context }) => {
 
 const uninstall = owner.input(Id).handler(async ({ input, context }) => {
   const plugin = await findPlugin(context.db, context.ownerId, input.id);
+  // A generated plugin lists what was created and owns none of it: only the record goes.
+  if (plugin.source === "generated") {
+    await context.db.delete(pluginsTable).where(eq(pluginsTable.id, plugin.id));
+    return;
+  }
   // Its agents go with it, but not from under a workflow.
   const agents = await context.db.select({ id: agentsTable.id, name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.pluginId, plugin.id));
   for (const agent of agents) {
@@ -504,6 +579,9 @@ const uninstall = owner.input(Id).handler(async ({ input, context }) => {
 
 const update = owner.input(Id).handler(async ({ input, context }) => {
   const row = await findPlugin(context.db, context.ownerId, input.id);
+  if (row.source === "generated" || !row.marketplaceId || !row.entryName) {
+    throw new ORPCError("BAD_REQUEST", { message: `${row.name} was generated in this workspace: there is nothing to update it from` });
+  }
   const allowFile = !!context.gitFileUrls;
   // Its latest commit is what the marketplace lists now: sync it first (a failed sync keeps the entries).
   const market = await syncMarketplace(context.db, await findMarketplace(context.db, context.ownerId, row.marketplaceId), allowFile);
