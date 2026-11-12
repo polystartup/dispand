@@ -640,8 +640,9 @@
   table-change trigger's table and fields and what used items created included); the web shows
   it with `ProposalItems`, which reads such a trigger's config in words (`ChangeConfig`) and a
   reference as what the item it names creates. `propose` may name a business (`plugin`, kept
-  on the proposal, migration 0053): when `proposal_apply` ends, stopped or not,
-  `recordInPlugin` adds every `createdId` of the proposal's items, by kind, to the plugin
+  on the proposal, migration 0053): each time an item's call records a `createdId`
+  (through `proposal_apply` or a direct call), `recordInPlugin` adds every `createdId` of the
+  proposal's items, by kind, to the plugin
   "Generated: <business>" (`plugins.source = 'generated'`, `created`; no marketplace, URL or
   commit), creating it on first use (one per name, `plugins_owner_generated_idx`). It lists and
   owns nothing: `agents.plugin_id` and `tools.plugin_id` cascade, so they stay unset, and

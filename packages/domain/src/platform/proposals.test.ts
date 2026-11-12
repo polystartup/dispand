@@ -730,6 +730,11 @@ test("a generated plugin lists only what was made: no plugin before anything is,
   const unnamed = await approve(s, [{ tool: "tables_create", input: { name: "Notes" } }]);
   await s.tool("proposal_apply", { proposalId: unnamed });
   expect(await call(router.plugins.list, undefined, { context })).toEqual([]);
+  // An item made by a direct call is recorded too.
+  await approveFor(s, "Direct", [{ tool: "tables_create", input: { name: "Leads" } }]);
+  expect(await s.tool("tables_create", { name: "Leads" })).toMatchObject({ ok: true });
+  expect((await call(router.plugins.list, undefined, { context })).find((p) => p.name === "Generated: Direct")!.tables.map((t) => t.name)).toEqual(["Leads"]);
+  await call(router.plugins.uninstall, { id: (await call(router.plugins.list, undefined, { context }))[0]!.id }, { context });
   // Stopped after one item made: that one is recorded. Two proposals applied at once share one plugin.
   const stopped = await approveFor(s, "Acme", [
     { tool: "tables_create", input: { name: "Matters" } },
@@ -754,8 +759,6 @@ test("a proposal's business name is checked like its items, and never reaches te
   onTestFinished(() => telemetry.stop());
   const id = await approveFor(s, "Secret business", items);
   await s.tool("proposal_apply", { proposalId: id });
-  const [plugin] = await call(router.plugins.list, undefined, { context: s.context });
-  const span = telemetry.spans().filter((sp) => sp.name === "platform.proposal_apply").at(-1)!;
-  expect(span.attributes).toMatchObject({ "dispand.plugin.id": plugin!.id });
+  expect(await call(router.plugins.list, undefined, { context: s.context })).toMatchObject([{ name: "Generated: Secret business" }]);
   expect(await telemetry.all()).not.toContain("Secret");
 });

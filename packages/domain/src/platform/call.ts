@@ -79,6 +79,8 @@ export async function callPlatformTool(app: PlatformApp, job: JobIdentity, name:
     // The item is made: what it created, for the items that name it.
     const created = taken && tool.creates?.id(output);
     if (taken) await recordOutcome(app.db, taken, created ? { createdId: created } : {});
+    // Made by `proposal_apply` or by a direct call alike: listed in the generated plugin the proposal names.
+    if (taken && created) await recordInPlugin(app.db, job.ownerId, taken.proposalId);
     return { ok: true, output: tool.filter ? tool.filter(output, scope) : output };
   } catch (err) {
     // A used item whose call failed: shown so, and the items naming it can't run.
@@ -137,9 +139,6 @@ function applyProposal(app: PlatformApp, job: JobIdentity, proposalId: string): 
       const refusedBefore = outcomes.filter((o) => o.outcome === "refused before").map((o) => o.$item + 1);
       result = stopped ? "stopped" : refusedBefore.length ? "partial" : "done";
       span.setAttributes({ "dispand.proposal.items": first.length, "dispand.proposal.made": made });
-      // What was made, stopped or not, is recorded in the generated plugin the proposal names.
-      const plugin = await recordInPlugin(app.db, job.ownerId, proposalId);
-      if (plugin) span.setAttribute("dispand.plugin.id", plugin);
       if (stopped) {
         recordError(span, "stopped");
         emitLog("platform", "info", "proposal apply stopped", { "dispand.proposal.id": proposalId, "dispand.proposal.items": first.length, "dispand.proposal.made": made });

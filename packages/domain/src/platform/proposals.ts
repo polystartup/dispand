@@ -241,8 +241,8 @@ type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 export const generatedName = (business: string): string => `Generated: ${business}`;
 
 /**
- * Records in the generated plugin a proposal names what its items created (made by this apply,
- * an earlier one or a direct call), creating the plugin on first use. Ids are only added: the
+ * Records in the generated plugin a proposal names what its items created (through
+ * `proposal_apply` or a direct call), creating the plugin on first use. Ids are only added: the
  * plugin lists, it never owns, so nothing references it. Null when the proposal names no plugin
  * or nothing was created yet.
  */
