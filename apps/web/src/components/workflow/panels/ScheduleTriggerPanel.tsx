@@ -1,5 +1,5 @@
 import type { ScheduleField } from "@dispand/domain/workflows/model";
-import { cronProblem, fromCron, nextFires, toCron, type SchedulePreset } from "@dispand/domain/workflows/schedule";
+import { cronProblem, fromCron, knownTimezone, nextFires, toCron, type SchedulePreset } from "@dispand/domain/workflows/schedule";
 import { useId, useState, type ReactNode } from "react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -90,7 +90,7 @@ export function ScheduleTriggerPanel({
   const [cron, setCron] = useState(field.cron);
   const [timezone, setTimezone] = useState(field.timezone);
   const cronIssue = kind === "custom" ? cronProblem(cron, field.timezone) : null;
-  const tzIssue = timezones().includes(timezone) ? null : "Unknown timezone";
+  const tzIssue = knownTimezone(timezone) ? null : "Unknown timezone";
 
   function save(patch: Partial<ScheduleField>) {
     const next = { ...field, ...patch };
@@ -209,7 +209,7 @@ export function ScheduleTriggerPanel({
           aria-invalid={tzIssue !== null}
           onChange={(e) => {
             setTimezone(e.target.value);
-            if (timezones().includes(e.target.value)) save({ timezone: e.target.value });
+            if (knownTimezone(e.target.value)) save({ timezone: e.target.value });
           }}
         />
         <datalist id={ids.zones}>

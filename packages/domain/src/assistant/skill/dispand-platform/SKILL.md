@@ -10,7 +10,9 @@ agent has triggers; a trigger fires a **Job**, one bounded run of that agent. Ag
 workspace's **Data** (tables of typed fields) through Dispand's own tools, ask the owner
 **Questions** and **Approvals** in the Inbox, and coordinate through the data they write.
 
-Read the reference that fits the question before answering or proposing:
+Read the reference that fits the question before answering or proposing, with your
+file-reading tool (Read in Claude Code, `read_skill` on a cloud harness), never a shell
+command:
 
 - [references/concepts.md](references/concepts.md): agents, harnesses, Jobs, Data,
   primitives and events, skills, tools, the Inbox.

@@ -18,10 +18,17 @@ export type SchedulePreset =
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
 
-let zones: Set<string> | undefined;
-function knownTimezone(timezone: string): boolean {
-  zones ??= new Set(Intl.supportedValuesOf("timeZone"));
-  return zones.has(timezone);
+/**
+ * Whether schedules can be read in `timezone`: any zone `Intl.DateTimeFormat` takes, `UTC` and
+ * `Etc/UTC` included (`Intl.supportedValuesOf` lists neither).
+ */
+export function knownTimezone(timezone: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function parse(cron: string, timezone: string, currentDate: Date) {

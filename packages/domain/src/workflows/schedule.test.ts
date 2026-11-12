@@ -44,8 +44,21 @@ test("cronProblem refuses 6 fields and unknown timezones", () => {
   expect(cronProblem("@daily", PARIS)).toBe("Use 5 fields: minute hour day month weekday");
   expect(cronProblem("H 9 * * *", PARIS)).toBe("Use numbers, not H");
   expect(cronProblem("0 9 * * *", "Mars/Olympus")).toBe("Unknown timezone");
+  expect(cronProblem("0 9 * * *", "")).toBe("Unknown timezone");
   expect(cronProblem("61 9 * * *", PARIS)).toMatch(/^This schedule can't be read/);
   expect(cronProblem("0 0 30 2 *", PARIS)).toMatch(/^This schedule can't be read/);
+});
+
+test("schedules read in UTC", () => {
+  // Intl.supportedValuesOf("timeZone") lists neither.
+  for (const zone of ["UTC", "Etc/UTC"]) {
+    expect(cronProblem("0 9 * * 1-5", zone)).toBeNull();
+    expect(nextFireAfter("0 9 * * *", zone, new Date("2026-11-04T09:30:00Z"))).toEqual(new Date("2026-11-05T09:00:00Z"));
+    // Paris's autumn change is no change in UTC: one fire a day, at 09:00Z.
+    expect(nextFires("0 9 * * *", zone, new Date("2027-10-30T12:00:00Z"), 2)).toEqual([new Date("2027-10-31T09:00:00Z"), new Date("2027-11-01T09:00:00Z")]);
+    expect(latestFireBetween("0 9 * * *", zone, new Date("2027-10-29T00:00:00Z"), new Date("2027-10-31T12:00:00Z"))).toEqual(new Date("2027-10-31T09:00:00Z"));
+    expect(isoInZone(new Date("2026-11-05T09:00:00Z"), zone)).toBe("2026-11-05T09:00:00+00:00");
+  }
 });
 
 test("nextFireAfter in Europe/Paris", () => {
