@@ -48,8 +48,8 @@ Status: Prototype
   - A session gets the skills and tools of its agent: skills on every session (a cloud session
     lists them and reads a skill's files when it needs them), the runner's own tools on a CLI
     session, tools reached by URL on a cloud session and on a Job's CLI session. A call of such a tool asks first, and on a CLI session an
-    approval allows exactly the call that was shown, once. An agent whose harness bypasses
-    permissions asks nothing, so it can only use the actions that run without asking.
+    approval allows exactly the call that was shown, once. Managed tools keep these permissions
+    even when the harness bypasses native command and file approvals.
   - Each action of a tool that an agent chose either asks before use or runs
     without asking (runner tools use these permissions in Job sessions too, and changing a tool's address makes all its actions ask again). When
     a tool is added to an agent, the actions the tool calls read-only start without asking

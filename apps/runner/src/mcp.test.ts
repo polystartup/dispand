@@ -61,8 +61,8 @@ test("Codex gets header values by environment variable name only", () => {
     "/home/me",
   );
   expect(servers).toEqual({
-    github: { url: "https://api.example.test/mcp", env_http_headers: { authorization: "DISPAND_MCP_0_0", "x-org": "DISPAND_MCP_0_1" } },
-    search: { command: "/bin/sh", args: fromHome("npx", "brave"), env: { BRAVE_API_KEY: "k" } },
+    github: { url: "https://api.example.test/mcp", env_http_headers: { authorization: "DISPAND_MCP_0_0", "x-org": "DISPAND_MCP_0_1" }, default_tools_approval_mode: "prompt" },
+    search: { command: "/bin/sh", args: fromHome("npx", "brave"), env: { BRAVE_API_KEY: "k" }, default_tools_approval_mode: "prompt" },
   });
   expect(JSON.stringify(servers)).not.toContain("s3cret");
   expect(env).toEqual({ DISPAND_MCP_0_0: "Bearer s3cret", DISPAND_MCP_0_1: "acme" });

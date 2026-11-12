@@ -67,8 +67,8 @@ changes it updates this file.
   is derived from the tool's id and the action's name alone, so an approval can't move to
   another tool or action; a tool's schema is passed on as data and never compiled. That name
   is words cut short and a mark, so the question the owner answers also carries, from the
-  server, the tool's name and the action's name and description in full. A session in `bypassPermissions` mode asks
-  nothing, so its calls of these tools are refused. Every call a Job makes of such a tool, in a
+  server, the tool's name and the action's name and description in full. Managed actions ask in
+  `bypassPermissions` mode too, unless the agent already has permission to run them without asking. Every call a Job makes of such a tool, in a
   cloud session or through `/mcp/job/tools` (a call refused for want of an approval included),
   and every poll leave one Audit row (`tool.call`, `poll.run`) written after the call: the tool,
   the action and how it ended, and for a poll its status and how many new items it recorded;
@@ -365,8 +365,9 @@ changes it updates this file.
   `<roots[0]>/runs/<runKey>` (refused if it exists; no symlink on the path from the root:
   `runs` is a real directory and the folder's real path is exactly `<root>/runs/<runKey>`; only resuming reuses a folder, and only for a CLI session id the runner itself recorded for
   that run key, in its state dir, mode 0600), and whether `bypassPermissions` is allowed at all
-  (`allowBypass`, off by default; when off, sessions also get
-  `disableBypassPermissionsMode`). Sessions load the user's own Claude Code settings only,
+  (`allowBypass`, off by default). Claude Code always gets
+  `disableBypassPermissionsMode`: the runner implements native command/file bypass through its
+  approval broker so managed MCP calls cannot skip their per-agent permission checks. Sessions load the user's own Claude Code settings only,
   never a run folder's `.claude/` settings, hooks, `.mcp.json` or `CLAUDE.md`, on start or
   resume. Claude Code and Codex run as the runner machine's user, with that user's own profile:
   its settings, instructions files, memory, hooks and sign-in. Agents on that runner therefore see
@@ -437,7 +438,9 @@ changes it updates this file.
   one by one. Codex questions with a secret are never asked; MCP elicitations are declined (but
   Codex's approval before an MCP tool call, below); a
   user `config.toml` never gains `projects.*.trust_level` from the runner. `bypassPermissions`
-  (Codex's `:danger-full-access`, approval policy `never`) needs `allowBypass`, as for Claude.
+  (Codex's `:danger-full-access`) needs `allowBypass`, as for Claude. Approval policy stays
+  `untrusted`; the runner automatically approves native commands without additional permissions
+  and file changes that pass its protected-path checks.
   **Commands the runner starts for a session's tools come only from its own config.** A runner
   tool is a name: the server sends `{ type: "runner", tool }`, and the runner starts the server
   its `config.json` names under `mcpServers` (command, args, env), or refuses the session before
@@ -472,10 +475,14 @@ changes it updates this file.
   stdio servers Codex starts (checked on Codex 0.167). A server that doesn't connect ends the
   session before its first turn, naming the server only (the CLI's message may quote a URL that
   holds a secret). Codex has no SSE transport: an SSE server in a Codex session is refused.
-  Outside `bypassPermissions`, every MCP tool call asks the owner, one call at a time: on Claude
-  Code the PreToolUse hook answers "ask" even where a settings rule would allow it, and the
-  question offers no "always allow"; on Codex, its approval elicitation (`codex_approval_kind: mcp_tool_call`) as a permission
-  question each time, never Codex's "for the session" or "always". On the server, a runner tool
+  Managed Job tools follow their per-agent Run / Ask settings in every permission mode,
+  including `bypassPermissions`. Unasked actions proceed; other actions ask one call at a time,
+  and remembering an approval changes that agent's permission. Other MCP tools ask outside
+  bypass mode. On Claude Code the PreToolUse hook answers "ask" even where a settings rule
+  would allow a managed Ask action. Codex servers use `default_tools_approval_mode: "prompt"`
+  so read-only hints do not skip the broker; its approval elicitation
+  (`codex_approval_kind: mcp_tool_call`) becomes a permission question, never Codex's
+  "for the session" or "always". On the server, a runner tool
   is created or moved only to a server its runner reported, and an agent gets runner tools only
   on a CLI harness of that same runner, a skill's required tools included.
   **Out of scope:** plugin hooks and other user-config files linking into a session's working

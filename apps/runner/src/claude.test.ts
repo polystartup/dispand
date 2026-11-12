@@ -304,7 +304,32 @@ test("bypass refused when allowBypass is false", () => {
   expect(fake.calls).toHaveLength(0);
 
   startClaudeSession(bypass, "/work", () => {}, { query: fake.query, allowBypass: true });
-  expect(fake.calls[0]).toMatchObject({ permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true });
+  expect(fake.calls[0]).toMatchObject({ permissionMode: "default" });
+  expect(fake.calls[0]!.allowDangerouslySkipPermissions).not.toBe(true);
+});
+
+test("managed MCP actions still ask in bypass mode while commands and unmanaged tools run automatically", async () => {
+  const names = ["Bash", "mcp__mail__draft_email", "mcp__mail__send_email", "mcp__other__send_email"];
+  const decisions: string[] = [];
+  let hook: unknown;
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    for (const name of names) decisions.push((await options.canUseTool!(name, name === "Bash" ? { command: "printf okay" } : {}, ctx()))!.behavior);
+    const before = options.hooks!.PreToolUse!.flatMap((m) => m.hooks)[0]!;
+    hook = await before({ hook_event_name: "PreToolUse", tool_name: "mcp__mail__send_email", tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal });
+    yield result();
+  });
+  const asked: string[] = [];
+  const session: ClaudeSession = startClaudeSession({ ...start, permissionMode: "bypassPermissions", mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["draft_email"] }] }, "/work", (e) => {
+    if (e.type === "question" && e.payload.kind === "permission") {
+      asked.push(e.payload.toolName);
+      queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "deny" }));
+    }
+  }, { query: fake.query, allowBypass: true, jobServer: "job", unasked: [] });
+  await session.done;
+  expect(decisions).toEqual(["allow", "allow", "deny", "allow"]);
+  expect(asked).toEqual(["mcp__mail__send_email"]);
+  expect(hook).toMatchObject({ hookSpecificOutput: { permissionDecision: "ask" } });
 });
 
 const interruptedResult = { type: "result", subtype: "error_during_execution", errors: [], session_id: "cli-1" } as unknown as SDKMessage;
@@ -378,7 +403,7 @@ test("file edits outside the working directory, or in its .claude/ and .mcp.json
   expect(decisions[8]).toMatchObject({ behavior: "allow" });
 });
 
-test("every session gets the boundary's settings, and bypass disabled unless allowed", () => {
+test("every session gets the boundary's settings with native bypass disabled", () => {
   const fake = fakeQuery(async function* () {});
   startClaudeSession(start, "/work", () => {}, { query: fake.query });
   startClaudeSession(start, "/work", () => {}, { query: fake.query, allowBypass: true });
@@ -389,7 +414,7 @@ test("every session gets the boundary's settings, and bypass disabled unless all
     expect(p.blockWritesOutsideWorkingDirectories).toBe(true);
   }
   expect(locked!.disableBypassPermissionsMode).toBe("disable");
-  expect(allowed!.disableBypassPermissionsMode).toBeUndefined();
+  expect(allowed!.disableBypassPermissionsMode).toBe("disable");
 });
 
 test("an interrupt while no turn runs doesn't turn the next error into a turn end", async () => {

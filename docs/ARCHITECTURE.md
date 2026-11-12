@@ -886,7 +886,11 @@
   `submit_outputs` tool of the in-process MCP server `dispand` (for a step outside a chat that
   expects none, the engine leaves its `outputs-accepted` aside and completes the step with the `result` that
   follows, the last message). `bypassPermissions` needs
-  `allowBypass: true` in the machine's config. `boundary.ts` is the one permission boundary
+  `allowBypass: true` in the machine's config. Native approval callbacks stay active: the
+  runner automatically approves native commands and permitted file operations, while managed
+  MCP actions still follow their per-agent permissions. Claude uses native `default` mode with
+  bypass disabled; Codex uses `untrusted` with MCP server approval mode `prompt`, so read-only
+  hints cannot skip the broker. `boundary.ts` is the one permission boundary
   every session runs inside: file edits stay inside the working directory, minus any
   `.claude/` and `.mcp.json` in it (and what their symlinks, or the CLI's user settings and
   hooks, lead to), decided from real paths at

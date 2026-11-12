@@ -227,6 +227,7 @@ export function startClaudeSession(
   const runnerTool = (name: string) => agentServers.some((server) => server !== "job_tools" && name.startsWith(`mcp__${server}__`));
   const mcpDenied = codexDenied([...(deps.secrets ?? []), join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...pluginRoots]);
   const protectedArgs = (name: string, args: unknown) => runnerTool(name) && !runnerArgumentsAllowed(args, mcpDenied);
+  const isAgentTool = (name: string) => agentServers.some((server) => name.startsWith(`mcp__${server}__`));
   const isJobTool = (name: string) => deps.jobServer !== undefined && (name.startsWith(`mcp__${deps.jobServer}__`) || unasked.has(name));
 
   /**
@@ -324,12 +325,13 @@ export function startClaudeSession(
       });
       return { behavior: "allow", updatedInput: { ...toolInput, answers } };
     }
+    if (start.permissionMode === "bypassPermissions" && !isAgentTool(toolName)) return { behavior: "allow", updatedInput: toolInput };
     // An MCP call is approved one at a time: no rule may let the next ones through.
     const updates = isMcpTool(toolName) ? [] : boundary.sessionUpdates(suggestions);
     // One of the Job's agent's tools (its tools server's, or a runner tool's): "always" is the
     // owner taking that action off the agent's asking ones, on the server. Here it only means
     // this session stops asking about it too.
-    const jobTool = agentServers.some((server) => toolName.startsWith(`mcp__${server}__`));
+    const jobTool = isAgentTool(toolName);
     const canAlwaysAllow = updates.length > 0 || jobTool;
     const version = permissionsVersion;
     const payload: QuestionPayload = { kind: "permission", toolName, input: toolInput, canAlwaysAllow };
@@ -364,8 +366,8 @@ export function startClaudeSession(
       systemPrompt: { type: "preset", preset: "claude_code", append: start.systemPrompt },
       ...(start.resumeCliSessionId ? { resume: start.resumeCliSessionId } : {}),
       ...(start.model ? { model: start.model } : {}),
-      permissionMode: start.permissionMode,
-      ...(start.permissionMode === "bypassPermissions" ? { allowDangerouslySkipPermissions: true } : {}),
+      // Native bypass skips managed MCP checks too: implement command/file bypass in the broker.
+      permissionMode: start.permissionMode === "bypassPermissions" ? "default" : start.permissionMode,
       includePartialMessages: true,
       mcpServers: sdkServers,
       // Skill packages only: the runner wrote nothing but plugin.json and skills/ there.
@@ -374,7 +376,7 @@ export function startClaudeSession(
       // The highest-priority settings layer the user controls; disallowed edits are also refused in canUseTool.
       // Plans default to ~/.claude/plans, which the boundary denies: keep them in the run folder.
       // No skill or command runs shell commands as it loads (`!` substitutions): the owner approves every command.
-      settings: { ...boundary.settings(deps.allowBypass ?? false), plansDirectory: PLANS_DIR, disableSkillShellExecution: true },
+      settings: { ...boundary.settings(false), plansDirectory: PLANS_DIR, disableSkillShellExecution: true },
       // The boundary's authority: runs before every tool call, auto-approved ones (acceptEdits, rules) included.
       hooks: {
         PreToolUse: [
@@ -413,7 +415,7 @@ export function startClaudeSession(
                 }
                 if (protectedArgs(call.tool_name, toolInput)) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: PROTECTED_DENIAL } };
                 // Even where a rule (the user's settings) would allow it.
-                if (isMcpTool(call.tool_name) && !isJobTool(call.tool_name) && start.permissionMode !== "bypassPermissions") {
+                if (isMcpTool(call.tool_name) && !isJobTool(call.tool_name) && (start.permissionMode !== "bypassPermissions" || isAgentTool(call.tool_name))) {
                   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: MCP_ASK } };
                 }
                 return {};

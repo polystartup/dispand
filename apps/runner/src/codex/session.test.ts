@@ -132,13 +132,30 @@ test("profile not active → refused, before any turn", async () => {
   await s.session.done;
 });
 
-test("bypass refused without allowBypass; with it, Codex runs unsandboxed and asks nothing", async () => {
+test("bypass refused without allowBypass; with it, Codex runs unsandboxed through the approval broker", async () => {
   expect(() => startCodexSession({ ...base, permissionMode: "bypassPermissions" }, "/work", () => {}, { codexPath: "/nonexistent", secrets: [] })).toThrow(BypassRefused);
   const s = await run({ start: { permissionMode: "bypassPermissions" }, deps: { allowBypass: true }, env: { FAKE_CODEX_PROFILE: ":danger-full-access" } });
   await s.ended();
   expect(s.events.at(-1)).toEqual({ type: "result", text: "" });
   const [thread] = await s.sent("thread/start");
-  expect(thread!.params).toMatchObject({ approvalPolicy: "never", config: { default_permissions: ":danger-full-access" } });
+  expect(thread!.params).toMatchObject({ approvalPolicy: "untrusted", config: { default_permissions: ":danger-full-access" } });
+});
+
+test("managed MCP actions still ask in bypass mode while commands and unmanaged tools run automatically", async () => {
+  const mcp = (serverName: string, tool: string) => request("mcpServer/elicitation/request", { serverName, mode: "form", message: "Allow?", requestedSchema: { type: "object", properties: {} }, _meta: { codex_approval_kind: "mcp_tool_call", tool_name: tool, tool_params: {} } });
+  const s = await run({
+    start: { permissionMode: "bypassPermissions", mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["draft_email"] }] },
+    deps: { allowBypass: true, jobServer: "job", unasked: [] },
+    env: { FAKE_CODEX_PROFILE: ":danger-full-access" },
+    turns: [[request("item/commandExecution/requestApproval", { itemId: "c", kind: "command", command: "printf okay", cwd: "/work" }), mcp("mail", "draft_email"), mcp("mail", "send_email"), mcp("other", "send_email"), message("Done")]],
+    answer: () => ({ kind: "permission", decision: "deny" }),
+  });
+  await s.ended();
+  expect(questions(s.events).map((q) => (q.payload as { toolName: string }).toolName)).toEqual(["mcp__mail__send_email"]);
+  expect(await s.replyTo("r0")).toEqual({ decision: "accept" });
+  expect(await s.replyTo("r1")).toEqual({ action: "accept", content: {}, _meta: null });
+  expect(await s.replyTo("r2")).toEqual({ action: "decline", content: null, _meta: null });
+  expect(await s.replyTo("r3")).toEqual({ action: "accept", content: {}, _meta: null });
 });
 
 test("command approval asks and maps allow-always to acceptForSession; an execpolicy amendment is never sent", async () => {
@@ -216,6 +233,24 @@ test("file changes outside the folder or into .codex are declined without a ques
   expect((await s.replyTo("r2")).decision).toBe("decline");
   expect((await s.replyTo("r3")).decision).toBe("accept");
   expect((await s.replyTo("r4")).decision).toBe("decline");
+});
+
+test("bypass automatically accepts valid file changes but still refuses protected and unseen changes", async () => {
+  const change = (itemId: string, path: string): Step[] => [
+    { notify: "item/started", params: { threadId: "$THREAD", item: { type: "fileChange", id: itemId, changes: [{ path, kind: { type: "add" }, diff: "hi\n" }] } } },
+    request("item/fileChange/requestApproval", { itemId }),
+  ];
+  const s = await run({
+    start: { permissionMode: "bypassPermissions" },
+    deps: { allowBypass: true },
+    env: { FAKE_CODEX_PROFILE: ":danger-full-access" },
+    turns: [[...change("f1", "$CWD/notes.md"), ...change("f2", "$CWD/.codex/config.toml"), request("item/fileChange/requestApproval", { itemId: "unknown" })]],
+  });
+  await s.ended();
+  expect(questions(s.events)).toEqual([]);
+  expect((await s.replyTo("r0")).decision).toBe("accept");
+  expect((await s.replyTo("r1")).decision).toBe("decline");
+  expect((await s.replyTo("r2")).decision).toBe("decline");
 });
 
 test("a permissions request gets an empty grant, without a question", async () => {
