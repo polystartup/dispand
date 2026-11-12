@@ -1894,8 +1894,9 @@ export class Engine {
   private async withMemory(step: StepRow, start: StartParams): Promise<StartParams> {
     const [run] = await this.db.select().from(runs).where(eq(runs.id, step.runId));
     if (run?.source !== "agent" || !run.snapshot) return start;
+    // Built from the snapshot's instructions, whatever the stored start holds.
     const memory = await jobMemoryPrompt(this.db, run);
-    return memory ? { ...start, systemPrompt: [start.systemPrompt, memory].filter(Boolean).join("\n\n") } : start;
+    return { ...start, systemPrompt: [run.snapshot.systemPrompt, memory].filter(Boolean).join("\n\n") };
   }
 
   /** A step's session, started in its own span (inside the Job's, for a Job). */
@@ -2034,7 +2035,12 @@ export class Engine {
    * waiting for it to arrive: every start, first or sent again, goes this way.
    */
   private async launch(harness: Harness, start: StartParams, step: StepRow, held: string[] = [], written?: () => Promise<void>) {
-    this.dispatch(harness, await this.withMemory(step, start), step, held, written);
+    const sent = await this.withMemory(step, start);
+    // Stopped while its memory was read: it never starts. A stop committed after this read is sent
+    // after the start, on the same connection.
+    const [now] = await this.db.select({ status: stepRuns.status }).from(stepRuns).where(eq(stepRuns.id, step.id));
+    if (!now || !ACTIVE_STEP.includes(now.status)) return;
+    this.dispatch(harness, sent, step, held, written);
   }
 
   /**
