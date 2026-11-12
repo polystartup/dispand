@@ -373,9 +373,10 @@ test("plugin-root server not imported; an HTTP server is installed with its sett
   const [installed] = await call(router.plugins.list, undefined, { context: ctx });
   expect(installed).toMatchObject({ tools: [{ id: tool!.id, name: "github" }], available: { mcpServers: [{ name: "tenant" }, { name: "fetch" }] } });
 
-  // While the plugin is installed its tool isn't deleted alone; editing stays allowed.
-  await expect(call(router.tools.delete, { id: tool!.id }, { context: ctx })).rejects.toMatchObject({ code: "FORBIDDEN", message: "Remove the plugin github instead" });
+  // The owner may edit or delete it, the plugin installed: its server is then available again.
   await call(router.tools.update, { id: tool!.id, name: "GitHub" }, { context: ctx });
+  await call(router.tools.delete, { id: tool!.id }, { context: ctx });
+  expect((await call(router.plugins.list, undefined, { context: ctx }))[0]).toMatchObject({ tools: [], available: { mcpServers: [{ name: "github" }, { name: "tenant" }, { name: "fetch" }] } });
   await fx.remove();
 });
 
@@ -443,9 +444,11 @@ test("an agent is created on the chosen harness with the plugin's skills and too
     tools: [{ name: "github", explicit: true, lockedBy: [] }],
   });
   expect(agent).not.toHaveProperty("model");
-  await expect(call(router.agents.delete, { id: agent.id }, { context: ctx })).rejects.toMatchObject({ code: "FORBIDDEN", message: "Remove the plugin github instead" });
   const [installed] = await call(router.plugins.list, undefined, { context: ctx });
   expect(installed).toMatchObject({ agents: [{ id: agent.id, name: "reviewer (github)" }], available: { agents: [] } });
+  // The owner may delete it, the plugin installed: it is then available again.
+  await call(router.agents.delete, { id: agent.id }, { context: ctx });
+  expect((await call(router.plugins.list, undefined, { context: ctx }))[0]).toMatchObject({ agents: [], available: { agents: [{ name: "reviewer" }] } });
   await fx.remove();
 });
 

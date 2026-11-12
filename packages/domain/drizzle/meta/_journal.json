@@ -397,8 +397,22 @@
     {
       "idx": 56,
       "version": "7",
-      "when": 1794481766486,
-      "tag": "0056_plugin_set_null",
+      "when": 1794480841814,
+      "tag": "0056_keep_jobs_on_agent_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1794485773085,
+      "tag": "0057_self_learning",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1794487030554,
+      "tag": "0058_plugin_set_null",
       "breakpoints": true
     }
   ]

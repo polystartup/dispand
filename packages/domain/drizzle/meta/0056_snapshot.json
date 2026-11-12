@@ -1,5 +1,5 @@
 {
-  "id": "7cbc55fb-61cf-4f14-9cfe-2c5c02a9dd78",
+  "id": "0f7775bf-627f-49e4-abab-29f318625432",
   "prevId": "f69c6ee0-5cb2-44c4-9638-d053538ad1c8",
   "version": "7",
   "dialect": "postgresql",
@@ -495,7 +495,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -3356,6 +3356,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "agent_name": {
+          "name": "agent_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "trigger_id": {
           "name": "trigger_id",
           "type": "text",
@@ -3548,7 +3554,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "set null",
           "onUpdate": "no action"
         },
         "runs_trigger_id_triggers_id_fk": {
@@ -4045,7 +4051,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -4697,7 +4703,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         },
         "tools_runner_id_runners_id_fk": {

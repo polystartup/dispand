@@ -648,14 +648,11 @@ const refresh = owner.input(z.object({ id: z.string() })).handler(async ({ input
 const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
     const [row] = await tx
-      .select({ id: toolsTable.id, plugin: plugins.name })
+      .select({ id: toolsTable.id })
       .from(toolsTable)
-      .leftJoin(plugins, eq(plugins.id, toolsTable.pluginId))
       .where(and(eq(toolsTable.id, input.id), eq(toolsTable.ownerId, context.ownerId)))
-      .for("update", { of: toolsTable });
+      .for("update");
     if (!row) throw new ORPCError("NOT_FOUND");
-    // A plugin's tool goes with its plugin.
-    if (row.plugin !== null) throw new ORPCError("FORBIDDEN", { message: `Remove the plugin ${row.plugin} instead` });
     const holder = await toolHolder(tx, context.ownerId, row.id);
     if (holder) throw new ORPCError("CONFLICT", { message: holder });
     await tx.delete(toolsTable).where(eq(toolsTable.id, row.id));

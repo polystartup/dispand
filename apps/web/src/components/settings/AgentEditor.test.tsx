@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -38,6 +38,7 @@ const agent = {
   skills: [{ packageId: "pkg_platform", name: "dispand-platform" }],
   tools: [],
   consults: [],
+  selfLearning: [],
   plugin: null,
 } as unknown as Agent;
 
@@ -90,4 +91,22 @@ test.each([
   const user = mount(agent);
   await user.click(await screen.findByRole("button", { name: "Save" }));
   expect((await screen.findByRole("alert")).textContent).toBe("Could not save the agent. Check the details and try again.");
+});
+
+test("the self-learning switches set and clear the agent's targets, and writing the workspace's memory says what it does", async () => {
+  fake.agents.update.mockResolvedValue({});
+  const user = mount({ ...agent, selfLearning: ["agent"] } as unknown as Agent);
+  const learns = within(await screen.findByRole("group", { name: "Learns" }));
+  expect((learns.getByRole("checkbox", { name: /Its own memory/ }) as HTMLInputElement).checked).toBe(true);
+  // The Assistant's switch is its own, never locked.
+  const workspace = learns.getByRole("checkbox", { name: /The workspace's memory/ }) as HTMLInputElement;
+  expect(workspace.disabled).toBe(false);
+  expect(learns.getByText("What it writes steers every agent of the workspace.")).toBeTruthy();
+  await user.click(workspace);
+  await user.click(learns.getByRole("checkbox", { name: /Its own memory/ }));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(fake.agents.update.mock.calls[0]![0]).toMatchObject({ id: "agent_1", selfLearning: ["workspace"] });
+  await user.click(workspace);
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(fake.agents.update.mock.calls[1]![0]).toMatchObject({ selfLearning: [] });
 });

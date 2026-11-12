@@ -5,6 +5,7 @@ import { RunConsults } from "../components/runs/RunConsults.tsx";
 import { RunSteps } from "../components/runs/RunSteps.tsx";
 import { StopRun } from "../components/runs/StopRun.tsx";
 import { duration, Status, when } from "../components/workflow/Runs.tsx";
+import { nodesOf } from "@dispand/domain/workflows/model";
 import { orpc } from "../lib/api.ts";
 import { useRun } from "../lib/run-watch.ts";
 
@@ -31,6 +32,8 @@ function RunPage() {
   if (!state || !run) return null;
 
   const agentNames = new Map(agents.data?.map((a) => [a.id, a.name]));
+  // A Job of a deleted agent names it as it kept it, on its steps too.
+  if (run.deletedAgentName) for (const n of job.data ? nodesOf(job.data) : []) if (n.agentId) agentNames.set(n.agentId, run.deletedAgentName);
 
   return (
     <>
@@ -43,7 +46,8 @@ function RunPage() {
           <ChevronLeft size={15} aria-hidden /> Runs
         </Link>
       ) : (
-        run.agentId && (
+        run.source === "agent" &&
+        (run.agentId ? (
           <Link
             to="/settings/agents/$id"
             params={{ id: run.agentId }}
@@ -51,7 +55,10 @@ function RunPage() {
           >
             <ChevronLeft size={15} aria-hidden /> {agentNames.get(run.agentId) ?? "Agent"}
           </Link>
-        )
+        ) : (
+          // Its agent was deleted: no page to go back to.
+          <p className="mb-3 text-[13px] text-muted">{run.deletedAgentName ?? "Deleted agent"}</p>
+        ))
       )}
       <header className="mb-6">
         <h1 className="truncate text-[28px] font-semibold leading-tight tracking-tight">{workflow.data?.name ?? job.data?.trigger.field.label ?? "Run"}</h1>

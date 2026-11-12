@@ -6,7 +6,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import "../../test/jsdom-shims.ts";
 
-const fake = vi.hoisted(() => ({ questions: { answer: vi.fn() }, agents: { list: vi.fn() } }));
+const fake = vi.hoisted(() => ({ questions: { answer: vi.fn() }, agents: { list: vi.fn() }, jobs: { consults: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -129,6 +129,15 @@ test("copy actions copy the original message text, never a tool trace or questio
   update(run([message("m1", "user", "Hello", 1), message("m2", "assistant", "A **formatted** reply, continued", 2)]));
   await user.click(screen.getAllByRole("button", { name: "Copy message" })[1]!);
   expect(copy).toHaveBeenLastCalledWith("A **formatted** reply, continued");
+});
+
+test("a consult of a deleted agent names it as its consulted Job kept it", async () => {
+  fake.agents.list.mockResolvedValue([]);
+  fake.jobs.consults.mockResolvedValue({ asked: [{ questionId: "q1", agent: "Order drafter (Deleted)" }], answering: null });
+  const consult = question("q1", 2, { status: "answered", payload: { kind: "consult", agentId: "agent_2", question: "Which plan?" }, answer: { kind: "consult", outcome: "answered", text: "Plan B." } });
+  mount(run([message("m1", "user", "Plan my day", 1)], [consult]));
+  expect(await screen.findByText("Consulted Order drafter (Deleted)")).toBeTruthy();
+  expect(fake.jobs.consults).toHaveBeenCalledWith({ runId: "run_1" }, expect.anything());
 });
 
 test("a consult shows as a line naming the agent, with no control to answer it", async () => {

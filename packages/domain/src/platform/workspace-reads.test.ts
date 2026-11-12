@@ -109,7 +109,7 @@ test("the Assistant lists an agent's Jobs and reads one's transcript", async () 
   expect(job).toMatchObject({ id: runId, status: "succeeded", totalMessages: job.messages.length, questions: [] });
   expect(job.messages.map((m: { text: string }) => m.text)).toEqual(["Ada is added."]);
   // Its token, sealed or hashed, and its snapshot stay on the server.
-  expect(Object.keys(job).sort()).toEqual(["agentId", "cause", "createdAt", "error", "finishedAt", "id", "messages", "questions", "status", "totalMessages", "triggerId"]);
+  expect(Object.keys(job).sort()).toEqual(["agentId", "agentName", "cause", "createdAt", "error", "finishedAt", "id", "messages", "questions", "status", "totalMessages", "triggerId"]);
 });
 
 /** A Job still going (its runner is away) of an agent on the runner harness with `bundles` on `tables`. */
@@ -155,4 +155,22 @@ test("Jobs are read with configure only, and a transcript only by a Job on every
   const polled = await all("jobs_list", { agentId: clerk.id });
   expect(polled).toMatchObject({ ok: true, output: [{ id: runId, cause: { kind: "poll", triggerId: go.id, depth: 0 } }] });
   expect(JSON.stringify(polled)).not.toContain("confidential");
+});
+
+test("a Job of a deleted agent is still read through jobs_list and jobs_get, its agent named as deleted", async () => {
+  const s = await setup([say("Filed.")]);
+  const clerk = await call(router.agents.create, { name: "Order drafter", harnessId: s.cloud.id, systemPrompt: "" }, { context: s.context });
+  const go = await call(router.triggers.create, { agentId: clerk.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: s.context });
+  const { runId } = await call(router.jobs.start, { triggerId: go.id }, { context: s.context });
+  await s.until(runId, "succeeded");
+  await call(router.agents.delete, { id: clerk.id }, { context: s.context });
+
+  const all = await readerJob(s, ["configure"], "all");
+  const listed = await all("jobs_list", { status: "succeeded" });
+  expect(listed).toMatchObject({ ok: true, output: [{ id: runId, agentId: null, agentName: "Order drafter (Deleted)" }] });
+  expect(await all("jobs_get", { id: runId })).toMatchObject({
+    ok: true,
+    output: { id: runId, agentId: null, agentName: "Order drafter (Deleted)", messages: [{ text: "Filed." }] },
+  });
+  expect(await all("jobs_def", { runId })).toMatchObject({ ok: true });
 });

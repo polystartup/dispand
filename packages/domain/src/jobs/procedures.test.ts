@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
 import { eq } from "drizzle-orm";
-import { account, runs as runsTable, user } from "../db/schema.ts";
+import { account, messages, questions, runs as runsTable, stepRuns, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
@@ -100,28 +100,58 @@ test("runs.list filters by agentId and by workflowId", async () => {
   await expect(ids({ agentId: "agent_nobody" })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
-test("an agent with a Job still going cannot be deleted", async () => {
-  const { context, agent, trigger } = await setup();
-  const button = await trigger({ kind: "manual", placement: "button" });
-  await call(router.jobs.start, { triggerId: button.id }, { context });
-  await expect(call(router.agents.delete, { id: agent.id }, { context })).rejects.toMatchObject({
-    code: "CONFLICT",
-    message: "A Job of this agent is still going",
-  });
-});
-
-test("runs.stop ends a Job, after which its agent can be deleted", async () => {
+test("deleting an agent stops its Job still going, as a person's stop, and keeps it", async () => {
   const { context, agent, trigger } = await setup();
   const chat = await trigger({ kind: "manual", placement: "chat" });
   const { runId } = await call(router.jobs.start, { triggerId: chat.id }, { context });
-  await expect(call(router.agents.delete, { id: agent.id }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
+  await call(router.agents.delete, { id: agent.id }, { context });
+  const { run } = await call(router.runs.get, { runId }, { context });
+  expect(run).toMatchObject({ id: runId, status: "failed", error: "Stopped", agentId: null, deletedAgentName: "Clerk (Deleted)" });
+  // Stopped once: it never runs again.
+  await expect(call(router.runs.stop, { runId }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
+});
 
+test("deleting an agent keeps its Jobs, their transcripts and Questions, named after it as deleted", async () => {
+  const { context, agent, trigger } = await setup();
+  const button = await trigger({ kind: "manual", placement: "button" });
+  const { runId } = await call(router.jobs.start, { triggerId: button.id }, { context });
+  const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+  await context.db.insert(messages).values({ id: "msg_1", ownerId: context.ownerId, runId, stepRunId: step!.id, role: "assistant", text: "Drafted the order." });
+  await context.db.insert(questions).values({
+    id: "q_1",
+    ownerId: context.ownerId,
+    runId,
+    stepRunId: step!.id,
+    placement: "notifications",
+    kind: "question",
+    payload: { kind: "choice", questions: [{ question: "Which supplier?", header: "Supplier", options: [{ label: "A" }, { label: "B" }], multiSelect: false }] },
+    status: "answered",
+    answer: { kind: "choice", answers: { "Which supplier?": ["A"] } },
+    answeredAt: new Date(),
+  });
+  await call(router.runs.stop, { runId }, { context });
+  // Renamed since the Job: it keeps the name the agent had when deleted.
+  await call(router.agents.update, { id: agent.id, name: "Order drafter", harnessId: agent.harnessId, systemPrompt: "" }, { context });
+  await call(router.agents.delete, { id: agent.id }, { context });
+
+  expect(await call(router.agents.list, undefined, { context })).toEqual([]);
+  expect(await call(router.jobs.list, {}, { context })).toMatchObject([{ id: runId, agentId: null, agentName: "Order drafter (Deleted)", triggerId: null }]);
+  const job = await call(router.jobs.get, { id: runId }, { context });
+  expect(job).toMatchObject({ agentId: null, agentName: "Order drafter (Deleted)", totalMessages: 1, messages: [{ text: "Drafted the order." }], questions: [{ id: "q_1", status: "answered" }] });
+  expect((await call(router.runs.list, {}, { context })).map((r) => [r.id, r.deletedAgentName])).toEqual([[runId, "Order drafter (Deleted)"]]);
+  // The Inbox item it raised names it too.
+  expect(await call(router.questions.list, { status: "all" }, { context })).toMatchObject([{ id: "q_1", agent: { id: null, name: "Order drafter (Deleted)" } }]);
+});
+
+test("runs.stop ends a Job", async () => {
+  const { context, trigger } = await setup();
+  const chat = await trigger({ kind: "manual", placement: "chat" });
+  const { runId } = await call(router.jobs.start, { triggerId: chat.id }, { context });
   await call(router.runs.stop, { runId }, { context });
   expect((await call(router.runs.get, { runId }, { context })).run).toMatchObject({ status: "failed", error: "Stopped" });
   // Stopped once: a second stop says the run is over; someone else's run isn't found.
   await expect(call(router.runs.stop, { runId }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
   await expect(call(router.runs.stop, { runId: "run_nobody" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await call(router.agents.delete, { id: agent.id }, { context });
 });
 
 test("runs.list keeps the chat Jobs of a trigger, each titled by its first message", async () => {
