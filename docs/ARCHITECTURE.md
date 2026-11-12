@@ -215,15 +215,19 @@
   either agent; one a later bundle change puts across that line is kept and shown inactive.
   A Job's cloud session gets a `consult` tool listing them (`StartParams.consults`): a call is a
   `questions` row of kind `consult` (protocol 11) that `Engine.openConsult` checks
-  (`consultProblem`) and answers at once when refused, or turns into a Job of the consulted agent
+  (`consultProblem`) and answers at once when refused, puts to the owner first when its entry is
+  flagged (an `approval` row whose `consult_id` names the consult and that no session waits on:
+  a yes opens the consult, a no answers it), or turns into a Job of the consulted agent
   with no trigger (`RunTrigger` `consult`, `cause` the asking Job, the asking Job's root; its
   prompt is `CONSULT_PROMPT`). A consult asked while its root is paused waits with no Job until the
   root goes on (or `recover()`). When that Job ends, `finishRun` answers the row in the same
   transaction (`answerConsult`); every read of answers to send checks the rights again
   (`deliveryProblem`). A consult row that expires (its asker stopped, failed, or a resumed session
-  asked again) stops its consulted run, recursively.
+  asked again) stops its consulted run, recursively, and expires its Approval. `agents.update`
+  calls `Engine.endConsults` in its transaction: the consults on either side of the agent that its
+  pair no longer allows end there, with the reason.
   `jobs.start` starts a manual trigger's Job, `jobs.def` gives a Job's definition, and
-  `runs.list` takes an `agentId` or a `triggerId`. An agent is never deleted under a Job still going, by itself or
+  `runs.list` takes an `agentId`, a `triggerId` and `kind: "chat"` (the Jobs whose own definition opens with a chat), and gives each run a `title`: its first message's first 80 characters, whitespace folded, null before one. An agent is never deleted under a Job still going, by itself or
   with its plugin: both paths lock its triggers and the agent in the deleting transaction
   (`jobs/active.ts`; `createJob` and the scheduler take them in the same order), so a Job being created at that moment is seen; finished Jobs and triggers
   go with the agent (cascade). The scheduler's tick makes a second claim in the same
@@ -501,7 +505,10 @@
   `agents_update` and `triggers_*` items, refused when proposed with the reason) call it. Its
   Jobs' system prompt starts with a fixed text (`jobSystemPrompt`, `engine/job-def.ts`), then
   the owner's instructions. The web's `/assistant` (`components/assistant/AssistantChat.tsx`)
-  is its chat trigger's `ChatPanel`, or first launch while there is no Assistant: the harness
+  is its chat trigger's `ChatPanel` beside the list of its conversations (`runs.list` with
+  `kind: "chat"`, newest first, titled by the first message; a plain list of Jobs, not
+  assistant-ui's thread list), the open one held in the URL's `run` (absent: the latest;
+  `new`: one that hasn't started), or first launch while there is no Assistant: the harness
   sheet when the owner has no harness, then a picker that calls `agents.ensureAssistant`.
   `onboarding.status` (the Assistant's id or null, and whether a harness exists) makes Home
   send an owner without an Assistant there.
