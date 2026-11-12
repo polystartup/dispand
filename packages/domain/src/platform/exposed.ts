@@ -4,11 +4,11 @@ import { and, eq, inArray } from "drizzle-orm";
 import { setAsk } from "../agents/tool-ask.ts";
 import type { Db } from "../db/client.ts";
 import { runs } from "../db/schema.ts";
-import { toolingOf } from "../engine/tooling.ts";
+import { runnerServers, toolingOf } from "../engine/tooling.ts";
 
 // How an agent's HTTP tools are named for a Job's CLI session (the tools endpoint), and what a
-// name stands for. Apart from the endpoint so the engine can say, on a question, which tool and
-// action a call is for.
+// name stands for, a runner tool's included. Apart from the endpoint so the engine can say, on a
+// question, which tool and action a call is for.
 
 /** A CLI names a tool `mcp__job_tools__<name>`, and a model's tool name holds at most 64 characters. */
 const PREFIX = `mcp__${JOB_TOOLS_SERVER}__`;
@@ -54,14 +54,34 @@ export async function exposedTools(db: Db, job: { runId: string; ownerId: string
 /** The name a CLI asks the owner about for an exposed tool. */
 export const askedName = (name: string) => `${PREFIX}${name}`;
 
+/** What a permission question is about, when it is one of the Job's agent's tools; `toolId` only for a runner tool. */
+export type About = { tool: string; action: string; description: string; toolId?: string };
+
 /**
  * Which tool and action a permission question is about, when it is one of a Job's exposed
- * tools: the name alone is words cut short and a mark, so the owner is told in full.
+ * tools (the name alone is words cut short and a mark, so the owner is told in full) or an
+ * action of a runner tool the agent chose, on the session's runner. A runner tool's name is its
+ * session server name (`runnerServers`), which says nothing of the tool for good: the tool it
+ * stands for now is kept on the question (`toolId`), and "always allow" acts on that one.
  */
-export async function aboutExposed(db: Db, job: { runId: string; ownerId: string; agentId: string }, toolName: string): Promise<{ tool: string; action: string; description: string } | null> {
-  if (!toolName.startsWith(PREFIX)) return null;
-  const item = (await exposedTools(db, job)).find((t) => askedName(t.name) === toolName);
-  return item ? { tool: item.tool, action: item.action, description: item.description } : null;
+export async function aboutExposed(db: Db, job: { runId: string; ownerId: string; agentId: string; runnerId?: string | null }, toolName: string): Promise<About | null> {
+  if (toolName.startsWith(PREFIX)) {
+    const item = (await exposedTools(db, job)).find((t) => askedName(t.name) === toolName);
+    return item ? { tool: item.tool, action: item.action, description: item.description } : null;
+  }
+  if (!job.runnerId) return null;
+  const found = (await runnerToolsOf(db, job, job.runnerId)).find((t) => toolName.startsWith(`mcp__${t.server}__`));
+  const action = found?.actions.find((a) => toolName === `mcp__${found.server}__${a.name}`);
+  return found && action ? { tool: found.name, action: action.name, description: action.description, toolId: found.id } : null;
+}
+
+/** The runner tools a Job still going gets on its runner, under their session server names. */
+async function runnerToolsOf(db: Db, job: { runId: string; ownerId: string; agentId: string }, runnerId: string) {
+  const [run] = await db
+    .select({ ownerId: runs.ownerId, snapshot: runs.snapshot })
+    .from(runs)
+    .where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId), eq(runs.agentId, job.agentId), inArray(runs.status, ["running", "waiting"])));
+  return run ? runnerServers(await toolingOf(db, run, job.agentId), runnerId) : [];
 }
 
 /** Whether a tool name is one of the Job's tools server's, whatever it stands for. */
@@ -69,13 +89,20 @@ export const isExposedName = (toolName: string) => toolName.startsWith(PREFIX);
 
 /**
  * The owner's "always allow" to a CLI session's approval: the action the name stands for, on
- * the run's agent, stops asking. False when the name stands for no action the agent chose (one
+ * the run's agent, stops asking. For a runner tool, the one the question was about (`about`),
+ * if the Job's agent still has it. False when the name stands for no action the agent chose (one
  * that is gone, a tool that only comes with a skill, a run that ended): nothing was granted.
  */
-export async function stopAsking(db: Db, runId: string, toolName: string): Promise<boolean> {
-  if (!isExposedName(toolName)) return false;
-  const [run] = await db.select({ ownerId: runs.ownerId, agentId: runs.agentId }).from(runs).where(eq(runs.id, runId));
+export async function stopAsking(db: Db, runId: string, toolName: string, about: About | null): Promise<boolean> {
+  const [run] = await db.select({ ownerId: runs.ownerId, agentId: runs.agentId, snapshot: runs.snapshot, status: runs.status }).from(runs).where(eq(runs.id, runId));
   if (!run?.agentId) return false;
-  const item = (await exposedTools(db, { runId, ownerId: run.ownerId, agentId: run.agentId })).find((t) => askedName(t.name) === toolName);
-  return item ? setAsk(db, run.ownerId, { agentId: run.agentId, toolId: item.toolId, action: item.action, ask: false }) : false;
+  const job = { runId, ownerId: run.ownerId, agentId: run.agentId };
+  if (isExposedName(toolName)) {
+    const item = (await exposedTools(db, job)).find((t) => askedName(t.name) === toolName);
+    return item ? setAsk(db, run.ownerId, { agentId: run.agentId, toolId: item.toolId, action: item.action, ask: false }) : false;
+  }
+  // A Job that ended grants nothing, as `exposedTools` gives it nothing.
+  if (!about?.toolId || (run.status !== "running" && run.status !== "waiting")) return false;
+  const tool = (await toolingOf(db, run, run.agentId)).runnerTools.find((t) => t.id === about.toolId);
+  return tool?.actions.some((a) => a.name === about.action) ? setAsk(db, run.ownerId, { agentId: run.agentId, toolId: tool.id, action: about.action, ask: false }) : false;
 }

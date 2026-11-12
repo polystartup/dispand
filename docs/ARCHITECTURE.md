@@ -1251,3 +1251,5 @@
   - Better Auth reads only `x-real-ip` for the client IP (rate limiting): the reverse proxy in
     front of the app sets it to the peer it saw, and only that proxy may reach the app's port.
   - `routeTree.gen.ts` is committed so `typecheck` works before `build`.
+
+Runner protocol 14 carries runner-tool `unasked` actions and `session.permissions` updates. Both CLI harnesses derive MCP tool names locally. Updates can only remove grants; reconnect reconciliation sends current restrictions before further delivery. Owner action changes fan out to live Job and workflow sessions. Migration 0062 fills empty catalog runner-tool lists from the catalog defaults.

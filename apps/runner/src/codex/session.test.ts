@@ -573,3 +573,29 @@ test("without agents to consult, a Codex session has no consult tool and a call 
   expect(questions(s.events)).toEqual([]);
   expect(await s.replyTo("r0")).toEqual({ contentItems: [{ type: "inputText", text: "unknown tool consult" }], success: false });
 });
+
+test("on Codex, runner grants run only the named action and revocations take effect", async () => {
+  const approval = (serverName: string, tool: string) => ({
+    request: "mcpServer/elicitation/request",
+    params: {
+      threadId: "$THREAD",
+      turnId: "$TURN",
+      serverName,
+      mode: "form",
+      message: `Allow the ${serverName} MCP server to run tool "${tool}"?`,
+      requestedSchema: { type: "object", properties: {} },
+      _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_name: tool, tool_params: {} },
+    },
+  });
+  const s = await run({
+    start: { mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["draft_email"] }] },
+    turns: [[approval("mail", "draft_email"), approval("mail", "send_email"), approval("mail", "draft_email"), approval("other", "draft_email"), message("Done")]],
+    deps: { jobServer: "job", unasked: [] },
+    answer: () => { active.narrowPermissions!([]); return { kind: "permission", decision: "deny" }; },
+  });
+  const active = s.session;
+  await s.ended();
+  expect(questions(s.events).map((q) => (q.payload as { toolName: string }).toolName)).toEqual(["mcp__mail__send_email", "mcp__mail__draft_email", "mcp__other__draft_email"]);
+  expect(await s.replyTo("r0")).toEqual({ action: "accept", content: {}, _meta: null });
+  expect(await s.replyTo("r1")).toEqual({ action: "decline", content: null, _meta: null });
+});

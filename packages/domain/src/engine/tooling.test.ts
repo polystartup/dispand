@@ -38,7 +38,7 @@ test("a workflow run's session gets the agent's skills and tools as they are", a
   const tooling = await toolingOf(context.db, run, agent.id);
   expect(summary(tooling)).toEqual({ skills: ["review"], runner: ["Fetch:fetch"], http: ["Firecrawl", "GitHub"] });
   expect(tooling.skills).toEqual([{ packageId: review, name: "review" }]);
-  expect(tooling.runnerTools[0]).toEqual({ name: "Fetch", tool: "fetch", runnerId });
+  expect(tooling.runnerTools[0]).toEqual({ id: "tool_fetch", name: "Fetch", tool: "fetch", runnerId, actions: [], unasked: [] });
   const lint = await skill("lint");
   await setAgent({ skillPackageIds: [lint], toolIds: [] });
   expect(summary(await toolingOf(context.db, run, agent.id))).toEqual({ skills: ["lint"], runner: [], http: [] });

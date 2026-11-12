@@ -1466,3 +1466,33 @@ test("a session whose start lists no agent to consult has no consult tool, and a
   expect(names).toEqual(["submit_outputs", "request_approval"]);
   expect(outputs).toEqual([{ hookSpecificOutput: expect.objectContaining({ permissionDecision: "ask" }) }]);
 });
+
+test("a runner action runs unasked until revoked; other servers and actions ask", async () => {
+  const decisions: unknown[] = [];
+  const outputs: unknown[] = [];
+  const names = ["mcp__mail__draft_email", "mcp__mail__send_email", "mcp__other__draft_email", "mcp__mail__draft_email"];
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    for (const [i, name] of names.entries()) {
+      if (i === 3) session.narrowPermissions!([]);
+      decisions.push(((await options.canUseTool!(name, {}, ctx())) as { behavior: string }).behavior);
+    }
+    const hooks = options.hooks!.PreToolUse!.flatMap((m) => m.hooks);
+    for (const tool_name of names.slice(0, 2)) {
+      for (const hook of hooks) {
+        outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
+      }
+    }
+    yield result();
+  });
+  const events: HarnessEvent[] = [];
+  const session: ClaudeSession = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["draft_email"] }] }, "/work", (e) => {
+    events.push(e);
+    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "deny" }));
+  }, { query: fake.query, jobServer: "job", unasked: [] });
+  await session.done;
+  expect(decisions).toEqual(["allow", "deny", "deny", "deny"]);
+  expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: { toolName: string } }).payload.toolName)).toEqual(names.slice(1));
+  expect(outputs[0]).toMatchObject({ hookSpecificOutput: { permissionDecision: "ask" } });
+  expect(outputs[1]).toMatchObject({ hookSpecificOutput: { permissionDecision: "ask" } });
+});

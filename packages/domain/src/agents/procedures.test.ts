@@ -1,6 +1,7 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { readFileSync } from "node:fs";
+import { and, eq, sql } from "drizzle-orm";
 import { agents as agentsTable, agentTools, harnesses, tables as tablesTable, tools, user } from "../db/schema.ts";
 import { PLATFORM_TOOLS } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
@@ -305,4 +306,28 @@ test("the owner takes an action off the asking ones and puts it back; nothing el
 test("a Job changes the asking flags only on a proposal a person approved: the write is marked as a grant", () => {
   expect(PLATFORM_TOOLS.find((t) => t.path === "agents.setToolAsk")).toMatchObject({ bundle: "configure", grant: true });
   expect(PLATFORM_TOOLS.find((t) => t.path === "agents.toolAsk")?.grant).toBeUndefined();
+});
+
+test("runner catalog defaults survive late discovery and the approved backfill preserves other grants", async () => {
+  const { context, harness } = await setup();
+  const entries = [
+    { id: "mail_empty", name: "Mail empty", kind: "runner" as const, catalogId: "gmail-runner", runnerId: harness.runnerId, runnerTool: "gmail" },
+    { id: "mail_kept", name: "Mail kept", kind: "runner" as const, catalogId: "gmail-runner", runnerId: harness.runnerId, runnerTool: "gmail" },
+    { id: "mail_http", name: "Mail HTTP", kind: "http" as const, catalogId: "gmail-runner", url: "https://example.com/mcp", transport: "streamable-http" as const },
+  ];
+  await context.db.insert(tools).values(entries.map((t) => ({ ...t, ownerId: context.ownerId })));
+  const agent = await call(router.agents.create, { name: "Drafter", harnessId: harness.id, systemPrompt: "", toolIds: entries.map((t) => t.id) }, { context });
+  const grants = async () => context.db.select().from(agentTools).where(eq(agentTools.agentId, agent.id));
+  expect((await grants()).find((t) => t.toolId === "mail_empty")!.unasked).toContain("draft_email");
+  await context.db.update(agentTools).set({ unasked: [] }).where(eq(agentTools.agentId, agent.id));
+  await context.db.update(agentTools).set({ unasked: ["read_email"] }).where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, "mail_kept")));
+  await context.db.execute(sql.raw(readFileSync(new URL("../../drizzle/0062_fill_catalog_runner_unasked.sql", import.meta.url), "utf8")));
+  const rows = await grants();
+  expect(rows.find((t) => t.toolId === "mail_empty")!.unasked).toContain("draft_email");
+  expect(rows.find((t) => t.toolId === "mail_empty")!.unasked).not.toContain("send_email");
+  expect(rows.find((t) => t.toolId === "mail_kept")!.unasked).toEqual(["read_email"]);
+  expect(rows.find((t) => t.toolId === "mail_http")!.unasked).toEqual([]);
+  await context.db.update(tools).set({ actions: ["draft_email", "send_email"].map((name) => ({ name, description: "", inputSchema: { type: "object" } })) }).where(eq(tools.id, "mail_empty"));
+  const listed = await call(router.agents.toolAsk, { id: agent.id }, { context });
+  expect(listed.find((t) => t.toolId === "mail_empty")!.actions.map((a) => a.ask)).toEqual([false, true]);
 });

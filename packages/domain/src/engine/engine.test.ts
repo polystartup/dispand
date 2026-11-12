@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { type Answer, parseServerMessage, type ServerToRunner, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING, TEXT } from "@dispand/runner-protocol";
 import { and, eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { agentConsults, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools } from "../db/schema.ts";
+import { agentTools, agentConsults, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { ArgValue } from "../tools/arguments.ts";
@@ -1474,7 +1474,7 @@ async function toolingSetup() {
   const engine = new Engine(context.db, adapter, undefined, undefined, undefined, context.secrets);
   onTestFinished(() => engine.stop());
   const starts = () => sent.flatMap((m) => (m.type === "session.start" ? [m.start] : []));
-  return { ...s, engine, packageId, withTooling, starts };
+  return { ...s, engine, packageId, withTooling, starts, sent };
 }
 
 test("a Job's CLI start carries its agent's skill packages and runner tools, and never an HTTP tool", async () => {
@@ -1630,4 +1630,22 @@ test("a Job's session start, its runner events and its question are traced with 
   expect(points).toContainEqual({ name: "dispand.sessions.started", attributes: { "dispand.harness.kind": "claude-code", "dispand.result": "ok" } });
   const all = await t.all();
   for (const sentinel of ["sentinel-client-name", "sentinel-agent-words", "sentinel-tool-input", "sentinel-owner-reply"]) expect(all).not.toContain(sentinel);
+});
+
+test("runner grants start on Jobs and narrowing reaches Job and workflow sessions", async () => {
+  const { context, engine, agent, workflow, starts, sent } = await toolingSetup();
+  const action = { name: "draft_email", description: "", inputSchema: { type: "object" } };
+  await context.db.update(tools).set({ actions: [action] }).where(eq(tools.id, "tool_fetch"));
+  await context.db.update(agentTools).set({ unasked: [action.name] }).where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, "tool_fetch")));
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  await engine.startJob(trigger.id, context.ownerId);
+  await engine.startRun(workflow.id);
+  await vi.waitFor(() => expect(starts()).toHaveLength(2));
+  expect(starts()[0]!.mcpServers).toMatchObject([{ unasked: [action.name] }]);
+  expect(starts()[1]!.mcpServers[0]).not.toHaveProperty("unasked");
+  await call(router.agents.setToolAsk, { agentId: agent.id, toolId: "tool_fetch", action: action.name, ask: true }, { context: { ...context, engine } });
+  const updates = sent.filter((m) => m.type === "session.permissions");
+  expect(updates).toHaveLength(2);
+  expect(updates.map((m) => m.sessionId).sort()).toEqual(starts().map((m) => m.sessionId).sort());
+  for (const update of updates) expect(update.servers).toEqual([{ name: "fetch", unasked: [] }]);
 });

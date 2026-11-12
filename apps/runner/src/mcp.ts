@@ -34,6 +34,23 @@ export function withJobServer(refs: McpServerRef[], server: string, jobToken: st
 }
 
 /**
+ * In a Job's session (`jobTools`, the Job's unasked tools of its tools server): the MCP tools
+ * that run without a question, by the name the CLI gives them (`mcp__<server>__<tool>`), and the
+ * servers whose tools "always allow" adds to them (the Job's tools server and the runner tools,
+ * which are the Job's agent's own). The runner makes every name itself from a server the session
+ * starts and an action Dispand named: nothing here can name a command, a file tool or another
+ * server's tool. Nothing for a session without a Job.
+ */
+export function unaskedTools(refs: McpServerRef[], jobTools: string[] | undefined): { names: Set<string>; servers: string[] } {
+  if (jobTools === undefined) return { names: new Set(), servers: [] };
+  const runner = refs.flatMap((ref) => (ref.type === "runner" ? [ref] : []));
+  return {
+    names: new Set([...jobTools.map((name) => `mcp__${JOB_TOOLS_SERVER}__${name}`), ...runner.flatMap((ref) => (ref.unasked ?? []).map((action) => `mcp__${ref.name}__${action}`))]),
+    servers: [JOB_TOOLS_SERVER, ...runner.map((ref) => ref.name)],
+  };
+}
+
+/**
  * The CLI's MCP servers for `refs`, in the SDK's shapes. A runner tool is the machine's own
  * server of that name (`mcpServers` in its config): the server names one, and never says what
  * it runs. It starts from `dir` (the home folder), never the CLI's working directory, where the
@@ -314,4 +331,12 @@ export function credentialValues(files: string[]): string[] {
     }
   }
   return out;
+}
+
+/** Revocations intersect the current grant; an update can never add an action or server. */
+export function narrowUnasked(names: Set<string>, servers: string[], update: { name: string; unasked: string[] }[]): void {
+  const allowed = new Set(update.flatMap((ref) => ref.unasked.map((action) => `mcp__${ref.name}__${action}`)));
+  for (const name of names) {
+    if (servers.some((server) => name.startsWith(`mcp__${server}__`)) && !allowed.has(name)) names.delete(name);
+  }
 }

@@ -199,7 +199,8 @@ export class Sessions {
     // A stop for a session that isn't here has nothing to end, and nothing for Dispand to resume.
     if (!session) return msg.type === "session.stop" ? undefined : this.notRunning(msg.sessionId);
     if (msg.type === "session.stop") return session.stop(STOPPED);
-    if (msg.type === "session.send") session.send(msg.text);
+    if (msg.type === "session.permissions") session.narrowPermissions?.(msg.servers);
+    else if (msg.type === "session.send") session.send(msg.text);
     else if (msg.type === "session.answer") session.answer(msg.questionId, msg.answer);
     else await session.interrupt();
   }

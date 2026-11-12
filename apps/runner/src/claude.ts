@@ -13,7 +13,7 @@ import {
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { ClaudeSessionStart, HarnessEvent, QuestionPayload } from "@dispand/runner-protocol";
-import { JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
+import { narrowUnasked, unaskedTools } from "./mcp.ts";
 import { z } from "zod";
 import { permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
 import { askChoices, MAX_WAITING, MAX_WAITING_BYTES, BypassRefused, type ChoiceQuestion, consult, CONSULT, consultDescription, type HarnessSession, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome, TURN_DENIED } from "./outcome.ts";
@@ -218,10 +218,10 @@ export function startClaudeSession(
   );
 
   /**
-   * A tool of Dispand's Job server, or an action of the agent's tools that it lets run unasked:
-   * Dispand authorizes each of their calls itself, so the owner isn't asked.
+   * A tool of Dispand's Job server (Dispand authorizes each of its calls itself), or an action
+   * of the agent's tools that it lets run unasked: the owner isn't asked.
    */
-  const unasked = new Set((deps.jobServer === undefined ? [] : (deps.unasked ?? [])).map((name) => `mcp__${JOB_TOOLS_SERVER}__${name}`));
+  const { names: unasked, servers: agentServers } = unaskedTools(start.mcpServers, deps.jobServer === undefined ? undefined : (deps.unasked ?? []));
   const isJobTool = (name: string) => deps.jobServer !== undefined && (name.startsWith(`mcp__${deps.jobServer}__`) || unasked.has(name));
 
   /**
@@ -320,9 +320,10 @@ export function startClaudeSession(
     }
     // An MCP call is approved one at a time: no rule may let the next ones through.
     const updates = isMcpTool(toolName) ? [] : boundary.sessionUpdates(suggestions);
-    // One of the Job's tools: "always" is the owner taking that action off the agent's asking
-    // ones, on the server. Here it only means this session stops asking about it too.
-    const jobTool = deps.jobServer !== undefined && toolName.startsWith(`mcp__${JOB_TOOLS_SERVER}__`);
+    // One of the Job's agent's tools (its tools server's, or a runner tool's): "always" is the
+    // owner taking that action off the agent's asking ones, on the server. Here it only means
+    // this session stops asking about it too.
+    const jobTool = agentServers.some((server) => toolName.startsWith(`mcp__${server}__`));
     const canAlwaysAllow = updates.length > 0 || jobTool;
     const payload: QuestionPayload = { kind: "permission", toolName, input: toolInput, canAlwaysAllow };
     // The owner approves exactly what they see: an input that can't be shown whole isn't asked about.
@@ -515,6 +516,7 @@ export function startClaudeSession(
       if (unanswered.length > MAX_WAITING || waiting + Buffer.byteLength(text) > MAX_WAITING_BYTES) return finish({ type: "error", message: "too many messages waiting for the agent: the session was stopped" });
       say(text);
     },
+    narrowPermissions: (servers) => narrowUnasked(unasked, agentServers.filter((s) => s !== "job_tools"), servers),
     answer: questions.answer,
     interrupt: async () => {
       // Idle: nothing to cut short, and no later error may pass for an interrupted turn.

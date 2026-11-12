@@ -8,6 +8,7 @@ import { protocolEvents, protocolString } from "./sanitize.ts";
 export type HarnessSession = {
   /** Sends the owner's next message. */
   send(text: string): void;
+  narrowPermissions?(servers: { name: string; unasked: string[] }[]): void;
   /** Answers a question the session emitted. */
   answer(questionId: string, answer: Answer): void;
   interrupt(): Promise<void>;

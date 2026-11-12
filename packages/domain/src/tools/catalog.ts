@@ -255,6 +255,7 @@ export const catalogEntry = (catalogId: string | null | undefined) => (catalogId
  */
 export function defaultUnasked(tool: { catalogId: string | null; actions: { name: string; readOnly?: boolean }[] }): string[] {
   const entry = catalogEntry(tool.catalogId);
+  if (entry?.kind === "runner") return [...(entry.unasked ?? [])];
   return tool.actions.flatMap((a) => ((entry ? (entry.unasked ?? []).includes(a.name) : a.readOnly === true) ? [a.name] : []));
 }
 
