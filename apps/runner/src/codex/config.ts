@@ -25,7 +25,7 @@ export function codexConfig(o: { denied: string[]; codexHome?: string; pluginsDi
   for (const path of o.denied) filesystem[path] = "deny";
   // Native plugin code and skills are readable; config, credentials and plugin state
   // remain under the existing deny rules. Paths come only from the runner's local environment.
-  const home = o.codexHome ?? join(homedir(), ".codex");
+  const home = o.codexHome || join(homedir(), ".codex");
   for (const path of [join(home, "plugins", "cache"), join(home, "plugins", "marketplaces"), join(home, "skills")]) {
     filesystem[path] = "read";
     filesystem[realOf(path)] = "read";

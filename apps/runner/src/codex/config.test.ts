@@ -53,3 +53,7 @@ test("native plugin code is readable while Codex settings and credentials stay d
   expect(fs["/private/codex/config.toml"]).toBeUndefined();
   expect(fs["/private/codex/auth.json"]).toBeUndefined();
 });
+
+test("an empty local Codex home uses the normal absolute default", () => {
+  expect(codexConfig({ denied: [], codexHome: "", bypass: false })).toEqual(codexConfig({ denied: [], bypass: false }));
+});
