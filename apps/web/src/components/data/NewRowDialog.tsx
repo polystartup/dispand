@@ -27,6 +27,7 @@ export function NewRowDialog({ fields, requiredParent, onCreate, onCancel, pendi
   const latest = useRef(values);
   const [problem, setProblem] = useState<string | null>(null);
   const formRef = useRef<HTMLDivElement>(null);
+  const editable = fields.filter((f) => f.type !== "attachment");
 
   const set = (field: FieldSchema, value: Cell) => {
     latest.current = { ...latest.current, [field.id]: value };
@@ -37,30 +38,30 @@ export function NewRowDialog({ fields, requiredParent, onCreate, onCancel, pendi
     // A text that doesn't fit its field stays in its box with the reason, and isn't created empty.
     if (formRef.current?.querySelector('[aria-invalid="true"]')) return setProblem("Fix the fields marked above first.");
     const filled = Object.fromEntries(Object.entries(latest.current).filter(([, v]) => v !== null));
-    if (Object.keys(filled).length === 0) return setProblem("Fill in at least one field.");
+    // A table of files only has nothing to fill here: its row is created empty, and filled in its detail.
+    if (Object.keys(filled).length === 0 && editable.length > 0) return setProblem("Fill in at least one field.");
     onCreate(filled);
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+    // A creation under way finishes in this form: it can't be closed and opened again meanwhile.
+    <Dialog open onOpenChange={(open) => !open && !pending && onCancel()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogTitle>New row</DialogTitle>
         <DialogDescription>The row is created when you click Create row. Files are added from the row once it exists.</DialogDescription>
         <div ref={formRef} className="grid gap-4">
-          {fields
-            .filter((f) => f.type !== "attachment")
-            .map((field) => {
-              const { Icon, label } = FIELD_TYPE_UI[field.type];
-              return (
-                <section key={field.id} aria-label={field.name} className="grid gap-1.5">
-                  <h3 className="flex items-center gap-1.5 text-[13px] font-medium text-muted">
-                    <Icon size={13} aria-label={label} /> {field.name}
-                    {field.id === requiredParent?.id && <span className="text-faint">(required)</span>}
-                  </h3>
-                  <CellEditor field={field} value={values[field.id] ?? null} inline={false} onCommit={(v) => set(field, v)} onCancel={() => {}} />
-                </section>
-              );
-            })}
+          {editable.map((field) => {
+            const { Icon, label } = FIELD_TYPE_UI[field.type];
+            return (
+              <section key={field.id} aria-label={field.name} className="grid gap-1.5">
+                <h3 className="flex items-center gap-1.5 text-[13px] font-medium text-muted">
+                  <Icon size={13} aria-label={label} /> {field.name}
+                  {field.id === requiredParent?.id && <span className="text-faint">(required)</span>}
+                </h3>
+                <CellEditor field={field} value={values[field.id] ?? null} inline={false} onCommit={(v) => set(field, v)} onCancel={() => {}} />
+              </section>
+            );
+          })}
         </div>
         {(problem ?? error) && (
           <p role="alert" className="text-[13px] text-danger">
@@ -68,7 +69,7 @@ export function NewRowDialog({ fields, requiredParent, onCreate, onCancel, pendi
           </p>
         )}
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onCancel}>
+          <Button variant="ghost" disabled={pending} onClick={onCancel}>
             Cancel
           </Button>
           <Button disabled={pending || (requiredParent !== undefined && values[requiredParent.id] == null)} onClick={create}>

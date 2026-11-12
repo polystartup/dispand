@@ -839,7 +839,7 @@
   pages (`setListCell`, `patchListRows`). A new row is the exception: "New row" opens a form
   (`NewRowDialog.tsx`) with the table's fields (a required parent among them, files left to the
   row detail), saving it creates the row with those values in one `rows.create`, and the list is
-  then read again. The grid never holds a row the server doesn't have, so a list that refreshes,
+  read again before the form closes, so no cell is active when the row arrives. The grid never holds a row the server doesn't have, so a list that refreshes,
   streams, sorts or filters has nothing to reconcile, and a trigger on `created` gets the row's
   values; cancelling creates nothing. Deleting acts only
   on the selected rows that are shown. A table's sort and filter live in its URL only, `?q=<RowQuery as JSON>`, with

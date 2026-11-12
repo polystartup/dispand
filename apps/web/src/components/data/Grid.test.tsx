@@ -109,3 +109,29 @@ test("a creation that fails keeps the form and says why", async () => {
   expect((await screen.findByRole("alert")).textContent).toBe("Could not add the row: no such table");
   expect(screen.getByRole("textbox", { name: "Name" })).toHaveProperty("value", "Dispand");
 });
+
+test("the form stays open until the list holds the new row, and can't be closed while it is created", async () => {
+  const user = setup([text("f_name", "Name")]);
+  fake.rows.create.mockResolvedValue(saved);
+  await user.click(await screen.findByRole("button", { name: "New row" }));
+  await user.type(screen.getByRole("textbox", { name: "Name" }), "Dispand");
+  let answer: (value: unknown) => void = () => {};
+  fake.rows.list.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+  await user.click(screen.getByRole("button", { name: "Create row" }));
+  await waitFor(() => expect(fake.rows.list).toHaveBeenCalledTimes(2));
+  expect(screen.getByRole("button", { name: "Cancel" })).toHaveProperty("disabled", true);
+  await user.keyboard("{Escape}");
+  expect(screen.getByRole("dialog")).toBeTruthy();
+
+  answer(page([saved]));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(screen.getAllByRole("gridcell").map((c) => c.textContent)).toEqual(["Dispand"]);
+});
+
+test("a table of files only creates its row empty, to fill in its detail", async () => {
+  const user = setup([{ id: "f_logo", name: "Logo", type: "attachment", choices: [] }]);
+  fake.rows.create.mockResolvedValue({ ...saved, values: {} });
+  await user.click(await screen.findByRole("button", { name: "New row" }));
+  await user.click(screen.getByRole("button", { name: "Create row" }));
+  expect(fake.rows.create).toHaveBeenCalledExactlyOnceWith({ tableId: "tbl_1", values: {} });
+});

@@ -127,14 +127,15 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
   });
 
   // A new row is created with the values of its form, in one `rows.create`, and reaches the grid
-  // the way every row does: by reading the list again. No cell is active while the form is open,
-  // so nothing moves under the cursor, and the grid never holds a row the server doesn't have.
+  // the way every row does: by reading the list again. The grid never holds a row the server
+  // doesn't have.
   const create = useMutation({
     ...rowWrites(tableId),
     mutationFn: (values: Record<string, Cell>) => api.rows.create({ tableId, values }),
-    onSuccess: () => {
+    // The form stays open until the list holds the row, so no cell can be active when it arrives.
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: listKey });
       setAdding(false);
-      refresh();
     },
   });
   const startAdding = () => {
