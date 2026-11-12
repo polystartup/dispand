@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agentConsults, agents, proposals, runs, stepRuns, questions } from "../db/schema.ts";
+import { agentConsults, agents, harnesses, proposals, questions, runs, stepRuns, user } from "../db/schema.ts";
 import { callPlatformTool, type JobIdentity } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
@@ -36,7 +36,7 @@ test("an agent's description and consult list are saved, given back, and left as
 });
 
 test("an entry naming the agent itself, another owner's agent, or an agent across the configure line is refused with the reason", async () => {
-  const { context, base, make } = await setup();
+  const { context, harness, base, make } = await setup();
   const clerk = await make("Clerk");
   const builder = await make("Builder", ["data", "configure"]);
   const update = (consults: { agentId: string; ask: boolean }[]) => call(router.agents.update, { ...base, id: clerk.id, name: "Clerk", bundles: ["data"], consults }, { context });
@@ -50,8 +50,13 @@ test("an entry naming the agent itself, another owner's agent, or an agent acros
     message: expect.stringContaining("Admin changes the workspace and Clerk doesn't"),
   });
   // Refused in the agent's own transaction: nothing of the refused create is left.
-  expect((await context.db.select({ name: agents.name }).from(agents)).map((a) => a.name).sort()).toEqual(["Builder", "Clerk"]);
+  expect((await context.db.select({ name: agents.name }).from(agents).where(eq(agents.ownerId, context.ownerId))).map((a) => a.name).sort()).toEqual(["Builder", "Clerk"]);
   await expect(update([{ agentId: "agent_nobody", ask: false }])).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Agent not found" });
+  // Another owner's agent is not one to consult.
+  await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
+  await context.db.insert(harnesses).values({ id: "harness_other", ownerId: "user_other", name: "Eve's", runnerId: harness.runnerId, kind: "claude-code", permissionMode: "default" });
+  await context.db.insert(agents).values({ id: "agent_eve", ownerId: "user_other", name: "Eve's clerk", harnessId: "harness_other", systemPrompt: "", bundles: ["data"] });
+  await expect(update([{ agentId: "agent_eve", ask: false }])).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Agent not found" });
   expect(await context.db.select().from(agentConsults)).toEqual([]);
   // Both with configure, or both without: allowed.
   const admin = await call(router.agents.create, { ...base, name: "Admin", bundles: ["configure"], consults: [{ agentId: builder.id, ask: false }] }, { context });
