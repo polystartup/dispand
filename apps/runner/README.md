@@ -195,7 +195,7 @@ starts.
 `apps/web/public/runner/` (gitignored), which the web app serves. From the source:
 `node apps/runner/src/main.ts run`.
 
-### Native plugins and workspace skills (protocol 15)
+### Native plugins and workspace skills (protocol 16)
 
 Native management is opt-in on each runner. Install the maintained
 [Skillshare CLI](https://github.com/runkids/skillshare) alongside Claude Code/Codex,
