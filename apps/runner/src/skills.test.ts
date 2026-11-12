@@ -118,9 +118,9 @@ test("fetchPackages sends the token, refuses redirects, other names and unsafe b
   const seen: string[] = [];
   const server = createServer((req, res) => {
     seen.push(`${req.url} ${req.headers.authorization}`);
-    if (req.url === "/runner/packages/pkg_1") {
+    if (req.url === "/runner/packages/pkg_1" || req.url === "/runner/packages/pkg_native") {
       res.setHeader("content-type", "application/json");
-      return res.end(JSON.stringify({ name: "hello-check", files: [{ path: "hello-check/SKILL.md", base64: Buffer.from("hi").toString("base64") }] }));
+      return res.end(JSON.stringify({ name: "hello-check", ...(req.url.endsWith("pkg_native") ? { nativePlugin: "dispand-plugin_1", nativeKey: "pinned-source-key" } : {}), files: [{ path: "hello-check/SKILL.md", base64: Buffer.from("hi").toString("base64") }] }));
     }
     if (req.url === "/runner/packages/pkg_moved") {
       res.writeHead(302, { location: "/runner/packages/pkg_1" });
@@ -141,6 +141,7 @@ test("fetchPackages sends the token, refuses redirects, other names and unsafe b
     const [pkg] = await fetchPackages(url, "t0ken", [{ packageId: "pkg_1", name: "hello-check" }]);
     expect(pkg).toEqual({ name: "hello-check", files: [{ path: "hello-check/SKILL.md", content: Buffer.from("hi") }] });
     expect(seen).toEqual(["/runner/packages/pkg_1 Bearer t0ken"]);
+    expect((await fetchPackages(url, "t0ken", [{ packageId: "pkg_native", name: "hello-check" }]))[0]).toMatchObject({ nativePlugin: "dispand-plugin_1", nativeKey: "pinned-source-key" });
     await expect(fetchPackages(url, "t", [{ packageId: "pkg_1", name: "other" }])).rejects.toThrow("isn't readable");
     await expect(fetchPackages(url, "t", [{ packageId: "pkg_moved", name: "hello-check" }])).rejects.toThrow("couldn't fetch");
     await expect(fetchPackages(url, "t", [{ packageId: "pkg_bad", name: "hello-check" }])).rejects.toThrow("isn't readable");

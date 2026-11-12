@@ -101,7 +101,7 @@ function lstatOrNull(path: string) {
 }
 
 /** Fetches an entry's plugin (from its own repository, or its marketplace's for a relative path) and reads it. */
-async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry, allowFile: boolean): Promise<{ contents: PluginContents; url: string; sha: string }> {
+async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry, allowFile: boolean): Promise<{ contents: PluginContents; url: string; sha: string; nativeRoot?: string }> {
   const { source } = entry;
   if (source.type === "unsupported") throw new ORPCError("BAD_REQUEST", { message: source.reason });
   if (source.type === "well-known") return { ...(await readWellKnownSkills(source.url)), url: source.url };
@@ -112,7 +112,7 @@ async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry, allowF
     // The repository's links under the plugin, as paths from its root.
     const prefix = relative(realpathSync(checkout.dir), root);
     const links = checkout.links.flatMap((l) => (prefix === "" ? [l] : l.startsWith(`${prefix}/`) ? [l.slice(prefix.length + 1)] : []));
-    return { contents: readPlugin(root, entry, links), url, sha: checkout.sha };
+    return { contents: readPlugin(root, entry, links), url, sha: checkout.sha, nativeRoot: prefix || "." };
   } finally {
     await checkout.cleanup();
   }
@@ -295,6 +295,8 @@ function uniqueConstraint(err: unknown): string | null {
 const ServerSettings = z.record(z.string().max(100), HeaderValue).refine((s) => Object.keys(s).length <= 50, "At most 50 settings per MCP server");
 
 const InstallInput = EntryRef.extend({
+  /** Register the source for an owner-approved native install without importing components. */
+  nativeInstall: z.boolean().default(false),
   skills: z.array(z.string().max(64)).max(200).default([]),
   mcpServers: z.array(z.string().max(100)).max(100).default([]),
   agents: z.array(z.string().max(100)).max(100).default([]),
@@ -332,13 +334,13 @@ const install = owner
     }
     const market = await findMarketplace(context.db, context.ownerId, input.marketplaceId);
     const entry = findEntry(market, input.entryName);
-    const { contents, url, sha } = await readEntry(market, entry, !!context.gitFileUrls).catch(asBadRequest);
+    const { contents, url, sha, nativeRoot } = await readEntry(market, entry, !!context.gitFileUrls).catch(asBadRequest);
     // A plugin with definitions is worth installing for them alone: they are registered, and set up later.
     const { agents: agentDefs, primitives, triggers } = contents.definitions;
-    if (nothingPicked && !agentDefs.length && !primitives.length && !triggers.length) {
+    if (nothingPicked && !input.nativeInstall && !agentDefs.length && !primitives.length && !triggers.length) {
       throw new ORPCError("BAD_REQUEST", { message: "Pick at least one skill, MCP server or agent" });
     }
-    if (picked.mcpServers.length && reviewToken(sha, contents) !== input.reviewed) {
+    if ((picked.mcpServers.length || input.nativeInstall) && reviewToken(sha, contents) !== input.reviewed) {
       throw new ORPCError("CONFLICT", { message: `${entry.name} changed since you reviewed it: look at it again before installing` });
     }
     const chosen = picked.skills.length ? chosenSkills(contents, picked.skills) : null;
@@ -369,6 +371,7 @@ const install = owner
           entryName: entry.name,
           url,
           sha,
+          nativeRoot: nativeRoot ?? null,
           layout: contents.layout,
           components: componentsOf(contents),
           definitions: contents.definitions,
@@ -606,7 +609,7 @@ const update = owner.input(Id).handler(async ({ input, context }) => {
   const market = await syncMarketplace(context.db, await findMarketplace(context.db, context.ownerId, row.marketplaceId), allowFile);
   const entry = market.entries.find((e) => e.name === row.entryName);
   if (!entry) throw new ORPCError("BAD_REQUEST", { message: `${market.name} no longer lists ${row.name}` });
-  const { contents, url, sha } = await readEntry(market, entry, allowFile).catch(asBadRequest);
+  const { contents, url, sha, nativeRoot } = await readEntry(market, entry, allowFile).catch(asBadRequest);
   const moved = await context.db.transaction(async (tx) => {
     await findPlugin(tx, context.ownerId, row.id, true);
     const [pkg] = await tx.select().from(skillPackages).where(eq(skillPackages.pluginId, row.id)).for("update");
@@ -638,7 +641,7 @@ const update = owner.input(Id).handler(async ({ input, context }) => {
     await tx
       .update(pluginsTable)
       // Its definitions are replaced as they are upstream; what was set up from them stays as the owner has it.
-      .set({ url, sha, layout: contents.layout, components: componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, updatedAt: sql`now()` })
+      .set({ url, sha, nativeRoot: nativeRoot ?? null, layout: contents.layout, components: componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, updatedAt: sql`now()` })
       .where(eq(pluginsTable.id, row.id));
     return moved;
   });

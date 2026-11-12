@@ -17,7 +17,7 @@ import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 
 import { WebSocket } from "ws";
 import type { Db } from "../db/client.ts";
-import { runners } from "../db/schema.ts";
+import { harnesses, runners } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { RunnerHub } from "./hub.ts";
 import { upgradeRunner } from "./upgrade.ts";
@@ -946,4 +946,35 @@ test("native plugin management rejects a Job even when it belongs to the owner",
   const context = await ownerContext();
   const jobContext = { ...context, job: { runId: "run_1", ownerId: context.ownerId, agentId: "agent_1" } };
   await expect(call(router.runners.plugins, { runnerId: "runner_1", operation: { action: "list" } }, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN" });
+});
+
+test("an owner can preview and apply an unused workspace skill through the runner protocol without exposing its content to telemetry", async () => {
+  const t = await captureTelemetry();
+  onTestFinished(() => t.stop());
+  const { context, runnerId, token, url } = await pairedRunner();
+  await context.db.insert(harnesses).values({ id: "h_native", ownerId: context.ownerId, name: "Native test", runnerId, kind: "codex", permissionMode: "default" });
+  const { packageId } = await call(router.skills.create, { name: "writing", description: "Write", instructions: "sentinel-private-native-instructions", requiredToolIds: [] }, { context });
+  const runner = fakeRunner(url, token);
+  await runner.opened;
+  runner.send(hello);
+  await vi.waitFor(() => expect(context.hub.isOnline(runnerId)).toBe(true));
+  for (const dryRun of [true, false]) {
+    const pending = call(router.runners.workspacePlugin, { harnessId: "h_native", resource: { kind: "skill", id: packageId }, action: "add", dryRun, ...(!dryRun ? { revision: "reviewed-native" } : {}) }, { context });
+    const inventory = await runner.next();
+    if (inventory.type !== "plugin.request" || inventory.operation.action !== "list") throw new Error("Expected native inventory request");
+    runner.send({ type: "plugin.replied", requestId: inventory.requestId, report: { packages: [] } });
+    const request = await runner.next();
+    if (request.type !== "plugin.request" || request.operation.action !== "add-workspace") throw new Error("Expected native workspace request");
+    expect(request.operation.name).toBe(`dispand-${packageId}`);
+    expect(request.operation.targets).toEqual(["codex"]);
+    expect(request.operation.dryRun).toBe(dryRun);
+    expect(Buffer.from(request.operation.files[0]!.base64, "base64").toString()).toContain("sentinel-private-native-instructions");
+    if (!dryRun) expect(request.operation.revision).toBe("reviewed-native");
+    const report = dryRun ? { revision: "reviewed-native", blocked: false, changes: [] } : { results: [{ name: `dispand-${packageId}`, harness: "codex" as const, status: "installed" }] };
+    runner.send({ type: "plugin.replied", requestId: request.requestId, report });
+    expect(await pending).toEqual(report);
+  }
+  const all = await t.all();
+  expect(all).not.toContain("sentinel-private-native-instructions");
+  expect(all).not.toContain(Buffer.from("sentinel-private-native-instructions").toString("base64"));
 });

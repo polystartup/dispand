@@ -188,6 +188,7 @@ async function run(args: string[]) {
     onBacklogFull: () => sessions.stopAll("Dispand unreachable: the runner's backlog is full"),
   });
   const sessions = new Sessions(config, (sessionId, event) => conn.emit(sessionId, event), {
+    nativePlugins: plugins,
     claude: { claudePath, env },
     ...(codexPath && codex ? { codex: { codexPath, env, version: codex.version } } : {}),
     forbidden: machineConfigPaths(dir, env),
