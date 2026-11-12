@@ -3,7 +3,6 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents as agentsTable, agentSkills, agentTools, harnesses, plugins, skillPackages, tables as tablesTable, tools as toolsTable } from "../db/schema.ts";
-import { lockAgentsForDelete } from "../jobs/active.ts";
 import { MEMORY_TARGETS } from "../memory/model.ts";
 import { BUNDLES, type TableScope } from "../platform/bundles.ts";
 import { ModelName } from "../harnesses/procedures.ts";
@@ -238,11 +237,9 @@ const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input,
   if (await agentInUse(context.db, context.ownerId, input.id)) {
     throw new ORPCError("CONFLICT", { message: "A workflow uses this agent" });
   }
-  await context.db.transaction(async (tx) => {
-    if (await lockAgentsForDelete(tx, [input.id])) throw new ORPCError("CONFLICT", { message: "A Job of this agent is still going" });
-    // Its triggers and its finished Jobs go with it.
-    await tx.delete(agentsTable).where(eq(agentsTable.id, input.id));
-  });
+  // Its Jobs stay: one still going stops first, as a person's stop does (`deleteAgents`).
+  const out = await context.db.transaction((tx) => context.engine.deleteAgents(tx, context.ownerId, [input.id]));
+  context.engine.settled(out);
 });
 
 const list = owner.handler(async ({ context }) => {

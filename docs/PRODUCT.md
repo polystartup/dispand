@@ -29,8 +29,12 @@ Status: Prototype
     skipped: an event must be handled.)
   - A Job runs the agent and the trigger **as they were when it was created**: editing either
     changes the next Job, never one already created.
-  - An agent can't be deleted while one of its Jobs is still going. A conversation started from
-    a chat trigger stays open until it is stopped.
+  - Deleting an agent keeps its Jobs, with their transcripts, Questions and Approvals: a Job
+    still going is stopped first, as from its page. Everywhere they show, those Jobs name the
+    agent as "<name> (Deleted)" (the name it had when deleted), and they never run again. Its
+    triggers, consult entries, rights and memory go with it. A plugin can't be uninstalled while a Job
+    of one of its agents is still going. A conversation started from a chat trigger stays open
+    until it is stopped.
   - A run or a Job still going can be **stopped** from its page: its open steps fail with
     "Stopped", its questions expire and its sessions end at once, whatever they were doing. A
     stopped run is never resumed.

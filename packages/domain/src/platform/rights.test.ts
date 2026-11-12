@@ -59,3 +59,11 @@ test("a Job of an agent made before self-learning existed writes nowhere", async
   await s.context.db.update(runs).set({ snapshot: old }).where(eq(runs.id, s.job.runId));
   expect((await rightsOf(s.context.db, s.job))!.selfLearning).toEqual([]);
 });
+
+test("a Job of a deleted agent has no rights, so no target, though its snapshot keeps what it had", async () => {
+  const s = await setup(["agent", "workspace"]);
+  await call(router.agents.delete, { id: s.agent.id }, { context: s.context });
+  expect(await rightsOf(s.context.db, s.job)).toBeNull();
+  const [run] = await s.context.db.select({ agentId: runs.agentId, snapshot: runs.snapshot }).from(runs).where(eq(runs.id, s.job.runId));
+  expect(run).toMatchObject({ agentId: null, snapshot: { selfLearning: ["agent", "workspace"] } });
+});

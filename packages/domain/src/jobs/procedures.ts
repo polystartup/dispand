@@ -1,10 +1,12 @@
 import { ORPCError } from "@orpc/server";
 import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { messages, questions, runs, stepRuns, triggers } from "../db/schema.ts";
+import type { Db } from "../db/client.ts";
+import { agents, messages, questions, runs, stepRuns, triggers } from "../db/schema.ts";
 import { messageView, questionView } from "../engine/engine.ts";
 import { authed, base } from "../rpc/context.ts";
 import { engineError, runQuestion } from "../workflows/procedures.ts";
+import { jobAgentNameSql } from "./agent-name.ts";
 import { consultsOfJob } from "./consults.ts";
 
 const owner = base.use(authed);
@@ -50,13 +52,18 @@ const consults = owner.input(z.object({ runId: z.string() })).handler(async ({ i
 /**
  * A Job as `jobs.list` and `jobs.get` show it: what made it, how it went, never its token or
  * snapshot. A poll item's id is what the tool read (it may be a subject line), so it stays out,
- * as in a trigger's polls for a Job.
+ * as in a trigger's polls for a Job. `agentId` is null once its agent was deleted, and
+ * `agentName` then says so (`agent-name.ts`).
  */
-function jobView(r: typeof runs.$inferSelect) {
+function jobView({ run: r, agentName }: { run: typeof runs.$inferSelect; agentName: string | null }) {
   const { id, agentId, triggerId, status, error, createdAt, finishedAt } = r;
   const cause = r.cause?.kind === "poll" ? { kind: r.cause.kind, triggerId: r.cause.triggerId, depth: r.cause.depth } : r.cause;
-  return { id, agentId, triggerId, status, cause, error, createdAt, finishedAt };
+  return { id, agentId, agentName, triggerId, status, cause, error, createdAt, finishedAt };
 }
+
+/** Jobs with their agent's name, as `jobView` takes them. */
+const selectJobs = (db: Db) =>
+  db.select({ run: runs, agentName: jobAgentNameSql }).from(runs).leftJoin(agents, eq(agents.id, runs.agentId));
 
 /** How many Jobs `jobs.list` gives, newest first. */
 export const JOBS_PAGE = 50;
@@ -74,9 +81,7 @@ const list = owner
     }),
   )
   .handler(async ({ input, context }) => {
-    const rows = await context.db
-      .select()
-      .from(runs)
+    const rows = await selectJobs(context.db)
       .where(
         and(
           eq(runs.ownerId, context.ownerId),
@@ -88,7 +93,7 @@ const list = owner
       )
       .orderBy(desc(runs.createdAt), desc(runs.id))
       .limit(JOBS_PAGE);
-    const ids = rows.map((r) => r.id);
+    const ids = rows.map((r) => r.run.id);
     const open = ids.length
       ? await context.db
           .select({ id: questions.id, runId: questions.runId })
@@ -96,7 +101,7 @@ const list = owner
           .where(and(inArray(questions.runId, ids), eq(questions.status, "pending")))
           .orderBy(asc(questions.createdAt))
       : [];
-    return rows.map((r) => ({ ...jobView(r), openQuestionIds: open.filter((q) => q.runId === r.id).map((q) => q.id) }));
+    return rows.map((r) => ({ ...jobView(r), openQuestionIds: open.filter((q) => q.runId === r.run.id).map((q) => q.id) }));
   });
 
 /** How many messages of a transcript `jobs.get` gives at most at once. */
@@ -115,18 +120,16 @@ const get = owner
     }),
   )
   .handler(async ({ input, context }) => {
-    const [run] = await context.db
-      .select()
-      .from(runs)
-      .where(and(eq(runs.id, input.id), eq(runs.ownerId, context.ownerId), eq(runs.source, "agent")));
-    if (!run) throw new ORPCError("NOT_FOUND");
+    const [job] = await selectJobs(context.db).where(and(eq(runs.id, input.id), eq(runs.ownerId, context.ownerId), eq(runs.source, "agent")));
+    if (!job) throw new ORPCError("NOT_FOUND");
+    const { run } = job;
     const [transcript, [total], asked] = await Promise.all([
       context.db.select().from(messages).where(eq(messages.runId, run.id)).orderBy(asc(messages.position)).offset(input.offset).limit(input.limit),
       context.db.select({ n: count() }).from(messages).where(eq(messages.runId, run.id)),
       context.db.select().from(questions).where(eq(questions.runId, run.id)).orderBy(asc(questions.createdAt)),
     ]);
     return {
-      ...jobView(run),
+      ...jobView(job),
       messages: transcript.map(messageView),
       totalMessages: total?.n ?? 0,
       questions: await Promise.all(asked.map((q) => runQuestion(context.db, context.ownerId, questionView(q)))),

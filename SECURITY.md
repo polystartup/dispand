@@ -30,7 +30,10 @@ changes it updates this file.
   under them: a Job can't remove a choice of a field, since that clears the rows that use it.
   `configure` lists Jobs; a Job's transcript and definition hold whatever that Job read (rows,
   other transcripts, answers, from tables deleted since), so only a Job on every table reads
-  them. A poll item's id (what the tool read) is never shown to a Job.
+  them. A poll item's id (what the tool read) is never shown to a Job. Deleting an agent keeps
+  its Jobs, their transcripts, Questions and Approvals (only its configuration goes): a Job still
+  going is stopped first, and a Job whose agent is gone has no agent to authorize it, so its token
+  is refused and it never runs again; it is read under the same rules as any other Job.
 - **A session gets its agent's skills and tools, and no more.** For a Job, what its snapshot
   holds and the agent still has; for a workflow run, the agent's as they are. A tool reached by
   URL is called on the server only, for cloud sessions, with its sealed headers opened for that
