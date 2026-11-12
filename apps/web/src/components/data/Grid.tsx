@@ -35,6 +35,8 @@ const features = tableFeatures({ rowSelectionFeature });
 const same = (a: Cell | undefined, b: Cell) => JSON.stringify(a ?? null) === JSON.stringify(b);
 /** The id of the new row shown before it exists. */
 const DRAFT = "draft";
+/** A new row: the values saved in it, and its id once the server has created it. */
+type NewRow = { id: string | null; values: Record<string, Cell> };
 
 /**
  * The table's rows, editable in place. Rows load 100 at a time ("Load more"). A cell edit is
@@ -84,10 +86,11 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
   // "New row" adds a draft at the end, on the client only. The row is created with the first
   // value saved in it, so a trigger on `created` gets that value, never an empty row; values
   // saved before the server answers wait behind the creation in the queue of row writes.
-  const [draft, setDraft] = useState<{ values: Record<string, Cell>; sent: boolean } | null>(null);
-  const draftValues = useRef<Record<string, Cell>>({});
-  const createdId = useRef<string | null>(null);
-  const shown = useMemo(() => (draft ? [...rows, { id: DRAFT, tableId, values: draft.values } as Row] : rows), [rows, draft, tableId]);
+  const [draft, setDraft] = useState<{ row: NewRow; sent: boolean } | null>(null);
+  // The latest new row keeps its React key once created, so an editor open on it stays.
+  const latest = useRef<NewRow | null>(null);
+  const keyOf = (r: Row) => (r.id === DRAFT || r.id === latest.current?.id ? "new" : r.id);
+  const shown = useMemo(() => (draft ? [...rows, { id: DRAFT, tableId, values: draft.row.values } as Row] : rows), [rows, draft, tableId]);
 
   // Changes made elsewhere (another tab, a workflow) reach the grid, but never while the owner is on
   // a cell: rows don't move under the cursor. What came meanwhile is read once the cell is left.
@@ -114,21 +117,22 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
   // saved, so it never undoes a newer edit shown meanwhile.
   const update = useMutation({
     ...rowWrites(tableId),
-    mutationFn: (input: { id: string; fieldId: string; value: Cell }) => {
-      // The draft's row was created by the write queued before this one.
-      const id = input.id === DRAFT ? createdId.current : input.id;
+    // A new row's edit carries it (`row`) and what the cell held before: its creation is queued
+    // ahead of the edit, so its id is known by the time the edit runs.
+    mutationFn: (input: { id: string; fieldId: string; value: Cell; row?: NewRow; before?: Cell }) => {
+      const id = input.row ? input.row.id : input.id;
       if (!id) throw new Error("the row wasn't added");
       return api.rows.update({ id, values: { [input.fieldId]: input.value } });
     },
     onMutate: async (input) => {
       await queryClient.cancelQueries({ queryKey: listKey });
-      const before = rows.find((r) => r.id === input.id)?.values[input.fieldId] ?? null;
+      const before = input.row ? (input.before ?? null) : (rows.find((r) => r.id === input.id)?.values[input.fieldId] ?? null);
       setCell(input.id, input.fieldId, input.value);
       return { before };
     },
     onError: (err, input, ctx) => {
       // Back to what it was, unless a newer edit of this cell replaced it meanwhile.
-      setCell(input.id, input.fieldId, ctx?.before ?? null, (current) => !same(current, input.value));
+      setCell(input.row?.id ?? input.id, input.fieldId, ctx?.before ?? null, (current) => !same(current, input.value));
       const field = fields.find((f) => f.id === input.fieldId);
       setError(`Could not save “${field?.name ?? "the cell"}”: ${err.message}`);
     },
@@ -142,21 +146,21 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
 
   const create = useMutation({
     ...rowWrites(tableId),
-    mutationFn: async (values: Record<string, Cell>) => {
-      const row = await api.rows.create({ tableId, values });
-      createdId.current = row.id;
+    mutationFn: async (input: { row: NewRow; values: Record<string, Cell> }) => {
+      const row = await api.rows.create({ tableId, values: input.values });
+      input.row.id = row.id;
       return row;
     },
-    onSuccess: (row) => {
+    onSuccess: (row, input) => {
       setError(null);
       // Shown at the end of the loaded rows, where the draft was, with the values saved in the
       // draft meanwhile (their updates follow); a reload puts it in its place in the order.
-      const created = { ...row, values: { ...row.values, ...draftValues.current } };
+      const created = { ...row, values: { ...row.values, ...input.row.values } };
       patchRows((list, last) => (last ? [...list, created] : list), 1);
-      setDraft(null);
+      setDraft((d) => (d?.row === input.row ? null : d));
     },
-    onError: (err) => {
-      setDraft(null);
+    onError: (err, input) => {
+      setDraft((d) => (d?.row === input.row ? null : d));
       setError(`Could not add a row: ${err.message}`);
     },
   });
@@ -219,10 +223,13 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
   // Only rows shown can be deleted: a row selected, then hidden by a filter, is left alone.
   const selectedIds = rows.filter((r) => selection[r.id]).map((r) => r.id);
 
-  const newRow = (values: Record<string, Cell>) => {
-    draftValues.current = values;
-    createdId.current = null;
-    setDraft({ values, sent: false });
+  /** Adds a draft row; with `values` (a parent picked first), the row is created with them at once. */
+  const newRow = (values: Record<string, Cell> = {}) => {
+    const row: NewRow = { id: null, values };
+    latest.current = row;
+    const sent = Object.keys(values).length > 0;
+    setDraft({ row, sent });
+    if (sent) create.mutate({ row, values });
     setActive({ row: rows.length, col: 0 });
     setEditing({});
   };
@@ -232,9 +239,12 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
     const field = fields[pos.col];
     if (!row || !field || same(row.values[field.id], value)) return;
     if (row.id === DRAFT && draft) {
-      draftValues.current = { ...draftValues.current, [field.id]: value };
-      setDraft({ values: draftValues.current, sent: true });
-      if (!draft.sent) return create.mutate(draftValues.current);
+      const before = draft.row.values[field.id] ?? null;
+      draft.row.values = { ...draft.row.values, [field.id]: value };
+      setDraft({ row: draft.row, sent: true });
+      if (draft.sent) update.mutate({ id: DRAFT, fieldId: field.id, value, row: draft.row, before });
+      else create.mutate({ row: draft.row, values: draft.row.values });
+      return;
     }
     update.mutate({ id: row.id, fieldId: field.id, value });
   };
@@ -352,11 +362,11 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
           </thead>
           <tbody>
             {table.getRowModel().rows.map((row, r) => (
-              <tr key={row.id} className="group">
+              <tr key={keyOf(row.original)} className="group">
                 {row.getAllCells().map((cell, i) => {
                   if (i === 0) {
                     return (
-                      <td key={cell.id} className="sticky left-0 z-[5] h-10 w-[4.5rem] border-b border-line bg-surface px-2 group-hover:bg-hover">
+                      <td key={cell.column.id} className="sticky left-0 z-[5] h-10 w-[4.5rem] border-b border-line bg-surface px-2 group-hover:bg-hover">
                         {row.id !== DRAFT && flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     );
@@ -367,7 +377,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
                   const value = (row.original.values[field.id] ?? null) as Cell;
                   return (
                     <td
-                      key={cell.id}
+                      key={cell.column.id}
                       role="gridcell"
                       data-cell={`${r}:${c}`}
                       aria-label={field.name}
@@ -393,7 +403,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
                       </div>
                       {isActive && editing && (
                         <CellEditor
-                          key={`${row.id}:${field.id}`}
+                          key={`${keyOf(row.original)}:${field.id}`}
                           field={field}
                           value={value}
                           initialText={editing.initialText}
@@ -437,7 +447,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
             </PopoverContent>
           </Popover>
         ) : (
-          <Button variant="ghost" size="sm" disabled={create.isPending} onClick={() => newRow({})}>
+          <Button variant="ghost" size="sm" disabled={create.isPending} onClick={() => newRow()}>
             <Plus /> New row
           </Button>
         )}

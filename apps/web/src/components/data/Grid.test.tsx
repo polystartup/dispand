@@ -54,9 +54,11 @@ test("a new row is created with the first value saved in it, not when New row is
   await user.keyboard("{Tab}");
   expect(fake.rows.create).toHaveBeenCalledExactlyOnceWith({ tableId: "tbl_1", values: { f_name: "Dispand" } });
 
-  // A value saved before the server answers updates the row it creates.
-  await user.keyboard("Agents{Enter}");
+  // The editor open meanwhile stays open once the row exists, and its value updates the row.
+  await user.keyboard("Age");
   answer({ id: "row_1", tableId: "tbl_1", values: { f_name: "Dispand" } });
+  await screen.findByRole("button", { name: "Open row" });
+  await user.keyboard("nts{Enter}");
   await waitFor(() => expect(fake.rows.update).toHaveBeenCalledExactlyOnceWith({ id: "row_1", values: { f_note: "Agents" } }));
   expect(fake.rows.create).toHaveBeenCalledOnce();
   expect(screen.getAllByRole("gridcell").map((c) => c.textContent)).toEqual(["Dispand", "Agents"]);
