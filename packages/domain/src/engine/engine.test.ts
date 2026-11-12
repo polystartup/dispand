@@ -1307,13 +1307,15 @@ test("deleting an agent keeps its finished Jobs, their link to it cleared and it
   const runId = await engine.startJob(trigger.id, context.ownerId);
   await emit(adapter.starts[0]!.start.sessionId, { type: "result", text: "Sorted." });
   expect((await runOf(engine, runId)).run.status).toBe("succeeded");
+  const steps = (await runOf(engine, runId)).steps;
   await call(router.workflows.delete, { id: workflow.id }, { context });
   await call(router.agents.update, { id: agent.id, name: "Order drafter", harnessId: agent.harnessId, systemPrompt: "" }, { context });
   await call(router.agents.delete, { id: agent.id }, { context });
   expect(await engine.db.select({ id: runs.id, agentId: runs.agentId, agentName: runs.agentName, status: runs.status }).from(runs)).toEqual([
     { id: runId, agentId: null, agentName: "Order drafter", status: "succeeded" },
   ]);
-  expect(Object.keys((await runOf(engine, runId)).steps)).toHaveLength(1);
+  // Its steps stay as they were.
+  expect((await runOf(engine, runId)).steps).toEqual(steps);
 });
 
 // Stopping a run by hand.
