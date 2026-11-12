@@ -55,6 +55,7 @@ import { issueJobToken } from "../platform/token.ts";
 import type { SecretBox } from "../secrets.ts";
 import { jobDef, jobSystemPrompt } from "./job-def.ts";
 import { nextActions, outputsFor, toolValues, valuesFor } from "./next-actions.ts";
+import { consultsOf } from "../agents/consults.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import { pollProblem } from "../tools/pollable.ts";
 import { give, next, take } from "./slots.ts";
@@ -435,6 +436,7 @@ export class Engine {
       tools: tools.map(({ toolId, name }) => ({ toolId, name })),
       bundles: agent.bundles,
       tables: agent.dataTables,
+      consults: await consultsOf(tx, agentId),
     };
     const def = jobDef({ agent: snapshot, trigger });
     const token = this.secrets ? issueJobToken(this.secrets, runId) : undefined;

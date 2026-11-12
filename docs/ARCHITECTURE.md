@@ -207,9 +207,13 @@
   trigger's instructions (a chat trigger has no step: the conversation is the Job). The engine's
   `defOf` returns `run.def` when it is set and the workflow version otherwise, so sessions,
   questions, recovery and reconcile are the same code for both. A Job also keeps a `snapshot`
-  of its agent (system prompt, model, harness, skills, tools) taken in `Engine.createJob`; its
+  of its agent (system prompt, model, harness, skills, tools, the agents it may consult) taken in `Engine.createJob`; its
   sessions read the snapshot, so editing the agent or the trigger never changes a Job already
-  created. `jobs.start` starts a manual trigger's Job, `jobs.def` gives a Job's definition, and
+  created. An agent's `description` says what it is for, and `agent_consults` lists the agents it
+  may consult, each with an "ask before use" flag (`agents/consults.ts`): an entry is made only
+  between two agents that both have `configure` or neither has (`pairProblem`), and goes with
+  either agent; one a later bundle change puts across that line is kept and shown inactive.
+  `jobs.start` starts a manual trigger's Job, `jobs.def` gives a Job's definition, and
   `runs.list` takes an `agentId` or a `triggerId`. An agent is never deleted under a Job still going, by itself or
   with its plugin: both paths lock its triggers and the agent in the deleting transaction
   (`jobs/active.ts`; `createJob` and the scheduler take them in the same order), so a Job being created at that moment is seen; finished Jobs and triggers

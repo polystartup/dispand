@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
+import { ConsultList, type ConsultEntry } from "./ConsultList.tsx";
 import { ToolAsk } from "./ToolAsk.tsx";
 import { JobRights, type Rights } from "./JobRights.tsx";
 import { BannerSlot, Empty, FormField, NextStep } from "./parts.tsx";
@@ -53,6 +54,9 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
     .sort((a, b) => a.name.localeCompare(b.name));
   const addable = (tools.data ?? []).filter((t) => !agentTools.some((a) => a.toolId === t.id));
   const tables = useQuery(orpc.tables.list.queryOptions());
+  const agents = useQuery(orpc.agents.list.queryOptions());
+  const [description, setDescription] = useState(agent?.description ?? "");
+  const [consults, setConsults] = useState<ConsultEntry[]>(agent?.consults.map(({ agentId, ask }) => ({ agentId, ask })) ?? []);
   const [rights, setRights] = useState<Rights>({ bundles: agent?.bundles ?? [], dataTables: agent?.dataTables ?? "all" });
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +78,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
     setSaved(false);
     try {
       const model = modelChoice === HARNESS_DEFAULT ? undefined : modelChoice === OTHER ? otherModel.trim() : modelChoice;
-      const fields = { name, harnessId, systemPrompt, skillPackageIds, toolIds, ...rights, ...(model ? { model } : {}) };
+      const fields = { name, description, harnessId, systemPrompt, skillPackageIds, toolIds, consults, ...rights, ...(model ? { model } : {}) };
       if (!agent) {
         await create.mutateAsync(fields);
         await navigate({ to: "/settings/agents", search: { saved: true } });
@@ -105,6 +109,9 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
         )}
         <FormField label="Name" htmlFor="agent-name">
           <Input id="agent-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus={!agent} />
+        </FormField>
+        <FormField label="Description" htmlFor="agent-description" hint="What it is for and when to consult it: agents that may consult it read this.">
+          <Textarea id="agent-description" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} rows={2} />
         </FormField>
         <FormField label="Harness" htmlFor="agent-harness">
           <Select value={harnessId} onValueChange={setHarnessId}>
@@ -255,6 +262,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
           onChange={setRights}
           {...(agent?.builtIn === "assistant" ? { locked: "The Assistant always works on data and changes tables, on every table." } : {})}
         />
+        <ConsultList {...(agent ? { agentId: agent.id } : {})} bundles={rights.bundles} entries={consults} agents={agents.data ?? []} onChange={setConsults} />
         <FormField label="System prompt" htmlFor="agent-prompt" hint="What this agent is and how it works. Sent at the start of every session.">
           <Textarea
             id="agent-prompt"
