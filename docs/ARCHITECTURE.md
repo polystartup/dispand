@@ -826,6 +826,11 @@
   `dispand.tool.oauth` (step, result). Settings → Tools
   (`_app.settings.tools.tsx`, `ToolSheet.tsx`) lists the tools, adds and edits them (header
   values are password fields, shown as "Set" once stored) and shows each action's parameters.
+  Its "Sign-in" picks headers or OAuth; an OAuth tool's sheet (`ToolSignIn.tsx`) says connected,
+  not connected yet or re-authorize, offers Connect or Re-authorize (`tools.authorize`, then the
+  browser leaves for the server's sign-in and the callback brings it back to
+  `/settings/tools?tool=<id>`, which opens the tool's sheet) and the client id and secret a
+  server may give, the secret never shown again.
   The catalog (`tools/catalog.ts`) is a code constant: `github`
   (`https://api.githubcopilot.com/mcp/`) and `firecrawl` (`https://mcp.firecrawl.dev/v2/mcp`) are
   HTTP entries whose header templates (`Authorization: Bearer {token}`) are filled from the
