@@ -19,6 +19,7 @@ import {
   startTelemetry,
   stopTelemetry,
   sweepAttachments,
+  sweepAudit,
   syncPlatformSkills,
   type Auth,
   type DataEvents,
@@ -80,8 +81,11 @@ async function start(): Promise<App> {
   // Runs fired now start their sessions when their runner says hello (the engine's reconcile).
   // Polls call HTTP tools through the same connector, and runner tools through their runner.
   getScheduler(db, engine, pollCaller(new InstalledTools(db, secrets, tools), hub)).start();
-  // Removes files no cell uses any more: on boot, then hourly. The timer never keeps the process alive.
-  const sweep = () => void sweepAttachments(db, config.filesDir, new Date()).catch((err: unknown) => logError("files.sweep failed", err));
+  // Removes files no cell uses any more, and Audit rows past their retention: on boot, then hourly. The timer never keeps the process alive.
+  const sweep = () => {
+    void sweepAttachments(db, config.filesDir, new Date()).catch((err: unknown) => logError("files.sweep failed", err));
+    void sweepAudit(db, new Date()).catch((err: unknown) => logError("audit.sweep failed", err));
+  };
   sweep();
   setInterval(sweep, SWEEP_EVERY_MS).unref();
   return app;

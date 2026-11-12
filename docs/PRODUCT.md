@@ -125,8 +125,10 @@ Status: Prototype
   read it too (`audit_list`), except rows about tables outside theirs. A row names what was touched (ids, names, counts and
   kinds), never what an agent read or wrote, and carries the trace it was recorded in: with
   `DISPAND_TRACE_URL` set, the trace id links to the tracing tool. Workflow runs have no rows.
-  Rows are kept 90 days by default (`workspace_settings.audit_retention_days`; nothing sweeps
-  them yet).
+  Rows are kept 90 days by default; the owner sets it from 1 to 3,650 days at the top of the
+  Audit page ("Keep Audit for N days"), and older rows are deleted each hour. Agents can't read
+  or change it, not even through a proposal: shortening it would erase the trail of what they
+  did. Events and memory are not subject to it.
 - **Data** (the owner's memory, an Airtable-like grid):
   - **What it does:** tables of typed fields (text, long text, number, checkbox, date, URL,
     single select, files, and links to a row of another table) with inline editing; a table

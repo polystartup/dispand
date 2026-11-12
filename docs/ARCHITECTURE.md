@@ -551,7 +551,12 @@
   `(at, id)`, the cursor carrying `at` to the microsecond) filters by actor type, agent, Job,
   action or family, resource, result and dates; `audit.traceUrl` gives the page
   `DISPAND_TRACE_URL`. Each row counts in `dispand.audit.rows` (by action, and `failed` for a
-  write that didn't go through).
+  write that didn't go through). Retention: `sweepAudit` (`sweep.ts`, span `audit.sweep`,
+  counted in `dispand.audit.swept`) runs beside `sweepAttachments`, on boot and hourly, and
+  deletes each owner's rows older than its `workspace_settings.audit_retention_days` (1 to 3650,
+  90 without a settings row) in batches of 1,000 until none is left; events and memory are not
+  swept. `workspace.auditRetention` and `workspace.setAuditRetention` are the owner's only, in
+  `NOT_TOOLS`.
 - **Platform tools:** a Job's session gets some of Dispand's own procedures as tools.
   `platform/tools.ts` is the registry: each tool names its procedure (`rows.create` is the tool
   `rows_create`), its bundle (`data`: `tables.list`, `tables.get` and the rows procedures;
