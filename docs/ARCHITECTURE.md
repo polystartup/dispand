@@ -523,7 +523,16 @@
   count of held events marked processed and of Jobs stopped: one row, the events keep their own
   record); a consult asked (`consult.asked`, by the asking Job, naming the consulted agent) and
   each way it ends (`consult.ended`, `outcome` `answered`, `refused`, `failed` or `stopped`, the
-  consulted Job named, by that Job when it answered, else the asker's). `audit.list` (owner-only, keyset pages of 50 on
+  consulted Job named, by that Job when it answered, else the asker's); and every platform call
+  (`callPlatformTool`, `platform.call` with `recordAuditAfter` in a `finally`, reads, refusals and
+  each item of `proposal_apply` included, so a write leaves its call's row and the row of what it
+  changed): by the Job, `details.tool`, `reason` for a refusal (`unknown-tool`, `over`, `bundle`,
+  `invalid`, `not-found`, `needs-proposal`, `item-used`, `refused` from a Job's own tool, or the
+  procedure's `ORPCError` code in lower case), `tableId` only for a table of the owner's within
+  the Job's, `proposalId` and `item` for a proposal's item; the resource from `auditResource`
+  (`audit/resource.ts`: its type from the tool, its id only from what the call created or
+  returned, never from a refused call's input). `audit.list` (owner, or a `configure` Job as
+  `audit_list`, which gets only rows naming no table or one of its own; keyset pages of 50 on
   `(at, id)`, the cursor carrying `at` to the microsecond) filters by actor type, agent, Job,
   action or family, resource, result and dates; `audit.traceUrl` gives the page
   `DISPAND_TRACE_URL`. Each row counts in `dispand.audit.rows` (by action, and `failed` for a

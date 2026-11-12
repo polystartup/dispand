@@ -113,7 +113,9 @@ Status: Prototype
   agent's reach, or a Job's own change); its Questions and Approvals asked, answered (with the
   decision and whether a person or an agent answered) or expired; a checkpoint reached and
   answered (approved, don't ask again, or declined, with how many held events and Jobs it
-  stopped); and a consult asked and how it ended. A row names what was touched (ids, names, counts and
+  stopped); a consult asked and how it ended; and every Dispand tool a Job called, reads and
+  refusals included (with the tool, the table, and why it was refused). Agents with `configure`
+  read it too (`audit_list`), except rows about tables outside theirs. A row names what was touched (ids, names, counts and
   kinds), never what an agent read or wrote, and carries the trace it was recorded in: with
   `DISPAND_TRACE_URL` set, the trace id links to the tracing tool. Workflow runs have no rows.
   Rows are kept 90 days by default (`workspace_settings.audit_retention_days`; nothing sweeps

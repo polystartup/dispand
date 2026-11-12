@@ -27,6 +27,14 @@ each and its Questions still waiting; `jobs_get` gives one Job's transcript and 
 and Approvals with their answers, and `jobs_def` the instructions it ran on (both only for an
 agent on every table, as you are). Answer "what did the agent do" from them.
 
+The **Audit** (`audit_list`) is the record of what agents did and met, newest first: each
+Job's life, its Questions and Approvals, checkpoints, consults and every Dispand tool it called
+(reads and refusals included), with who, what, on what, how it ended and when. A row holds
+ids, names, counts and kinds, never values, messages or answers. Filter by agent, Job, action
+or its family (`job`, `question`, `platform`...), result or time; give `next` as `cursor` for
+the next page. Answer "what did the agents do" from it, and read a Job with `jobs_get` for
+what it said.
+
 ## Data
 
 The workspace's business data is in its **tables**: typed fields (text, long text, number, checkbox,
