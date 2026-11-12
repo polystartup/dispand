@@ -75,3 +75,14 @@ test("relative local config paths resolve before Skillshare changes directory", 
   await new NativePlugins({ codex: "codex" }, { SKILLSHARE_CONFIG: "private/config.yaml" }, exec).request({ action: "list" });
   expect(exec.mock.calls[0]![1].SKILLSHARE_CONFIG).toBe(`${process.cwd()}/private/config.yaml`);
 });
+
+test("Claude registrations are installed without the Codex installed flag", async () => {
+  for (const installed of [undefined, false]) {
+    const exec = vi.fn().mockResolvedValue({ failed: false, stdout: JSON.stringify({
+      targetDefinitions: [], packages: { demo: { bindings: { claude: { id: "demo@market" } } } },
+      hosts: [{ target: "claude", status: "ready", installed: [{ id: "demo@market", installed, enabledKnown: true, enabled: true }] }],
+    }) });
+    const report = await new NativePlugins({ "claude-code": "claude" }, {}, exec).request({ action: "list" });
+    expect(report.packages).toEqual([expect.objectContaining({ installed: true, enabled: true })]);
+  }
+});

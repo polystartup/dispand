@@ -11,7 +11,7 @@ const rows = <T extends z.ZodType>(item: T) => z.array(item).nullish().transform
 const Inventory = z.object({
   targetDefinitions: rows(z.object({ target: name, operations: rows(name) })),
   packages: z.record(name, z.object({ bindings: z.record(name, z.object({ id: name, pending: name.optional() })).nullish() })),
-  hosts: rows(z.object({ target: name, status: name, error: name.optional(), installed: rows(z.object({ id: name.optional(), installed: z.boolean(), enabledKnown: z.boolean(), enabled: z.boolean() })) })),
+  hosts: rows(z.object({ target: name, status: name, error: name.optional(), installed: rows(z.object({ id: name.optional(), installed: z.boolean().optional(), enabledKnown: z.boolean(), enabled: z.boolean() })) })),
 });
 const Discovery = z.object({ candidates: rows(z.object({ name, targets: rows(name), problem: name.optional() })) });
 const Plan = z.object({ revision: name, blocked: z.boolean(), changes: rows(z.object({ name, target: name, action: name })) });
@@ -105,7 +105,7 @@ export class NativePlugins {
             if (!binding) return [];
             const host = inventory.hosts.find((h) => h.target === target);
             const native = host?.installed.find((i) => i.id === binding.id);
-            return [{ name, harness, installed: host?.status === "ready" && !host.error && native?.installed === true, enabled: native?.enabledKnown ? native.enabled : null, pending: !!binding.pending }];
+            return [{ name, harness, installed: host?.status === "ready" && !host.error && !!native && (harness === "claude-code" || native.installed === true), enabled: native?.enabledKnown ? native.enabled : null, pending: !!binding.pending }];
           })),
         };
       } else if (op.action === "discover") {
