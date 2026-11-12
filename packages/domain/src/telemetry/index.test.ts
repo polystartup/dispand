@@ -1,14 +1,30 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { annotate, emitLog, exportersFromEnv, inSpan, meter, rememberSecret, startTelemetry, stopTelemetry, tracer, withJob } from "./index.ts";
 import { captureTelemetry } from "./testing.ts";
 
 afterEach(() => stopTelemetry());
 
-test("nothing is exported, and no exporter made, unless the environment names an endpoint", () => {
-  expect(exportersFromEnv({})).toEqual({});
-  expect(Object.keys(exportersFromEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318" })).sort()).toEqual(["logs", "metrics", "spans"]);
-  expect(Object.keys(exportersFromEnv({ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://collector:4318/v1/traces" }))).toEqual(["spans"]);
-  expect(exportersFromEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318", OTEL_SDK_DISABLED: "true" })).toEqual({});
+test("nothing is exported, and no exporter made, unless the environment names an endpoint; logs are always printed", () => {
+  expect(exportersFromEnv({})).toEqual({ console: true });
+  expect(Object.keys(exportersFromEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318" })).sort()).toEqual(["console", "logs", "metrics", "spans"]);
+  expect(Object.keys(exportersFromEnv({ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://collector:4318/v1/traces" })).sort()).toEqual(["console", "spans"]);
+  expect(exportersFromEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318", OTEL_SDK_DISABLED: "true" })).toEqual({ console: true });
+});
+
+test("without a collector, a log record is printed once, redacted like an exported one", () => {
+  startTelemetry(exportersFromEnv({}));
+  const dir = vi.spyOn(console, "dir").mockImplementation(() => {});
+  const token = "dj_sentinel-token-for-the-console";
+  rememberSecret(token);
+  emitLog("test", "info", "work done", { ref: "row_1", leaked: token, authorization: "Bearer x" });
+  emitLog("test", "info", token, {});
+  const calls = [...dir.mock.calls];
+  dir.mockRestore();
+  expect(calls.map(([r]) => [(r as { body: unknown }).body, (r as { attributes: unknown }).attributes])).toEqual([
+    ["work done", { ref: "row_1" }],
+    [undefined, {}],
+  ]);
+  expect(JSON.stringify(calls)).not.toContain(token);
 });
 
 test("started twice in one process (a dev reload), it keeps the first", async () => {

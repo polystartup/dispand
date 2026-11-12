@@ -82,7 +82,8 @@ changes it updates this file.
   recorded with `recordError` (the kind) and logged with `logError` (its whitelist). Spans and
   logs carry ids, names, counts, durations and result kinds, never a procedure's input or
   output; a metric keeps only the attributes `telemetry/metrics.ts` lists for it. Nothing is
-  sent unless `OTEL_EXPORTER_OTLP_*` names a collector, and then only there.
+  sent unless `OTEL_EXPORTER_OTLP_*` names a collector, and then only there. Log records are
+  also printed to the process's output, through the same redaction.
   The HTTP server, the PostgreSQL driver and outbound fetch are instrumented by a preload
   (`apps/web/telemetry-preload.mjs`): no header is recorded; pairing (`/runner/pair`), the
   runner socket, OAuth callbacks and health checks make no span; a call out keeps only the
