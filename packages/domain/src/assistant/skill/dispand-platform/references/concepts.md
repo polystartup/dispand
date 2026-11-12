@@ -8,7 +8,9 @@ listed by `agents_list` and read whole by `agents_get`.
 
 A **harness** is what runs an agent's sessions: a CLI (Claude Code or Codex) on one of the
 owner's paired runners, or a model provider's API called by the server (a cloud harness).
-`harnesses_limits` lists them with how many sessions each may run at once. Creating a harness,
+`harnesses_limits` lists them: a CLI's runner and whether it is connected now, a cloud
+harness's provider, each one's model, and how many sessions each may run at once. Pick an
+agent's harness from it. Creating a harness,
 pairing a runner and entering keys are the owner's, in Settings.
 
 ## Jobs
@@ -19,6 +21,11 @@ owner a Question (`ask_user`) or for an Approval (`request_approval`) and waits 
 A Job started from a chat stays open until it is stopped. Jobs started by other Jobs (through
 the data they write) share a root cause; past the workspace's checkpoint
 (`workspace_checkpoint`), a person is asked before more of them go.
+
+`jobs_list` lists the latest Jobs (of an agent, a trigger, or with a status), with what made
+each and its Questions still waiting; `jobs_get` gives one Job's transcript and its Questions
+and Approvals with their answers, and `jobs_def` the instructions it ran on. Answer "what did
+the agent do" from them.
 
 ## Data
 

@@ -1,9 +1,10 @@
 import { ORPCError } from "@orpc/server";
-import { and, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { runs, stepRuns, triggers } from "../db/schema.ts";
+import { messages, questions, runs, stepRuns, triggers } from "../db/schema.ts";
+import { messageView, questionView } from "../engine/engine.ts";
 import { authed, base } from "../rpc/context.ts";
-import { engineError } from "../workflows/procedures.ts";
+import { engineError, runQuestion } from "../workflows/procedures.ts";
 import { consultsOfJob } from "./consults.ts";
 
 const owner = base.use(authed);
@@ -46,4 +47,85 @@ const consults = owner.input(z.object({ runId: z.string() })).handler(async ({ i
   return consultsOfJob(context.db, run);
 });
 
-export const jobs = { start, def, consults };
+/** A Job as `jobs.list` and `jobs.get` show it: what made it, how it went, never its token or snapshot. */
+function jobView(r: typeof runs.$inferSelect) {
+  const { id, agentId, triggerId, status, cause, error, createdAt, finishedAt } = r;
+  return { id, agentId, triggerId, status, cause, error, createdAt, finishedAt };
+}
+
+/** How many Jobs `jobs.list` gives, newest first. */
+export const JOBS_PAGE = 50;
+
+/**
+ * The owner's latest Jobs, of one agent or one trigger, or with one status: who ran, why, how it
+ * went, and the ids of its Questions and Approvals still waiting. No workflow run.
+ */
+const list = owner
+  .input(
+    z.object({
+      agentId: z.string().optional(),
+      triggerId: z.string().optional(),
+      status: z.enum(["running", "waiting", "succeeded", "failed"]).optional(),
+    }),
+  )
+  .handler(async ({ input, context }) => {
+    const rows = await context.db
+      .select()
+      .from(runs)
+      .where(
+        and(
+          eq(runs.ownerId, context.ownerId),
+          eq(runs.source, "agent"),
+          input.agentId ? eq(runs.agentId, input.agentId) : undefined,
+          input.triggerId ? eq(runs.triggerId, input.triggerId) : undefined,
+          input.status ? eq(runs.status, input.status) : undefined,
+        ),
+      )
+      .orderBy(desc(runs.createdAt), desc(runs.id))
+      .limit(JOBS_PAGE);
+    const ids = rows.map((r) => r.id);
+    const open = ids.length
+      ? await context.db
+          .select({ id: questions.id, runId: questions.runId })
+          .from(questions)
+          .where(and(inArray(questions.runId, ids), eq(questions.status, "pending")))
+          .orderBy(asc(questions.createdAt))
+      : [];
+    return rows.map((r) => ({ ...jobView(r), openQuestionIds: open.filter((q) => q.runId === r.id).map((q) => q.id) }));
+  });
+
+/** How many messages of a transcript `jobs.get` gives at most at once. */
+export const MAX_MESSAGES = 200;
+
+/**
+ * One Job with its transcript (a page of its messages, oldest first, and how many it has) and
+ * its Questions and Approvals, answered ones included.
+ */
+const get = owner
+  .input(
+    z.object({
+      id: z.string(),
+      offset: z.number().int().min(0).default(0),
+      limit: z.number().int().min(1).max(MAX_MESSAGES).default(50),
+    }),
+  )
+  .handler(async ({ input, context }) => {
+    const [run] = await context.db
+      .select()
+      .from(runs)
+      .where(and(eq(runs.id, input.id), eq(runs.ownerId, context.ownerId), eq(runs.source, "agent")));
+    if (!run) throw new ORPCError("NOT_FOUND");
+    const [transcript, [total], asked] = await Promise.all([
+      context.db.select().from(messages).where(eq(messages.runId, run.id)).orderBy(asc(messages.position)).offset(input.offset).limit(input.limit),
+      context.db.select({ n: count() }).from(messages).where(eq(messages.runId, run.id)),
+      context.db.select().from(questions).where(eq(questions.runId, run.id)).orderBy(asc(questions.createdAt)),
+    ]);
+    return {
+      ...jobView(run),
+      messages: transcript.map(messageView),
+      totalMessages: total?.n ?? 0,
+      questions: await Promise.all(asked.map((q) => runQuestion(context.db, context.ownerId, questionView(q)))),
+    };
+  });
+
+export const jobs = { start, def, consults, list, get };

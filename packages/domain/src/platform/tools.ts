@@ -2,7 +2,7 @@ import { isProcedure } from "@orpc/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { fields, rows, triggers } from "../db/schema.ts";
+import { fields, rows, runs, tables as tablesTable, triggers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import { INTERACTION } from "../triggers/model.ts";
@@ -129,6 +129,28 @@ async function tableOfField(db: Db, ownerId: string, input: unknown): Promise<(s
   return [field?.tableId ?? null];
 }
 
+/**
+ * The tables a Job could read: its snapshot's, when it had `data` (every table of the owner's for
+ * "all"). Its transcript holds what it read there, so a Job reads another's only within its own
+ * tables. `null` for an id that is no Job of the owner's.
+ */
+async function tablesOfJob(db: Db, ownerId: string, input: unknown): Promise<(string | null)[]> {
+  const id = str(input, "id") ?? str(input, "runId");
+  const [job] = id
+    ? await db
+        .select({ snapshot: runs.snapshot })
+        .from(runs)
+        .where(and(eq(runs.id, id), eq(runs.ownerId, ownerId), eq(runs.source, "agent")))
+    : [];
+  if (!job) return [null];
+  // Jobs created before bundles existed had none, on all tables: nothing to read.
+  if (!job.snapshot?.bundles?.includes("data")) return [];
+  const scope = job.snapshot.tables ?? "all";
+  const existing = await db.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.ownerId, ownerId));
+  // A table deleted since holds nothing to read any more.
+  return existing.map((t) => t.id).filter((t) => scope === "all" || scope.includes(t));
+}
+
 const NEEDS_PROPOSAL = "Needs the owner's approval first: list the call with propose, ask with request_approval, then make it exactly as listed.";
 
 /** The id of what a create returned: its view's `id`. */
@@ -180,7 +202,7 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("agents.get", "configure", "Gives one agent by its id, with its skills and tools.", { tables: none }),
   tool("agents.create", "configure", `Creates an agent. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("agents.toolAsk", "configure", "Lists the actions of each tool an agent chose, with whether each asks the owner before use.", { tables: none }),
-  tool("harnesses.limits", "configure", "Lists every harness with how many of its sessions may work at once, and how many work and wait now.", { tables: none }),
+  tool("harnesses.limits", "configure", "Lists every harness: whether it is a CLI on a runner (with the runner's name and whether it is connected now) or a cloud provider, its kind and model, how many of its sessions may work at once, and how many work and wait now.", { tables: none }),
   tool("harnesses.setLimit", "configure", `Sets how many sessions of a harness may work at once: raising it lets agents spend more, lowering it holds back others' work. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("workspace.checkpoint", "configure", "Gives the workspace's checkpoint: how many Jobs of one root cause go before a person is asked to let them go on.", { tables: none }),
   tool("workspace.setCheckpoint", "configure", `Sets the workspace's checkpoint: raising it lets agents spend more before a person is asked, lowering it holds back others' work. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
@@ -192,6 +214,10 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("triggers.create", "configure", `Creates a trigger for an agent: what starts a Job and what the agent is told then. ${NEEDS_PROPOSAL}`, { tables: async (_db, _ownerId, input) => watchedBy((input as { config?: unknown })?.config), grant: true }),
   tool("triggers.update", "configure", `Changes a trigger: its name, instructions, schedule, or whether it is on. ${NEEDS_PROPOSAL}`, { tables: triggerTables, grant: true }),
   tool("triggers.delete", "configure", `Deletes a trigger. ${NEEDS_PROPOSAL}`, { tables: triggerTables, grant: true }),
+  tool("jobs.list", "configure", "Lists the latest Jobs, newest first, of one agent or trigger or with one status if given: what made each, how it went, when, and the ids of its Questions and Approvals still waiting.", { tables: none }),
+  tool("jobs.get", "configure", "Gives one Job with its transcript (a page of its messages, oldest first, and how many there are) and its Questions and Approvals with their answers. A Job that worked on tables you may not use is not found.", { tables: tablesOfJob }),
+  tool("jobs.def", "configure", "Gives a Job's definition as it was created: its agent, its trigger and the instructions it was given.", { tables: tablesOfJob }),
+  tool("workflows.list", "configure", "Lists the workflows, with their ids, names and when each was last changed.", { tables: none }),
   tool("tools.list", "configure", "Lists the tools (MCP servers) agents can be given, with their ids, addresses and actions. Header values are never shown.", { tables: none }),
   tool("tools.get", "configure", "Gives one tool by its id.", { tables: none }),
   tool("tools.catalog", "configure", "Lists the catalog's ready-made tools: for each, how it is reached (over HTTP, or on the owner's runner), its settings' names, and the actions it declares with whether each only reads, may be polled, and asks before use by default.", { tables: none }),
@@ -329,7 +355,6 @@ export const NOT_TOOLS: string[] = [
   "workflows.create",
   "workflows.update",
   "workflows.delete",
-  "workflows.list",
   "workflows.get",
   "workflows.setScheduleEnabled",
   "runs.start",
@@ -339,7 +364,6 @@ export const NOT_TOOLS: string[] = [
   "runs.stream",
   "runs.list",
   "jobs.start",
-  "jobs.def",
   "jobs.consults",
   "questions.list",
   "questions.count",

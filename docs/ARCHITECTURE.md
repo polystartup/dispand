@@ -235,7 +235,13 @@
   consulted Job to open, the question and the answer or why there is none) and the one that made it;
   `runs.list` gives each Job `waitingOn` (the agent its pending consult asks) and `consultedBy`;
   in a chat a consult is one line naming the agent, not a question to answer.
-  `jobs.start` starts a manual trigger's Job, `jobs.def` gives a Job's definition, and
+  `jobs.start` starts a manual trigger's Job, `jobs.def` gives a Job's definition, `jobs.list`
+  the latest 50 Jobs (no workflow run) with their cause and the ids of their pending Questions,
+  `jobs.get` one Job with a page of its transcript (`offset`, `limit` up to 200, and
+  `totalMessages`) and its Questions; these three and `workflows.list` are `configure` reads, so
+  the Assistant answers from them. A Job reads another's transcript or definition only when
+  every table that Job could read (its snapshot's, if it had `data`) is within its own, and
+  `runs.*` stay the owner's.
   `runs.list` takes an `agentId`, a `triggerId` and `kind: "chat"` (the Jobs whose own definition opens with a chat), and gives each run a `title`: its first message's first 80 characters, whitespace folded, null before one. An agent is never deleted under a Job still going, by itself or
   with its plugin: both paths lock its triggers and the agent in the deleting transaction
   (`jobs/active.ts`; `createJob` and the scheduler take them in the same order), so a Job being created at that moment is seen; finished Jobs and triggers
@@ -437,6 +443,8 @@
   id and kind, `dispand.harness.queue_wait` (ms, by class), an `engine.slot` span event on each
   take, give and hand-over. The limits are set on the Harnesses page (`HarnessLimits`:
   `harnesses.limits` gives each harness's limit with its sessions working and steps queued,
+  its type, kind and model, and its runner's name and whether it is connected (never a key or
+  a base URL: agents read it to pick a harness),
   `harnesses.setLimit` changes it) and by an agent through an approved proposal
   (`harnesses_set_limit`, a grant; `harnesses_limits` reads them). Raising a limit hands the
   freed slots out at once, in the same transaction (`Engine.setLimit`); lowering it stops nothing, and new turns wait
