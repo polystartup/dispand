@@ -18,7 +18,7 @@ import type { HarnessSession } from "./outcome.ts";
 import { codexMcpServers, mcpConfigFor, withJobServer } from "./mcp.ts";
 import { fetchPackages, removeSkills, sessionPluginsDir, writeSkills } from "./skills.ts";
 import { resolveWorkdir } from "./workdir.ts";
-import { writeMemoryFiles } from "./memory.ts";
+import { removeMemoryFiles, writeMemoryFiles } from "./memory.ts";
 
 type Emit = (sessionId: string, event: HarnessEvent) => void;
 
@@ -254,8 +254,10 @@ export class Sessions {
     const pluginsDir = skills && start.skills.length > 0 ? sessionPluginsDir(skills.stateDir, start.sessionId) : undefined;
     const dropSkills = () => (pluginsDir ? removeSkills(pluginsDir).catch(() => undefined) : Promise.resolve());
     // A folder this start created, while no CLI session is filed under it, goes again if the start fails.
+    let memoryIn: string | undefined;
     const cleanUp = () => {
       if (created && !recorded) rmSync(created, { recursive: true, force: true });
+      else if (memoryIn) void removeMemoryFiles(memoryIn).catch(() => undefined);
       void dropSkills();
     };
     try {
@@ -263,8 +265,11 @@ export class Sessions {
       const packages = skills && pluginsDir ? await (skills.fetch ?? fetchPackages)(skills.server, skills.token, start.skills) : [];
       const cwd = await resolveWorkdir(this.config, start.cwd, this.options.forbidden, resuming);
       if (!resuming) created = cwd;
-      // A Job's memory as Dispand sent it now: a resume gets it again, as it is.
-      if (start.jobToken !== undefined) await writeMemoryFiles(cwd, start.memory ?? []);
+      // A Job's memory as Dispand sent it now (a resume gets it again, as it is), gone when the session ends.
+      if (start.jobToken !== undefined) {
+        memoryIn = cwd;
+        await writeMemoryFiles(cwd, start.memory ?? []);
+      }
       // Checked again right before launching: shutdown or stopAll may have run, or the backlog filled, meanwhile.
       if (this.shuttingDown) return cleanUp();
       if (this.stops !== stops) {

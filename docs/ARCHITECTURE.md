@@ -697,7 +697,8 @@
   closing line in the workspace's `MEMORY.md`), a `memory.files` span and
   `dispand.memory.files` (none, whole, cut). The runner writes them under the run folder's
   `.dispand/memory/<workspace|agent|tables/<id>>/` (`apps/runner/src/memory.ts`), emptied at
-  each start, and the runner prompt's block says where they are.
+  each start and removed when the session ends, and the runner prompt's block says where they
+  are.
 - **Skills in cloud sessions** (`skills/cloud.ts`): the way Agent Skills work. At every model
   call `sessionSkills` reads the skills of the session's packages (`sessionTooling`: for a Job,
   its snapshot's that the agent still has); the system prompt lists each skill's name and

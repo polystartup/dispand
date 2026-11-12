@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { MemoryFile } from "@dispand/runner-protocol";
 import { afterEach, expect, test } from "vitest";
-import { MEMORY_DIR, MemoryRefused, writeMemoryFiles } from "./memory.ts";
+import { MEMORY_DIR, MemoryRefused, removeMemoryFiles, writeMemoryFiles } from "./memory.ts";
 
 const made: string[] = [];
 afterEach(async () => {
@@ -74,9 +74,25 @@ test("a link left in the memory folder is removed, never followed", async () => 
   expect(await readdir(elsewhere)).toEqual(["keep.txt"]);
 });
 
-test("a file whose place is taken by another is left out, and the rest written", async () => {
+test("a file whose place is taken by another, or whose name the file system can't hold, is left out, and the rest written", async () => {
   const dir = await runDir();
-  await writeMemoryFiles(dir, [file("agent", "a.md"), file("agent", "a.md/b.md"), file("agent", "c.md")]);
+  // Valid paths (at most 120 characters) whose name is past 255 bytes in UTF-8.
+  const wide = `${"€".repeat(85)}.md`;
+  await writeMemoryFiles(dir, [file("agent", "a.md"), file("agent", "a.md/b.md"), file("agent", wide), file("agent", `${"€".repeat(86)}/x.md`), file("agent", "c.md")]);
   expect((await readdir(join(dir, MEMORY_DIR, "agent"))).sort()).toEqual(["a.md", "c.md"]);
   expect((await lstat(join(dir, MEMORY_DIR, "agent", "a.md"))).isFile()).toBe(true);
+});
+
+test("removing the files goes through a real .dispand only", async () => {
+  const dir = await runDir();
+  await writeMemoryFiles(dir, [file("agent", "MEMORY.md")]);
+  await removeMemoryFiles(dir);
+  expect(await readdir(join(dir, ".dispand"))).toEqual(["plans"]);
+  // A link put in its place: refused, and nothing removed where it leads.
+  const elsewhere = join(dir, "elsewhere");
+  await mkdir(join(elsewhere, "memory"), { recursive: true });
+  await rm(join(dir, ".dispand"), { recursive: true });
+  await symlink(elsewhere, join(dir, ".dispand"));
+  await expect(removeMemoryFiles(dir)).rejects.toThrow(MemoryRefused);
+  expect(await readdir(elsewhere)).toEqual(["memory"]);
 });

@@ -534,7 +534,8 @@ test("a Job's memory files are in its run folder before the CLI starts, written 
   await sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), jobToken: "dj_token", memory: files } });
   await ended(events, "ses_1");
   expect(seen[0]).toEqual(["MEMORY.md", "habits.md"]);
-  expect(readFileSync(join(memory, "agent", "habits.md"), "utf8")).toContain("Sort by date.");
+  // Gone once the session ended.
+  await vi.waitFor(() => expect(existsSync(memory)).toBe(false));
 
   // A resume gets memory as it is now: the entry removed since is gone.
   await sessions.handle({ type: "session.start", start: { ...start("ses_2", "run_a", "cli-1"), jobToken: "dj_token", memory: [files[0]!] } });
@@ -557,15 +558,20 @@ test("a start whose memory names a file a CLI loads as instructions doesn't star
   expect(existsSync(join(base, "root", "runs", "run_a"))).toBe(false);
 });
 
-test("a Codex Job session finds its memory files, the index first", async () => {
-  const { base, events, sessions, codexStart } = await codexSetup();
+test("a Codex Job session finds its memory files while it runs, and they go when it ends", async () => {
+  // A turn that never ends: the session stays live until it is stopped.
+  const { base, events, sessions, codexStart } = await codexSetup(undefined, { FAKE_CODEX_HANG_ON: "turn/start" });
   const files = [
     { scope: "workspace", path: "MEMORY.md", text: "# Workspace\n" },
     { scope: "workspace", path: "billing.md", text: "Monthly.\n" },
   ];
   await sessions.handle({ type: "session.start", start: { ...codexStart("ses_1", "run_a"), jobToken: "dj_token", memory: files } });
+  await vi.waitFor(() => expect(events.some(([, e]) => e.type === "cli-session")).toBe(true));
+  const dir = join(base, "root", "runs", "run_a", ".dispand", "memory");
+  expect(readdirSync(join(dir, "workspace"))).toEqual(["MEMORY.md", "billing.md"]);
+  expect(readFileSync(join(dir, "workspace", "billing.md"), "utf8")).toBe("Monthly.\n");
+  await sessions.handle({ type: "session.stop", sessionId: "ses_1" });
   await ended(events, "ses_1");
-  const dir = join(base, "root", "runs", "run_a", ".dispand", "memory", "workspace");
-  expect(readdirSync(dir)).toEqual(["MEMORY.md", "billing.md"]);
-  expect(readFileSync(join(dir, "billing.md"), "utf8")).toBe("Monthly.\n");
+  await vi.waitFor(() => expect(existsSync(dir)).toBe(false));
+  await sessions.shutdown();
 });

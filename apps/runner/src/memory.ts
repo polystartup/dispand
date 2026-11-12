@@ -25,25 +25,27 @@ export class MemoryRefused extends Error {
  * again (`MemoryFile`, so `isMemoryPath`) before anything is written; `.dispand` must be a real
  * folder, and every folder below it is made here, so none is a link. Files are created with `wx`
  * and `O_NOFOLLOW`, then made 0444. A file whose place is already taken (an entry `a.md` beside
- * `a.md/b.md`, or two paths one file system doesn't tell apart by case) is left out: the session
- * still reads it with `memory_read`. Without files, nothing is made.
+ * `a.md/b.md`, or two paths one file system doesn't tell apart by case), or whose name is longer
+ * than the file system holds, is left out: the session still reads it with `memory_read`. Without
+ * files, nothing is made.
  */
 export async function writeMemoryFiles(runDir: string, files: MemoryFile[]): Promise<void> {
   for (const file of files) {
     if (!MemoryFile.safeParse(file).success) throw new MemoryRefused("a memory file has an unsafe path");
   }
-  const root = join(runDir, PLANS_ROOT);
-  const entry = await lstat(root).catch(() => null);
-  if (!entry?.isDirectory()) throw new MemoryRefused(`${root} must be a real directory`);
-  const dir = join(runDir, MEMORY_DIR);
-  await unlock(dir);
-  await rm(dir, { recursive: true, force: true });
+  await removeMemoryFiles(runDir);
   if (files.length === 0) return;
+  const dir = join(runDir, MEMORY_DIR);
   await mkdir(dir, { mode: 0o700 });
+  // False when the folder's place is taken by a file, or its name is longer than the file system holds.
   const folder = async (path: string): Promise<boolean> => {
-    await mkdir(path, { mode: 0o700 }).catch((err: NodeJS.ErrnoException) => {
-      if (err.code !== "EEXIST") throw err;
-    });
+    try {
+      await mkdir(path, { mode: 0o700 });
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ENAMETOOLONG") return false;
+      if (code !== "EEXIST") throw err;
+    }
     return (await lstat(path)).isDirectory();
   };
   for (const file of files) {
@@ -67,9 +69,22 @@ export async function writeMemoryFiles(runDir: string, files: MemoryFile[]): Pro
         await handle.close();
       }
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "EEXIST") continue;
+      if (["EEXIST", "ENAMETOOLONG"].includes((err as NodeJS.ErrnoException).code ?? "")) continue;
       throw new MemoryRefused(`a memory file couldn't be written (${(err as NodeJS.ErrnoException).code ?? "error"})`);
     }
     await chmod(path, 0o444);
   }
+}
+
+/**
+ * Removes the run folder's memory files (when its session ends, and before they are written
+ * again), only through a `.dispand` that is a real folder: never where a link put there leads.
+ */
+export async function removeMemoryFiles(runDir: string): Promise<void> {
+  const root = join(runDir, PLANS_ROOT);
+  const entry = await lstat(root).catch(() => null);
+  if (!entry?.isDirectory()) throw new MemoryRefused(`${root} must be a real directory`);
+  const dir = join(runDir, MEMORY_DIR);
+  await unlock(dir);
+  await rm(dir, { recursive: true, force: true });
 }
