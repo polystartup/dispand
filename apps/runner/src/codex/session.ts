@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { HarnessEvent, QuestionPayload, SessionStart } from "@dispand/runner-protocol";
 import { JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
 import { codexDenied, codexDeniedEdit, sandboxDenied } from "../boundary.ts";
-import { askChoices, BypassRefused, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "../outcome.ts";
+import { askChoices, BypassRefused, consult, CONSULT, consultDescription, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "../outcome.ts";
 import { fitsWhole } from "../sanitize.ts";
 import { BYPASS_PROFILE, codexConfig, PROFILE } from "./config.ts";
 import type { JsonValue } from "./protocol/serde_json/JsonValue.ts";
@@ -69,6 +69,8 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   };
   const questions = ownerQuestions(emit);
   const ask = questions.ask;
+  /** The agents the session may consult: its `consult` tool exists only when there are some. */
+  const consults = start.consults ?? [];
   /** Stops the app-server, while it starts or after. */
   const stopCodex = new AbortController();
   let rpc: CodexRpc | undefined;
@@ -268,6 +270,12 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
           const outcome = await requestApproval(ask, asked, signal);
           return { contentItems: [{ type: "inputText", text: outcome.text }], success: outcome.ok };
         }
+        // Dispand answers it with the consulted agent's Job (or why there is none): the owner isn't asked.
+        if (p.tool === CONSULT && consults.length > 0 && p.namespace === null && p.threadId === threadId) {
+          const asked = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? (p.arguments as Record<string, unknown>) : {};
+          const outcome = await consult(ask, asked, consults, signal);
+          return { contentItems: [{ type: "inputText", text: outcome.text }], success: outcome.ok };
+        }
         if (p.tool !== SUBMIT_OUTPUTS || p.namespace !== null || p.threadId !== threadId) {
           return { contentItems: [{ type: "inputText", text: `unknown tool ${p.tool}` }], success: false };
         }
@@ -330,10 +338,25 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
           additionalProperties: false,
         },
       };
+      // Only when the start lists agents to consult.
+      const consultSpec = {
+        type: "function" as const,
+        name: CONSULT,
+        description: consultDescription(consults),
+        inputSchema: {
+          type: "object",
+          properties: {
+            agent: { type: "string", description: "The id of the agent to consult, as listed" },
+            question: { type: "string", description: "Your question, with all it needs to be answered" },
+          },
+          required: ["agent", "question"],
+          additionalProperties: false,
+        },
+      };
       // `Sessions` passes a CLI session id only for a thread the runner recorded for this run folder.
       const opened = start.resumeCliSessionId
         ? await codex.request("thread/resume", { threadId: start.resumeCliSessionId, ...overrides })
-        : await codex.request("thread/start", { ...overrides, dynamicTools: [spec, approvalSpec] });
+        : await codex.request("thread/start", { ...overrides, dynamicTools: [spec, approvalSpec, ...(consults.length > 0 ? [consultSpec] : [])] });
       // A `sandbox_mode` in the user's config.toml makes Codex ignore profiles: no turn runs then.
       if (opened.activePermissionProfile?.id !== (bypass ? BYPASS_PROFILE : PROFILE)) return finish({ type: "error", message: PROFILE_REFUSED });
       threadId = opened.thread.id;

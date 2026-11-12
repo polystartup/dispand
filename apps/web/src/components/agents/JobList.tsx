@@ -6,7 +6,7 @@ import { duration, Status, triggerText, when } from "../workflow/Runs.tsx";
 
 type Run = Awaited<ReturnType<typeof api.runs.list>>[number];
 
-/** The agent's latest Jobs, newest first, each with the trigger that made it. */
+/** The agent's latest Jobs, newest first, each with the trigger that made it (a chat Job, with its first message). */
 export function JobList({ agentId }: { agentId: string }) {
   const jobs = useQuery({
     ...orpc.runs.list.queryOptions({ input: { agentId } }),
@@ -37,7 +37,8 @@ export function JobList({ agentId }: { agentId: string }) {
             <span className="flex min-w-0 items-center gap-3">
               <Status status={r.queued && r.status === "running" ? "queued" : r.status} />
               <span className="truncate text-[15px] font-medium">{(r.triggerId && names.get(r.triggerId)) || "Deleted trigger"}</span>
-              <span className="text-[13px] text-muted">{triggerText(r.trigger)}</span>
+              {/* A conversation is named by its first message, as the Assistant's list names it. */}
+              <span className="min-w-0 truncate text-[13px] text-muted">{r.title ?? triggerText(r.trigger)}</span>
             </span>
             <span className="shrink-0 text-[13px] text-muted">
               {when.format(r.createdAt)} · {r.finishedAt ? duration(r.createdAt, r.finishedAt) : "still going"}

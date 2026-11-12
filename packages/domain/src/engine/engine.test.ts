@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { type Answer, parseServerMessage, type ServerToRunner, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING, TEXT } from "@dispand/runner-protocol";
 import { and, eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools } from "../db/schema.ts";
+import { agentConsults, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { ArgValue } from "../tools/arguments.ts";
@@ -1568,6 +1568,32 @@ test("a Job's CLI session start names the actions that run unasked, at most 500;
   const params: StartParams = { sessionId: "ses_x", runKey: "run_1", systemPrompt: "S", prompt: "P", expectedOutputs: [], interactive: false };
   await adapter.start({ ...harness, kind: "claude-code" }, params);
   expect((sent[2] as { start: Record<string, unknown> }).start).not.toHaveProperty("unasked");
+});
+
+test("a Job's CLI session start lists the agents it may consult, by name, at most 50; an agent that may consult none gets no list", async () => {
+  const { context, harness, agent } = await setup(buttonThenStep);
+  const sent: ServerToRunner[] = [];
+  const hub = { send: async (_id: string, msg: ServerToRunner) => (sent.push(msg), true) };
+  const adapter = new CliHarnessAdapter(context.db, hub as unknown as RunnerHub, context.secrets);
+  const engine = new Engine(context.db, adapter, undefined, undefined, undefined, context.secrets);
+  onTestFinished(() => engine.stop());
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(() => expect(sent).toHaveLength(1));
+  expect((sent[0] as { start: Record<string, unknown> }).start).not.toHaveProperty("consults");
+
+  const consulted = [];
+  for (let i = 0; i < 51; i++) {
+    consulted.push(await call(router.agents.create, { name: `Expert ${String(i).padStart(2, "0")}`, description: `Knows ${i}`, harnessId: harness.id, systemPrompt: "" }, { context }));
+  }
+  await context.db.insert(agentConsults).values(consulted.map((c) => ({ agentId: agent.id, consultedId: c.id })));
+  await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(() => expect(sent).toHaveLength(2));
+  // More than the protocol carries: the start still goes, with the first 50 by name.
+  const consults = (sent[1] as { start: { consults?: unknown[] } }).start.consults;
+  expect(consults).toHaveLength(50);
+  expect(consults![0]).toEqual({ agentId: consulted[0]!.id, name: "Expert 00", description: "Knows 0" });
+  expect(() => parseServerMessage(JSON.stringify(sent[1]))).not.toThrow();
 });
 
 test("a Job's session start, its runner events and its question are traced with the Job's id, and none of their words leave", async () => {

@@ -1,7 +1,7 @@
 // What every CLI session shares, whatever its harness: questions to the owner, `submit_outputs`
 // (and its confirmation) and what a turn's end means for the session (turn-end, reminder, result).
 import { randomUUID } from "node:crypto";
-import { type Answer, type HarnessEvent, type OutputField, type QuestionPayload, TEXT } from "@dispand/runner-protocol";
+import { type Answer, type HarnessEvent, type OutputField, type QuestionPayload, type SessionStart, TEXT } from "@dispand/runner-protocol";
 import { protocolEvents, protocolString } from "./sanitize.ts";
 
 /** A running CLI session, as `Sessions` drives it. */
@@ -215,4 +215,41 @@ export async function requestApproval(
   if (answer?.kind !== "permission") return { ok: false, approved: false, text: "The request was not answered." };
   if (answer.decision === "deny") return { ok: true, approved: false, text: answer.message ? `Denied: ${answer.message}` : "Denied." };
   return { ok: true, approved: true, text: "Approved." };
+}
+
+/** The tool an agent consults another agent with: only in a session whose start lists agents to consult. */
+export const CONSULT = "consult";
+/** An agent the session may consult, as its start lists it. */
+export type ConsultTarget = NonNullable<SessionStart["consults"]>[number];
+
+/** `consult`'s description: what it does, then the agents the session may consult, by id. */
+export function consultDescription(agents: ConsultTarget[]): string {
+  return [
+    "Ask another agent one question and wait for its answer. It works as itself, with its own tools and data, and gets your question and nothing else: say everything that matters in it. A follow-up is another consult, which remembers nothing of this one.",
+    "Agents you may consult (id: name, and what it is for):",
+    ...agents.map((a) => `- ${a.agentId}: ${a.name}${a.description ? ` (${a.description.replaceAll("\n", " ")})` : ""}`),
+  ].join("\n");
+}
+
+/**
+ * Consults an agent: sends `args.question` to the agent `args.agent` names and gives the tool's
+ * answer, the consulted agent's or why there is none. Only an agent the start listed is asked
+ * about: the server never gets a consult of an agent it didn't offer. `ok: false` when the call
+ * was refused or got no answer.
+ */
+export async function consult(
+  ask: (payload: QuestionPayload, signal?: AbortSignal) => Promise<Answer | null>,
+  args: Record<string, unknown>,
+  agents: ConsultTarget[],
+  signal?: AbortSignal,
+): Promise<{ ok: boolean; text: string }> {
+  const target = agents.find((a) => a.agentId === args.agent);
+  if (!target) return { ok: false, text: "agent must be the id of an agent listed in the consult tool." };
+  const question = typeof args.question === "string" ? args.question.trim() : "";
+  if (!question) return { ok: false, text: "consult needs a question." };
+  if (question.length > TEXT) return { ok: false, text: `The question is too long (at most ${TEXT} characters): shorten it.` };
+  const answer = await ask({ kind: "consult", agentId: target.agentId, question: protocolString(question, TEXT) }, signal);
+  if (answer?.kind !== "consult") return { ok: false, text: "The consult was not answered." };
+  if (answer.outcome === "failed") return { ok: false, text: `Your consult got no answer: ${answer.text}` };
+  return { ok: true, text: `Answer from the agent ${target.name}:\n\n${answer.text}` };
 }

@@ -53,6 +53,31 @@ test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ pa
   runner.emit(start.sessionId, { type: "text", delta: "A trigger does." });
   await expect(chat.getByText("A trigger does.")).toBeVisible();
 
+  // The URL holds the conversation: a reload reopens it.
+  await expect(page).toHaveURL(/\/assistant\?run=run_/);
+  const conversations = page.getByRole("navigation", { name: "Conversations" });
+  await expect(conversations.getByRole("button", { name: /What fires a Job\?/ })).toBeVisible();
+  await page.reload();
+  await expect(chat.getByText("A trigger does.")).toBeVisible();
+
+  // A new conversation starts empty, and is listed above the first.
+  await conversations.getByRole("button", { name: "New conversation" }).click();
+  await expect(page).toHaveURL(/\/assistant\?run=new$/);
+  await expect(chat.getByText("Describe your business or use case and how you'd like to automate it.")).toBeVisible();
+  await expect(chat.getByText("A trigger does.")).toBeHidden();
+  await chat.getByRole("textbox", { name: "Message", exact: true }).fill("And what stops one?");
+  await chat.getByRole("button", { name: "Send" }).click();
+  const second = await runner.waitFor("session.start", WAIT_MS);
+  expect((await runner.waitFor("session.send", WAIT_MS)).text).toBe("And what stops one?");
+  runner.emit(second.start.sessionId, { type: "text", delta: "Stopping it does." });
+  await expect(chat.getByText("Stopping it does.")).toBeVisible();
+  await expect(conversations.getByRole("listitem").getByRole("button")).toHaveText([/And what stops one\?/, /What fires a Job\?/]);
+
+  // Opening the first shows its messages, not the second's.
+  await conversations.getByRole("button", { name: /What fires a Job\?/ }).click();
+  await expect(chat.getByText("A trigger does.")).toBeVisible();
+  await expect(chat.getByText("Stopping it does.")).toBeHidden();
+
   // It is listed with the other agents, its rights locked.
   const assistant = await rpc<{ agentId: string }>(page, "agents/assistant");
   await page.goto(`/settings/agents/${assistant.agentId}`);
