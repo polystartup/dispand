@@ -1594,6 +1594,9 @@ export class Engine {
         return null;
       }
       case "outputs-accepted":
+        // Outside a chat, without expected outputs, the `result` that follows completes the step with
+        // the agent's last message: a runner's `submit_outputs` called with nothing to hand back changes nothing.
+        if (!step.start?.interactive && !step.start?.expectedOutputs.length) return null;
         return (await this.complete(tx, step, event.values, out)) ? "advance" : null;
       case "result":
         // With expected outputs, only `outputs-accepted` completes a step.

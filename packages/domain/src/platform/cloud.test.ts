@@ -83,7 +83,7 @@ test("a workflow run's cloud session gets no platform tool", async () => {
   );
   const { runId } = await call(router.runs.start, { workflowId: workflow.id }, { context: s.context });
   await s.until(runId, "succeeded");
-  expect(s.model.inputs[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "submit_outputs", "request_approval"]);
+  expect(s.model.inputs[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "request_approval"]);
 });
 
 test("a tool that isn't Dispand's own still asks before it runs", async () => {
