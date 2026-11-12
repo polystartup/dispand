@@ -427,10 +427,11 @@
 - **Telemetry** (`packages/domain/src/telemetry/`): OpenTelemetry's trace, log and metric
   providers, started once by the app (`startTelemetry`, guarded on `globalThis` for dev
   reloads) and stopped on shutdown. OTLP/HTTP exporters exist only when
-  `OTEL_EXPORTER_OTLP_ENDPOINT` (or a signal's own endpoint) is set; each sits behind
-  `redact.ts`. Modules take `tracer(name)` and `meter(name)` (resolved at each use, so ones
+  `OTEL_EXPORTER_OTLP_ENDPOINT` (or a signal's own endpoint) is set; log records always also
+  go to the process's output (the SDK's console exporter, each as it is emitted, even with
+  `OTEL_SDK_DISABLED`). Each exporter sits behind `redact.ts`. Modules take `tracer(name)` and `meter(name)` (resolved at each use, so ones
   taken at load time follow the provider) and record errors with `recordError`. `logError`
-  writes to stderr as before and emits a log record with the trace, span and Job ids
+  emits a log record (printed once, by telemetry) with the trace, span and Job ids
   (`withJob`). Every procedure runs in a span named after it (`rpc/context.ts`: `rpc.method`,
   `dispand.owner.id`, `dispand.result`) and records `dispand.rpc.duration`; a Job's tool call
   passes the procedure's path. Metric instruments and their allowed attributes are listed in
