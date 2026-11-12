@@ -270,7 +270,7 @@ describe("bounds", () => {
         case "string": {
           if (!hasMax) unbounded.push(path);
           // Postgres text and JSONB can't hold U+0000 or a lone surrogate: every protocol string must refuse both.
-          const sample = ["a", "/a", "https://a"].find((candidate) => schema.safeParse(candidate).success);
+          const sample = ["a", "/a", "https://a", "a.md", "workspace"].find((candidate) => schema.safeParse(candidate).success);
           if (sample === undefined) unbounded.push(`${path} (no valid sample)`);
           else if (schema.safeParse(`${sample}\u0000`).success) unbounded.push(`${path} (accepts NUL)`);
           else if (schema.safeParse(`${sample}\ud800`).success) unbounded.push(`${path} (accepts a lone surrogate)`);
@@ -363,4 +363,19 @@ test("a start's unasked names are exposed tool names only: nothing in them can n
   for (const bad of [["a__b"], ["Bash"], ["x".repeat(49)], [""], ["a b"], ["a/b"], [3], "a", Array.from({ length: 501 }, (_, i) => `n${i}`)]) {
     expect(withUnasked(bad)).toThrow(ProtocolError);
   }
+});
+
+test("a start's memory files are a scope's index or entry paths a CLI never loads as instructions", () => {
+  const withMemory = (memory: unknown) => () => parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, memory } }));
+  const file = (scope: string, path: string) => [{ scope, path, text: "x" }];
+  for (const scope of ["workspace", "agent", "tables/tbl_01J"]) expect(withMemory(file(scope, "MEMORY.md"))).not.toThrow();
+  const longest = `${"a/".repeat(10).slice(0, 18)}${"b".repeat(99)}.md`;
+  expect(longest).toHaveLength(120);
+  expect(withMemory(file("tables/tbl_01J", longest))).not.toThrow();
+  expect(withMemory(file("agent", "notes/supplier.md"))).not.toThrow();
+  for (const path of ["CLAUDE.md", "notes/claude.md", "x/AGENTS.override.md", ".claude/x.md", "../x.md", "/x.md", "a//b.md", "a\\b.md", "x.txt", `${"c".repeat(118)}.md`]) {
+    expect(withMemory(file("agent", path)), path).toThrow(ProtocolError);
+  }
+  for (const scope of ["tables", "tables/", "tables/../x", "tables/a/b", "other", "../workspace", "/workspace"]) expect(withMemory(file(scope, "MEMORY.md")), scope).toThrow(ProtocolError);
+  expect(withMemory(Array.from({ length: 10_001 }, () => file("agent", "MEMORY.md")[0]))).toThrow(ProtocolError);
 });

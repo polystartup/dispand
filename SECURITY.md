@@ -212,8 +212,15 @@ changes it updates this file.
   workspace's, its own agent's and, with `data`, its tables'. An entry whose current revision a
   Job without `configure` wrote, and no person accepted since, is never in the prompt of a Job
   that has `configure`: that Job is told how many were left out and reads them with
-  `memory_read`, as information marked with its author. A person's write needs no acceptance; an
-  agent's write clears it. Accepted: an entry written by one Job instructs the Jobs without
+  `memory_read`, as information marked with its author. On a runner, the same reading also
+  goes in the start as files (`memoryFiles`, filtered alike), which the runner writes read-only
+  under the run folder's `.dispand/memory/<scope>/<path>`, emptied at every start or resume
+  (`apps/runner/src/memory.ts`): it checks every scope and path again (`isMemoryPath`, so never a
+  name a CLI loads as instructions, nor a `.claude` or `.mcp.json` segment) and refuses the
+  session on one that fails, writes nothing unless `.dispand` is a real folder, makes every
+  folder below it itself and creates each file with `O_EXCL|O_NOFOLLOW`. The files are what the
+  prompt already says, so a session reading them gains nothing; memory is written only with the
+  memory tools. A person's write needs no acceptance; an agent's write clears it. Accepted: an entry written by one Job instructs the Jobs without
   `configure` that read it (the workspace's reach every agent's Jobs), within what those Jobs
   may do without an approval; the owner sees, reverts and removes any entry.
 - **A poll is never a way around action approvals or an agent's tools.** The scheduler calls a

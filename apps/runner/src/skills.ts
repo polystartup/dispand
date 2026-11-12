@@ -138,7 +138,7 @@ export function canonicalSkillMd(folder: string, content: Buffer): Buffer {
 const isSkillMd = (path: string) => (path.split("/").pop() ?? "").toLowerCase() === "skill.md";
 
 /** Makes everything under `dir` writable again (folders first), so it can be removed. */
-async function unlock(dir: string): Promise<void> {
+export async function unlock(dir: string): Promise<void> {
   let entry;
   try {
     entry = await lstat(dir);

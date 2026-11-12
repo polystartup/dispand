@@ -18,6 +18,7 @@ import type { HarnessSession } from "./outcome.ts";
 import { codexMcpServers, mcpConfigFor, withJobServer } from "./mcp.ts";
 import { fetchPackages, removeSkills, sessionPluginsDir, writeSkills } from "./skills.ts";
 import { resolveWorkdir } from "./workdir.ts";
+import { writeMemoryFiles } from "./memory.ts";
 
 type Emit = (sessionId: string, event: HarnessEvent) => void;
 
@@ -262,6 +263,8 @@ export class Sessions {
       const packages = skills && pluginsDir ? await (skills.fetch ?? fetchPackages)(skills.server, skills.token, start.skills) : [];
       const cwd = await resolveWorkdir(this.config, start.cwd, this.options.forbidden, resuming);
       if (!resuming) created = cwd;
+      // A Job's memory as Dispand sent it now: a resume gets it again, as it is.
+      if (start.jobToken !== undefined) await writeMemoryFiles(cwd, start.memory ?? []);
       // Checked again right before launching: shutdown or stopAll may have run, or the backlog filled, meanwhile.
       if (this.shuttingDown) return cleanUp();
       if (this.stops !== stops) {

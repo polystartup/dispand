@@ -690,6 +690,14 @@
   memory_read: …") included. The system prompt gets `memoryPrompt` (96,000 characters at most)
   after the agent's instructions; nothing is snapshotted, and workflow agent steps get none. The
   read is a `memory.prompt` span (counts only) and `dispand.memory.prompts` (none, whole, cut).
+  On a runner the same reading also goes as files (`StartFields.memory`, protocol 13): the
+  engine hands it to `CliHarnessAdapter.start`, which serializes the start without it and fills
+  `memoryFiles` within what that leaves of the 1 MiB frame less 32 KiB, measured in UTF-8 bytes
+  of each file's JSON (each scope's `MEMORY.md`, then entry files with their frontmatter; the
+  closing line in the workspace's `MEMORY.md`), a `memory.files` span and
+  `dispand.memory.files` (none, whole, cut). The runner writes them under the run folder's
+  `.dispand/memory/<workspace|agent|tables/<id>>/` (`apps/runner/src/memory.ts`), emptied at
+  each start, and the runner prompt's block says where they are.
 - **Skills in cloud sessions** (`skills/cloud.ts`): the way Agent Skills work. At every model
   call `sessionSkills` reads the skills of the session's packages (`sessionTooling`: for a Job,
   its snapshot's that the agent still has); the system prompt lists each skill's name and
