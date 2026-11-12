@@ -14,7 +14,6 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { orpc } from "../../lib/api.ts";
 import { NewPageRow } from "./NewPageRow.tsx";
 import { NotificationsBell } from "./NotificationsBell.tsx";
@@ -47,42 +46,10 @@ function NavLink({ to, label, Icon, onNavigate }: { to: string; label: string; I
   );
 }
 
-/** A row that is not available yet: stays focusable so keyboard users get the tooltip too. */
-function Disabled({ label, tip, Icon }: { label: string; tip: string; Icon: LucideIcon }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button type="button" aria-disabled="true" className={`${row} cursor-default !text-muted`}>
-          <Icon size={17} className="text-accent/60" aria-hidden />
-          {label}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">{tip}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-function Group({
-  label,
-  to,
-  onNavigate,
-  children,
-}: {
-  label: string;
-  to?: string;
-  onNavigate: () => void;
-  children: React.ReactNode;
-}) {
-  const heading = "px-3 pb-1 text-xs font-medium text-faint";
+function Group({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="mt-6">
-      {to ? (
-        <Link to={to} onClick={onNavigate} className={`block ${heading} hover:text-muted`}>
-          {label}
-        </Link>
-      ) : (
-        <div className={heading}>{label}</div>
-      )}
+      <div className="px-3 pb-1 text-xs font-medium text-faint">{label}</div>
       <div className="flex flex-col gap-px">{children}</div>
     </div>
   );
@@ -113,14 +80,14 @@ export function Sidebar({ user, onNavigate }: { user: { name: string; email: str
               <NavLink key={p.id} to={`/p/${p.id}`} label={p.title} Icon={FileText} onNavigate={onNavigate} />
             ))}
         </div>
-        <Group label="Settings" onNavigate={onNavigate}>
+        <Group label="Settings">
           {settings.map((s) => (
             <NavLink key={s.to} {...s} onNavigate={onNavigate} />
           ))}
         </Group>
-        <Group label="Help" to="/help" onNavigate={onNavigate}>
-          <Disabled label="Start the guided tour" tip="The tour arrives soon" Icon={CircleHelp} />
-        </Group>
+        <div className="mt-6">
+          <NavLink to="/help" label="Help" Icon={CircleHelp} onNavigate={onNavigate} />
+        </div>
       </nav>
 
       <div className="border-t border-line pt-3">

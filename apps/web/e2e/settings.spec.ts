@@ -21,7 +21,8 @@ async function signIn(page: Page) {
     await page.getByLabel("Password").fill("correct horse battery");
     await page.getByRole("button", { name: "Sign in" }).click();
   }
-  await expect(page).toHaveURL(/\/$/);
+  // Home, or the Assistant's page until the first test has started it.
+  await expect(page).toHaveURL(/\/(assistant)?$/);
 }
 
 // One owner for the file (the first test runs setup); tests run in order against the same app.
@@ -88,6 +89,18 @@ test("empty states, then a runner pairs, a harness goes online and an agent is c
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Agent saved.")).toBeVisible();
   expect(await top()).toBe(before);
+
+  // An install set up before the Assistant: Home sends the owner to start it, on a harness they pick.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/assistant$/);
+  await page.waitForLoadState("networkidle");
+  await page.getByRole("combobox", { name: "Harness" }).selectOption({ label: "Claude on Workstation" });
+  await page.getByRole("button", { name: "Start the Assistant" }).click();
+  await expect(page.getByText("Describe your business or use case and how you'd like to automate it.")).toBeVisible();
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Welcome, Ada" })).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
 });
 
 test("a harness used by an agent cannot be deleted; the status follows the runner", async ({ page }) => {

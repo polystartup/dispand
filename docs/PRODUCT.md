@@ -67,7 +67,8 @@ Status: Prototype
   - The Assistant can't be deleted, nor lose its rights (working on data and changing tables, on
     every table), its platform skill or its chat, by the owner or through a proposal; its name,
     harness, model and instructions are the owner's to change. It is made when the owner picks
-    its harness.
+    its harness. Until then, Home opens the Assistant's page, a fresh install's first page,
+    which adds a harness when there is none and then starts the Assistant on the one picked.
   - The **platform skill** (`dispand-platform`, in Settings › Skills, built in and read-only)
     tells an agent how Dispand works and how to propose a setup. It comes with each version of
     Dispand. The Assistant always has it; any other agent may be given it, which grants nothing.

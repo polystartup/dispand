@@ -29,16 +29,19 @@ async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
 let runner: FakeRunner | undefined;
 test.afterAll(() => runner?.close());
 
-test("the sidebar's Assistant: picked harness, then a chat whose messages reach its Job", async ({ page }) => {
+test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ page }) => {
   await signIn(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Assistant box" });
   runner = await FakeRunner.pair(SERVER, created.pairingCode);
-  await rpc(page, "harnesses/create", { name: "Claude on Assistant box", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
+  const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Claude on Assistant box", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
+  // settings.spec.ts started the Assistant on its own runner, gone since: moved to this one.
+  const { agentId } = await rpc<{ agentId: string }>(page, "agents/assistant");
+  const agent = await rpc<{ name: string; systemPrompt: string; skills: { packageId: string }[] }>(page, "agents/get", { id: agentId });
+  const skillPackageIds = agent.skills.map((s) => s.packageId);
+  await rpc(page, "agents/update", { id: agentId, name: agent.name, harnessId: harness.id, systemPrompt: agent.systemPrompt, skillPackageIds, toolIds: [] });
 
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Assistant" }).click();
   await expect(page).toHaveURL(/\/assistant$/);
-  await page.getByRole("combobox", { name: "Harness" }).selectOption({ label: "Claude on Assistant box" });
-  await page.getByRole("button", { name: "Start the Assistant" }).click();
 
   const chat = page.getByRole("region", { name: "Assistant" });
   await chat.getByRole("textbox", { name: "Message", exact: true }).fill("What fires a Job?");

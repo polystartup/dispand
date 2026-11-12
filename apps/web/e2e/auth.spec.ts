@@ -11,13 +11,14 @@ test("fresh app asks for setup, shows the shell, and signs out to login", async 
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Create account" }).click();
 
-  await expect(page).toHaveURL(/\/$/);
+  // The first page is the Assistant's, which asks where it runs: there is no harness yet.
+  await expect(page).toHaveURL(/\/assistant$/);
   const sidebar = page.getByRole("navigation", { name: "Main" });
   await expect(sidebar.getByRole("link", { name: "Home" })).toBeVisible();
-  for (const name of ["Harnesses", "Agents", "Skills", "Tools", "Data", "Workflows"]) {
+  for (const name of ["Assistant", "Harnesses", "Agents", "Skills", "Tools", "Data", "Workflows", "Help"]) {
     await expect(sidebar.getByRole("link", { name })).toBeVisible();
   }
-  await expect(page.getByRole("heading", { name: "Welcome, Ada" })).toBeVisible();
+  await expect(page.getByText("Choose where the Assistant runs")).toBeVisible();
 
   await page.getByRole("link", { name: "Skills" }).click();
   await expect(page).toHaveURL(/\/settings\/skills$/);
@@ -40,7 +41,7 @@ test("fresh app asks for setup, shows the shell, and signs out to login", async 
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/assistant$/);
 });
 
 test("the shell turns into a sheet at 360px", async ({ page }) => {
@@ -50,7 +51,7 @@ test("the shell turns into a sheet at 360px", async ({ page }) => {
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/assistant$/);
   await expect(page.getByRole("link", { name: "Agents" })).toHaveCount(0);
   await page.getByRole("button", { name: "Open menu" }).click();
   const sheet = page.getByRole("dialog", { name: "Menu" });
@@ -71,7 +72,7 @@ test("the user menu works with the keyboard", async ({ page }) => {
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/assistant$/);
   await page.waitForLoadState("networkidle");
   await page.getByRole("button", { name: "Account menu" }).focus();
   await page.keyboard.press("Enter");
@@ -100,7 +101,7 @@ test("growing the window closes the mobile sheet", async ({ page }) => {
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/assistant$/);
   await page.waitForLoadState("networkidle");
   await page.getByRole("button", { name: "Open menu" }).click();
   await expect(page.getByRole("dialog", { name: "Menu" })).toBeVisible();
@@ -116,7 +117,7 @@ test("a failed sign-out keeps the user in the app with an error, and works on re
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/assistant$/);
   await page.waitForLoadState("networkidle");
 
   let fail = true;
@@ -128,7 +129,7 @@ test("a failed sign-out keeps the user in the app with an error, and works on re
   await page.getByRole("button", { name: "Account menu" }).click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page.getByRole("alert")).toBeVisible();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/assistant$/);
 
   await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/login$/);
