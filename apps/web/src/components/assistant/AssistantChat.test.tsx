@@ -15,6 +15,7 @@ const fake = vi.hoisted(() => ({
   jobs: { start: vi.fn(), def: vi.fn() },
   workflows: { get: vi.fn() },
   questions: { answer: vi.fn() },
+  triggers: { get: vi.fn(), update: vi.fn() },
 }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
@@ -22,6 +23,7 @@ vi.mock("../../lib/api.ts", async () => {
 });
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => children }));
 const { AssistantChat } = await import("./AssistantChat.tsx");
+const { localTimezone } = await import("../agents/TriggerSheet.tsx");
 
 afterEach(() => {
   cleanup();
@@ -141,6 +143,24 @@ test("the conversation the URL names opens on load, and a draft stays with the c
   await user.click(within(screen.getByRole("navigation", { name: "Conversations" })).getByText("Which agents touch Matters?"));
   expect(await screen.findByText("The Clerk does.")).toBeTruthy();
   expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("");
+});
+
+test("the weekly review is off until the owner turns it on, in their time zone", async () => {
+  const review = { id: "trigger_review", enabled: false, config: { kind: "schedule", cron: "0 9 * * 1", timezone: "Europe/Paris" } };
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat", reviewTriggerId: "trigger_review" });
+  fake.runs.list.mockResolvedValue([]);
+  fake.triggers.get.mockResolvedValue(review);
+  fake.triggers.update.mockImplementation(async ({ enabled }: { enabled: boolean }) => (review.enabled = enabled, review));
+  const { user } = mount();
+  const box = (await screen.findByRole("checkbox", { name: /Weekly review/ })) as HTMLInputElement;
+  expect(box.checked).toBe(false);
+  await user.click(box);
+  await waitFor(() => expect(fake.triggers.update).toHaveBeenCalled());
+  expect(fake.triggers.update.mock.calls[0]![0]).toEqual({ id: "trigger_review", enabled: true, config: { kind: "schedule", cron: "0 9 * * 1", timezone: localTimezone() } });
+  await waitFor(() => expect(box.checked).toBe(true));
+  // Turning it off keeps its schedule as it is.
+  await user.click(box);
+  await waitFor(() => expect(fake.triggers.update.mock.calls[1]![0]).toEqual({ id: "trigger_review", enabled: false }));
 });
 
 test("without an Assistant, picking a harness makes it", async () => {
