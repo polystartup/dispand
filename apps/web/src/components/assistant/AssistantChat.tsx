@@ -8,6 +8,7 @@ import { HarnessSheet } from "../settings/HarnessSheet.tsx";
 import { Empty } from "../settings/parts.tsx";
 import { when } from "../workflow/Runs.tsx";
 import { ChatPanel } from "../widgets/ChatPanel.tsx";
+import { ReviewSwitch } from "./ReviewSwitch.tsx";
 
 /** What the Assistant's empty conversation asks first: the day-one conversation's opening. */
 export const WELCOME = "Describe your business or use case and how you'd like to automate it.";
@@ -28,7 +29,12 @@ export function AssistantChat({ run, onOpen }: Props) {
   if (assistant.error) return <p role="alert" className="text-[14px] text-danger">Could not load the Assistant.</p>;
   if (assistant.data === undefined) return <p className="text-[14px] text-faint">Loading…</p>;
   if (assistant.data === null) return <PickHarness />;
-  return <Conversation key={assistant.data.triggerId} triggerId={assistant.data.triggerId} run={run} onOpen={onOpen} />;
+  return (
+    <>
+      {assistant.data.reviewTriggerId && <ReviewSwitch triggerId={assistant.data.reviewTriggerId} />}
+      <Conversation key={assistant.data.triggerId} triggerId={assistant.data.triggerId} run={run} onOpen={onOpen} />
+    </>
+  );
 }
 
 /** The Assistant's chat trigger: its conversations, newest first, and the one the URL opens. */
@@ -38,7 +44,7 @@ function Conversation({ triggerId, run, onOpen }: { triggerId: string } & Props)
   if (!jobs.data) return <p className="text-[14px] text-faint">Loading…</p>;
   const runId = run === NEW_CONVERSATION ? null : (run ?? jobs.data[0]?.id ?? null);
   return (
-    <div className="flex h-[calc(100dvh-16rem)] min-h-96 flex-col gap-4 md:flex-row">
+    <div className="flex h-[calc(100dvh-19rem)] min-h-96 flex-col gap-4 md:flex-row">
       <nav aria-label="Conversations" className="flex max-h-40 shrink-0 flex-col gap-1 overflow-y-auto rounded-2xl bg-surface p-2 shadow-card md:max-h-none md:w-64">
         <Button type="button" variant="ghost" className="justify-start gap-2" onClick={() => onOpen(NEW_CONVERSATION)}>
           <MessageSquarePlus aria-hidden />

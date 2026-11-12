@@ -26,7 +26,7 @@ const STARTS: [Starts, string, string][] = [
 const KINDS: Record<string, Starts[]> = { manual: ["chat", "button"], schedule: ["schedule"], primitive: ["change"], poll: ["poll"] };
 
 /** The browser's timezone when schedules accept it (they take IANA zones: not "UTC"), else the default. */
-function localTimezone(): string {
+export function localTimezone(): string {
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return Intl.supportedValuesOf("timeZone").includes(zone) ? zone : DEFAULT_TIMEZONE;
 }
