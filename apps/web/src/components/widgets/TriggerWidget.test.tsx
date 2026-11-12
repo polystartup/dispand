@@ -19,6 +19,7 @@ vi.mock("../../lib/api.ts", async () => {
 });
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => children }));
 const { TriggerWidget } = await import("./TriggerWidget.tsx");
+const { localTimezone } = await import("../agents/TriggerSheet.tsx");
 // jsdom has no layout.
 Element.prototype.scrollIntoView = () => {};
 
@@ -53,7 +54,7 @@ test("TriggerWidget with a button placement starts a Job on click", async () => 
   fake.runs.stream.mockImplementation(idle);
   const user = mount();
   await user.click(await screen.findByRole("button", { name: "Sort the mail" }));
-  expect(fake.jobs.start.mock.calls[0]![0]).toEqual({ triggerId: "trigger_1" });
+  expect(fake.jobs.start.mock.calls[0]![0]).toEqual({ triggerId: "trigger_1", timezone: localTimezone() });
   expect(fake.runs.start).not.toHaveBeenCalled();
   // Only this trigger's Jobs are followed.
   expect(fake.runs.list.mock.calls[0]![0]).toEqual({ triggerId: "trigger_1" });
@@ -69,7 +70,7 @@ test("TriggerWidget with a chat placement starts the Job with the first message"
   const user = mount();
   await user.type(await screen.findByLabelText("Message"), "Anything urgent?{Enter}");
   await waitFor(() => expect(fake.runs.sendChat.mock.calls[0]![0]).toEqual({ runId: "run_1", text: "Anything urgent?" }));
-  expect(fake.jobs.start.mock.calls[0]![0]).toEqual({ triggerId: "trigger_1" });
+  expect(fake.jobs.start.mock.calls[0]![0]).toEqual({ triggerId: "trigger_1", timezone: localTimezone() });
   expect(fake.runs.start).not.toHaveBeenCalled();
 });
 

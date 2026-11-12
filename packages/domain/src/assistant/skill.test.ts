@@ -45,6 +45,10 @@ test("the build's files are a valid package of one skill, and name only tools Di
   expect(named.filter((n) => !names.has(n))).toEqual([]);
 });
 
+test("the skill tells the Assistant to give times in the owner's time zone, never in UTC", () => {
+  expect(build[`${PLATFORM_SKILL}/SKILL.md`]).toMatch(/times in their own time zone[\s\S]*never in UTC/);
+});
+
 test("start writes every owner's platform skill from the build's files, and puts back what changed", async () => {
   const context = await ownerContext();
   await syncPlatformSkills(context.db);

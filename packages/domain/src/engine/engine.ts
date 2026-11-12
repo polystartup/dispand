@@ -57,7 +57,7 @@ import { CONSULT, REQUEST_APPROVAL } from "../cloud/builtins.ts";
 import { attachProposal, settleProposal } from "../platform/proposals.ts";
 import { issueJobToken } from "../platform/token.ts";
 import type { SecretBox } from "../secrets.ts";
-import { consultOutputs, jobDef, jobSystemPrompt } from "./job-def.ts";
+import { consultOutputs, jobDef, jobSystemPrompt, timezonePrompt } from "./job-def.ts";
 import { jobMemoryPrompt } from "../memory/read.ts";
 import { deletedAgent } from "../jobs/agent-name.ts";
 import { agentName, approvalOf, consultEnd, consultProblem, DECLINED, deliveryProblem, failed, FLAGGED, lockConsults, TOO_LONG } from "./consults.ts";
@@ -437,14 +437,14 @@ export class Engine {
   }
 
   /** Starts a Job of the owner's trigger (a manual start) and returns its id. */
-  async startJob(triggerId: string, ownerId: string): Promise<string> {
+  async startJob(triggerId: string, ownerId: string, timezone?: string): Promise<string> {
     const runId = await this.db.transaction(async (tx) => {
       const [trigger] = await tx
         .select({ agentId: triggers.agentId })
         .from(triggers)
         .where(and(eq(triggers.id, triggerId), eq(triggers.ownerId, ownerId)));
       if (!trigger) throw new EngineError("NOT_FOUND", "Trigger not found");
-      return this.createJob(tx, { ownerId, agentId: trigger.agentId, triggerId, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } });
+      return this.createJob(tx, { ownerId, agentId: trigger.agentId, triggerId, cause: { kind: "user", depth: 0 }, firing: { type: "manual", ...(timezone ? { timezone } : {}) } });
     });
     await this.announceCheckpoints();
     await this.continueRun(runId);
@@ -1947,15 +1947,17 @@ export class Engine {
 
   /**
    * A start as it is sent: a Job's gets its memory as it is now, after its agent's instructions,
-   * read with the Job's rights at this moment. The stored start never holds it, so a start sent
-   * again (a reconcile, a slot handed over, a resume) reads it again.
+   * read with the Job's rights at this moment, and the owner's time zone when they started it from
+   * their browser. The stored start never holds the memory, so a start sent again (a reconcile, a
+   * slot handed over, a resume) reads it again.
    */
   private async withMemory(step: StepRow, start: StartParams): Promise<StartParams> {
     const [run] = await this.db.select().from(runs).where(eq(runs.id, step.runId));
     if (run?.source !== "agent" || !run.snapshot) return start;
     // Built from the snapshot's instructions, whatever the stored start holds.
     const memory = await jobMemoryPrompt(this.db, run);
-    return { ...start, systemPrompt: [run.snapshot.systemPrompt, memory].filter(Boolean).join("\n\n") };
+    const timezone = run.trigger.type === "manual" && run.trigger.timezone ? timezonePrompt(run.trigger.timezone) : "";
+    return { ...start, systemPrompt: [run.snapshot.systemPrompt, timezone, memory].filter(Boolean).join("\n\n") };
   }
 
   /** A step's session, started in its own span (inside the Job's, for a Job). */

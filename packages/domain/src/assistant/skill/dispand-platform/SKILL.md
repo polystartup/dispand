@@ -39,3 +39,6 @@ command:
 - No tool hands you a credential, and none takes one: a tool you add has no headers. Tell the
   owner which tools they need to sign in to or give a key for, on the tool's page.
 - Ids come from the tools' outputs. Never invent one.
+- Tell a person times in their own time zone (your instructions name it when they chat with you; a
+  trigger's `timezone` is another way to tell), with its name when useful, never in UTC: tools
+  return UTC times (`nextFireAt`, `createdAt`), so convert them.

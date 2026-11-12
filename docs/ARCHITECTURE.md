@@ -235,7 +235,7 @@
   consulted Job to open, the question and the answer or why there is none) and the one that made it;
   `runs.list` gives each Job `waitingOn` (the agent its pending consult asks) and `consultedBy`;
   in a chat a consult is one line naming the agent, not a question to answer.
-  `jobs.start` starts a manual trigger's Job, `jobs.def` gives a Job's definition, `jobs.list`
+  `jobs.start` starts a manual trigger's Job (with the browser's `timezone` when it has one, kept in the run's `{ type: "manual", timezone }` firing and put in the Job's system prompt by `timezonePrompt`, so the Assistant gives the owner times in their zone), `jobs.def` gives a Job's definition, `jobs.list`
   the latest 50 Jobs (no workflow run) with their cause and the ids of their pending Questions,
   `jobs.get` one Job with a page of its transcript (`offset`, `limit` up to 200, and
   `totalMessages`) and its Questions; these three and `workflows.list` are `configure` reads, so

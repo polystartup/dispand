@@ -187,9 +187,9 @@ export const workflowVersions = pgTable(
 
 export type RunSource = "workflow" | "agent";
 export type RunStatus = "running" | "waiting" | "succeeded" | "failed";
-/** What started a run: the owner, or a schedule's fire for `scheduledFor` (ISO 8601, UTC). */
+/** What started a run: the owner (from a browser, in its `timezone`), or a schedule's fire for `scheduledFor` (ISO 8601, UTC). */
 export type RunTrigger =
-  | { type: "manual" }
+  | { type: "manual"; timezone?: string }
   | { type: "schedule"; scheduledFor: string }
   /** A primitive trigger's event, with what the trigger node gives the Job: the change. */
   | { type: "event"; eventId: string; outputs: Record<string, string> }

@@ -3,6 +3,7 @@ import { MessageSquarePlus } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api, orpc } from "../../lib/api.ts";
+import { localTimezone } from "../agents/TriggerSheet.tsx";
 import { selectClass } from "../data/NewFieldPopover.tsx";
 import { HarnessSheet } from "../settings/HarnessSheet.tsx";
 import { Empty } from "../settings/parts.tsx";
@@ -68,7 +69,7 @@ function Conversation({ triggerId, run, onOpen }: { triggerId: string } & Props)
       </nav>
       <section aria-label="Assistant" className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-surface shadow-card">
         <ChatPanel
-          start={() => api.jobs.start({ triggerId })}
+          start={() => api.jobs.start({ triggerId, timezone: localTimezone() })}
           runId={runId}
           onRunStarted={(id) => onOpen(id, { replace: true })}
           onNewConversation={() => onOpen(NEW_CONVERSATION)}
