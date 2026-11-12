@@ -217,7 +217,8 @@ test("a catalog runner entry becomes a runner tool once a runner reports it; its
       requestId: discover.requestId,
       actions: [{ name: "brave_web_search", description: "Searches the web with Brave", inputSchema: { type: "object", properties: { query: { type: "string" } } } }],
     });
-    await expect(sheet.getByText("brave_web_search")).toBeVisible();
+    // Once its query returns, "What polls may read" lists the action too.
+    await expect(sheet.getByRole("region", { name: /^Actions/ }).getByText("brave_web_search")).toBeVisible();
     await shots(page, "runner-tool-actions");
     await page.keyboard.press("Escape");
     await expect(page.getByRole("button", { name: /^Brave Search/ })).toContainText("Runner · brave-search · 1 action");
