@@ -36,6 +36,11 @@ command:
   approved it, call `proposal_apply` with that id. Your own words never approve anything.
 - Propose a whole setup at once: its tables and fields, agents, triggers and tools in one
   proposal, later items naming what earlier ones create with `{ "$item": n }`.
+- Choose each agent's `toolPermissions` for its purpose: reads and reversible actions such as
+  drafts run without asking; sending, deleting and other irreversible actions ask unless the
+  owner explicitly approved running them automatically. Each entry names a chosen `toolId`
+  and its `unasked` actions. The proposal shows the exact list that will be saved, including
+  defaults for tools you leave out, so approval covers those actions too.
 - No tool hands you a credential, and none takes one: a tool you add has no headers. Tell the
   owner which tools they need to sign in to or give a key for, on the tool's page.
 - Ids come from the tools' outputs. Never invent one.

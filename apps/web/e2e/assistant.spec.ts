@@ -143,7 +143,8 @@ test("the lawyer: a fresh install's Assistant sets up the whole workspace from o
   // 2. The description; the proposal is one Approval in the chat, every item shown.
   await chat.getByRole("textbox", { name: "Message", exact: true }).fill(DESCRIPTION);
   await chat.getByRole("button", { name: "Send" }).click();
-  await approve(page, items.length, ["Clients", "Matters", "Research", "Gmail", "Case law", "Intake and research", "Drafting", "Matter upkeep", "New client email", "Do you want to modify anything"]);
+  await approve(page, items.length, ["Clients", "Matters", "Research", "Gmail", "Case law", "Intake and research", "Drafting", "Matter upkeep", "New client email", "Do you want to modify anything", "Runs without asking:", "Every other action asks"]);
+  await page.getByRole("region", { name: "Proposal" }).last().getByRole("listitem").filter({ hasText: "Create an agent" }).first().screenshot({ path: test.info().outputPath("agent-tool-permissions.png"), animations: "disabled" });
 
   // 4. The last message links to the mail tool's page, which says it needs a sign-in.
   const link = chat.getByRole("button", { name: "Gmail", exact: true });

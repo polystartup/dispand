@@ -751,7 +751,13 @@
   skill's required tools asks before every action). `tools.pollable` and `tools.setPollable`
   are the owner's (never platform tools); the tool sheets show each action's state and why one
   isn't polled. Polls check `isPollable` when a trigger is made and at every dispatch.
-- **Proposals** (`platform/proposals.ts`, table `proposals`, migration 0034). A tool of the
+- **Proposals** (`platform/proposals.ts`, table `proposals`, migration 0034). Agent items save
+  `toolPermissions` beside their parsed input: explicit overrides, retained permissions on
+  updates, or defaults computed when prepared. `itemsView` exposes these as `tools[].runs`;
+  `takeItem` returns the saved permissions for the procedure, without re-reading defaults.
+  Plugin setup uses the same preparation and execution, with a preview digest checked before
+  writing. Old pending agent grants lacking a permissions snapshot must be proposed again.
+  A tool of the
   registry marked `grant` (`agents.create`, `agents.update`, `agents.setToolAsk`,
   `tables.delete`, `fields.delete`, `triggers.create`, `triggers.update`, `triggers.delete`, `tools.add` (an address and no
   headers; `tools.create` stays the owner's) and `tools.delete`;

@@ -562,7 +562,7 @@ export type QuestionKind = "question" | "approval" | "consult";
  * definition it is made from (`primitive:<name>`, `field:<table>.<field>`), recorded in the
  * plugin's `created.from` with what it creates.
  */
-export type ProposalItem = { tool: string; input: unknown; from?: string; usedAt?: string; pending?: true; createdId?: string; failed?: true };
+export type ProposalItem = { tool: string; input: unknown; from?: string; usedAt?: string; pending?: true; createdId?: string; failed?: true; toolPermissions?: { toolId: string | { $item: number }; unasked: string[] }[] };
 
 /**
  * Proposals (`platform/proposals.ts`): the writes a Job's agent asks a person to approve

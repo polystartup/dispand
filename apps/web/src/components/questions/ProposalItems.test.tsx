@@ -5,6 +5,12 @@ import { ProposalItems, type ProposalView } from "./ProposalItems.tsx";
 
 afterEach(cleanup);
 
+test("an agent's tools show the actions approved to run without asking", () => {
+  render(<ProposalItems proposal={{ id: "prop_mail", status: "asked", names: { tool_mail: { kind: "tool", name: "Gmail" } }, items: [{ tool: "agents_create", input: { toolIds: ["tool_mail"] }, refs: ["toolIds"], used: false, tools: [{ toolId: "tool_mail", runs: ["search_emails", "read_email", "draft_email"] }] }] }} />);
+  expect(screen.getByText("Runs without asking: search_emails, read_email, draft_email")).toBeTruthy();
+  expect(screen.getByText("Every other action asks")).toBeTruthy();
+});
+
 const long = `Line one.\n${"Work carefully. ".repeat(400)}THE END`;
 const proposal: ProposalView = {
   id: "prop_1",

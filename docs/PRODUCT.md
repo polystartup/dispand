@@ -64,6 +64,10 @@ Status: Prototype
     credentials: the owner enters those, or signs in, on the tool's page, which the agent
     links to; until then nothing calls the tool) or delete an unused one, only through a proposal: it lists the exact changes, the Inbox (and the chat it was asked in) shows each one whole with the names of
     what it points at, and approving lets that Job make exactly those changes, once each.
+    Agent setup lists each tool's actions that run without asking; every other action asks.
+    That list is saved with the approval, so changing a tool's defaults later does not change
+    the grant. Plugin setup shows the same lists and asks for the updated review if they change
+    before setup runs.
     A proposal may also list the tables and fields to create, so a whole setup is shown and
     approved at once (up to 60 changes), a later change naming what an earlier one creates
     ("the table item 1 creates"); once approved, the agent has Dispand make them in order, and

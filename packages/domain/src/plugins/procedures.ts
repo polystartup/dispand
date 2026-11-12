@@ -30,6 +30,7 @@ import { fetchGit, GitError } from "./git.ts";
 import { BUILT_IN_MARKETPLACES, MarketplaceError, type MarketplaceEntry, type MarketplaceKind, parseMarketplace } from "./marketplace.ts";
 import { readWellKnownIndex, readWellKnownSkills, WellKnownError, wellKnownIndexUrl } from "./well-known.ts";
 import { itemsView } from "../platform/proposals.ts";
+import { canonical } from "../platform/approvals.ts";
 import { runItemsAsOwner, SetupPick, setupItems } from "./setup.ts";
 import { componentsOf, PluginError, type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
 
@@ -650,21 +651,23 @@ const update = owner.input(Id).handler(async ({ input, context }) => {
 });
 
 const SetupInput = z.object({ id: z.string(), pick: SetupPick });
+const setupReview = (items: unknown) => createHash("sha256").update(canonical(items)).digest("hex");
 
 /** The items `setUp` would make now, in words as a proposal shows them, and what can't be made yet. */
 const setupPreview = owner.input(SetupInput).handler(async ({ input, context }) => {
   const setup = await setupItems(context.db, context.ownerId, input.id, input.pick);
   if ("error" in setup) throw new ORPCError("BAD_REQUEST", { message: setup.error });
-  return { ...(await itemsView(context.db, context.ownerId, setup.items)), waiting: setup.waiting };
+  return { ...(await itemsView(context.db, context.ownerId, setup.items)), waiting: setup.waiting, reviewed: setupReview(setup.items) };
 });
 
 /**
  * Sets up the definitions picked: the same items an approved proposal would make, made by the
  * owner, who is the person approving. Stops at the first refusal; the next run resumes.
  */
-const setUp = owner.input(SetupInput).handler(async ({ input, context }) => {
+const setUp = owner.input(SetupInput.extend({ reviewed: z.string().length(64) })).handler(async ({ input, context }) => {
   const setup = await setupItems(context.db, context.ownerId, input.id, input.pick);
   if ("error" in setup) throw new ORPCError("BAD_REQUEST", { message: setup.error });
+  if (setupReview(setup.items) !== input.reviewed) throw new ORPCError("CONFLICT", { message: "The setup changed since you reviewed it: look at the updated list before setting it up" });
   const { outcomes } = await runItemsAsOwner(context, input.id, setup.items);
   return { outcomes, waiting: setup.waiting };
 });

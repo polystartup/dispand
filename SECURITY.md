@@ -131,6 +131,13 @@ changes it updates this file.
   tool, the same input (key order aside), not used yet. A proposal is made by the agent
   (`propose`: at most 60 configuration writes and 64 KiB, each validated by its tool and kept
   as parsed), and belongs to its Job: no other Job uses it, and it ends with the Job. An item
+  creating or changing an agent also freezes each chosen tool's unasked actions when prepared:
+  the owner reads that list, and execution writes that list, even if defaults change meanwhile.
+  Explicit `toolPermissions` are part of the exact matched input; defaults and retained grants
+  are saved alongside it. Old unconsumed agent items with tools but no recorded permissions
+  must be proposed again. Plugin setup uses the same snapshot and checks a digest of its
+  preview before making any writes, so a changed list requires another review.
+  An item
   may name what an earlier item of the same proposal creates (`{ "$item": n }`, where an id
   goes); it matches a call only with the id that earlier item's own call created, recorded
   when it was used, so a reference can't be pointed at anything else. `proposal_apply` makes

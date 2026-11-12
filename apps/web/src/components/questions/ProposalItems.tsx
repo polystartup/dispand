@@ -9,7 +9,7 @@ export type ProposalView = {
    * hold `{ "$item": n }` where an id goes: what item `n` creates (`creates`), once made
    * `createdId`; `failed` when its call was refused.
    */
-  items: { tool: string; input: unknown; used: boolean; refs: string[]; creates?: string | null; createdId?: string | null; failed?: boolean }[];
+  items: { tool: string; input: unknown; used: boolean; refs: string[]; creates?: string | null; createdId?: string | null; failed?: boolean; tools?: { toolId: string | { $item: number }; runs: string[] }[] }[];
   names: Record<string, { kind: string; name: string; detail?: string }>;
   /** The generated plugin ("Generated: <business name>") that records what the items create. */
   plugin?: string | null;
@@ -249,11 +249,21 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
             {item.used && <span className={`ml-2 text-[12px] font-normal ${item.failed ? "text-danger" : "text-faint"}`}>{item.failed ? "refused" : "done"}</span>}
           </p>
           <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1.5 text-[13px]">
-            {Object.entries((item.input ?? {}) as Record<string, unknown>).map(([name, value]) => (
+            {Object.entries((item.input ?? {}) as Record<string, unknown>).filter(([name]) => !(item.tools && name === "toolPermissions")).map(([name, value]) => (
               <div key={name} className="contents">
                 <dt className="text-muted">{LABELS_OF[item.tool]?.[name] ?? LABELS[name] ?? name}</dt>
                 <dd className="min-w-0">
-                  {item.tool.startsWith("agents_") && name === "consults" ? (
+                  {name === "toolIds" && item.tools && item.tools.length > 0 ? (
+                    <div className="space-y-2">
+                      {item.tools.map((tool, index) => (
+                        <div key={index} className="flex flex-col gap-1">
+                          <Id value={tool.toolId} items={proposal.items} names={proposal.names} />
+                          <span>Runs without asking: {tool.runs.length ? tool.runs.join(", ") : "none"}</span>
+                          <span className="text-muted">Every other action asks</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : item.tool.startsWith("agents_") && name === "consults" ? (
                     <Consults value={value} items={proposal.items} names={proposal.names} />
                   ) : item.tool.startsWith("agents_") && name === "selfLearning" ? (
                     <Targets value={value} />
