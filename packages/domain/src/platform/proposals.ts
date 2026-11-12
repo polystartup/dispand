@@ -108,6 +108,7 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
   const input = item.input as { id?: Ref; toolIds: Ref[]; toolPermissions?: { toolId: Ref; unasked: string[] }[] };
   const ids = input.toolIds ?? [];
   const given = input.toolPermissions ?? [];
+  if (given.some((p) => p.unasked.some((name) => typeof name !== "string"))) return "An unasked action must be a literal action name";
   const key = (id: Ref) => canonical(id);
   if (given.some((p) => !ids.some((id) => key(id) === key(p.toolId)))) return "Each tool permission must name a chosen tool";
   if (new Set(given.map((p) => key(p.toolId))).size !== given.length) return "List each tool's permissions once";

@@ -69,6 +69,10 @@ test.each([undefined, ["send_email"]])("agent setup shows and writes the approve
 
 test("permissions can name a tool an earlier item creates", async () => {
   const s = await setup();
+  expect(await s.propose([
+    { tool: "tools_add_from_catalog", input: { catalogId: "firecrawl" } },
+    { tool: "agents_create", input: { ...s.newAgent, toolIds: [{ $item: 0 }], toolPermissions: [{ toolId: { $item: 0 }, unasked: [{ $item: 0 }] }] } },
+  ])).toMatchObject({ ok: false, error: expect.stringContaining("literal action name") });
   const id = s.idOf(await s.propose([
     { tool: "tools_add_from_catalog", input: { catalogId: "firecrawl" } },
     { tool: "agents_create", input: { ...s.newAgent, toolIds: [{ $item: 0 }], toolPermissions: [{ toolId: { $item: 0 }, unasked: ["firecrawl_scrape"] }] } },
