@@ -66,7 +66,12 @@ changes it updates this file.
   another tool or action; a tool's schema is passed on as data and never compiled. That name
   is words cut short and a mark, so the question the owner answers also carries, from the
   server, the tool's name and the action's name and description in full. A session in `bypassPermissions` mode asks
-  nothing, so its calls of these tools are refused.
+  nothing, so its calls of these tools are refused. Every call a Job makes of such a tool, in a
+  cloud session or through `/mcp/job/tools` (a call refused for want of an approval included),
+  and every poll leave one Audit row (`tool.call`, `poll.run`) written after the call: the tool,
+  the action and how it ended, and for a poll its status and how many new items it recorded;
+  never the arguments, the result, an item or its id, and a failure to write the row never
+  changes what the call returns.
 - **An OAuth tool's tokens, client secret and code verifier never leave the server.** They are
   sealed per tool, keyed by authorization server, and go only where the MCP SDK's flow sends
   them: the access token to the tool's URL, the rest to its authorization server's token

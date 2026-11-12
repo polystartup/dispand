@@ -1,9 +1,9 @@
 import { call } from "@orpc/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import type { ChatItem } from "../cloud/model-client.ts";
 import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
-import { attachments, questions, runs, tools as toolsTable } from "../db/schema.ts";
+import { attachments, audit, questions, runs, tools as toolsTable } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
@@ -75,6 +75,31 @@ test("a cloud Job calls its agent's HTTP tool after the owner allows it; the hea
   expect(offered.find((t) => t.name === "GitHub_create_repository")).toMatchObject({ description: "Create a repository", inputSchema: { required: ["name"] } });
   expect(s.server.requests.some((h) => h.authorization === SECRET)).toBe(true);
   expect(JSON.stringify(s.model.inputs)).not.toContain("s3cret");
+});
+
+test("a cloud Job's tool call leaves one Audit row naming the tool and action, without its arguments or result; a denied one, none", async () => {
+  const s = await setup([use("GitHub_create_repository", { name: "acme-sentinel" }), use("GitHub_list_repos", {}), say("Done.")]);
+  const runId = await s.start();
+  await s.engine.answer((await s.pending(runId)).id, { kind: "permission", decision: "allow" });
+  await vi.waitFor(async () => {
+    const [q] = await s.context.db.select().from(questions).where(and(eq(questions.runId, runId), eq(questions.status, "pending")));
+    if (!q) throw new Error("no second question yet");
+    await s.engine.answer(q.id, { kind: "permission", decision: "deny" });
+  });
+  await s.until(runId, "succeeded");
+  const rows = await s.context.db.select().from(audit).where(eq(audit.action, "tool.call"));
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({
+    actor: { type: "job", runId },
+    actorAgentId: s.agent.id,
+    jobId: runId,
+    resourceType: "tool",
+    resourceId: s.tool.id,
+    result: "ok",
+    details: { toolId: s.tool.id, toolName: "GitHub", action: "create_repository" },
+  });
+  expect(JSON.stringify(rows)).not.toContain("acme-sentinel");
+  expect(JSON.stringify(rows)).not.toContain("created");
 });
 
 test("a file a cloud Job's tool returns is kept for the Job, and the model gets its id", async () => {

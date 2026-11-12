@@ -118,7 +118,8 @@ Status: Prototype
   decision and whether a person or an agent answered) or expired; a checkpoint reached and
   answered (approved, don't ask again, or declined, with how many held events and Jobs it
   stopped); a consult asked and how it ended; and every Dispand tool a Job called, reads and
-  refusals included (with the tool, the table, and why it was refused). Agents with `configure`
+  refusals included (with the tool, the table, and why it was refused); every action of an
+  agent's tools a Job called, and how it ended; and every poll, with how many new items it found. Agents with `configure`
   read it too (`audit_list`), except rows about tables outside theirs. A row names what was touched (ids, names, counts and
   kinds), never what an agent read or wrote, and carries the trace it was recorded in: with
   `DISPAND_TRACE_URL` set, the trace id links to the tracing tool. Workflow runs have no rows.
