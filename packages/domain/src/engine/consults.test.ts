@@ -186,6 +186,7 @@ test("a Job consults an agent: a Job of that agent answers, and the asker goes o
     expect.objectContaining({ action: "consult.asked", actor: { type: "job", runId: asker.runId }, actorAgentId: s.asker.id, jobId: asker.runId, details: { agentId: s.expert.id } }),
     expect.objectContaining({
       action: "consult.ended",
+      result: "ok",
       actor: { type: "job", runId: consultedId },
       actorAgentId: s.expert.id,
       jobId: asker.runId,
@@ -212,6 +213,7 @@ test("each refusal at the call answers the consult with its reason and makes no 
     ["consult.asked", { agentId: s.third.id }],
     ["consult.ended", { agentId: s.third.id, outcome: "refused" }],
   ]);
+  expect((await s.consultRows(notListed!.id)).map((r) => r.result)).toEqual(["ok", "refused"]);
   // An agent id the asking agent made up is no agent's: the rows don't carry it.
   expect(await refused("sentinel id, made up!")).toBe(NOT_LISTED);
   const [madeUp] = await s.context.db.select().from(questions).where(eq(questions.payload, { kind: "consult", agentId: "sentinel id, made up!", question: "What is the answer?" }));
@@ -530,7 +532,7 @@ test("a consult taken back stops the chain below it, each Job audited as consult
     expect(failed).toMatchObject({ result: "failed", details: { reason: "consult-revoked" } });
   }
   // Each consult in the chain ended stopped, its consulted Job named.
-  expect((await s.consultRows(q.id)).at(-1)).toMatchObject({ action: "consult.ended", details: { consultedJobId: expertRun, outcome: "stopped" } });
+  expect((await s.consultRows(q.id)).at(-1)).toMatchObject({ action: "consult.ended", result: "failed", details: { consultedJobId: expertRun, outcome: "stopped" } });
   expect((await s.consultRows(q2.id)).at(-1)).toMatchObject({ action: "consult.ended", jobId: expertRun, details: { consultedJobId: thirdRun, outcome: "stopped" } });
   // The asker goes on: it was told why, not stopped.
   expect((await s.run(asker.runId)).status).not.toBe("failed");

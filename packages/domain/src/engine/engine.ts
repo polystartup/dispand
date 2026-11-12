@@ -307,6 +307,7 @@ async function consultEnded(tx: Tx, q: QuestionRow, outcome: "answered" | "refus
     jobId: q.runId,
     action: "consult.ended",
     resource: { type: "consult", id: q.id },
+    result: outcome === "answered" ? "ok" : outcome === "refused" ? "refused" : "failed",
     details: {
       ...(await consultedAgent(tx, q)),
       ...(q.consultRunId ? { consultedJobId: q.consultRunId } : {}),
