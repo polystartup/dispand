@@ -96,9 +96,9 @@ const DETAIL_LABELS: Record<keyof AuditDetails, string> = {
 /** `at` as stored has microseconds: shown to the second. */
 const shown = (at: string) => when.format(new Date(`${at.slice(0, 23)}Z`));
 
-function Actor({ row, agentNames }: { row: Row; agentNames: Map<string, string> }) {
+function Actor({ row }: { row: Row }) {
   if (row.actor.type === "user") return <span>You</span>;
-  const agent = row.actorAgentId ? (agentNames.get(row.actorAgentId) ?? "An agent") : null;
+  const agent = row.actorAgentId ? (row.agentName ?? "A deleted agent") : null;
   if (row.actor.type === "scheduler") return <span>Scheduler{agent ? ` · for ${agent}` : ""}</span>;
   return (
     <span>
@@ -148,8 +148,6 @@ export function AuditList({ filter = {}, live = false }: { filter?: Filter; live
     refetchInterval: live ? 5000 : false,
   });
   const trace = useQuery({ ...orpc.audit.traceUrl.queryOptions(), staleTime: Infinity });
-  const agents = useQuery(orpc.agents.list.queryOptions());
-  const agentNames = new Map(agents.data?.map((a) => [a.id, a.name]));
   const rows = pages.data?.pages.flatMap((p) => p.rows) ?? [];
   const traceUrl = trace.data?.traceUrl ?? null;
 
@@ -185,7 +183,7 @@ export function AuditList({ filter = {}, live = false }: { filter?: Filter; live
             </div>
             <div className="mt-0.5 flex flex-wrap gap-x-3 text-[13px] text-muted">
               <time dateTime={row.at}>{shown(row.at)}</time>
-              <Actor row={row} agentNames={agentNames} />
+              <Actor row={row} />
               {row.traceId && <Trace traceId={row.traceId} traceUrl={traceUrl} />}
             </div>
             {Object.keys(row.details).length > 0 && (

@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ audit: { list: vi.fn(), traceUrl: vi.fn() }, agents: { list: vi.fn() } }));
+const fake = vi.hoisted(() => ({ audit: { list: vi.fn(), traceUrl: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -25,6 +25,7 @@ const row = (id: string, extra: Record<string, unknown> = {}) => ({
   at: "2026-11-12T10:00:00.123456Z",
   actor: { type: "job", runId: "run_1" },
   actorAgentId: "agent_1",
+  agentName: "Writer",
   jobId: "run_1",
   action: "job.started",
   resourceType: "job",
@@ -41,7 +42,6 @@ function mount(node: React.ReactNode) {
 
 test("the Job page's Audit lists its rows: the action in words, the agent and its Job, the details and the trace id", async () => {
   const user = userEvent.setup();
-  fake.agents.list.mockResolvedValue([{ id: "agent_1", name: "Writer" }]);
   fake.audit.traceUrl.mockResolvedValue({ traceUrl: null });
   fake.audit.list.mockResolvedValue({ rows: [row("aud_1"), row("aud_2", { action: "job.failed", result: "failed", details: { reason: "stopped" } })], next: null });
   mount(<JobAudit jobId="run_1" live={false} />);
@@ -65,7 +65,6 @@ test("the Job page's Audit lists its rows: the action in words, the agent and it
 });
 
 test("with DISPAND_TRACE_URL set, the trace id links there", async () => {
-  fake.agents.list.mockResolvedValue([]);
   fake.audit.traceUrl.mockResolvedValue({ traceUrl: "https://traces.example.com/trace/{traceId}?view=1" });
   fake.audit.list.mockResolvedValue({ rows: [row("aud_1")], next: null });
   mount(<AuditList />);
@@ -75,7 +74,6 @@ test("with DISPAND_TRACE_URL set, the trace id links there", async () => {
 });
 
 test("the Audit page reads the next page on Load more, and names the scheduler and a person", async () => {
-  fake.agents.list.mockResolvedValue([{ id: "agent_1", name: "Writer" }]);
   fake.audit.traceUrl.mockResolvedValue({ traceUrl: null });
   fake.audit.list
     .mockResolvedValueOnce({ rows: [row("aud_1", { actor: { type: "user", userId: "user_1" }, action: "job.created", traceId: null })], next: "c1" })
@@ -91,7 +89,6 @@ test("the Audit page reads the next page on Load more, and names the scheduler a
 });
 
 test("nothing recorded says so", async () => {
-  fake.agents.list.mockResolvedValue([]);
   fake.audit.traceUrl.mockResolvedValue({ traceUrl: null });
   fake.audit.list.mockResolvedValue({ rows: [], next: null });
   mount(<AuditList />);
@@ -99,7 +96,6 @@ test("nothing recorded says so", async () => {
 });
 
 test("a Job's Audit is read once more when the Job ends", async () => {
-  fake.agents.list.mockResolvedValue([]);
   fake.audit.traceUrl.mockResolvedValue({ traceUrl: null });
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = (live: boolean) => (
@@ -113,4 +109,12 @@ test("a Job's Audit is read once more when the Job ends", async () => {
   fake.audit.list.mockResolvedValue({ rows: [row("aud_2", { action: "job.finished", details: {} }), row("aud_1")], next: null });
   rerender(view(false));
   expect(await screen.findByText("Job finished")).toBeTruthy();
+});
+
+test("a deleted agent is named as its Job kept it", async () => {
+  fake.audit.traceUrl.mockResolvedValue({ traceUrl: null });
+  fake.audit.list.mockResolvedValue({ rows: [row("aud_1", { agentName: "Writer (Deleted)" }), row("aud_2", { actor: { type: "scheduler" }, agentName: null })], next: null });
+  mount(<AuditList />);
+  expect(await screen.findByText(/Writer \(Deleted\)/)).toBeTruthy();
+  expect(screen.getByText("Scheduler · for A deleted agent")).toBeTruthy();
 });

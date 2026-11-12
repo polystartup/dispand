@@ -137,3 +137,20 @@ test("a row whose transaction rolls back is gone with it", async () => {
   ).rejects.toThrow("rolled back");
   expect(await s.context.db.select().from(audit)).toEqual([]);
 });
+
+test("a Job whose agent is deleted is stopped and audited, and its rows name the agent as the Job kept it", async () => {
+  const s = await setup();
+  const runId = await s.engine.startJob(s.trigger.id, s.context.ownerId);
+  await s.sessionOf(runId);
+  await call(router.agents.delete, { id: s.agent.id }, { context: { ...s.context, engine: s.engine } });
+  const rows = await s.rowsOf(runId);
+  expect(rows.map((r) => r.action)).toEqual(["job.created", "job.started", "job.failed"]);
+  expect(rows.at(-1)).toMatchObject({ actorAgentId: s.agent.id, details: { reason: "stopped" } });
+  const listed = await call(router.audit.list, { jobId: runId }, { context: s.context });
+  expect(listed.rows.map((r) => [r.action, r.agentName])).toEqual([
+    ["job.failed", "Writer (Deleted)"],
+    ["job.started", "Writer (Deleted)"],
+    // A person's start: no agent acted.
+    ["job.created", null],
+  ]);
+});
