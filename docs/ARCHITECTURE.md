@@ -569,7 +569,8 @@
   `new`: one that hasn't started), or first launch while there is no Assistant: the harness
   sheet when the owner has no harness, then a picker that calls `agents.ensureAssistant`.
   `onboarding.status` (the Assistant's id or null, and whether a harness exists) makes Home
-  send an owner without an Assistant there.
+  send an owner without an Assistant there, from its route's `beforeLoad` (`getFirstLaunch`):
+  the redirect waits for neither Home's page nor its queries.
 - **The enhancement review:** `ensureAssistant` also gives the Assistant a schedule trigger
   marked `built_in = 'review'` (migration 0054, one per agent), Mondays at 09:00, one at a
   time, made **off**; `assistantGuard` refuses only its deletion. The `/assistant` page's
