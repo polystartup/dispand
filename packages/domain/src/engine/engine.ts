@@ -699,7 +699,7 @@ export class Engine {
           .where(and(eq(stepRuns.id, stepId), isNotNull(stepRuns.pendingAction)))
           .returning();
         if (claimed && !this.inFlight.has(`start:${claimed.sessionId}`) && !(await this.refusedForScope(claimed))) {
-          this.launch(claimed.harness!, claimed.start!, claimed);
+          await this.launch(claimed.harness!, claimed.start!, claimed);
           for (const m of await this.undeliveredMessages(claimed.id)) this.deliverMessage(claimed.sessionId!, m);
         }
         return;
@@ -1410,7 +1410,7 @@ export class Engine {
           // Queued again after its root was paused: it goes when handed a slot (`handOver`).
           if (!holdsSlot(step)) continue;
           if (await this.refusedForScope(step)) continue;
-          this.launch(step.harness!, step.start!, step);
+          await this.launch(step.harness!, step.start!, step);
           // Chat messages sent before the start ever reached the runner go right after it.
           for (const m of await this.undeliveredMessages(step.id)) this.deliverMessage(sessionId, m);
         } else if (!liveSessions.includes(sessionId)) {
@@ -1480,17 +1480,14 @@ export class Engine {
       unsent,
       waiting,
     );
-    // A Job's memory is read again: the resumed session gets it as it is now.
-    const [run] = await this.db.select().from(runs).where(eq(runs.id, step.runId));
-    const systemPrompt = run?.snapshot ? await this.jobSystemPrompt(run, run.snapshot.systemPrompt) : step.start!.systemPrompt;
     let start: StartParams;
-    if (step.cliSessionId) start = { ...step.start!, systemPrompt, prompt, resumeCliSessionId: step.cliSessionId };
+    if (step.cliSessionId) start = { ...step.start!, prompt, resumeCliSessionId: step.cliSessionId };
     else {
       // Nothing to resume (the CLI never reported its session): start afresh, in a new folder,
       // since the runner may have created the first one before it stopped.
       const runKey = `${step.runId}-${step.id}-${Date.now().toString(36)}`;
       await this.db.update(stepRuns).set({ start: { ...step.start!, runKey } }).where(eq(stepRuns.id, step.id));
-      start = { ...step.start!, runKey, systemPrompt, prompt };
+      start = { ...step.start!, runKey, prompt };
     }
     // What the prompt carries is held, so no separate delivery sends it too.
     const held = [...answers.map((q) => `q:${q.id}`), ...carried.map((m) => `m:${m.id}`)];
@@ -1500,7 +1497,7 @@ export class Engine {
     if (!now || !ACTIVE_STEP.includes(now.status)) return;
     if (await this.refusedForScope(step)) return;
     await this.auditResume(step);
-    this.launch(step.harness!, start, step, held, async () => {
+    await this.launch(step.harness!, start, step, held, async () => {
       const now = new Date();
       if (answers.length) await this.db.update(questions).set({ deliveredAt: now }).where(inArray(questions.id, answers.map((q) => q.id)));
       if (carried.length) await this.db.update(messages).set({ deliveredAt: now }).where(inArray(messages.id, carried.map((m) => m.id)));
@@ -1889,10 +1886,16 @@ export class Engine {
     return !!row;
   }
 
-  /** A Job's system prompt at a session start: its agent's, as snapshotted, then its memory as it is now. */
-  private async jobSystemPrompt(run: RunRow, systemPrompt: string): Promise<string> {
+  /**
+   * A start as it is sent: a Job's gets its memory as it is now, after its agent's instructions,
+   * read with the Job's rights at this moment. The stored start never holds it, so a start sent
+   * again (a reconcile, a slot handed over, a resume) reads it again.
+   */
+  private async withMemory(step: StepRow, start: StartParams): Promise<StartParams> {
+    const [run] = await this.db.select().from(runs).where(eq(runs.id, step.runId));
+    if (run?.source !== "agent" || !run.snapshot) return start;
     const memory = await jobMemoryPrompt(this.db, run);
-    return memory ? [systemPrompt, memory].filter(Boolean).join("\n\n") : systemPrompt;
+    return memory ? { ...start, systemPrompt: [start.systemPrompt, memory].filter(Boolean).join("\n\n") } : start;
   }
 
   /** A step's session, started in its own span (inside the Job's, for a Job). */
@@ -1968,8 +1971,8 @@ export class Engine {
       sessionId: newId("ses"),
       // One folder per session: the run and the step (a resume reuses its own).
       runKey: `${run.id}-${step.id}`,
-      // A Job's memory is read now, at each start, after its agent's instructions.
-      systemPrompt: run.snapshot ? await this.jobSystemPrompt(run, agent.systemPrompt) : agent.systemPrompt,
+      // A Job's memory joins it when the start is sent (`launch`).
+      systemPrompt: agent.systemPrompt,
       prompt: renderTemplate(node.prompt ?? "", values),
       expectedOutputs:
         deriveExpectedOutputs(def, await loadTableSchemas(this.db, run.ownerId, tableIdsOf(def)), await loadToolSchemas(this.db, run.ownerId, toolIdsOf(def)))[node.id] ?? [],
@@ -2023,14 +2026,22 @@ export class Engine {
     this.publish([{ type: "step", step: stepView(started) }]);
     // Chat messages sent while it was queued go once the start is written (an unwritten one is
     // resent with them by the runner's reconcile).
-    this.launch(harness, start, started, [], start.interactive ? () => this.flush(started.id, start.sessionId) : undefined);
+    await this.launch(harness, start, started, [], start.interactive ? () => this.flush(started.id, start.sessionId) : undefined);
   }
 
   /**
-   * Hands a session start to the harness without waiting for it to arrive. Once written, the
+   * Hands a session start to the harness, with a Job's memory as it is now (`withMemory`), without
+   * waiting for it to arrive: every start, first or sent again, goes this way.
+   */
+  private async launch(harness: Harness, start: StartParams, step: StepRow, held: string[] = [], written?: () => Promise<void>) {
+    this.dispatch(harness, await this.withMemory(step, start), step, held, written);
+  }
+
+  /**
+   * Hands a start as it is to the harness without waiting for it to arrive. Once written, the
    * step records it (and `written` runs); unwritten, the runner's next reconcile sends it again.
    */
-  private launch(harness: Harness, start: StartParams, step: StepRow, held: string[] = [], written?: () => Promise<void>) {
+  private dispatch(harness: Harness, start: StartParams, step: StepRow, held: string[] = [], written?: () => Promise<void>) {
     // How the start ended, once it has: delivered, waiting for its runner, refused, or failed.
     const outcome = (result: string) => counts.counter("dispand.sessions.started").add(1, { "dispand.harness.kind": harness.kind, "dispand.result": result });
     // Out of the protocol's bounds, the runner would refuse it and every reconcile would resend it.

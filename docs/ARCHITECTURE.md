@@ -660,7 +660,9 @@
   the Job (`{ agentId, runId, configure }`); a write refused for its target is a `memory.write`
   span and counted like the store's own refusals, and a read is a `memory.read` span and
   `dispand.memory.reads` (scope, result).
-  A Job's session start (and a resume of a lost one) reads its memory again (`memory/read.ts`):
+  Every start the engine sends for a Job (`launch`: the first, one sent again after its runner was
+  away or its slot came, a resume) reads its memory again (`memory/read.ts`), and the stored
+  start never holds it; a resumed cloud session keeps the new system prompt for its next calls.
   `memoryForJob` takes the workspace's, the agent's and, with `data`, every table within the
   Job's tables now (a primitive trigger's table first, the others by name), and for a Job with
   `configure` leaves out, and counts, the entries a Job without it wrote and no person accepted.

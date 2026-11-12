@@ -200,7 +200,8 @@ changes it updates this file.
   creates one, and the owner can revert or restore any write.
 - **Memory steers the agents that work on data, never one that configures until a person
   accepts it.** A Job's session start gets, after its agent's instructions, the memory it reads
-  (`memory/read.ts`, read at each start and resume with the Job's rights as they are then): the
+  (`memory/read.ts`, read whenever a start is sent, first, again or resumed, with the Job's
+  rights as they are then, and never kept in the stored start): the
   workspace's, its own agent's and, with `data`, its tables'. An entry whose current revision a
   Job without `configure` wrote, and no person accepted since, is never in the prompt of a Job
   that has `configure`: that Job is told how many were left out and reads them with

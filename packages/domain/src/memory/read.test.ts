@@ -18,9 +18,10 @@ import { acceptMemory, type MemoryEntry, memoryIndex, writeMemory } from "./stor
 /** Records the session starts the engine hands the harness. */
 class FakeAdapter implements HarnessAdapter {
   starts: { harness: Harness; start: StartParams }[] = [];
+  online = true;
   async start(harness: Harness, start: StartParams) {
     this.starts.push({ harness, start });
-    return true;
+    return this.online;
   }
   async send() {
     return true;
@@ -114,6 +115,22 @@ test("a lost session resumes with its memory as it is now, once", async () => {
   expect(resumed.systemPrompt).toMatch(/^Be brief\.\n\n# Memory\n\n/);
   expect(resumed.systemPrompt).toContain("Clients first.");
   expect(resumed.systemPrompt.match(/# Memory/g)).toHaveLength(1);
+});
+
+test("a start sent again reads memory again, with the Job's rights as they are then", async () => {
+  const { context, runnerId, ids, adapter, engine, write, job, setAgent } = await setup();
+  await write({ scope: "table", tableId: ids.clients }, "acme.md", "Acme pays late.");
+  // The runner is offline: the start isn't delivered, and the stored start holds no memory.
+  adapter.online = false;
+  const { sessionId } = await job();
+  const [stored] = await context.db.select({ start: stepRuns.start }).from(stepRuns).where(eq(stepRuns.sessionId, sessionId));
+  expect(stored!.start!.systemPrompt).toBe("Be brief.");
+  // The table is taken off the agent before the runner is back: the start it gets leaves it out.
+  await setAgent({ dataTables: [ids.matters] });
+  adapter.online = true;
+  await engine.reconcile(runnerId, []);
+  await vi.waitFor(() => expect(adapter.starts.filter((s) => s.start.sessionId === sessionId)).toHaveLength(2));
+  expect(adapter.starts.at(-1)!.start.systemPrompt).toBe("Be brief.");
 });
 
 test("an empty memory adds nothing to the prompt", async () => {
