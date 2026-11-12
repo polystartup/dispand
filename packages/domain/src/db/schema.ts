@@ -971,6 +971,8 @@ export const plugins = pgTable(
     /** The Git repository it was read from, at `sha`. */
     url: text("url"),
     sha: text("sha"),
+    /** Resolved root in the imported Git tree; null for imports made before native identity was recorded. */
+    nativeRoot: text("native_root"),
     /** How it was read: the Claude plugin layout, or Agent Plugins' (`standard`). */
     layout: text("layout").$type<"claude" | "standard">().notNull().default("claude"),
     /** Everything the plugin offered when last read, imported or not. */

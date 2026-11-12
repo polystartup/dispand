@@ -195,7 +195,7 @@ starts.
 `apps/web/public/runner/` (gitignored), which the web app serves. From the source:
 `node apps/runner/src/main.ts run`.
 
-### Native plugins (protocol 14)
+### Native plugins and workspace skills (protocol 16)
 
 Native management is opt-in on each runner. Install the maintained
 [Skillshare CLI](https://github.com/runkids/skillshare) alongside Claude Code/Codex,
@@ -214,8 +214,9 @@ must match the runner CLI's `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, stay outside ev
 runner root, and be protected like the default CLI home. No account directory or
 command comes from Dispand. Re-pairing preserves the local target choices.
 
-The owner-authenticated `runners.plugins` API accepts `list`, `discover`, `add` and
-`remove`. Discovery accepts credential-free HTTPS Git sources, optionally with
+The owner-authenticated `runners.plugins` API accepts `list`, `discover`, `add`,
+`add-workspace` and `remove`. These operations are not management tools and reject
+Job contexts. The workspace-bound `runners.workspacePlugin` API resolves the owner's resource and CLI harness, so browsers supply stable ids rather than source URLs. Discovery accepts credential-free HTTPS Git sources, optionally with
 `sourceRef`. Add selects one explicit marketplace `plugin`, a logical `name`, and
 one or both CLI harness kinds on that runner. Every mutation first uses
 `dryRun: true`; application repeats the same operation with `dryRun: false` and its
@@ -233,10 +234,36 @@ Native failures, partial success, timeouts and stale revisions require refreshin
 inventory and an explicit new decision; Dispand does not retry or fall back after
 execution. One operation runs at a time per runner, capped at two minutes.
 
-This first slice exposes runner management through the authenticated API only.
-Session loading still uses sanitized workspace skill packages. Install checkboxes,
-Harness-page actions and native-first session matching/deduplication are follow-up
-work; do not enable native plugins expecting those selection guarantees yet.
+The plugin install sheet optionally selects locally enabled runner / harness pairs.
+It imports workspace components once, then previews each complete native installation
+for explicit approval. A failed native step leaves the workspace import intact; use
+the Harness page's inventory to refresh, remove or retry, without reinstalling the
+workspace plugin. Multiple named harnesses of one kind on a runner share its native
+account. Native-only installation can register a source without importing components.
+
+The Harness page groups plugin-backed workspace skills under their whole plugin,
+with install/uninstall actions, and also offers standalone workspace packages.
+Standalone files become a skills-only plugin under the runner state directory at
+`native-skills/<native-name>/<digest>/<native-name>/`; paths and frontmatter use the
+session writer's rules. Skillshare manages its complete native lifecycle. Sources
+persist for reinstallation; Dispand does not edit native client registries itself.
+
+At each start/resume, only a matching, installed, known-enabled native binding on
+that session's harness suppresses the stripped workspace package. New installations
+use stable workspace ids; matching uses the repository URL/resolved commit/entry,
+or the standalone content digest. Renaming an item does not change its identity. Changed
+content, account context, missing/disabled bindings and inventory errors keep the
+workspace copy. Native runtime errors never retry with the stripped copy. Trust,
+authentication and harness reloads still happen in the native client.
+
+The Skillshare v0.30.6 lifecycle and binding fields were verified against its
+[official command reference](https://skillshare.runkids.cc/docs/reference/commands/plugin/)
+and [maintained implementation](https://github.com/runkids/skillshare/tree/main/internal/plugin).
+Sources without a compatible native manifest, unsupported formats and source
+selection conflicts are reported by the native preview; they keep workspace skills
+available. Existing Skillshare-managed bindings also match by their verified pinned
+source, irrespective of logical name. Unmanaged native installations with no
+verifiable source identity are not guessed or adopted.
 
 ## Updating from Settings
 

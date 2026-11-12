@@ -27,6 +27,10 @@ function byline(e: Pick<Entry, "author" | "updatedAt">): string {
   return `${who} · ${new Date(e.updatedAt).toLocaleString()}`;
 }
 
+/** Written by a Job without `configure` and not accepted since: agents that configure don't read it (design 6.5). */
+const NOT_READ = "Not read by agents that configure";
+const unread = (e: Pick<Entry, "author" | "acceptedAt" | "removedAt">) => e.author.type === "agent" && !e.author.configure && !e.acceptedAt && !e.removedAt;
+
 /** Why the procedure refused, when it says; else a generic line. */
 function reason(e: unknown, fallback: string): string {
   if (typeof e === "object" && e !== null && "code" in e) {
@@ -39,7 +43,8 @@ function reason(e: unknown, fallback: string): string {
 /**
  * A memory (design 6.5): its entries grouped by type as the index groups them, each opening in
  * a sheet with its frontmatter, body, author and time; Add, Edit and Remove; Accept and Revert
- * for an agent's entry; the removed ones with Restore.
+ * for an agent's entry (Accept only for one that agents that configure don't read); the removed
+ * ones with Restore.
  */
 export function MemoryPanel({ where }: { where: MemoryScope }) {
   const listed = useQuery(orpc.memories.list.queryOptions({ input: where }));
@@ -106,6 +111,7 @@ function EntryRow({ entry, onOpen }: { entry: Entry; onOpen: () => void }) {
         <span className="block truncate text-[13px] text-muted">{entry.description}</span>
         <span className="block truncate text-[12px] text-faint">
           <span className="font-mono">{entry.path}</span> · {byline(entry)}
+          {unread(entry) && <> · {NOT_READ}</>}
         </span>
       </button>
     </li>
@@ -199,7 +205,12 @@ function EntrySheet({ where, entry, onClose }: { where: MemoryScope; entry?: Ent
                   <dd>{TYPES.find(([t]) => t === entry.type)?.[1]}</dd>
                 </dl>
                 <pre className="whitespace-pre-wrap break-words rounded-lg border border-line bg-bg p-3 text-[13px]">{entry.body}</pre>
-                {agentEntry && !entry.acceptedAt && <p className="text-[13px] text-muted">Accepting lets this entry instruct agents that configure the workspace.</p>}
+                {unread(entry) && (
+                  <div className="text-[13px] text-muted">
+                    <p className="font-medium text-fg">{NOT_READ}</p>
+                    <p>Accepting lets this entry instruct agents that configure the workspace.</p>
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-2">
                   {entry.removedAt ? (
                     <Button disabled={busy} onClick={() => void run(() => restore.mutateAsync({ id: entry.id }), "Could not restore the entry.")}>
@@ -210,7 +221,7 @@ function EntrySheet({ where, entry, onClose }: { where: MemoryScope; entry?: Ent
                       <Button variant="outline" onClick={() => setEditing(true)}>
                         Edit
                       </Button>
-                      {agentEntry && !entry.acceptedAt && (
+                      {unread(entry) && (
                         <Button variant="outline" disabled={busy} onClick={() => void run(() => accept.mutateAsync({ id: entry.id }), "Could not accept the entry.")}>
                           Accept
                         </Button>

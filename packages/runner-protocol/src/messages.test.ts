@@ -35,6 +35,7 @@ const codexStart: SessionStart = { ...start, harness: "codex", permissionMode: "
 const serverMessages: ServerToRunner[] = [
   { type: "plugin.request", requestId: "req_native", operation: { action: "list" } },
   { type: "plugin.request", requestId: "req_preview", operation: { action: "remove", name: "demo", targets: ["codex"], dryRun: true } },
+  { type: "plugin.request", requestId: "req_workspace", operation: { action: "add-workspace", name: "dispand-skillpkg_1", targets: ["codex"], dryRun: true, files: [{ path: "writing/SKILL.md", base64: "eA==" }] } },
   { type: "session.start", start },
   { type: "session.start", start: { ...start, expectedOutputs: [] } },
   { type: "session.start", start: codexStart },
@@ -273,7 +274,7 @@ describe("bounds", () => {
         case "string": {
           if (!hasMax) unbounded.push(path);
           // Postgres text and JSONB can't hold U+0000 or a lone surrogate: every protocol string must refuse both.
-          const sample = ["a", "/a", "https://a", "a.md", "workspace"].find((candidate) => schema.safeParse(candidate).success);
+          const sample = ["a", "/a", "https://a", "a.md", "workspace", "eA=="].find((candidate) => schema.safeParse(candidate).success);
           if (sample === undefined) unbounded.push(`${path} (no valid sample)`);
           else if (schema.safeParse(`${sample}\u0000`).success) unbounded.push(`${path} (accepts NUL)`);
           else if (schema.safeParse(`${sample}\ud800`).success) unbounded.push(`${path} (accepts a lone surrogate)`);

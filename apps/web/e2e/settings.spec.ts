@@ -40,7 +40,6 @@ test("empty states, then a runner pairs, a harness goes online and an agent is c
 
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Harnesses" }).click();
   await expect(page.getByText("No harness yet")).toBeVisible();
-  await page.waitForLoadState("networkidle");
   await page.getByRole("button", { name: "New harness" }).click();
 
   const sheet = page.getByRole("dialog");
@@ -107,7 +106,6 @@ test("a harness used by an agent cannot be deleted; the status follows the runne
   await signIn(page);
 
   await page.goto("/settings/harnesses");
-  await page.waitForLoadState("networkidle");
   const row = page.getByRole("button", { name: /Claude on Workstation/ });
   await row.click();
   await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
@@ -126,7 +124,6 @@ test("the Runners tab adds, renames and deletes runners, and keeps a runner a ha
   await expect(page).toHaveURL(/\/settings\/harnesses\/runners$/);
   await expect(page.getByRole("navigation", { name: "Tabs" }).getByRole("link", { name: "Runners" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Harnesses" })).toHaveAttribute("aria-current", "page");
-  await page.waitForLoadState("networkidle");
 
   // Workstation still runs the harness: deleting it is refused, after a confirmation.
   await page.getByRole("button", { name: /Workstation/ }).click();
@@ -176,7 +173,6 @@ test("a cloud harness lists its provider's models, and its key is never shown ag
   try {
     await signIn(page);
     await page.goto("/settings/harnesses");
-    await page.waitForLoadState("networkidle");
     await page.getByRole("button", { name: "New harness" }).click();
     const sheet = page.getByRole("dialog");
     await sheet.getByRole("button", { name: /^Cloud/ }).click();
@@ -193,7 +189,7 @@ test("a cloud harness lists its provider's models, and its key is never shown ag
     const row = page.getByRole("button", { name: /Local LLM/ });
     await expect(row).toContainText("OpenAI-compatible · local-model");
     await page.reload();
-    await page.waitForLoadState("networkidle");
+    await expect(page.getByRole("button", { name: /Local LLM/ })).toBeVisible();
     expect(await page.content()).not.toContain(key);
     await page.getByRole("button", { name: /Local LLM/ }).click();
     const keyField = page.getByRole("dialog").getByLabel("API key (optional)");
@@ -207,7 +203,6 @@ test("a cloud harness lists its provider's models, and its key is never shown ag
 test("a Codex harness shows its runner's Codex version and sign-in, and only Codex's permission modes", async ({ page }) => {
   await signIn(page);
   await page.goto("/settings/harnesses");
-  await page.waitForLoadState("networkidle");
   await page.getByRole("button", { name: "New harness" }).click();
   const sheet = page.getByRole("dialog");
   await sheet.getByRole("button", { name: /^CLI/ }).click();

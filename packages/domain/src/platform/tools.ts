@@ -368,6 +368,8 @@ export const NOT_TOOLS: string[] = [
   // Native installation is an owner action, never a Job tool.
   "runners.plugins",
   "runners.installUpdate",
+  "runners.workspacePlugin",
+  "runners.workspaceSkills",
   "harnesses.create",
   "harnesses.update",
   "harnesses.delete",
@@ -443,6 +445,10 @@ export const NOT_TOOLS: string[] = [
   "questions.answer",
   // Audit: the owner's page for now (an agent's read comes with its tool); where traces are opened.
   "audit.traceUrl",
+  // How long Audit is kept: shortening it erases the trail of what agents did, so no agent reads
+  // or changes it, not even through a proposal.
+  "workspace.auditRetention",
+  "workspace.setAuditRetention",
   // The owner's memory pages; agents have their own memory tools, gated by their targets.
   "memories.list",
   "memories.get",

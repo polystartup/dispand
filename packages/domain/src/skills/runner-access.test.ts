@@ -25,6 +25,8 @@ test("a package an agent on this runner uses is sent; on another runner it is no
   await call(router.agents.create, { name: "A", harnessId: "harness_1", systemPrompt: "", skillPackageIds: [packageId] }, { context });
   expect(await packageForRunner(context.db, "runner_1", packageId)).toEqual({
     name: "hello-check",
+    nativePlugin: `dispand-${packageId}`,
+    nativeKey: expect.stringMatching(/^workspace:[a-f0-9]{64}$/),
     files: [{ path: "hello-check/SKILL.md", base64: expect.any(String) }],
   });
   expect(await packageForRunner(context.db, "runner_2", packageId)).toBeNull();

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ChevronLeft, Ellipsis, Trash2, Zap } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Tabs as TabsPrimitive } from "radix-ui";
 import type { RowQuery } from "@dispand/domain/data/query";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -9,8 +10,15 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Grid } from "../components/data/Grid.tsx";
 import { PrimitiveDialog } from "../components/data/PrimitiveDialog.tsx";
 import { RowDetail } from "../components/data/RowDetail.tsx";
+import { MemoryPanel } from "../components/memory/MemoryPanel.tsx";
+import { StateTabs } from "../components/settings/Tabs.tsx";
 import { type DataSearch, parseDataSearch, toDataSearch } from "../lib/data-search.ts";
 import { orpc } from "../lib/api.ts";
+
+const TABS = [
+  ["rows", "Rows"],
+  ["memory", "Memory"],
+] as const;
 
 export const Route = createFileRoute("/_app/settings/data/$tableId")({
   // Kept as given; `parseDataSearch` drops what doesn't parse, so an old link still opens the table.
@@ -31,6 +39,7 @@ function TablePage() {
   const [name, setName] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [settingEvents, setSettingEvents] = useState(false);
+  const [shown, setShown] = useState<(typeof TABS)[number][0]>("rows");
   useEffect(() => setName(table.data?.name ?? ""), [table.data?.name]);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: orpc.tables.key() });
@@ -103,16 +112,23 @@ function TablePage() {
           {rename.error.message}
         </p>
       )}
-      <Grid
-        tableId={tableId}
-        fields={table.data.fields}
-        onSchemaChanged={schemaChanged}
-        query={query}
-        onQueryChange={setQuery}
-        onOpenRow={openRow}
-        requiredParent={table.data.parent?.required ? table.data.fields.find((f) => f.id === table.data.parent!.fieldId) : undefined}
-      />
-      {row && <RowDetail key={row} tableId={tableId} rowId={row} fields={table.data.fields} onClose={() => openRow(undefined)} />}
+      <StateTabs label="Table" tabs={TABS} selected={shown} onSelect={setShown}>
+        <TabsPrimitive.Content value="rows">
+          <Grid
+            tableId={tableId}
+            fields={table.data.fields}
+            onSchemaChanged={schemaChanged}
+            query={query}
+            onQueryChange={setQuery}
+            onOpenRow={openRow}
+            requiredParent={table.data.parent?.required ? table.data.fields.find((f) => f.id === table.data.parent!.fieldId) : undefined}
+          />
+          {row && <RowDetail key={row} tableId={tableId} rowId={row} fields={table.data.fields} onClose={() => openRow(undefined)} />}
+        </TabsPrimitive.Content>
+        <TabsPrimitive.Content value="memory">
+          <MemoryPanel key={tableId} where={{ scope: "table", tableId }} />
+        </TabsPrimitive.Content>
+      </StateTabs>
 
       {settingEvents && <PrimitiveDialog table={table.data} open={settingEvents} onOpenChange={setSettingEvents} onSaved={schemaChanged} />}
 

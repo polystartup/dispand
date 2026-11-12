@@ -600,3 +600,21 @@ test("revoking a grant during skill fetching narrows the start before the CLI la
   expect(await hook({ hook_event_name: "PreToolUse", tool_name: "mcp__mail__draft_email", tool_input: {}, tool_use_id: "tu", session_id: "ses_1", transcript_path: "", cwd: base } as never, "tu", { signal: new AbortController().signal })).toMatchObject({ hookSpecificOutput: { permissionDecision: "ask" } });
   await sessions.shutdown();
 });
+
+test("a verified native installation replaces its injected copy; disabling it restores the workspace package", async () => {
+  const stateDir = await realpath(await mkdtemp(join(tmpdir(), "native-skills-")));
+  made.push(stateDir);
+  const fetch = vi.fn(async () => [{ name: "hello-check", nativePlugin: "dispand-plugin_1", nativeKey: "source-key", files: [{ path: "hello-check/SKILL.md", content: Buffer.from("---\nname: hello-check\n---\n") }] }]);
+  const { events, fake, sessions } = await setup({ server: "https://dispand.test", token: "t0ken", stateDir, fetch });
+  const request = vi.fn()
+    .mockResolvedValueOnce({ packages: [{ name: "dispand-plugin_1", sourceKey: "source-key", harness: "claude-code", installed: true, enabled: true, pending: false }] })
+    .mockResolvedValueOnce({ packages: [{ name: "dispand-plugin_1", sourceKey: "source-key", harness: "claude-code", installed: true, enabled: false, pending: false }] });
+  (sessions as unknown as { options: SessionsOptions }).options.nativePlugins = { request };
+  for (const [sessionId, runKey] of [["ses_native", "run_native"], ["ses_fallback", "run_fallback"]]) {
+    await sessions.handle({ type: "session.start", start: { ...start(sessionId!, runKey!), skills: [{ packageId: "pkg_1", name: "hello-check" }] } });
+    await ended(events, sessionId!);
+  }
+  expect(fake.calls[0]!.plugins).toBeUndefined();
+  expect(fake.calls[1]!.plugins).toHaveLength(1);
+  expect(request).toHaveBeenCalledTimes(2);
+});

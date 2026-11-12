@@ -7,6 +7,7 @@ import { authed, base } from "../rpc/context.ts";
 import { newId } from "../ids.ts";
 import { RunnerRequestFailed } from "./hub.ts";
 import { createRunner, revokeRunner } from "./pairing.ts";
+import { workspacePlugin, workspaceSkills } from "./workspace-plugin.ts";
 
 const owner = base.use(authed);
 
@@ -93,4 +94,4 @@ const installUpdate = owner.input(z.object({ runnerId: z.string() })).handler(as
   if (!context.hub.updates.request(runner.id)) throw new ORPCError("CONFLICT", { message: "No update available or runner unreachable" });
 });
 
-export const runners = { create, list, update, revoke, plugins, installUpdate };
+export const runners = { create, list, update, revoke, plugins, workspacePlugin, workspaceSkills, installUpdate };
