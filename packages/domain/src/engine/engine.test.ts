@@ -1302,14 +1302,18 @@ test("recover continues a Job after a restart", async () => {
   expect((await runOf(engine2, runId)).run.status).toBe("succeeded");
 });
 
-test("deleting an agent deletes its finished Jobs", async () => {
+test("deleting an agent keeps its finished Jobs, their link to it cleared and its name kept", async () => {
   const { context, adapter, engine, emit, agent, workflow, trigger } = await jobSetup();
   const runId = await engine.startJob(trigger.id, context.ownerId);
   await emit(adapter.starts[0]!.start.sessionId, { type: "result", text: "Sorted." });
   expect((await runOf(engine, runId)).run.status).toBe("succeeded");
   await call(router.workflows.delete, { id: workflow.id }, { context });
+  await call(router.agents.update, { id: agent.id, name: "Order drafter", harnessId: agent.harnessId, systemPrompt: "" }, { context });
   await call(router.agents.delete, { id: agent.id }, { context });
-  expect(await engine.db.select().from(runs)).toEqual([]);
+  expect(await engine.db.select({ id: runs.id, agentId: runs.agentId, agentName: runs.agentName, status: runs.status }).from(runs)).toEqual([
+    { id: runId, agentId: null, agentName: "Order drafter", status: "succeeded" },
+  ]);
+  expect((await runOf(engine, runId)).steps).toHaveLength(1);
 });
 
 // Stopping a run by hand.

@@ -21,6 +21,7 @@ import {
   triggers as triggersTable,
   type PluginCreated,
 } from "../db/schema.ts";
+import { lockConsults } from "../engine/consults.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { MAX_DESCRIPTION, PackageError, SKILL_NAME, validatePackage } from "../skills/package.ts";
@@ -560,6 +561,8 @@ const uninstall = owner.input(Id).handler(async ({ input, context }) => {
     }
   }
   const out = await context.db.transaction(async (tx) => {
+    // The consult lock first, as `agents.update` takes it before the components it attaches (`deleteAgents` takes it again).
+    await lockConsults(tx, context.ownerId);
     const row = await findPlugin(tx, context.ownerId, input.id, true);
     // Its package, tools and agents go with it (cascade), but not from under anything outside it.
     await tx.select({ id: skillPackages.id }).from(skillPackages).where(eq(skillPackages.pluginId, row.id)).for("update");
