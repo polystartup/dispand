@@ -29,6 +29,7 @@ import {
   workflowVersions,
   type AgentSnapshot,
   type AnsweredBy,
+  type EventActor,
   type JobCause,
   type PendingAction,
   type QueueClass,
@@ -285,8 +286,33 @@ function holdsSlot(step: Pick<StepRow, "working" | "harnessId">): boolean {
   return step.working || !step.harnessId;
 }
 
-/** A consult ended: how, and how long its asker waited (never its question or its answer). */
-function consultEnded(q: QuestionRow, outcome: "answered" | "refused" | "failed" | "stopped") {
+/**
+ * The consulted agent of a consult row, for its Audit rows: its id only when it names an agent of
+ * the owner, since the asking agent wrote it.
+ */
+async function consultedAgent(tx: Tx, q: QuestionRow): Promise<{ agentId?: string }> {
+  if (q.payload.kind !== "consult") return {};
+  const [row] = await tx
+    .select({ id: agents.id })
+    .from(agents)
+    .where(and(eq(agents.id, q.payload.agentId), eq(agents.ownerId, q.ownerId)));
+  return row ? { agentId: row.id } : {};
+}
+
+/** A consult ended, in `tx`: how, and how long its asker waited (never its question or its answer). `by`: the consulted Job that answered. */
+async function consultEnded(tx: Tx, q: QuestionRow, outcome: "answered" | "refused" | "failed" | "stopped", by?: AnsweredBy | null) {
+  await recordAudit(tx, {
+    ownerId: q.ownerId,
+    actor: { type: "job", runId: by?.type === "agent" ? by.runId : q.runId },
+    jobId: q.runId,
+    action: "consult.ended",
+    resource: { type: "consult", id: q.id },
+    details: {
+      ...(await consultedAgent(tx, q)),
+      ...(q.consultRunId ? { consultedJobId: q.consultRunId } : {}),
+      outcome,
+    },
+  });
   counts.counter("dispand.consults.ended").add(1, { "dispand.consult.outcome": outcome });
   counts.histogram("dispand.consult.wait", { unit: "ms", description: "From a consult to its answer, or its end" }).record(Date.now() - q.createdAt.getTime(), { "dispand.consult.outcome": outcome });
 }
@@ -749,11 +775,12 @@ export class Engine {
         .returning();
       if (!q) return undefined;
       // An agent's answer is its Job's write.
-      await recordInteraction(tx, q, "answered", by?.type === "agent" ? { type: "job", runId: by.runId } : (by ?? { type: "user", userId: q.ownerId }));
+      const actor: Exclude<EventActor, { type: "step" }> = by?.type === "agent" ? { type: "job", runId: by.runId } : (by ?? { type: "user", userId: q.ownerId });
+      await recordInteraction(tx, q, "answered", actor);
       // A checkpoint's Approval: no session waits on it, its root does.
       if (q.rootId) {
         out.push({ type: "question", question: questionView(q) });
-        return { q, step: null, root: await this.settleRoot(tx, q.rootId, answer) };
+        return { q, step: null, root: await this.settleRoot(tx, q, answer, actor) };
       }
       // A consult's Approval: no session asked it, so none is sent its answer; the consult goes on or ends.
       if (q.consultId) {
@@ -934,7 +961,7 @@ export class Engine {
       .where(and(eq(questions.id, questionId), eq(questions.status, "pending")))
       .returning();
     if (!q) return;
-    consultEnded(q, outcome);
+    await consultEnded(tx, q, outcome, by);
     await this.expireApprovals(tx, [q.id], out);
     const step = await this.toSession(tx, q, out);
     // It holds a slot: its answers go once `tx` commits, as a step handed one does (`handOver`).
@@ -963,7 +990,7 @@ export class Engine {
     await this.expireApprovals(tx, expired.filter((q) => q.kind === "consult").map((q) => q.id), out);
     for (const q of expired) {
       if (q.kind !== "consult") continue;
-      consultEnded(q, "stopped");
+      await consultEnded(tx, q, "stopped");
       if (!q.consultRunId) continue;
       const [going] = await tx.select({ id: runs.id }).from(runs).where(and(eq(runs.id, q.consultRunId), inArray(runs.status, ACTIVE_RUN))).for("update");
       // Stopped for the reason its asker was, if any (a declined checkpoint, a consult taken back).
@@ -1083,12 +1110,30 @@ export class Engine {
    * once it commits, or by the next reconcile). A stopped root makes no Job (`createJob`), and none of its sessions works
    * again (`rootGoing`), so nothing of it is replayed after a reconnect or a restart.
    */
-  private async settleRoot(tx: Tx, rootId: string, answer: Answer): Promise<{ stopped?: { outs: Map<string, Out[]>; sessions: StepRow[] }; goOn?: string }> {
+  private async settleRoot(
+    tx: Tx,
+    q: QuestionRow,
+    answer: Answer,
+    actor: AuditActor,
+  ): Promise<{ stopped?: { outs: Map<string, Out[]>; sessions: StepRow[] }; goOn?: string }> {
+    const rootId = q.rootId!;
     const decision = answer.kind === "permission" ? answer.decision : "deny";
-    counts.counter("dispand.checkpoints.answered").add(1, { "dispand.checkpoint.answer": decision === "allow-always" ? "dont-ask" : decision === "allow" ? "approve" : "decline" });
+    const answered = decision === "allow-always" ? "dont-ask" : decision === "allow" ? "approve" : "decline";
+    counts.counter("dispand.checkpoints.answered").add(1, { "dispand.checkpoint.answer": answered });
     const [root] = await tx.select().from(roots).where(eq(roots.id, rootId)).for("update");
     if (!root || root.state !== "paused") return {};
+    // The root's row, besides its Approval's `question.answered`: on a decline, with what it stopped.
+    const audited = (details: { events?: number; jobs?: number } = {}) =>
+      recordAudit(tx, {
+        ownerId: root.ownerId,
+        actor,
+        jobId: q.runId,
+        action: "checkpoint.answered",
+        resource: { type: "root", id: rootId },
+        details: { questionId: q.id, decision: answered, ...details },
+      });
     if (decision !== "deny") {
+      await audited();
       await tx
         .update(roots)
         .set({ state: "going", countedFrom: root.jobs, ...(decision === "allow-always" ? { dontAsk: true } : {}) })
@@ -1104,12 +1149,17 @@ export class Engine {
       .update(eventFires)
       .set({ status: "stopped", message: ROOT_STOPPED })
       .where(and(eq(eventFires.status, "deferred"), inArray(eventFires.eventId, held)));
-    await tx.update(events).set({ processedAt: now }).where(and(eq(events.rootId, rootId), isNull(events.processedAt)));
+    const dropped = await tx
+      .update(events)
+      .set({ processedAt: now })
+      .where(and(eq(events.rootId, rootId), isNull(events.processedAt)))
+      .returning({ id: events.id });
     const going = await tx
       .select({ id: runs.id })
       .from(runs)
       .where(and(eq(runs.rootId, rootId), inArray(runs.status, ACTIVE_RUN)))
       .for("update");
+    await audited({ events: dropped.length, jobs: going.length });
     const outs = new Map<string, Out[]>();
     const sessions: StepRow[] = [];
     for (const { id } of going) {
@@ -1674,6 +1724,14 @@ export class Engine {
           // The resumed session asks for itself now: questions of the session it replaced expire.
           await this.expire(tx, and(eq(questions.stepRunId, step.id), eq(questions.orphaned, true))!, out);
           if (row.kind === "consult") {
+            await recordAudit(tx, {
+              ownerId: row.ownerId,
+              actor: { type: "job", runId: row.runId },
+              jobId: row.runId,
+              action: "consult.asked",
+              resource: { type: "consult", id: row.id },
+              details: await consultedAgent(tx, row),
+            });
             counts.counter("dispand.consults.asked").add(1);
             await this.openConsult(tx, row, out);
           }
