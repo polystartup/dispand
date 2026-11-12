@@ -15,6 +15,8 @@ const stateText = { waiting: "waiting", answered: "answered", failed: "no answer
 export function RunConsults({ runId, live }: { runId: string; live: boolean }) {
   const consults = useQuery({
     ...orpc.jobs.consults.queryOptions({ input: { runId } }),
+    // The Job ending is read once more, whatever the polling had reached: its consults ended with it.
+    queryKey: [...orpc.jobs.consults.queryKey({ input: { runId } }), live],
     // A Job still going may ask, or be answered, at any time.
     refetchInterval: live ? 5000 : false,
   });

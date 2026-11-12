@@ -30,9 +30,10 @@ const asked = (state: string, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+const client = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
 function mount(live = false) {
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={client()}>
       <RunConsults runId="run_1" live={live} />
     </QueryClientProvider>,
   );
@@ -72,4 +73,19 @@ test("a Job with no consult shows nothing", async () => {
   mount();
   await vi.waitFor(() => expect(fake.jobs.consults).toHaveBeenCalled());
   expect(screen.queryByRole("region")).toBeNull();
+});
+
+test("the Job ending reads its consults once more", async () => {
+  const queries = client();
+  const view = (live: boolean) => (
+    <QueryClientProvider client={queries}>
+      <RunConsults runId="run_1" live={live} />
+    </QueryClientProvider>
+  );
+  fake.jobs.consults.mockResolvedValue({ asked: [asked("waiting")], answering: null });
+  const { rerender } = render(view(true));
+  expect(await screen.findByText("waiting")).toBeTruthy();
+  fake.jobs.consults.mockResolvedValue({ asked: [asked("ended")], answering: null });
+  rerender(view(false));
+  expect(await screen.findByText("ended")).toBeTruthy();
 });
