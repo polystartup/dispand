@@ -30,7 +30,7 @@ export function StatusDot({ status }: { status: keyof typeof statusLabels }) {
 /** For each runner too old to connect: the command that updates it on its machine. */
 export function OutdatedRunners({ runners }: { runners: { id: string; name: string; status: string; updateCommand?: string; runnerUpdate?: string }[] }) {
   return runners
-    .filter((r) => r.status === "outdated" && (!r.runnerUpdate || r.runnerUpdate === "unavailable"))
+    .filter((r) => r.status === "outdated" && !["available", "updating", "current"].includes(r.runnerUpdate ?? ""))
     .map((r) => (
       <section key={r.id} role="status" className="mb-4 space-y-2 rounded-xl border border-line p-4">
         <p className="text-[14px]">

@@ -1,5 +1,7 @@
 import { emitLog } from "../telemetry/index.ts";
 
+const outcome = (runnerId: string, result: string) => emitLog("runners", result === "failed" ? "warn" : "info", "runner update", { "dispand.runner.id": runnerId, "dispand.result": result });
+
 type State = { buildId: string; seen: number; started?: number; delivered?: boolean; failed: boolean };
 
 /** Update control v1, independent of the session protocol so incompatible runners can update. */
@@ -11,13 +13,16 @@ export class RunnerUpdates {
     const previous = this.states.get(runnerId);
     const state: State = { ...previous, buildId, seen: Date.now(), failed };
     if (buildId === this.buildId) {
+      if (previous?.started) outcome(runnerId, "completed");
       delete state.started;
       delete state.delivered;
     }
+    if (failed && previous?.started && !previous.failed) outcome(runnerId, "failed");
     this.states.set(runnerId, state);
     if (!state.started || state.delivered || Date.now() - state.started >= 180_000) return false;
     state.failed = false;
     state.delivered = true;
+    outcome(runnerId, "delivered");
     return true;
   }
 
@@ -25,6 +30,10 @@ export class RunnerUpdates {
     const s = this.states.get(runnerId);
     if (!this.buildId || !s) return "unavailable";
     if (s.started && Date.now() - s.started < 180_000 && !s.failed) return "updating";
+    if (s.started && !s.failed) {
+      s.failed = true;
+      outcome(runnerId, "failed");
+    }
     if (Date.now() - s.seen > 30_000) return s.started ? "failed" : "unavailable";
     if (s.buildId === this.buildId) return "current";
     return s.failed || s.started ? "failed" : "available";
@@ -38,7 +47,7 @@ export class RunnerUpdates {
     s.started = Date.now();
     s.delivered = false;
     s.failed = false;
-    emitLog("runners", "info", "runner update requested", { "dispand.runner.id": runnerId });
+    outcome(runnerId, "requested");
     return true;
   }
 }
