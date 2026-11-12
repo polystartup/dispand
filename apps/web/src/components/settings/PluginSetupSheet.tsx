@@ -26,7 +26,8 @@ const OUTCOMES: Record<Outcome["outcome"], string> = { made: "made", refused: "r
 export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose: () => void }) {
   const queryClient = useQueryClient();
   const primitives = plugin.definitions.primitives;
-  const [picked, setPicked] = useState(() => new Set(primitives.filter((d) => !d.setUp).map((d) => d.name)));
+  // All ticked: a table made by a run that stopped may still lack its fields, and a run only adds what is missing.
+  const [picked, setPicked] = useState(() => new Set(primitives.map((d) => d.name)));
   const pick = { primitives: primitives.map((d) => d.name).filter((n) => picked.has(n)) };
   const preview = useQuery({ ...orpc.plugins.setupPreview.queryOptions({ input: { id: plugin.id, pick } }), enabled: picked.size > 0, retry: false });
   const setUp = useMutation(
@@ -80,7 +81,7 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
                 <ul className="space-y-1">
                   {primitives.map((d) => (
                     <li key={d.name}>
-                      <Check checked={picked.has(d.name)} onChange={() => setPicked((prev) => toggled(prev, d.name))} label={d.name} detail={d.setUp ? "Set up: picking it again adds what is missing" : "Not set up yet"} />
+                      <Check checked={picked.has(d.name)} onChange={() => setPicked((prev) => toggled(prev, d.name))} label={d.name} detail={d.setUp ? "Made: setting it up again adds what is missing" : "Not set up yet"} />
                     </li>
                   ))}
                 </ul>

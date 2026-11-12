@@ -37,7 +37,7 @@ function mount() {
   );
 }
 
-test("the tables not set up are ticked, their items are shown as a proposal's, and a stopped run says what stopped it", async () => {
+test("every table is ticked, what is missing is shown as a proposal's items, and a stopped run says what stopped it", async () => {
   fake.plugins.setupPreview.mockResolvedValue({
     items: [
       { tool: "tables_create", input: { name: "Matters" }, used: false, failed: false, refs: [], creates: "table", createdId: null },
@@ -54,17 +54,17 @@ test("the tables not set up are ticked, their items are shown as a proposal's, a
     waiting: [],
   });
   mount();
-  expect((screen.getByRole("checkbox", { name: /Clients/ }) as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByRole("checkbox", { name: /Clients/ }) as HTMLInputElement).checked).toBe(true);
   expect((screen.getByRole("checkbox", { name: /Matters/ }) as HTMLInputElement).checked).toBe(true);
   const items = await screen.findByRole("list", { name: "What is proposed" });
-  expect(fake.plugins.setupPreview.mock.calls[0]![0]).toEqual({ id: "plugin_1", pick: { primitives: ["Matters"] } });
+  expect(fake.plugins.setupPreview.mock.calls[0]![0]).toEqual({ id: "plugin_1", pick: { primitives: ["Clients", "Matters"] } });
   expect(items.textContent).toContain("Create a table");
   expect(items.textContent).toContain("the table item 1 creates");
   expect(items.textContent).toContain("Clients");
   expect(screen.getByRole("list", { name: "Not made" }).textContent).toContain("Every table has a Name field already");
 
   await userEvent.click(screen.getByRole("button", { name: "Set up" }));
-  expect(fake.plugins.setUp.mock.calls[0]![0]).toEqual({ id: "plugin_1", pick: { primitives: ["Matters"] } });
+  expect(fake.plugins.setUp.mock.calls[0]![0]).toEqual({ id: "plugin_1", pick: { primitives: ["Clients", "Matters"] } });
   const made = await screen.findByRole("region", { name: "What was made" });
   expect(made.textContent).toContain("Table Matters: refused");
   expect(made.textContent).toContain("A table is already called “Matters”");
