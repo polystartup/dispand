@@ -35,8 +35,14 @@ test("an owner has no Assistant until one is made, then exactly one, however man
 
   const rows = await context.db.select().from(agents).where(eq(agents.ownerId, context.ownerId));
   expect(rows).toEqual([expect.objectContaining({ id: first.agentId, name: "Assistant", builtIn: "assistant", bundles: ["data", "configure"], dataTables: "all", systemPrompt: "" })]);
-  const chats = await context.db.select().from(triggers).where(eq(triggers.agentId, first.agentId));
-  expect(chats).toEqual([expect.objectContaining({ id: first.triggerId, kind: "manual", enabled: true, config: { kind: "manual", placement: "chat" } })]);
+  const made = await context.db.select().from(triggers).where(eq(triggers.agentId, first.agentId));
+  expect(made).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: first.triggerId, kind: "manual", enabled: true, config: { kind: "manual", placement: "chat" } }),
+      expect.objectContaining({ id: first.reviewTriggerId, kind: "schedule", enabled: false, builtIn: "review" }),
+    ]),
+  );
+  expect(made).toHaveLength(2);
   expect(await call(router.agents.get, { id: first.agentId }, { context })).toMatchObject({ builtIn: "assistant" });
 });
 
@@ -151,7 +157,37 @@ test("at start, every owner's Assistant gets the chat it lacks, on its own harne
   await context.db.insert(agents).values({ id: "agent_old", ownerId: context.ownerId, name: "Assistant", harnessId: harness.id, systemPrompt: "", bundles: ["data", "configure"], builtIn: "assistant" });
   await ensureAssistants(context.db);
   const ids = await call(router.agents.assistant, undefined, { context });
-  expect(ids).toEqual({ agentId: "agent_old", triggerId: expect.stringMatching(/^trigger_/) });
+  expect(ids).toEqual({ agentId: "agent_old", triggerId: expect.stringMatching(/^trigger_/), reviewTriggerId: expect.stringMatching(/^trigger_/) });
   await ensureAssistants(context.db);
-  expect(await context.db.select().from(triggers).where(eq(triggers.agentId, "agent_old"))).toHaveLength(1);
+  expect(await context.db.select().from(triggers).where(eq(triggers.agentId, "agent_old"))).toHaveLength(2);
+});
+
+test("the Assistant's review exists off, Mondays at 09:00, one at a time; the owner switches and edits it, never deletes it", async () => {
+  const { context, harness, agentId, reviewTriggerId } = await withAssistant();
+  const review = await call(router.triggers.get, { id: reviewTriggerId! }, { context });
+  expect(review).toMatchObject({ name: "Review the workspace", kind: "schedule", enabled: false, concurrency: "one-at-a-time", config: { kind: "schedule", cron: "0 9 * * 1" } });
+  expect(review.instructions).toContain("workspace_review");
+  expect(review).not.toHaveProperty("nextFireAt");
+
+  // The owner turns it on in their time zone: it is due next Monday at 09:00 there.
+  const on = await call(router.triggers.update, { id: reviewTriggerId!, enabled: true, config: { kind: "schedule", cron: "0 9 * * 1", timezone: "America/New_York" } }, { context });
+  expect(on).toMatchObject({ enabled: true, config: { timezone: "America/New_York" } });
+  expect(on.nextFireAt).toBeInstanceOf(Date);
+  await call(router.triggers.update, { id: reviewTriggerId!, name: "Monday review", instructions: "Look at the tables only." }, { context });
+  // Made again at start, it stays as the owner left it, and is not doubled.
+  await ensureAssistant(context.db, context.ownerId, harness.id);
+  const rows = await context.db.select().from(triggers).where(eq(triggers.agentId, agentId));
+  expect(rows.filter((t) => t.kind === "schedule")).toEqual([expect.objectContaining({ id: reviewTriggerId, name: "Monday review", enabled: true })]);
+
+  await expect(call(router.triggers.delete, { id: reviewTriggerId! }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: "The Assistant's review can't be deleted: turn it off instead" });
+  await call(router.triggers.update, { id: reviewTriggerId!, enabled: false }, { context });
+  expect((await call(router.triggers.get, { id: reviewTriggerId! }, { context })).enabled).toBe(false);
+  // Nor through a proposal.
+  const { triggerId } = await call(router.agents.assistant, undefined, { context }).then((a) => a!);
+  const job = { runId: (await call(router.jobs.start, { triggerId }, { context })).runId, ownerId: context.ownerId, agentId };
+  const proposed = await callPlatformTool(context, job, "propose", { items: [{ tool: "triggers_delete", input: { id: reviewTriggerId } }] });
+  expect(JSON.stringify(proposed)).toContain("The Assistant's review can't be deleted");
+  // A schedule the owner adds to the Assistant is theirs to delete.
+  const extra = await call(router.triggers.create, { agentId, name: "Daily", instructions: "Look.", config: { kind: "schedule", cron: "0 8 * * *", timezone: "Europe/Paris" } }, { context });
+  await call(router.triggers.delete, { id: extra.id }, { context });
 });

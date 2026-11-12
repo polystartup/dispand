@@ -8,6 +8,7 @@ import type { Bundle, TableScope } from "./bundles.ts";
 import { INTERACTION } from "../triggers/model.ts";
 import { ApplyInput, CREATES, ProposeInput, type ProposalName } from "./proposals.ts";
 import type { JobIdentity, PlatformApp, ToolResult } from "./call.ts";
+import { signalsWithin } from "../assistant/review.ts";
 import { AnswerInput, answerQuestion, getQuestion, GetInput, listQuestions, ListInput } from "../questions/inbox.ts";
 
 export { BUNDLES, type Bundle, type TableScope } from "./bundles.ts";
@@ -213,6 +214,10 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("jobs.list", "configure", "Lists the latest Jobs, newest first, of one agent or trigger or with one status if given: what made each, how it went, when, and the ids of its Questions and Approvals still waiting.", { tables: none }),
   tool("jobs.get", "configure", "Gives one Job with its transcript (a page of its messages, oldest first, and how many there are) and its Questions and Approvals with their answers. Only an agent on every table reads it.", { tables: wholeWorkspace }),
   tool("jobs.def", "configure", "Gives a Job's definition as it was created: its agent, its trigger and the instructions it was given. Only an agent on every table reads it.", { tables: wholeWorkspace }),
+  tool("workspace.review", "configure", "Reviews the workspace for what could be better: agents with no trigger, tables no agent works on, tools waiting for their owner to sign in, Questions and Approvals open more than three days, and buttons pressed at the same hour often enough to be a schedule. Each signal has the ids it names and a key: write the key in the request_approval message of its proposal, so that once the owner declines it, it isn't raised again for 30 days.", {
+    tables: none,
+    filter: signalsWithin,
+  }),
   tool("workflows.list", "configure", "Lists the workflows, with their ids, names and when each was last changed.", { tables: none }),
   tool("tools.list", "configure", "Lists the tools (MCP servers) agents can be given, with their ids, addresses and actions. Header values are never shown.", { tables: none }),
   tool("tools.get", "configure", "Gives one tool by its id.", { tables: none }),
