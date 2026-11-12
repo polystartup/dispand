@@ -123,11 +123,21 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await expect(page.getByRole("button", { name: /^writing-kit/ })).toContainText("From plugin writing-kit");
   await expect(page.getByText("Read-only")).toBeVisible();
 
-  // Removing it takes its skills and tools; skills.spec.ts and tools.spec.ts start from empty lists.
+  // Removing it takes its skill package, which no agent uses, and keeps its tool, then the
+  // owner's own: deleted here, since skills.spec.ts and tools.spec.ts start from empty lists.
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Plugins" }).click();
   await page.getByRole("link", { name: "Installed", exact: true }).click();
+  await expect(row).toContainText("Removing it: its agents, tools and what it set up stay in your workspace");
   await page.getByRole("button", { name: "Remove writing-kit" }).click();
   await expect(page.getByText("No plugin installed")).toBeVisible();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Skills" }).click();
+  await expect(page.getByRole("button", { name: /^writing-kit/ })).toBeHidden();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Tools" }).click();
+  await expect(page.getByRole("button", { name: /^docs/ })).not.toContainText("from plugin");
+  await page.getByRole("button", { name: /^docs/ }).click();
+  await page.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("No tool yet")).toBeVisible();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Plugins" }).click();
   await page.getByRole("link", { name: "Discover", exact: true }).click();
   await page.getByRole("button", { name: "Remove acme-plugins" }).click();
   await expect(page.getByRole("button", { name: "Remove acme-plugins" })).toBeHidden();

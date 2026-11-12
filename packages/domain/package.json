@@ -8,6 +8,7 @@
     "./upgrade": "./src/runners/upgrade.ts",
     "./agents/tools": "./src/agents/tools.ts",
     "./platform/bundles": "./src/platform/bundles.ts",
+    "./memory/model": "./src/memory/model.ts",
     "./data/*": "./src/data/*.ts",
     "./workflows/*": "./src/workflows/*.ts",
     "./pages/*": "./src/pages/*.ts",

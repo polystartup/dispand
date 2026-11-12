@@ -493,6 +493,7 @@ export class Engine {
       tools: tools.map(({ toolId, name }) => ({ toolId, name })),
       bundles: agent.bundles,
       tables: agent.dataTables,
+      selfLearning: agent.selfLearning,
       consults: await consultsOf(tx, agentId),
     };
     const def = jobDef({ agent: snapshot, trigger: trigger ?? null });

@@ -137,7 +137,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
           <SheetTitle className="text-[20px] tracking-tight">{current ? current.name : "Add MCP server"}</SheetTitle>
           <SheetDescription>
             An MCP server reached over HTTP. It acts as whatever account its headers, or its sign-in, authorize.
-            {current?.plugin && ` From the plugin ${current.plugin.name}: removed with it.`}
+            {current?.plugin && ` From the plugin ${current.plugin.name}: removing the plugin keeps it.`}
           </SheetDescription>
         </SheetHeader>
         <div className="space-y-8 px-6 pb-6">
@@ -262,7 +262,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
               <Button type="button" variant="ghost" onClick={onClose}>
                 {current ? "Close" : "Cancel"}
               </Button>
-              {current && !current.plugin && (
+              {current && (
                 <Button type="button" variant="ghost" className="ml-auto text-danger" disabled={busy} onClick={() => void remove()}>
                   Delete
                 </Button>

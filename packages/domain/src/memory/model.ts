@@ -24,6 +24,13 @@ export { MAX_MEMORY_PATH_LENGTH };
 /** Entries one scope holds at most (removed ones aside), so its index stays under 35,000 characters. */
 export const MAX_MEMORY_ENTRIES = 100;
 
+/**
+ * Where an agent's Jobs may write memory (its self-learning switch): its own memory, the memory of
+ * the tables it works on, the workspace's. Empty: it learns nothing.
+ */
+export const MEMORY_TARGETS = ["agent", "data", "workspace"] as const;
+export type MemoryTarget = (typeof MEMORY_TARGETS)[number];
+
 export type MemoryScope = { scope: "workspace" } | { scope: "table"; tableId: string } | { scope: "agent"; agentId: string };
 
 /** Who wrote a revision: a person, or a Job (its agent and run, and whether it had `configure`). */

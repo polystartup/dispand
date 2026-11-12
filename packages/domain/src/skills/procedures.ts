@@ -134,17 +134,18 @@ const update = owner.input(Fields.extend(PackageId.shape)).handler(async ({ inpu
       refuseReadOnly(row);
       refuseReservedName(fields.name);
       await requireTools(tx, context.ownerId, fields.requiredToolIds);
-      let extra;
-      if (fields.files) extra = decoded(fields.files);
-      else {
-        // Keeps the current files but SKILL.md, under the (maybe new) name.
-        const prefix = `${row.name}/`;
-        const current = await tx.select().from(skillFiles).where(eq(skillFiles.packageId, packageId));
-        extra = current
-          .filter((f) => f.path.startsWith(prefix) && f.path !== `${prefix}SKILL.md`)
-          .map((f) => ({ path: f.path.slice(prefix.length), content: f.content }));
+      const prefix = `${row.name}/`;
+      const current = await tx.select().from(skillFiles).where(eq(skillFiles.packageId, packageId));
+      // A package kept from an uninstalled plugin may hold other skills: they stay as they are.
+      const others = current.filter((f) => !f.path.startsWith(prefix)).map((f) => ({ path: f.path, content: f.content }));
+      if (others.some((f) => f.path.startsWith(`${fields.name}/`))) {
+        throw new ORPCError("CONFLICT", { message: `This package already holds a skill called “${fields.name}”` });
       }
-      const files = userFiles(fields, extra);
+      // Keeps the current files but SKILL.md, under the (maybe new) name.
+      const extra = fields.files
+        ? decoded(fields.files)
+        : current.filter((f) => f.path.startsWith(prefix) && f.path !== `${prefix}SKILL.md`).map((f) => ({ path: f.path.slice(prefix.length), content: f.content }));
+      const files = [...userFiles(fields, extra), ...others];
       const { skills } = checked(files);
       await tx
         .update(skillPackages)
