@@ -208,6 +208,7 @@ test("a runner tool has no URL or headers, and stays on its runner while an agen
   await expect(call(router.tools.update, { id: tool.id, headers: { authorization: "x" } }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   await expect(call(router.tools.update, { id: tool.id, runnerTool: "missing" }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   expect(await call(router.tools.update, { id: tool.id, name: "Search", runnerTool: "brave-search" }, { context })).toMatchObject({ name: "Search", runnerTool: "brave-search", runnerId });
+  expect((await context.db.select().from(tools).where(eq(tools.id, tool.id)))[0]!.permissionRevision).toBe(1);
 
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   await call(router.agents.create, { name: "Searcher", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] }, { context });
@@ -234,10 +235,12 @@ test("a tool pointed at another server asks again for everything: the unasked ac
   // Renaming it moves nothing.
   await call(router.tools.update, { id: tool.id, name: "Echo 2" }, { context });
   expect(await asks()).toEqual([["echo", false]]);
+  expect((await context.db.select().from(tools).where(eq(tools.id, tool.id)))[0]!.permissionRevision).toBe(0);
   // Another server with an action of the same name: it is not the action the owner let run.
   const second = await fake();
   await call(router.tools.update, { id: tool.id, url: second.url }, { context });
   expect(await asks()).toEqual([["echo", true]]);
+  expect((await context.db.select().from(tools).where(eq(tools.id, tool.id)))[0]!.permissionRevision).toBe(1);
 });
 
 test("runner tools expose asking flags and the owner can change them", async () => {

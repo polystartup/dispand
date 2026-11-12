@@ -10,6 +10,7 @@ import { callPlatformTool, toolsOf, type JobIdentity } from "./call.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { PLATFORM_TOOLS } from "./tools.ts";
 import { proposalView } from "./proposals.ts";
+import { retarget } from "../tools/procedures.ts";
 
 /** An agent with `bundles`, a Job of it still going, and what its tools answer. */
 async function setup(bundles: Bundle[] = ["configure"]) {
@@ -78,6 +79,25 @@ test("permissions can name a tool an earlier item creates", async () => {
   const [created] = await s.context.db.select().from(agents).where(eq(agents.name, "Clerk"));
   expect(created).toBeDefined();
   expect((await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, created!.id)))[0]!.unasked).toEqual(["firecrawl_scrape"]);
+});
+
+test.each([["agents_create", false], ["agents_create", true], ["agents_update", false], ["agents_update", true]] as const)("%s cannot restore an approved grant after retargeting (back to original: %s)", async (toolName, back) => {
+  const s = await setup();
+  const first = await startFakeMcp([{ name: "read_email", description: "Read", annotations: { readOnlyHint: true } }]);
+  const second = await startFakeMcp([{ name: "read_email", description: "Read", annotations: { readOnlyHint: true } }]);
+  onTestFinished(async () => { await first.close(); await second.close(); });
+  const tool = await call(router.tools.create, { name: "Mail", url: first.url, transport: "streamable-http", headers: {} }, { context: s.context });
+  const existing = await call(router.agents.create, { name: "Existing", harnessId: s.harness.id, systemPrompt: "", toolIds: [tool.id], toolPermissions: [{ toolId: tool.id, unasked: ["read_email"] }] }, { context: s.context });
+  const input = { ...s.newAgent, toolIds: [tool.id], ...(toolName === "agents_update" ? { id: existing.id } : {}) };
+  const id = s.idOf(await s.propose([{ tool: toolName, input }]));
+  await s.settle(id, "approved");
+  await call(router.tools.update, { id: tool.id, url: second.url }, { context: s.context });
+  if (back) {
+    const [current] = await s.context.db.select().from(toolsTable).where(eq(toolsTable.id, tool.id));
+    await retarget(s.context.db, current!, first.url, "streamable-http");
+  }
+  expect(await s.tool(toolName, input)).toMatchObject({ ok: false, error: expect.stringContaining("changed") });
+  expect((await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, existing.id)))[0]!.unasked).toEqual([]);
 });
 
 test("agent updates show retained permissions and reject permissions for tools outside the chosen list", async () => {

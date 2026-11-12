@@ -137,6 +137,9 @@ changes it updates this file.
   are saved alongside it. Old unconsumed agent items with tools but no recorded permissions
   must be proposed again. Plugin setup uses the same snapshot and checks a digest of its
   preview before making any writes, so a changed list requires another review.
+  The snapshot binds the grant to the tool's target and permission revision; retargeting
+  increments the revision atomically, including when pointed back later. Agent writes check
+  the binding while holding a shared lock on the tool, so retargeting cannot restore an old grant.
   An item
   may name what an earlier item of the same proposal creates (`{ "$item": n }`, where an id
   goes); it matches a call only with the id that earlier item's own call created, recorded

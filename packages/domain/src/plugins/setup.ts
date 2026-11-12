@@ -339,7 +339,8 @@ export function runItemsAsOwner(context: InitialContext & { ownerId: string }, p
         if (input !== null) {
           const { procedure, path } = PROCEDURES[item.tool as SetupTool];
           try {
-            output = await call(procedure as never, input as never, { context: context as never, path: [...path] });
+            const permissions = item.toolPermissions ? resolveRefs(made, item.toolPermissions) as { toolId: string; target: string }[] : undefined;
+            output = await call(procedure as never, input as never, { context: { ...context, approvedToolTargets: permissions } as never, path: [...path] });
           } catch (err) {
             if (err instanceof ORPCError) error = err.code === "NOT_FOUND" ? "Not found" : err.message;
             else {

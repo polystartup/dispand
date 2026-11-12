@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { toolHolder } from "../agents/usage.ts";
 import type { Db, Tx } from "../db/client.ts";
@@ -307,7 +307,7 @@ export async function retarget(db: Db | Tx, row: Row, url: string, transport: To
   checkTarget(url, Object.keys(row.headersSealed).length > 0 || row.auth === "oauth");
   const [updated] = await db
     .update(toolsTable)
-    .set({ url, urlSealed: null, transport, actions: [], refreshedAt: null, ...(row.auth === "oauth" ? { ...NO_OAUTH, oauthStatus: "authorize" as const } : {}) })
+    .set({ url, urlSealed: null, transport, permissionRevision: sql`${toolsTable.permissionRevision} + 1`, actions: [], refreshedAt: null, ...(row.auth === "oauth" ? { ...NO_OAUTH, oauthStatus: "authorize" as const } : {}) })
     .where(and(eq(toolsTable.id, row.id), eq(toolsTable.ownerId, row.ownerId)))
     .returning();
   if (!updated) throw new ORPCError("NOT_FOUND");
@@ -518,7 +518,7 @@ async function updateRunnerTool(context: Pick<InitialContext, "db" | "hub" | "en
   }
   const [row] = await context.db
     .update(toolsTable)
-    .set({ name: input.name ?? current.name, runnerId, runnerTool, ...(moved ? { actions: [], refreshedAt: null, catalogId: null } : {}) })
+    .set({ name: input.name ?? current.name, runnerId, runnerTool, ...(moved ? { actions: [], refreshedAt: null, catalogId: null, permissionRevision: sql`${toolsTable.permissionRevision} + 1` } : {}) })
     .where(and(eq(toolsTable.id, current.id), eq(toolsTable.ownerId, context.ownerId)))
     .returning()
     .catch((e: unknown) => nameTaken(e, input.name ?? current.name));
@@ -585,7 +585,7 @@ const update = owner
         auth: authOf(oauth, headersSealed),
         ...oauthColumns,
         // Another server's actions don't describe this one, nor does the catalog entry it came from.
-        ...(moved ? { actions: [], refreshedAt: null, catalogId: null } : {}),
+        ...(moved ? { actions: [], refreshedAt: null, catalogId: null, permissionRevision: sql`${toolsTable.permissionRevision} + 1` } : {}),
       })
       .where(and(eq(toolsTable.id, current.id), eq(toolsTable.ownerId, context.ownerId)))
       .returning()

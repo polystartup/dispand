@@ -36,6 +36,8 @@ export type InitialContext = {
    * a request ever carries it.
    */
   job?: { runId: string; ownerId: string; agentId: string };
+  /** Server-owned bindings of a reviewed agent grant; never built from request input. */
+  approvedToolTargets?: { toolId: string; target: string }[];
   headers: Headers;
   /** Headers the web server adds to the response (refreshed session cookies). */
   resHeaders: Headers;

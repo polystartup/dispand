@@ -755,6 +755,9 @@
   `toolPermissions` beside their parsed input: explicit overrides, retained permissions on
   updates, or defaults computed when prepared. `itemsView` exposes these as `tools[].runs`;
   `takeItem` returns the saved permissions for the procedure, without re-reading defaults.
+  Each permission carries a target binding, checked under the agent write's tool-row lock;
+  `tools.permission_revision` (migration 0064) increments on each retarget, so pointing a tool
+  back does not make an old approval valid again.
   Plugin setup uses the same preparation and execution, with a preview digest checked before
   writing. Old pending agent grants lacking a permissions snapshot must be proposed again.
   A tool of the

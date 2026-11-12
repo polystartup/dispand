@@ -8,6 +8,7 @@ import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
 import { canonical } from "./approvals.ts";
 import { catalogEntry, defaultUnasked } from "../tools/catalog.ts";
+import { toolPermissionTarget } from "../agents/tool-ask.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
 import type { JobIdentity } from "./call.ts";
@@ -127,14 +128,22 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
   }
   const toolPermissions = ids.map((toolId) => {
     let defaults: string[] = [];
+    let target = "unavailable";
     if (typeof toolId === "string") {
       const tool = found.find((t) => t.id === toolId);
-      if (tool) defaults = defaultUnasked(tool);
+      if (tool) { defaults = defaultUnasked(tool); target = toolPermissionTarget(tool); }
     } else {
       const source = prior[toolId.$item];
-      if (source?.tool === "tools_add_from_catalog") defaults = [...(catalogEntry((source.input as { catalogId: string }).catalogId)?.unasked ?? [])];
+      if (source?.tool === "tools_add_from_catalog") {
+        const entry = catalogEntry((source.input as { catalogId: string }).catalogId);
+        defaults = [...(entry?.unasked ?? [])];
+        if (entry?.kind === "http") target = toolPermissionTarget({ kind: "http", url: entry.url, transport: entry.transport });
+      } else if (source?.tool === "tools_add") {
+        const fields = source.input as { url: string; transport?: string };
+        target = toolPermissionTarget({ kind: "http", url: fields.url, transport: fields.transport ?? "streamable-http" });
+      }
     }
-    return { toolId, unasked: given.find((p) => key(p.toolId) === key(toolId))?.unasked ?? kept.get(key(toolId)) ?? defaults };
+    return { toolId, unasked: given.find((p) => key(p.toolId) === key(toolId))?.unasked ?? kept.get(key(toolId)) ?? defaults, target };
   });
   return { ...item, toolPermissions };
 }
@@ -228,7 +237,7 @@ export async function createProposal(db: Db, job: JobIdentity, tools: PlatformTo
 }
 
 /** An item of a proposal, by its index. */
-export type ItemAt = { proposalId: string; index: number; toolPermissions?: { toolId: string; unasked: string[] }[] };
+export type ItemAt = { proposalId: string; index: number; toolPermissions?: { toolId: string; unasked: string[]; target: string }[] };
 
 /**
  * Uses up one approved write of the Job: an item of one of its approved proposals (or the one

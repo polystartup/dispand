@@ -1,6 +1,12 @@
 import { and, eq, inArray } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import type { Db } from "../db/client.ts";
 import { agents, agentTools, tools } from "../db/schema.ts";
+
+/** Server-owned binding of a reviewed grant; discovery, renames and credential headers do not retarget a tool. */
+export function toolPermissionTarget(tool: { kind: string; url?: string | null; urlSealed?: string | null; transport?: string | null; runnerId?: string | null; runnerTool?: string | null; permissionRevision?: number }): string {
+  return createHash("sha256").update(JSON.stringify([tool.kind, tool.url ?? null, tool.urlSealed ?? null, tool.transport ?? null, tool.runnerId ?? null, tool.runnerTool ?? null, tool.permissionRevision ?? 0])).digest("hex");
+}
 
 /**
  * Makes one action of a tool the agent chose (reached by URL or on a runner) ask before use, or

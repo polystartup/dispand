@@ -1,0 +1,1 @@
+ALTER TABLE "tools" ADD COLUMN "permission_revision" integer DEFAULT 0 NOT NULL;
