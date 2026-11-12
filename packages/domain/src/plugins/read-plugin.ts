@@ -212,10 +212,21 @@ function listNotRun(root: string, manifest: Record<string, unknown>, notImported
  * Every file is `lstat`ed: links are never followed.
  */
 export function readPlugin(root: string, entry: MarketplaceEntry, links: string[] = []): PluginContents {
-  // A root `plugin.json` (or a link there, which the standard reader refuses) makes a standard
-  // plugin, whatever `.claude-plugin/` holds: it is the manifest with a version the reader checks.
-  const standard = kindAt(root, "plugin.json") !== "absent" || links.includes("plugin.json");
-  return withBudget(() => (standard ? readStandardPlugin(root, links) : readWithin(root, entry, links)));
+  return withBudget(() => {
+    const standard = kindAt(root, "plugin.json") !== "absent" || links.includes("plugin.json");
+    if (standard && !links.includes("plugin.json") && kindAt(root, "plugin.json") === "file") {
+      const rootManifest = readJson(root, "plugin.json");
+      // Multi-harness repositories can carry an unrelated root manifest. Only a
+      // schema-less object beside a named Claude manifest may use the Claude loader.
+      if (typeof rootManifest === "object" && rootManifest !== null && !Array.isArray(rootManifest) && !("$schema" in rootManifest)) {
+        const claude = readJson(root, ".claude-plugin/plugin.json");
+        if (typeof claude === "object" && claude !== null && !Array.isArray(claude) && "name" in claude && typeof claude.name === "string" && claude.name.trim()) {
+          return readWithin(root, entry, links);
+        }
+      }
+    }
+    return standard ? readStandardPlugin(root, links) : readWithin(root, entry, links);
+  });
 }
 
 function readWithin(root: string, entry: MarketplaceEntry, links: string[]): PluginContents {

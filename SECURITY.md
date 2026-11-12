@@ -531,7 +531,7 @@ changes it updates this file.
   `file://` only in a development build with `DISPAND_GIT_FILE_URLS=1`, for e2e fixtures),
   redirects not followed, no prompts, hooks, submodules, LFS or system and user git config,
   60 s and 200 MiB on disk at most (a limit kills git's whole process group), into a temp folder removed afterwards. A plugin in the
-  Agent Plugins layout (a root `plugin.json`) is read with that standard's rules, under the same
+  Agent Plugins layout (a root `plugin.json`) is read with that standard's rules. A schema-less root object may use the Claude loader when a named Claude manifest exists; explicit schemas never fall back. Both loaders run under the same
   limits: its `$schema` ids are known, never fetched; a linked `plugin.json` rejects it; its
   stdio servers are read (a `./` command and `cwd` that stay inside the plugin, or a `cwd` in
   its data folder) but, like every command a plugin names, never stored or run. Its `com.dispand`
