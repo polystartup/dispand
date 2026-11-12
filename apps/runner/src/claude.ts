@@ -399,7 +399,10 @@ export function startClaudeSession(
     },
   });
   onQuery(q);
-  say(start.prompt);
+  // An empty prompt (a chat whose trigger has no instructions) is no turn: the owner's first
+  // message is. Until it comes, the chat waits between turns, like after any turn.
+  if (start.prompt || !start.interactive) say(start.prompt);
+  else emit({ type: "turn-end" });
   const servers = deps.mcpServers ?? {};
   if (Object.keys(servers).length === 0) openGate();
   else {
