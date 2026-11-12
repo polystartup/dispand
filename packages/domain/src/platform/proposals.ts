@@ -3,9 +3,11 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents, fields, harnesses, proposals, runners, skillPackages, tables, tools as toolsTable, triggers, type ProposalItem } from "../db/schema.ts";
+import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
 import { canonical } from "./approvals.ts";
-import type { TableScope } from "./bundles.ts";
+import type { Bundle, TableScope } from "./bundles.ts";
+import type { TriggerConfig } from "../triggers/model.ts";
 import type { JobIdentity } from "./call.ts";
 import type { PlatformTool } from "./tools.ts";
 
@@ -25,6 +27,20 @@ export const ProposeInput = z.object({
     .array(z.object({ tool: z.string(), input: z.record(z.string(), z.unknown()) }))
     .describe("The writes to approve: each a tool's name (such as agents_create) and the exact input you will call it with"),
 });
+
+/** The agent an item would change and how, for the Assistant's guard; null for any other write. */
+async function agentChangeOf(db: Db, ownerId: string, tool: string, input: unknown): Promise<[string, AgentChange] | null> {
+  // Parsed by the tool's own schema: these keys have these types.
+  const { id = "", bundles, dataTables, enabled, config } = input as { id?: string; bundles?: Bundle[]; dataTables?: TableScope; enabled?: boolean; config?: TriggerConfig };
+  if (tool === "agents_update") return [id, { kind: "update", bundles, dataTables }];
+  if (tool !== "triggers_update" && tool !== "triggers_delete") return null;
+  const [trigger] = await db
+    .select({ agentId: triggers.agentId })
+    .from(triggers)
+    .where(and(eq(triggers.id, id), eq(triggers.ownerId, ownerId)));
+  if (!trigger) return null;
+  return [trigger.agentId, { kind: "trigger", triggerId: id, delete: tool === "triggers_delete", enabled, config }];
+}
 
 const everyString = (value: unknown, ok: (s: string) => boolean): boolean =>
   typeof value === "string" ? ok(value) : Array.isArray(value) ? value.every((v) => everyString(v, ok)) : value !== null && typeof value === "object" ? Object.entries(value).every(([k, v]) => ok(k) && everyString(v, ok)) : true;
@@ -53,6 +69,10 @@ export async function createProposal(db: Db, job: JobIdentity, tools: PlatformTo
     // Outside the Job's tables, or naming nothing: as for any call, and before a person is asked about it.
     const touched = await tool.tables(db, job.ownerId, given.data);
     if (touched.some((id) => id === null || (scope !== "all" && !scope.includes(id)))) return { error: `Item ${i + 1} (${tool.name}): Not found` };
+    // What the Assistant can't lose is refused now, with the reason, not after a person approved it.
+    const change = await agentChangeOf(db, job.ownerId, tool.name, given.data);
+    const refused = change && (await assistantGuard(db, job.ownerId, change[0], change[1]));
+    if (refused) return { error: `Item ${i + 1} (${tool.name}): ${refused}` };
     items.push({ tool: tool.name, input: given.data });
   }
   if (!everyString(items, storable)) return { error: "The proposal holds a character Dispand can't store (NUL or a lone surrogate)" };

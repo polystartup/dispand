@@ -10,7 +10,9 @@ Status: Prototype
   Code and Codex CLI sessions run by the owner's own runners, or model APIs called by the
   server), skills and tools (MCP servers), gives them memory in data tables, wires them into
   workflows that run by hand or on a schedule, and works with them from dashboards. Plugins
-  bring skills, agents and tools from Git repositories and skill sites.
+  bring skills, agents and tools from Git repositories and skill sites. The **Assistant**, a
+  built-in agent at the top of the sidebar, is a chat with an agent that may work on the data
+  and configure the workspace.
 - **For whom:** a single owner per install who wants to hand recurring business work to AI
   agents, whatever the business: a law firm, a software studio, a shop.
 - **Direction:** agents own their triggers (data events, polled services, schedules, manual
@@ -62,6 +64,9 @@ Status: Prototype
     answered stays in the Inbox, with who answered and when.
   - An agent can ask for an approval in its own words before it acts; each request waits for
     its own answer, whatever the agent's permission mode.
+  - The Assistant can't be deleted, nor lose its rights (working on data and changing tables, on
+    every table) or its chat, by the owner or through a proposal; its name, harness, model and
+    instructions are the owner's to change. It is made when the owner picks its harness.
   - A button or schedule trigger must say what the agent does (its instructions); a chat starts
     with the owner's words.
   - A Tool step cut by a restart **fails and is never called again**: the owner checks the tool
