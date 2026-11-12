@@ -496,7 +496,11 @@ changes it updates this file.
   `fetchGit` (`packages/domain/src/plugins/git.ts`): `https://` only (no credentials in the URL;
   `file://` only in a development build with `DISPAND_GIT_FILE_URLS=1`, for e2e fixtures),
   redirects not followed, no prompts, hooks, submodules, LFS or system and user git config,
-  60 s and 200 MiB on disk at most (a limit kills git's whole process group), into a temp folder removed afterwards. Links are checked out
+  60 s and 200 MiB on disk at most (a limit kills git's whole process group), into a temp folder removed afterwards. A plugin in the
+  Agent Plugins layout (a root `plugin.json`) is read with that standard's rules, under the same
+  limits: its `$schema` ids are known, never fetched; a linked `plugin.json` rejects it; its
+  stdio servers are read (a `./` command and `cwd` that stay inside the plugin, or a `cwd` in
+  its data folder) but, like every command a plugin names, never stored or run. Links are checked out
   as plain files (`core.symlinks=false`), then removed from the checkout and listed as not
   imported: nothing is ever written or read through one, and a file name that isn't UTF-8 refuses
   the fetch. Every file is read with `lstat`, any other non-regular file is skipped, and a plugin or skill folder whose real path leaves the

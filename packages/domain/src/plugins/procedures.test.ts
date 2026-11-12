@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { messages, questions, runs as runsTable, skillFiles, skillPackages, stepRuns, tools } from "../db/schema.ts";
+import { messages, plugins as pluginsTable, questions, runs as runsTable, skillFiles, skillPackages, stepRuns, tools } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
@@ -378,6 +378,40 @@ test("plugin-root server not imported; an HTTP server is installed with its sett
   await call(router.tools.delete, { id: tool!.id }, { context: ctx });
   expect((await call(router.plugins.list, undefined, { context: ctx }))[0]).toMatchObject({ tools: [], available: { mcpServers: [{ name: "github" }, { name: "tenant" }, { name: "fetch" }] } });
   await fx.remove();
+});
+
+test("a marketplace entry may point at an Agent Plugins plugin: its skill and HTTP server install, and the layout is kept", async () => {
+  const ctx = await context();
+  const server = await startFakeMcp([echo]);
+  const plugin = fixtureRepo({
+    "plugin.json": JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "reviews", version: "1.0.0" }),
+    "mcp.json": JSON.stringify({
+      $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      mcpServers: { review: { type: "streamable-http", url: server.url }, local: { type: "stdio", command: "./bin/server" } },
+    }),
+    "skills/review/SKILL.md": skillMd("review"),
+  });
+  const repo = fixtureRepo({ ".claude-plugin/marketplace.json": JSON.stringify({ name: "acme", plugins: [{ name: "reviews", source: { source: "url", url: plugin.url } }] }) });
+  const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
+  const ref = { marketplaceId: market.id, entryName: "reviews" };
+  expect(await call(router.plugins.preview, ref, { context: ctx })).toMatchObject({
+    skills: [{ name: "review" }],
+    mcpServers: [
+      { name: "review", type: "http", settings: [], url: server.url },
+      { name: "local", type: "stdio", settings: [] },
+    ],
+    notImported: [],
+  });
+  // Its stdio server, like any, waits for runner support.
+  await expect(call(router.plugins.install, { ...ref, reviewed: await reviewed(ctx, market.id, "reviews"), mcpServers: ["local"] }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  const { pluginId, toolIds } = await call(router.plugins.install, { ...ref, reviewed: await reviewed(ctx, market.id, "reviews"), skills: ["review"], mcpServers: ["review"] }, { context: ctx });
+  const [row] = await ctx.db.select().from(pluginsTable).where(eq(pluginsTable.id, pluginId));
+  expect(row).toMatchObject({ layout: "standard", components: { skills: [{ name: "review" }] } });
+  const [tool] = await call(router.tools.list, undefined, { context: ctx });
+  expect(tool).toMatchObject({ id: toolIds[0], name: "review", url: server.url, headerNames: [] });
+  plugin.remove();
+  repo.remove();
+  await server.close();
 });
 
 test("a placeholder in the URL makes the whole URL a secret; a clashing name gets the plugin's prefix", async () => {

@@ -364,6 +364,7 @@ const install = owner
           entryName: entry.name,
           url,
           sha,
+          layout: contents.layout,
           components: componentsOf(contents),
           notImported: contents.notImported,
         });
@@ -600,7 +601,7 @@ const update = owner.input(Id).handler(async ({ input, context }) => {
     }
     await tx
       .update(pluginsTable)
-      .set({ url, sha, components: componentsOf(contents), notImported: contents.notImported, updatedAt: sql`now()` })
+      .set({ url, sha, layout: contents.layout, components: componentsOf(contents), notImported: contents.notImported, updatedAt: sql`now()` })
       .where(eq(pluginsTable.id, row.id));
     return moved;
   });

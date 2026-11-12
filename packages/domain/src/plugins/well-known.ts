@@ -161,5 +161,5 @@ export async function readWellKnownSkills(indexUrl: string): Promise<{ contents:
   }
   const hash = createHash("sha256");
   for (const s of skills) for (const f of s.files) hash.update(`${f.path}\0${f.content.byteLength}\0`).update(f.content);
-  return { contents: { skills, mcpServers: [], agents: [], notImported }, sha: hash.digest("hex").slice(0, 40) };
+  return { contents: { layout: "claude", version: null, skills, mcpServers: [], agents: [], notImported }, sha: hash.digest("hex").slice(0, 40) };
 }
