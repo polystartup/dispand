@@ -81,6 +81,21 @@ test("a cloud Job consults an agent listed in its consult tool and goes on with 
   expect(exported).not.toContain("sentinel-consult-answer-42");
 });
 
+test("a consulted Job, which expects no outputs, is offered no submit_outputs and answers with its last message", async () => {
+  const ids = { expert: "" };
+  const s = await setup({
+    asker: [() => ({ toolCalls: [{ id: "c1", name: "consult", args: { agent: ids.expert, question: "Which plan?" } }] }), () => ({ text: "Going with it." })],
+    // A model that calls submit_outputs anyway, after its answer, is told no such tool exists.
+    expert: [() => ({ text: "Plan B.", toolCalls: [{ id: "s1", name: "submit_outputs", args: {} }] }), () => ({ text: "Plan B, for its budget." })],
+  });
+  ids.expert = s.expert.id;
+  const { runId } = await call(router.jobs.start, { triggerId: s.trigger.id }, { context: s.context });
+  await s.until(runId, "succeeded");
+  expect(s.seen.expert[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "request_approval"]);
+  expect(lastTool(s.seen.expert[1]!.items)).toMatchObject({ callId: "s1", isError: true });
+  expect(lastTool(s.seen.asker[1]!.items)).toMatchObject({ isError: false, result: "Answer from the agent Expert:\n\nPlan B, for its budget." });
+});
+
 test("an agent the tool doesn't list is a bad call, and an agent that may consult none has no consult tool", async () => {
   const s = await setup({ asker: [() => ({ toolCalls: [{ id: "c1", name: "consult", args: { agent: "agent_other", question: "Hi?" } }] }), () => ({ text: "Fine." })], expert: [] });
   const { runId } = await call(router.jobs.start, { triggerId: s.trigger.id }, { context: s.context });
@@ -91,7 +106,7 @@ test("an agent the tool doesn't list is a bad call, and an agent that may consul
   const none = await setup({ asker: [() => ({ text: "Done." })], expert: [] }, false);
   const job = await call(router.jobs.start, { triggerId: none.trigger.id }, { context: none.context });
   await none.until(job.runId, "succeeded");
-  expect(none.seen.asker[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "submit_outputs", "request_approval"]);
+  expect(none.seen.asker[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "request_approval"]);
 });
 
 test("a workflow's agent step has no consult tool", async () => {

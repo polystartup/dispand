@@ -191,6 +191,20 @@ test("step result is stored", async () => {
   expect(run.status).toBe("succeeded");
 });
 
+test("a step without expected outputs takes the agent's last message as its result, even after submit_outputs", async () => {
+  const { adapter, engine, emit, workflow } = await setup(buttonThenStep);
+  const runId = await engine.startRun(workflow.id);
+  const { sessionId } = adapter.starts[0]!.start;
+  expect(adapter.starts[0]!.start.expectedOutputs).toEqual([]);
+  // A runner's Claude Code or Codex offers submit_outputs with no fields: called, it hands back nothing.
+  await emit(sessionId, { type: "outputs-accepted", values: {} });
+  expect((await runOf(engine, runId)).steps.n_note).toMatchObject({ status: "running" });
+  await emit(sessionId, { type: "result", text: "Done: the note." });
+  const { run, steps } = await runOf(engine, runId);
+  expect(steps.n_note).toMatchObject({ status: "succeeded", outputs: { result: "Done: the note." } });
+  expect(run.status).toBe("succeeded");
+});
+
 test("events from another runner or a replayed seq are ignored", async () => {
   const { adapter, engine, emit, workflow, runnerId } = await setup(buttonThenStep);
   const runId = await engine.startRun(workflow.id);

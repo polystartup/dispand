@@ -137,7 +137,7 @@ test("a workflow step's cloud session gets its agent's HTTP tools, and none of D
   );
   const { runId } = await call(router.runs.start, { workflowId: workflow.id }, { context: s.context });
   await s.until(runId, "succeeded");
-  expect(s.model.inputs[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "submit_outputs", "request_approval", "GitHub_create_repository", "GitHub_list_repos", "GitHub_get_logo"]);
+  expect(s.model.inputs[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "request_approval", "GitHub_create_repository", "GitHub_list_repos", "GitHub_get_logo"]);
 });
 
 test("Dispand's own tools run unasked next to the agent's, which ask", async () => {
