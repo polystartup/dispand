@@ -196,7 +196,8 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       // Its question can't be answered by id any more: the engine sends the answer as words.
       const call = row.pending ? nextCall(row.items) : undefined;
       const items: ChatItem[] = call ? [...row.items, { role: "tool", callId: call.id, name: call.name, result: TEXTS.notAnswered, isError: true }] : row.items;
-      await this.write(id, { items, pending: null, queued: [...row.queued, start.prompt], status: "running" });
+      // A resumed Job's system prompt carries its memory as it is now: the next model calls read it.
+      await this.write(id, { start: { ...row.start, systemPrompt: start.systemPrompt }, items, pending: null, queued: [...row.queued, start.prompt], status: "running" });
     });
     this.kick(id);
     return true;

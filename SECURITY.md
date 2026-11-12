@@ -198,6 +198,17 @@ changes it updates this file.
   a CLI loads as instructions) and keeps each revision with its author: the agent, its Job and
   whether it had `configure`. `memory_add` never replaces an entry and `memory_update` never
   creates one, and the owner can revert or restore any write.
+- **Memory steers the agents that work on data, never one that configures until a person
+  accepts it.** A Job's session start gets, after its agent's instructions, the memory it reads
+  (`memory/read.ts`, read whenever a start is sent, first, again or resumed, with the Job's
+  rights as they are then, and never kept in the stored start): the
+  workspace's, its own agent's and, with `data`, its tables'. An entry whose current revision a
+  Job without `configure` wrote, and no person accepted since, is never in the prompt of a Job
+  that has `configure`: that Job is told how many were left out and reads them with
+  `memory_read`, as information marked with its author. A person's write needs no acceptance; an
+  agent's write clears it. Accepted: an entry written by one Job instructs the Jobs without
+  `configure` that read it (the workspace's reach every agent's Jobs), within what those Jobs
+  may do without an approval; the owner sees, reverts and removes any entry.
 - **A poll is never a way around action approvals or an agent's tools.** The scheduler calls a
   tool outside any Job only for a poll trigger whose action the tool lets polls read and no agent
   must ask before using, of a tool its agent has (`pollProblem`): checked when the trigger is
