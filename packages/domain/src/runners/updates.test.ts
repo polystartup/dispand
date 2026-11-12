@@ -1,3 +1,4 @@
+import * as telemetry from "../telemetry/index.ts";
 import { call } from "@orpc/server";
 import { afterEach, expect, test, vi } from "vitest";
 import { runners, user } from "../db/schema.ts";
@@ -5,7 +6,7 @@ import { router } from "../rpc/router.ts";
 import { ownerContext } from "./test-support.ts";
 import { RunnerUpdates } from "./updates.ts";
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 test("updates are explicit, delivered once, and complete only after the new build reports in", () => {
   const updates = new RunnerUpdates();
@@ -59,4 +60,18 @@ test("only the authenticated owner can request an update, even without a session
   await expect(call(router.runners.installUpdate, { runnerId }, { context: { ...context, headers: new Headers() } })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   await call(router.runners.revoke, { runnerId }, { context });
   await expect(call(router.runners.installUpdate, { runnerId }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("an expired request reports failure only once across subsequent polls", () => {
+  vi.useFakeTimers();
+  const log = vi.spyOn(telemetry, "emitLog");
+  const updates = new RunnerUpdates();
+  updates.buildId = "new";
+  updates.poll("r", "old", false);
+  updates.request("r");
+  vi.advanceTimersByTime(180_001);
+  expect(updates.status("r")).toBe("failed");
+  updates.poll("r", "old", false);
+  expect(updates.status("r")).toBe("failed");
+  expect(log.mock.calls.filter((call) => call[3]?.["dispand.result"] === "failed")).toHaveLength(1);
 });

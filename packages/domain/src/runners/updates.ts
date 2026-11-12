@@ -11,9 +11,10 @@ export class RunnerUpdates {
 
   poll(runnerId: string, buildId: string, failed: boolean): boolean {
     const previous = this.states.get(runnerId);
-    const state: State = { ...previous, buildId, seen: Date.now(), failed };
+    const state: State = { ...previous, buildId, seen: Date.now(), failed: failed || previous?.failed || false };
     if (buildId === this.buildId) {
       if (previous?.started) outcome(runnerId, "completed");
+      state.failed = false;
       delete state.started;
       delete state.delivered;
     }
