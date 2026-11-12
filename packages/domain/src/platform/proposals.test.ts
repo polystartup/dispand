@@ -767,6 +767,8 @@ test("a generated plugin that can't be recorded never turns a write that was mad
   const s = await setup();
   // Every new plugin row is refused from now on.
   await s.context.db.execute(sql`ALTER TABLE plugins ADD CONSTRAINT no_new_plugins CHECK (false) NOT VALID`);
+  // The database outlives this test (`testDb`): its constraints with it.
+  onTestFinished(() => s.context.db.execute(sql`ALTER TABLE plugins DROP CONSTRAINT no_new_plugins`).then(() => undefined));
   const id = await approveFor(s, "Acme", [
     { tool: "tables_create", input: { name: "Matters" } },
     { tool: "tables_create", input: { name: "Invoices" } },
