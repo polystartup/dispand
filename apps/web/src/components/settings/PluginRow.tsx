@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { refusal } from "./PluginInstallSheet.tsx";
+import { PluginSetupSheet } from "./PluginSetupSheet.tsx";
 import { type api, orpc } from "../../lib/api.ts";
 
 type Plugin = Awaited<ReturnType<typeof api.plugins.list>>[number];
@@ -9,7 +10,8 @@ type Plugin = Awaited<ReturnType<typeof api.plugins.list>>[number];
 /**
  * An installed plugin: where it came from and what it added, with Update and Remove. Removing
  * one keeps its agents and tools; a generated one lists what approved proposals created, which
- * removing it keeps too. Its definitions are listed, each marked once something was set up from it.
+ * removing it keeps too. Its definitions are listed, each marked once something was set up from
+ * it, and its table definitions are set up from here.
  */
 export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   const queryClient = useQueryClient();
@@ -21,6 +23,7 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   const uninstall = useMutation(orpc.plugins.uninstall.mutationOptions({ onSuccess: refresh }));
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [settingUp, setSettingUp] = useState(false);
   const busy = update.isPending || uninstall.isPending;
   const available = [
     ...p.available.skills.map((s) => `${s.name} (skill)`),
@@ -55,6 +58,11 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {p.definitions.primitives.length > 0 && (
+            <Button size="sm" variant="ghost" aria-label={`Set up ${p.name}`} disabled={busy} onClick={() => setSettingUp(true)}>
+              Set up
+            </Button>
+          )}
           {p.sha !== null && (
             <Button
               size="sm"
@@ -156,6 +164,7 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
           {error}
         </p>
       )}
+      {settingUp && <PluginSetupSheet plugin={p} onClose={() => setSettingUp(false)} />}
     </li>
   );
 }

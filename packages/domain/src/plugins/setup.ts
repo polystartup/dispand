@@ -140,8 +140,8 @@ export async function setupItems(db: Db, ownerId: string, pluginId: string, pick
           }
         }
       }
-      const { references: _name, ...rest } = f;
-      items.push({ tool: "fields_create", input: { ...rest, tableId: table, ...(references === undefined ? {} : { referencesTableId: references }) }, from: key });
+      const input = { tableId: table, name: f.name, type: f.type, ...(f.choices ? { choices: f.choices } : {}), ...(references === undefined ? {} : { referencesTableId: references }) };
+      items.push({ tool: "fields_create", input, from: key });
     }
   }
 
