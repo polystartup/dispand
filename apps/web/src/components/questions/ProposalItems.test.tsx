@@ -132,3 +132,27 @@ test("a table-change trigger's config is read in words, its table and fields by 
   expect(item.textContent).toContain("A changed row only when one of these changed:City (of the table Clients)");
   expect(within(item).getByRole("alert").textContent).toBe("field_gone: not one of yours");
 });
+
+test("an agent's consult entries read by name, with their flag and what a consult can do", () => {
+  const consults: ProposalView = {
+    id: "prop_3",
+    status: "asked",
+    items: [
+      {
+        tool: "agents_update",
+        used: false,
+        refs: ["id", "harnessId", "toolIds", "skillPackageIds", "dataTables"],
+        input: { id: "agent_1", description: "Decides what we build.", consults: [{ agentId: "agent_2", ask: true }, { agentId: "agent_gone", ask: false }] },
+      },
+    ],
+    names: { agent_1: { kind: "agent", name: "Builder" }, agent_2: { kind: "agent", name: "Architect" } },
+  };
+  render(<ProposalItems proposal={consults} />);
+  const item = screen.getByRole("listitem");
+  expect(within(item).getByText("Description")).toBeTruthy();
+  expect(within(item).getByText("Decides what we build.")).toBeTruthy();
+  expect(within(item).getByText("May consult")).toBeTruthy();
+  expect(item.textContent).toContain("Architect agent_2 (asks before use)");
+  expect(within(item).getByText(/agent_gone: not one of yours/)).toBeTruthy();
+  expect(within(item).getByText("It can steer this agent with its questions, and its answers may quote what it reads in tables this agent can't.")).toBeTruthy();
+});
