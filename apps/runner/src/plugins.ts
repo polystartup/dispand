@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { nativeSourceKey, PluginOperation, PluginReport, workspacePluginContent, type PluginHarness } from "@dispand/runner-protocol";
 import { z } from "zod";
+import { moveDurable } from "./durable.ts";
 import { runnerStateDir } from "./config.ts";
 import { unlock, writeSkills } from "./skills.ts";
 
@@ -98,7 +99,7 @@ export class NativePlugins {
           const staging = await mkdtemp(join(dirname(dir), ".stage-"));
           try {
             await writeSkills(staging, [{ name: plugin, files: op.files.map((f) => ({ path: f.path, content: Buffer.from(f.base64, "base64") })) }]);
-            await rename(staging, dir);
+            moveDurable(staging, dir);
           } finally {
             await unlock(staging);
             await rm(staging, { recursive: true, force: true });
