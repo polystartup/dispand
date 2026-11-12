@@ -72,3 +72,19 @@ test("a new row left before anything is saved in it is never created", async () 
   expect(screen.queryAllByRole("gridcell")).toEqual([]);
   expect(fake.rows.create).not.toHaveBeenCalled();
 });
+
+test("a value saved in a new row before the server creates it updates that row", async () => {
+  const user = setup();
+  let answer: (row: unknown) => void = () => {};
+  fake.rows.create.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+  fake.rows.update.mockResolvedValue({ id: "row_1", tableId: "tbl_1", values: { f_name: "Dispand", f_note: "Agents" } });
+
+  await user.click(await screen.findByRole("button", { name: "New row" }));
+  await user.type(screen.getByRole("textbox", { name: "Name" }), "Dispand{Tab}");
+  await user.keyboard("Agents{Enter}");
+  expect(fake.rows.update).not.toHaveBeenCalled();
+  answer({ id: "row_1", tableId: "tbl_1", values: { f_name: "Dispand" } });
+  await waitFor(() => expect(fake.rows.update).toHaveBeenCalledExactlyOnceWith({ id: "row_1", values: { f_note: "Agents" } }));
+  expect(fake.rows.create).toHaveBeenCalledExactlyOnceWith({ tableId: "tbl_1", values: { f_name: "Dispand" } });
+  expect(screen.getAllByRole("gridcell").map((c) => c.textContent)).toEqual(["Dispand", "Agents"]);
+});
