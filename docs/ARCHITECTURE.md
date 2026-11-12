@@ -540,7 +540,12 @@
   approval of its own); and each poll that ends (`poll.run`, on the trigger, by the scheduler for
   the trigger's agent, with the tool, the action, `status` `baseline`, `polled`, `skipped` or
   `failed`, and `found`, the new items it recorded; in the claim's transaction for a poll skipped
-  before its call, after the call otherwise). A runner session's calls of the runner's own MCP
+  before its call, after the call otherwise); and each event of a primitive table, when
+  `recordEvent` appends it, in the write's transaction (`event.recorded`, on the row, by the
+  person or the Job that wrote it, with the table's id and name, the event's id, the operation
+  and how many fields changed; never a value, and nothing for a workflow step's write): a Job's
+  write leaves its call's row and this one, whose event id is the one the Jobs it fires name in
+  their `job.created`. A runner session's calls of the runner's own MCP
   servers never reach the server: their permission prompts are its Approvals' rows. `audit.list` (owner, or a `configure` Job as
   `audit_list`, which gets only rows naming no table or one of its own; keyset pages of 50 on
   `(at, id)`, the cursor carrying `at` to the microsecond) filters by actor type, agent, Job,
