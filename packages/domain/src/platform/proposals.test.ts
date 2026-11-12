@@ -7,6 +7,7 @@ import { asCli, ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp } from "../tools/test-server.ts";
 import type { Bundle } from "./bundles.ts";
 import { callPlatformTool, toolsOf, type JobIdentity } from "./call.ts";
+import { captureTelemetry } from "../telemetry/testing.ts";
 import { PLATFORM_TOOLS } from "./tools.ts";
 
 /** An agent with `bundles`, a Job of it still going, and what its tools answer. */
@@ -59,10 +60,14 @@ test("a proposal that can't be made is refused with the reason, and nothing is s
     [[], /at least one/],
     // The refusal names what can be proposed, so the agent finds its way.
     [[{ tool: "agents_delete", input: {} }], /agents_delete is not a write you can propose.*agents_create.*tables_delete/],
-    // Not a write that needs a proposal: it is made directly.
-    [[{ tool: "tables_create", input: { name: "X" } }], /tables_create/],
+    // A read is never an item: it is called directly.
+    [[{ tool: "tables_list", input: {} }], /tables_list is not a write you can propose.*tables_create/],
+    // The item's input is checked as a direct call checks it, with the same words.
+    [[{ tool: "fields_create", input: { tableId: "tbl_x", name: "Notes", type: "long text" } }], /^Item 1 \(fields_create\): type: Invalid option: expected one of .*"long-text"/],
+    // A malformed list says what is wrong with it.
+    [[{ tool: "tables_create", input: '{"name":"X"}' }], /items\.0\.input/],
     [[{ tool: "agents_create", input: { ...s.newAgent, name: "" } }], /name/],
-    [Array.from({ length: 21 }, () => item), /20/],
+    [Array.from({ length: 61 }, () => item), /60/],
     [[{ tool: "agents_create", input: { ...s.newAgent, systemPrompt: "x".repeat(70_000) } }], /too large/],
     [[{ tool: "agents_create", input: { ...s.newAgent, systemPrompt: "a\u0000b" } }], /store/],
   ];
@@ -417,4 +422,194 @@ test("the workspace's checkpoint changes through an approved proposal only", asy
   await s.answer(await s.ask({ message: "May I?", proposal: id }), "allow");
   expect(await s.tool("workspace_set_checkpoint", { checkpoint: 500 })).toMatchObject({ ok: true, output: { checkpoint: 500 } });
   expect(await call(router.workspace.checkpoint, undefined, { context: s.context })).toEqual({ checkpoint: 500 });
+});
+
+/** A proposal of these items, approved by the owner: its id. */
+async function approve(s: Awaited<ReturnType<typeof setup>>, items: unknown[], job = s.job) {
+  const made = await s.propose(items, job);
+  expect(made, JSON.stringify(made)).toMatchObject({ ok: true });
+  const id = s.idOf(made);
+  await s.answer(await s.ask({ message: "May I?", proposal: id }, job), "allow");
+  return id;
+}
+type Applied = { ok: true; output: { items: { $item: number; tool: string; outcome: string; id?: string; error?: string }[]; next: string } };
+const outcomes = (result: unknown) => (result as Applied).output.items.map((i) => i.outcome);
+
+test("a whole setup in one proposal: later items name what earlier ones create, and proposal_apply makes them in order", async () => {
+  const s = await setup();
+  const { context } = s;
+  const items = [
+    { tool: "tables_create", input: { name: "Matters" } },
+    { tool: "fields_create", input: { tableId: { $item: 0 }, name: "Status", type: "single-select", choices: [{ id: "open", label: "Open" }] } },
+    { tool: "tables_set_primitive", input: { id: { $item: 0 }, primitive: true } },
+    { tool: "agents_create", input: { ...s.newAgent, dataTables: [{ $item: 0 }] } },
+    { tool: "triggers_create", input: { agentId: { $item: 3 }, name: "New matter", instructions: "Open it.", config: { kind: "primitive", tableId: { $item: 0 }, operations: ["created"] } } },
+  ];
+  const id = s.idOf(await s.propose(items));
+  // Kept with its references, and shown so to the owner.
+  const q = await s.ask({ message: "May I set up matters?", proposal: id });
+  const view = (await call(router.questions.list, { status: "pending" }, { context })).find((i) => i.id === q)!.proposal!;
+  expect(view.items[3]).toMatchObject({ tool: "agents_create", creates: "agent", createdId: null, input: { dataTables: [{ $item: 0 }] } });
+  expect(view.items[4]!.input).toMatchObject({ agentId: { $item: 3 }, config: { tableId: { $item: 0 } } });
+  expect(await s.tool("proposal_apply", { proposalId: id })).toMatchObject({ ok: false, error: expect.stringContaining("waits for the owner") });
+  await s.answer(q, "allow");
+
+  const applied = await s.tool("proposal_apply", { proposalId: id });
+  expect(outcomes(applied)).toEqual(["made", "made", "made", "made", "made"]);
+  expect((applied as Applied).output.next).toBe("Every item is made.");
+  const [table, , , agent, trigger] = (applied as Applied).output.items.map((i) => i.id);
+  expect(await call(router.tables.get, { id: table! }, { context })).toMatchObject({ name: "Matters", primitive: true, fields: [{ name: "Name" }, { name: "Status" }] });
+  expect(await call(router.agents.get, { id: agent! }, { context })).toMatchObject({ name: "Clerk", dataTables: [table] });
+  expect(await call(router.triggers.get, { id: trigger! }, { context })).toMatchObject({ agentId: agent, config: { kind: "primitive", tableId: table } });
+  // The owner then reads what each item made, by name; applying again makes nothing twice.
+  const after = (await call(router.questions.list, { status: "all" }, { context })).find((i) => i.id === q)!.proposal!;
+  expect(after.items[3]).toMatchObject({ used: true, failed: false, createdId: agent });
+  expect(after.names[agent!]).toMatchObject({ kind: "agent", name: "Clerk" });
+  expect(outcomes(await s.tool("proposal_apply", { proposalId: id }))).toEqual(Array(5).fill("made before"));
+  expect((await context.db.select().from(tablesTable)).filter((t) => t.name === "Matters")).toHaveLength(1);
+});
+
+test("apply stops at a refused item, never runs what names it, and goes on from the first item not made", async () => {
+  const s = await setup();
+  const { context } = s;
+  await call(router.tables.create, { name: "Clients" }, { context });
+  const id = await approve(s, [
+    { tool: "tables_create", input: { name: "Matters" } },
+    // The name is taken: the procedure refuses it once approved.
+    { tool: "tables_create", input: { name: "Clients" } },
+    { tool: "fields_create", input: { tableId: { $item: 1 }, name: "Phone", type: "text" } },
+    { tool: "tables_create", input: { name: "Invoices" } },
+  ]);
+  const first = (await s.tool("proposal_apply", { proposalId: id })) as Applied;
+  expect(first.output.items.map((i) => i.outcome)).toEqual(["made", "refused", "not made", "not made"]);
+  expect(first.output.items[1]!.error).toMatch(/Clients/);
+  expect(first.output.next).toMatch(/^Item 2 \(tables_create\) was refused: .*The items after it weren't made/);
+  // Again: the refused item stays spent, and the one naming it can't run, so nothing after it runs either.
+  const again = (await s.tool("proposal_apply", { proposalId: id })) as Applied;
+  expect(again.output.items.map((i) => i.outcome)).toEqual(["made before", "refused before", "refused", "not made"]);
+  expect(again.output.items[2]!.error).toMatch(/names an item that created nothing/);
+  expect((await context.db.select({ name: tablesTable.name }).from(tablesTable)).map((t) => t.name).sort()).toEqual(["Clients", "Matters"]);
+  expect((await context.db.select().from(fieldsTable)).filter((f) => f.name === "Phone")).toHaveLength(0);
+  // The owner reads the refused item as such.
+  const [row] = await context.db.select().from(proposals).where(eq(proposals.id, id));
+  expect(row!.items.map((i) => [i.usedAt !== undefined, i.failed === true, typeof i.createdId])).toEqual([
+    [true, false, "string"],
+    [true, true, "undefined"],
+    // Never taken: it couldn't be resolved.
+    [false, false, "undefined"],
+    [false, false, "undefined"],
+  ]);
+});
+
+test("a reference names an earlier item that creates something, of the same proposal, and only where an id goes", async () => {
+  const s = await setup();
+  const table = { tool: "tables_create", input: { name: "Matters" } };
+  const field = (tableId: unknown) => ({ tool: "fields_create", input: { tableId, name: "Phone", type: "text" } });
+  const cases: [unknown[], RegExp][] = [
+    // Later, or itself.
+    [[table, field({ $item: 3 })], /^Item 2 \(fields_create\): \{ "\$item": 3 \} must name an earlier item/],
+    [[table, field({ $item: 1 })], /must name an earlier item/],
+    // An item that creates nothing.
+    [[table, { tool: "tables_rename", input: { id: { $item: 0 }, name: "Cases" } }, field({ $item: 1 })], /names tables_rename, which creates nothing/],
+    // Not a reference alone, or not an index.
+    [[table, field({ $item: 0, id: "tbl_x" })], /a reference is \{ "\$item": n \} alone/],
+    [[table, field({ $item: "0" })], /a reference is/],
+    [[table, field({ $item: 0.5 })], /a reference is/],
+    // Inside a text, it isn't kept whole.
+    [[table, { tool: "agents_create", input: { ...s.newAgent, systemPrompt: [{ $item: 0 }] } }], /systemPrompt/],
+  ];
+  for (const [items, reason] of cases) {
+    const refused = await s.propose(items);
+    expect(refused).toMatchObject({ ok: false });
+    expect((refused as { error: string }).error).toMatch(reason);
+  }
+  // A reference is an index of its own proposal: another proposal's item 0 is not this one's.
+  await approve(s, [table]);
+  expect(await s.propose([field({ $item: 0 })])).toMatchObject({ ok: false, error: expect.stringContaining("must name an earlier item") });
+  expect(await s.context.db.select().from(proposals)).toHaveLength(1);
+});
+
+test("a Job limited to some tables can't propose a write on a table an earlier item creates", async () => {
+  const s = await setup();
+  const mine = await call(router.tables.create, { name: "Mine" }, { context: s.context });
+  await call(router.agents.update, { ...s.base, id: s.agent.id, dataTables: [mine.id] }, { context: s.context });
+  const job = await s.start();
+  const refused = await s.propose([{ tool: "tables_create", input: { name: "New" } }, { tool: "fields_create", input: { tableId: { $item: 0 }, name: "Phone", type: "text" } }], job);
+  expect(refused).toMatchObject({ ok: false, error: "Item 2 (fields_create): Not found" });
+});
+
+test("a direct call of a listed write uses its item, so later items name what it made; one not listed runs as before", async () => {
+  const s = await setup();
+  const id = await approve(s, [
+    { tool: "tables_create", input: { name: "Matters" } },
+    { tool: "fields_create", input: { tableId: { $item: 0 }, name: "Phone", type: "text" } },
+    { tool: "agents_create", input: { ...s.newAgent, dataTables: [{ $item: 0 }] } },
+  ]);
+  const made = await s.tool("tables_create", { name: "Matters" });
+  const tableId = (made as { output: { id: string } }).output.id;
+  // The field, with the created id: that item.
+  expect(await s.tool("fields_create", { tableId, name: "Phone", type: "text" })).toMatchObject({ ok: true });
+  // A write not listed runs without one, as ever; a grant naming the table still needs its item.
+  expect(await s.tool("tables_create", { name: "Other" })).toMatchObject({ ok: true });
+  expect(((await s.tool("agents_create", { ...s.newAgent, dataTables: ["tbl_other"] })) as { error: string }).error).toMatch(NEEDS);
+  expect(outcomes(await s.tool("proposal_apply", { proposalId: id }))).toEqual(["made before", "made before", "made"]);
+  const [row] = await s.context.db.select().from(proposals).where(eq(proposals.id, id));
+  expect(row!.items[0]!.createdId).toBe(tableId);
+  const agentId = row!.items[2]!.createdId!;
+  expect(await call(router.agents.get, { id: agentId }, { context: s.context })).toMatchObject({ dataTables: [tableId] });
+});
+
+test("apply checks the Job's rights at each item: rights taken back between two items stop it there", async () => {
+  const s = await setup();
+  const id = await approve(s, [
+    // The Job's own agent loses `configure` with this first item.
+    { tool: "agents_update", input: { ...s.base, id: s.agent.id, bundles: ["data"] } },
+    { tool: "tables_create", input: { name: "Matters" } },
+  ]);
+  const applied = (await s.tool("proposal_apply", { proposalId: id })) as Applied;
+  expect(applied.output.items.map((i) => i.outcome)).toEqual(["made", "refused"]);
+  expect(applied.output.items[1]!.error).toBe("This agent may not use tables_create");
+  expect((await s.context.db.select().from(tablesTable)).filter((t) => t.name === "Matters")).toHaveLength(0);
+});
+
+test("proposal_apply makes only an approved proposal of this Job, and two at once make each item once", async () => {
+  const s = await setup();
+  const items = [{ tool: "tables_create", input: { name: "Matters" } }];
+  const mine = await approve(s, [...items, { tool: "fields_create", input: { tableId: { $item: 0 }, name: "Phone", type: "text" } }]);
+  const both = await Promise.all([s.tool("proposal_apply", { proposalId: mine }), s.tool("proposal_apply", { proposalId: mine })]);
+  expect(both, JSON.stringify(both)).toMatchObject([{ ok: true }, { ok: true }]);
+  expect((await s.context.db.select().from(tablesTable)).filter((t) => t.name === "Matters")).toHaveLength(1);
+  expect((await s.context.db.select().from(fieldsTable)).filter((f) => f.name === "Phone")).toHaveLength(1);
+  // Another Job's approved proposal, of the same agent.
+  const other = await s.start();
+  const theirs = "prop_theirs";
+  await s.context.db.insert(proposals).values({ id: theirs, ownerId: s.context.ownerId, runId: other.runId, agentId: s.agent.id, items, status: "approved" });
+  const draft = s.idOf(await s.propose(items));
+  expect(await s.tool("proposal_apply", { proposalId: draft })).toMatchObject({ ok: false, error: expect.stringContaining("wasn't asked for yet") });
+  const declined = s.idOf(await s.propose(items));
+  await s.answer(await s.ask({ message: "May I?", proposal: declined }), "deny");
+  expect(await s.tool("proposal_apply", { proposalId: declined })).toMatchObject({ ok: false, error: expect.stringContaining("declined") });
+  expect(await s.tool("proposal_apply", { proposalId: theirs })).toMatchObject({ ok: false, error: "No proposal of this Job has this id" });
+  expect(await s.tool("proposal_apply", { proposalId: "prop_missing" })).toMatchObject({ ok: false, error: "No proposal of this Job has this id" });
+  // An agent without `configure` has no proposal_apply.
+  const data = await setup(["data"]);
+  expect(await data.tool("proposal_apply", { proposalId: theirs })).toMatchObject({ ok: false, error: "This agent may not use proposal_apply" });
+
+});
+
+test("proposal_apply is traced, counted and logged when it stops, with ids and counts and never an item's input", async () => {
+  const s = await setup();
+  const telemetry = await captureTelemetry();
+  onTestFinished(() => telemetry.stop());
+  await call(router.tables.create, { name: "Secret clients" }, { context: s.context });
+  const id = await approve(s, [
+    { tool: "tables_create", input: { name: "Secret matters" } },
+    { tool: "tables_create", input: { name: "Secret clients" } },
+  ]);
+  await s.tool("proposal_apply", { proposalId: id });
+  const span = telemetry.spans().find((sp) => sp.name === "platform.proposal_apply")!;
+  expect(span.attributes).toMatchObject({ "dispand.proposal.id": id, "dispand.proposal.items": 2, "dispand.proposal.made": 1, "dispand.result": "stopped" });
+  expect(telemetry.logs().map((r) => r.body)).toContain("proposal apply stopped");
+  expect(await telemetry.metrics()).toContainEqual({ name: "dispand.proposals.applied", attributes: { "dispand.result": "stopped" } });
+  expect(await telemetry.all()).not.toContain("Secret");
 });

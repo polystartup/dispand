@@ -28,7 +28,9 @@ Read the reference that fits the question before answering or proposing:
   fields, renaming them. They ask no one.
 - What widens what agents may do, or can't be undone, is a **proposal** first: list the exact
   calls with `propose`, ask with `request_approval` giving the proposal's id, and once a person
-  approved it, make each call exactly as listed, once. Your own words never approve anything.
+  approved it, call `proposal_apply` with that id. Your own words never approve anything.
+- Propose a whole setup at once: its tables and fields, agents, triggers and tools in one
+  proposal, later items naming what earlier ones create with `{ "$item": n }`.
 - No tool hands you a credential, and none takes one: a tool you add has no headers. Tell the
   owner which tools they need to sign in to or give a key for, on the tool's page.
 - Ids come from the tools' outputs. Never invent one.

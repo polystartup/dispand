@@ -173,7 +173,7 @@ function proposalQuestion(shown = true): RunSnapshot["questions"][number] {
     id: "q1",
     about: null,
     proposalId: "prop_1",
-    proposal: shown ? { id: "prop_1", status: "asked", items: [{ tool: "agents_update", input: { id: "agt_1", name: "Clerk" }, used: false, refs: ["id"] }], names: { agt_1: { kind: "agent", name: "Clerk" } } } : null,
+    proposal: shown ? { id: "prop_1", status: "asked", items: [{ tool: "agents_update", input: { id: "agt_1", name: "Clerk" }, used: false, failed: false, refs: ["id"], creates: null, createdId: null }], names: { agt_1: { kind: "agent", name: "Clerk" } } } : null,
     rootId: null,
     consultId: null,
     runId: "run_1",

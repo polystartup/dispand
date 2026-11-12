@@ -56,6 +56,10 @@ Status: Prototype
     delete an agent's triggers, and add a tool by its address (without credentials: the
     owner enters those) or delete an unused one, only through a proposal: it lists the exact changes, the Inbox (and the chat it was asked in) shows each one whole with the names of
     what it points at, and approving lets that Job make exactly those changes, once each.
+    A proposal may also list the tables and fields to create, so a whole setup is shown and
+    approved at once (up to 60 changes), a later change naming what an earlier one creates
+    ("the table item 1 creates"); once approved, the agent has Dispand make them in order, and
+    a change refused on the way stops the rest, with what was made kept.
     Nothing else an agent says approves anything. In a chat, the composer then offers
     Approve (or Ctrl/⌘+Enter on an empty message); whatever you type and send instead declines
     the proposal, and the agent is told your words to make a new one.

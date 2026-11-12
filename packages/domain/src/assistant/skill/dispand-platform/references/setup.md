@@ -23,33 +23,54 @@ These calls run only as an item of a proposal a person approved, in the same Job
 - `tables_delete`, `fields_delete` (they can't be undone);
 - `harnesses_set_limit`, `workspace_set_checkpoint`.
 
-Everything else in your bundles you call directly.
+The other writes of `configure` (`tables_create`, `tables_rename`, `tables_set_primitive`,
+`fields_create`, `fields_update`, `fields_reorder`) you may call directly, or list in a
+proposal so the owner sees the whole setup at once.
 
 ## How to propose
 
 1. Read what exists, so the proposal reuses it and names real ids.
-2. Call `propose` with `items`: each the tool's name and the exact input you will call it
-   with. At most 20 items and 64 KiB; every item is checked by its tool when proposed, and a
-   refused item comes back with the reason.
-3. Call `request_approval` with a short message and the proposal's id. The owner sees every
+2. Call `propose` with `items`, in the order they must be made: each the tool's name and the
+   exact input you will call it with. At most 60 items and 64 KiB; every item is checked by its
+   tool when proposed, and a refused item comes back with the reason (fix it and propose
+   again).
+3. Where an item needs the id of something an earlier item creates, put `{ "$item": n }`
+   there instead, `n` being that earlier item's place in `items`, counted from 0. Only
+   `tables_create`, `fields_create`, `agents_create`, `triggers_create` and `tools_add` create
+   something to name. For example, item 0 creates a table and item 1 adds a field to it:
+
+   ```json
+   { "items": [
+     { "tool": "tables_create", "input": { "name": "Matters" } },
+     { "tool": "fields_create", "input": { "tableId": { "$item": 0 }, "name": "Status", "type": "single-select", "choices": [{ "id": "open", "label": "Open" }] } },
+     { "tool": "agents_create", "input": { "name": "Clerk", "harnessId": "<a harness id>", "systemPrompt": "…", "bundles": ["data"], "dataTables": [{ "$item": 0 }] } },
+     { "tool": "triggers_create", "input": { "agentId": { "$item": 2 }, "name": "New matter", "instructions": "…", "config": { "kind": "primitive", "tableId": { "$item": 0 }, "operations": ["created"] } } }
+   ] }
+   ```
+
+4. Call `request_approval` with a short message and the proposal's id. The owner sees every
    item whole and approves or declines it. A decline may come with the owner's words (what
    they typed in the chat instead of approving): the proposal is then closed for good, so
    propose again with what they asked for and request approval of the new one.
-4. Once approved, make each call exactly as listed (same tool, same input), once each. A call
-   that differs, or one made twice, is refused.
-
-An item can only name what exists when it is proposed. To set up something new from nothing,
-propose in rounds: first create the tables and fields directly (no proposal needed), then
-propose the agents, read their ids once created, then propose their triggers and the actions
-of their tools that should run without asking.
+5. Once approved, call `proposal_apply` with the proposal's id: it makes the items in order,
+   each checked like a direct call, and gives each one's outcome and the id it created. It
+   stops at the first item refused (a name already taken, for example): what was made stays
+   made, that item is spent, and items naming it can't run. Tell the owner what was made and
+   why it stopped, then propose what is left again, with the real ids. You may also make the
+   calls yourself, exactly as listed (with the created ids in place of the references), once
+   each.
 
 ## Proposing a setup
 
-Turn what the owner describes into the workspace's own definitions:
+Turn what the owner describes into the workspace's own definitions, all in one proposal, in
+this order: tables and their fields, tools, agents, then triggers and asking flags, each later
+item naming what earlier ones create.
 
 - **Tables** for each kind of business record, with typed fields; make a table primitive when
   a change to its rows should start work, and give it a parent when its rows belong to another
-  table's.
+  table's. A field's type is one of `text`, `long-text`, `number`, `checkbox`,
+  `date`, `url`, `attachment`, `single-select` (with `choices`, each `{ "id": "…", "label": "…" }`)
+  and `reference` (with `referencesTableId`). A new table already has a `Name` field.
 - **Agents**, one per kind of work, each with clear instructions, a harness from
   `harnesses_limits`, the tools it needs from `tools_list`, and the fewest bundles and tables
   its work needs.

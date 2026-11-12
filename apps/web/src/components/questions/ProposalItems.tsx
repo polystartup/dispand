@@ -2,12 +2,22 @@
 export type ProposalView = {
   id: string;
   status: "draft" | "asked" | "approved" | "declined";
-  /** `refs`: the keys of the input that hold ids of the owner's things, read by name. */
-  items: { tool: string; input: unknown; used: boolean; refs: string[] }[];
+  /**
+   * `refs`: the keys of the input that hold ids of the owner's things, read by name. An input may
+   * hold `{ "$item": n }` where an id goes: what item `n` creates (`creates`), once made
+   * `createdId`; `failed` when its call was refused.
+   */
+  items: { tool: string; input: unknown; used: boolean; refs: string[]; creates?: string | null; createdId?: string | null; failed?: boolean }[];
   names: Record<string, { kind: string; name: string; detail?: string }>;
 };
 
 const TITLES: Record<string, string> = {
+  tables_create: "Create a table",
+  tables_rename: "Rename a table",
+  tables_set_primitive: "Make a table primitive, or not",
+  fields_create: "Add a field to a table",
+  fields_update: "Change a field",
+  fields_reorder: "Reorder a table's fields",
   agents_create: "Create an agent",
   agents_update: "Change an agent",
   agents_set_tool_ask: "Change whether an action asks before use",
@@ -22,6 +32,12 @@ const TITLES: Record<string, string> = {
 };
 /** What a key is called, by tool where one name isn't enough. */
 const LABELS_OF: Record<string, Record<string, string>> = {
+  tables_create: { name: "Name" },
+  tables_rename: { id: "Table", name: "New name" },
+  tables_set_primitive: { id: "Table", primitive: "Primitive", parent: "Parent table" },
+  fields_create: { tableId: "Table", name: "Name", type: "Type", choices: "Choices", referencesTableId: "Names rows of" },
+  fields_update: { id: "Field", name: "New name", choices: "Choices" },
+  fields_reorder: { tableId: "Table", fieldIds: "Fields, in order" },
   tables_delete: { id: "Table" },
   fields_delete: { id: "Field" },
   triggers_create: { id: "Trigger", agentId: "Agent", instructions: "What the agent is told", config: "When it fires", concurrency: "Jobs at once", enabled: "On" },
@@ -50,14 +66,14 @@ const LABELS: Record<string, string> = {
 export const CONSULT_LINE = "It can steer this agent with its questions, and its answers may quote what it reads in tables this agent can't.";
 
 /** An agent's consult entries: each agent by name, whether it asks first, and what the pair can do. */
-function Consults({ value, names }: { value: unknown; names: ProposalView["names"] }) {
+function Consults({ value, items, names }: { value: unknown; items: Items; names: ProposalView["names"] }) {
   const entries = Array.isArray(value) ? value.filter((e): e is { agentId: unknown; ask?: unknown } => typeof e === "object" && e !== null) : [];
   if (entries.length === 0) return <span className="text-faint">none</span>;
   return (
     <span className="flex flex-col gap-1">
       {entries.map((e, i) => (
         <span key={i}>
-          <Ref id={String(e.agentId)} names={names} />
+          <Id value={e.agentId} items={items} names={names} />
           {e.ask === true ? " (asks before use)" : ""}
         </span>
       ))}
@@ -65,6 +81,31 @@ function Consults({ value, names }: { value: unknown; names: ProposalView["names
     </span>
   );
 }
+type Items = ProposalView["items"];
+
+/** `{ "$item": n }`: what item `n` of the same proposal creates. */
+const isItemRef = (value: unknown): value is { $item: number } => typeof value === "object" && value !== null && !Array.isArray(value) && typeof (value as { $item?: unknown }).$item === "number";
+
+/** A reference to an earlier item, read as what it creates, and by name once made. */
+function ItemRef({ at, items, names }: { at: number; items: Items; names: ProposalView["names"] }) {
+  const item = items[at];
+  return (
+    <span>
+      the {item?.creates ?? "thing"} item {at + 1} creates
+      {item?.createdId ? (
+        <>
+          : <Ref id={item.createdId} names={names} />
+        </>
+      ) : null}
+    </span>
+  );
+}
+
+/** An id, or a reference to an earlier item where an id goes. */
+function Id({ value, items, names }: { value: unknown; items: Items; names: ProposalView["names"] }) {
+  return isItemRef(value) ? <ItemRef at={value.$item} items={items} names={names} /> : <Ref id={String(value)} names={names} />;
+}
+
 function Ref({ id, names }: { id: string; names: ProposalView["names"] }) {
   const found = names[id];
   if (!found) {
@@ -86,20 +127,20 @@ const OPERATIONS: Record<string, string> = { created: "a row is created", update
 const INTERACTION_OPERATIONS: Record<string, string> = { created: "one is asked", answered: "one is answered", expired: "one expires" };
 
 /** A table-change trigger's config in words, its table and fields read by name. */
-function ChangeConfig({ config, names }: { config: { tableId?: unknown; operations?: unknown; fields?: unknown }; names: ProposalView["names"] }) {
+function ChangeConfig({ config, items, names }: { config: { tableId?: unknown; operations?: unknown; fields?: unknown }; items: Items; names: ProposalView["names"] }) {
   const interaction = config.tableId === "interaction";
   const words = interaction ? INTERACTION_OPERATIONS : OPERATIONS;
   const operations = Array.isArray(config.operations) ? config.operations.map((o) => words[String(o)] ?? String(o)) : [];
-  const fields = Array.isArray(config.fields) ? config.fields.filter((f): f is string => typeof f === "string") : null;
+  const fields = Array.isArray(config.fields) ? config.fields.filter((f) => typeof f === "string" || isItemRef(f)) : null;
   return (
     <span className="flex flex-col gap-1">
-      <span>{interaction ? "A Question or an Approval of another agent's Job" : <>A change to the table <Ref id={String(config.tableId)} names={names} /></>}</span>
+      <span>{interaction ? "A Question or an Approval of another agent's Job" : <>A change to the table <Id value={config.tableId} items={items} names={names} /></>}</span>
       <span>When {operations.join(", or ") || "nothing"}</span>
       {fields && operations.length > 0 && (config.operations as unknown[]).includes("updated") && (
         <span className="flex flex-col">
           A changed row only when one of these changed:
-          {fields.map((id) => (
-            <Ref key={id} id={id} names={names} />
+          {fields.map((id, i) => (
+            <Id key={i} value={id} items={items} names={names} />
           ))}
         </span>
       )}
@@ -107,21 +148,32 @@ function ChangeConfig({ config, names }: { config: { tableId?: unknown; operatio
   );
 }
 
-function Value({ value, names, isRef, address }: { value: unknown; names: ProposalView["names"]; isRef: boolean; address: boolean }) {
+function Value({ value, items, names, isRef, address }: { value: unknown; items: Items; names: ProposalView["names"]; isRef: boolean; address: boolean }) {
   const list = Array.isArray(value) ? value : null;
+  if (isItemRef(value)) return <ItemRef at={value.$item} items={items} names={names} />;
   // Read by name, never taken on trust ("all" tables is not an id).
   if (isRef && value !== "all") {
-    const ids = (list ?? [value]).filter((v): v is string => typeof v === "string");
+    const ids = (list ?? [value]).filter((v) => typeof v === "string" || isItemRef(v));
     if (ids.length === 0) return <span className="text-faint">none</span>;
     return (
       <span className="flex flex-col">
-        {ids.map((id) => (
-          <Ref key={id} id={id} names={names} />
+        {ids.map((id, i) => (
+          <Id key={i} value={id} items={items} names={names} />
         ))}
       </span>
     );
   }
-  if (typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "primitive") return <ChangeConfig config={value as never} names={names} />;
+  if (typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "primitive") return <ChangeConfig config={value as never} items={items} names={names} />;
+  // A primitive table's parent: a table, and whether every row must name one.
+  if (typeof value === "object" && value !== null && "tableId" in value && "required" in value) {
+    const parent = value as { tableId: unknown; required: unknown };
+    return (
+      <span>
+        <Id value={parent.tableId} items={items} names={names} />
+        {parent.required === true ? ", which every row must name" : ""}
+      </span>
+    );
+  }
   if (address && typeof value === "string") {
     // The whole address, and the host it reaches set apart: that is where calls will go.
     const host = URL.parse(value)?.host;
@@ -150,8 +202,9 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
       {proposal.items.map((item, i) => (
         <li key={i} className="rounded-xl border border-line p-3">
           <p className="text-[14px] font-medium">
+            <span className="mr-1.5 text-faint">{i + 1}.</span>
             {TITLES[item.tool] ?? item.tool}
-            {item.used && <span className="ml-2 text-[12px] font-normal text-faint">done</span>}
+            {item.used && <span className={`ml-2 text-[12px] font-normal ${item.failed ? "text-danger" : "text-faint"}`}>{item.failed ? "refused" : "done"}</span>}
           </p>
           <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1.5 text-[13px]">
             {Object.entries((item.input ?? {}) as Record<string, unknown>).map(([name, value]) => (
@@ -159,9 +212,9 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
                 <dt className="text-muted">{LABELS_OF[item.tool]?.[name] ?? LABELS[name] ?? name}</dt>
                 <dd className="min-w-0">
                   {item.tool.startsWith("agents_") && name === "consults" ? (
-                    <Consults value={value} names={proposal.names} />
+                    <Consults value={value} items={proposal.items} names={proposal.names} />
                   ) : (
-                    <Value value={value} names={proposal.names} isRef={item.refs.includes(name)} address={item.tool === "tools_add" && name === "url"} />
+                    <Value value={value} items={proposal.items} names={proposal.names} isRef={item.refs.includes(name)} address={item.tool === "tools_add" && name === "url"} />
                   )}
                 </dd>
               </div>
