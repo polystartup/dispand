@@ -81,6 +81,14 @@ Status: Prototype
     which adds a harness when there is none and then starts the Assistant on the one picked.
     Its conversations are listed beside the chat, newest first, each named by its first
     message; "New conversation" starts another, and the page's address reopens one.
+  - The Assistant's **weekly review** is off until the owner turns it on, on the Assistant's
+    page (Mondays at 09:00 in their time zone; the schedule stays editable on the Assistant's
+    agent page, and the review can be turned off but not deleted). It looks for agents with no
+    trigger, tables no agent works on, tools waiting for a sign-in, Questions open more than
+    three days and buttons pressed at the same hour often enough to be a schedule, and asks for
+    one change per finding as an Approval in the Inbox; it carries out only what is approved,
+    and doesn't raise a finding again for 30 days once its change was declined. The same review
+    can be asked for in the chat.
   - The **platform skill** (`dispand-platform`, in Settings › Skills, built in and read-only)
     tells an agent how Dispand works and how to propose a setup. It comes with each version of
     Dispand. The Assistant always has it; any other agent may be given it, which grants nothing.

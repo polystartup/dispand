@@ -534,6 +534,17 @@
   sheet when the owner has no harness, then a picker that calls `agents.ensureAssistant`.
   `onboarding.status` (the Assistant's id or null, and whether a harness exists) makes Home
   send an owner without an Assistant there.
+- **The enhancement review:** `ensureAssistant` also gives the Assistant a schedule trigger
+  marked `built_in = 'review'` (migration 0054, one per agent), Mondays at 09:00, one at a
+  time, made **off**; `assistantGuard` refuses only its deletion. The `/assistant` page's
+  switch (`components/assistant/ReviewSwitch.tsx`) turns it on with the browser's time zone.
+  Its Job calls `workspace_review` (`workspace.review`, a `configure` read), which runs
+  `reviewSignals` (`assistant/review.ts`): a deterministic read of the rows, each signal with
+  the ids it names and a key; a signal whose key an Approval of the Assistant's names and the
+  owner denied in the last 30 days is left out, and a Job limited to some tables isn't told
+  of the others. The model only proposes, one proposal per signal (the platform skill's
+  `references/review.md`). A scheduled Job has no chat, so its questions are already
+  `notifications`: its Approvals go to the Inbox with no change to `request_approval`.
 - **The platform skill:** the skill package `dispand-platform` (`assistant/skill/`: its
   `SKILL.md` and references on Dispand's concepts, triggers and how to propose a setup), bundled
   into the build by Vite's `import.meta.glob` (`assistant/skill.ts`), so its files are the
