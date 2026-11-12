@@ -8,6 +8,7 @@ import { BUNDLES, type TableScope } from "../platform/bundles.ts";
 import { ModelName } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
+import { defaultUnasked } from "../tools/catalog.ts";
 import { StorableText } from "../workflows/model.ts";
 import { agentInUse } from "../workflows/procedures.ts";
 import { assistantGuard, ensureAssistant, findAssistant } from "./builtin.ts";
@@ -125,7 +126,7 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
   if (pkgs.length !== packageIds.length) throw new ORPCError("NOT_FOUND", { message: "Skill not found" });
   const found = toolIds.length
     ? await tx
-        .select({ id: toolsTable.id, actions: toolsTable.actions })
+        .select({ id: toolsTable.id, actions: toolsTable.actions, catalogId: toolsTable.catalogId })
         .from(toolsTable)
         .where(and(inArray(toolsTable.id, toolIds), eq(toolsTable.ownerId, ownerId)))
         .for("share")
@@ -144,8 +145,8 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
     if (tool.runnerId !== harnessRunnerId) throw new ORPCError("BAD_REQUEST", { message: `The tool “${tool.name}” runs on another runner than the agent's harness` });
   }
   await tx.delete(agentSkills).where(eq(agentSkills.agentId, agentId));
-  // A tool the agent keeps keeps its unasked actions; one added now starts with the actions its
-  // server calls read-only. Only here is that claim read: later, it changes nothing by itself.
+  // A tool the agent keeps keeps its unasked actions; one added now starts with its catalog
+  // entry's, or the actions its server calls read-only. Only here are those read: later, they change nothing by themselves.
   const kept = new Map((await tx.delete(agentTools).where(eq(agentTools.agentId, agentId)).returning()).map((t) => [t.toolId, t.unasked]));
   if (packageIds.length) await tx.insert(agentSkills).values(packageIds.map((packageId) => ({ agentId, packageId })));
   if (toolIds.length) {
@@ -153,7 +154,7 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
       toolIds.map((toolId) => ({
         agentId,
         toolId,
-        unasked: kept.get(toolId) ?? found.find((t) => t.id === toolId)!.actions.flatMap((a) => (a.readOnly ? [a.name] : [])),
+        unasked: kept.get(toolId) ?? defaultUnasked(found.find((t) => t.id === toolId)!),
       })),
     );
   }

@@ -13,8 +13,8 @@ import { ActionItem, errorMessage, type Tool } from "./ToolSheet.tsx";
 type Props = {
   /** The runner tool being edited; absent when adding one. */
   tool?: Tool;
-  /** When adding: the name and the server to preselect (a catalog entry's). */
-  suggested?: { name: string; runnerTool: string };
+  /** When adding: the name and the server to preselect, and the catalog entry they come from. */
+  suggested?: { name: string; runnerTool: string; catalogId?: string };
   onClose: () => void;
   onSaved: (tool: Tool) => void;
 };
@@ -48,7 +48,7 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
     try {
       const saved = current
         ? await update.mutateAsync({ id: current.id, name, runnerId, runnerTool })
-        : await create.mutateAsync({ kind: "runner", name, runnerId, runnerTool });
+        : await create.mutateAsync({ kind: "runner", name, runnerId, runnerTool, ...(suggested?.catalogId ? { catalogId: suggested.catalogId } : {}) });
       onSaved(saved);
     } catch (e) {
       setError(errorMessage(e, "Could not save the tool. Check the details and try again."));

@@ -107,6 +107,18 @@ test("the catalog searches its entries, shows a runner snippet without a key, an
   await expect(sheet.getByLabel("Name")).toHaveValue("GitHub");
   await shots(page, "catalog-install");
   // Installing would call GitHub itself: the install path is covered by the domain tests with a fake connector.
+
+  // The mail entries: Gmail two ways and Microsoft 365, each with its set-up steps.
+  await sheet.getByRole("button", { name: "All tools" }).click();
+  await sheet.getByLabel("Search the catalog").fill("mail");
+  await expect(sheet.getByRole("button", { name: /^Microsoft 365 mail/ })).toBeVisible();
+  await sheet.getByRole("button", { name: /^Gmail \(on a runner\)/ }).click();
+  await expect(sheet.getByLabel("Runner config for Gmail (on a runner)")).toContainText("@artymclabin/gmail-mcp@1.2.3");
+  await expect(sheet.getByText("docs/services/gmail.md")).toBeVisible();
+  await sheet.getByRole("button", { name: "All tools" }).click();
+  await sheet.getByRole("button", { name: /^Gmail\s*Search/ }).click();
+  await expect(sheet.getByText(/It signs in with OAuth/)).toContainText("gmail.readonly and gmail.compose only");
+  await shots(page, "catalog-gmail");
 });
 
 /** Calls an API procedure as the signed-in owner (setup that has no screen worth driving). */

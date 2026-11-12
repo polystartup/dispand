@@ -5,8 +5,16 @@ import { orpc } from "../../lib/api.ts";
 import { selectClass } from "../data/NewFieldPopover.tsx";
 import { FormField } from "../settings/parts.tsx";
 
-/** A poll's settings as the sheet edits them: the arguments as the JSON text typed. */
-export type PollForm = { toolId: string; action: string; arguments: string; itemsPath: string; idPath: string; interval: number };
+/** A poll's settings as the sheet edits them: the arguments as the JSON text typed; the continuation as a preset gave it. */
+export type PollForm = {
+  toolId: string;
+  action: string;
+  arguments: string;
+  itemsPath: string;
+  idPath: string;
+  interval: number;
+  continuation?: { path: string; query?: string; argument: string };
+};
 type PollItem = { itemId: string; status: string; runId?: string; message?: string };
 export type PollRecord = { at: Date; status: string; found: number; fresh: number; message?: string; items: PollItem[] };
 
@@ -50,13 +58,33 @@ export function PollTriggerPanel({
   // The agent's own tools, chosen or through its skills: a poll reads no more than its agent may.
   const agent = useQuery(orpc.agents.get.queryOptions({ input: { id: agentId } }));
   const actions = useQuery({ ...orpc.tools.pollable.queryOptions({ input: { id: config.toolId } }), enabled: !!config.toolId });
+  // A tool from the catalog comes with its poll preset: picking it fills the settings.
+  const tools = useQuery(orpc.tools.list.queryOptions());
+  const catalog = useQuery(orpc.tools.catalog.queryOptions({ input: {} }));
+  const presetOf = (toolId: string) => {
+    const catalogId = tools.data?.find((t) => t.id === toolId)?.catalogId;
+    return catalog.data?.find((e) => e.id === catalogId)?.poll;
+  };
+  function pickTool(toolId: string) {
+    const preset = presetOf(toolId);
+    if (!preset) return onChange({ ...config, toolId, action: "", continuation: undefined });
+    onChange({
+      ...config,
+      toolId,
+      action: preset.action,
+      arguments: JSON.stringify(preset.arguments, null, 2),
+      itemsPath: preset.itemsPath,
+      idPath: preset.idPath,
+      continuation: preset.continuation,
+    });
+  }
   // Only what a poll may read now, and the action already chosen (the server says why it no longer may).
   const pollable = (actions.data ?? []).filter((a) => a.pollable || a.name === config.action);
 
   return (
     <>
       <FormField label="Tool" htmlFor="trigger-tool" hint="One of the agent's tools: the trigger calls it on its own, outside any Job.">
-        <select id="trigger-tool" className={selectClass} value={config.toolId} onChange={(e) => onChange({ ...config, toolId: e.target.value, action: "" })}>
+        <select id="trigger-tool" className={selectClass} value={config.toolId} onChange={(e) => pickTool(e.target.value)}>
           <option value="">Pick a tool</option>
           {(agent.data?.tools ?? []).map((t) => (
             <option key={t.toolId} value={t.toolId}>
@@ -81,7 +109,12 @@ export function PollTriggerPanel({
           </select>
         </FormField>
       )}
-      <FormField label="Arguments (JSON)" htmlFor="trigger-arguments" hint="{{lastPoll}} in a value stands for when the newest item was found.">
+      {config.toolId && presetOf(config.toolId)?.action === config.action && <p className="text-[13px] text-muted">Filled in from the tool's catalog entry: change what you need.</p>}
+      <FormField
+        label="Arguments (JSON)"
+        htmlFor="trigger-arguments"
+        hint="{{lastPoll}} in a value stands for when the newest item was found; {{lastPollEpoch}} for that time in seconds since 1970."
+      >
         <Textarea id="trigger-arguments" rows={3} className="font-mono text-[13px]" value={config.arguments} onChange={(e) => onChange({ ...config, arguments: e.target.value })} />
       </FormField>
       <FormField label="Items at" htmlFor="trigger-items-path" hint="Where the list is in the result, keys between dots (value, data.items); empty when the result is the list.">
@@ -90,6 +123,12 @@ export function PollTriggerPanel({
       <FormField label="Item id at" htmlFor="trigger-id-path" hint="What identifies an item, within it (id).">
         <Input id="trigger-id-path" value={config.idPath} maxLength={200} onChange={(e) => onChange({ ...config, idPath: e.target.value })} />
       </FormField>
+      {config.continuation && (
+        <p className="text-[13px] text-muted">
+          Pages through the result: the next page is at <code className="font-mono">{config.continuation.path}</code>, sent back as{" "}
+          <code className="font-mono">{config.continuation.argument}</code>.
+        </p>
+      )}
       <FormField label="Every (minutes)" htmlFor="trigger-interval">
         <Input id="trigger-interval" type="number" min={1} max={1440} value={config.interval / 60} onChange={(e) => onChange({ ...config, interval: Math.round(Number(e.target.value) * 60) })} />
       </FormField>

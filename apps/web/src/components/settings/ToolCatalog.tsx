@@ -16,7 +16,7 @@ type Props = {
   /** An HTTP entry was installed: the new tool. */
   onInstalled: (tool: Tool) => void;
   /** A runner entry's snippet is in a runner's config: pick that runner. */
-  onPickRunner: (suggested: { name: string; runnerTool: string }) => void;
+  onPickRunner: (suggested: { name: string; runnerTool: string; catalogId: string }) => void;
 };
 
 /** "Browse catalog": search the built-in entries, then install one. Mount it only while open. */
@@ -39,6 +39,11 @@ export function ToolCatalog({ onClose, onInstalled, onPickRunner }: Props) {
                 <ArrowLeft /> All tools
               </Button>
               {entry.kind === "http" ? <InstallHttp entry={entry} onInstalled={onInstalled} /> : <InstallRunner entry={entry} onPickRunner={onPickRunner} />}
+              {entry.docs && (
+                <p className="text-[13px] text-muted">
+                  Set-up steps: <code className="font-mono text-[12.5px]">{entry.docs}</code> in Dispand&apos;s repository.
+                </p>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
@@ -113,6 +118,12 @@ function InstallHttp({ entry, onInstalled }: { entry: Extract<Entry, { kind: "ht
           />
         </FormField>
       ))}
+      {entry.oauth && (
+        <p className="text-[14px]">
+          It signs in with OAuth. Once it is installed, enter your OAuth client&apos;s id and secret on its page, then Connect. The sign-in asks for{" "}
+          {entry.oauth.scopes.map((s) => s.split("/").at(-1)).join(" and ")} only.
+        </p>
+      )}
       <p className="break-all text-[12px] text-faint">Calls {entry.url}</p>
       {error && (
         <p role="alert" className="text-[13px] text-danger">
@@ -147,7 +158,7 @@ function InstallRunner({ entry, onPickRunner }: { entry: Extract<Entry, { kind: 
         </Button>
       )}
       <p className="text-[13px] text-muted">Once the runner is restarted, pick it: agents on its harnesses can then use {entry.name}.</p>
-      <Button type="button" onClick={() => onPickRunner({ name: entry.name, runnerTool: entry.id })}>
+      <Button type="button" onClick={() => onPickRunner({ name: entry.name, runnerTool: entry.id, catalogId: entry.id })}>
         Pick the runner
       </Button>
     </div>
