@@ -25,12 +25,13 @@ export default defineConfig({
   // Required: more workers would share the app, its owner and its data (and zz-questions.spec.ts
   // and zzz-telemetry.spec.ts must stay last in "main").
   workers: 1,
-  // "main": one app and one owner for every spec, run in file order. "custom-setup" needs an app
-  // with nothing set up (first launch: no harness and no Assistant yet), so it has its own
-  // server and database.
+  // "main": one app and one owner for every spec, run in file order. "custom-setup" and
+  // "assistant" (the day-one acceptance) need an app with nothing set up (first launch: no harness
+  // and no Assistant yet), so each has its own server and database.
   projects: [
-    { name: "main", testIgnore: /custom-setup\.spec\.ts/, use: { baseURL: "http://localhost:3100" } },
+    { name: "main", testIgnore: /(custom-setup|\/assistant)\.spec\.ts/, use: { baseURL: "http://localhost:3100" } },
     { name: "custom-setup", testMatch: /custom-setup\.spec\.ts/, use: { baseURL: "http://localhost:3101" } },
+    { name: "assistant", testMatch: /\/assistant\.spec\.ts/, use: { baseURL: "http://localhost:3102" } },
   ],
-  webServer: [{ command: "node e2e/collector.mjs", url: `${COLLECTOR}/health`, reuseExistingServer: !process.env.CI }, server(3100), server(3101)],
+  webServer: [{ command: "node e2e/collector.mjs", url: `${COLLECTOR}/health`, reuseExistingServer: !process.env.CI }, server(3100), server(3101), server(3102)],
 });
