@@ -259,7 +259,8 @@ async function agentSetup(
   const waiting: Waiting[] = [];
   for (const { definition: d, harnessId } of ordered) {
     const key = `agent:${d.name}`;
-    let dataTables: (Ref | "all")[] | "all" | undefined = d.tables === "all" ? "all" : undefined;
+    // Written out even when the definition leaves it out (`agents.create` takes all then), so the owner reads the grant.
+    let dataTables: Ref[] | "all" = "all";
     if (Array.isArray(d.tables)) {
       const missing = d.tables.filter((n) => tableNamed(n) === undefined);
       if (missing.length) {
@@ -289,7 +290,7 @@ async function agentSetup(
       systemPrompt: d.systemPrompt,
       ...(d.bundles ? { bundles: d.bundles } : {}),
       ...(d.selfLearning ? { selfLearning: d.selfLearning } : {}),
-      ...(dataTables === undefined ? {} : { dataTables }),
+      dataTables,
       skillPackageIds: pkg && d.skills.some((s) => installed.includes(s)) ? [pkg.id] : [],
       toolIds,
       ...(consults.length ? { consults } : {}),

@@ -247,7 +247,11 @@ test("a consult between an agent that changes the workspace and one that doesn't
   const { pluginId } = await call(router.plugins.install, { marketplaceId: market.id, entryName: "crew" }, { context: ctx });
   const harnessId = await cloudHarness(ctx);
 
-  const { outcomes } = await setUp(ctx, pluginId, { agents: [{ name: "Builder", harnessId }, { name: "Helper", harnessId }] });
+  const pick = { agents: [{ name: "Builder", harnessId }, { name: "Helper", harnessId }] };
+  // A definition without tables: the item says "all", the scope the agent gets, so the owner reads it.
+  const preview = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
+  expect(preview.items[0]).toMatchObject({ input: { name: "Helper", bundles: ["data"], dataTables: "all" } });
+  const { outcomes } = await setUp(ctx, pluginId, pick);
   expect(outcomes).toEqual([
     { $item: 0, tool: "agents_create", from: "agent:Helper", outcome: "made", id: expect.any(String) },
     { $item: 1, tool: "agents_create", from: "agent:Builder", outcome: "refused", error: "Builder changes the workspace and Helper doesn't: an agent that changes the workspace and one that doesn't never consult each other" },
