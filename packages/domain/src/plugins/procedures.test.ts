@@ -203,6 +203,12 @@ test("uninstall removes the plugin's skill package when no agent uses it, else k
   expect(kept).toMatchObject({ packageId: pkg!.packageId, name: "document-skills", plugin: null });
   expect((await call(router.skills.list, undefined, { context: ctx }))[0]!.skills.map((s) => s.name).sort()).toEqual(["docx", "pdf"]);
   expect(await call(router.agents.get, { id: agent.id }, { context: ctx })).toMatchObject({ skills: [{ name: "document-skills" }] });
+  // Editing it adds the skill named like it and keeps the plugin's, files included.
+  const edit = { packageId: pkg!.packageId, description: "Mine now.", instructions: "Use them.", requiredToolIds: [] };
+  await expect(call(router.skills.update, { ...edit, name: "pdf" }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+  await call(router.skills.update, { ...edit, name: "document-skills" }, { context: ctx });
+  expect((await call(router.skills.list, undefined, { context: ctx }))[0]!.skills.map((s) => s.name).sort()).toEqual(["document-skills", "docx", "pdf"]);
+  expect((await call(router.skills.get, { packageId: pkg!.packageId }, { context: ctx })).files.map((f) => f.path)).toContain("pdf/fill.py");
   await call(router.agents.delete, { id: agent.id }, { context: ctx });
   await call(router.skills.delete, { packageId: pkg!.packageId }, { context: ctx });
   expect(await call(router.skills.list, undefined, { context: ctx })).toEqual([]);
