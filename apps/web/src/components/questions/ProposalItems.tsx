@@ -1,3 +1,5 @@
+import { TARGET_TEXT, WORKSPACE_LINE } from "../settings/SelfLearning.tsx";
+
 /** A proposal as the server gives it to its owner: every write, and a name for each id a write points at. */
 export type ProposalView = {
   id: string;
@@ -66,6 +68,7 @@ const LABELS: Record<string, string> = {
   bundles: "What its Jobs may do",
   dataTables: "Tables",
   consults: "May consult",
+  selfLearning: "Learns",
 };
 
 /** What naming an agent on another's consult list gives each of them (`ConsultList` says it too). */
@@ -88,6 +91,20 @@ function Consults({ value, items, names }: { value: unknown; items: Items; names
   );
 }
 type Items = ProposalView["items"];
+
+/** An agent's self-learning targets in words; writing the workspace's memory says what it does. */
+function Targets({ value }: { value: unknown }) {
+  const targets = Array.isArray(value) ? value : [];
+  if (targets.length === 0) return <span className="text-faint">nothing</span>;
+  return (
+    <span className="flex flex-col gap-1">
+      {targets.map((t, i) => (
+        <span key={i}>{TARGET_TEXT.find(([target]) => target === t)?.[1] ?? String(t)}</span>
+      ))}
+      {targets.includes("workspace") && <span className="text-muted">{WORKSPACE_LINE}</span>}
+    </span>
+  );
+}
 
 /** `{ "$item": n }`: what item `n` of the same proposal creates. */
 const isItemRef = (value: unknown): value is { $item: number } => typeof value === "object" && value !== null && !Array.isArray(value) && typeof (value as { $item?: unknown }).$item === "number";
@@ -238,6 +255,8 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
                 <dd className="min-w-0">
                   {item.tool.startsWith("agents_") && name === "consults" ? (
                     <Consults value={value} items={proposal.items} names={proposal.names} />
+                  ) : item.tool.startsWith("agents_") && name === "selfLearning" ? (
+                    <Targets value={value} />
                   ) : (
                     <Value name={name} value={value} items={proposal.items} names={proposal.names} isRef={item.refs.includes(name)} address={item.tool === "tools_add" && name === "url"} />
                   )}

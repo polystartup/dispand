@@ -234,3 +234,25 @@ test("a proposal names the generated plugin that will record what it creates; on
   render(<ProposalItems proposal={proposal} />);
   expect(screen.queryByText(/recorded in the plugin/)).toBeNull();
 });
+
+test("an agent's self-learning targets read as words, and the workspace's memory with what writing it does", () => {
+  const learning: ProposalView = {
+    id: "prop_9",
+    status: "asked",
+    items: [
+      { tool: "agents_create", used: false, refs: ["harnessId"], input: { name: "Clerk", harnessId: "harness_1", systemPrompt: "", selfLearning: ["agent", "workspace"] } },
+      { tool: "agents_update", used: false, refs: ["id", "harnessId"], input: { id: "agent_1", name: "Builder", harnessId: "harness_1", systemPrompt: "", selfLearning: ["data"] } },
+      { tool: "agents_update", used: false, refs: ["id", "harnessId"], input: { id: "agent_1", name: "Builder", harnessId: "harness_1", systemPrompt: "", selfLearning: [] } },
+    ],
+    names: proposal.names,
+  };
+  render(<ProposalItems proposal={learning} />);
+  const [create, update, off] = screen.getAllByRole("listitem");
+  expect(within(create!).getByText("Learns")).toBeTruthy();
+  expect(within(create!).getByText("Its own memory")).toBeTruthy();
+  expect(within(create!).getByText("The workspace's memory")).toBeTruthy();
+  expect(within(create!).getByText("What it writes steers every agent of the workspace.")).toBeTruthy();
+  expect(within(update!).getByText("Its tables' memory")).toBeTruthy();
+  expect(within(update!).queryByText(/steers every agent/)).toBeNull();
+  expect(within(off!).getByText("nothing")).toBeTruthy();
+});

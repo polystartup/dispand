@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { type AnyPgColumn, bigint, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uniqueIndex } from "drizzle-orm/pg-core";
 import type { Harness, StartParams } from "../engine/harness.ts";
 import type { Cell, Choice, FieldType } from "../data/fields.ts";
+import type { MemoryTarget } from "../memory/model.ts";
 import type { Bundle, TableScope } from "../platform/bundles.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
 import type { WidgetConfig } from "../pages/config.ts";
@@ -145,6 +146,8 @@ export const agents = pgTable("agents", {
   // What its Jobs may do through Dispand's own tools, and on which tables (`platform/`).
   bundles: jsonb("bundles").$type<Bundle[]>().notNull().default([]),
   dataTables: jsonb("data_tables").$type<TableScope>().notNull().default(sql`'"all"'::jsonb`),
+  // Where its Jobs may write memory (`memory/model.ts`); empty, they learn nothing.
+  selfLearning: jsonb("self_learning").$type<MemoryTarget[]>().notNull().default([]),
   // The plugin it came from, and its name there (`plugins/`); it goes with the plugin.
   pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "cascade" }),
   pluginComponent: text("plugin_component"),
@@ -215,6 +218,8 @@ export type AgentSnapshot = {
   /** Absent in Jobs created before bundles existed: none, on all tables. */
   bundles?: Bundle[];
   tables?: TableScope;
+  /** Where its Jobs may write memory; absent in Jobs created before self-learning existed: nowhere. */
+  selfLearning?: MemoryTarget[];
   /** The agents it may consult (`agent_consults`); absent in Jobs created before consults existed: none. */
   consults?: { agentId: string; ask: boolean }[];
 };

@@ -1,0 +1,1 @@
+ALTER TABLE "agents" ADD COLUMN "self_learning" jsonb DEFAULT '[]'::jsonb NOT NULL;

@@ -12,6 +12,7 @@ import { orpc } from "../../lib/api.ts";
 import { ConsultList, type ConsultEntry } from "./ConsultList.tsx";
 import { ToolAsk } from "./ToolAsk.tsx";
 import { JobRights, type Rights } from "./JobRights.tsx";
+import { SelfLearning } from "./SelfLearning.tsx";
 import { BannerSlot, Empty, FormField, NextStep } from "./parts.tsx";
 
 export type Agent = Awaited<ReturnType<typeof api.agents.get>>;
@@ -65,6 +66,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
   const [description, setDescription] = useState(agent?.description ?? "");
   const [consults, setConsults] = useState<ConsultEntry[]>(agent?.consults.map(({ agentId, ask }) => ({ agentId, ask })) ?? []);
   const [rights, setRights] = useState<Rights>({ bundles: agent?.bundles ?? [], dataTables: agent?.dataTables ?? "all" });
+  const [selfLearning, setSelfLearning] = useState(agent?.selfLearning ?? []);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const assistant = agent?.builtIn === "assistant";
@@ -86,7 +88,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
     setSaved(false);
     try {
       const model = modelChoice === HARNESS_DEFAULT ? undefined : modelChoice === OTHER ? otherModel.trim() : modelChoice;
-      const fields = { name, description, harnessId, systemPrompt, skillPackageIds, toolIds, consults, ...rights, ...(model ? { model } : {}) };
+      const fields = { name, description, harnessId, systemPrompt, skillPackageIds, toolIds, consults, selfLearning, ...rights, ...(model ? { model } : {}) };
       if (!agent) {
         await create.mutateAsync(fields);
         await navigate({ to: "/settings/agents", search: { saved: true } });
@@ -277,6 +279,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
           onChange={setRights}
           {...(assistant ? { locked: "The Assistant always works on data and changes tables, on every table." } : {})}
         />
+        <SelfLearning targets={selfLearning} onChange={setSelfLearning} />
         <ConsultList {...(agent ? { agentId: agent.id } : {})} bundles={rights.bundles} entries={consults} agents={agents.data ?? []} onChange={setConsults} />
         <FormField label="System prompt" htmlFor="agent-prompt" hint="What this agent is and how it works. Sent at the start of every session.">
           <Textarea
