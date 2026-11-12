@@ -3,6 +3,7 @@ import { storable } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { isLoopback } from "../harnesses/procedures.ts";
 import { Headers } from "../tools/procedures.ts";
+import { FOLDER, readDefinitions, readExtension } from "./definitions.ts";
 import { allStorable } from "./marketplace.ts";
 import { inside, kindAt, list, MAX_JSON_BYTES, type NotImported, Notes, PluginError, readRegular, readSkillFolders, spend } from "./fs.ts";
 import type { PluginContents, PluginMcpServer } from "./read-plugin.ts";
@@ -43,7 +44,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 const cut = (s: string, max: number) => [...s].slice(0, max).join("");
 
 /** `plugin.json`, validated: the version's rules, or `PluginError` when the plugin must be rejected. */
-function readManifest(root: string, notImported: Notes): { mcpSchema: string; version: string | null } {
+function readManifest(root: string, notImported: Notes): { mcpSchema: string; version: string | null; description: string | undefined } {
   if (kindAt(root, "plugin.json") !== "file") throw new PluginError("plugin.json isn't a regular file");
   const bytes = readRegular(root, "plugin.json", MAX_JSON_BYTES);
   if (!bytes) throw new PluginError("plugin.json is larger than 1 MiB");
@@ -63,14 +64,15 @@ function readManifest(root: string, notImported: Notes): { mcpSchema: string; ve
   if (raw.extensions !== undefined && !isObject(raw.extensions)) {
     notImported.push({ component: "manifest", name: "extensions", reason: "Not an object: ignored" });
   }
-  // Extension namespaces are another task's (`com.dispand`) or no one's here: never read.
+  // `com.dispand` is the one namespace Dispand implements; every other is never read.
+  const description = isObject(raw.extensions) ? readExtension(raw.extensions[FOLDER], notImported) : undefined;
   const parsed = Manifest.safeParse(raw);
   if (!parsed.success) {
     const field = parsed.error.issues[0]?.path[0];
     throw new PluginError(`plugin.json's ${typeof field === "string" ? field : "manifest"} isn't valid`);
   }
   const { version } = parsed.data;
-  return { mcpSchema: rules.mcp, version: version !== undefined && storable(version) ? cut(version, 100) : null };
+  return { mcpSchema: rules.mcp, version: version !== undefined && storable(version) ? cut(version, 100) : null, description };
 }
 
 /** The skills: the immediate folders of `skills/` holding a regular `SKILL.md`, no deeper. */
@@ -201,16 +203,25 @@ function readServers(root: string, mcpSchema: string, notImported: Notes): Plugi
  * A plugin in the Agent Plugins 1.0.0 layout, read from its root folder (from
  * `resolvePluginRoot`) without running anything, under `readPlugin`'s budget. A manifest that
  * isn't valid rejects the plugin (`PluginError`) before anything else is read; components come
- * only from `skills/` and `mcp.json`, each failure isolated to its component or entry and listed
+ * only from `skills/`, `mcp.json` and the `com.dispand/` definitions, each failure isolated to its component or entry and listed
  * as not imported. Every file is `lstat`ed: links are never followed.
  */
 export function readStandardPlugin(root: string, links: string[]): PluginContents {
   const notImported = new Notes();
   if (links.includes("plugin.json")) throw new PluginError("plugin.json is a symbolic link");
-  const { mcpSchema, version } = readManifest(root, notImported);
+  const { mcpSchema, version, description } = readManifest(root, notImported);
   // The checkout's links are gone from it (`fetchGit`): listed here, never read.
   notImported.push(...links.map((name): NotImported => ({ component: "file", name, reason: "A symbolic link" })));
   const skills = readSkills(root, notImported);
   const mcpServers = readServers(root, mcpSchema, notImported);
-  return { layout: "standard", version, skills, mcpServers, agents: [], notImported: notImported.list() };
+  const definitions = readDefinitions(root, { skills: skills.map((s) => s.name), servers: mcpServers.map((s) => s.name) }, notImported);
+  return {
+    layout: "standard",
+    version,
+    skills,
+    mcpServers,
+    agents: [],
+    definitions: { ...(description !== undefined ? { description } : {}), ...definitions },
+    notImported: notImported.list(),
+  };
 }

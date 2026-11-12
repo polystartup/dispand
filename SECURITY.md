@@ -511,7 +511,12 @@ changes it updates this file.
   Agent Plugins layout (a root `plugin.json`) is read with that standard's rules, under the same
   limits: its `$schema` ids are known, never fetched; a linked `plugin.json` rejects it; its
   stdio servers are read (a `./` command and `cwd` that stay inside the plugin, or a `cwd` in
-  its data folder) but, like every command a plugin names, never stored or run. Links are checked out
+  its data folder) but, like every command a plugin names, never stored or run. Its `com.dispand`
+  definitions (tables, agents, triggers) are data and grant nothing: install only stores them,
+  each read as a regular file within the same budget and checked alone. What is made from one is
+  made by the procedure a direct call uses, by the owner or through an approved proposal, with
+  that procedure's checks; an update replaces the definitions and never what was made from
+  them. Links are checked out
   as plain files (`core.symlinks=false`), then removed from the checkout and listed as not
   imported: nothing is ever written or read through one, and a file name that isn't UTF-8 refuses
   the fetch. Every file is read with `lstat`, any other non-regular file is skipped, and a plugin or skill folder whose real path leaves the

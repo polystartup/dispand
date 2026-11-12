@@ -8,7 +8,7 @@ import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { BUILT_IN_MARKETPLACES } from "./marketplace.ts";
 import { marketplaceUrl, packageName } from "./procedures.ts";
-import { fixtureRepo, skillMd } from "./test-support.ts";
+import { fixtureRepo, lawFirm, skillMd } from "./test-support.ts";
 import { toolTarget } from "../tools/procedures.ts";
 import { addStep } from "../workflows/model.ts";
 import { type FakeAction, startFakeMcp } from "../tools/test-server.ts";
@@ -622,4 +622,122 @@ test("a marketplace sync that changes an entry's MCP servers, at the same plugin
   repo.remove();
   await server.close();
   await attacker.close();
+});
+
+/** The law-firm fixture as a plugin of a marketplace. */
+function lawFirmMarket() {
+  const plugin = fixtureRepo(lawFirm());
+  const repo = fixtureRepo({ ".claude-plugin/marketplace.json": JSON.stringify({ name: "firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin.url } }] }) });
+  return {
+    plugin,
+    repo,
+    remove: () => {
+      plugin.remove();
+      repo.remove();
+    },
+  };
+}
+
+test("a plugin's definitions are shown before install, registered by an install that picks nothing else, and listed", async () => {
+  const ctx = await context();
+  const fx = lawFirmMarket();
+  const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
+  const ref = { marketplaceId: market.id, entryName: "law-firm" };
+  const preview = await call(router.plugins.preview, ref, { context: ctx });
+  expect(preview.definitions.primitives.map((d) => d.name)).toEqual(["Clients", "Matters", "Research"]);
+  expect(preview.definitions.agents.map((d) => d.name)).toEqual(["Drafting", "Intake and research", "Matter upkeep"]);
+  expect(preview.definitions).toMatchObject({ triggers: [{ name: "Matter changed" }, { name: "New client email" }, { name: "Research recorded" }] });
+  expect(preview.notImported).toEqual([]);
+
+  const { pluginId, toolIds, agentIds } = await call(router.plugins.install, ref, { context: ctx });
+  // Registering makes nothing: no table, agent, trigger or tool.
+  expect({ toolIds, agentIds }).toEqual({ toolIds: [], agentIds: [] });
+  expect(await call(router.tables.list, undefined, { context: ctx })).toEqual([]);
+  const [row] = await ctx.db.select().from(pluginsTable).where(eq(pluginsTable.id, pluginId));
+  expect(row!.definitions).toEqual(preview.definitions);
+  expect(row!.components.definitions).toEqual({ agents: ["Drafting", "Intake and research", "Matter upkeep"], primitives: ["Clients", "Matters", "Research"], triggers: ["Matter changed", "New client email", "Research recorded"] });
+  const [listed] = await call(router.plugins.list, undefined, { context: ctx });
+  expect(listed!.definitions).toMatchObject({
+    primitives: [
+      { name: "Clients", setUp: false },
+      { name: "Matters", setUp: false },
+      { name: "Research", setUp: false },
+    ],
+    agents: [{ name: "Drafting", setUp: false }, { name: "Intake and research", setUp: false }, { name: "Matter upkeep", setUp: false }],
+    triggers: [{ name: "Matter changed", agent: "Matter upkeep", setUp: false }, { name: "New client email" }, { name: "Research recorded" }],
+  });
+  fx.remove();
+});
+
+test("a plugin with neither definitions nor a pick installs nothing", async () => {
+  const ctx = await context();
+  const plugin = superpowers();
+  const repo = marketplace(plugin);
+  const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
+  await expect(call(router.plugins.install, { marketplaceId: market.id, entryName: "superpowers" }, { context: ctx })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+    message: "Pick at least one skill, MCP server or agent",
+  });
+  plugin.remove();
+  repo.remove();
+});
+
+test("list names what a marketplace plugin's created holds, and a definition reads as set up while what it made exists", async () => {
+  const ctx = await context();
+  const fx = lawFirmMarket();
+  const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
+  const { pluginId } = await call(router.plugins.install, { marketplaceId: market.id, entryName: "law-firm" }, { context: ctx });
+  const h = await harness(ctx);
+  const table = await call(router.tables.create, { name: "Clients" }, { context: ctx });
+  const agent = await call(router.agents.create, { name: "Drafting", harnessId: h.id, systemPrompt: "My own words.", skillPackageIds: [], toolIds: [] }, { context: ctx });
+  await ctx.db
+    .update(pluginsTable)
+    .set({ created: { table: [table.id], agent: [agent.id], from: { "primitive:Clients": table.id, "agent:Drafting": agent.id, "trigger:Matter changed": "trg_gone" } } })
+    .where(eq(pluginsTable.id, pluginId));
+  const [listed] = await call(router.plugins.list, undefined, { context: ctx });
+  expect(listed).toMatchObject({ tables: [{ id: table.id, name: "Clients" }], agents: [{ id: agent.id, name: "Drafting" }] });
+  expect(listed!.definitions.primitives.map((d) => [d.name, d.setUp])).toEqual([
+    ["Clients", true],
+    ["Matters", false],
+    ["Research", false],
+  ]);
+  expect(listed!.definitions.agents.find((d) => d.name === "Drafting")?.setUp).toBe(true);
+  // A row deleted since no longer counts as set up.
+  expect(listed!.definitions.triggers.find((d) => d.name === "Matter changed")?.setUp).toBe(false);
+  await call(router.tables.delete, { id: table.id }, { context: ctx });
+  const [after] = await call(router.plugins.list, undefined, { context: ctx });
+  expect(after!.tables).toEqual([]);
+  expect(after!.definitions.primitives[0]).toMatchObject({ name: "Clients", setUp: false });
+  fx.remove();
+});
+
+test("update replaces the definitions: what was set up stays as the owner has it, no prompt is overwritten, a removed definition deletes nothing", async () => {
+  const ctx = await context();
+  const fx = lawFirmMarket();
+  const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
+  const { pluginId } = await call(router.plugins.install, { marketplaceId: market.id, entryName: "law-firm" }, { context: ctx });
+  const h = await harness(ctx);
+  const table = await call(router.tables.create, { name: "Matters" }, { context: ctx });
+  const agent = await call(router.agents.create, { name: "Drafting", harnessId: h.id, systemPrompt: "Draft the reply, my way.", skillPackageIds: [], toolIds: [] }, { context: ctx });
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Research recorded", config: { kind: "manual", placement: "chat" } }, { context: ctx });
+  const from = { "primitive:Matters": table.id, "agent:Drafting": agent.id, "trigger:Research recorded": trigger.id };
+  await ctx.db.update(pluginsTable).set({ created: { table: [table.id], agent: [agent.id], trigger: [trigger.id], from } }).where(eq(pluginsTable.id, pluginId));
+  // Upstream: Drafting's prompt changes, Research recorded is removed, a new primitive appears.
+  const files = lawFirm();
+  fx.plugin.commit({
+    "com.dispand/agents/drafting.md": files["com.dispand/agents/drafting.md"]!.replace("as a draft in the mailbox.", "in plain words."),
+    "com.dispand/primitives/invoices.json": JSON.stringify({ name: "Invoices", primitive: false, fields: [{ name: "Total", type: "number" }] }),
+  });
+  execFileSync("git", ["rm", "-q", "com.dispand/triggers/research-recorded.json"], { cwd: fx.plugin.dir });
+  fx.plugin.commit({});
+  await call(router.plugins.update, { id: pluginId }, { context: ctx });
+  const [row] = await ctx.db.select().from(pluginsTable).where(eq(pluginsTable.id, pluginId));
+  expect(row!.definitions.primitives.map((d) => d.name)).toEqual(["Clients", "Invoices", "Matters", "Research"]);
+  expect(row!.definitions.triggers.map((d) => d.name)).toEqual(["Matter changed", "New client email"]);
+  expect(row!.definitions.agents.find((d) => d.name === "Drafting")?.systemPrompt).toBe("Draft the reply to the client from the research recorded, in plain words.");
+  expect(row!.created).toEqual({ table: [table.id], agent: [agent.id], trigger: [trigger.id], from });
+  expect(await call(router.agents.get, { id: agent.id }, { context: ctx })).toMatchObject({ systemPrompt: "Draft the reply, my way." });
+  expect(await call(router.triggers.get, { id: trigger.id }, { context: ctx })).toMatchObject({ name: "Research recorded" });
+  expect(await call(router.tables.get, { id: table.id }, { context: ctx })).toMatchObject({ name: "Matters" });
+  fx.remove();
 });

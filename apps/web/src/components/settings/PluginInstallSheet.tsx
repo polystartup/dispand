@@ -33,6 +33,7 @@ const componentLabels: Record<Preview["notImported"][number]["component"], strin
   bin: "Programs",
   "mcp-server": "MCP server",
   skill: "Skill",
+  definition: "Definition",
   file: "File",
 };
 
@@ -160,6 +161,8 @@ function InstallForm({
     }
   }
 
+  const { definitions } = preview;
+  const defined = definitions.primitives.length + definitions.agents.length + definitions.triggers.length;
   const picked = skills.size + servers.size + agents.size;
   return (
     <form
@@ -257,6 +260,30 @@ function InstallForm({
         </Section>
       )}
 
+      {defined > 0 && (
+        <Section id="install-definitions" title="Definitions">
+          <p className="text-[12px] text-faint">
+            {definitions.description ?? "What the plugin can set up in your workspace."} Installing registers them; nothing is made until you set them up from the plugin.
+          </p>
+          <ul className="space-y-1 text-[13px]">
+            {(
+              [
+                ["Tables", definitions.primitives.map((d) => d.name)],
+                ["Agents", definitions.agents.map((d) => d.name)],
+                ["Triggers", definitions.triggers.map((d) => `${d.name} (${d.agent})`)],
+              ] as const
+            ).map(([label, names]) =>
+              names.length > 0 ? (
+                <li key={label} className="px-2">
+                  <span className="text-muted">{label}: </span>
+                  {names.join(", ")}
+                </li>
+              ) : null,
+            )}
+          </ul>
+        </Section>
+      )}
+
       {preview.notImported.length > 0 && (
         <Section id="install-not-imported" title="Not imported">
           <p className="text-[12px] text-faint">Dispand never brings in what would run code you haven't approved, nor files a skill can't hold.</p>
@@ -278,7 +305,7 @@ function InstallForm({
         </p>
       )}
       <div className="flex items-center gap-2">
-        <Button type="submit" disabled={install.isPending || picked === 0 || (agents.size > 0 && !harnessId)}>
+        <Button type="submit" disabled={install.isPending || (picked === 0 && defined === 0) || (agents.size > 0 && !harnessId)}>
           {install.isPending ? "Installing…" : "Install"}
         </Button>
         <Button type="button" variant="ghost" onClick={onClose}>

@@ -17,7 +17,19 @@ afterEach(() => {
 });
 
 const none = { skills: [], mcpServers: [], agents: [] };
-const base = { description: "", updatedAt: new Date(), skills: [], tools: [], agents: [], tables: [], fields: [], triggers: [], available: none, notImported: [] };
+const base = {
+  description: "",
+  updatedAt: new Date(),
+  skills: [],
+  tools: [],
+  agents: [],
+  tables: [],
+  fields: [],
+  triggers: [],
+  definitions: { agents: [], primitives: [], triggers: [] },
+  available: none,
+  notImported: [],
+};
 
 function mount(plugin: Parameters<typeof PluginRow>[0]["plugin"]) {
   render(
@@ -61,4 +73,30 @@ test("a marketplace plugin reads as before: where it came from, its commit, Upda
   expect(row.textContent).toContain("Removing it: its agents, tools and what it set up stay in your workspace");
   expect(row.textContent).toContain("tdd");
   expect(screen.getByRole("button", { name: "Update superpowers" })).toBeTruthy();
+});
+
+test("a plugin's definitions are listed by kind, each marked once something was set up from it", () => {
+  mount({
+    ...base,
+    id: "plugin_3",
+    name: "law-firm",
+    source: "marketplace",
+    marketplace: "firms",
+    url: "https://example.com/law-firm.git",
+    sha: "0123456789abcdef",
+    tables: [{ id: "tbl_1", name: "Clients" }],
+    definitions: {
+      primitives: [
+        { name: "Clients", setUp: true },
+        { name: "Matters", setUp: false },
+      ],
+      agents: [{ name: "Drafting", description: "", setUp: false }],
+      triggers: [{ name: "Research recorded", agent: "Drafting", setUp: false }],
+    },
+  });
+  const row = screen.getByRole("listitem", { name: "law-firm" });
+  expect(row.textContent).toContain("Tables: Clients");
+  expect(row.textContent).toContain("Table definitions: Clients (set up), Matters");
+  expect(row.textContent).toContain("Agent definitions: Drafting");
+  expect(row.textContent).toContain("Trigger definitions: Research recorded");
 });
