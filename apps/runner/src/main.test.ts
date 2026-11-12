@@ -82,7 +82,7 @@ test("a valid pairing saves the config and token only once the code is accepted"
   }
 });
 
-test("run says hello with protocol 10, Claude Code's version and Codex's status", async () => {
+test("run says hello with protocol 11, Claude Code's version and Codex's status", async () => {
   const base = await realpath(await mkdtemp(join(tmpdir(), "hello-")));
   const bin = join(base, "bin");
   await mkdir(bin);
@@ -120,7 +120,7 @@ test("run says hello with protocol 10, Claude Code's version and Codex's status"
   });
   try {
     const { protocol, raw } = await hello;
-    expect(protocol).toBe("10");
+    expect(protocol).toBe("11");
     expect(parseRunnerMessage(raw)).toMatchObject({
       type: "hello",
       clis: { claude: "2.1.300", codex: { version: "0.166.0", signedIn: false } },

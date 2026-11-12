@@ -35,6 +35,7 @@ function answeredText(q: Question): string {
   if (!a) return "Answered";
   if (a.kind === "choice") return `You answered ${Object.values(a.answers).flat().join(", ")}`;
   if (a.kind === "permission") return a.decision === "deny" ? "You denied it" : "You allowed it";
+  if (a.kind === "consult") return a.outcome === "answered" ? "Answered by the agent consulted" : "No answer";
   return a.confirmed ? "You said go ahead" : "You said not yet";
 }
 

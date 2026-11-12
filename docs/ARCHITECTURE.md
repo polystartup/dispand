@@ -213,6 +213,15 @@
   may consult, each with an "ask before use" flag (`agents/consults.ts`): an entry is made only
   between two agents that both have `configure` or neither has (`pairProblem`), and goes with
   either agent; one a later bundle change puts across that line is kept and shown inactive.
+  A Job's cloud session gets a `consult` tool listing them (`StartParams.consults`): a call is a
+  `questions` row of kind `consult` (protocol 11) that `Engine.openConsult` checks
+  (`consultProblem`) and answers at once when refused, or turns into a Job of the consulted agent
+  with no trigger (`RunTrigger` `consult`, `cause` the asking Job, the asking Job's root; its
+  prompt is `CONSULT_PROMPT`). A consult asked while its root is paused waits with no Job until the
+  root goes on (or `recover()`). When that Job ends, `finishRun` answers the row in the same
+  transaction (`answerConsult`); every read of answers to send checks the rights again
+  (`deliveryProblem`). A consult row that expires (its asker stopped, failed, or a resumed session
+  asked again) stops its consulted run, recursively.
   `jobs.start` starts a manual trigger's Job, `jobs.def` gives a Job's definition, and
   `runs.list` takes an `agentId` or a `triggerId`. An agent is never deleted under a Job still going, by itself or
   with its plugin: both paths lock its triggers and the agent in the deleting transaction
