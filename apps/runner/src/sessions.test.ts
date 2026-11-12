@@ -558,7 +558,7 @@ test("a start whose memory names a file a CLI loads as instructions doesn't star
   expect(existsSync(join(base, "root", "runs", "run_a"))).toBe(false);
 });
 
-test("a Codex Job session finds its memory files while it runs, and they go when it ends", async () => {
+test("a Codex Job session finds its memory files while it runs, and they are gone once the runner has shut down", async () => {
   // A turn that never ends: the session stays live until it is stopped.
   const { base, events, sessions, codexStart } = await codexSetup(undefined, { FAKE_CODEX_HANG_ON: "turn/start" });
   const files = [
@@ -570,8 +570,7 @@ test("a Codex Job session finds its memory files while it runs, and they go when
   const dir = join(base, "root", "runs", "run_a", ".dispand", "memory");
   expect(readdirSync(join(dir, "workspace"))).toEqual(["MEMORY.md", "billing.md"]);
   expect(readFileSync(join(dir, "workspace", "billing.md"), "utf8")).toBe("Monthly.\n");
-  await sessions.handle({ type: "session.stop", sessionId: "ses_1" });
-  await ended(events, "ses_1");
-  await vi.waitFor(() => expect(existsSync(dir)).toBe(false));
+  // Shutting down waits until they are removed, not only until the CLI is stopped.
   await sessions.shutdown();
+  expect(existsSync(dir)).toBe(false);
 });
