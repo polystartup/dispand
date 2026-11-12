@@ -25,6 +25,7 @@ import { Route as OauthCallbackRouteImport } from './routes/oauth/callback'
 import { Route as OauthMetadataRouteImport } from './routes/oauth/metadata'
 import { Route as RunnerPairRouteImport } from './routes/runner/pair'
 import { Route as AppPPageIdRouteImport } from './routes/_app.p.$pageId'
+import { Route as AppSettingsMemoryRouteImport } from './routes/_app.settings.memory'
 import { Route as AppSettingsSkillsRouteImport } from './routes/_app.settings.skills'
 import { Route as AppSettingsToolsRouteImport } from './routes/_app.settings.tools'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth.$'
@@ -123,6 +124,11 @@ const RunnerPairRoute = RunnerPairRouteImport.update({
 const AppPPageIdRoute = AppPPageIdRouteImport.update({
   id: '/p/$pageId',
   path: '/p/$pageId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsMemoryRoute = AppSettingsMemoryRouteImport.update({
+  id: '/settings/memory',
+  path: '/settings/memory',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsSkillsRoute = AppSettingsSkillsRouteImport.update({
@@ -249,6 +255,7 @@ export interface FileRoutesByFullPath {
   '/oauth/metadata': typeof OauthMetadataRoute
   '/runner/pair': typeof RunnerPairRoute
   '/p/$pageId': typeof AppPPageIdRoute
+  '/settings/memory': typeof AppSettingsMemoryRoute
   '/settings/skills': typeof AppSettingsSkillsRoute
   '/settings/tools': typeof AppSettingsToolsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -286,6 +293,7 @@ export interface FileRoutesByTo {
   '/runner/pair': typeof RunnerPairRoute
   '/': typeof AppIndexRoute
   '/p/$pageId': typeof AppPPageIdRoute
+  '/settings/memory': typeof AppSettingsMemoryRoute
   '/settings/skills': typeof AppSettingsSkillsRoute
   '/settings/tools': typeof AppSettingsToolsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -325,6 +333,7 @@ export interface FileRoutesById {
   '/runner/pair': typeof RunnerPairRoute
   '/_app/': typeof AppIndexRoute
   '/_app/p/$pageId': typeof AppPPageIdRoute
+  '/_app/settings/memory': typeof AppSettingsMemoryRoute
   '/_app/settings/skills': typeof AppSettingsSkillsRoute
   '/_app/settings/tools': typeof AppSettingsToolsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -364,6 +373,7 @@ export interface FileRouteTypes {
     | '/oauth/metadata'
     | '/runner/pair'
     | '/p/$pageId'
+    | '/settings/memory'
     | '/settings/skills'
     | '/settings/tools'
     | '/api/auth/$'
@@ -401,6 +411,7 @@ export interface FileRouteTypes {
     | '/runner/pair'
     | '/'
     | '/p/$pageId'
+    | '/settings/memory'
     | '/settings/skills'
     | '/settings/tools'
     | '/api/auth/$'
@@ -439,6 +450,7 @@ export interface FileRouteTypes {
     | '/runner/pair'
     | '/_app/'
     | '/_app/p/$pageId'
+    | '/_app/settings/memory'
     | '/_app/settings/skills'
     | '/_app/settings/tools'
     | '/api/auth/$'
@@ -589,6 +601,13 @@ declare module '@tanstack/react-router' {
       path: '/p/$pageId'
       fullPath: '/p/$pageId'
       preLoaderRoute: typeof AppPPageIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/memory': {
+      id: '/_app/settings/memory'
+      path: '/settings/memory'
+      fullPath: '/settings/memory'
+      preLoaderRoute: typeof AppSettingsMemoryRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings/skills': {
@@ -742,6 +761,7 @@ interface AppRouteChildren {
   AppNotificationsRoute: typeof AppNotificationsRoute
   AppIndexRoute: typeof AppIndexRoute
   AppPPageIdRoute: typeof AppPPageIdRoute
+  AppSettingsMemoryRoute: typeof AppSettingsMemoryRoute
   AppSettingsSkillsRoute: typeof AppSettingsSkillsRoute
   AppSettingsToolsRoute: typeof AppSettingsToolsRoute
   AppSettingsAgentsIdRoute: typeof AppSettingsAgentsIdRoute
@@ -768,6 +788,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppNotificationsRoute: AppNotificationsRoute,
   AppIndexRoute: AppIndexRoute,
   AppPPageIdRoute: AppPPageIdRoute,
+  AppSettingsMemoryRoute: AppSettingsMemoryRoute,
   AppSettingsSkillsRoute: AppSettingsSkillsRoute,
   AppSettingsToolsRoute: AppSettingsToolsRoute,
   AppSettingsAgentsIdRoute: AppSettingsAgentsIdRoute,

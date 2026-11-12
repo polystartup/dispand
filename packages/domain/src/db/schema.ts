@@ -9,6 +9,7 @@ import type { TriggerConfig } from "../triggers/model.ts";
 import type { WidgetConfig } from "../pages/config.ts";
 import type { WidgetLayout } from "../pages/layout.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
+import type { MemoryAuthor, MemoryType } from "../memory/model.ts";
 import type { CloudKind } from "../harnesses/cloud.ts";
 import type { MarketplaceEntry, MarketplaceKind } from "../plugins/marketplace.ts";
 import type { NotImported, PluginComponents } from "../plugins/read-plugin.ts";
@@ -1153,4 +1154,64 @@ export const audit = pgTable(
     index("audit_owner_action_idx").on(t.ownerId, t.action, t.at),
     index("audit_at_idx").on(t.at),
   ],
+);
+
+/**
+ * Memory (`memory/`): one row per entry of the workspace's, a table's or an agent's memory, as its
+ * current revision says. Exactly the scope's column is set, and a table's or an agent's memory
+ * goes with it. A removed entry keeps its row (`removed_at`) so it can be restored, and a later
+ * write at its path brings it back. `accepted_at`: a person accepted the current revision, written
+ * by an agent; cleared by the agent's next write.
+ */
+export const memories = pgTable(
+  "memories",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    scope: text("scope").$type<"workspace" | "table" | "agent">().notNull(),
+    tableId: text("table_id").references(() => tables.id, { onDelete: "cascade" }),
+    agentId: text("agent_id").references(() => agents.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    type: text("type").$type<MemoryType>().notNull(),
+    body: text("body").notNull(),
+    author: jsonb("author").$type<MemoryAuthor>().notNull(),
+    acceptedAt: timestamp("accepted_at"),
+    removedAt: timestamp("removed_at"),
+    revision: integer("revision").notNull(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("memories_scope_path_idx").on(t.ownerId, t.scope, sql`coalesce(${t.tableId}, ${t.agentId}, '')`, t.path),
+    index("memories_table_idx").on(t.tableId),
+    index("memories_agent_idx").on(t.agentId),
+    check(
+      "memories_scope_check",
+      sql`(${t.scope} = 'workspace' and ${t.tableId} is null and ${t.agentId} is null) or (${t.scope} = 'table' and ${t.tableId} is not null and ${t.agentId} is null) or (${t.scope} = 'agent' and ${t.agentId} is not null and ${t.tableId} is null)`,
+    ),
+  ],
+);
+
+/** Every revision of a memory entry, appended, never changed: who wrote what and when. A removal is one (`removed`). */
+export const memoryRevisions = pgTable(
+  "memory_revisions",
+  {
+    id: text("id").primaryKey(),
+    memoryId: text("memory_id")
+      .notNull()
+      .references(() => memories.id, { onDelete: "cascade" }),
+    revision: integer("revision").notNull(),
+    path: text("path").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    type: text("type").$type<MemoryType>().notNull(),
+    body: text("body").notNull(),
+    removed: boolean("removed").notNull().default(false),
+    author: jsonb("author").$type<MemoryAuthor>().notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [unique("memory_revisions_memory_revision").on(t.memoryId, t.revision)],
 );

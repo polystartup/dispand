@@ -29,6 +29,8 @@ export const METRICS = {
   "dispand.proposals.applied": ["dispand.result"],
   // An Audit row written (`audit/record.ts`), by its action; `failed`: a write after the fact that didn't go through.
   "dispand.audit.rows": ["dispand.audit.action", "dispand.result"],
+  // A memory write (`memory/store.ts`): its scope, operation and result, never a path or a body.
+  "dispand.memory.writes": ["dispand.memory.scope", "dispand.memory.op", "dispand.result"],
   "dispand.checkpoints.reached": [],
   "dispand.checkpoints.answered": ["dispand.checkpoint.answer"],
   "dispand.roots.paused": [],

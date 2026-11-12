@@ -23,3 +23,22 @@ export function isSafeRelativePath(p: string): boolean {
   if (segments.length > MAX_PATH_SEGMENTS) return false;
   return segments.every((s) => s !== "" && s !== "." && s !== ".." && !CONFIG_SEGMENTS.has(s.toLowerCase()));
 }
+
+/** Longest path a memory entry may have, in characters. */
+export const MAX_MEMORY_PATH_LENGTH = 120;
+
+/** File names a CLI loads as instructions from any folder it reads: never a memory entry's. Compared without case. */
+const INSTRUCTION_FILES = new Set(["claude.md", "agents.md", "agents.override.md"]);
+
+/**
+ * Whether `p` is a path a memory entry may have, the one rule for the server (every write) and
+ * the runner (writing the entry under its session folder): a safe relative path
+ * (`isSafeRelativePath`) of at most 120 characters, ending in `.md`, with no segment a CLI loads
+ * as instructions (`CLAUDE.md`, `AGENTS.md`, `AGENTS.override.md`, in any case), and not
+ * `MEMORY.md`, the name of a scope's index among the runner's files (in any case too).
+ */
+export function isMemoryPath(p: string): boolean {
+  if (p.length > MAX_MEMORY_PATH_LENGTH || !isSafeRelativePath(p) || !p.endsWith(".md")) return false;
+  if (p.toLowerCase() === "memory.md") return false;
+  return p.split("/").every((s) => !INSTRUCTION_FILES.has(s.toLowerCase()));
+}

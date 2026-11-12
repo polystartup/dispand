@@ -483,7 +483,7 @@
   secrets and content and checks none appears in anything exported during the whole suite.
   The standard `OTEL_BSP_SCHEDULE_DELAY`, `OTEL_BLRP_SCHEDULE_DELAY` and
   `OTEL_METRIC_EXPORT_INTERVAL` are read by `startTelemetry` (the SDK no longer reads them).
-- **Audit** (`packages/domain/src/audit/`): one table, `audit` (migration 0055), and one writer,
+- **Audit** (`packages/domain/src/audit/`): one table, `audit` (migration 0056), and one writer,
   `recordAudit` (`record.ts`). A row holds who (`actor`: a person, a Job or the scheduler, plus
   `actor_agent_id` for the agent filter), the Job, the action (a closed list, `AuditAction` in
   `model.ts`), the resource (type and id), the result (`ok`, `refused`, `failed`), details and
@@ -617,6 +617,22 @@
   when the name stands for nothing the agent chose; the runner adds the name to the session's
   unasked ones. Workflow runs' CLI sessions have no Job token, so
   no such tools.
+- **Memory** (`memory/`): the workspace, each Data table and each agent have a memory, one
+  `memories` row per entry (scope, its table or agent, `path`, `name`, a one-line
+  `description`, a `type` among `business`, `practice`, `fact`, `reference`, `body`, the
+  `author` of its current revision, `accepted_at`, `removed_at`) and every revision, a removal
+  included, in the append-only `memory_revisions`. A table's or an agent's memory goes with it.
+  `memory/store.ts` is the one writer: an entry is checked by `MemoryEntryInput`
+  (`memory/model.ts`, which holds the caps: 100 live entries per scope), its path by
+  `isMemoryPath` (runner protocol: a safe relative `.md` path of at most 120 characters, never
+  `CLAUDE.md`, `AGENTS.md`, `AGENTS.override.md` nor `MEMORY.md`), and writes to one scope are
+  serialized by a transaction lock. The index (`memoryIndex`) is never stored: it is made from
+  the entries, grouped by type. A person's write makes the person the author; an agent's clears
+  the acceptance a person gave (`memories.accept`). Revert brings back the previous revision,
+  author included, and restore a removed entry as it last was. The owner's procedures
+  (`memories.*`, not tools) back the workspace memory page under Settings (`MemoryPanel`).
+  Every write is a `memory.write` span and `dispand.memory.writes` (scope, operation, result),
+  never a path or a body.
 - **Skills in cloud sessions** (`skills/cloud.ts`): the way Agent Skills work. At every model
   call `sessionSkills` reads the skills of the session's packages (`sessionTooling`: for a Job,
   its snapshot's that the agent still has); the system prompt lists each skill's name and
