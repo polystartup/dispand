@@ -1,9 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { Tabs as TabsPrimitive } from "radix-ui";
 import { JobList } from "../components/agents/JobList.tsx";
 import { TriggerList } from "../components/agents/TriggerList.tsx";
+import { MemoryPanel } from "../components/memory/MemoryPanel.tsx";
 import { AgentEditor } from "../components/settings/AgentEditor.tsx";
+import { StateTabs } from "../components/settings/Tabs.tsx";
 import { PageHeader } from "../components/Placeholder.tsx";
 import { orpc } from "../lib/api.ts";
 
@@ -13,8 +16,8 @@ const TABS = [
   ["settings", "Settings"],
   ["triggers", "Triggers"],
   ["jobs", "Jobs"],
+  ["memory", "Memory"],
 ] as const;
-const tab = "-mb-px border-b-2 px-1 pb-2.5 text-[14px] transition";
 
 function EditAgent() {
   const { id } = Route.useParams();
@@ -26,26 +29,21 @@ function EditAgent() {
       {agent.error && <p role="alert" className="text-[14px] text-danger">Could not load the agent.</p>}
       {agent.data && (
         <>
-          <div role="tablist" aria-label="Agent" className="mb-6 flex gap-5 border-b border-line">
-            {TABS.map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={shown === key}
-                onClick={() => setShown(key)}
-                className={shown === key ? `${tab} border-accent font-medium text-fg` : `${tab} border-transparent text-muted hover:text-fg`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          {/* Kept mounted: switching tabs must not drop an unsaved draft. Keyed: moving between two agents (history) must not keep the previous one's. */}
-          <div hidden={shown !== "settings"}>
-            <AgentEditor key={agent.data.id} agent={agent.data} />
-          </div>
-          {shown === "triggers" && <TriggerList agentId={agent.data.id} />}
-          {shown === "jobs" && <JobList agentId={agent.data.id} />}
+          <StateTabs label="Agent" tabs={TABS} selected={shown} onSelect={setShown}>
+            {/* Kept mounted: switching tabs must not drop an unsaved draft. Keyed: moving between two agents (history) must not keep the previous one's. */}
+            <TabsPrimitive.Content value="settings" forceMount className="data-[state=inactive]:hidden">
+              <AgentEditor key={agent.data.id} agent={agent.data} />
+            </TabsPrimitive.Content>
+            <TabsPrimitive.Content value="triggers">
+              <TriggerList agentId={agent.data.id} />
+            </TabsPrimitive.Content>
+            <TabsPrimitive.Content value="jobs">
+              <JobList agentId={agent.data.id} />
+            </TabsPrimitive.Content>
+            <TabsPrimitive.Content value="memory">
+              <MemoryPanel key={agent.data.id} where={{ scope: "agent", agentId: agent.data.id }} />
+            </TabsPrimitive.Content>
+          </StateTabs>
         </>
       )}
     </>
