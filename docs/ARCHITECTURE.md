@@ -492,7 +492,10 @@
   `agents_update` and `triggers_*` items, refused when proposed with the reason) call it. Its
   Jobs' system prompt starts with a fixed text (`jobSystemPrompt`, `engine/job-def.ts`), then
   the owner's instructions. The web's `/assistant` (`components/assistant/AssistantChat.tsx`)
-  is its chat trigger's `ChatPanel`, or the harness picker while there is no Assistant.
+  is its chat trigger's `ChatPanel`, or first launch while there is no Assistant: the harness
+  sheet when the owner has no harness, then a picker that calls `agents.ensureAssistant`.
+  `onboarding.status` (the Assistant's id or null, and whether a harness exists) makes Home
+  send an owner without an Assistant there.
 - **The platform skill:** the skill package `dispand-platform` (`assistant/skill/`: its
   `SKILL.md` and references on Dispand's concepts, triggers and how to propose a setup), bundled
   into the build by Vite's `import.meta.glob` (`assistant/skill.ts`), so its files are the

@@ -1,13 +1,13 @@
 import { expect, test } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
 
-// Own app and database (see playwright.config.ts): the first-launch Home needs a fresh install.
+// Own app and database (see playwright.config.ts): first launch needs a fresh install.
 const SERVER = "http://localhost:3101";
 
 let runner: FakeRunner | undefined;
 test.afterAll(() => runner?.close());
 
-test("custom setup: first launch, harness, agent, manual workflow, then a widget on Home", async ({ page }) => {
+test("first launch: setup, the Assistant's page adds a harness and starts it, then Home is Home", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/");
   await expect(page).toHaveURL(/\/setup$/);
@@ -17,20 +17,16 @@ test("custom setup: first launch, harness, agent, manual workflow, then a widget
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page).toHaveURL(/\/$/);
 
-  // First launch: two choices, the tour is not available yet.
-  await expect(page.getByRole("heading", { name: "Let's set up your first workflow" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Take the guided tour" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Add widget" })).toHaveCount(0);
-  await page.screenshot({ path: test.info().outputPath("task-11-first-launch.png"), animations: "disabled" });
+  // The first page is the Assistant's: no harness yet, so it asks for one.
+  await expect(page).toHaveURL(/\/assistant$/);
+  await expect(page.getByText("Choose where the Assistant runs")).toBeVisible();
+  await expect(page.getByRole("button", { name: /guided tour/ })).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath("first-launch.png"), animations: "disabled" });
   await page.waitForLoadState("networkidle");
-  await page.getByRole("link", { name: "Start from scratch" }).click();
-  await expect(page).toHaveURL(/\/settings\/harnesses$/);
+  await page.getByRole("button", { name: "Add a harness" }).click();
 
-  // Harness, through a paired runner.
-  await page.waitForLoadState("networkidle");
-  await page.getByRole("button", { name: "New harness" }).click();
+  // The harness sheet, through a paired runner.
   const sheet = page.getByRole("dialog");
   await sheet.getByRole("button", { name: /^CLI/ }).click();
   await sheet.getByLabel("Name").fill("Claude on Workstation");
@@ -43,9 +39,26 @@ test("custom setup: first launch, harness, agent, manual workflow, then a widget
   runner = await FakeRunner.pair(SERVER, code!.toLowerCase());
   await expect(sheet.getByLabel("Runner", { exact: true })).toContainText("Workstation", { timeout: 15_000 });
   await sheet.getByRole("button", { name: "Create harness" }).click();
+  await expect(sheet).toHaveCount(0);
 
-  // CTA: an agent.
-  await page.getByRole("link", { name: "Create an agent" }).click();
+  // The new harness is picked, and nothing is made until the owner starts the Assistant.
+  await expect(page.getByRole("combobox", { name: "Harness" })).toHaveValue(/^harness_/);
+  await expect(page).toHaveURL(/\/assistant$/);
+  await page.getByRole("button", { name: "Start the Assistant" }).click();
+  await expect(page.getByText("Describe your business or use case and how you'd like to automate it.")).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("assistant-welcome.png"), animations: "disabled" });
+
+  // Its platform skill is there at once, without a restart.
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Skills" }).click();
+  await expect(page.getByText("dispand-platform")).toBeVisible();
+
+  // With an Assistant, Home is Home again.
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Home" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("heading", { name: "Welcome, Ada" })).toBeVisible();
+
+  // The rest of a custom setup: an agent, a manual workflow, a widget on Home.
+  await page.goto("/settings/agents/new");
   await page.waitForLoadState("networkidle");
   await page.getByLabel("Name").fill("Writer");
   await page.getByLabel("System prompt").fill("You write short, clear notes.");
@@ -68,5 +81,4 @@ test("custom setup: first launch, harness, agent, manual workflow, then a widget
   await page.getByLabel("Widget title").press("Enter");
   await page.getByRole("button", { name: "Done" }).click();
   await expect(page.getByRole("region", { name: "Start xyz now" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Let's set up your first workflow" })).toHaveCount(0);
 });

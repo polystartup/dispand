@@ -7,7 +7,8 @@ async function signIn(page: Page) {
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/$/);
+  // Home, or the Assistant's page before settings.spec.ts has started it.
+  await expect(page).toHaveURL(/\/(assistant)?$/);
 }
 
 async function addField(page: Page, name: string, type: string) {

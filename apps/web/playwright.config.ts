@@ -26,8 +26,8 @@ export default defineConfig({
   // and zzz-telemetry.spec.ts must stay last in "main").
   workers: 1,
   // "main": one app and one owner for every spec, run in file order. "custom-setup" needs an app
-  // with nothing set up (the first-launch Home is only there before an agent and a workflow
-  // exist), so it has its own server and database.
+  // with nothing set up (first launch: no harness and no Assistant yet), so it has its own
+  // server and database.
   projects: [
     { name: "main", testIgnore: /custom-setup\.spec\.ts/, use: { baseURL: "http://localhost:3100" } },
     { name: "custom-setup", testMatch: /custom-setup\.spec\.ts/, use: { baseURL: "http://localhost:3101" } },

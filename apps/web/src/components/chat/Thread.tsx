@@ -109,10 +109,12 @@ type Props = {
   /** What follows the messages inside the scrolling area: the failure, the steps after the chat. */
   children?: ReactNode;
   composer?: ReactNode;
+  /** The invitation an empty conversation shows in place of the plain hello. */
+  welcome?: string;
 };
 
 /** The conversation of a run's chat step, on assistant-ui's thread: the owner's and the agent's words, the tools it used, its questions. */
-export function ChatThread({ run, chatStepId, canSend, onSend, children, composer }: Props) {
+export function ChatThread({ run, chatStepId, canSend, onSend, children, composer, welcome }: Props) {
   const runtime = useRunThread({ run, chatStepId, canSend, onSend });
   // Nothing said yet, and nothing went wrong: the invitation to start.
   const empty = threadMessages(run, chatStepId).length === 0 && run?.steps.find((s) => s.id === chatStepId)?.status !== "failed";
@@ -124,8 +126,14 @@ export function ChatThread({ run, chatStepId, canSend, onSend, children, compose
           <ThreadPrimitive.Viewport className="min-h-0 flex-1 overflow-y-auto px-4 py-6" aria-live="polite">
             {empty && <div className="flex min-h-36 flex-col items-center justify-center gap-3 text-center text-muted">
               <MessageSquare size={28} className="text-accent" aria-hidden />
-              <p className="text-[16px] font-medium text-fg">Say hello to start.</p>
-              <p className="max-w-64 text-[13px]">Ask a question or describe what you want to get done.</p>
+              {welcome ? (
+                <p className="max-w-md text-[16px] font-medium text-fg">{welcome}</p>
+              ) : (
+                <>
+                  <p className="text-[16px] font-medium text-fg">Say hello to start.</p>
+                  <p className="max-w-64 text-[13px]">Ask a question or describe what you want to get done.</p>
+                </>
+              )}
             </div>}
             <div role="list" className="mx-auto flex w-full max-w-3xl flex-col gap-5">
               <ThreadPrimitive.Messages components={{ UserMessage: OwnerMessage, AssistantMessage: AgentMessage }} />

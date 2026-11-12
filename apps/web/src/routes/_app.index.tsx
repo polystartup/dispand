@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
-import { FirstLaunch } from "../components/home/FirstLaunch.tsx";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { EmptyPage, PageView } from "../components/dashboard/PageView.tsx";
 import { orpc } from "../lib/api.ts";
 
@@ -10,9 +9,6 @@ function Home() {
   const { user } = Route.useRouteContext();
   const home = useQuery(orpc.pages.home.queryOptions());
   const onboarding = useQuery(orpc.onboarding.status.queryOptions());
-  const widgets = home.data?.widgets ?? [];
-  // Wait for both: no flash of the dashboard before the first-launch state.
-  const firstLaunch = onboarding.data?.showFirstLaunch === true && widgets.length === 0;
   const heading = (
     <>
       <h1 className="text-[28px] font-semibold leading-tight tracking-tight">{`Welcome, ${user.name}`}</h1>
@@ -20,6 +16,8 @@ function Home() {
     </>
   );
 
+  // First launch, a fresh install's or one from before the Assistant: its page, which starts it.
+  if (onboarding.data?.assistant === null) return <Navigate to="/assistant" replace />;
   if ((home.error && !home.data) || (onboarding.error && !onboarding.data)) {
     return (
       <>
@@ -30,19 +28,13 @@ function Home() {
       </>
     );
   }
-  if (!home.data) return <header className="mb-8">{heading}</header>;
+  // Wait for both: no flash of the dashboard before the redirect.
+  if (!home.data || !onboarding.data) return <header className="mb-8">{heading}</header>;
   return (
     <PageView
       page={home.data}
       heading={heading}
-      actions={!firstLaunch}
-      empty={
-        !onboarding.data ? null : firstLaunch ? (
-          <FirstLaunch status={onboarding.data} />
-        ) : (
-          <EmptyPage text="Add a widget to start a workflow from here. Workflows need an agent, and agents a harness: both are in Settings." />
-        )
-      }
+      empty={<EmptyPage text="Add a widget to start a workflow from here, or ask the Assistant to set one up." />}
     />
   );
 }

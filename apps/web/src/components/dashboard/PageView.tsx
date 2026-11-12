@@ -13,13 +13,10 @@ export function PageView({
   page,
   heading,
   empty,
-  actions = true,
 }: {
   page: { id: string; widgets: Widget[] };
   heading: ReactNode;
   empty: ReactNode;
-  /** Whether Add widget and Edit show (Home's first launch hides them). */
-  actions?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -28,19 +25,17 @@ export function PageView({
     <>
       <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">{heading}</div>
-        {actions && (
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setAdding(true)}>
-              <Plus aria-hidden />
-              Add widget
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setAdding(true)}>
+            <Plus aria-hidden />
+            Add widget
+          </Button>
+          {widgets.length > 0 && (
+            <Button variant={editing ? "default" : "outline"} onClick={() => setEditing((e) => !e)}>
+              {editing ? "Done" : "Edit"}
             </Button>
-            {widgets.length > 0 && (
-              <Button variant={editing ? "default" : "outline"} onClick={() => setEditing((e) => !e)}>
-                {editing ? "Done" : "Edit"}
-              </Button>
-            )}
-          </div>
-        )}
+          )}
+        </div>
       </header>
       {widgets.length === 0 ? empty : <Dashboard pageId={page.id} widgets={widgets} editing={editing} />}
       {adding && <AddWidgetSheet pageId={page.id} onClose={() => setAdding(false)} />}

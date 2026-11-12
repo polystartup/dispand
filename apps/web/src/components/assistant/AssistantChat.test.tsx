@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import "../../test/jsdom-shims.ts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
 const fake = vi.hoisted(() => ({
   agents: { assistant: vi.fn(), ensureAssistant: vi.fn() },
-  harnesses: { list: vi.fn() },
+  harnesses: { list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), models: vi.fn() },
+  runners: { list: vi.fn() },
   runs: { sendChat: vi.fn(), stream: vi.fn(), list: vi.fn(), get: vi.fn() },
   jobs: { start: vi.fn(), def: vi.fn() },
   workflows: { get: vi.fn() },
@@ -50,6 +51,8 @@ test("the Assistant's chat starts a Job of its chat trigger with the first messa
   fake.runs.stream.mockImplementation(idle);
   const user = mount();
   await user.type(await screen.findByLabelText("Message"), "Which agents touch Matters?{Enter}");
+  // The empty thread opens the day-one conversation.
+  expect(screen.getByText("Describe your business or use case and how you'd like to automate it.")).toBeTruthy();
   await waitFor(() => expect(fake.runs.sendChat.mock.calls[0]![0]).toEqual({ runId: "run_1", text: "Which agents touch Matters?" }));
   expect(fake.jobs.start.mock.calls[0]![0]).toEqual({ triggerId: "trigger_chat" });
   // Only the Assistant's chat Jobs are followed.
@@ -69,10 +72,16 @@ test("without an Assistant, picking a harness makes it", async () => {
   expect(fake.agents.ensureAssistant.mock.calls[0]![0]).toEqual({ harnessId: "harness_1" });
 });
 
-test("without an Assistant or a harness, it asks for a harness first", async () => {
+test("without an Assistant or a harness, it offers to add one, and the Assistant waits for the owner to start it", async () => {
   fake.agents.assistant.mockResolvedValue(null);
   fake.harnesses.list.mockResolvedValue([]);
-  mount();
-  expect(await screen.findByText("Add a harness first")).toBeTruthy();
+  fake.runners.list.mockResolvedValue([]);
+  const user = mount();
+  expect(await screen.findByText("Choose where the Assistant runs")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Add a harness" }));
+  // The harness sheet: a cloud provider and key, or a runner's CLI.
+  const sheet = await screen.findByRole("dialog");
+  expect(within(sheet).getByRole("button", { name: /^Cloud/ })).toBeTruthy();
+  expect(within(sheet).getByRole("button", { name: /^CLI/ })).toBeTruthy();
   expect(fake.agents.ensureAssistant).not.toHaveBeenCalled();
 });
