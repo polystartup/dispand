@@ -26,6 +26,8 @@ export type InitialContext = {
   gitFileUrls?: boolean;
   /** Calls MCP servers over HTTP (`tools/mcp.ts`); in production, never Dispand's own addresses. */
   tools: ToolConnector;
+  /** Where a trace is opened, with `{traceId}` in it (`DISPAND_TRACE_URL`): the Audit page links trace ids there. */
+  traceUrl?: string;
   /** The clock schedules are computed from (tests set it); the system clock when absent. */
   now?: () => Date;
   /**

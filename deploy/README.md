@@ -21,6 +21,7 @@ file out of version control and readable only by the account that runs Compose.
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | no | Where to send traces, metrics and logs over OTLP/HTTP (`http://collector:4318`). Unset: nothing is sent. Logs always also go to the container's output. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | no | Headers for the collector, such as its API key (`authorization=Bearer …`). |
 | `OTEL_SERVICE_NAME` | no | The service name telemetry carries; `dispand` by default. |
+| `DISPAND_TRACE_URL` | no | Where a trace is opened in your tracing tool, an `http(s)` URL with `{traceId}` in it (`https://traces.example.com/trace/{traceId}`). Set, the Audit page links each row's trace id there; unset, it shows the id to copy. |
 
 ## Run it
 

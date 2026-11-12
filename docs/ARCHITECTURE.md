@@ -496,6 +496,29 @@
   secrets and content and checks none appears in anything exported during the whole suite.
   The standard `OTEL_BSP_SCHEDULE_DELAY`, `OTEL_BLRP_SCHEDULE_DELAY` and
   `OTEL_METRIC_EXPORT_INTERVAL` are read by `startTelemetry` (the SDK no longer reads them).
+- **Audit** (`packages/domain/src/audit/`): one table, `audit` (migration 0059), and one writer,
+  `recordAudit` (`record.ts`). A row holds who (`actor`: a person, a Job or the scheduler, plus
+  `actor_agent_id` for the agent filter), the Job, the action (a closed list, `AuditAction` in
+  `model.ts`), the resource (type and id), the result (`ok`, `refused`, `failed`), details and
+  the trace id (`currentTraceId()` when written). Details are a strict Zod object of ids, names,
+  counts and kinds (an unknown key, or a kind or id that isn't shaped as one, throws), each
+  string cut at 200 characters and the whole at 2,000, any value equal to a secret the process
+  opened dropped (`isOpenedSecret`, the check `telemetry/redact.ts` makes): the structure is the
+  redaction. `recordAudit` writes in the transaction of the change it records, so a rolled-back
+  change leaves no row; `recordAuditAfter` writes after a call outside the database and only
+  logs and counts a failure. Only Jobs (`runs.source = "agent"`) have rows. Written today: the
+  engine's `createJob` (`job.created`, its actor whoever called it: the person, the asking Job of
+  a consult, else the scheduler), `openSession` (`job.queued` when the start waits for a slot,
+  `job.started` with the harness and runner) and `resume` (`job.started`, `status: resumed`),
+  `syncWaiting` (`job.waiting`, once per change of the run into `waiting`) and `finishRun`
+  (`job.finished`, or `job.failed` with `reason` `stopped`, `stopped-checkpoint`,
+  `consult-revoked` or `failed`, threaded from `stopIn`, never the error's words); the
+  scheduler's firings that end with no Job for good (`job.skipped`, on the trigger, with the fire
+  status; `deferred` and `stopped` write nothing). `audit.list` (owner-only, keyset pages of 50 on
+  `(at, id)`, the cursor carrying `at` to the microsecond) filters by actor type, agent, Job,
+  action or family, resource, result and dates; `audit.traceUrl` gives the page
+  `DISPAND_TRACE_URL`. Each row counts in `dispand.audit.rows` (by action, and `failed` for a
+  write that didn't go through).
 - **Platform tools:** a Job's session gets some of Dispand's own procedures as tools.
   `platform/tools.ts` is the registry: each tool names its procedure (`rows.create` is the tool
   `rows_create`), its bundle (`data`: `tables.list`, `tables.get` and the rows procedures;

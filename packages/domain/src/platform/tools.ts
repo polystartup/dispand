@@ -433,6 +433,9 @@ export const NOT_TOOLS: string[] = [
   "questions.count",
   "questions.stream",
   "questions.answer",
+  // Audit: the owner's page for now (an agent's read comes with its tool); where traces are opened.
+  "audit.list",
+  "audit.traceUrl",
   // The owner's memory pages; agents have their own memory tools, gated by their targets.
   "memories.list",
   "memories.get",

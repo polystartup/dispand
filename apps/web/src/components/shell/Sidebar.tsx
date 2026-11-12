@@ -9,6 +9,7 @@ import {
   FileText,
   House,
   MessageCircle,
+  ScrollText,
   Puzzle,
   Sparkles,
   Workflow,
@@ -75,6 +76,7 @@ export function Sidebar({ user, onNavigate }: { user: { name: string; email: str
         <div className="flex flex-col gap-px">
           <NavLink to="/assistant" label="Assistant" Icon={MessageCircle} onNavigate={onNavigate} />
           <NavLink to="/" label="Home" Icon={House} onNavigate={onNavigate} />
+          <NavLink to="/audit" label="Audit" Icon={ScrollText} onNavigate={onNavigate} />
           <NewPageRow className={`${row} !text-muted`} onNavigate={onNavigate} />
           {pages.data
             ?.filter((p) => p.kind === "page")

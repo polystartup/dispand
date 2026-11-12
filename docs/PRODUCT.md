@@ -102,6 +102,16 @@ Status: Prototype
   - A Tool step cut by a restart **fails and is never called again**: the owner checks the tool
     before running it again.
   - A for-each loop over a list longer than its cap **fails before its first iteration**.
+- **Audit** (sidebar, and a section of each Job's page): what the agents' work did and met,
+  newest first, 50 at a time. Today a Job's life: created (who or what made it), queued for its
+  harness, started (on which harness and runner, or resumed), waiting for an answer, finished or
+  failed (stopped by a person, at a declined checkpoint, by a consult taken back, or failed), and
+  a trigger's firing that started no Job (skipped while its Job runs, refused, out of the
+  agent's reach, or a Job's own change). A row names what was touched (ids, names, counts and
+  kinds), never what an agent read or wrote, and carries the trace it was recorded in: with
+  `DISPAND_TRACE_URL` set, the trace id links to the tracing tool. Workflow runs have no rows.
+  Rows are kept 90 days by default (`workspace_settings.audit_retention_days`; nothing sweeps
+  them yet).
 - **Data** (the owner's memory, an Airtable-like grid):
   - **What it does:** tables of typed fields (text, long text, number, checkbox, date, URL,
     single select, files, and links to a row of another table) with inline editing; a table

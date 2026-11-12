@@ -15,6 +15,7 @@ import type { CloudKind } from "../harnesses/cloud.ts";
 import type { MarketplaceEntry, MarketplaceKind } from "../plugins/marketplace.ts";
 import type { NotImported, PluginComponents } from "../plugins/read-plugin.ts";
 import type { OAuthStatus, ToolAction, ToolAuth, ToolTransport } from "../tools/mcp.ts";
+import type { AuditAction, AuditActor, AuditDetails, AuditResource, AuditResult } from "../audit/model.ts";
 
 // Better Auth tables (email + password, one owner).
 export const user = pgTable("user", {
@@ -274,8 +275,13 @@ export const workspaceSettings = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     // How many Jobs of one root cause go before a person is asked (design 6.1).
     checkpoint: integer("checkpoint").notNull().default(100),
+    // How many days Audit rows are kept (design 6.8).
+    auditRetentionDays: integer("audit_retention_days").notNull().default(90),
   },
-  (t) => [check("workspace_settings_checkpoint_range", sql`${t.checkpoint} between 1 and 100000`)],
+  (t) => [
+    check("workspace_settings_checkpoint_range", sql`${t.checkpoint} between 1 and 100000`),
+    check("workspace_settings_audit_retention_range", sql`${t.auditRetentionDays} between 1 and 3650`),
+  ],
 );
 
 export const runs = pgTable(
@@ -1124,6 +1130,38 @@ export const agentTools = pgTable(
     unasked: jsonb("unasked").$type<string[]>().notNull().default([]),
   },
   (t) => [primaryKey({ columns: [t.agentId, t.toolId] }), index("agent_tools_tool_idx").on(t.toolId)],
+);
+
+/**
+ * Audit (design 6.8): one row per thing an agent's work did or met, written only by
+ * `audit/record.ts`. A row names what was touched (ids, names, counts, kinds), never its content.
+ * `job_id` has no foreign key: a row outlives its Job.
+ */
+export const audit = pgTable(
+  "audit",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    actor: jsonb("actor").$type<AuditActor>().notNull(),
+    // The acting Job's agent, or the agent a scheduler row is for: what the agent filter reads.
+    actorAgentId: text("actor_agent_id"),
+    jobId: text("job_id"),
+    action: text("action").$type<AuditAction>().notNull(),
+    resourceType: text("resource_type").$type<AuditResource>().notNull(),
+    resourceId: text("resource_id"),
+    result: text("result").$type<AuditResult>().notNull(),
+    details: jsonb("details").$type<AuditDetails>().notNull(),
+    traceId: text("trace_id"),
+  },
+  (t) => [
+    index("audit_owner_at_idx").on(t.ownerId, t.at.desc(), t.id.desc()),
+    index("audit_owner_job_idx").on(t.ownerId, t.jobId, t.at),
+    index("audit_owner_action_idx").on(t.ownerId, t.action, t.at),
+    index("audit_at_idx").on(t.at),
+  ],
 );
 
 /**

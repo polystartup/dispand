@@ -24,6 +24,8 @@ export type ServerConfig = {
   filesDir: string;
   /** Development only: `DISPAND_GIT_FILE_URLS=1` lets marketplaces be `file://` Git URLs (e2e fixtures). */
   gitFileUrls: boolean;
+  /** Where a trace is opened (`DISPAND_TRACE_URL`, an http(s) URL with `{traceId}`): the Audit page links there. */
+  traceUrl?: string;
 };
 
 const devDefaults = {
@@ -53,6 +55,10 @@ export function loadServerConfig(
   if (!/^[A-Za-z0-9+/]{43}=$/.test(settings.DISPAND_SECRET_KEY!.trim())) {
     throw new Error("DISPAND_SECRET_KEY must be 32 bytes, base64");
   }
+  const traceUrl = env.DISPAND_TRACE_URL?.trim() || undefined;
+  if (traceUrl && (!/^https?:\/\//.test(traceUrl) || !traceUrl.includes("{traceId}") || !URL.canParse(traceUrl.replaceAll("{traceId}", "0")))) {
+    throw new Error("DISPAND_TRACE_URL must be an http(s) URL with {traceId} in it");
+  }
   return {
     mode,
     databaseUrl: settings.DATABASE_URL!,
@@ -65,5 +71,6 @@ export function loadServerConfig(
     host: env.HOST,
     filesDir: settings.DISPAND_FILES_DIR!,
     gitFileUrls: !production && env.DISPAND_GIT_FILE_URLS === "1",
+    ...(traceUrl ? { traceUrl } : {}),
   };
 }

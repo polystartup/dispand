@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import type { Answer, HarnessEvent } from "@dispand/runner-protocol";
 import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { agentConsults, agents, events, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
+import { agentConsults, audit, agents, events, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
 import { takeApproval } from "../platform/approvals.ts";
 import { jobScope, reachable } from "../questions/inbox-scope.ts";
 import { router } from "../rpc/router.ts";
@@ -484,6 +484,23 @@ test("a consult whose Approval waits ends with it: the session that asked is rep
   expect(second).toMatchObject({ status: "pending" });
   await expect(s.approve(first!.id, "allow")).rejects.toThrow();
   expect(await s.context.db.select().from(runs).where(eq(runs.agentId, s.expert.id))).toEqual([]);
+});
+
+test("a consult taken back stops the chain below it, each Job audited as consult-revoked", async () => {
+  const s = await setup();
+  const asker = await s.start();
+  const q = await s.consult(asker.sessionId, s.expert.id);
+  const expertRun = await s.consulted(q.id);
+  const q2 = await s.consult(await s.sessionOf(expertRun), s.third.id);
+  const thirdRun = await s.consulted(q2.id);
+  await s.sessionOf(thirdRun);
+  await s.edit(s.asker.id, { consults: [] });
+  for (const id of [expertRun, thirdRun]) {
+    const [failed] = await s.context.db.select().from(audit).where(and(eq(audit.jobId, id), eq(audit.action, "job.failed")));
+    expect(failed).toMatchObject({ result: "failed", details: { reason: "consult-revoked" } });
+  }
+  // The asker goes on: it was told why, not stopped.
+  expect((await s.run(asker.runId)).status).not.toBe("failed");
 });
 
 test("each right taken back while a consult is in flight stops its consulted Job, and the asker gets why", async () => {

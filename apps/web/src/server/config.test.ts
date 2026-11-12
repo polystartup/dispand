@@ -87,3 +87,10 @@ test("file:// marketplaces only in development, and only when asked", () => {
   expect(loadServerConfig({ DATABASE_URL: "pglite://memory" }, "development").gitFileUrls).toBe(false);
   expect(loadServerConfig({ DATABASE_URL: "pglite://memory", DISPAND_GIT_FILE_URLS: "1" }, "development").gitFileUrls).toBe(true);
 });
+
+test("DISPAND_TRACE_URL is optional, and an http(s) URL with {traceId} when set", () => {
+  expect(loadServerConfig(full, "production").traceUrl).toBeUndefined();
+  expect(loadServerConfig({ ...full, DISPAND_TRACE_URL: "https://traces.example.com/trace/{traceId}" }, "production").traceUrl).toBe("https://traces.example.com/trace/{traceId}");
+  expect(() => loadServerConfig({ ...full, DISPAND_TRACE_URL: "https://traces.example.com/trace" }, "production")).toThrow("DISPAND_TRACE_URL");
+  expect(() => loadServerConfig({ ...full, DISPAND_TRACE_URL: "javascript:alert({traceId})" }, "production")).toThrow("DISPAND_TRACE_URL");
+});
