@@ -21,6 +21,13 @@ const MODEL_ALIASES = ["opus", "sonnet", "haiku"];
 const HARNESS_DEFAULT = "harness-default";
 const OTHER = "other";
 
+/** Why the server refused the change, when it says so for a person to read; else `fallback`. */
+function refusal(e: unknown, fallback: string): string {
+  const { code, message } = (typeof e === "object" && e !== null ? e : {}) as { code?: unknown; message?: unknown };
+  const readable = (code === "FORBIDDEN" || code === "BAD_REQUEST") && typeof message === "string" && !message.startsWith("Input validation");
+  return readable ? message : fallback;
+}
+
 /** Create (no `agent`) or edit an agent. A new agent goes back to the list; both offer the next step. */
 export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaultHarnessId?: string }) {
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
@@ -60,6 +67,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
   const [rights, setRights] = useState<Rights>({ bundles: agent?.bundles ?? [], dataTables: agent?.dataTables ?? "all" });
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const assistant = agent?.builtIn === "assistant";
   const busy = create.isPending || update.isPending;
   const navigate = useNavigate();
 
@@ -86,8 +94,8 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
       }
       await update.mutateAsync({ ...fields, id: agent.id });
       setSaved(true);
-    } catch {
-      setError("Could not save the agent. Check the details and try again.");
+    } catch (e) {
+      setError(refusal(e, "Could not save the agent. Check the details and try again."));
     }
   }
 
@@ -101,7 +109,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
           void save();
         }}
       >
-        {agent?.builtIn === "assistant" && (
+        {assistant && (
           <p className="text-[13px] text-muted">The workspace's Assistant: it can't be deleted. Its name, harness, model and instructions are yours to change.</p>
         )}
         {agent?.plugin && (
@@ -170,6 +178,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
                       type="checkbox"
                       className="mt-1"
                       checked={skillPackageIds.includes(p.packageId)}
+                      disabled={assistant && p.builtIn}
                       onChange={(e) =>
                         setSkillPackageIds(e.target.checked ? [...skillPackageIds, p.packageId] : skillPackageIds.filter((id) => id !== p.packageId))
                       }
@@ -177,6 +186,12 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
                     <span className="min-w-0">
                       <span className="block font-medium">{p.name}</span>
                       <span className="block text-[13px] text-muted">{p.plugin ? `From the plugin ${p.plugin.name}. ` : ""}{p.description}</span>
+                      {assistant && p.builtIn && (
+                        <span className="flex items-center gap-1.5 text-[13px] text-muted">
+                          <Lock aria-hidden className="size-3.5" />
+                          The Assistant keeps its platform skill.
+                        </span>
+                      )}
                     </span>
                   </label>
                 </li>
@@ -260,7 +275,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
           rights={rights}
           tables={tables.data ?? []}
           onChange={setRights}
-          {...(agent?.builtIn === "assistant" ? { locked: "The Assistant always works on data and changes tables, on every table." } : {})}
+          {...(assistant ? { locked: "The Assistant always works on data and changes tables, on every table." } : {})}
         />
         <ConsultList {...(agent ? { agentId: agent.id } : {})} bundles={rights.bundles} entries={consults} agents={agents.data ?? []} onChange={setConsults} />
         <FormField label="System prompt" htmlFor="agent-prompt" hint="What this agent is and how it works. Sent at the start of every session.">
