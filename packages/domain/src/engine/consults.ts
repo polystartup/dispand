@@ -1,5 +1,5 @@
 import { type Answer, TEXT } from "@dispand/runner-protocol";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { agents, questions, roots, runs, stepRuns } from "../db/schema.ts";
 import { consultsOf, pairProblem } from "../agents/consults.ts";
@@ -55,6 +55,16 @@ async function rightsProblem(db: Db | Tx, run: Pick<RunRow, "ownerId" | "agentId
 export async function approvalOf(db: Db | Tx, consultId: string): Promise<QuestionRow | undefined> {
   const [row] = await db.select().from(questions).where(eq(questions.consultId, consultId));
   return row;
+}
+
+/**
+ * Takes the owner's consult lock for the rest of `tx`: a consult is opened (rights read, Job made)
+ * and a right is taken back (`Engine.endConsults`) one after the other, so a revocation always
+ * sees the Job a consult made, and a consult opened after it sees the rights it left. Taken first
+ * in its transaction, before any row lock, so no one waits on it while holding one.
+ */
+export async function lockConsults(tx: Tx, ownerId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`dispand:consults:${ownerId}`}))`);
 }
 
 /** The agents of the chain of consults `runId` belongs to: its own, then each asking Job's above it. */

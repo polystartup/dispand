@@ -57,7 +57,7 @@ import { attachProposal, settleProposal } from "../platform/proposals.ts";
 import { issueJobToken } from "../platform/token.ts";
 import type { SecretBox } from "../secrets.ts";
 import { consultOutputs, jobDef, jobSystemPrompt } from "./job-def.ts";
-import { agentName, approvalOf, consultEnd, consultProblem, DECLINED, deliveryProblem, failed, FLAGGED, TOO_LONG } from "./consults.ts";
+import { agentName, approvalOf, consultEnd, consultProblem, DECLINED, deliveryProblem, failed, FLAGGED, lockConsults, TOO_LONG } from "./consults.ts";
 import { nextActions, outputsFor, toolValues, valuesFor } from "./next-actions.ts";
 import { consultsOf, type ConsultEntry } from "../agents/consults.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
@@ -692,7 +692,7 @@ export class Engine {
   /** Records the owner's answer (once) and sends it to the session. */
   async answer(questionId: string, answer: Answer, by?: AnsweredBy): Promise<void> {
     // Any answer may have to go as words (its session lost and resumed): those must fit a message.
-    const [asked] = await this.db.select({ payload: questions.payload, kind: questions.kind, runId: questions.runId, consultId: questions.consultId }).from(questions).where(eq(questions.id, questionId));
+    const [asked] = await this.db.select({ payload: questions.payload, kind: questions.kind, ownerId: questions.ownerId, runId: questions.runId, consultId: questions.consultId }).from(questions).where(eq(questions.id, questionId));
     // Nothing answers in a consulted agent's place: only its Job does (`answerConsult`).
     if (asked?.kind === "consult") throw new EngineError("NOT_FOUND", "Question not found");
     if (asked) {
@@ -702,7 +702,10 @@ export class Engine {
     const out: Out[] = [];
     const settled = await this.db.transaction(async (tx) => {
       // A consult's Approval may make a Job in the asking Job's root: that root is locked first (`applyEvent`).
-      if (asked?.consultId) await this.rootGoingLocked(tx, asked.runId);
+      if (asked?.consultId) {
+        await lockConsults(tx, asked.ownerId);
+        await this.rootGoingLocked(tx, asked.runId);
+      }
       const [q] = await tx
         .update(questions)
         .set({ status: "answered", answer, answeredAt: new Date(), answeredBy: by ?? null })
@@ -949,7 +952,8 @@ export class Engine {
    * them on either side that the pair no longer allows (`deliveryProblem`), pending or answered
    * and not delivered yet, ends now with the reason. Its consulted run still going stops (and so
    * on down its chain), and an answer recorded and not delivered is replaced by the reason. What
-   * it returns goes once `tx` commits (`settled`).
+   * it returns goes once `tx` commits (`settled`). The caller took the owner's consult lock
+   * (`lockConsults`) first in `tx`.
    */
   async endConsults(tx: Tx, ownerId: string, agentIds: string[]): Promise<Out[]> {
     const out: Out[] = [];
@@ -1069,12 +1073,13 @@ export class Engine {
   private async openWaitingConsults(runIds: string[]) {
     if (runIds.length === 0) return;
     const waiting = await this.db
-      .select({ id: questions.id })
+      .select({ id: questions.id, ownerId: questions.ownerId })
       .from(questions)
       .where(and(inArray(questions.runId, runIds), eq(questions.kind, "consult"), eq(questions.status, "pending"), isNull(questions.consultRunId)));
-    for (const { id } of waiting) {
+    for (const { id, ownerId } of waiting) {
       const out: Out[] = [];
       await this.db.transaction(async (tx) => {
+        await lockConsults(tx, ownerId);
         const [q] = await tx.select().from(questions).where(and(eq(questions.id, id), eq(questions.status, "pending"), isNull(questions.consultRunId))).for("update");
         if (q) await this.openConsult(tx, q, out);
       });
@@ -1158,6 +1163,8 @@ export class Engine {
       // A consult makes a Job in the asking Job's root: that root is locked first, as a
       // checkpoint's answer locks it before the runs and steps it stops.
       if (event.type === "question" && event.payload.kind === "consult") {
+        const [asking] = await tx.select({ ownerId: stepRuns.ownerId }).from(stepRuns).where(eq(stepRuns.sessionId, sessionId));
+        if (asking) await lockConsults(tx, asking.ownerId);
         await tx
           .select({ id: roots.id })
           .from(stepRuns)
