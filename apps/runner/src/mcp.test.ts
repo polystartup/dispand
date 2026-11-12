@@ -222,6 +222,6 @@ test("runner grants are namespaced, require a Job, and can only shrink live", ()
 
 test("automatic runner grants use the poll guard for protected paths", () => {
   const forbidden = ["/guarded/config.json"];
-  for (const path of ["/guarded/config.json", "file:///guarded/config.json", "%2Fguarded%2Fconfig.json"]) expect(runnerArgumentsAllowed({ nested: [{ path }] }, forbidden)).toBe(false);
+  for (const path of ["/guarded/config.json", "file:///guarded/config.json", "%2Fguarded%2Fconfig.json", "/allowed/" + "../".repeat(1500) + "guarded/config.json"]) expect(runnerArgumentsAllowed({ nested: [{ path }] }, forbidden)).toBe(false);
   expect(runnerArgumentsAllowed({ path: "/allowed/note.txt" }, forbidden)).toBe(true);
 });

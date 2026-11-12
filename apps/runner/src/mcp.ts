@@ -277,7 +277,7 @@ function pathsIn(args: unknown): string[] | null {
     out.push(isAbsolute(expanded) ? expanded : resolve(homedir(), expanded));
   };
   const walk = (v: unknown) => {
-    if (typeof v === "string" && v.length > 0 && v.length <= 4096) {
+    if (typeof v === "string" && v.length > 0) {
       const readings = new Set<string>([v]);
       try {
         readings.add(decodeURIComponent(v));
