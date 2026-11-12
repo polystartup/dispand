@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { isSafeRelativePath } from "./paths.ts";
+import { isMemoryPath, isSafeRelativePath } from "./paths.ts";
 
 test("accepts plain relative paths", () => {
   for (const p of ["SKILL.md", "pdf/SKILL.md", "pdf/scripts/fill.py", "a-b/c_d/e.f.txt", "x/.hidden", "x/..y"]) {
@@ -28,4 +28,28 @@ test("caps length and depth", () => {
   expect(isSafeRelativePath("a".repeat(256))).toBe(false);
   expect(isSafeRelativePath(Array(10).fill("a").join("/"))).toBe(true);
   expect(isSafeRelativePath(Array(11).fill("a").join("/"))).toBe(false);
+});
+
+test("a memory path is a safe relative path to a .md file, never one a CLI loads as instructions nor the index", () => {
+  for (const p of ["business.md", "notes/claude-tips.md", "x/memory.md", "clients/acme.md", `${"a".repeat(117)}.md`]) {
+    expect(isMemoryPath(p), p).toBe(true);
+  }
+  const refused = [
+    "CLAUDE.md",
+    "notes/claude.md",
+    "x/AGENTS.override.md",
+    "AGENTS.md",
+    "x/agents.md/y.md",
+    ".claude/x.md",
+    "../x.md",
+    "/x.md",
+    "a//b.md",
+    "a\\b.md",
+    "x.txt",
+    "x.MD",
+    "MEMORY.md",
+    "memory.md",
+    `${"a".repeat(118)}.md`,
+  ];
+  for (const p of refused) expect(isMemoryPath(p), JSON.stringify(p)).toBe(false);
 });

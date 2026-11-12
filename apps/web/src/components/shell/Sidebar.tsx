@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
   Bot,
+  Brain,
   CircleHelp,
   Cpu,
   Database,
@@ -26,6 +27,7 @@ const settings: { to: string; label: string; Icon: LucideIcon }[] = [
   { to: "/settings/tools", label: "Tools", Icon: Wrench },
   { to: "/settings/plugins", label: "Plugins", Icon: Puzzle },
   { to: "/settings/data", label: "Data", Icon: Database },
+  { to: "/settings/memory", label: "Memory", Icon: Brain },
   { to: "/settings/workflows", label: "Workflows", Icon: Workflow },
 ];
 

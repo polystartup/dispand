@@ -370,4 +370,12 @@ export const NOT_TOOLS: string[] = [
   "questions.count",
   "questions.stream",
   "questions.answer",
+  // The owner's memory pages; agents have their own memory tools, gated by their targets.
+  "memories.list",
+  "memories.get",
+  "memories.write",
+  "memories.remove",
+  "memories.accept",
+  "memories.revert",
+  "memories.restore",
 ];
