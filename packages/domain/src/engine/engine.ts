@@ -1860,10 +1860,11 @@ export class Engine {
         deriveExpectedOutputs(def, await loadTableSchemas(this.db, run.ownerId, tableIdsOf(def)), await loadToolSchemas(this.db, run.ownerId, toolIdsOf(def)))[node.id] ?? [],
       interactive: node.kind === "trigger",
     };
-    // A Job's cloud session consults the agents of its snapshot that its agent still has (each
-    // call is checked again, `consultProblem`); a workflow's agent step has no such tool.
-    const consults = run.snapshot && isCloud(harness) ? await consultTargets(this.db, run.snapshot.consults ?? [], run.agentId!) : [];
-    if (consults.length) start.consults = consults;
+    // A Job's session consults the agents of its snapshot that its agent still has (each call is
+    // checked again, `consultProblem`); a workflow's agent step has no such tool.
+    const consults = run.snapshot ? await consultTargets(this.db, run.snapshot.consults ?? [], run.agentId!) : [];
+    // A runner session lists as many as the protocol carries (sorted by name), and offers only those.
+    if (consults.length) start.consults = isCloud(harness) ? consults : consults.slice(0, 50);
     if (await this.refusedForScope(step)) return;
     // A person waits on a manual run; the other starts are new work.
     const cls: QueueClass = run.trigger.type === "manual" ? "person" : "new";

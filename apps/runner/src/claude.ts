@@ -16,7 +16,7 @@ import type { ClaudeSessionStart, HarnessEvent, QuestionPayload } from "@dispand
 import { JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
-import { askChoices, MAX_WAITING, MAX_WAITING_BYTES, BypassRefused, type ChoiceQuestion, type HarnessSession, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome, TURN_DENIED } from "./outcome.ts";
+import { askChoices, MAX_WAITING, MAX_WAITING_BYTES, BypassRefused, type ChoiceQuestion, consult, CONSULT, consultDescription, type HarnessSession, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome, TURN_DENIED } from "./outcome.ts";
 import { fitsWhole } from "./sanitize.ts";
 import { PLANS_DIR } from "./workdir.ts";
 
@@ -62,9 +62,10 @@ const SUBMIT_OUTPUTS = "mcp__dispand__submit_outputs";
 const SHELL_TOOLS = new Set(["Bash", "Monitor", "PowerShell", "Workflow"]);
 const SHELL_ASK = "Dispand asks the owner about every shell command.";
 const REQUEST_APPROVAL_TOOL = `mcp__dispand__${REQUEST_APPROVAL}`;
+const CONSULT_TOOL = `mcp__dispand__${CONSULT}`;
 const MCP_ASK = "Dispand asks the owner about every MCP tool call.";
-/** An MCP server's tool, Dispand's own `submit_outputs` aside: each call asks the owner. */
-const isMcpTool = (name: string) => name.startsWith("mcp__") && name !== SUBMIT_OUTPUTS && name !== REQUEST_APPROVAL_TOOL;
+/** An MCP server's tool, Dispand's own (`submit_outputs`, `request_approval`, `consult`) aside: each call asks the owner. */
+const isMcpTool = (name: string) => name.startsWith("mcp__") && name !== SUBMIT_OUTPUTS && name !== REQUEST_APPROVAL_TOOL && name !== CONSULT_TOOL;
 
 
 /**
@@ -270,10 +271,28 @@ export function startClaudeSession(
     },
   );
 
+  /** Only when the start lists agents to consult: Dispand answers it with their Jobs, so the owner isn't asked about calling it. */
+  const consults = start.consults ?? [];
+  const consultTool = tool(
+    CONSULT,
+    consultDescription(consults),
+    // As for `request_approval`: anything is let through, and the tool says what is wrong with it.
+    {
+      agent: z.unknown().describe("The id of the agent to consult, as listed"),
+      question: z.unknown().describe("Your question, with all it needs to be answered"),
+    },
+    async (args, extra) => {
+      const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
+      const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
+      const outcome = await consult(ask, args as Record<string, unknown>, consults, signal);
+      return { content: [{ type: "text", text: outcome.text }], ...(outcome.ok ? {} : { isError: true }) };
+    },
+  );
+
   const canUseTool: CanUseTool = async (toolName, toolInput, { signal, suggestions }): Promise<PermissionResult> => {
     if (toolName !== REQUEST_APPROVAL_TOOL && !(await turnApproved())) return { behavior: "deny", message: TURN_DENIED };
     // `request_approval` asks the owner itself, in the agent's words: no second question about calling it.
-    if (toolName === SUBMIT_OUTPUTS || toolName === REQUEST_APPROVAL_TOOL || isJobTool(toolName)) return { behavior: "allow", updatedInput: toolInput };
+    if (toolName === SUBMIT_OUTPUTS || toolName === REQUEST_APPROVAL_TOOL || (toolName === CONSULT_TOOL && consults.length > 0) || isJobTool(toolName)) return { behavior: "allow", updatedInput: toolInput };
     // canUseTool doesn't learn the CLI's current directory: relative paths are the owner's call.
     const edit = boundary.editDecision(toolName, toolInput, null);
     const read = boundary.readDecision(toolName, toolInput, null);
@@ -324,7 +343,7 @@ export function startClaudeSession(
     return { behavior: "allow", updatedInput: toolInput };
   };
 
-  const sdkServers = { dispand: createSdkMcpServer({ name: "dispand", tools: [submitOutputs, requestApprovalTool] }) };
+  const sdkServers = { dispand: createSdkMcpServer({ name: "dispand", tools: [submitOutputs, requestApprovalTool, ...(consults.length > 0 ? [consultTool] : [])] }) };
   const queryAbort = new AbortController();
   const q = (deps.query ?? query)({
     prompt: input.iterable,
