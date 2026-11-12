@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, orpc } from "../../lib/api.ts";
+import { localTimezone } from "../agents/TriggerSheet.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
 import { WidgetHeader } from "./WidgetHeader.tsx";
 import { StartButton, type Widget } from "./WorkflowFormWidget.tsx";
@@ -18,7 +19,7 @@ export function TriggerWidget({ widget, editing }: Props) {
   const runId = chosen === undefined ? (jobs.data?.[0]?.id ?? null) : chosen;
   // A Job keeps the placement it started with: a chat stays a chat after the trigger became a button.
   const jobDef = useQuery({ ...orpc.jobs.def.queryOptions({ input: { runId: runId ?? "" } }), enabled: !!runId, staleTime: Infinity });
-  const start = () => api.jobs.start({ triggerId: widget.triggerId });
+  const start = () => api.jobs.start({ triggerId: widget.triggerId, timezone: localTimezone() });
   const config = trigger.data?.config;
   const placement = runId ? (jobDef.data ? (jobDef.data.trigger.field.type === "chat" ? "chat" : "button") : jobDef.error ? undefined : null) : undefined;
   const shown = placement === undefined ? (config?.kind === "manual" ? config.placement : null) : placement;
