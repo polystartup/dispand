@@ -825,10 +825,7 @@
   of rows is at most 500; at most 20 filters (ANDed) and 3 sorts.
 - **Data screens:** `/settings/data` lists the tables; `/settings/data/<tableId>` is the grid
   (`apps/web/src/components/data/Grid.tsx`, TanStack Table in manual mode, 100 rows a page). A
-  cell edit shows at once and is sent as `rows.update` of that one cell. "New row" adds a draft
-  row on the client only; the row is created (`rows.create`) with the first value saved in it,
-  so a trigger on `created` gets that value and never an empty row, and a draft left with
-  nothing saved is dropped. Every row write of a
+  cell edit shows at once and is sent as `rows.update` of that one cell. Every row write of a
   table (edit, new row, delete) runs in one TanStack Query mutation scope (`rowWrites`), so the
   writes reach the server in the order they were made and a slower one never overwrites a newer
   one; each response updates only the cell it saved. The row detail joins the same queue: its
