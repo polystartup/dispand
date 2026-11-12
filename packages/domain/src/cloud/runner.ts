@@ -167,6 +167,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
    */
   async start(harness: CloudHarness, start: StartParams): Promise<boolean> {
     const id = start.sessionId;
+    const idle = !start.prompt && start.interactive;
     await this.locked(id, async () => {
       const [row] = await this.db.select().from(cloudSessions).where(eq(cloudSessions.id, id));
       if (!row) {
@@ -179,10 +180,13 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
           harnessId: harness.id,
           model: harness.model ?? null,
           start,
-          items: [{ role: "user", text: start.prompt }],
-          status: "running",
+          // An empty prompt (a chat whose trigger has no instructions) is no turn: the owner's first
+          // message is. Until it comes, the chat waits between turns (`send` wakes it).
+          items: idle ? [] : [{ role: "user", text: start.prompt }],
+          status: idle ? "idle" : "running",
         });
         await this.emit(id, {}, { type: "cli-session", cliSessionId: id });
+        if (idle) await this.emit(id, {}, { type: "turn-end" });
         return;
       }
       if (!start.resumeCliSessionId) return;

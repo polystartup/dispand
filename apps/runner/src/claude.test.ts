@@ -608,6 +608,38 @@ test("a turn end with queued messages still to run is not the session's turn end
   expect(events).toEqual([{ type: "error", message: "the agent finished without its outputs" }]);
 });
 
+test("a chat with an empty prompt sends no empty turn: the owner's first message is the first turn", async () => {
+  const prompts: (string | null)[] = [];
+  const fake = fakeQuery(async function* ({ next }) {
+    prompts.push(await next());
+    yield init;
+    yield result("hi");
+    prompts.push(await next());
+  });
+  const { events, session } = run({ ...start, prompt: "" }, fake.query);
+  // Waits between turns until the message comes: its slot goes back.
+  expect(events).toEqual([{ type: "turn-end" }]);
+  session.send("hello");
+  await vi.waitFor(() => expect(events).toHaveLength(3));
+  session.close();
+  await session.done;
+  expect(prompts).toEqual(["hello", null]);
+  expect(events).toEqual([{ type: "turn-end" }, { type: "cli-session", cliSessionId: "cli-1" }, { type: "turn-end" }]);
+});
+
+test("a non-interactive session still runs its empty prompt as a turn", async () => {
+  const prompts: (string | null)[] = [];
+  const fake = fakeQuery(async function* ({ next }) {
+    prompts.push(await next());
+    yield result("done");
+    prompts.push(await next());
+  });
+  const { events, session } = run({ ...start, prompt: "", interactive: false, expectedOutputs: [] }, fake.query);
+  await session.done;
+  expect(prompts).toEqual(["", null]);
+  expect(events).toEqual([{ type: "result", text: "done" }]);
+});
+
 test("a permission request too large to show whole is denied without asking", async () => {
   let decision: unknown;
   const fake = fakeQuery(async function* ({ next, options }) {

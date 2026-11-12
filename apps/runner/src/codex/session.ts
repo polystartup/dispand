@@ -86,8 +86,11 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   let turnAbort = new AbortController();
   /** Set by `close()`: the app-server stops once the running turn is done. */
   let closing = false;
-  /** Messages waiting for the running turn to end: each starts a turn of its own, in order. The prompt goes first, whatever arrives while the thread opens. */
-  const waiting: string[] = [start.prompt];
+  /**
+   * Messages waiting for the running turn to end: each starts a turn of its own, in order. The prompt goes first, whatever arrives while the thread opens.
+   * An empty prompt (a chat whose trigger has no instructions) is no turn: the owner's first message is.
+   */
+  const waiting: string[] = start.prompt || !start.interactive ? [start.prompt] : [];
   /** The text of the turn's last agent message: its result. */
   let lastText = "";
   const inFlight = new Map<string, string>();
@@ -361,6 +364,8 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       if (opened.activePermissionProfile?.id !== (bypass ? BYPASS_PROFILE : PROFILE)) return finish({ type: "error", message: PROFILE_REFUSED });
       threadId = opened.thread.id;
       emit({ type: "cli-session", cliSessionId: threadId });
+      // Until the owner's first message comes, the chat waits between turns, like after any turn.
+      if (!start.prompt && start.interactive && waiting.length === 0) emit({ type: "turn-end" });
       void nextTurn();
       await codex.exited;
       if (!finished && !closing) finish({ type: "error", message: "codex exited before the session finished" });
