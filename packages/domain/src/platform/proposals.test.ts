@@ -1,5 +1,5 @@
 import { call } from "@orpc/server";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import { agents, agentTools, fields as fieldsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
@@ -761,4 +761,16 @@ test("a proposal's business name is checked like its items, and never reaches te
   await s.tool("proposal_apply", { proposalId: id });
   expect(await call(router.plugins.list, undefined, { context: s.context })).toMatchObject([{ name: "Generated: Secret business" }]);
   expect(await telemetry.all()).not.toContain("Secret");
+});
+
+test("a generated plugin that can't be recorded never turns a write that was made into a refusal", async () => {
+  const s = await setup();
+  // Every new plugin row is refused from now on.
+  await s.context.db.execute(sql`ALTER TABLE plugins ADD CONSTRAINT no_new_plugins CHECK (false) NOT VALID`);
+  const id = await approveFor(s, "Acme", [
+    { tool: "tables_create", input: { name: "Matters" } },
+    { tool: "tables_create", input: { name: "Invoices" } },
+  ]);
+  expect(outcomes(await s.tool("proposal_apply", { proposalId: id }))).toEqual(["made", "made"]);
+  expect(outcomes(await s.tool("proposal_apply", { proposalId: id }))).toEqual(["made before", "made before"]);
 });

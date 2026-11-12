@@ -269,10 +269,12 @@ export async function recordInPlugin(db: Db, ownerId: string, proposalId: string
       .from(plugins)
       .where(and(eq(plugins.ownerId, ownerId), eq(plugins.source, "generated"), eq(plugins.name, name)))
       .for("update");
-    const created: PluginCreated = { ...plugin!.created };
+    // Removed by the owner since the insert: the next item made creates it again.
+    if (!plugin) return null;
+    const created: PluginCreated = { ...plugin.created };
     for (const [kind, id] of made) created[kind] = [...new Set([...(created[kind] ?? []), id])];
-    await tx.update(plugins).set({ created, updatedAt: sql`now()` }).where(eq(plugins.id, plugin!.id));
-    return plugin!.id;
+    await tx.update(plugins).set({ created, updatedAt: sql`now()` }).where(eq(plugins.id, plugin.id));
+    return plugin.id;
   });
 }
 

@@ -80,7 +80,8 @@ export async function callPlatformTool(app: PlatformApp, job: JobIdentity, name:
     const created = taken && tool.creates?.id(output);
     if (taken) await recordOutcome(app.db, taken, created ? { createdId: created } : {});
     // Made by `proposal_apply` or by a direct call alike: listed in the generated plugin the proposal names.
-    if (taken && created) await recordInPlugin(app.db, job.ownerId, taken.proposalId);
+    // Bookkeeping only: a failure here never turns the write that was made into a refusal.
+    if (taken && created) await recordInPlugin(app.db, job.ownerId, taken.proposalId).catch((e: unknown) => logError("generated plugin not recorded", e, { ref: taken!.proposalId }));
     return { ok: true, output: tool.filter ? tool.filter(output, scope) : output };
   } catch (err) {
     // A used item whose call failed: shown so, and the items naming it can't run.
