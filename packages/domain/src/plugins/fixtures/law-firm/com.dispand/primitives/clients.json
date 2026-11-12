@@ -1,0 +1,5 @@
+{
+  "name": "Clients",
+  "primitive": true,
+  "fields": [{ "name": "Email", "type": "text" }]
+}

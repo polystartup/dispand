@@ -248,17 +248,18 @@ const setPrimitive = owner
 
 export const tables = { create, list, get, rename, delete: remove, setPrimitive };
 
+/** `fields.create`'s input, which a plugin's primitive definitions take with names in place of ids. */
+export const FieldInput = z.object({
+  tableId: z.string(),
+  name: Name,
+  type: z.enum(FIELD_TYPES),
+  choices: Choices.optional(),
+  /** For a reference field: the table whose rows it names. */
+  referencesTableId: z.string().max(64).optional(),
+});
+
 const createField = owner
-  .input(
-    z.object({
-      tableId: z.string(),
-      name: Name,
-      type: z.enum(FIELD_TYPES),
-      choices: Choices.optional(),
-      /** For a reference field: the table whose rows it names. */
-      referencesTableId: z.string().max(64).optional(),
-    }),
-  )
+  .input(FieldInput)
   .handler(async ({ input, context }) => {
     const choices = input.choices ?? [];
     if (choices.length > 0 && input.type !== "single-select") throw new ORPCError("BAD_REQUEST", { message: "Only a single select has choices" });

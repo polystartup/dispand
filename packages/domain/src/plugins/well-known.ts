@@ -3,6 +3,7 @@ import { isSafeRelativePath, storable } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { MAX_DESCRIPTION, MAX_FILES, MAX_FILE_BYTES, PackageError, SKILL_NAME, type SkillFile, validatePackage } from "../skills/package.ts";
 import type { NotImported, PluginContents } from "./read-plugin.ts";
+import { NO_DEFINITIONS } from "./definitions.ts";
 
 /**
  * Skill sites: `https://<site>/.well-known/skills/index.json` lists skills (`{ skills: [{ name,
@@ -161,5 +162,5 @@ export async function readWellKnownSkills(indexUrl: string): Promise<{ contents:
   }
   const hash = createHash("sha256");
   for (const s of skills) for (const f of s.files) hash.update(`${f.path}\0${f.content.byteLength}\0`).update(f.content);
-  return { contents: { layout: "claude", version: null, skills, mcpServers: [], agents: [], notImported }, sha: hash.digest("hex").slice(0, 40) };
+  return { contents: { layout: "claude", version: null, skills, mcpServers: [], agents: [], definitions: NO_DEFINITIONS, notImported }, sha: hash.digest("hex").slice(0, 40) };
 }

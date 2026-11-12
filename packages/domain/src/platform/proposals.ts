@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agents, fields, harnesses, plugins, proposals, runners, skillPackages, tables, tools as toolsTable, triggers, type PluginCreated, type ProposalItem } from "../db/schema.ts";
+import { agents, type CREATED_KINDS, fields, harnesses, plugins, proposals, runners, skillPackages, tables, tools as toolsTable, triggers, type PluginCreated, type ProposalItem } from "../db/schema.ts";
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
 import { canonical } from "./approvals.ts";
@@ -328,7 +328,7 @@ const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
 };
 
 /** What each creating tool creates (its output's `id`): what `{ "$item": n }` may name, and how a reference reads: "the table item 2 creates". */
-export const CREATES: Record<string, keyof PluginCreated> = {
+export const CREATES: Record<string, (typeof CREATED_KINDS)[number]> = {
   tables_create: "table",
   fields_create: "field",
   agents_create: "agent",
@@ -336,7 +336,7 @@ export const CREATES: Record<string, keyof PluginCreated> = {
   tools_add: "tool",
   tools_add_from_catalog: "tool",
 };
-const createsOf = (tool: string): keyof PluginCreated | undefined => CREATES[tool];
+const createsOf = (tool: string): (typeof CREATED_KINDS)[number] | undefined => CREATES[tool];
 
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : typeof value === "string" ? [value] : []);
 

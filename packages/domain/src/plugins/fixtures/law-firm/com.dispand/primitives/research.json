@@ -1,0 +1,6 @@
+{
+  "name": "Research",
+  "primitive": true,
+  "fields": [{ "name": "Matters", "type": "reference", "references": "Matters" }],
+  "parent": { "field": "Matters", "required": false }
+}
