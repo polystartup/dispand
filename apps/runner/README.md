@@ -74,7 +74,7 @@ Uninstall: `systemctl --user disable --now dispand-runner`, then remove
   `.mcp.json` and `CLAUDE.md` never load by themselves.
 - `allowBypass`: unless `true`, a session asking for `bypassPermissions` is refused.
   When allowed, the runner automatically approves native commands and file operations, subject
-  to its protected-path checks. Managed Job tools still follow their per-agent Run / Ask settings.
+  to its protected-path checks; unresolved file paths still ask. Managed Job tools still follow their per-agent Run / Ask settings.
   Claude Code always gets `permissions.disableBypassPermissionsMode: "disable"`: the runner
   implements bypass so it cannot skip managed tool checks.
 - `mcpServers` (optional): the MCP servers this machine runs for Dispand's runner tools,

@@ -367,7 +367,8 @@ changes it updates this file.
   that run key, in its state dir, mode 0600), and whether `bypassPermissions` is allowed at all
   (`allowBypass`, off by default). Claude Code always gets
   `disableBypassPermissionsMode`: the runner implements native command/file bypass through its
-  approval broker so managed MCP calls cannot skip their per-agent permission checks. Sessions load the user's own Claude Code settings only,
+  approval broker so managed MCP calls cannot skip their per-agent permission checks. Unresolved
+  file paths still ask the owner. Sessions load the user's own Claude Code settings only,
   never a run folder's `.claude/` settings, hooks, `.mcp.json` or `CLAUDE.md`, on start or
   resume. Claude Code and Codex run as the runner machine's user, with that user's own profile:
   its settings, instructions files, memory, hooks and sign-in. Agents on that runner therefore see

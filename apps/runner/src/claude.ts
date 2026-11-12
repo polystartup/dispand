@@ -325,7 +325,8 @@ export function startClaudeSession(
       });
       return { behavior: "allow", updatedInput: { ...toolInput, answers } };
     }
-    if (start.permissionMode === "bypassPermissions" && !isAgentTool(toolName)) return { behavior: "allow", updatedInput: toolInput };
+    // Bypass skips ordinary approvals, never questions needed to resolve the file boundary.
+    if (start.permissionMode === "bypassPermissions" && !isAgentTool(toolName) && edit !== "ask" && read !== "ask") return { behavior: "allow", updatedInput: toolInput };
     // An MCP call is approved one at a time: no rule may let the next ones through.
     const updates = isMcpTool(toolName) ? [] : boundary.sessionUpdates(suggestions);
     // One of the Job's agent's tools (its tools server's, or a runner tool's): "always" is the

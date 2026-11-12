@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { expect, test, vi } from "vitest";
 import { BypassRefused, type ClaudeSession, pluginFailure, startClaudeSession } from "./claude.ts";
 import { claudeEnv } from "./config.ts";
+import { TOOL_SHAPES } from "./boundary.ts";
 
 // Keeps the real SDK but exposes the in-process MCP server's tools, so a fake query can call them.
 vi.mock("@anthropic-ai/claude-agent-sdk", async (importOriginal) => {
@@ -309,12 +310,12 @@ test("bypass refused when allowBypass is false", () => {
 });
 
 test("managed MCP actions still ask in bypass mode while commands and unmanaged tools run automatically", async () => {
-  const names = ["Bash", "mcp__mail__draft_email", "mcp__mail__send_email", "mcp__other__send_email"];
+  const names = ["Bash", "Write", "mcp__mail__draft_email", "mcp__mail__send_email", "mcp__other__send_email"];
   const decisions: string[] = [];
   let hook: unknown;
   const fake = fakeQuery(async function* ({ next, options }) {
     await next();
-    for (const name of names) decisions.push((await options.canUseTool!(name, name === "Bash" ? { command: "printf okay" } : {}, ctx()))!.behavior);
+    for (const name of names) decisions.push((await options.canUseTool!(name, name === "Bash" ? { command: "printf okay" } : name === "Write" ? { file_path: "/work/notes.md", content: "okay" } : {}, ctx()))!.behavior);
     const before = options.hooks!.PreToolUse!.flatMap((m) => m.hooks)[0]!;
     hook = await before({ hook_event_name: "PreToolUse", tool_name: "mcp__mail__send_email", tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal });
     yield result();
@@ -327,7 +328,7 @@ test("managed MCP actions still ask in bypass mode while commands and unmanaged 
     }
   }, { query: fake.query, allowBypass: true, jobServer: "job", unasked: [] });
   await session.done;
-  expect(decisions).toEqual(["allow", "allow", "deny", "allow"]);
+  expect(decisions).toEqual(["allow", "allow", "allow", "deny", "allow"]);
   expect(asked).toEqual(["mcp__mail__send_email"]);
   expect(hook).toMatchObject({ hookSpecificOutput: { permissionDecision: "ask" } });
 });
@@ -1025,6 +1026,31 @@ test("a non-canonical path reaches the owner as a question, for reads and edits"
   await session.done;
   expect(events.filter((e) => e.type === "question")).toHaveLength(1);
   expect(decisions).toEqual([{ behavior: "deny", message: "no" }]);
+});
+
+test("bypass still asks about unresolved paths for every file tool and LSP", async () => {
+  const calls: [string, Record<string, unknown>][] = Object.entries(TOOL_SHAPES).flatMap(([name, shape]) => [
+    [name, { [shape.path]: `${homedir()}/.codex/./auth.json` }],
+    // The permission callback doesn't know the CLI's current directory.
+    [name, { [shape.path]: "notes.md" }],
+  ] as [string, Record<string, unknown>][]);
+  calls.push(["LSP", { operation: "hover", filePath: "/work/notes.md", line: 1, character: 1 }]);
+  const decisions: unknown[] = [];
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    for (const [name, input] of calls) decisions.push(await options.canUseTool!(name, input, ctx()));
+    yield result();
+  });
+  const asked: string[] = [];
+  const session: ClaudeSession = startClaudeSession({ ...start, permissionMode: "bypassPermissions" }, "/work", (e) => {
+    if (e.type === "question" && e.payload.kind === "permission") {
+      asked.push(e.payload.toolName);
+      queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "deny" }));
+    }
+  }, { query: fake.query, allowBypass: true });
+  await session.done;
+  expect(asked).toEqual(calls.map(([name]) => name));
+  expect(decisions).toEqual(calls.map(() => ({ behavior: "deny", message: "The owner denied this." })));
 });
 
 test("a chosen option shown cut is answered under the agent's own label", async () => {
