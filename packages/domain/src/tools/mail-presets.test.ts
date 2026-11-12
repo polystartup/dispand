@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { and, asc, eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
-import { agentTools, pollItems, runners, runs, tools } from "../db/schema.ts";
+import { agentTools, pollItems, runners, runs, tools, triggers } from "../db/schema.ts";
 import { Engine } from "../engine/engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "../engine/harness.ts";
 import { Scheduler } from "../engine/scheduler.ts";
@@ -58,9 +58,12 @@ async function world(hub: Pick<RunnerHub, "call"> = { call: async () => Promise.
   const jobsOf = (triggerId: string) => context.db.select().from(runs).where(eq(runs.triggerId, triggerId));
   const unasked = async (agentId: string, toolId: string) =>
     (await context.db.select({ unasked: agentTools.unasked }).from(agentTools).where(and(eq(agentTools.agentId, agentId), eq(agentTools.toolId, toolId))))[0]!.unasked;
-  /** A poll trigger of `agentId` with the tool's catalog preset, as the trigger sheet fills it. */
-  const presetTrigger = (agentId: string, toolId: string, catalogId: string) =>
-    call(router.triggers.create, { agentId, name: "New mail", instructions: "Draft a reply.", config: { kind: "poll", toolId, interval: 300, ...entry(catalogId).poll! } }, { context });
+  /** A poll trigger of `agentId` with the tool's catalog preset, as the trigger sheet fills it, made an hour before the clock's start (its first `{{lastPoll}}`). */
+  const presetTrigger = async (agentId: string, toolId: string, catalogId: string) => {
+    const trigger = await call(router.triggers.create, { agentId, name: "New mail", instructions: "Draft a reply.", config: { kind: "poll", toolId, interval: 300, ...entry(catalogId).poll! } }, { context });
+    await context.db.update(triggers).set({ createdAt: new Date("2026-11-12T07:00:00Z") }).where(eq(triggers.id, trigger.id));
+    return trigger;
+  };
   return { context, time, scheduler, runnerId, harness, itemsOf, jobsOf, unasked, presetTrigger };
 }
 
@@ -274,9 +277,9 @@ test("the runner entries: a tool set up from one keeps its entry, its flags and 
   expect((await w.itemsOf(outlookTrigger.id)).map((i) => i.itemId).sort()).toEqual(outlook.map((m) => m.id).sort());
   const outlookCalls = calls.filter((c) => c.tool === "microsoft-365");
   expect(outlookCalls).toHaveLength(2);
-  expect(outlookCalls[0]!.arguments).toMatchObject({ mailFolderId: "inbox", filter: expect.stringMatching(/^receivedDateTime ge 2026-/), fetchAllPages: false });
+  expect(outlookCalls[0]!.arguments).toMatchObject({ mailFolderId: "inbox", filter: "receivedDateTime ge 2026-11-12T07:00:00.000Z", fetchAllPages: false });
   expect(outlookCalls[1]!.arguments).toEqual({ ...outlookCalls[0]!.arguments, skiptoken: "https://graph.example.com/v1.0/me/mailFolders/inbox/messages?$skiptoken=tok-25" });
-  expect(calls.find((c) => c.tool === "gmail-runner")!.arguments).toEqual({ query: expect.stringMatching(/^in:inbox after:\d{10}$/), maxResults: 50 });
+  expect(calls.find((c) => c.tool === "gmail-runner")!.arguments).toEqual({ query: `in:inbox after:${Date.parse("2026-11-12T07:00:00Z") / 1000}`, maxResults: 50 });
 
   gmail.push({ threadId: "g2" });
   outlook.push({ id: "o-new", receivedDateTime: "2026-11-12T09:03:00Z" });

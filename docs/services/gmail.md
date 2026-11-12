@@ -20,6 +20,10 @@ What both do and don't do:
 - **The poll preset** (Agents → an agent → Triggers → Poll, then pick the tool) starts a Job for
   each new thread in the inbox. A thread is the item: a new reply in a thread a poll has already
   seen starts no Job. Gmail's `after:` takes seconds, so the preset uses `{{lastPollEpoch}}`.
+- **On a runner, a poll reads at most 50 new threads.** That server lists the newest threads
+  without a next page, so when more than 50 arrive between two polls (a runner left offline
+  overnight, say), the older ones never start a Job: they stay in the mailbox, unread by the
+  agent. The hosted server pages through every new thread, and has no such limit.
 
 ## The Google Cloud project (both ways)
 

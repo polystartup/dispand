@@ -129,14 +129,15 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: "gmail-runner",
     name: "Gmail (on a runner)",
     description:
-      "Search and read mail, and draft replies, for any Google account (personal Gmail included), through an open-source Gmail server on your machine, signed in with your own Google Cloud OAuth client.",
+      "Search and read mail, and draft replies, for any Google account (personal Gmail included), through an open-source Gmail server on your machine, signed in with your own Google Cloud OAuth client. Its polls read at most 50 new threads each.",
     kind: "runner",
     server: { command: "npx", args: ["-y", "@artymclabin/gmail-mcp@1.2.3"], env: [] },
     // Search, read and draft run; sending, deleting drafts and saving files on the machine ask.
     unasked: ["search_emails", "read_email", "get_thread", "list_inbox_threads", "get_inbox_with_threads", "list_email_labels", "draft_email"],
     pollable: ["list_inbox_threads"],
     // A new thread is an item: a reply in a thread already seen starts no Job. No continuation:
-    // each poll reads the 50 newest threads since the last one.
+    // the server returns the newest threads without a next page, so a poll reads at most the 50
+    // newest since the last one, and older ones past that never start a Job (docs/services/gmail.md).
     poll: { action: "list_inbox_threads", arguments: { query: "in:inbox after:{{lastPollEpoch}}", maxResults: 50 }, itemsPath: "threads", idPath: "threadId" },
     docs: "docs/services/gmail.md",
   },
