@@ -535,8 +535,11 @@ export type QuestionStatus = "pending" | "answered" | "expired";
 /** `consult`: a question to another agent, answered by that agent's Job (`engine/consults.ts`), never by a person: not an Inbox item. */
 export type QuestionKind = "question" | "approval" | "consult";
 /** One write of a proposal: a platform tool and its input as the tool parsed it; `usedAt` once the Job made that call. */
-/** `input` may hold `{ "$item": n }`: what item `n` created (`createdId`, once used; `failed` when its call failed). */
-export type ProposalItem = { tool: string; input: unknown; usedAt?: string; createdId?: string; failed?: true };
+/**
+ * `input` may hold `{ "$item": n }`: what item `n` created (`createdId`). A used item is `done`
+ * once its call succeeded, `failed` once it was refused, and neither while its call runs.
+ */
+export type ProposalItem = { tool: string; input: unknown; usedAt?: string; done?: true; createdId?: string; failed?: true };
 
 /**
  * Proposals (`platform/proposals.ts`): the writes a Job's agent asks a person to approve

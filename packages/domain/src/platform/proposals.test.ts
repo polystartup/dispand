@@ -606,10 +606,40 @@ test("proposal_apply is traced, counted and logged when it stops, with ids and c
     { tool: "tables_create", input: { name: "Secret matters" } },
     { tool: "tables_create", input: { name: "Secret clients" } },
   ]);
+  // An id that names no proposal of the Job's is the agent's text: never recorded.
+  await s.tool("proposal_apply", { proposalId: "Secret words" });
   await s.tool("proposal_apply", { proposalId: id });
-  const span = telemetry.spans().find((sp) => sp.name === "platform.proposal_apply")!;
+  const span = telemetry.spans().filter((sp) => sp.name === "platform.proposal_apply").at(-1)!;
   expect(span.attributes).toMatchObject({ "dispand.proposal.id": id, "dispand.proposal.items": 2, "dispand.proposal.made": 1, "dispand.result": "stopped" });
   expect(telemetry.logs().map((r) => r.body)).toContain("proposal apply stopped");
   expect(await telemetry.metrics()).toContainEqual({ name: "dispand.proposals.applied", attributes: { "dispand.result": "stopped" } });
   expect(await telemetry.all()).not.toContain("Secret");
+});
+
+test("apply waits for an item another call is still making: what comes after it isn't run", async () => {
+  const s = await setup();
+  const id = await approve(s, [
+    { tool: "tables_create", input: { name: "Matters" } },
+    { tool: "tables_create", input: { name: "Invoices" } },
+  ]);
+  // Item 0 taken by a call that hasn't ended: used, neither made nor refused yet.
+  const [row] = await s.context.db.select().from(proposals).where(eq(proposals.id, id));
+  await s.context.db
+    .update(proposals)
+    .set({ items: row!.items.map((item, i) => (i === 0 ? { ...item, usedAt: new Date().toISOString() } : item)) })
+    .where(eq(proposals.id, id));
+  const applied = (await s.tool("proposal_apply", { proposalId: id })) as Applied;
+  expect(applied.output.items.map((i) => i.outcome)).toEqual(["being made", "not made"]);
+  expect(applied.output.next).toMatch(/^Item 1 \(tables_create\) is being made by another call/);
+  expect(await s.context.db.select().from(tablesTable)).toHaveLength(0);
+});
+
+test("applying again after a refusal never says every item is made", async () => {
+  const s = await setup();
+  await call(router.tables.create, { name: "Clients" }, { context: s.context });
+  const id = await approve(s, [{ tool: "tables_create", input: { name: "Clients" } }]);
+  expect(outcomes(await s.tool("proposal_apply", { proposalId: id }))).toEqual(["refused"]);
+  const again = (await s.tool("proposal_apply", { proposalId: id })) as Applied;
+  expect(again.output.items.map((i) => i.outcome)).toEqual(["refused before"]);
+  expect(again.output.next).toMatch(/^Every other item is made, but item 1 was refused before/);
 });

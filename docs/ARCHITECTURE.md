@@ -612,13 +612,14 @@
   `tools_add`); it is parsed with a random placeholder id in its place (also checked against
   the Job's tables, so a Job limited to some tables can't name a table it creates) and stored
   as the reference. A `write` call matching an unused item uses it too, and a call made as an
-  item records on it the id its output carries (`createdId`) or, when the procedure refused
-  it, `failed`; `takeItem` compares a call with an item's input whose references are replaced
+  item records on it `done` with the id its output carries (`createdId`) or, when the
+  procedure refused it, `failed`; `takeItem` compares a call with an item's input whose references are replaced
   by those `createdId`s (an item naming one with none can't match). `proposal_apply`
   (`APPLY`, also handled in `callPlatformTool`) checks the proposal is the Job's and approved,
   then calls `callPlatformTool` for each unused item in order with that item's position (`at`:
   only that item may be taken, and a call that can't take it is refused), stops at the first
-  refusal, and returns each item's outcome; no transaction spans items (some reach the
+  refusal or at an item used but neither done nor failed (another call is making it), and
+  returns each item's outcome; no transaction spans items (some reach the
   network), so a later call goes on from the first unused one. It is traced
   (`platform.proposal_apply`), counted (`dispand.proposals.applied`) and logged when it stops. `request_approval` takes
   an optional `proposal` id (cloud: `approvalMessage`; runner: `requestApproval`, protocol 8,

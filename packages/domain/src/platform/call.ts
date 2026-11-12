@@ -76,8 +76,9 @@ export async function callPlatformTool(app: PlatformApp, job: JobIdentity, name:
       // The procedure's name, for its span: a call in process has none of its own.
       path: tool.path.split("."),
     });
+    // The item is made: what it created, for the items that name it.
     const created = taken && tool.creates?.id(output);
-    if (taken && created) await recordOutcome(app.db, taken, { createdId: created });
+    if (taken) await recordOutcome(app.db, taken, { done: true, ...(created ? { createdId: created } : {}) });
     return { ok: true, output: tool.filter ? tool.filter(output, scope) : output };
   } catch (err) {
     // A used item whose call failed: shown so, and the items naming it can't run.
@@ -88,7 +89,7 @@ export async function callPlatformTool(app: PlatformApp, job: JobIdentity, name:
   }
 }
 
-type Outcome = { $item: number; tool: string; outcome: "made" | "made before" | "refused" | "refused before" | "not made"; id?: string; error?: string };
+type Outcome = { $item: number; tool: string; outcome: "made" | "made before" | "being made" | "refused" | "refused before" | "not made"; id?: string; error?: string };
 
 /**
  * `proposal_apply`: the unused items of an approved proposal of the Job, in order, each through
@@ -97,11 +98,13 @@ type Outcome = { $item: number; tool: string; outcome: "made" | "made before" | 
  * from the first item not made.
  */
 function applyProposal(app: PlatformApp, job: JobIdentity, proposalId: string): Promise<ToolResult> {
-  return traces.startActiveSpan("platform.proposal_apply", { attributes: { "dispand.job.id": job.runId, "dispand.proposal.id": proposalId } }, async (span): Promise<ToolResult> => {
+  return traces.startActiveSpan("platform.proposal_apply", { attributes: { "dispand.job.id": job.runId } }, async (span): Promise<ToolResult> => {
     let result = "refused";
     try {
       const first = await approvedItems(app.db, job, proposalId);
       if (typeof first === "string") return { ok: false, error: first };
+      // Only once it names a proposal of the Job's: never an id the agent made up.
+      span.setAttribute("dispand.proposal.id", proposalId);
       const outcomes: Outcome[] = [];
       let stopped: string | null = null;
       for (let index = 0; index < first.length && stopped === null; index++) {
@@ -109,6 +112,12 @@ function applyProposal(app: PlatformApp, job: JobIdentity, proposalId: string): 
         const items = await approvedItems(app.db, job, proposalId);
         if (typeof items === "string") return { ok: false, error: items };
         const item = items[index]!;
+        // Taken by a call still running (another apply, or a direct call): what comes after it waits for its outcome.
+        if (item.usedAt !== undefined && !item.done && !item.failed) {
+          outcomes.push({ $item: index, tool: item.tool, outcome: "being made" });
+          stopped = `Item ${index + 1} (${item.tool}) is being made by another call`;
+          continue;
+        }
         if (item.usedAt !== undefined) {
           outcomes.push({ $item: index, tool: item.tool, outcome: item.failed ? "refused before" : "made before", ...(item.createdId ? { id: item.createdId } : {}) });
           continue;
@@ -125,7 +134,8 @@ function applyProposal(app: PlatformApp, job: JobIdentity, proposalId: string): 
       }
       for (const [index, item] of first.entries()) if (index >= outcomes.length) outcomes.push({ $item: index, tool: item.tool, outcome: "not made" });
       const made = outcomes.filter((o) => o.outcome === "made" || o.outcome === "made before").length;
-      result = stopped ? "stopped" : "done";
+      const refusedBefore = outcomes.filter((o) => o.outcome === "refused before").map((o) => o.$item + 1);
+      result = stopped ? "stopped" : refusedBefore.length ? "partial" : "done";
       span.setAttributes({ "dispand.proposal.items": first.length, "dispand.proposal.made": made });
       if (stopped) {
         recordError(span, "stopped");
@@ -137,7 +147,9 @@ function applyProposal(app: PlatformApp, job: JobIdentity, proposalId: string): 
           items: outcomes,
           next: stopped
             ? `${stopped}. The items after it weren't made. Tell the owner which were made and why it stopped; once the cause is fixed, call proposal_apply again to go on from the first item not made, or propose again what is left.`
-            : "Every item is made.",
+            : refusedBefore.length
+              ? `Every other item is made, but item${refusedBefore.length > 1 ? "s" : ""} ${refusedBefore.join(", ")} ${refusedBefore.length > 1 ? "were" : "was"} refused before and can't be made again: tell the owner, and propose again what is left.`
+              : "Every item is made.",
         },
       };
     } finally {

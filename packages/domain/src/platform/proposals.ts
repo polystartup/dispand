@@ -196,8 +196,8 @@ export async function takeItem(db: Db, job: JobIdentity, tool: string, input: un
   });
 }
 
-/** Records on a used item what its call created, for the items that name it, or that it failed. */
-export async function recordOutcome(db: Db, at: ItemAt, outcome: { createdId: string } | { failed: true }): Promise<void> {
+/** Records how a used item's call ended: made (with what it created, for the items that name it), or failed. */
+export async function recordOutcome(db: Db, at: ItemAt, outcome: { done: true; createdId?: string } | { failed: true }): Promise<void> {
   await db.transaction(async (tx) => {
     const [row] = await tx.select({ items: proposals.items }).from(proposals).where(eq(proposals.id, at.proposalId)).for("update");
     if (!row) return;
