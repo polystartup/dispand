@@ -62,7 +62,7 @@ export function PluginInstallSheet({ marketplaceId, entryName, onClose }: { mark
       <SheetContent className="w-full overflow-y-auto bg-surface sm:max-w-lg">
         <SheetHeader className="px-6 pt-6">
           <SheetTitle className="text-[20px] tracking-tight">Install {entryName}</SheetTitle>
-          <SheetDescription>Pick what to bring in. Its skills, tools and agents become Dispand ones, removed with the plugin.</SheetDescription>
+          <SheetDescription>Pick what to bring in. Its skills, tools and agents become Dispand ones; removing the plugin keeps its tools and agents.</SheetDescription>
         </SheetHeader>
         <div className="px-6 pb-6">
           {changed && (

@@ -1,7 +1,7 @@
 import { ORPCError } from "@orpc/server";
-import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Tx } from "../db/client.ts";
-import { agents, agentSkills, agentTools, skillPackages, tools } from "../db/schema.ts";
+import { agents, tools } from "../db/schema.ts";
 import { Headers, Url, type ToolFields } from "../tools/procedures.ts";
 import type { PluginMcpServer } from "./read-plugin.ts";
 
@@ -107,45 +107,4 @@ export async function agentName(tx: Tx, ownerId: string, name: string, plugin: s
     .where(and(eq(agents.ownerId, ownerId), eq(agents.name, name)))
     .limit(1);
   return taken ? cut(`${name} (${plugin})`, 100) : name;
-}
-
-/**
- * Why the plugin can't go: something outside it uses one of its components (an agent its skills
- * or tools, a skill package that requires one of its tools). Its own agents go with it. A
- * workflow using its agents is checked by the caller (`agentInUse`).
- */
-export async function pluginHolder(tx: Tx, ownerId: string, plugin: { id: string; name: string }): Promise<string | undefined> {
-  const outside = or(isNull(agents.pluginId), ne(agents.pluginId, plugin.id));
-  const [skillUser] = await tx
-    .select({ name: agents.name })
-    .from(agentSkills)
-    .innerJoin(agents, eq(agents.id, agentSkills.agentId))
-    .innerJoin(skillPackages, eq(skillPackages.id, agentSkills.packageId))
-    .where(and(eq(skillPackages.pluginId, plugin.id), outside))
-    .limit(1);
-  if (skillUser) return `The agent “${skillUser.name}” uses ${plugin.name}'s skills: remove them from it first`;
-  const [toolUser] = await tx
-    .select({ agent: agents.name, tool: tools.name })
-    .from(agentTools)
-    .innerJoin(agents, eq(agents.id, agentTools.agentId))
-    .innerJoin(tools, eq(tools.id, agentTools.toolId))
-    .where(and(eq(tools.pluginId, plugin.id), outside))
-    .limit(1);
-  if (toolUser) return `The agent “${toolUser.agent}” uses ${plugin.name}'s tool “${toolUser.tool}”: remove it from the agent first`;
-  const own = await tx.select({ id: tools.id, name: tools.name }).from(tools).where(eq(tools.pluginId, plugin.id));
-  for (const tool of own) {
-    const [pkg] = await tx
-      .select({ name: skillPackages.name })
-      .from(skillPackages)
-      .where(
-        and(
-          eq(skillPackages.ownerId, ownerId),
-          or(isNull(skillPackages.pluginId), ne(skillPackages.pluginId, plugin.id)),
-          sql`${skillPackages.requiredToolIds} @> ${JSON.stringify([tool.id])}::jsonb`,
-        ),
-      )
-      .limit(1);
-    if (pkg) return `The skill “${pkg.name}” requires ${plugin.name}'s tool “${tool.name}”: remove it from the skill first`;
-  }
-  return undefined;
 }

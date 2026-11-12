@@ -115,7 +115,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
           <p className="text-[13px] text-muted">The workspace's Assistant: it can't be deleted. Its name, harness, model and instructions are yours to change.</p>
         )}
         {agent?.plugin && (
-          <p className="text-[13px] text-muted">From the plugin {agent.plugin.name}: removed with it. Updating the plugin refreshes its system prompt.</p>
+          <p className="text-[13px] text-muted">From the plugin {agent.plugin.name}: removing the plugin keeps it. Updating the plugin refreshes its system prompt.</p>
         )}
         <FormField label="Name" htmlFor="agent-name">
           <Input id="agent-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus={!agent} />

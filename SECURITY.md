@@ -514,12 +514,14 @@ changes it updates this file.
   same rules as the form (`insertTool`). Hooks, commands, `bin/`, MCP servers that run the
   plugin's own files (`${CLAUDE_PLUGIN_ROOT}`) and, until runner tools exist, MCP servers that
   run a command are never stored or run; all but the last are listed as not imported. A
-  plugin's tools and agents can be edited but go only with the plugin, which can't go while
-  something outside it uses one of its components. Updating a plugin moves its tools to a new
+  plugin owns only its record and its skill package: removing it keeps its tools (with their
+  saved headers) and agents (with their Jobs) as the owner's, and deletes its package unless an
+  agent uses it, which then stays as the owner's own. No foreign key to `plugins` cascades to
+  the owner's data (`db/cascades.test.ts`). Updating a plugin moves its tools to a new
   URL only within the same origin, so saved headers never go
   to a host the owner didn't pick. Reading a plugin has one budget that every listing, read, MCP server and not-imported note
   is charged to (20,000 items, 64 MiB read; at most 200 skills, 100 MCP servers and 100 agents),
-  so no shape of repository or manifest makes it do more. A plugin's skill package is read-only and goes with the plugin. Errors name what failed
+  so no shape of repository or manifest makes it do more. A plugin's skill package is read-only while the plugin is installed. Errors name what failed
   in a few words, never git's output.
 - **Skill sites are read over https only.** A `.well-known` skill site's index and files are
   fetched with no credentials, redirects followed only to the same origin, within 1 MiB for the
