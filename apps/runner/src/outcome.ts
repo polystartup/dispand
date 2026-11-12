@@ -1,14 +1,14 @@
 // What every CLI session shares, whatever its harness: questions to the owner, `submit_outputs`
 // (and its confirmation) and what a turn's end means for the session (turn-end, reminder, result).
 import { randomUUID } from "node:crypto";
-import { type Answer, type HarnessEvent, type OutputField, type QuestionPayload, type SessionStart, TEXT } from "@dispand/runner-protocol";
+import { type Answer, type HarnessEvent, type OutputField, type QuestionPayload, type SessionStart, type SessionToolPermissions, TEXT } from "@dispand/runner-protocol";
 import { protocolEvents, protocolString } from "./sanitize.ts";
 
 /** A running CLI session, as `Sessions` drives it. */
 export type HarnessSession = {
   /** Sends the owner's next message. */
   send(text: string): void;
-  narrowPermissions?(servers: { name: string; unasked: string[] }[]): void;
+  narrowPermissions?(servers: SessionToolPermissions[]): void;
   /** Answers a question the session emitted. */
   answer(questionId: string, answer: Answer): void;
   interrupt(): Promise<void>;

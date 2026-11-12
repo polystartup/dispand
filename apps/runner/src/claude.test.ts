@@ -1525,7 +1525,7 @@ test("a runner action runs unasked until revoked; other servers and actions ask"
   const fake = fakeQuery(async function* ({ next, options }) {
     await next();
     for (const [i, name] of names.entries()) {
-      if (i === 3) session.narrowPermissions!([]);
+      if (i === 3) session.narrowPermissions!([{ name: "mail", unasked: [] }]);
       decisions.push(((await options.canUseTool!(name, {}, ctx())) as { behavior: string }).behavior);
     }
     const hooks = options.hooks!.PreToolUse!.flatMap((m) => m.hooks);
@@ -1559,7 +1559,7 @@ test("an always answer queued across a revocation cannot restore a runner grant"
   const session = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] }, "/work", (e) => {
     if (e.type !== "question") return;
     const first = ++asked === 1;
-    if (first) session.narrowPermissions!([]);
+    if (first) session.narrowPermissions!([{ name: "mail", unasked: [] }]);
     queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: first ? "allow-always" : "deny" }));
   }, { query: fake.query, jobServer: "job" });
   await session.done;
@@ -1599,4 +1599,51 @@ test("unasked Claude runner tools refuse targets linked from protected config di
     await session.done;
     expect(decision).toMatchObject({ behavior: "deny" });
   } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+
+test.each(["default", "bypassPermissions"] as const)("denied Claude runner actions never ask or run in %s mode", async (permissionMode) => {
+  const decisions: unknown[] = [];
+  let hook: unknown;
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    decisions.push((await options.canUseTool!("mcp__mail__send_email", {}, ctx()))?.behavior);
+    const before = options.hooks!.PreToolUse!.flatMap((m) => m.hooks)[0]!;
+    hook = await before({ hook_event_name: "PreToolUse", tool_name: "mcp__mail__send_email", tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal });
+    yield result();
+  });
+  const events: HarnessEvent[] = [];
+  const session: ClaudeSession = startClaudeSession({ ...start, permissionMode, mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["send_email"], denied: ["send_email"] }] }, "/work", (e) => {
+    events.push(e);
+    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "allow-always" }));
+  }, { query: fake.query, allowBypass: true, jobServer: "job" });
+  await session.done;
+  expect(decisions).toEqual(["deny"]);
+  expect(hook).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+  expect(fake.calls[0]!.disallowedTools).toContain("mcp__mail__send_email");
+  expect(events.filter((e) => e.type === "question")).toEqual([]);
+});
+
+test.each([
+  { decision: "allow", removed: false },
+  { decision: "allow-always", removed: false },
+  { decision: "allow", removed: true },
+  { decision: "allow-always", removed: true },
+] as const)("a late Claude $decision answer cannot override a restriction (removed: $removed)", async ({ decision, removed }) => {
+  const decisions: unknown[] = [];
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    for (let i = 0; i < 2; i++) decisions.push((await options.canUseTool!("mcp__mail__draft_email", {}, ctx()))?.behavior);
+    yield result();
+  });
+  let asked = 0;
+  const session: ClaudeSession = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] }, "/work", (e) => {
+    if (e.type !== "question") return;
+    asked++;
+    session.narrowPermissions!(removed ? [] : [{ name: "mail", unasked: [], denied: ["draft_email"] }]);
+    queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision }));
+  }, { query: fake.query, jobServer: "job" });
+  await session.done;
+  expect(asked).toBe(1);
+  expect(decisions).toEqual(["deny", "deny"]);
 });

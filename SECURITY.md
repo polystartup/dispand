@@ -486,6 +486,13 @@ changes it updates this file.
   "for the session" or "always". On the server, a runner tool
   is created or moved only to a server its runner reported, and an agent gets runner tools only
   on a CLI harness of that same runner, a skill's required tools included.
+  Protocol 18 can carry disabled runner actions in the initial refs and `session.permissions`
+  updates. Both harnesses refuse them before unasked grants, bypass, or owner approval, and
+  recheck after awaiting an answer. Initial denials also go to Codex's `disabled_tools` and
+  Claude's `disallowedTools`. Live denials accumulate; a removed server is refused in full,
+  and no later update restores it or clears a denial in that session. A preparing session
+  applies these restrictions before rebuilding native MCP configuration. Re-enabling applies
+  on the next session; calls already executing are not cancelled.
   **Out of scope:** plugin hooks and other user-config files linking into a session's working
   directory, and Bash (asked per command): the owner keeps their own configuration out of agent
   work folders. "Always allow" only adds rules

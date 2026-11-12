@@ -175,6 +175,14 @@ time outside `bypassPermissions`. Codex servers use `default_tools_approval_mode
 so read-only hints cannot skip these checks. Listing a runner tool's actions (`tool.discover`, from Settings → Tools) starts its
 server from your home folder with an MCP client's default environment plus its `env`, its
 stderr dropped, and stops it again (at most 30 s); its `env` values are redacted from the list.
+Runner action denials in protocol 18 are enforced before automatic grants, bypass, or owner
+approval. Codex removes initially denied actions with `disabled_tools`; Claude gets exact
+`disallowedTools` names and also refuses them in its hook and permission callback. Live updates
+can add denials or remove a whole server, but cannot restore access in that session. An answer
+that arrives after an action is disabled cannot authorize it. Restrictions received while
+skills load are applied before the native MCP configuration is built. Re-enabling an action
+requires a new CLI session; a call already executing is not cancelled by these updates.
+
 A poll's call (`tool.call`) starts the server the same way, outside any session, and calls the
 action only if the server marks it read-only (`readOnlyHint`) or your `pollable` lists it,
 whatever Dispand asks; one call per tool at a time, at most 30 s, its `env` values and the

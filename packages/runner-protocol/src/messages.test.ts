@@ -393,3 +393,17 @@ test("permission updates carry bounded server-local action names", () => {
     [{ name: "mail", unasked: Array.from({ length: 501 }, () => "draft_email") }],
   ]) expect(() => parseServerMessage(JSON.stringify({ ...update, servers }))).toThrow(ProtocolError);
 });
+
+
+test("denials carry full action names in starts and permission updates", () => {
+  const denied = ["send.email", "a".repeat(200)];
+  const ref = { name: "mail", type: "runner", tool: "gmail", denied };
+  const message = { type: "session.start", start: { ...start, mcpServers: [ref] } };
+  expect(parseServerMessage(JSON.stringify(message))).toEqual(message);
+  const update = { type: "session.permissions", sessionId: "session_1", servers: [{ name: "mail", unasked: [], denied }] };
+  expect(parseServerMessage(JSON.stringify(update))).toEqual(update);
+  for (const invalid of [["a".repeat(201)], Array.from({ length: 501 }, () => "send")]) {
+    expect(() => parseServerMessage(JSON.stringify({ ...message, start: { ...start, mcpServers: [{ ...ref, denied: invalid }] } }))).toThrow(ProtocolError);
+    expect(() => parseServerMessage(JSON.stringify({ ...update, servers: [{ ...update.servers[0], denied: invalid }] }))).toThrow(ProtocolError);
+  }
+});

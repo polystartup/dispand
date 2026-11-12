@@ -21,6 +21,7 @@ export {
   RunnerToServer,
   ServerToRunner,
   SessionStart,
+  SessionToolPermissions,
 } from "./messages.ts";
 
 export { PluginHarness, PluginName, PluginSource, PluginOperation, PluginReport, nativeSourceKey, workspacePluginContent } from "./plugins.ts";
