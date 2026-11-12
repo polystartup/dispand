@@ -25,9 +25,7 @@ import { authed, base } from "../rpc/context.ts";
 import { MAX_DESCRIPTION, PackageError, SKILL_NAME, validatePackage } from "../skills/package.ts";
 import { store, type Tx } from "../skills/procedures.ts";
 import { HeaderValue, insertTool, refreshActions, retarget } from "../tools/procedures.ts";
-import { lockAgentsForDelete } from "../jobs/active.ts";
-import { agentInUse } from "../workflows/procedures.ts";
-import { agentName, hasPlaceholder, httpTool, pluginHolder, toolName } from "./components.ts";
+import { agentName, hasPlaceholder, httpTool, toolName } from "./components.ts";
 import { fetchGit, GitError } from "./git.ts";
 import { BUILT_IN_MARKETPLACES, MarketplaceError, type MarketplaceEntry, type MarketplaceKind, parseMarketplace } from "./marketplace.ts";
 import { readWellKnownIndex, readWellKnownSkills, WellKnownError, wellKnownIndexUrl } from "./well-known.ts";
@@ -546,34 +544,18 @@ const list = owner.handler(async ({ context }) => {
 });
 
 const uninstall = owner.input(Id).handler(async ({ input, context }) => {
-  const plugin = await findPlugin(context.db, context.ownerId, input.id);
-  // A generated plugin lists what was created and owns none of it: only the record goes.
-  if (plugin.source === "generated") {
-    await context.db.delete(pluginsTable).where(eq(pluginsTable.id, plugin.id));
-    return;
-  }
-  // Its agents go with it, but not from under a workflow.
-  const agents = await context.db.select({ id: agentsTable.id, name: agentsTable.name }).from(agentsTable).where(eq(agentsTable.pluginId, plugin.id));
-  for (const agent of agents) {
-    if (await agentInUse(context.db, context.ownerId, agent.id)) {
-      throw new ORPCError("CONFLICT", { message: `A workflow uses ${plugin.name}'s agent “${agent.name}”: remove it from the workflow first` });
-    }
-  }
+  // The plugin owns its record and its skill package, nothing else: its agents (with their Jobs)
+  // and tools (with their headers) stay the owner's, unlinked (`plugin_id` is set null).
   await context.db.transaction(async (tx) => {
     const row = await findPlugin(tx, context.ownerId, input.id, true);
-    // Its package, tools and agents go with it (cascade), but not from under anything outside it.
-    await tx.select({ id: skillPackages.id }).from(skillPackages).where(eq(skillPackages.pluginId, row.id)).for("update");
-    await tx.select({ id: toolsTable.id }).from(toolsTable).where(eq(toolsTable.pluginId, row.id)).for("update");
-    const holder = await pluginHolder(tx, context.ownerId, row);
-    if (holder) throw new ORPCError("CONFLICT", { message: holder });
-    const busy = await lockAgentsForDelete(
-      tx,
-      agents.map((a) => a.id),
-    );
-    if (busy) throw new ORPCError("CONFLICT", { message: `A Job of ${plugin.name}'s agent “${busy}” is still going` });
-    // Its agents first: they hold its package and tools, which the plugin's cascade removes.
-    await tx.delete(agentsTable).where(eq(agentsTable.pluginId, row.id));
+    const packages = await tx.select({ id: skillPackages.id }).from(skillPackages).where(eq(skillPackages.pluginId, row.id)).for("update");
     await tx.delete(pluginsTable).where(eq(pluginsTable.id, row.id));
+    // Its package goes unless an agent uses it: then it stays as the owner's own, editable.
+    for (const pkg of packages) {
+      await tx
+        .delete(skillPackages)
+        .where(and(eq(skillPackages.id, pkg.id), sql`not exists (select 1 from ${agentSkills} where ${agentSkills.packageId} = ${pkg.id})`));
+    }
   });
 });
 

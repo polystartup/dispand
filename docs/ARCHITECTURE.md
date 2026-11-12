@@ -656,7 +656,7 @@
   proposal's items, by kind, to the plugin
   "Generated: <business>" (`plugins.source = 'generated'`, `created`; no marketplace, URL or
   commit), creating it on first use (one per name, `plugins_owner_generated_idx`). It lists and
-  owns nothing: `agents.plugin_id` and `tools.plugin_id` cascade, so they stay unset, and
+  owns nothing: `agents.plugin_id` and `tools.plugin_id` stay unset, and
   `plugins.uninstall` of a generated plugin deletes its row only; `plugins.update` refuses it;
   `plugins.list` names what it lists as it is now, leaving out what was deleted since.
 - **Inbox:** every question a session asks is a row of `questions` with a `kind`: a permission
@@ -1030,8 +1030,13 @@
   definitions at that commit, else `CONFLICT`; a stdio server that runs a command is refused) and
   ticked agents become a system prompt on the harness the owner picks. `plugins.update` syncs the
   marketplace, then replaces the imported skills' files with the entry's current commit;
-  `plugins.uninstall` removes the plugin and its package (cascade). A marketplace with installed
-  plugins can't be removed.
+  `plugins.uninstall` removes the plugin's record and keeps the owner's data: `agents.plugin_id`,
+  `tools.plugin_id` and `skill_packages.plugin_id` are `on delete set null` (migration 0055), so
+  its agents (with their Jobs) and tools (with their headers) stay, unlinked, and a reinstall names
+  its copies apart (`agentName`, `toolName`). Its skill package is deleted unless an agent uses
+  it; then it stays as the owner's own, editable. `db/cascades.test.ts` walks every cascading
+  foreign key from `plugins` and fails on one reaching the owner's data. A marketplace with
+  installed plugins can't be removed.
 - **Skill sources:** a marketplace row has a `kind`. `marketplace` is the format above. A Git
   repository with no `.claude-plugin/marketplace.json` but a `skills/` folder is a `skill-repo`: one
   entry, named after the repository, read by `readPlugin` like a plugin. A `well-known` site

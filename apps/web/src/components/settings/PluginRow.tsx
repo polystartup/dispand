@@ -7,8 +7,9 @@ import { type api, orpc } from "../../lib/api.ts";
 type Plugin = Awaited<ReturnType<typeof api.plugins.list>>[number];
 
 /**
- * An installed plugin: where it came from and what it added, with Update and Remove. A generated
- * one lists what approved proposals created, which removing it keeps.
+ * An installed plugin: where it came from and what it added, with Update and Remove. Removing
+ * one keeps its agents and tools; a generated one lists what approved proposals created, which
+ * removing it keeps too.
  */
 export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   const queryClient = useQueryClient();
@@ -47,7 +48,8 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
               "Generated in this workspace: it lists what approved proposals created, and removing it keeps them"
             ) : (
               <>
-                From {p.marketplace} · <span className="font-mono">{p.sha.slice(0, 7)}</span>
+                From {p.marketplace} · <span className="font-mono">{p.sha.slice(0, 7)}</span>. Removing it: its agents, tools and what it set up stay in your
+                workspace
               </>
             )}
           </p>
