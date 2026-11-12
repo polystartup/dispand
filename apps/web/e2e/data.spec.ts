@@ -59,7 +59,7 @@ test("a table: fields, inline edits, rename, move, retype and delete", async ({ 
   await page.keyboard.press("Tab");
   await page.keyboard.type("Agents and workflows");
   await page.keyboard.press("Control+Enter");
-  await shots(page, "new-row-form");
+  await page.screenshot({ path: test.info().outputPath("new-row-form.png"), animations: "disabled" });
   await page.getByRole("button", { name: "Create row" }).click();
   await expect(page.getByRole("dialog")).toBeHidden();
   await expect(cell(page, "Name")).toHaveText("Dispand");
