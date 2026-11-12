@@ -66,7 +66,12 @@ changes it updates this file.
   another tool or action; a tool's schema is passed on as data and never compiled. That name
   is words cut short and a mark, so the question the owner answers also carries, from the
   server, the tool's name and the action's name and description in full. A session in `bypassPermissions` mode asks
-  nothing, so its calls of these tools are refused.
+  nothing, so its calls of these tools are refused. Every call a Job makes of such a tool, in a
+  cloud session or through `/mcp/job/tools` (a call refused for want of an approval included),
+  and every poll leave one Audit row (`tool.call`, `poll.run`) written after the call: the tool,
+  the action and how it ended, and for a poll its status and how many new items it recorded;
+  never the arguments, the result, an item or its id, and a failure to write the row never
+  changes what the call returns.
 - **An OAuth tool's tokens, client secret and code verifier never leave the server.** They are
   sealed per tool, keyed by authorization server, and go only where the MCP SDK's flow sends
   them: the access token to the tool's URL, the rest to its authorization server's token
@@ -212,8 +217,19 @@ changes it updates this file.
   workspace's, its own agent's and, with `data`, its tables'. An entry whose current revision a
   Job without `configure` wrote, and no person accepted since, is never in the prompt of a Job
   that has `configure`: that Job is told how many were left out and reads them with
-  `memory_read`, as information marked with its author. A person's write needs no acceptance; an
-  agent's write clears it. Accepted: an entry written by one Job instructs the Jobs without
+  `memory_read`, as information marked with its author. On a runner, the same reading also
+  goes in the start as files (`memoryFiles`, filtered alike), which the runner writes read-only
+  under the run folder's `.dispand/memory/<scope>/<path>`, emptied at every start or resume and
+  removed when the session ends (`apps/runner/src/memory.ts`): it checks every scope and path
+  again (`isMemoryPath`, so never a name a CLI loads as instructions, nor a `.claude` or
+  `.mcp.json` segment) and refuses the session on one that fails, writes or removes nothing
+  unless `.dispand` is a real folder, makes every folder below it itself and creates each file
+  with `O_EXCL|O_NOFOLLOW` (a file whose place is taken, or whose name the file system can't
+  hold, is left out). The files are what the prompt already says, so the session reading them
+  gains nothing; memory is written only with the memory tools. Accepted: while a Job's session
+  runs, a Codex session of another Job on the same runner can read its memory files, as it can
+  read the rest of that run folder (Codex's sandbox reads everywhere but the machine's config,
+  above). A person's write needs no acceptance; an agent's write clears it. Accepted: an entry written by one Job instructs the Jobs without
   `configure` that read it (the workspace's reach every agent's Jobs), within what those Jobs
   may do without an approval; the owner sees, reverts and removes any entry.
 - **A poll is never a way around action approvals or an agent's tools.** The scheduler calls a
@@ -269,7 +285,7 @@ changes it updates this file.
   tools endpoint, which read the list at each call (an action put back asks from its next
   call on, in Jobs already running). The list starts with the actions the tool's server calls
   read-only (`readOnlyHint`) when a person adds the tool to the agent, or, for a tool installed
-  from the catalog, with the actions its entry names that the server lists then (`defaultUnasked`
+  from the catalog, with the actions its entry names that the server lists then (runner entries retain their declared names before discovery; `defaultUnasked`
   in `tools/catalog.ts`: Dispand's own choice, shipped with the code; an action the entry doesn't
   name asks, whatever the server's hint, so a catalog server can't make an action run unasked by
   calling it read-only; a tool pointed at another
@@ -277,8 +293,8 @@ changes it updates this file.
   server's claim and is read only then: a server that later calls another action read-only
   gains nothing, an action that appears later asks, and a tool that only comes with a skill
   asks for everything. A tool pointed at another address or transport asks for everything
-  again on every agent: the list named the old server's actions. Only tools reached by URL
-  have this list; a runner's own tools ask as its CLI does. The list changes in three ways, each a person's: the owner on the
+  again on every agent: the list named the old server's actions. Tools reached by URL and runner tools
+  have this list; runner tools use it in Job sessions only. The list changes in three ways, each a person's: the owner on the
   agent's page; an item of a proposal the owner approved (the write is a grant: an agent
   can list it, never make it on its own); and the answer "always allow" to an approval of
   that action, in a cloud session or a Job's CLI session. For a CLI session the server resolves
@@ -293,8 +309,7 @@ changes it updates this file.
   A Job's session start may carry `unasked`: names of the tools endpoint's tools (at most 500,
   each at most 48 characters of `a-z0-9_-` with no `__`). The runner makes the CLI's tool names
   itself, `mcp__job_tools__<name>`, and lets those run without a question, on a session that
-  has a Job token only. So the message can't name a command, a file tool, a runner's own MCP
-  server or any other server's tool: those questions stay out of the server's reach. Whether
+  has a Job token only. Runner refs may separately name unasked actions on their own locally configured MCP server. Neither list can name commands, file tools or another server's tools. Whether
   a call runs is still the endpoint's decision alone, from the agent's list at that moment: a
   name the runner was told but the owner put back since is refused there for lack of an
   approval, and asks again from the session's next start.
@@ -307,7 +322,7 @@ changes it updates this file.
   carries the token and nothing else about the endpoint: **the runner builds the endpoint's
   address itself**, as `/mcp/job` of its own configured server, under a reserved name, so the
   server can't make a runner send the token, or run tools unasked, anywhere else. Only that
-  server's tools run without a question on a runner; every other MCP tool still asks. A CLI
+  server's tools and the agent's explicitly unasked MCP actions run without a question on a runner; every other MCP tool still asks. A CLI
   names a tool `mcp__<server>__<tool>`, so the protocol only accepts session server names made of
   words joined by single underscores: no other name can give tools that read as the Job server's.
 - **Only the owner has a session.** Sign-up is disabled; `auth.setup` (public) creates the
@@ -515,7 +530,7 @@ changes it updates this file.
   `file://` only in a development build with `DISPAND_GIT_FILE_URLS=1`, for e2e fixtures),
   redirects not followed, no prompts, hooks, submodules, LFS or system and user git config,
   60 s and 200 MiB on disk at most (a limit kills git's whole process group), into a temp folder removed afterwards. A plugin in the
-  Agent Plugins layout (a root `plugin.json`) is read with that standard's rules, under the same
+  Agent Plugins layout (a root `plugin.json`) is read with that standard's rules. A schema-less root object may use the Claude loader when a named Claude manifest exists; explicit schemas never fall back. Both loaders run under the same
   limits: its `$schema` ids are known, never fetched; a linked `plugin.json` rejects it; its
   stdio servers are read (a `./` command and `cwd` that stay inside the plugin, or a `cwd` in
   its data folder) but, like every command a plugin names, never stored or run. Its `com.dispand`
@@ -601,6 +616,8 @@ changes it updates this file.
   input wires to it. A Tool step runs only the owner's HTTP tools (looked up by id and owner at
   each call), and a call cut by a restart is never made again: its step fails.
   An operator with the database and the key can read them (see below).
+
+Runner tools in a Job may run only the actions its agent marks unasked. The runner derives fully qualified MCP names from its own configured servers; these grants never name shell or file tools. Live permission updates only intersect existing grants, including on reconnect and during startup. Server aliases bind a tool id and its runner target, so removing or renaming another tool cannot reassign a grant. A persistent approval must still name that target and its current permission when delivered; a revocation invalidates pending local permission caching. Automatic runner calls use the same protected-path argument guard as polls. Server-side changes reach workflow sessions as well. Catalog runner tools with empty action permissions receive their catalog defaults once during the approved upgrade; non-empty lists and HTTP tools keep their permissions.
 
 **Who it defends against:** anyone on the internet calling the API or loading the app, and a
 signed-in user trying to reach rows that aren't the session owner's. **Not defended against:** an operator with

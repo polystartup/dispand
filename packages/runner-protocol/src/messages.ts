@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { id, jsonObject, record, short, string, text } from "./bounds.ts";
 import { Answer, HarnessEvent, OutputField } from "./harness.ts";
+import { isMemoryPath } from "./paths.ts";
 
 /**
  * Sent by the runner as the `Dispand-Protocol` header when it connects. Bumped by every
  * change a runner of the previous version can't parse or honor; the hub turns older runners away.
  */
-export const PROTOCOL_VERSION = 12;
+export const PROTOCOL_VERSION = 14;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -46,7 +47,20 @@ export const McpServerRef = z.discriminatedUnion("type", [
     transport: z.enum(["streamable-http", "sse"]),
     headers: record(short(), 20),
   }),
-  z.object({ name: SessionServerName, type: z.literal("runner"), tool: McpServerName }),
+  z.object({
+    name: SessionServerName,
+    type: z.literal("runner"),
+    tool: McpServerName,
+    /**
+     * With a Job token: the actions of this server that run without a question, by their name
+     * there. The runner makes the CLI's names itself (`mcp__<name>__<action>`), so nothing here
+     * can name a command, a file tool or a server the runner didn't start from its own config.
+     */
+    unasked: z
+      .array(id().regex(/^[a-zA-Z0-9_-]{1,64}$/))
+      .max(500)
+      .optional(),
+  }),
 ]);
 export type McpServerRef = z.infer<typeof McpServerRef>;
 
@@ -59,6 +73,23 @@ export const McpAction = z.object({
   readOnly: z.literal(true).optional(),
 });
 export type McpAction = z.infer<typeof McpAction>;
+
+/** The name of a scope's index among a Job's memory files: never an entry's (`isMemoryPath`). */
+export const MEMORY_INDEX = "MEMORY.md";
+/** The most memory files one start carries. */
+export const MAX_MEMORY_FILES = 10_000;
+
+/**
+ * One of a Job's memory files: its scope's folder (`workspace`, `agent` or `tables/<table id>`),
+ * its path there (an entry's own, or the scope's index) and its text. The runner writes it under
+ * the run folder's `.dispand/memory/<scope>/<path>`.
+ */
+export const MemoryFile = z.object({
+  scope: id().regex(/^(workspace|agent|tables\/[A-Za-z0-9_-]+)$/),
+  path: id().refine((p) => p === MEMORY_INDEX || isMemoryPath(p), "not a memory path"),
+  text: text(),
+});
+export type MemoryFile = z.infer<typeof MemoryFile>;
 
 /** What every session start carries, whatever its CLI. */
 const StartFields = {
@@ -109,6 +140,11 @@ const StartFields = {
     .array(z.object({ agentId: id().min(1), name: short(), description: text() }))
     .max(50)
     .optional(),
+  /**
+   * A Job's memory as files, written read-only under the run folder's `.dispand/memory/`: absent
+   * when none. No size cap of its own: the server fills them within what the frame leaves.
+   */
+  memory: z.array(MemoryFile).max(MAX_MEMORY_FILES).optional(),
 };
 
 export const ClaudePermissionMode = z.enum(["default", "acceptEdits", "plan", "bypassPermissions"]);
@@ -124,6 +160,7 @@ export type ClaudeSessionStart = Extract<SessionStart, { harness: "claude-code" 
 
 export const ServerToRunner = z.discriminatedUnion("type", [
   z.object({ type: z.literal("session.start"), start: SessionStart }),
+  z.object({ type: z.literal("session.permissions"), sessionId: id(), servers: z.array(z.object({ name: SessionServerName, unasked: z.array(id().regex(/^[a-zA-Z0-9_-]{1,64}$/)).max(500) })).max(50) }),
   z.object({ type: z.literal("session.send"), sessionId: id(), text: text() }),
   z.object({ type: z.literal("session.answer"), sessionId: id(), questionId: id(), answer: Answer }),
   z.object({ type: z.literal("session.interrupt"), sessionId: id() }),

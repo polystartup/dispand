@@ -1,6 +1,8 @@
+import type { Db } from "../db/client.ts";
 import type { Answer, ClaudeSessionStart, SessionStart } from "@dispand/runner-protocol";
 import type { AnsweredBy } from "../db/schema.ts";
 import type { CloudKind } from "../harnesses/cloud.ts";
+import type { JobMemory } from "../memory/read.ts";
 
 export type AgentAnswerer = Extract<AnsweredBy, { type: "agent" }>;
 
@@ -34,8 +36,13 @@ export function isCloud(h: Harness): h is CloudHarness {
  * What the engine decides about a session; the harness adds where and how it runs. `runKey` names a per-run directory.
  * Skills and MCP servers aren't sent yet: every start carries none.
  */
-export type StartParams = Omit<ClaudeSessionStart, "harness" | "cwd" | "permissionMode" | "model" | "skills" | "mcpServers"> & {
+export type StartParams = Omit<ClaudeSessionStart, "harness" | "cwd" | "permissionMode" | "model" | "skills" | "mcpServers" | "memory"> & {
   runKey: string;
+  /**
+   * A Job's memory as read for this start, for a runner session only: the harness sends it as
+   * files within what the start's frame leaves. Never stored with the step.
+   */
+  jobMemory?: JobMemory;
   /** The agents a Job's session may consult (its `consult` tool), as they were when it started; absent when none. */
   consults?: ConsultTarget[];
 };
@@ -52,6 +59,7 @@ export type ConsultTarget = { agentId: string; name: string; description: string
 export interface HarnessAdapter<H extends Harness = Harness> {
   start(harness: H, start: StartParams): Promise<boolean>;
   send(sessionId: string, text: string): Promise<boolean>;
+  narrowPermissions?(sessionId: string, db?: Db): Promise<boolean>;
   /** `by`: the agent that gave it (`inbox`), which the session is told with the answer; none for a person's. */
   answer(sessionId: string, questionId: string, answer: Answer, by?: AgentAnswerer): Promise<boolean>;
   /**

@@ -1,13 +1,14 @@
+import { runnerServerName } from "../engine/tooling.ts";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { call } from "@orpc/server";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterEach, expect, onTestFinished, test } from "vitest";
-import { questions, runs, stepRuns, tools as toolsTable } from "../db/schema.ts";
+import { agentTools, harnesses, audit, questions, runs, stepRuns, tools as toolsTable } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp, type FakeMcp } from "../tools/test-server.ts";
 import { jobTokenOf } from "./token.ts";
-import { exposedName } from "./exposed.ts";
+import { runnerGrantCurrent, stopAsking, exposedName } from "./exposed.ts";
 import { handleJobToolsMcp } from "./tools-mcp.ts";
 
 const servers: FakeMcp[] = [];
@@ -98,6 +99,37 @@ test("refuses a call nobody approved, a denied one, and one whose arguments chan
   await s.approve(`mcp__job_tools__${list}`, { title: "Other" });
   await refused({ title: "Other" });
   expect(s.calls).toEqual([]);
+});
+
+test("a call leaves one Audit row naming the tool and action, a refused one too, never the arguments or the result", async () => {
+  const s = await setup();
+  const create = await named(s.client, "github_create_issue");
+  expect((await s.client.callTool({ name: create, arguments: { title: "Bug-sentinel" } })).isError).toBe(true);
+  await s.approve(`mcp__job_tools__${create}`, { title: "Bug-sentinel" });
+  expect(textOf(await s.client.callTool({ name: create, arguments: { title: "Bug-sentinel" } }))).toBe("created #1");
+  const rows = await s.context.db.select().from(audit).where(eq(audit.action, "tool.call")).orderBy(audit.at, audit.id);
+  const common = { actor: { type: "job", runId: s.runId }, actorAgentId: s.agent.id, jobId: s.runId, resourceType: "tool", resourceId: s.tool.id };
+  const details = { toolId: s.tool.id, toolName: "GitHub", action: "create_issue" };
+  expect(rows).toMatchObject([
+    { ...common, result: "refused", details: { ...details, reason: "not-approved" } },
+    { ...common, result: "ok", details },
+  ]);
+  expect(rows[1]!.details).not.toHaveProperty("reason");
+  expect(JSON.stringify(rows)).not.toContain("sentinel");
+  expect(JSON.stringify(rows)).not.toContain("created #1");
+});
+
+test("a call's result reaches the session unchanged when its Audit row can't be written", async () => {
+  const s = await setup();
+  const create = await named(s.client, "github_create_issue");
+  await s.context.db.execute(sql`alter table audit add constraint audit_closed check (action <> 'tool.call') not valid`);
+  onTestFinished(() => s.context.db.execute(sql`alter table audit drop constraint audit_closed`).then(() => undefined));
+  expect(textOf(await s.client.callTool({ name: create, arguments: { title: "Bug" } }))).toMatch(NEEDS);
+  await s.approve(`mcp__job_tools__${create}`, { title: "Bug" });
+  const result = await s.client.callTool({ name: create, arguments: { title: "Bug" } });
+  expect(result.isError).toBeFalsy();
+  expect(textOf(result)).toBe("created #1");
+  expect(s.calls).toEqual([["create_issue", { title: "Bug" }]]);
 });
 
 test("an approval runs one call", async () => {
@@ -289,7 +321,7 @@ test("always allow changes no flag when the question isn't about one of the agen
     const id = await s.approve(toolName, {}, "allow-always");
     const [q] = await s.context.db.select().from(questions).where(eq(questions.id, id));
     // Only a name of the Job's tools server that stands for nothing is brought down to a single allowance.
-    expect(q!.answer).toMatchObject({ decision: toolName.startsWith("mcp__job_tools__") ? "allow" : "allow-always" });
+    expect(q!.answer).toMatchObject({ decision: toolName.startsWith("mcp__") ? "allow" : "allow-always" });
   }
   await s.approve(`mcp__job_tools__${create}`, { title: "Bug" }, "deny");
   expect(await flags()).toEqual([true, true]);
@@ -301,4 +333,23 @@ test("an always allow that comes after another answer grants nothing", async () 
   const id = await s.approve(`mcp__job_tools__${create}`, { title: "Bug" }, "deny");
   await expect(s.context.engine.answer(id, { kind: "permission", decision: "allow-always" }, { type: "user", userId: s.context.ownerId })).rejects.toMatchObject({ code: "NOT_PENDING" });
   expect((await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.map((a) => a.ask)).toEqual([true, true]);
+});
+
+test("always allow on a runner tool records its identity and grants only its action", async () => {
+  const s = await setup();
+  const [harness] = await s.context.db.select().from(harnesses).where(eq(harnesses.id, s.agent.harnessId));
+  // The tool must have been in this Job's snapshot; use its existing tool id as a runner tool.
+  await s.context.db.update(toolsTable).set({ kind: "runner", url: null, transport: null, headersSealed: {}, runnerId: harness!.runnerId, runnerTool: "gmail", actions: ["draft_email", "send_email"].map((name) => ({ name, description: name, inputSchema: { type: "object" } })) }).where(eq(toolsTable.id, s.tool.id));
+  const id = await s.approve(`mcp__${runnerServerName({ id: s.tool.id, runnerId: harness!.runnerId!, tool: "gmail" })}__draft_email`, {}, "allow-always");
+  const [question] = await s.context.db.select().from(questions).where(eq(questions.id, id));
+  expect(question!.about).toMatchObject({ toolId: s.tool.id, action: "draft_email" });
+  const [grant] = await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, s.agent.id));
+  expect(grant!.unasked).toEqual(["draft_email"]);
+  const name = `mcp__${runnerServerName({ id: s.tool.id, runnerId: harness!.runnerId!, tool: "gmail" })}__draft_email`;
+  expect(await runnerGrantCurrent(s.context.db, s.runId, name, question!.about!)).toBe(true);
+  await s.context.db.update(agentTools).set({ unasked: [] }).where(eq(agentTools.agentId, s.agent.id));
+  expect(await runnerGrantCurrent(s.context.db, s.runId, name, question!.about!)).toBe(false);
+  await s.context.db.update(toolsTable).set({ runnerTool: "replacement" }).where(eq(toolsTable.id, s.tool.id));
+  expect(await stopAsking(s.context.db, s.runId, name, question!.about)).toBe(false);
+
 });

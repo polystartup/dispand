@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
-import { events, rows, runs, stepRuns, tables, user } from "../db/schema.ts";
+import { audit, events, rows, runs, stepRuns, tables, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { DataStep, WorkflowDef } from "../workflows/model.ts";
@@ -98,6 +98,8 @@ test("a Data step's row of a primitive table is an event by that step", async ()
   const { steps } = await runOf(engine, runId);
   const recorded = await engine.db.select().from(events).where(eq(events.tableId, ids.tableId));
   expect(recorded.map((e) => [e.operation, e.actor])).toEqual([["created", { type: "step", runId, stepId: steps["n_data"]!.id }]]);
+  // A workflow's write is no Job's: no Audit row.
+  expect(await engine.db.select().from(audit).where(eq(audit.action, "event.recorded"))).toEqual([]);
 });
 
 test("an output that doesn't fit its field fails the step and writes no row", async () => {

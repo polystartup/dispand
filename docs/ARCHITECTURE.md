@@ -531,7 +531,22 @@
   procedure's `ORPCError` code in lower case), `tableId` only for a table of the owner's within
   the Job's, `proposalId` and `item` for a proposal's item; the resource from `auditResource`
   (`audit/resource.ts`: its type from the tool, its id only from what the call created or
-  returned, never from a refused call's input). `audit.list` (owner, or a `configure` Job as
+  returned, never from a refused call's input); a Job's call of one of its agent's tools
+  (`tool.call`, `audit/tool-call.ts`, written after the call by `tools/cloud.ts` for a cloud
+  session and `platform/tools-mcp.ts` for a runner session, where the Job is known, not by
+  `InstalledTools`, which serves Tool steps too): on the tool, by the Job, with the tool's name
+  and the action, `ok`, `failed` (`reason` `tool-error` when the tool reported an error,
+  `call-failed` when it couldn't be reached) or `refused` (`not-approved`, a runner call with no
+  approval of its own); and each poll that ends (`poll.run`, on the trigger, by the scheduler for
+  the trigger's agent, with the tool, the action, `status` `baseline`, `polled`, `skipped` or
+  `failed`, and `found`, the new items it recorded; in the claim's transaction for a poll skipped
+  before its call, after the call otherwise); and each event of a primitive table, when
+  `recordEvent` appends it, in the write's transaction (`event.recorded`, on the row, by the
+  person or the Job that wrote it, with the table's id and name, the event's id, the operation
+  and how many fields changed; never a value, and nothing for a workflow step's write): a Job's
+  write leaves its call's row and this one, whose event id is the one the Jobs it fires name in
+  their `job.created`. A runner session's calls of the runner's own MCP
+  servers never reach the server: their permission prompts are its Approvals' rows. `audit.list` (owner, or a `configure` Job as
   `audit_list`, which gets only rows naming no table or one of its own; keyset pages of 50 on
   `(at, id)`, the cursor carrying `at` to the microsecond) filters by actor type, agent, Job,
   action or family, resource, result and dates; `audit.traceUrl` gives the page
@@ -690,6 +705,15 @@
   memory_read: …") included. The system prompt gets `memoryPrompt` (96,000 characters at most)
   after the agent's instructions; nothing is snapshotted, and workflow agent steps get none. The
   read is a `memory.prompt` span (counts only) and `dispand.memory.prompts` (none, whole, cut).
+  On a runner the same reading also goes as files (`StartFields.memory`, protocol 13): the
+  engine hands it to `CliHarnessAdapter.start`, which serializes the start without it and fills
+  `memoryFiles` within what that leaves of the 1 MiB frame less 32 KiB, measured in UTF-8 bytes
+  of each file's JSON (each scope's `MEMORY.md`, then entry files with their frontmatter; the
+  closing line in the workspace's `MEMORY.md`), a `memory.files` span and
+  `dispand.memory.files` (none, whole, cut). The runner writes them under the run folder's
+  `.dispand/memory/<workspace|agent|tables/<id>>/` (`apps/runner/src/memory.ts`), emptied at
+  each start and removed when the session ends, and the runner prompt's block says where they
+  are.
 - **Skills in cloud sessions** (`skills/cloud.ts`): the way Agent Skills work. At every model
   call `sessionSkills` reads the skills of the session's packages (`sessionTooling`: for a Job,
   its snapshot's that the agent still has); the system prompt lists each skill's name and
@@ -1123,7 +1147,7 @@
   checkout, links never followed; `plugins/fs.ts` holds what both layouts share: the root, the
   read's budget, regular files and skill folders). A plugin with a root `plugin.json` is read in
   the Agent Plugins 1.0.0 layout (`standard.ts` `readStandardPlugin`, `plugins.layout =
-  'standard'`), whatever else it holds: `plugin.json`'s `$schema` must be the 1.0.0 id (schemas
+  'standard'`). A schema-less root object beside a named `.claude-plugin/plugin.json` instead uses the Claude loader; explicit schemas retain strict validation: `plugin.json`'s `$schema` must be the 1.0.0 id (schemas
   are known by id, never fetched), its closed fields are checked (an unknown one is listed and
   ignored, as is an `extensions` that isn't an object; any other violation rejects the plugin);
   skills are the immediate folders of `skills/` holding a regular `SKILL.md`; MCP servers come
@@ -1239,3 +1263,7 @@
   - Better Auth reads only `x-real-ip` for the client IP (rate limiting): the reverse proxy in
     front of the app sets it to the peer it saw, and only that proxy may reach the app's port.
   - `routeTree.gen.ts` is committed so `typecheck` works before `build`.
+
+Runner protocol 14 carries runner-tool `unasked` actions and `session.permissions` updates. Both CLI harnesses derive MCP tool names locally. Updates can only remove grants; reconnect reconciliation sends current restrictions before further delivery. Owner action changes fan out to live Job and workflow sessions. Migration 0062 fills empty catalog runner-tool lists from the catalog defaults.
+
+Runner MCP aliases are hashes of the tool id, runner id and local server key. They survive renames and other tools’ removal, and change on retargeting. Pending persistent answers are checked against the current binding and permission before delivery; permission updates invalidate local caching of older approvals. Updates arriving during skill fetching narrow the start before CLI launch. Automatic runner calls share the poll path guard for protected machine and session configuration.

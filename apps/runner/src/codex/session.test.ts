@@ -573,3 +573,82 @@ test("without agents to consult, a Codex session has no consult tool and a call 
   expect(questions(s.events)).toEqual([]);
   expect(await s.replyTo("r0")).toEqual({ contentItems: [{ type: "inputText", text: "unknown tool consult" }], success: false });
 });
+
+test("on Codex, runner grants run only the named action and revocations take effect", async () => {
+  const approval = (serverName: string, tool: string) => ({
+    request: "mcpServer/elicitation/request",
+    params: {
+      threadId: "$THREAD",
+      turnId: "$TURN",
+      serverName,
+      mode: "form",
+      message: `Allow the ${serverName} MCP server to run tool "${tool}"?`,
+      requestedSchema: { type: "object", properties: {} },
+      _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_name: tool, tool_params: {} },
+    },
+  });
+  const s = await run({
+    start: { mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["draft_email"] }] },
+    turns: [[approval("mail", "draft_email"), approval("mail", "send_email"), approval("mail", "draft_email"), approval("other", "draft_email"), message("Done")]],
+    deps: { jobServer: "job", unasked: [] },
+    answer: () => { active.narrowPermissions!([]); return { kind: "permission", decision: "deny" }; },
+  });
+  const active = s.session;
+  await s.ended();
+  expect(questions(s.events).map((q) => (q.payload as { toolName: string }).toolName)).toEqual(["mcp__mail__send_email", "mcp__mail__draft_email", "mcp__other__draft_email"]);
+  expect(await s.replyTo("r0")).toEqual({ action: "accept", content: {}, _meta: null });
+  expect(await s.replyTo("r1")).toEqual({ action: "decline", content: null, _meta: null });
+});
+
+const localApproval = (tool: string, input: Record<string, unknown> = {}) => ({
+  request: "mcpServer/elicitation/request",
+  params: { threadId: "$THREAD", turnId: "$TURN", serverName: "mail", mode: "form", message: "Allow tool?", requestedSchema: { type: "object", properties: {} }, _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_name: tool, tool_params: input } },
+});
+
+test("on Codex an old always answer cannot restore a revoked runner grant", async () => {
+  let asked = 0;
+  const s = await run({
+    start: { mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] },
+    deps: { jobServer: "job" },
+    turns: [[localApproval("draft_email"), localApproval("draft_email"), message("Done")]],
+    answer: () => {
+      if (++asked === 1) { active.narrowPermissions!([]); return { kind: "permission", decision: "allow-always" }; }
+      return { kind: "permission", decision: "deny" };
+    },
+  });
+  const active = s.session;
+  await s.ended();
+  expect(asked).toBe(2);
+  expect(await s.replyTo("r0")).toMatchObject({ action: "accept" });
+  expect(await s.replyTo("r1")).toMatchObject({ action: "decline" });
+});
+
+test("on Codex unasked runner tools cannot read protected configuration paths", async () => {
+  const s = await run({
+    start: { mcpServers: [{ name: "mail", type: "runner", tool: "files", unasked: ["read_file"] }] },
+    deps: { jobServer: "job", secrets: ["/guarded/config.json"] },
+    turns: [[localApproval("read_file", { path: "/guarded/config.json" }), localApproval("read_file", { path: "/allowed/note.txt" }), message("Done")]],
+  });
+  await s.ended();
+  expect(await s.replyTo("r0")).toMatchObject({ action: "decline" });
+  expect(await s.replyTo("r1")).toMatchObject({ action: "accept" });
+  expect(questions(s.events)).toEqual([]);
+});
+
+test("unasked Codex runner tools refuse targets linked from protected config directories", async () => {
+  const base = await mkdtemp(join(tmpdir(), "runner-linked-"));
+  made.push(base);
+  const config = join(base, "config");
+  const target = join(base, "auth.json");
+  await mkdir(config);
+  await writeFile(target, "{}");
+  await symlink(target, join(config, "auth.json"));
+  const s = await run({
+    start: { mcpServers: [{ name: "mail", type: "runner", tool: "files", unasked: ["read_file"] }] },
+    deps: { jobServer: "job", secrets: [config] },
+    turns: [[localApproval("read_file", { path: target }), message("Done")]],
+  });
+  await s.ended();
+  expect(await s.replyTo("r0")).toMatchObject({ action: "decline" });
+  expect(questions(s.events)).toEqual([]);
+});

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import {
   type CanUseTool,
   createSdkMcpServer,
@@ -13,9 +13,9 @@ import {
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { ClaudeSessionStart, HarnessEvent, QuestionPayload } from "@dispand/runner-protocol";
-import { JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
+import { runnerArgumentsAllowed, narrowUnasked, unaskedTools } from "./mcp.ts";
 import { z } from "zod";
-import { permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
+import { codexDenied, permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
 import { askChoices, MAX_WAITING, MAX_WAITING_BYTES, BypassRefused, type ChoiceQuestion, consult, CONSULT, consultDescription, type HarnessSession, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome, TURN_DENIED } from "./outcome.ts";
 import { fitsWhole } from "./sanitize.ts";
 import { PLANS_DIR } from "./workdir.ts";
@@ -39,6 +39,7 @@ export type ClaudeDeps = {
   jobServer?: string;
   /** With `jobServer`: the tools of the Job's tools server that run without a question, by their name there. */
   unasked?: string[];
+  secrets?: string[];
 };
 
 /**
@@ -218,10 +219,14 @@ export function startClaudeSession(
   );
 
   /**
-   * A tool of Dispand's Job server, or an action of the agent's tools that it lets run unasked:
-   * Dispand authorizes each of their calls itself, so the owner isn't asked.
+   * A tool of Dispand's Job server (Dispand authorizes each of its calls itself), or an action
+   * of the agent's tools that it lets run unasked: the owner isn't asked.
    */
-  const unasked = new Set((deps.jobServer === undefined ? [] : (deps.unasked ?? [])).map((name) => `mcp__${JOB_TOOLS_SERVER}__${name}`));
+  const { names: unasked, servers: agentServers } = unaskedTools(start.mcpServers, deps.jobServer === undefined ? undefined : (deps.unasked ?? []));
+  let permissionsVersion = 0;
+  const runnerTool = (name: string) => agentServers.some((server) => server !== "job_tools" && name.startsWith(`mcp__${server}__`));
+  const mcpDenied = codexDenied([...(deps.secrets ?? []), join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...pluginRoots]);
+  const protectedArgs = (name: string, args: unknown) => runnerTool(name) && !runnerArgumentsAllowed(args, mcpDenied);
   const isJobTool = (name: string) => deps.jobServer !== undefined && (name.startsWith(`mcp__${deps.jobServer}__`) || unasked.has(name));
 
   /**
@@ -291,6 +296,7 @@ export function startClaudeSession(
 
   const canUseTool: CanUseTool = async (toolName, toolInput, { signal, suggestions }): Promise<PermissionResult> => {
     if (toolName !== REQUEST_APPROVAL_TOOL && !(await turnApproved())) return { behavior: "deny", message: TURN_DENIED };
+    if (protectedArgs(toolName, toolInput)) return { behavior: "deny", message: PROTECTED_DENIAL };
     // `request_approval` asks the owner itself, in the agent's words: no second question about calling it.
     if (toolName === SUBMIT_OUTPUTS || toolName === REQUEST_APPROVAL_TOOL || (toolName === CONSULT_TOOL && consults.length > 0) || isJobTool(toolName)) return { behavior: "allow", updatedInput: toolInput };
     // canUseTool doesn't learn the CLI's current directory: relative paths are the owner's call.
@@ -320,10 +326,12 @@ export function startClaudeSession(
     }
     // An MCP call is approved one at a time: no rule may let the next ones through.
     const updates = isMcpTool(toolName) ? [] : boundary.sessionUpdates(suggestions);
-    // One of the Job's tools: "always" is the owner taking that action off the agent's asking
-    // ones, on the server. Here it only means this session stops asking about it too.
-    const jobTool = deps.jobServer !== undefined && toolName.startsWith(`mcp__${JOB_TOOLS_SERVER}__`);
+    // One of the Job's agent's tools (its tools server's, or a runner tool's): "always" is the
+    // owner taking that action off the agent's asking ones, on the server. Here it only means
+    // this session stops asking about it too.
+    const jobTool = agentServers.some((server) => toolName.startsWith(`mcp__${server}__`));
     const canAlwaysAllow = updates.length > 0 || jobTool;
+    const version = permissionsVersion;
     const payload: QuestionPayload = { kind: "permission", toolName, input: toolInput, canAlwaysAllow };
     // The owner approves exactly what they see: an input that can't be shown whole isn't asked about.
     if (!fitsWhole({ type: "question", questionId: "", payload })) {
@@ -333,7 +341,7 @@ export function startClaudeSession(
     if (answer?.kind !== "permission" || answer.decision === "deny") {
       return { behavior: "deny", message: (answer?.kind === "permission" && answer.message) || "The owner denied this." };
     }
-    if (answer.decision === "allow-always" && jobTool) {
+    if (answer.decision === "allow-always" && jobTool && version === permissionsVersion) {
       unasked.add(toolName);
       return { behavior: "allow", updatedInput: toolInput };
     }
@@ -403,6 +411,7 @@ export function startClaudeSession(
                 if (SHELL_TOOLS.has(call.tool_name) && start.permissionMode !== "bypassPermissions") {
                   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: SHELL_ASK } };
                 }
+                if (protectedArgs(call.tool_name, toolInput)) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: PROTECTED_DENIAL } };
                 // Even where a rule (the user's settings) would allow it.
                 if (isMcpTool(call.tool_name) && !isJobTool(call.tool_name) && start.permissionMode !== "bypassPermissions") {
                   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: MCP_ASK } };
@@ -515,6 +524,7 @@ export function startClaudeSession(
       if (unanswered.length > MAX_WAITING || waiting + Buffer.byteLength(text) > MAX_WAITING_BYTES) return finish({ type: "error", message: "too many messages waiting for the agent: the session was stopped" });
       say(text);
     },
+    narrowPermissions: (servers) => { permissionsVersion++; narrowUnasked(unasked, agentServers.filter((s) => s !== "job_tools"), servers); },
     answer: questions.answer,
     interrupt: async () => {
       // Idle: nothing to cut short, and no later error may pass for an interrupted turn.

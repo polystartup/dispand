@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm";
+import { monotonicFactory } from "ulid";
 import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
 import { audit, runs } from "../db/schema.ts";
-import { newId } from "../ids.ts";
 import { logError } from "../log.ts";
 import { currentTraceId, isOpenedSecret, meter } from "../telemetry/index.ts";
 import { AUDIT_ACTIONS, AUDIT_RESOURCES, AUDIT_RESULTS, type AuditAction, type AuditActor, AuditDetails, type AuditResource, type AuditResult } from "./model.ts";
@@ -13,6 +13,13 @@ import { AUDIT_ACTIONS, AUDIT_RESOURCES, AUDIT_RESULTS, type AuditAction, type A
 // write it is logged, never turned into a refusal of the call.
 
 const counts = meter("audit");
+
+/**
+ * Rows are listed by `(at, id)`, and rows often share their `at` (one transaction's, or one
+ * millisecond's), so ids rise in the order rows are made, within one millisecond too: a plain
+ * ULID's random part would order those rows by chance.
+ */
+const nextUlid = monotonicFactory();
 
 /** Each string of the details is cut here. */
 export const MAX_DETAIL = 200;
@@ -73,7 +80,7 @@ async function insert(db: Db | Tx, entry: AuditEntry): Promise<void> {
         : null;
   const resourceId = parsed.resource.id && !isOpenedSecret(parsed.resource.id) ? parsed.resource.id : null;
   await db.insert(audit).values({
-    id: newId("aud"),
+    id: `aud_${nextUlid()}`,
     ownerId: parsed.ownerId,
     actor: parsed.actor,
     actorAgentId: agentId,

@@ -624,8 +624,9 @@ export const questions = pgTable(
     answeredAt: timestamp("answered_at"),
     // Who answered; null for answers given before this was recorded.
     answeredBy: jsonb("answered_by").$type<AnsweredBy>(),
-    // For a permission about one of a Job's exposed tools: the tool and action it is for, in full.
-    about: jsonb("about").$type<{ tool: string; action: string; description: string }>(),
+    // For a permission about one of a Job's exposed tools, or a runner tool's action: the tool and
+    // action it is for, in full; for a runner tool, its id too (what "always allow" acts on).
+    about: jsonb("about").$type<{ tool: string; action: string; description: string; toolId?: string }>(),
     // The proposal this Approval is for (`platform/proposals.ts`): what the owner approves is its items, not the agent's words.
     proposalId: text("proposal_id"),
     // When a server-side call used this approval up (`platform/approvals.ts`): one approval, one call.

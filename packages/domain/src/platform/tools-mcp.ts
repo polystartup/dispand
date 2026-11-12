@@ -1,4 +1,5 @@
 import { createMcpHandler, Server } from "@modelcontextprotocol/server";
+import { recordToolCall } from "../audit/tool-call.ts";
 import { keepJobFiles } from "../data/files.ts";
 import { logError } from "../log.ts";
 import { InstalledTools } from "../tools/executor.ts";
@@ -46,9 +47,13 @@ function toolsHandler(app: PlatformApp) {
           if (!job || !item || !tool) return text(GONE, true);
           const args = call.params.arguments ?? {};
           // The name the session's CLI asked the owner about: this server's tool, which stands for this tool and action only.
-          if (item.ask && !(await takeApproval(app.db, job, askedName(item.name), args))) return text(NEEDS_APPROVAL, true);
+          if (item.ask && !(await takeApproval(app.db, job, askedName(item.name), args))) {
+            await recordToolCall(app.db, job, tool, item.action, "not-approved");
+            return text(NEEDS_APPROVAL, true);
+          }
           // Cut when the request is: a session that ended doesn't leave its call running.
           const called = await installed.call(tool, item.action, args, ctx.requestInfo?.signal ?? new AbortController().signal);
+          await recordToolCall(app.db, job, tool, item.action, called);
           if (!called.ok) return text(called.error, true);
           // Files in the result are kept for the Job: the session gets their attachment ids, not their bytes.
           const result = await keepJobFiles(app.db, app.filesDir, job, called.result).catch((err: unknown) => {

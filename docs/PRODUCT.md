@@ -50,9 +50,8 @@ Status: Prototype
     session, tools reached by URL on a cloud session and on a Job's CLI session. A call of such a tool asks first, and on a CLI session an
     approval allows exactly the call that was shown, once. An agent whose harness bypasses
     permissions asks nothing, so it can only use the actions that run without asking.
-  - Each action of a tool reached by URL that an agent chose either asks before use or runs
-    without asking (a runner's own tools ask as their CLI does, and changing a tool's address
-    makes all its actions ask again). When
+  - Each action of a tool that an agent chose either asks before use or runs
+    without asking (runner tools use these permissions in Job sessions too, and changing a tool's address makes all its actions ask again). When
     a tool is added to an agent, the actions the tool calls read-only start without asking
     and the others ask (for a tool from the catalog, the actions its entry lets run start without
     asking, and every other one asks, whatever the tool says); after that only the owner changes it, action by action, on the
@@ -121,7 +120,8 @@ Status: Prototype
   decision and whether a person or an agent answered) or expired; a checkpoint reached and
   answered (approved, don't ask again, or declined, with how many held events and Jobs it
   stopped); a consult asked and how it ended; and every Dispand tool a Job called, reads and
-  refusals included (with the tool, the table, and why it was refused). Agents with `configure`
+  refusals included (with the tool, the table, and why it was refused); every action of an
+  agent's tools a Job called, and how it ended; and every poll, with how many new items it found; and every change of a row of a primitive table, by a person or a Job, with the table, the operation and how many fields changed, when it was made (the Jobs it starts name the same event). Agents with `configure`
   read it too (`audit_list`), except rows about tables outside theirs. A row names what was touched (ids, names, counts and
   kinds), never what an agent read or wrote, and carries the trace it was recorded in: with
   `DISPAND_TRACE_URL` set, the trace id links to the tracing tool. Workflow runs have no rows.
@@ -143,3 +143,5 @@ Status: Prototype
     as values a workflow wires into its prompt.
   - **Limits** (owner decisions, cheap to change): 20 files of 10 MiB per cell, 200 fields per
     table, a page of at most 500 rows, 20 filters and 3 sorts per query, 50 pages.
+
+An agent’s runner-tool action permissions appear with its other tool permissions. Approved reads and drafts run without repeated questions; actions that require approval still ask. Taking a permission back also restricts sessions already running.

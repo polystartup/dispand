@@ -55,7 +55,8 @@ answered or expire.
 The workspace, each table and each agent have a **memory**: entries of one fact each (a path,
 a name, a one-line description, a type among business, practice, fact and reference, and a
 body), listed by an index. Every Job starts with the workspace's memory, its agent's and, with
-`data`, its tables' in its prompt; `memory_read` reads them and the rest. An agent writes
+`data`, its tables' in its prompt (on a runner, also as files under `.dispand/memory/` of
+its working folder); `memory_read` reads them and the rest. An agent writes
 memory (`memory_add`, `memory_update`, `memory_remove`) only where its **self-learning**
 switch says (`agent`, `data`, `workspace`), and only when its instructions ask it to. You
 configure the workspace, so an entry an agent without `configure` wrote isn't in your prompt
