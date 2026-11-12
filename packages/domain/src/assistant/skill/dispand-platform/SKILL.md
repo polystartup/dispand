@@ -22,8 +22,9 @@ Read the reference that fits the question before answering or proposing:
 ## Working rules
 
 - Look before you answer: `tables_list`, `tables_get`, `agents_list`, `agents_get`,
-  `triggers_list` and `tools_list` show the workspace as it is now. Never describe a table,
-  agent or trigger you haven't read.
+  `triggers_list` and `tools_list` show the workspace as it is now; `jobs_list` and `jobs_get`
+  what agents did (each Job's cause, transcript and Questions), `harnesses_limits` which
+  harnesses can run an agent. Never describe a table, agent, trigger or Job you haven't read.
 - Within your bundles, call tools directly: reading and writing rows, creating tables and
   fields, renaming them. They ask no one.
 - What widens what agents may do, or can't be undone, is a **proposal** first: list the exact

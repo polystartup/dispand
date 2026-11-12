@@ -223,11 +223,27 @@ const models = owner
 /** How many sessions of a harness may work on a turn at once (design 6.1). */
 export const MaxWorking = z.number().int().min(1).max(100);
 
-/** Every harness with its limit, and its sessions working and its steps queued now. */
+/**
+ * Every harness with its limit, and its sessions working and its steps queued now; what it is (a
+ * CLI on a runner, or a cloud provider), its model, and for a CLI its runner's name and whether
+ * that runner is connected now. Never its key, base URL or settings: agents read this to pick a
+ * harness.
+ */
 const limits = owner.handler(async ({ context }) => {
   const rows = await context.db
-    .select({ id: harnessesTable.id, name: harnessesTable.name, kind: harnessesTable.kind, maxWorking: harnessesTable.maxWorking })
+    .select({
+      id: harnessesTable.id,
+      name: harnessesTable.name,
+      type: harnessesTable.type,
+      kind: harnessesTable.kind,
+      model: harnessesTable.model,
+      runnerId: harnessesTable.runnerId,
+      runnerName: runners.name,
+      runnerRevokedAt: runners.revokedAt,
+      maxWorking: harnessesTable.maxWorking,
+    })
     .from(harnessesTable)
+    .leftJoin(runners, eq(runners.id, harnessesTable.runnerId))
     .where(eq(harnessesTable.ownerId, context.ownerId))
     .orderBy(asc(harnessesTable.createdAt), asc(harnessesTable.id));
   const ids = rows.map((r) => r.id);
@@ -243,7 +259,12 @@ const limits = owner.handler(async ({ context }) => {
         .groupBy(stepRuns.harnessId)
     : [];
   const byHarness = new Map(now.map((n) => [n.harnessId, n]));
-  return rows.map((r) => ({ ...r, working: byHarness.get(r.id)?.working ?? 0, queued: byHarness.get(r.id)?.queued ?? 0 }));
+  return rows.map(({ runnerId, runnerName, runnerRevokedAt, ...r }) => ({
+    ...r,
+    runner: runnerId && runnerName !== null ? { name: runnerName, connected: runnerRevokedAt === null && context.hub.isOnline(runnerId) } : null,
+    working: byHarness.get(r.id)?.working ?? 0,
+    queued: byHarness.get(r.id)?.queued ?? 0,
+  }));
 });
 
 /**

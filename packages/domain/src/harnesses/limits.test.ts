@@ -47,7 +47,7 @@ test("the limits list gives every harness its limit, and its sessions working an
   const { context, harness, job } = await setup(1);
   await job();
   await job();
-  expect(await call(router.harnesses.limits, undefined, { context })).toEqual([{ id: harness.id, name: "Claude", kind: "claude-code", maxWorking: 1, working: 1, queued: 1 }]);
+  expect(await call(router.harnesses.limits, undefined, { context })).toEqual([{ id: harness.id, name: "Claude", type: "cli", kind: "claude-code", model: null, runner: { name: "Workstation", connected: false }, maxWorking: 1, working: 1, queued: 1 }]);
 });
 
 test("a limit is a whole number from 1 to 100, of one of the owner's harnesses", async () => {
