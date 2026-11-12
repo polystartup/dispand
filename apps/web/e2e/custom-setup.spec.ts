@@ -43,6 +43,7 @@ test("first launch: setup, the Assistant's page adds a harness and starts it, th
 
   // The new harness is picked, and nothing is made until the owner starts the Assistant.
   await expect(page.getByRole("combobox", { name: "Harness" })).toHaveValue(/^harness_/);
+  const harnessId = await page.getByRole("combobox", { name: "Harness" }).inputValue();
   await expect(page).toHaveURL(/\/assistant$/);
   await page.getByRole("button", { name: "Start the Assistant" }).click();
   await expect(page.getByText("Describe your business or use case and how you'd like to automate it.")).toBeVisible();
@@ -58,7 +59,7 @@ test("first launch: setup, the Assistant's page adds a harness and starts it, th
   await expect(page.getByRole("heading", { name: "Welcome, Ada" })).toBeVisible();
 
   // The rest of a custom setup: an agent, a manual workflow, a widget on Home.
-  await page.goto("/settings/agents/new");
+  await page.goto(`/settings/agents/new?harness=${harnessId}`);
   await page.waitForLoadState("networkidle");
   await page.getByLabel("Name").fill("Writer");
   await page.getByLabel("System prompt").fill("You write short, clear notes.");
