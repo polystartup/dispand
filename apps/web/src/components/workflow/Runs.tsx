@@ -37,6 +37,11 @@ const tones: Record<string, string> = {
   skipped: "text-faint",
 };
 
+/** The agent of a Job: its name as it is now, or "Order drafter (Deleted)" once deleted; undefined while the names load. */
+export function jobAgent(run: Pick<Run, "agentId" | "deletedAgentName">, names: Map<string, string>): string | undefined {
+  return run.agentId ? names.get(run.agentId) : (run.deletedAgentName ?? undefined);
+}
+
 /** A run, step or question status, coloured. */
 export function Status({ status }: { status: string }) {
   return <span className={cn("text-[13px] font-medium capitalize", tones[status] ?? "text-muted")}>{status}</span>;
@@ -50,7 +55,9 @@ export function RunList({ workflowId }: { workflowId?: string }) {
     refetchInterval: (q) => (q.state.data?.some((r: Run) => !r.finishedAt) ? 5000 : false),
   });
   const workflows = useQuery({ ...orpc.workflows.list.queryOptions(), enabled: !workflowId });
+  const agents = useQuery({ ...orpc.agents.list.queryOptions(), enabled: !workflowId });
   const names = new Map(workflows.data?.map((w) => [w.id, w.name]));
+  const agentNames = new Map(agents.data?.map((a) => [a.id, a.name]));
 
   if (runs.error) return <p role="alert" className="text-[14px] text-danger">Could not load the runs.</p>;
   if (!runs.data) return null;
@@ -72,7 +79,7 @@ export function RunList({ workflowId }: { workflowId?: string }) {
           >
             <span className="flex min-w-0 items-center gap-3">
               <Status status={r.queued && r.status === "running" ? "queued" : r.status} />
-              {!workflowId && <span className="truncate text-[15px] font-medium">{r.workflowId ? (names.get(r.workflowId) ?? "Workflow") : "Job"}</span>}
+              {!workflowId && <span className="truncate text-[15px] font-medium">{r.workflowId ? (names.get(r.workflowId) ?? "Workflow") : (jobAgent(r, agentNames) ?? "Job")}</span>}
               <span className="text-[13px] text-muted">{triggerText(r.trigger)}</span>
             </span>
             <span className="shrink-0 text-[13px] text-muted">

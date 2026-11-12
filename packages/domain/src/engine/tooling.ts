@@ -98,6 +98,8 @@ export async function sessionTooling(db: Db, sessionId: string): Promise<Tooling
     .where(eq(stepRuns.sessionId, sessionId));
   if (!found) return NONE;
   const { run, nodeId } = found;
+  // A Job of a deleted agent has none of it.
+  if (run.source === "agent" && !run.agentId) return NONE;
   let agentId = run.agentId ?? undefined;
   if (!agentId) {
     const def =

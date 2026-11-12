@@ -3,7 +3,7 @@ import { applyRunEvent, afterStream, type RunSnapshot } from "./run-state.ts";
 
 const at = new Date(0);
 const snapshot: RunSnapshot = {
-  run: { id: "run_1", source: "workflow" as const, workflowId: "wf_1", agentId: null, triggerId: null, version: 1, status: "running", trigger: { type: "manual" }, error: null, createdAt: at, finishedAt: null },
+  run: { id: "run_1", source: "workflow" as const, workflowId: "wf_1", agentId: null, deletedAgentName: null, triggerId: null, version: 1, status: "running", trigger: { type: "manual" }, error: null, createdAt: at, finishedAt: null },
   steps: [],
   messages: [{ id: "m1", runId: "run_1", stepRunId: "s1", role: "assistant", text: "Hi", createdAt: at }],
   questions: [],

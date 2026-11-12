@@ -242,10 +242,23 @@
   the Assistant answers from them. A transcript or a definition holds whatever its Job read,
   so only a Job on every table reads one (its tool names the table `*`, which no list holds); a
   poll item's id stays out of `cause`; `runs.*` stay the owner's.
-  `runs.list` takes an `agentId`, a `triggerId` and `kind: "chat"` (the Jobs whose own definition opens with a chat), and gives each run a `title`: its first message's first 80 characters, whitespace folded, null before one. An agent is never deleted under a Job still going, by itself or
-  with its plugin: both paths lock its triggers and the agent in the deleting transaction
-  (`jobs/active.ts`; `createJob` and the scheduler take them in the same order), so a Job being created at that moment is seen; finished Jobs and triggers
-  go with the agent (cascade). The scheduler's tick makes a second claim in the same
+  `runs.list` takes an `agentId`, a `triggerId` and `kind: "chat"` (the Jobs whose own definition opens with a chat), and gives each run a `title`: its first message's first 80 characters, whitespace folded, null before one. Deleting an agent keeps its Jobs (`Engine.deleteAgents`, the one
+  path for `agents.delete` and `plugins.uninstall`): in the deleting transaction it takes the consult
+  lock, then locks the agent's triggers and the agent (`createJob` and the scheduler take them in
+  the same order, so a Job being created at that moment is seen or then finds no agent), stops
+  each of its Jobs still going as `runs.stop` does, copies the agent's name as it is then into
+  `runs.agent_name`, deletes the agent (`runs.agent_id` is `ON DELETE SET NULL`), and ends the
+  consults in flight that lost their entry (`endConsults`). The name is copied at the delete,
+  not at the Job's creation, so a rename in between shows; every path that deletes agents with
+  Jobs goes through it. Everything hanging off `runs` (steps, messages, Questions and Approvals,
+  proposals, consult rows, interaction events, attachments' `job_id`) stays with the Job; only the
+  agent's configuration goes with it (cascade): its triggers (their fires, polls and poll items,
+  and widgets on them), skills, tools, consult entries on either side and its memory. A Job whose agent is
+  gone never starts a session (`openSession` fails its step) and has no tooling; its Job token is
+  refused (`jobOfToken`). Its views name the agent with `jobs/agent-name.ts`: `jobs.list` and
+  `jobs.get` (`agentName`), `runs.*` (`deletedAgentName`), the Inbox (`agent.name`, `agent.id`
+  null), consult lines and the checkpoint's agents, all as "<name> (Deleted)". `plugins.uninstall`
+  still refuses while a Job of one of its agents is going. The scheduler's tick makes a second claim in the same
   transaction, for due enabled schedule triggers, with the rules of workflow schedules: one
   fire per due time in `trigger_fires` (unique on `(trigger_id, scheduled_for)`),
   `skipped-overlap` when the trigger is one at a time and one of its Jobs is going, `refused`
