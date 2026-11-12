@@ -242,10 +242,23 @@
   the Assistant answers from them. A transcript or a definition holds whatever its Job read,
   so only a Job on every table reads one (its tool names the table `*`, which no list holds); a
   poll item's id stays out of `cause`; `runs.*` stay the owner's.
-  `runs.list` takes an `agentId`, a `triggerId` and `kind: "chat"` (the Jobs whose own definition opens with a chat), and gives each run a `title`: its first message's first 80 characters, whitespace folded, null before one. An agent is never deleted under a Job still going, by itself or
-  with its plugin: both paths lock its triggers and the agent in the deleting transaction
-  (`jobs/active.ts`; `createJob` and the scheduler take them in the same order), so a Job being created at that moment is seen; finished Jobs and triggers
-  go with the agent (cascade). The scheduler's tick makes a second claim in the same
+  `runs.list` takes an `agentId`, a `triggerId` and `kind: "chat"` (the Jobs whose own definition opens with a chat), and gives each run a `title`: its first message's first 80 characters, whitespace folded, null before one. Deleting an agent keeps its Jobs (`Engine.deleteAgents`, the one
+  path for `agents.delete` and `plugins.uninstall`): in the deleting transaction it takes the consult
+  lock, then locks the agent's triggers and the agent (`createJob` and the scheduler take them in
+  the same order, so a Job being created at that moment is seen or then finds no agent), stops
+  each of its Jobs still going as `runs.stop` does, copies the agent's name as it is then into
+  `runs.agent_name`, deletes the agent (`runs.agent_id` is `ON DELETE SET NULL`), and ends the
+  consults in flight that lost their entry (`endConsults`). The name is copied at the delete,
+  not at the Job's creation, so a rename in between shows; every path that deletes agents with
+  Jobs goes through it. Everything hanging off `runs` (steps, messages, Questions and Approvals,
+  proposals, consult rows, interaction events, attachments' `job_id`) stays with the Job; only the
+  agent's configuration goes with it (cascade): its triggers (their fires, polls and poll items,
+  and widgets on them), skills, tools, consult entries on either side and its memory. A Job whose agent is
+  gone never starts a session (`openSession` fails its step) and has no tooling; its Job token is
+  refused (`jobOfToken`). Its views name the agent with `jobs/agent-name.ts`: `jobs.list` and
+  `jobs.get` (`agentName`), `runs.*` (`deletedAgentName`), the Inbox (`agent.name`, `agent.id`
+  null), consult lines and the checkpoint's agents, all as "<name> (Deleted)". `plugins.uninstall`
+  still refuses while a Job of one of its agents is going. The scheduler's tick makes a second claim in the same
   transaction, for due enabled schedule triggers, with the rules of workflow schedules: one
   fire per due time in `trigger_fires` (unique on `(trigger_id, scheduled_for)`),
   `skipped-overlap` when the trigger is one at a time and one of its Jobs is going, `refused`
@@ -483,7 +496,7 @@
   secrets and content and checks none appears in anything exported during the whole suite.
   The standard `OTEL_BSP_SCHEDULE_DELAY`, `OTEL_BLRP_SCHEDULE_DELAY` and
   `OTEL_METRIC_EXPORT_INTERVAL` are read by `startTelemetry` (the SDK no longer reads them).
-- **Audit** (`packages/domain/src/audit/`): one table, `audit` (migration 0056), and one writer,
+- **Audit** (`packages/domain/src/audit/`): one table, `audit` (migration 0057), and one writer,
   `recordAudit` (`record.ts`). A row holds who (`actor`: a person, a Job or the scheduler, plus
   `actor_agent_id` for the agent filter), the Job, the action (a closed list, `AuditAction` in
   `model.ts`), the resource (type and id), the result (`ok`, `refused`, `failed`), details and
@@ -606,7 +619,7 @@
   at call time, before an approval is used. An action in the agent's `agent_tools.unasked`
   for that tool needs no approval, there and in a cloud session (`ask: false` on its spec):
   the list is filled from the actions' `readOnly` (the server's `readOnlyHint`, kept at
-  listing) when `agents.create` or `agents.update` adds the tool, kept as it is for a tool
+  listing), or for a catalog tool from its entry's `unasked` alone (`defaultUnasked`), when `agents.create` or `agents.update` adds the tool, kept as it is for a tool
   the agent already had, and changed by `agents.setToolAsk` only (`agents.toolAsk` reads it;
   neither is a platform tool). A Job's session start names those actions (`unasked`, their
   exposed names, at most 500; protocol 7), and the runner lets `mcp__job_tools__<name>` run
@@ -771,7 +784,9 @@
   (`<roots[0]>/runs/<runKey>`; `SessionStart.cwd` has no other mode) through `startClaudeSession`: the Claude Agent SDK's `query` in streaming-input mode,
   running the machine's `claude` with the user's settings only (`settingSources: ["user"]`,
   never the run folder's), resuming only a CLI session the runner recorded for that run key
-  (`sessions.json`). Permission prompts and
+  (`sessions.json`). Claude Code and Codex run as the runner machine's user, with that user's
+  profile (settings, instructions files, memory, hooks, sign-in), which the session's agent
+  sees and uses. Permission prompts and
   `AskUserQuestion` become `question` events; the agent returns its outputs through the
   `submit_outputs` tool of the in-process MCP server `dispand` (for a step outside a chat that
   expects none, the engine leaves its `outputs-accepted` aside and completes the step with the `result` that
@@ -1006,7 +1021,8 @@
   sent or stored). Settings → Tools
   has "Browse catalog" (`ToolCatalog.tsx`).
   Each HTTP entry declares its `actions` (name, description, read-only, pollable, and whether it
-  asks before use by default; its `unasked` and `pollable` are derived from them by `http()`),
+  asks before use by default; its `unasked` and `pollable` are derived from them by `http()`;
+  an action the entry doesn't declare asks, whatever the server's `readOnlyHint`),
   and a tool made from it starts with them (`declaredActions`) until a listing succeeds and
   replaces them. `tools.addFromCatalog({ catalogId, name? })`, the grant tool
   `tools_add_from_catalog` (it creates a tool, so an item may name it with `{ "$item": n }`),
@@ -1030,7 +1046,7 @@
   instead of the metadata's whole list, with `access_type=offline`; `gmail-runner`
   (`@artymclabin/gmail-mcp`) and `microsoft-365` (`@softeria/ms-365-mcp-server`, mail actions
   only) are runner entries, pinned. An entry may name `unasked` (the actions that run unasked when
-  a person gives the tool to an agent, `defaultUnasked`, in place of the read-only ones),
+  a person gives the tool to an agent, `defaultUnasked`; every other action asks, whatever the server says),
   `pollable` (written to `tools.pollable` at install) and `poll`, a poll trigger's preset that the
   trigger sheet fills in when the tool is picked. A runner tool created from the catalog's "Pick
   the runner" carries its `catalog_id` (`tools.create` takes a runner entry's id). A tool pointed

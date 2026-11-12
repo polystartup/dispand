@@ -3,12 +3,13 @@ import { and, asc, count, eq, isNotNull } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { agents, questions, roots, runs, stepRuns, workspaceSettings, type RootKind } from "../db/schema.ts";
 import { newId } from "../ids.ts";
+import { jobAgentNameSql } from "../jobs/agent-name.ts";
 import { meter, spanEvent } from "../telemetry/index.ts";
 import { recordInteraction } from "./interactions.ts";
 
 // A root cause (design 6.1) and its checkpoints. Every Job is counted against its root in
 // `Engine.createJob`, with the root's row locked (`FOR UPDATE`, before the trigger's and the
-// agent's share locks, so `jobs/active.ts`'s order holds); its state is read where a session would
+// agent's share locks, so `Engine.deleteAgents`'s order holds); its state is read where a session would
 // work again (`rootGoing`).
 
 const counts = meter("engine");
@@ -60,11 +61,11 @@ const ABOUT: Record<RootKind, string> = {
 export async function pause(tx: Tx, root: typeof roots.$inferSelect, jobs: number, reachedBy: string): Promise<string> {
   await tx.update(roots).set({ state: "paused" }).where(eq(roots.id, root.id));
   const involved = await tx
-    .selectDistinct({ name: agents.name })
+    .selectDistinct({ name: jobAgentNameSql })
     .from(runs)
-    .innerJoin(agents, eq(agents.id, runs.agentId))
-    .where(and(eq(runs.rootId, root.id), isNotNull(runs.agentId)))
-    .orderBy(asc(agents.name))
+    .leftJoin(agents, eq(agents.id, runs.agentId))
+    .where(and(eq(runs.rootId, root.id), eq(runs.source, "agent")))
+    .orderBy(asc(jobAgentNameSql))
     .limit(MAX_AGENTS);
   const [chat] =
     root.kind === "chat" && root.runId
@@ -73,7 +74,7 @@ export async function pause(tx: Tx, root: typeof roots.$inferSelect, jobs: numbe
   const payload: QuestionPayload = {
     kind: "permission",
     toolName: CHECKPOINT,
-    input: { root: ABOUT[root.kind], jobs, agents: involved.map((a) => a.name), since: root.createdAt.toISOString() },
+    input: { root: ABOUT[root.kind], jobs, agents: involved.flatMap((a) => (a.name ? [a.name] : [])), since: root.createdAt.toISOString() },
     canAlwaysAllow: true,
   };
   const id = newId("q");

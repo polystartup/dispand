@@ -397,8 +397,15 @@
     {
       "idx": 56,
       "version": "7",
-      "when": 1794483735467,
-      "tag": "0056_audit",
+      "when": 1794480841814,
+      "tag": "0056_keep_jobs_on_agent_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1794486247721,
+      "tag": "0057_audit",
       "breakpoints": true
     }
   ]

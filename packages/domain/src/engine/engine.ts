@@ -57,6 +57,7 @@ import { attachProposal, settleProposal } from "../platform/proposals.ts";
 import { issueJobToken } from "../platform/token.ts";
 import type { SecretBox } from "../secrets.ts";
 import { consultOutputs, jobDef, jobSystemPrompt } from "./job-def.ts";
+import { deletedAgent } from "../jobs/agent-name.ts";
 import { agentName, approvalOf, consultEnd, consultProblem, DECLINED, deliveryProblem, failed, FLAGGED, lockConsults, TOO_LONG } from "./consults.ts";
 import { nextActions, outputsFor, toolValues, valuesFor } from "./next-actions.ts";
 import { consultsOf, type ConsultEntry } from "../agents/consults.ts";
@@ -104,7 +105,9 @@ export const RESUME_PROMPT = "Dispand reconnected after an interruption. Continu
 
 export function runView(r: RunRow) {
   const { id, source, workflowId, version, agentId, triggerId, status, trigger, error, createdAt, finishedAt } = r;
-  return { id, source, workflowId, version, agentId, triggerId, status, trigger, error, createdAt, finishedAt };
+  // A Job whose agent was deleted names it as it kept it: "Order drafter (Deleted)".
+  const deletedAgentName = agentId === null && r.agentName !== null ? deletedAgent(r.agentName) : null;
+  return { id, source, workflowId, version, agentId, deletedAgentName, triggerId, status, trigger, error, createdAt, finishedAt };
 }
 export function stepView(s: StepRow) {
   const { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt } = s;
@@ -459,9 +462,9 @@ export class Engine {
       return root;
     };
     const given = input.rootId ? await lockRoot(input.rootId) : undefined;
-    // Shared with other starts, exclusive with a delete: the Job never outlives its agent. The
-    // trigger first, then the agent: the order the scheduler and a delete take them in
-    // (`jobs/active.ts`), so none of them waits on another.
+    // Shared with other starts, exclusive with a delete: a delete sees this Job and stops it, or
+    // this start finds no agent. The trigger first, then the agent: the order the scheduler and a
+    // delete take them in (`deleteAgents`), so none of them waits on another.
     // A consulted Job has no trigger: its firing is the consult, and its root the asking Job's.
     const [trigger] = triggerId
       ? await tx
@@ -1026,6 +1029,42 @@ export class Engine {
       }
     }
     if (ended.length) spanEvent("engine.consults.ended", { "dispand.consults.count": ended.length });
+    return out;
+  }
+
+  /**
+   * Deletes these agents of the owner in `tx`, and keeps their Jobs. Their triggers, then the
+   * agents, are locked (the order the scheduler and a Job's creation take them in), so a Job being
+   * created is seen here or then finds no agent. Each of their Jobs still going stops as a person's
+   * stop does; every Job of theirs keeps the agent's name as it is now (`runs.agent_name`) as its
+   * link is cleared, and never runs again. Their triggers and entries (skills, tools, consults)
+   * go with them, and each consult in flight that loses its entry ends with the reason
+   * (`endConsults`). What it returns goes once `tx` commits (`settled`).
+   */
+  async deleteAgents(tx: Tx, ownerId: string, agentIds: string[]): Promise<Out[]> {
+    if (agentIds.length === 0) return [];
+    // First, as for any change of an agent's consults: a consult opened meanwhile is either seen by `endConsults` or sees this change.
+    await lockConsults(tx, ownerId);
+    await tx.select({ id: triggers.id }).from(triggers).where(inArray(triggers.agentId, agentIds)).for("update");
+    const deleted = await tx
+      .select({ id: agents.id, name: agents.name })
+      .from(agents)
+      .where(and(eq(agents.ownerId, ownerId), inArray(agents.id, agentIds)))
+      .for("update");
+    const ids = deleted.map((a) => a.id);
+    if (ids.length === 0) return [];
+    const out: Out[] = [];
+    const going = await tx
+      .select({ id: runs.id })
+      .from(runs)
+      .where(and(inArray(runs.agentId, ids), inArray(runs.status, ACTIVE_RUN)))
+      .for("update");
+    for (const { id } of going) out.push({ type: "end", steps: await this.stopIn(tx, id, out) });
+    for (const a of deleted) await tx.update(runs).set({ agentName: a.name }).where(eq(runs.agentId, a.id));
+    // Their Jobs stay, their link cleared (`runs.agent_id` sets null).
+    await tx.delete(agents).where(inArray(agents.id, ids));
+    out.push(...(await this.endConsults(tx, ownerId, ids)));
+    spanEvent("engine.agents.deleted", { "dispand.agents.count": ids.length, "dispand.jobs.count": going.length });
     return out;
   }
 
@@ -1871,7 +1910,8 @@ export class Engine {
           .select({ systemPrompt: agents.systemPrompt, model: agents.model, harnessId: agents.harnessId })
           .from(agents)
           .where(and(eq(agents.id, node.agentId ?? ""), eq(agents.ownerId, run.ownerId)));
-    const agent = run.snapshot ? { ...run.snapshot, model: run.snapshot.model ?? null } : stored;
+    // A Job of a deleted agent never runs again: its step fails as one whose agent is gone.
+    const agent = run.source === "agent" && !run.agentId ? undefined : run.snapshot ? { ...run.snapshot, model: run.snapshot.model ?? null } : stored;
     // The agent's harness as read here takes the slot and runs the session; a step handed a slot
     // keeps the harness it queued on, wherever its agent went since.
     const harnessId = step.working && step.harnessId ? step.harnessId : agent?.harnessId;

@@ -30,7 +30,10 @@ changes it updates this file.
   under them: a Job can't remove a choice of a field, since that clears the rows that use it.
   `configure` lists Jobs; a Job's transcript and definition hold whatever that Job read (rows,
   other transcripts, answers, from tables deleted since), so only a Job on every table reads
-  them. A poll item's id (what the tool read) is never shown to a Job.
+  them. A poll item's id (what the tool read) is never shown to a Job. Deleting an agent keeps
+  its Jobs, their transcripts, Questions and Approvals (only its configuration goes): a Job still
+  going is stopped first, and a Job whose agent is gone has no agent to authorize it, so its token
+  is refused and it never runs again; it is read under the same rules as any other Job.
 - **A session gets its agent's skills and tools, and no more.** For a Job, what its snapshot
   holds and the agent still has; for a workflow run, the agent's as they are. A tool reached by
   URL is called on the server only, for cloud sessions, with its sealed headers opened for that
@@ -237,8 +240,9 @@ changes it updates this file.
   call on, in Jobs already running). The list starts with the actions the tool's server calls
   read-only (`readOnlyHint`) when a person adds the tool to the agent, or, for a tool installed
   from the catalog, with the actions its entry names that the server lists then (`defaultUnasked`
-  in `tools/catalog.ts`: Dispand's own choice, shipped with the code; an HTTP entry decides for
-  the actions it declares, the server's hint for the others; a tool pointed at another
+  in `tools/catalog.ts`: Dispand's own choice, shipped with the code; an action the entry doesn't
+  name asks, whatever the server's hint, so a catalog server can't make an action run unasked by
+  calling it read-only; a tool pointed at another
   server or runner tool is no longer its entry). That hint is the
   server's claim and is read only then: a server that later calls another action read-only
   gains nothing, an action that appears later asks, and a tool that only comes with a skill
@@ -307,7 +311,10 @@ changes it updates this file.
   (`allowBypass`, off by default; when off, sessions also get
   `disableBypassPermissionsMode`). Sessions load the user's own Claude Code settings only,
   never a run folder's `.claude/` settings, hooks, `.mcp.json` or `CLAUDE.md`, on start or
-  resume. The server URL must be `https://` (plain http only to
+  resume. Claude Code and Codex run as the runner machine's user, with that user's own profile:
+  its settings, instructions files, memory, hooks and sign-in. Agents on that runner therefore see
+  and use that profile, and whoever pairs a runner chooses that user.
+  The server URL must be `https://` (plain http only to
   loopback), in the config, `pair` and `install.sh` (`--update` takes it from `config.json`,
   which it never changes, and checks it the same way).
 - **File tools read and write only inside the session folder (reads also inside the CLI's

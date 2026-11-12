@@ -21,8 +21,8 @@ export type PollPreset = {
 
 /**
  * What every entry may add to a tool. `unasked`: the actions that run without asking when a
- * person gives the tool to an agent (design 6.4), in place of the ones the server calls
- * read-only; every other action asks. `pollable`: the actions a poll may read, in place of the
+ * person gives the tool to an agent (design 6.4); every other action asks, whatever the server
+ * says of it. `pollable`: the actions a poll may read, in place of the
  * read-only ones. `poll`: its poll preset. `docs`: the set-up steps, a file of Dispand's repository.
  */
 type Shared = { id: string; name: string; description: string; unasked?: string[]; pollable?: string[]; poll?: PollPreset; docs?: string };
@@ -77,7 +77,7 @@ const unaskedByDefault = (a: CatalogAction) => !(a.ask ?? !a.readOnly);
  * An HTTP entry whose `unasked` and `pollable` come from its actions, so they can't disagree.
  * `pollable`: the ones marked, or, when none is, the ones the server calls read-only (the tool's
  * default). `unasked`: the declared ones that run unasked; an action the entry doesn't declare
- * follows the server (`defaultUnasked`).
+ * asks (`defaultUnasked`).
  */
 const http = (entry: Omit<HttpEntry, "kind" | "unasked" | "pollable">): HttpEntry => {
   const pollable = entry.actions.flatMap((a) => (a.pollable ? [a.name] : []));
@@ -102,15 +102,35 @@ export const CATALOG: readonly CatalogEntry[] = [
         help: "A GitHub personal access token; the tool acts as its account, with its permissions.",
       },
     ],
-    // Its documentation's main actions; the server lists many more once signed in.
+    // The reads of its README's default toolsets (context, repos, issues, pull_requests, users),
+    // all marked read-only there; the server lists many more once signed in, and those ask.
     actions: [
       read("get_me", "Get my user profile"),
+      read("get_teams", "Get teams"),
+      read("get_team_members", "Get team members"),
       read("search_repositories", "Search repositories"),
       read("get_file_contents", "Get file or directory contents"),
       read("search_code", "Search code"),
+      read("search_commits", "Search commits"),
+      read("list_branches", "List branches"),
+      read("list_commits", "List commits"),
+      read("get_commit", "Get commit details"),
+      read("list_tags", "List tags"),
+      read("get_tag", "Get tag details"),
+      read("list_releases", "List releases"),
+      read("get_latest_release", "Get latest release"),
+      read("get_release_by_tag", "Get a release by tag name"),
+      read("list_repository_collaborators", "List repository collaborators"),
       read("list_issues", "List issues"),
       read("search_issues", "Search issues"),
+      read("issue_read", "Get issue details"),
+      read("get_label", "Get a specific label from a repository"),
+      read("list_issue_types", "List available issue types"),
+      read("list_issue_fields", "List issue fields"),
       read("list_pull_requests", "List pull requests"),
+      read("search_pull_requests", "Search pull requests"),
+      read("pull_request_read", "Get details for a single pull request"),
+      read("search_users", "Search users"),
       read("list_notifications", "List notifications"),
       write("issue_write", "Create or update issue/pull request"),
     ],
@@ -228,20 +248,14 @@ export const CATALOG: readonly CatalogEntry[] = [
 export const catalogEntry = (catalogId: string | null | undefined) => (catalogId ? CATALOG.find((e) => e.id === catalogId) : undefined);
 
 /**
- * The actions that run unasked when a person gives the tool to an agent: its catalog entry's
- * choice (a runner entry's list, an HTTP entry's declared actions), else the ones its server
- * calls read-only. Read only then: later, neither changes
- * anything by itself.
+ * The actions that run unasked when a person gives the tool to an agent: for a tool from the
+ * catalog, its entry's choice alone (an action the entry doesn't name asks, whatever its server
+ * says); for any other tool, the ones its server calls read-only. Read only then: later, neither
+ * changes anything by itself.
  */
 export function defaultUnasked(tool: { catalogId: string | null; actions: { name: string; readOnly?: boolean }[] }): string[] {
   const entry = catalogEntry(tool.catalogId);
-  // A runner entry's list is the whole choice; an HTTP entry's covers its declared actions, and any other follows the server.
-  const declared = entry?.kind === "http" ? entry.actions.map((a) => a.name) : null;
-  const chosen = entry?.unasked;
-  return tool.actions.flatMap((a) => {
-    const unasked = chosen && (declared === null || declared.includes(a.name)) ? chosen.includes(a.name) : a.readOnly === true;
-    return unasked ? [a.name] : [];
-  });
+  return tool.actions.flatMap((a) => ((entry ? (entry.unasked ?? []).includes(a.name) : a.readOnly === true) ? [a.name] : []));
 }
 
 /** Entries whose name or description contains `query`, ignoring case; all of them without one. */
