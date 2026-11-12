@@ -194,6 +194,8 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("triggers.delete", "configure", `Deletes a trigger. ${NEEDS_PROPOSAL}`, { tables: triggerTables, grant: true }),
   tool("tools.list", "configure", "Lists the tools (MCP servers) agents can be given, with their ids, addresses and actions. Header values are never shown.", { tables: none }),
   tool("tools.get", "configure", "Gives one tool by its id.", { tables: none }),
+  tool("tools.catalog", "configure", "Lists the catalog's ready-made tools: for each, how it is reached (over HTTP, or on the owner's runner), its settings' names, and the actions it declares with whether each only reads, may be polled, and asks before use by default.", { tables: none }),
+  tool("tools.addFromCatalog", "configure", `Adds a tool from the catalog by its id, with no credentials: the owner enters them, or signs in, on the tool's page afterwards (its signInPath). It starts with the actions its entry declares, so their flags and poll triggers can be set at once. An entry that runs on a runner can't be added this way. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("tools.add", "configure", `Adds a tool: an MCP server reached at a URL, with no credentials (the owner enters those afterwards). ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("tools.delete", "configure", `Deletes a tool no agent uses, with its saved headers: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("agents.update", "configure", `Changes an agent: give every field, as agents_get shows them. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
@@ -281,8 +283,8 @@ export const NOT_TOOLS: string[] = [
   "tools.update",
   "tools.refresh",
   "tools.authorize",
-  "tools.catalog",
   "tools.installFromCatalog",
+  "tools.fillSettings",
   // What polls may read: the owner's choice, never an agent's.
   "tools.pollable",
   "tools.setPollable",

@@ -197,12 +197,19 @@ changes it updates this file.
   It holds no
   more than any agent given those bundles: its writes that grant go through proposals.
 - **The server calls no address an agent chose before a person approved it, and an agent
-  never handles a tool's credentials.** An agent adds a tool only as a proposal item
-  (`tools.add`: a name, a URL and a transport, nothing else; a URL with credentials or any
-  header is refused when proposed). Making the proposal fetches nothing: the address is first
-  contacted, to list its actions, when the approved call runs. The owner reads the address
-  whole with the host set apart, and enters the server's headers afterwards on the tool's
-  page. Agents can read tools (names, addresses, actions, header names, never values) and
+  never handles a tool's credentials.** An agent adds a tool only as a proposal item:
+  `tools.add` (a name, a URL and a transport, nothing else; a URL with credentials or any
+  header is refused when proposed), or `tools.addFromCatalog` (a catalog entry's id and a name:
+  the entry's own address, with no header value; a runner entry is refused when proposed).
+  Making the proposal fetches nothing: the address is first contacted, to list its actions,
+  when the approved call runs. The owner reads the address whole with the host set apart (a
+  catalog entry by its name and address), and enters the server's headers afterwards on the
+  tool's page (a catalog entry's settings, `tools.fillSettings`, sealed in the headers its entry
+  names, or its OAuth sign-in). A catalog tool added this way starts with the actions its entry
+  declares, so their flags and poll triggers can be approved with it; until its settings are
+  filled (or, for OAuth, it is connected) it "needs sign-in": nothing calls it, lists it or
+  polls it (`connectionTarget` and the scheduler refuse before any request), since some servers
+  answer without a key. Agents can read tools (names, addresses, actions, header names, never values) and
   delete an unused one through a proposal; changing a tool's address, transport or headers
   is not one of their tools at all.
 - **A proposal is approved by a person, on what the server shows, never on the agent's words.**
@@ -225,7 +232,8 @@ changes it updates this file.
   call on, in Jobs already running). The list starts with the actions the tool's server calls
   read-only (`readOnlyHint`) when a person adds the tool to the agent, or, for a tool installed
   from the catalog, with the actions its entry names that the server lists then (`defaultUnasked`
-  in `tools/catalog.ts`: Dispand's own choice, shipped with the code; a tool pointed at another
+  in `tools/catalog.ts`: Dispand's own choice, shipped with the code; an HTTP entry decides for
+  the actions it declares, the server's hint for the others; a tool pointed at another
   server or runner tool is no longer its entry). That hint is the
   server's claim and is read only then: a server that later calls another action read-only
   gains nothing, an action that appears later asks, and a tool that only comes with a skill

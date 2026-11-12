@@ -11,7 +11,8 @@ import { ToolSheet, type Tool } from "../components/settings/ToolSheet.tsx";
 import { PageHeader } from "../components/Placeholder.tsx";
 import { orpc } from "../lib/api.ts";
 
-// `tool`: the tool whose sheet opens, as an OAuth sign-in comes back to it.
+// `tool`: the tool whose sheet opens, with its settings or Connect: as an OAuth sign-in comes back
+// to it, and as an agent links to it (a tool's `signInPath`).
 export const Route = createFileRoute("/_app/settings/tools")({ component: Tools, validateSearch: z.object({ tool: z.string().max(100).optional() }) });
 
 function Tools() {
@@ -26,9 +27,11 @@ function Tools() {
   useEffect(() => {
     const tool = back ? tools.data?.find((t) => t.id === back) : undefined;
     if (!back || !tools.data) return;
+    // A tool made since the list was cached (by an agent's proposal): wait for the fresh list.
+    if (!tool && tools.isFetching) return;
     if (tool) setSheet({ tool, n: 0, runner: tool.kind === "runner" });
     void navigate({ search: {}, replace: true });
-  }, [back, tools.data, navigate]);
+  }, [back, tools.data, tools.isFetching, navigate]);
 
   const add = (
     <div className="flex flex-wrap gap-2">
@@ -78,6 +81,7 @@ function Tools() {
                     {t.plugin && ` · from plugin ${t.plugin.name}`}
                   </span>
                   {t.oauthStatus === "authorize" && <span className="block truncate text-[13px] text-muted">Not connected yet</span>}
+                  {t.signIn === "needed" && t.auth !== "oauth" && <span className="block truncate text-[13px] text-danger">Needs sign-in: enter its settings</span>}
                   {t.oauthStatus === "reauthorize" && <span className="block truncate text-[13px] text-danger">Re-authorize: its sign-in stopped working</span>}
                   {t.actionsError && t.oauthStatus !== "reauthorize" && <span className="block truncate text-[13px] text-danger">{t.actionsError}</span>}
                 </span>

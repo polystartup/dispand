@@ -9,6 +9,7 @@ import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
 import { FormField } from "./parts.tsx";
 import { PollableActions } from "./PollableActions.tsx";
+import { CatalogSettings } from "./CatalogSettings.tsx";
 import { ToolSignIn } from "./ToolSignIn.tsx";
 
 export type Tool = Awaited<ReturnType<typeof api.tools.list>>[number];
@@ -280,6 +281,16 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
             ) : (
               <ToolSignIn status={current.oauthStatus} clientId={current.enteredClientId} busy={busy} askClient={askClient} onConnect={(client) => void connect(client)} />
             ))}
+
+          {current?.catalogId && current.auth !== "oauth" && !unsavedTarget && (
+            <CatalogSettings
+              tool={current}
+              onSaved={(saved) => {
+                setCurrent(saved);
+                onSaved(saved);
+              }}
+            />
+          )}
 
           {current && (
             <section aria-labelledby="tool-actions" className="space-y-3">

@@ -4,7 +4,10 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import "../../test/jsdom-shims.ts";
-import { AgentText } from "./AgentText.tsx";
+import { AgentText, isAppPath } from "./AgentText.tsx";
+
+const navigate = vi.hoisted(() => vi.fn());
+vi.mock("@tanstack/react-router", () => ({ useRouter: () => ({ navigate }) }));
 
 afterEach(() => {
   cleanup();
@@ -72,6 +75,19 @@ test("a link shows where it goes and opens only on a click; one that goes nowher
   expect(screen.getAllByRole("button")).toHaveLength(2);
 });
 
+test("a link to a page of the app opens in the app; anything shaped otherwise stays as before", async () => {
+  const open = vi.spyOn(window, "open").mockImplementation(() => null);
+  navigate.mockClear();
+  render(<Chat text={"Sign in on [Firecrawl's page](/settings/tools?tool=tool_1), not [elsewhere](//evil.example/x) or [up](/settings/../../x)."} />);
+  expect(await screen.findByText("Firecrawl's page")).toBeTruthy();
+  await userEvent.setup().click(screen.getByRole("button", { name: "Firecrawl's page" }));
+  expect(navigate).toHaveBeenCalledWith({ href: "/settings/tools?tool=tool_1" });
+  expect(open).not.toHaveBeenCalled();
+  // Neither is a link at all.
+  expect(screen.getAllByRole("button")).toHaveLength(1);
+  for (const url of ["/settings/tools", "/assistant?run=r_1#end"]) expect(isAppPath(url)).toBe(true);
+  for (const url of ["//host/x", "/a/../b", "/./a", "/a/%2e%2e/b", "/a%2fb", "/a\\b", "https://x.example/", "settings", ""]) expect(isAppPath(url), url).toBe(false);
+});
 
 test("a code block names its language and copies only its code, with retry on failure", async () => {
   const user = userEvent.setup();
