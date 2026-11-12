@@ -660,6 +660,16 @@
   the Job (`{ agentId, runId, configure }`); a write refused for its target is a `memory.write`
   span and counted like the store's own refusals, and a read is a `memory.read` span and
   `dispand.memory.reads` (scope, result).
+  A Job's session start (and a resume of a lost one) reads its memory again (`memory/read.ts`):
+  `memoryForJob` takes the workspace's, the agent's and, with `data`, every table within the
+  Job's tables now (a primitive trigger's table first, the others by name), and for a Job with
+  `configure` leaves out, and counts, the entries a Job without it wrote and no person accepted.
+  `fitMemory` is the one fill rule of its renderings: every scope's whole index first (a table
+  whose index no longer fits is left out whole), then entries in order until one doesn't fit,
+  within the rendering's budget, measured on what is sent, the closing line ("More memory, with
+  memory_read: …") included. The system prompt gets `memoryPrompt` (96,000 characters at most)
+  after the agent's instructions; nothing is snapshotted, and workflow agent steps get none. The
+  read is a `memory.prompt` span (counts only) and `dispand.memory.prompts` (none, whole, cut).
 - **Skills in cloud sessions** (`skills/cloud.ts`): the way Agent Skills work. At every model
   call `sessionSkills` reads the skills of the session's packages (`sessionTooling`: for a Job,
   its snapshot's that the agent still has); the system prompt lists each skill's name and

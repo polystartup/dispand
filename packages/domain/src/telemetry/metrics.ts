@@ -33,6 +33,8 @@ export const METRICS = {
   "dispand.memory.writes": ["dispand.memory.scope", "dispand.memory.op", "dispand.result"],
   // A Job's `memory_read` (`memory/tools.ts`): its scope and result.
   "dispand.memory.reads": ["dispand.memory.scope", "dispand.result"],
+  // A Job's session start with its memory (`memory/read.ts`): none, whole, or cut to its budget.
+  "dispand.memory.prompts": ["dispand.result"],
   "dispand.checkpoints.reached": [],
   "dispand.checkpoints.answered": ["dispand.checkpoint.answer"],
   "dispand.roots.paused": [],

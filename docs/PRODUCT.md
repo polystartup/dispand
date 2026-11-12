@@ -8,7 +8,8 @@ Status: Prototype
   agents' questions and approving their actions.
 - **What it does today:** a web app where the owner assembles agents from harnesses (Claude
   Code and Codex CLI sessions run by the owner's own runners, or model APIs called by the
-  server), skills and tools (MCP servers), gives them memory in data tables, wires them into
+  server), skills and tools (MCP servers), gives them data tables and a memory (the
+  workspace's, each table's and each agent's, in their Jobs' prompts), wires them into
   workflows that run by hand or on a schedule, and works with them from dashboards. Plugins
   bring skills, agents and tools from Git repositories and skill sites, in the Claude plugin
   layout or the Agent Plugins standard's. The **Assistant**, a

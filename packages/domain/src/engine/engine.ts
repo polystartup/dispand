@@ -57,6 +57,7 @@ import { attachProposal, settleProposal } from "../platform/proposals.ts";
 import { issueJobToken } from "../platform/token.ts";
 import type { SecretBox } from "../secrets.ts";
 import { consultOutputs, jobDef, jobSystemPrompt } from "./job-def.ts";
+import { jobMemoryPrompt } from "../memory/read.ts";
 import { deletedAgent } from "../jobs/agent-name.ts";
 import { agentName, approvalOf, consultEnd, consultProblem, DECLINED, deliveryProblem, failed, FLAGGED, lockConsults, TOO_LONG } from "./consults.ts";
 import { nextActions, outputsFor, toolValues, valuesFor } from "./next-actions.ts";
@@ -1479,14 +1480,17 @@ export class Engine {
       unsent,
       waiting,
     );
+    // A Job's memory is read again: the resumed session gets it as it is now.
+    const [run] = await this.db.select().from(runs).where(eq(runs.id, step.runId));
+    const systemPrompt = run?.snapshot ? await this.jobSystemPrompt(run, run.snapshot.systemPrompt) : step.start!.systemPrompt;
     let start: StartParams;
-    if (step.cliSessionId) start = { ...step.start!, prompt, resumeCliSessionId: step.cliSessionId };
+    if (step.cliSessionId) start = { ...step.start!, systemPrompt, prompt, resumeCliSessionId: step.cliSessionId };
     else {
       // Nothing to resume (the CLI never reported its session): start afresh, in a new folder,
       // since the runner may have created the first one before it stopped.
       const runKey = `${step.runId}-${step.id}-${Date.now().toString(36)}`;
       await this.db.update(stepRuns).set({ start: { ...step.start!, runKey } }).where(eq(stepRuns.id, step.id));
-      start = { ...step.start!, runKey, prompt };
+      start = { ...step.start!, runKey, systemPrompt, prompt };
     }
     // What the prompt carries is held, so no separate delivery sends it too.
     const held = [...answers.map((q) => `q:${q.id}`), ...carried.map((m) => `m:${m.id}`)];
@@ -1885,6 +1889,12 @@ export class Engine {
     return !!row;
   }
 
+  /** A Job's system prompt at a session start: its agent's, as snapshotted, then its memory as it is now. */
+  private async jobSystemPrompt(run: RunRow, systemPrompt: string): Promise<string> {
+    const memory = await jobMemoryPrompt(this.db, run);
+    return memory ? [systemPrompt, memory].filter(Boolean).join("\n\n") : systemPrompt;
+  }
+
   /** A step's session, started in its own span (inside the Job's, for a Job). */
   private startSession(run: RunRow, def: WorkflowDef, steps: StepRow[], node: WorkflowNode, step: StepRow): Promise<void> {
     const traced = () =>
@@ -1958,7 +1968,8 @@ export class Engine {
       sessionId: newId("ses"),
       // One folder per session: the run and the step (a resume reuses its own).
       runKey: `${run.id}-${step.id}`,
-      systemPrompt: agent.systemPrompt,
+      // A Job's memory is read now, at each start, after its agent's instructions.
+      systemPrompt: run.snapshot ? await this.jobSystemPrompt(run, agent.systemPrompt) : agent.systemPrompt,
       prompt: renderTemplate(node.prompt ?? "", values),
       expectedOutputs:
         deriveExpectedOutputs(def, await loadTableSchemas(this.db, run.ownerId, tableIdsOf(def)), await loadToolSchemas(this.db, run.ownerId, toolIdsOf(def)))[node.id] ?? [],
