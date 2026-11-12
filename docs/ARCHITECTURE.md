@@ -1147,7 +1147,7 @@
   checkout, links never followed; `plugins/fs.ts` holds what both layouts share: the root, the
   read's budget, regular files and skill folders). A plugin with a root `plugin.json` is read in
   the Agent Plugins 1.0.0 layout (`standard.ts` `readStandardPlugin`, `plugins.layout =
-  'standard'`), whatever else it holds: `plugin.json`'s `$schema` must be the 1.0.0 id (schemas
+  'standard'`). A schema-less root object beside a named `.claude-plugin/plugin.json` instead uses the Claude loader; explicit schemas retain strict validation: `plugin.json`'s `$schema` must be the 1.0.0 id (schemas
   are known by id, never fetched), its closed fields are checked (an unknown one is listed and
   ignored, as is an `extensions` that isn't an object; any other violation rejects the plugin);
   skills are the immediate folders of `skills/` holding a regular `SKILL.md`; MCP servers come
