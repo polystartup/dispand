@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { HarnessEvent, QuestionPayload, SessionStart } from "@dispand/runner-protocol";
 import { codexDenied, codexDeniedEdit, sandboxDenied } from "../boundary.ts";
 import { askChoices, BypassRefused, consult, CONSULT, consultDescription, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "../outcome.ts";
-import { narrowUnasked, unaskedTools } from "../mcp.ts";
+import { runnerArgumentsAllowed, narrowUnasked, unaskedTools } from "../mcp.ts";
 import { fitsWhole } from "../sanitize.ts";
 import { BYPASS_PROFILE, codexConfig, PROFILE } from "./config.ts";
 import type { JsonValue } from "./protocol/serde_json/JsonValue.ts";
@@ -194,6 +194,8 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
    */
   const { names: unasked, servers: agentServers } = unaskedTools(start.mcpServers, deps.jobServer === undefined ? undefined : (deps.unasked ?? []));
 
+  let permissionsVersion = 0;
+
   async function approve(payload: Extract<QuestionPayload, { kind: "permission" }>, signal: AbortSignal) {
     if (!fitsWhole({ type: "question", questionId: "", payload })) return null;
     const answer = await ask(payload, signal);
@@ -260,14 +262,17 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         const tool = typeof meta.tool_name === "string" ? meta.tool_name : "";
         const toolName = `mcp__${p.serverName}__${tool}`;
         // An action the agent lets run unasked: no question (the tools server runs it without an approval).
+        const input = isObject(meta.tool_params) ? meta.tool_params : {};
+        const runnerTool = agentServers.includes(p.serverName) && p.serverName !== "job_tools";
+        if (runnerTool && !runnerArgumentsAllowed(input, [...deps.secrets, join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...(deps.pluginRoots ?? [])])) return decline;
         if (unasked.has(toolName)) return { action: "accept" as const, content: {}, _meta: null };
         const jobTool = agentServers.includes(p.serverName);
-        const input = isObject(meta.tool_params) ? meta.tool_params : {};
+        const version = permissionsVersion;
         // Each call asks: Codex's "for the session" and "always" would persist beyond what the owner sees.
         // For one of the Job's agent's tools, "always" is the owner taking that action off the agent's
         // asking ones, on the server: here it only means this session stops asking about it too.
         const decision = await approve({ kind: "permission", toolName, input, canAlwaysAllow: jobTool }, signal);
-        if (decision === "allow-always" && jobTool) unasked.add(toolName);
+        if (decision === "allow-always" && jobTool && version === permissionsVersion) unasked.add(toolName);
         return decision ? { action: "accept" as const, content: {}, _meta: null } : decline;
       }
       case "item/tool/call": {
@@ -391,7 +396,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       }
       say(text);
     },
-    narrowPermissions: (servers) => narrowUnasked(unasked, agentServers.filter((s) => s !== "job_tools"), servers),
+    narrowPermissions: (servers) => { permissionsVersion++; narrowUnasked(unasked, agentServers.filter((s) => s !== "job_tools"), servers); },
     answer: questions.answer,
     interrupt: async () => {
       // Idle: nothing to cut short, and no later turn may pass for an interrupted one.

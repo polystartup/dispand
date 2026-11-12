@@ -210,8 +210,7 @@ export async function callTool(
   if (server.pollable?.length === 0) throw new CallFailed(`the MCP server ${name} allows no polls on this runner`);
   // No approval stands between a poll and its call: a path the runner keeps sessions out of
   // (its own config, the CLIs' credentials) is refused in any argument, as sessions are kept from it.
-  const paths = pathsIn(args);
-  if (paths === null || paths.some((path) => overlapping(path, guard.forbidden))) throw new CallFailed(`the call names a path this runner keeps out of reach`);
+  if (!runnerArgumentsAllowed(args, guard.forbidden)) throw new CallFailed(`the call names a path this runner keeps out of reach`);
   const transport = new StdioClientTransport({
     command: server.command,
     args: server.args ?? [],
@@ -339,4 +338,10 @@ export function narrowUnasked(names: Set<string>, servers: string[], update: { n
   for (const name of names) {
     if (servers.some((server) => name.startsWith(`mcp__${server}__`)) && !allowed.has(name)) names.delete(name);
   }
+}
+
+/** The same protected-path guard for automatic session grants and polls. */
+export function runnerArgumentsAllowed(args: unknown, forbidden: string[]): boolean {
+  const paths = pathsIn(args);
+  return paths !== null && !paths.some((path) => overlapping(path, forbidden));
 }

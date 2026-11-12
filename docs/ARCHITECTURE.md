@@ -1253,3 +1253,5 @@
   - `routeTree.gen.ts` is committed so `typecheck` works before `build`.
 
 Runner protocol 14 carries runner-tool `unasked` actions and `session.permissions` updates. Both CLI harnesses derive MCP tool names locally. Updates can only remove grants; reconnect reconciliation sends current restrictions before further delivery. Owner action changes fan out to live Job and workflow sessions. Migration 0062 fills empty catalog runner-tool lists from the catalog defaults.
+
+Runner MCP aliases are hashes of the tool id, runner id and local server key. They survive renames and other tools’ removal, and change on retargeting. Pending persistent answers are checked against the current binding and permission before delivery; permission updates invalidate local caching of older approvals. Updates arriving during skill fetching narrow the start before CLI launch. Automatic runner calls share the poll path guard for protected machine and session configuration.

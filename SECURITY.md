@@ -614,7 +614,7 @@ changes it updates this file.
   each call), and a call cut by a restart is never made again: its step fails.
   An operator with the database and the key can read them (see below).
 
-Runner tools in a Job may run only the actions its agent marks unasked. The runner derives fully qualified MCP names from its own configured servers; these grants never name shell or file tools. Live permission updates only intersect existing grants, including on reconnect. Server-side changes reach workflow sessions as well. Catalog runner tools with empty action permissions receive their catalog defaults once during the approved upgrade; non-empty lists and HTTP tools keep their permissions.
+Runner tools in a Job may run only the actions its agent marks unasked. The runner derives fully qualified MCP names from its own configured servers; these grants never name shell or file tools. Live permission updates only intersect existing grants, including on reconnect and during startup. Server aliases bind a tool id and its runner target, so removing or renaming another tool cannot reassign a grant. A persistent approval must still name that target and its current permission when delivered; a revocation invalidates pending local permission caching. Automatic runner calls use the same protected-path argument guard as polls. Server-side changes reach workflow sessions as well. Catalog runner tools with empty action permissions receive their catalog defaults once during the approved upgrade; non-empty lists and HTTP tools keep their permissions.
 
 **Who it defends against:** anyone on the internet calling the API or loading the app, and a
 signed-in user trying to reach rows that aren't the session owner's. **Not defended against:** an operator with

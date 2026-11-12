@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { JOB_SERVER_NAME, JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
 import { and, eq, inArray } from "drizzle-orm";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
@@ -95,12 +96,16 @@ export function serverName(toolName: string, taken: Set<string>): string {
  * CLI names their actions `mcp__<server>__<action>`. The one rule for the start and for telling
  * which tool a question is about.
  */
+/** A session binding survives renames and removals; retargeting creates a different binding. */
+export function runnerServerName(tool: { id: string; runnerId: string; tool: string }): string {
+  return `tool_${createHash("sha256").update(JSON.stringify([tool.id, tool.runnerId, tool.tool])).digest("hex").slice(0, 24)}`;
+}
+
 export function runnerServers(tooling: Pick<Tooling, "runnerTools">, runnerId: string): (Tooling["runnerTools"][number] & { server: string })[] {
-  const taken = new Set<string>();
   return tooling.runnerTools
     .filter((t) => t.runnerId === runnerId)
     .slice(0, 20)
-    .map((t) => ({ ...t, server: serverName(t.name, taken) }));
+    .map((t) => ({ ...t, server: runnerServerName(t) }));
 }
 
 const NONE: Tooling = { skills: [], runnerTools: [], httpTools: [] };

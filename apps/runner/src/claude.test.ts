@@ -1496,3 +1496,32 @@ test("a runner action runs unasked until revoked; other servers and actions ask"
   expect(outputs[0]).toMatchObject({ hookSpecificOutput: { permissionDecision: "ask" } });
   expect(outputs[1]).toMatchObject({ hookSpecificOutput: { permissionDecision: "ask" } });
 });
+
+test("an always answer queued across a revocation cannot restore a runner grant", async () => {
+  const decisions: unknown[] = [];
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    for (let i = 0; i < 2; i++) decisions.push((await options.canUseTool!("mcp__mail__draft_email", {}, ctx()))?.behavior);
+    yield result();
+  });
+  let asked = 0;
+  const session = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] }, "/work", (e) => {
+    if (e.type !== "question") return;
+    const first = ++asked === 1;
+    if (first) session.narrowPermissions!([]);
+    queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: first ? "allow-always" : "deny" }));
+  }, { query: fake.query, jobServer: "job" });
+  await session.done;
+  expect(asked).toBe(2);
+  expect(decisions).toEqual(["allow", "deny"]);
+});
+
+test("an unasked runner MCP action cannot read a protected configuration file", async () => {
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    expect(await options.canUseTool!("mcp__mail__read_file", { path: "/guarded/config.json" }, ctx())).toMatchObject({ behavior: "deny" });
+    yield result();
+  });
+  const session = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "files", unasked: ["read_file"] }] }, "/work", () => undefined, { query: fake.query, jobServer: "job", secrets: ["/guarded/config.json"] });
+  await session.done;
+});

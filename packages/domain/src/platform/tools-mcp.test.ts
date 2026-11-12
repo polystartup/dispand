@@ -1,3 +1,4 @@
+import { runnerServerName } from "../engine/tooling.ts";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { call } from "@orpc/server";
 import { eq, sql } from "drizzle-orm";
@@ -7,7 +8,7 @@ import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp, type FakeMcp } from "../tools/test-server.ts";
 import { jobTokenOf } from "./token.ts";
-import { exposedName } from "./exposed.ts";
+import { runnerGrantCurrent, stopAsking, exposedName } from "./exposed.ts";
 import { handleJobToolsMcp } from "./tools-mcp.ts";
 
 const servers: FakeMcp[] = [];
@@ -320,7 +321,7 @@ test("always allow changes no flag when the question isn't about one of the agen
     const id = await s.approve(toolName, {}, "allow-always");
     const [q] = await s.context.db.select().from(questions).where(eq(questions.id, id));
     // Only a name of the Job's tools server that stands for nothing is brought down to a single allowance.
-    expect(q!.answer).toMatchObject({ decision: toolName.startsWith("mcp__job_tools__") ? "allow" : "allow-always" });
+    expect(q!.answer).toMatchObject({ decision: toolName.startsWith("mcp__") ? "allow" : "allow-always" });
   }
   await s.approve(`mcp__job_tools__${create}`, { title: "Bug" }, "deny");
   expect(await flags()).toEqual([true, true]);
@@ -339,9 +340,16 @@ test("always allow on a runner tool records its identity and grants only its act
   const [harness] = await s.context.db.select().from(harnesses).where(eq(harnesses.id, s.agent.harnessId));
   // The tool must have been in this Job's snapshot; use its existing tool id as a runner tool.
   await s.context.db.update(toolsTable).set({ kind: "runner", url: null, transport: null, headersSealed: {}, runnerId: harness!.runnerId, runnerTool: "gmail", actions: ["draft_email", "send_email"].map((name) => ({ name, description: name, inputSchema: { type: "object" } })) }).where(eq(toolsTable.id, s.tool.id));
-  const id = await s.approve("mcp__github__draft_email", {}, "allow-always");
+  const id = await s.approve(`mcp__${runnerServerName({ id: s.tool.id, runnerId: harness!.runnerId!, tool: "gmail" })}__draft_email`, {}, "allow-always");
   const [question] = await s.context.db.select().from(questions).where(eq(questions.id, id));
   expect(question!.about).toMatchObject({ toolId: s.tool.id, action: "draft_email" });
   const [grant] = await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, s.agent.id));
   expect(grant!.unasked).toEqual(["draft_email"]);
+  const name = `mcp__${runnerServerName({ id: s.tool.id, runnerId: harness!.runnerId!, tool: "gmail" })}__draft_email`;
+  expect(await runnerGrantCurrent(s.context.db, s.runId, name, question!.about!)).toBe(true);
+  await s.context.db.update(agentTools).set({ unasked: [] }).where(eq(agentTools.agentId, s.agent.id));
+  expect(await runnerGrantCurrent(s.context.db, s.runId, name, question!.about!)).toBe(false);
+  await s.context.db.update(toolsTable).set({ runnerTool: "replacement" }).where(eq(toolsTable.id, s.tool.id));
+  expect(await stopAsking(s.context.db, s.runId, name, question!.about)).toBe(false);
+
 });

@@ -103,6 +103,17 @@ export async function stopAsking(db: Db, runId: string, toolName: string, about:
   }
   // A Job that ended grants nothing, as `exposedTools` gives it nothing.
   if (!about?.toolId || (run.status !== "running" && run.status !== "waiting")) return false;
-  const tool = (await toolingOf(db, run, run.agentId)).runnerTools.find((t) => t.id === about.toolId);
-  return tool?.actions.some((a) => a.name === about.action) ? setAsk(db, run.ownerId, { agentId: run.agentId, toolId: tool.id, action: about.action, ask: false }) : false;
+  const tooling = await toolingOf(db, run, run.agentId);
+  const tool = tooling.runnerTools.find((t) => t.id === about.toolId);
+  if (!tool || !runnerServers(tooling, tool.runnerId).some((t) => t.id === tool.id && toolName === `mcp__${t.server}__${about.action}`)) return false;
+  return tool.actions.some((a) => a.name === about.action) ? setAsk(db, run.ownerId, { agentId: run.agentId, toolId: tool.id, action: about.action, ask: false }) : false;
+}
+
+/** A delayed persistent answer may not undo a permission or target changed since it was given. */
+export async function runnerGrantCurrent(db: Db, runId: string, toolName: string, about: About): Promise<boolean> {
+  const [run] = await db.select().from(runs).where(eq(runs.id, runId));
+  if (!run?.agentId || !["running", "waiting"].includes(run.status)) return false;
+  const tooling = await toolingOf(db, run, run.agentId);
+  const tool = tooling.runnerTools.find((t) => t.id === about.toolId);
+  return !!tool && tool.unasked.includes(about.action) && runnerServers(tooling, tool.runnerId).some((t) => t.id === tool.id && toolName === `mcp__${t.server}__${about.action}`);
 }

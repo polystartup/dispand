@@ -599,3 +599,38 @@ test("on Codex, runner grants run only the named action and revocations take eff
   expect(await s.replyTo("r0")).toEqual({ action: "accept", content: {}, _meta: null });
   expect(await s.replyTo("r1")).toEqual({ action: "decline", content: null, _meta: null });
 });
+
+const localApproval = (tool: string, input: Record<string, unknown> = {}) => ({
+  request: "mcpServer/elicitation/request",
+  params: { threadId: "$THREAD", turnId: "$TURN", serverName: "mail", mode: "form", message: "Allow tool?", requestedSchema: { type: "object", properties: {} }, _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_name: tool, tool_params: input } },
+});
+
+test("on Codex an old always answer cannot restore a revoked runner grant", async () => {
+  let asked = 0;
+  const s = await run({
+    start: { mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] },
+    deps: { jobServer: "job" },
+    turns: [[localApproval("draft_email"), localApproval("draft_email"), message("Done")]],
+    answer: () => {
+      if (++asked === 1) { active.narrowPermissions!([]); return { kind: "permission", decision: "allow-always" }; }
+      return { kind: "permission", decision: "deny" };
+    },
+  });
+  const active = s.session;
+  await s.ended();
+  expect(asked).toBe(2);
+  expect(await s.replyTo("r0")).toMatchObject({ action: "accept" });
+  expect(await s.replyTo("r1")).toMatchObject({ action: "decline" });
+});
+
+test("on Codex unasked runner tools cannot read protected configuration paths", async () => {
+  const s = await run({
+    start: { mcpServers: [{ name: "mail", type: "runner", tool: "files", unasked: ["read_file"] }] },
+    deps: { jobServer: "job", secrets: ["/guarded/config.json"] },
+    turns: [[localApproval("read_file", { path: "/guarded/config.json" }), localApproval("read_file", { path: "/allowed/note.txt" }), message("Done")]],
+  });
+  await s.ended();
+  expect(await s.replyTo("r0")).toMatchObject({ action: "decline" });
+  expect(await s.replyTo("r1")).toMatchObject({ action: "accept" });
+  expect(questions(s.events)).toEqual([]);
+});

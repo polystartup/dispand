@@ -1,3 +1,4 @@
+import { runnerServerName } from "./tooling.ts";
 import { call } from "@orpc/server";
 import { type Answer, parseServerMessage, type ServerToRunner, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING, TEXT } from "@dispand/runner-protocol";
 import { and, eq } from "drizzle-orm";
@@ -1478,23 +1479,23 @@ async function toolingSetup() {
 }
 
 test("a Job's CLI start carries its agent's skill packages and runner tools, and never an HTTP tool", async () => {
-  const { context, engine, agent, packageId, starts } = await toolingSetup();
+  const { context, engine, agent, packageId, starts, runnerId } = await toolingSetup();
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
   await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(starts()).toHaveLength(1));
   expect(starts()[0]).toMatchObject({
     skills: [{ packageId, name: "review" }],
     // The HTTP tool (GitHub) stays on the server: its address and headers never travel.
-    mcpServers: [{ name: "fetch", type: "runner", tool: "fetch" }],
+    mcpServers: [{ name: runnerServerName({ id: "tool_fetch", runnerId, tool: "fetch" }), type: "runner", tool: "fetch" }],
   });
   expect(JSON.stringify(starts()[0])).not.toContain("mcp.example.com");
 });
 
 test("a workflow step's CLI start carries its agent's skills and runner tools too", async () => {
-  const { engine, workflow, packageId, starts } = await toolingSetup();
+  const { engine, workflow, packageId, starts, runnerId } = await toolingSetup();
   await engine.startRun(workflow.id);
   await vi.waitFor(() => expect(starts()).toHaveLength(1));
-  expect(starts()[0]).toMatchObject({ skills: [{ packageId, name: "review" }], mcpServers: [{ name: "fetch", type: "runner", tool: "fetch" }] });
+  expect(starts()[0]).toMatchObject({ skills: [{ packageId, name: "review" }], mcpServers: [{ name: runnerServerName({ id: "tool_fetch", runnerId, tool: "fetch" }), type: "runner", tool: "fetch" }] });
   expect(starts()[0]).not.toHaveProperty("jobToken");
 });
 
@@ -1633,7 +1634,7 @@ test("a Job's session start, its runner events and its question are traced with 
 });
 
 test("runner grants start on Jobs and narrowing reaches Job and workflow sessions", async () => {
-  const { context, engine, agent, workflow, starts, sent } = await toolingSetup();
+  const { context, engine, agent, workflow, starts, sent, runnerId } = await toolingSetup();
   const action = { name: "draft_email", description: "", inputSchema: { type: "object" } };
   await context.db.update(tools).set({ actions: [action] }).where(eq(tools.id, "tool_fetch"));
   await context.db.update(agentTools).set({ unasked: [action.name] }).where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, "tool_fetch")));
@@ -1647,5 +1648,5 @@ test("runner grants start on Jobs and narrowing reaches Job and workflow session
   const updates = sent.filter((m) => m.type === "session.permissions");
   expect(updates).toHaveLength(2);
   expect(updates.map((m) => m.sessionId).sort()).toEqual(starts().map((m) => m.sessionId).sort());
-  for (const update of updates) expect(update.servers).toEqual([{ name: "fetch", unasked: [] }]);
+  for (const update of updates) expect(update.servers).toEqual([{ name: runnerServerName({ id: "tool_fetch", runnerId, tool: "fetch" }), unasked: [] }]);
 });

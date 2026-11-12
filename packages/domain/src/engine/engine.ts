@@ -52,7 +52,7 @@ import type { CloudKind } from "../harnesses/cloud.ts";
 import { CLOUD_SOURCE, type CliHarness, type ConsultTarget, type Harness, type HarnessAdapter, isCloud, type StartParams } from "./harness.ts";
 import { runDataStep } from "./data-step.ts";
 import { sessionTooling } from "./tooling.ts";
-import { aboutExposed, stopAsking } from "../platform/exposed.ts";
+import { aboutExposed, runnerGrantCurrent, stopAsking } from "../platform/exposed.ts";
 import { annotate, currentTraceId, meter, recordError, spanEvent, tracer, withJob } from "../telemetry/index.ts";
 import { CONSULT, REQUEST_APPROVAL } from "../cloud/builtins.ts";
 import { attachProposal, settleProposal } from "../platform/proposals.ts";
@@ -810,7 +810,7 @@ export class Engine {
       // for nothing the agent chose, nothing is granted and the answer allows this call only:
       // the runner must not stop prompting for a call the endpoint would still refuse, nor for
       // an action of a runner tool the agent doesn't let run unasked.
-      if (by?.type === "user" && answer.kind === "permission" && answer.decision === "allow-always" && q.payload.kind === "permission" && (q.payload.toolName.startsWith("mcp__job_tools__") || !!q.about?.toolId)) {
+      if (by?.type === "user" && answer.kind === "permission" && answer.decision === "allow-always" && q.payload.kind === "permission" && q.payload.toolName.startsWith("mcp__")) {
         const stopped = await stopAsking(tx as unknown as Db, q.runId, q.payload.toolName, q.about);
         const [settled] = await tx
           .update(questions)
@@ -1642,6 +1642,7 @@ export class Engine {
    * path that sends answers reads them through here (`undeliveredAnswers`, `redeliverAnswer`).
    */
   private async checkedAnswer(q: QuestionRow): Promise<QuestionRow> {
+    if (q.about?.toolId && q.payload.kind === "permission" && q.answer?.kind === "permission" && q.answer.decision === "allow-always" && !(await runnerGrantCurrent(this.db, q.runId, q.payload.toolName, q.about))) return { ...q, answer: { ...q.answer, decision: "allow" } };
     if (q.kind !== "consult" || q.answer?.kind !== "consult") return q;
     // A failure too: its reason may quote the consulted Job's error.
     const problem = await deliveryProblem(this.db, q);
@@ -2212,6 +2213,7 @@ export class Engine {
     const sessionId = q.sessionId!;
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`q:${q.id}`, async () => {
+      q = await this.checkedAnswer(q);
       // Who answered goes with the answer itself: an agent's is never shown as the owner's.
       const ok = q.orphaned
         ? await this.adapter.send(sessionId, answerText(q))

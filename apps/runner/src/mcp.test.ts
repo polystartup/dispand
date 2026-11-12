@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
-import { narrowUnasked, unaskedTools, callTool, codexMcpServers, credentialValues, discoverTool, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
+import { runnerArgumentsAllowed, narrowUnasked, unaskedTools, callTool, codexMcpServers, credentialValues, discoverTool, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
 import { codexDenied } from "./boundary.ts";
 
 const echo = { command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")] };
@@ -218,4 +218,10 @@ test("runner grants are namespaced, require a Job, and can only shrink live", ()
   expect([...names]).toEqual([]);
   narrowUnasked(names, servers, [{ name: "mail", unasked: ["draft_email"] }]);
   expect([...names]).toEqual([]);
+});
+
+test("automatic runner grants use the poll guard for protected paths", () => {
+  const forbidden = ["/guarded/config.json"];
+  for (const path of ["/guarded/config.json", "file:///guarded/config.json", "%2Fguarded%2Fconfig.json"]) expect(runnerArgumentsAllowed({ nested: [{ path }] }, forbidden)).toBe(false);
+  expect(runnerArgumentsAllowed({ path: "/allowed/note.txt" }, forbidden)).toBe(true);
 });
