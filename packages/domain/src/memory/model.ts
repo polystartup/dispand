@@ -53,3 +53,15 @@ export const MemoryEntryInput = z.object({
   body: z.string().max(MAX_MEMORY_BODY, `The body is at most ${MAX_MEMORY_BODY} characters.`),
 });
 export type MemoryEntryFields = z.infer<typeof MemoryEntryInput>;
+
+/**
+ * The fields' types and coarse bounds, for a procedure's or a tool's input: the entry's own rule
+ * (`MemoryEntryInput`) is the store's, so a refusal reads the same for a person and an agent.
+ */
+export const MemoryEntryShape = {
+  path: z.string().max(1000),
+  name: z.string().max(1000),
+  description: z.string().max(1000),
+  type: z.string().max(100),
+  body: z.string().max(MAX_MEMORY_BODY * 2),
+};

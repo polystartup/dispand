@@ -627,6 +627,15 @@
   `workspace`, empty by default) says where its Jobs may write memory. Setting it is part of
   `agents.create` and `agents.update`, grants a Job reaches only through an approved proposal;
   the Job's snapshot keeps the targets and `rightsOf` gives those the agent still has.
+  A Job's memory tools (`memory/tools.ts`, `MEMORY_TOOLS` in `platform/tools.ts`) are, like the
+  `inbox` ones, run by `callPlatformTool` through their `run`, which gets the Job's rights. They
+  have no bundle: their own `available` rule gives them (`allowed`), `memory_read` to every Job
+  and the three writes to a Job whose rights hold a target. A table scope's table goes through
+  the call's table check like any other; the rest of the rule (which target, `data` for a table,
+  `configure` to read another agent's memory) is `memory/tools.ts`'s. A write is authored by
+  the Job (`{ agentId, runId, configure }`); a write refused for its target is a `memory.write`
+  span and counted like the store's own refusals, and a read is a `memory.read` span and
+  `dispand.memory.reads` (scope, result).
 - **Skills in cloud sessions** (`skills/cloud.ts`): the way Agent Skills work. At every model
   call `sessionSkills` reads the skills of the session's packages (`sessionTooling`: for a Job,
   its snapshot's that the agent still has); the system prompt lists each skill's name and

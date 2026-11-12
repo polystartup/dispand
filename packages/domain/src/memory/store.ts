@@ -39,6 +39,11 @@ function recorded<T extends { id: string } | Refusal>(scope: MemoryScope["scope"
   });
 }
 
+/** A write refused before it reaches the store (a Job without the scope's target), recorded like any other. */
+export function refuseWrite(scope: MemoryScope["scope"], op: "add" | "update" | "remove", error: string): Promise<Refusal> {
+  return recorded(scope, op, async () => ({ error }));
+}
+
 function inScope(ownerId: string, where: MemoryScope) {
   return and(
     eq(memories.ownerId, ownerId),

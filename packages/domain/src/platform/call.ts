@@ -6,7 +6,7 @@ import { router } from "../rpc/router.ts";
 import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
 import { approvedItems, createProposal, issues, recordInPlugin, recordOutcome, resolveRefs, takeItem, type ItemAt } from "./proposals.ts";
 import { rightsOf, type JobIdentity } from "./rights.ts";
-import { APPLY, INBOX_TOOLS, PLATFORM_TOOLS, procedureOf, PROPOSE, type PlatformTool } from "./tools.ts";
+import { allowed, APPLY, INBOX_TOOLS, MEMORY_TOOLS, PLATFORM_TOOLS, procedureOf, PROPOSE, type PlatformTool } from "./tools.ts";
 
 // The one way a Job's session calls Dispand's own procedures, for a cloud session (in process)
 // and for the Job endpoint alike: every call is authorized here, against the Job and against
@@ -17,7 +17,7 @@ export type PlatformApp = Omit<InitialContext, "headers" | "resHeaders" | "job">
 
 export type ToolResult = { ok: true; output: unknown } | { ok: false; error: string };
 
-const ALL = [...PLATFORM_TOOLS, PROPOSE, APPLY, ...INBOX_TOOLS];
+const ALL = [...PLATFORM_TOOLS, PROPOSE, APPLY, ...INBOX_TOOLS, ...MEMORY_TOOLS];
 const NEEDS_PROPOSAL =
   "This change needs the owner's approval: list it in a proposal (propose), ask for it (request_approval with the proposal's id), then have proposal_apply make it, or make the call exactly as listed, once.";
 const OVER = "This Job is over";
@@ -32,12 +32,12 @@ export type { JobIdentity };
 /** The tools the Job may use now; none once it is over. */
 export async function toolsOf(db: Db, job: JobIdentity): Promise<PlatformTool[]> {
   const rights = await rightsOf(db, job);
-  return rights ? ALL.filter((t) => rights.bundles.includes(t.bundle)) : [];
+  return rights ? ALL.filter((t) => allowed(t, rights)) : [];
 }
 
 /**
  * Calls one of Dispand's tools for a Job: the tool must be declared, the Job still going, the
- * tool's bundle and every table the call touches within the Job's rights. The procedure then
+ * tool (its bundle, or its own rule) and every table the call touches within the Job's rights. The procedure then
  * runs in process as the Job's owner. `at`: the item of an approved proposal this call makes
  * (`proposal_apply`), and no other. A refusal or a failure comes back as words for the agent,
  * never as internals.
@@ -49,7 +49,7 @@ export async function callPlatformTool(app: PlatformApp, job: JobIdentity, name:
   try {
     const rights = await rightsOf(app.db, job);
     if (!rights) return { ok: false, error: OVER };
-    if (!rights.bundles.includes(tool.bundle)) return { ok: false, error: `This agent may not use ${tool.name}` };
+    if (!allowed(tool, rights)) return { ok: false, error: `This agent may not use ${tool.name}` };
     const parsed = tool.input.safeParse(input ?? {});
     if (!parsed.success) return { ok: false, error: issues(parsed.error) };
     const scope = rights.tables;
@@ -57,7 +57,7 @@ export async function callPlatformTool(app: PlatformApp, job: JobIdentity, name:
     // Outside the Job's tables, or naming nothing: the same answer, so a Job learns nothing about what it can't reach.
     if (touched.some((id) => id === null || (scope !== "all" && !scope.includes(id)))) return { ok: false, error: NOT_FOUND };
     if (tool === PROPOSE) {
-      const made = await createProposal(app.db, job, ALL.filter((t) => rights.bundles.includes(t.bundle)), scope, parsed.data);
+      const made = await createProposal(app.db, job, ALL.filter((t) => allowed(t, rights)), scope, parsed.data);
       if ("error" in made) return { ok: false, error: made.error };
       return {
         ok: true,
@@ -65,7 +65,7 @@ export async function callPlatformTool(app: PlatformApp, job: JobIdentity, name:
       };
     }
     if (tool === APPLY) return await applyProposal(app, job, (parsed.data as { proposalId: string }).proposalId);
-    if (tool.run) return await tool.run(app, job, parsed.data);
+    if (tool.run) return await tool.run(app, job, parsed.data, rights);
     // What changes what agents may do: only as a person approved it for this Job, and once. Any
     // other write uses a matching item too, so what it creates is what later items name.
     taken = at || tool.grant || tool.write ? await takeItem(app.db, job, tool.name, parsed.data, at) : null;
