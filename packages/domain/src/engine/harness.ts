@@ -34,7 +34,14 @@ export function isCloud(h: Harness): h is CloudHarness {
  * What the engine decides about a session; the harness adds where and how it runs. `runKey` names a per-run directory.
  * Skills and MCP servers aren't sent yet: every start carries none.
  */
-export type StartParams = Omit<ClaudeSessionStart, "harness" | "cwd" | "permissionMode" | "model" | "skills" | "mcpServers"> & { runKey: string };
+export type StartParams = Omit<ClaudeSessionStart, "harness" | "cwd" | "permissionMode" | "model" | "skills" | "mcpServers"> & {
+  runKey: string;
+  /** The agents a Job's cloud session may consult (its `consult` tool), as they were when it started; absent when none. */
+  consults?: ConsultTarget[];
+};
+
+/** An agent a session may consult: its id (what the tool takes), and its name and description as the asker reads them. */
+export type ConsultTarget = { agentId: string; name: string; description: string };
 
 /**
  * How the engine drives a harness (spec 5.1). Each call resolves true once the message reached

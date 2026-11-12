@@ -46,13 +46,14 @@ function kept<T extends object>(row: T, make: (row: T) => ThreadMessageLike): Th
 
 /**
  * The chat of a run as a thread: the chat step's messages and its questions (but those that
- * expired), in the order they came.
+ * expired, and consults), in the order they came.
  */
 export function threadMessages(run: RunSnapshot | null, chatStepId: string | undefined): ThreadMessageLike[] {
   if (!run || !chatStepId) return [];
   return [
     ...run.messages.filter((m) => m.stepRunId === chatStepId).map((m) => ({ at: new Date(m.createdAt).getTime(), message: kept(m, ofMessage) })),
-    ...run.questions.filter((q) => q.stepRunId === chatStepId && q.status !== "expired").map((q) => ({ at: new Date(q.createdAt).getTime(), message: kept(q, ofQuestion) })),
+    // A consult asks nothing of the owner: it has no place to answer it here.
+    ...run.questions.filter((q) => q.stepRunId === chatStepId && q.status !== "expired" && q.payload.kind !== "consult").map((q) => ({ at: new Date(q.createdAt).getTime(), message: kept(q, ofQuestion) })),
   ]
     .sort((a, b) => a.at - b.at)
     .map((item) => item.message);

@@ -1,6 +1,6 @@
 // Function-tool names for the providers: `^[a-zA-Z0-9_-]{1,64}$`, unique, the same for the same
 // list, and never one of the built-ins the cloud loop answers itself.
-const RESERVED = new Set(["ask_user", "submit_outputs", "request_approval", "read_skill"]);
+const RESERVED = new Set(["ask_user", "submit_outputs", "request_approval", "consult", "read_skill"]);
 const MAX = 64;
 
 function slug(label: string): string {

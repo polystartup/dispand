@@ -1,4 +1,5 @@
 import { HarnessEvent, type OutputField, type QuestionPayload, TEXT } from "@dispand/runner-protocol";
+import type { ConsultTarget } from "../engine/harness.ts";
 import type { ToolSpec } from "./model-client.ts";
 
 // The tools a cloud session answers itself, with the shapes and texts of the runner's Claude
@@ -7,6 +8,7 @@ import type { ToolSpec } from "./model-client.ts";
 export const ASK_USER = "ask_user";
 export const SUBMIT_OUTPUTS = "submit_outputs";
 export const REQUEST_APPROVAL = "request_approval";
+export const CONSULT = "consult";
 /** The most characters an approval request's words may hold: the owner reads them whole. */
 export const MAX_APPROVAL_MESSAGE = 4000;
 
@@ -126,6 +128,35 @@ export function approvalMessage(args: unknown): { message: string; proposal?: st
   if (message.trim().length > MAX_APPROVAL_MESSAGE) return { error: `The message is too long to show whole (at most ${MAX_APPROVAL_MESSAGE} characters): shorten it.` };
   if (proposal !== undefined && (typeof proposal !== "string" || !PROPOSAL_ID.test(proposal))) return { error: "proposal must be the id propose gave you; leave it out to ask in words only." };
   return { message: storableText(message.trim()), ...(proposal === undefined ? {} : { proposal }) };
+}
+
+/**
+ * `consult`: the agents the session may consult, each by id with its name and description. Only
+ * in a Job's session whose agent may consult at least one agent.
+ */
+export function consultSpec(agents: ConsultTarget[]): ToolSpec {
+  const listed = agents.map((a) => `- ${a.agentId}: ${a.name}${a.description ? ` (${a.description.replaceAll("\n", " ")})` : ""}`).join("\n");
+  return {
+    name: CONSULT,
+    description: [
+      "Ask another agent one question and wait for its answer. It works as itself, with its own tools and data, and gets your question and nothing else: say everything that matters in it. A follow-up is another consult, which remembers nothing of this one.",
+      "Agents you may consult (id: name, and what it is for):",
+      listed,
+    ].join("\n"),
+    inputSchema: strictObject({
+      agent: { type: "string", description: "The id of the agent to consult, as listed" },
+      question: { type: "string", description: "Your question, with all it needs to be answered" },
+    }),
+  };
+}
+
+/** `consult` arguments as the question to send, or the error the model gets back. */
+export function consultQuestion(args: unknown, agents: ConsultTarget[]): { agentId: string; question: string } | { error: string } {
+  const { agent, question } = (args ?? {}) as { agent?: unknown; question?: unknown };
+  if (typeof agent !== "string" || !agents.some((a) => a.agentId === agent)) return { error: "agent must be the id of an agent listed in the consult tool." };
+  if (typeof question !== "string" || question.trim() === "") return { error: "consult needs a question." };
+  if (question.trim().length > TEXT) return { error: `The question is too long (at most ${TEXT} characters): shorten it.` };
+  return { agentId: agent, question: storableText(question.trim()) };
 }
 
 export const TEXTS = {

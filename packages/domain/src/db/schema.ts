@@ -189,7 +189,9 @@ export type RunTrigger =
   /** A primitive trigger's event, with what the trigger node gives the Job: the change. */
   | { type: "event"; eventId: string; outputs: Record<string, string> }
   /** A poll trigger's new item, with the action that found it and what the trigger node gives the Job: the item. */
-  | { type: "poll"; triggerId: string; itemId: string; toolId: string; action: string; outputs: Record<string, string> };
+  | { type: "poll"; triggerId: string; itemId: string; toolId: string; action: string; outputs: Record<string, string> }
+  /** Another Job's consult (`engine/consults.ts`): its question row, and what the trigger node gives the Job (the question, who asks). */
+  | { type: "consult"; questionId: string; outputs: Record<string, string> };
 export type StepStatus = "pending" | "running" | "waiting" | "succeeded" | "failed" | "skipped";
 
 /** Who waits on a queued step, served in this order (`engine/slots.ts`): a person, a resume, a new start. */
@@ -223,6 +225,8 @@ export type JobCause = (
   | { kind: "event"; eventId: string; jobId?: string; rootJobId?: string }
   /** A poll's new item: always the root of its chain. */
   | { kind: "poll"; triggerId: string; itemId: string }
+  /** A consult: the asking Job's question row, and that Job. */
+  | { kind: "consult"; questionId: string; jobId: string }
 ) & { depth: number };
 
 export type RootKind = "user" | "chat" | "schedule" | "event" | "poll";
@@ -528,7 +532,8 @@ export const cloudSessions = pgTable("cloud_sessions", {
 
 export type QuestionStatus = "pending" | "answered" | "expired";
 
-export type QuestionKind = "question" | "approval";
+/** `consult`: a question to another agent, answered by that agent's Job (`engine/consults.ts`), never by a person: not an Inbox item. */
+export type QuestionKind = "question" | "approval" | "consult";
 /** One write of a proposal: a platform tool and its input as the tool parsed it; `usedAt` once the Job made that call. */
 export type ProposalItem = { tool: string; input: unknown; usedAt?: string };
 
@@ -602,10 +607,13 @@ export const questions = pgTable(
     orphaned: boolean("orphaned").notNull().default(false),
     // A checkpoint's Approval (design 6.1): the root cause it pauses. No session waits on it.
     rootId: text("root_id").references(() => roots.id, { onDelete: "cascade" }),
+    // A consult: the consulted Job, once made (null while its root is paused, or when it was refused).
+    consultRunId: text("consult_run_id").references((): AnyPgColumn => runs.id, { onDelete: "set null" }),
   },
   (t) => [
     unique().on(t.sessionId, t.runnerQuestionId),
     index("questions_run_idx").on(t.runId),
+    index("questions_consult_run_idx").on(t.consultRunId),
     uniqueIndex("questions_checkpoint_idx").on(t.rootId).where(sql`${t.status} = 'pending'`),
   ],
 );

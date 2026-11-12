@@ -11,11 +11,14 @@ import { nodesOf, type WorkflowDef } from "../workflows/model.ts";
 
 const owner = base.use(authed);
 
+/** The owner's Inbox items: every Question and Approval, never a consult, which an agent's Job answers (`engine/consults.ts`). */
+const inbox = (ownerId: string) => and(eq(questionsTable.ownerId, ownerId), ne(questionsTable.kind, "consult"));
+
 /**
  * Questions that wait for the owner. Chat questions count too: a chat the owner isn't looking at
  * would block silently. They show inline in their chat as well; answering in either place works.
  */
-const waiting = (ownerId: string) => and(eq(questionsTable.ownerId, ownerId), eq(questionsTable.status, "pending"));
+const waiting = (ownerId: string) => and(inbox(ownerId), eq(questionsTable.status, "pending"));
 
 async function pendingCount(db: Db, ownerId: string) {
   const [row] = await db.select({ n: count() }).from(questionsTable).where(waiting(ownerId));
@@ -89,7 +92,7 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]) })).handl
   const done =
     input.status === "all"
       ? await select()
-          .where(and(eq(questionsTable.ownerId, context.ownerId), ne(questionsTable.status, "pending")))
+          .where(and(inbox(context.ownerId), ne(questionsTable.status, "pending")))
           .orderBy(desc(sql`coalesce(${questionsTable.answeredAt}, ${questionsTable.createdAt})`), desc(questionsTable.id))
           .limit(MAX_DONE)
       : [];
@@ -147,7 +150,7 @@ const answer = owner.input(z.object({ questionId: z.string(), answer: Answer }))
   const [q] = await context.db
     .select()
     .from(questionsTable)
-    .where(and(eq(questionsTable.id, input.questionId), eq(questionsTable.ownerId, context.ownerId)));
+    .where(and(eq(questionsTable.id, input.questionId), inbox(context.ownerId)));
   if (!q) throw new ORPCError("NOT_FOUND");
   const delivered = check(q.payload, input.answer);
   // An orphaned question's answer goes as a message (its words, with a prefix), and any question

@@ -19,6 +19,10 @@ export const METRICS = {
   "dispand.questions.opened": ["dispand.question.kind"],
   "dispand.questions.answered": ["dispand.question.kind", "dispand.answer.decision", "dispand.answer.by"],
   "dispand.question.wait": ["dispand.question.kind"],
+  // Consults (`engine/consults.ts`): asked, and how each ended (answered, refused, failed, stopped).
+  "dispand.consults.asked": [],
+  "dispand.consults.ended": ["dispand.consult.outcome"],
+  "dispand.consult.wait": ["dispand.consult.outcome"],
   // The `inbox` bundle's tools (`questions/inbox.ts`).
   "dispand.inbox.calls": ["dispand.inbox.tool", "dispand.result"],
   "dispand.checkpoints.reached": [],

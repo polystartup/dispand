@@ -53,6 +53,7 @@ function payload(p: QuestionPayload, maxBytes: number): QuestionPayload {
     };
   }
   if (p.kind === "confirm-outputs") return { kind: "confirm-outputs", values: values(p.values, maxBytes) };
+  if (p.kind === "consult") return { kind: "consult", agentId: protocolString(p.agentId, ID), question: protocolString(p.question, TEXT, maxBytes) };
   const input = cleanJson(p.input, maxBytes);
   return { kind: "permission", toolName: protocolString(p.toolName, ID), input, canAlwaysAllow: p.canAlwaysAllow };
 }
