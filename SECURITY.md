@@ -35,6 +35,13 @@ changes it updates this file.
   its Jobs, their transcripts, Questions and Approvals (only its configuration goes): a Job still
   going is stopped first, and a Job whose agent is gone has no agent to authorize it, so its token
   is refused and it never runs again; it is read under the same rules as any other Job.
+  Every call, a read or a refusal included, leaves one Audit row (`platform.call`) written by
+  `callPlatformTool` after the call: the tool's name, the reason code of a refusal, and only ids
+  the server resolved (a table of the owner's within the Job's, what the call created or
+  returned); never the call's input or output, and a failure to write it never changes the
+  call's result. `configure` reads the Audit (`audit_list`), without the rows naming a table
+  outside the Job's (left out in the query, so a page and its cursor say nothing of them); the
+  trace link's address (`audit.traceUrl`) is the owner's only.
 - **A session gets its agent's skills and tools, and no more.** For a Job, what its snapshot
   holds and the agent still has; for a workflow run, the agent's as they are. A tool reached by
   URL is called on the server only, for cloud sessions, with its sealed headers opened for that
@@ -511,7 +518,12 @@ changes it updates this file.
   Agent Plugins layout (a root `plugin.json`) is read with that standard's rules, under the same
   limits: its `$schema` ids are known, never fetched; a linked `plugin.json` rejects it; its
   stdio servers are read (a `./` command and `cwd` that stay inside the plugin, or a `cwd` in
-  its data folder) but, like every command a plugin names, never stored or run. Links are checked out
+  its data folder) but, like every command a plugin names, never stored or run. Its `com.dispand`
+  definitions (tables, agents, triggers) are data and grant nothing: install only stores them,
+  each read as a regular file within the same budget and checked alone. What is made from one is
+  made by the procedure a direct call uses, by the owner or through an approved proposal, with
+  that procedure's checks; an update replaces the definitions and never what was made from
+  them. Links are checked out
   as plain files (`core.symlinks=false`), then removed from the checkout and listed as not
   imported: nothing is ever written or read through one, and a file name that isn't UTF-8 refuses
   the fetch. Every file is read with `lstat`, any other non-regular file is skipped, and a plugin or skill folder whose real path leaves the

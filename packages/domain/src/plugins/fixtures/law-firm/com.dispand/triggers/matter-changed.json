@@ -1,0 +1,6 @@
+{
+  "agent": "Matter upkeep",
+  "name": "Matter changed",
+  "instructions": "Update the conclusions.",
+  "config": { "kind": "primitive", "table": "Matters", "operations": ["updated"] }
+}

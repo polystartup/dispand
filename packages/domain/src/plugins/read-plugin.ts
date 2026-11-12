@@ -3,6 +3,7 @@ import { storable } from "@dispand/runner-protocol";
 import { parse } from "yaml";
 import { MAX_FILE_BYTES, splitSkillMd } from "../skills/package.ts";
 import { isDir, kindAt, list, MAX_JSON_BYTES, type NotImported, Notes, PluginError, type PluginSkill, pluginPath, readJson, readRegular, readSkillFolders, resolvePluginRoot, spend, withBudget } from "./fs.ts";
+import { NO_DEFINITIONS, type PluginDefinitions } from "./definitions.ts";
 import { allStorable, type MarketplaceEntry } from "./marketplace.ts";
 import { readStandardPlugin } from "./standard.ts";
 
@@ -23,6 +24,8 @@ export type PluginContents = {
   skills: PluginSkill[];
   mcpServers: PluginMcpServer[];
   agents: PluginAgent[];
+  /** The `com.dispand` definitions of a standard plugin; none in the Claude layout. */
+  definitions: PluginDefinitions;
   notImported: NotImported[];
 };
 
@@ -32,6 +35,8 @@ export type PluginComponents = {
   /** `url` (an HTTP server's, with its placeholders) is where its settings would go: the install sheet shows it. */
   mcpServers: { name: string; type: "http" | "stdio"; settings: string[]; url?: string }[];
   agents: { name: string; description: string }[];
+  /** The names of its `com.dispand` definitions, registered on install (absent from rows stored before them). */
+  definitions?: { agents: string[]; primitives: string[]; triggers: string[] };
 };
 
 export function componentsOf(contents: PluginContents): PluginComponents {
@@ -39,6 +44,11 @@ export function componentsOf(contents: PluginContents): PluginComponents {
     skills: contents.skills.map(({ name, description }) => ({ name, description })),
     mcpServers: contents.mcpServers.map((s) => ({ name: s.name, type: s.type, settings: s.settings, ...(s.type === "http" ? { url: s.url } : {}) })),
     agents: contents.agents.map(({ name, description }) => ({ name, description })),
+    definitions: {
+      agents: contents.definitions.agents.map((d) => d.name),
+      primitives: contents.definitions.primitives.map((d) => d.name),
+      triggers: contents.definitions.triggers.map((d) => d.name),
+    },
   };
 }
 
@@ -222,5 +232,5 @@ function readWithin(root: string, entry: MarketplaceEntry, links: string[]): Plu
   const agents = readAgents(root, notImported);
   listNotRun(root, manifest, notImported);
   const version = typeof manifest.version === "string" && storable(manifest.version) ? cut(manifest.version, 100) : null;
-  return { layout: "claude", version, skills, mcpServers, agents, notImported: notImported.list() };
+  return { layout: "claude", version, skills, mcpServers, agents, definitions: NO_DEFINITIONS, notImported: notImported.list() };
 }

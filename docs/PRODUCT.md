@@ -12,7 +12,8 @@ Status: Prototype
   workspace's, each table's and each agent's, in their Jobs' prompts), wires them into
   workflows that run by hand or on a schedule, and works with them from dashboards. Plugins
   bring skills, agents and tools from Git repositories and skill sites, in the Claude plugin
-  layout or the Agent Plugins standard's. The **Assistant**, a
+  layout or the Agent Plugins standard's, whose Dispand extension also defines tables, agents
+  and triggers a workspace can be set up from. The **Assistant**, a
   built-in agent at the top of the sidebar, is a chat with an agent that may work on the data
   and configure the workspace.
 - **For whom:** a single owner per install who wants to hand recurring business work to AI
@@ -112,7 +113,9 @@ Status: Prototype
   agent's reach, or a Job's own change); its Questions and Approvals asked, answered (with the
   decision and whether a person or an agent answered) or expired; a checkpoint reached and
   answered (approved, don't ask again, or declined, with how many held events and Jobs it
-  stopped); and a consult asked and how it ended. A row names what was touched (ids, names, counts and
+  stopped); a consult asked and how it ended; and every Dispand tool a Job called, reads and
+  refusals included (with the tool, the table, and why it was refused). Agents with `configure`
+  read it too (`audit_list`), except rows about tables outside theirs. A row names what was touched (ids, names, counts and
   kinds), never what an agent read or wrote, and carries the trace it was recorded in: with
   `DISPAND_TRACE_URL` set, the trace id links to the tracing tool. Workflow runs have no rows.
   Rows are kept 90 days by default (`workspace_settings.audit_retention_days`; nothing sweeps

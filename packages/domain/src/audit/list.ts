@@ -1,8 +1,9 @@
-import { and, desc, eq, gte, like, lte, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, like, lte, ne, or, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
 import { agents, audit, runs } from "../db/schema.ts";
 import { jobAgentNameSql } from "../jobs/agent-name.ts";
+import type { TableScope } from "../platform/bundles.ts";
 import { AUDIT_ACTIONS, AUDIT_FAMILIES, AUDIT_RESOURCES, AUDIT_RESULTS } from "./model.ts";
 
 /** Rows per page of `listAudit`, newest first. */
@@ -17,8 +18,9 @@ export const AuditFilter = z.object({
   resourceType: z.enum(AUDIT_RESOURCES).optional(),
   resourceId: z.string().max(200).optional(),
   result: z.enum(AUDIT_RESULTS).optional(),
-  from: z.coerce.date().optional(),
-  to: z.coerce.date().optional(),
+  // ISO 8601 strings rather than dates: the filter is a tool's input too, given as JSON Schema.
+  from: z.iso.datetime({ offset: true }).optional(),
+  to: z.iso.datetime({ offset: true }).optional(),
 });
 export type AuditFilter = z.infer<typeof AuditFilter>;
 
@@ -42,10 +44,16 @@ function decode(cursor: string): z.infer<typeof Cursor> {
 /**
  * The owner's rows, newest first, `AUDIT_PAGE` at a time, as `filter` narrows them. Pages are
  * keyed on `(at, id)`: a row written meanwhile never shifts a page. The cursor carries `at` as
- * Postgres prints it, since a JavaScript date would lose its microseconds.
+ * Postgres prints it, since a JavaScript date would lose its microseconds. `tables`: a Job's
+ * tables; a row naming any other table (in `details.tableId`, or as a table resource) is left
+ * out in the query, before the page's limit and its cursor. Rows naming no table stay.
  */
-export async function listAudit(db: Db | Tx, ownerId: string, filter: AuditFilter, cursor?: string): Promise<{ rows: AuditRow[]; next: string | null }> {
+export async function listAudit(db: Db | Tx, ownerId: string, filter: AuditFilter, cursor?: string, tables: TableScope = "all"): Promise<{ rows: AuditRow[]; next: string | null }> {
   const where: (SQL | undefined)[] = [eq(audit.ownerId, ownerId)];
+  if (tables !== "all") {
+    const tableId = sql`${audit.details}->>'tableId'`;
+    where.push(or(isNull(tableId), inArray(tableId, tables)), or(ne(audit.resourceType, "table"), isNull(audit.resourceId), inArray(audit.resourceId, tables)));
+  }
   if (filter.actorType) where.push(sql`${audit.actor}->>'type' = ${filter.actorType}`);
   if (filter.agentId) where.push(eq(audit.actorAgentId, filter.agentId));
   if (filter.jobId) where.push(eq(audit.jobId, filter.jobId));
@@ -53,8 +61,8 @@ export async function listAudit(db: Db | Tx, ownerId: string, filter: AuditFilte
   if (filter.resourceType) where.push(eq(audit.resourceType, filter.resourceType));
   if (filter.resourceId) where.push(eq(audit.resourceId, filter.resourceId));
   if (filter.result) where.push(eq(audit.result, filter.result));
-  if (filter.from) where.push(gte(audit.at, filter.from));
-  if (filter.to) where.push(lte(audit.at, filter.to));
+  if (filter.from) where.push(gte(audit.at, new Date(filter.from)));
+  if (filter.to) where.push(lte(audit.at, new Date(filter.to)));
   if (cursor) {
     const after = decode(cursor);
     where.push(sql`(${audit.at}, ${audit.id}) < (${after.at}::timestamptz, ${after.id})`);

@@ -1,0 +1,14 @@
+{
+  "agent": "Intake and research",
+  "name": "New client email",
+  "instructions": "A new email arrived.",
+  "config": {
+    "kind": "poll",
+    "catalog": "gmail",
+    "action": "search_threads",
+    "arguments": { "query": "in:inbox after:{{lastPollEpoch}}", "pageSize": 50 },
+    "itemsPath": "threads",
+    "idPath": "id",
+    "continuation": { "path": "nextPageToken", "argument": "pageToken" }
+  }
+}

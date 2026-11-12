@@ -18,7 +18,7 @@ import {
   tables as tablesTable,
   tools as toolsTable,
   triggers as triggersTable,
-  type PluginCreated,
+  CREATED_KINDS,
 } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -263,7 +263,7 @@ function reviewToken(sha: string, contents: PluginContents): string {
 const preview = owner.input(EntryRef).handler(async ({ input, context }) => {
   const market = await findMarketplace(context.db, context.ownerId, input.marketplaceId);
   const { contents, sha } = await readEntry(market, findEntry(market, input.entryName), !!context.gitFileUrls).catch(asBadRequest);
-  return { ...componentsOf(contents), notImported: contents.notImported, reviewed: reviewToken(sha, contents) };
+  return { ...componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, reviewed: reviewToken(sha, contents) };
 });
 
 /** The chosen skills' files, checked as one package (its caps); BAD_REQUEST for a name the plugin doesn't have. */
@@ -318,9 +318,7 @@ const install = owner
   .input(InstallInput)
   .handler(async ({ input, context }) => {
     const picked = { skills: unique(input.skills), mcpServers: unique(input.mcpServers), agents: unique(input.agents) };
-    if (!picked.skills.length && !picked.mcpServers.length && !picked.agents.length) {
-      throw new ORPCError("BAD_REQUEST", { message: "Pick at least one skill, MCP server or agent" });
-    }
+    const nothingPicked = !picked.skills.length && !picked.mcpServers.length && !picked.agents.length;
     const { harnessId } = input;
     if (picked.agents.length && !harnessId) throw new ORPCError("BAD_REQUEST", { message: "Pick the harness the plugin's agents run on" });
     if (picked.agents.length && harnessId) {
@@ -333,6 +331,11 @@ const install = owner
     const market = await findMarketplace(context.db, context.ownerId, input.marketplaceId);
     const entry = findEntry(market, input.entryName);
     const { contents, url, sha } = await readEntry(market, entry, !!context.gitFileUrls).catch(asBadRequest);
+    // A plugin with definitions is worth installing for them alone: they are registered, and set up later.
+    const { agents: agentDefs, primitives, triggers } = contents.definitions;
+    if (nothingPicked && !agentDefs.length && !primitives.length && !triggers.length) {
+      throw new ORPCError("BAD_REQUEST", { message: "Pick at least one skill, MCP server or agent" });
+    }
     if (picked.mcpServers.length && reviewToken(sha, contents) !== input.reviewed) {
       throw new ORPCError("CONFLICT", { message: `${entry.name} changed since you reviewed it: look at it again before installing` });
     }
@@ -366,6 +369,7 @@ const install = owner
           sha,
           layout: contents.layout,
           components: componentsOf(contents),
+          definitions: contents.definitions,
           notImported: contents.notImported,
         });
         const packageId = chosen ? newId("skillpkg") : null;
@@ -422,12 +426,14 @@ async function findPlugin(db: Db | Tx, ownerId: string, id: string, lock = false
 
 type Named = { id: string; name: string };
 
+type CreatedKind = (typeof CREATED_KINDS)[number];
+
 /**
- * For each generated plugin, what it lists as it is now, by kind: a row deleted since is left
+ * For each plugin, what it lists as created as it is now, by kind: a row deleted since is left
  * out, and a field or trigger reads with its table or agent.
  */
 async function createdNames(db: Db, ownerId: string, rows: PluginRow[]) {
-  const all = (kind: keyof PluginCreated) => [...new Set(rows.flatMap((r) => (r.source === "generated" ? (r.created[kind] ?? []) : [])))];
+  const all = (kind: CreatedKind) => [...new Set(rows.flatMap((r) => r.created[kind] ?? []))];
   const load = async (ids: string[], query: (ids: string[]) => Promise<Named[]>) => new Map((ids.length ? await query(ids) : []).map((r) => [r.id, r]));
   const found = {
     table: await load(all("table"), (ids) =>
@@ -454,11 +460,30 @@ async function createdNames(db: Db, ownerId: string, rows: PluginRow[]) {
       db.select({ id: toolsTable.id, name: toolsTable.name }).from(toolsTable).where(and(inArray(toolsTable.id, ids), eq(toolsTable.ownerId, ownerId))),
     ),
   };
-  const kinds = ["table", "field", "agent", "trigger", "tool"] as const;
   return new Map(
-    rows.map((r) => [r.id, Object.fromEntries(kinds.map((kind) => [kind, (r.created[kind] ?? []).flatMap((id) => found[kind].get(id) ?? [])])) as Record<(typeof kinds)[number], Named[]>]),
+    rows.map((r) => [r.id, Object.fromEntries(CREATED_KINDS.map((kind) => [kind, (r.created[kind] ?? []).flatMap((id) => found[kind].get(id) ?? [])])) as Record<CreatedKind, Named[]>]),
   );
 }
+
+/** The kind a definition's key in `created.from` makes. */
+const MADE: Record<"primitive" | "agent" | "trigger", CreatedKind> = { primitive: "table", agent: "agent", trigger: "trigger" };
+
+/** A plugin's definitions, each with whether what was set up from it is still there. */
+function definitionsView(row: PluginRow, named: Record<CreatedKind, Named[]>) {
+  const setUp = (key: "primitive" | "agent" | "trigger", name: string) => {
+    const id = row.created.from?.[`${key}:${name}`];
+    return id !== undefined && named[MADE[key]].some((n) => n.id === id);
+  };
+  const { agents, primitives, triggers } = row.definitions;
+  return {
+    agents: agents.map((d) => ({ name: d.name, description: d.description, setUp: setUp("agent", d.name) })),
+    primitives: primitives.map((d) => ({ name: d.name, setUp: setUp("primitive", d.name) })),
+    triggers: triggers.map((d) => ({ name: d.name, agent: d.agent, setUp: setUp("trigger", d.name) })),
+  };
+}
+
+/** `a` and then those of `b` it doesn't hold, by id. */
+const merged = (a: Named[], b: Named[]) => [...a, ...b.filter((n) => !a.some((m) => m.id === n.id))];
 
 const list = owner.handler(async ({ context }) => {
   const rows = await context.db.select().from(pluginsTable).where(eq(pluginsTable.ownerId, context.ownerId)).orderBy(asc(pluginsTable.name));
@@ -491,10 +516,10 @@ const list = owner.handler(async ({ context }) => {
         .where(inArray(agentsTable.pluginId, ids))
         .orderBy(asc(agentsTable.name))
     : [];
-  const generated = await createdNames(context.db, context.ownerId, rows);
+  const created = await createdNames(context.db, context.ownerId, rows);
   return rows.map((r) => {
+    const named = created.get(r.id)!;
     if (r.source === "generated") {
-      const named = generated.get(r.id)!;
       return {
         id: r.id,
         name: r.name,
@@ -510,6 +535,7 @@ const list = owner.handler(async ({ context }) => {
         tables: named.table,
         fields: named.field,
         triggers: named.trigger,
+        definitions: definitionsView(r, named),
         available: { skills: [], mcpServers: [], agents: [] },
         notImported: [],
       };
@@ -528,11 +554,19 @@ const list = owner.handler(async ({ context }) => {
       sha: r.sha,
       updatedAt: r.updatedAt,
       skills: imported,
-      tools: tools.map(({ id, name }) => ({ id, name })),
-      agents: agents.map(({ id, name }) => ({ id, name })),
-      tables: [],
-      fields: [],
-      triggers: [],
+      // What it brought (linked to it) and what was set up from it.
+      tools: merged(
+        tools.map(({ id, name }) => ({ id, name })),
+        named.tool,
+      ),
+      agents: merged(
+        agents.map(({ id, name }) => ({ id, name })),
+        named.agent,
+      ),
+      tables: named.table,
+      fields: named.field,
+      triggers: named.trigger,
+      definitions: definitionsView(r, named),
       // What the plugin offers that wasn't imported (or was added upstream since).
       available: {
         skills: r.components.skills.filter((s) => !imported.some((i) => i.name === s.name)),
@@ -601,7 +635,8 @@ const update = owner.input(Id).handler(async ({ input, context }) => {
     }
     await tx
       .update(pluginsTable)
-      .set({ url, sha, layout: contents.layout, components: componentsOf(contents), notImported: contents.notImported, updatedAt: sql`now()` })
+      // Its definitions are replaced as they are upstream; what was set up from them stays as the owner has it.
+      .set({ url, sha, layout: contents.layout, components: componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, updatedAt: sql`now()` })
       .where(eq(pluginsTable.id, row.id));
     return moved;
   });

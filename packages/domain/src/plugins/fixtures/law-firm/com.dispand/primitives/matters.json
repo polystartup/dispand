@@ -1,0 +1,9 @@
+{
+  "name": "Matters",
+  "primitive": true,
+  "fields": [
+    { "name": "Clients", "type": "reference", "references": "Clients" },
+    { "name": "Conclusions", "type": "long-text" }
+  ],
+  "parent": { "field": "Clients", "required": false }
+}

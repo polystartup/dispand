@@ -13,6 +13,7 @@ import type { WorkflowDef } from "../workflows/model.ts";
 import type { MemoryAuthor, MemoryType } from "../memory/model.ts";
 import type { CloudKind } from "../harnesses/cloud.ts";
 import type { MarketplaceEntry, MarketplaceKind } from "../plugins/marketplace.ts";
+import type { PluginDefinitions } from "../plugins/definitions.ts";
 import type { NotImported, PluginComponents } from "../plugins/read-plugin.ts";
 import type { OAuthStatus, ToolAction, ToolAuth, ToolTransport } from "../tools/mcp.ts";
 import type { AuditAction, AuditActor, AuditDetails, AuditResource, AuditResult } from "../audit/model.ts";
@@ -934,13 +935,20 @@ export const marketplaces = pgTable(
   (t) => [unique("marketplaces_owner_url").on(t.ownerId, t.url)],
 );
 
-/** What a generated plugin lists, by kind: the ids its proposals' items created. */
-export type PluginCreated = Partial<Record<"table" | "field" | "agent" | "trigger" | "tool", string[]>>;
+/** The kinds of what a plugin lists as created from it. */
+export const CREATED_KINDS = ["table", "field", "agent", "trigger", "tool"] as const;
+
+/**
+ * What a plugin lists, by kind: the ids created from it (by approved proposals, or by setting up
+ * its definitions). `from` maps a definition's key (`primitive:<name>`, `agent:<name>`,
+ * `trigger:<name>`) to the id made from it, so a definition reads as set up while that row exists.
+ */
+export type PluginCreated = Partial<Record<(typeof CREATED_KINDS)[number], string[]>> & { from?: Record<string, string> };
 
 // Installed plugins: an entry of a marketplace, read at commit `sha`. What it brings (a skill
-// package, tools, agents) references it and goes with it. A `generated` one ("Generated: <business
-// name>") records what approved proposals naming it created (`created`) and owns nothing: no row
-// references it, so removing it removes the record only.
+// package, tools, agents) references it and, on uninstall, stays the owner's (`plugin_id` set
+// null). What was created from it is listed in `created`; a `generated` one ("Generated: <business
+// name>") owns nothing else, so removing it removes the record only.
 export const plugins = pgTable(
   "plugins",
   {
@@ -962,6 +970,8 @@ export const plugins = pgTable(
     /** Everything the plugin offered when last read, imported or not. */
     components: jsonb("components").$type<PluginComponents>().notNull(),
     notImported: jsonb("not_imported").$type<NotImported[]>().notNull().default([]),
+    /** Its `com.dispand` definitions as last read: registered, made only when set up. */
+    definitions: jsonb("definitions").$type<PluginDefinitions>().notNull().default({ agents: [], primitives: [], triggers: [] }),
     created: jsonb("created").$type<PluginCreated>().notNull().default({}),
     installedAt: timestamp("installed_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),

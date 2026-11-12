@@ -145,7 +145,7 @@ test("discovers components only from their fixed locations", () => {
 });
 
 test("treats missing component locations as valid absence", () => {
-  expect(read({})).toEqual({ layout: "standard", version: null, skills: [], mcpServers: [], agents: [], notImported: [] });
+  expect(read({})).toEqual({ layout: "standard", version: null, skills: [], mcpServers: [], agents: [], definitions: { agents: [], primitives: [], triggers: [] }, notImported: [] });
 });
 
 test("isolates invalid component types, skills and MCP entries", () => {

@@ -1,12 +1,18 @@
 import { call, ORPCError } from "@orpc/server";
+import { and, eq } from "drizzle-orm";
+import { AuditId } from "../audit/model.ts";
+import { recordAuditAfter, type AuditEntry } from "../audit/record.ts";
+import { auditResource } from "../audit/resource.ts";
 import type { Db } from "../db/client.ts";
+import { tables } from "../db/schema.ts";
 import { logError } from "../log.ts";
 import type { InitialContext } from "../rpc/context.ts";
 import { router } from "../rpc/router.ts";
 import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
 import { approvedItems, createProposal, issues, recordInPlugin, recordOutcome, resolveRefs, takeItem, type ItemAt } from "./proposals.ts";
+import type { TableScope } from "./bundles.ts";
 import { rightsOf, type JobIdentity } from "./rights.ts";
-import { allowed, APPLY, INBOX_TOOLS, MEMORY_TOOLS, PLATFORM_TOOLS, procedureOf, PROPOSE, type PlatformTool } from "./tools.ts";
+import { allowed, APPLY, INBOX_TOOLS, MEMORY_TOOLS, PLATFORM_TOOLS, procedureOf, PROPOSE, WHOLE_WORKSPACE, type PlatformTool } from "./tools.ts";
 
 // The one way a Job's session calls Dispand's own procedures, for a cloud session (in process)
 // and for the Job endpoint alike: every call is authorized here, against the Job and against
@@ -17,7 +23,8 @@ export type PlatformApp = Omit<InitialContext, "headers" | "resHeaders" | "job">
 
 export type ToolResult = { ok: true; output: unknown } | { ok: false; error: string };
 
-const ALL = [...PLATFORM_TOOLS, PROPOSE, APPLY, ...INBOX_TOOLS, ...MEMORY_TOOLS];
+/** Every tool a Job may be given. */
+export const ALL_TOOLS = [...PLATFORM_TOOLS, PROPOSE, APPLY, ...INBOX_TOOLS, ...MEMORY_TOOLS];
 const NEEDS_PROPOSAL =
   "This change needs the owner's approval: list it in a proposal (propose), ask for it (request_approval with the proposal's id), then have proposal_apply make it, or make the call exactly as listed, once.";
 const OVER = "This Job is over";
@@ -32,45 +39,109 @@ export type { JobIdentity };
 /** The tools the Job may use now; none once it is over. */
 export async function toolsOf(db: Db, job: JobIdentity): Promise<PlatformTool[]> {
   const rights = await rightsOf(db, job);
-  return rights ? ALL.filter((t) => allowed(t, rights)) : [];
+  return rights ? ALL_TOOLS.filter((t) => allowed(t, rights)) : [];
 }
+
+/** What a call came to, for its Audit row: never its input or its output's content. */
+type Seen = { reason?: string; failed?: true; tableId?: string; taken?: ItemAt | null; output?: unknown };
 
 /**
  * Calls one of Dispand's tools for a Job: the tool must be declared, the Job still going, the
  * tool (its bundle, or its own rule) and every table the call touches within the Job's rights. The procedure then
  * runs in process as the Job's owner. `at`: the item of an approved proposal this call makes
  * (`proposal_apply`), and no other. A refusal or a failure comes back as words for the agent,
- * never as internals.
+ * never as internals. Every call, a read or a refused one included, leaves one `platform.call`
+ * Audit row, written after it: a failure to write it never changes what the call returns.
  */
 export async function callPlatformTool(app: PlatformApp, job: JobIdentity, name: string, input: unknown, at?: ItemAt): Promise<ToolResult> {
-  const tool = ALL.find((t) => t.name === name);
-  if (!tool) return { ok: false, error: "Unknown tool" };
+  const tool = ALL_TOOLS.find((t) => t.name === name);
+  const seen: Seen = {};
+  try {
+    if (!tool) {
+      seen.reason = "unknown-tool";
+      return { ok: false, error: "Unknown tool" };
+    }
+    return await attempt(app, job, tool, input, at, seen);
+  } finally {
+    await recordAuditAfter(app.db, auditEntry(job, tool, input, seen));
+  }
+}
+
+/** The call's Audit row: what the server resolved (the tool, its table, the proposal item it made), never the agent's words. */
+function auditEntry(job: JobIdentity, tool: PlatformTool | undefined, input: unknown, seen: Seen): AuditEntry {
+  const ok = seen.reason === undefined && !seen.failed;
+  return {
+    ownerId: job.ownerId,
+    actor: { type: "job", runId: job.runId },
+    agentId: job.agentId,
+    jobId: job.runId,
+    action: "platform.call",
+    resource: tool ? auditResource(tool, input, ok ? seen.output : undefined) : { type: "workspace", id: null },
+    result: ok ? "ok" : seen.failed ? "failed" : "refused",
+    details: {
+      ...(tool ? { tool: tool.name } : {}),
+      ...(seen.tableId ? { tableId: seen.tableId } : {}),
+      ...(seen.taken ? { proposalId: seen.taken.proposalId, item: seen.taken.index } : {}),
+      ...(seen.reason ? { reason: seen.reason } : {}),
+    },
+  };
+}
+
+/**
+ * The table a call's row names, resolved before the call (a table it deletes is still there):
+ * the first it touches that is one of the owner's (an input may name anything) and within the
+ * Job's, so `audit_list` hides no row of the Job's own refusals and a Job can't tell a table it
+ * can't reach from an id that names nothing. Never throws: a lookup that fails names none.
+ */
+async function resolvedTable(db: Db, ownerId: string, touched: (string | null)[], scope: TableScope): Promise<string | undefined> {
+  const candidate = touched.find((id): id is string => id !== null && id !== WHOLE_WORKSPACE && AuditId.safeParse(id).success);
+  if (candidate === undefined || (scope !== "all" && !scope.includes(candidate))) return undefined;
+  const found = await db
+    .select({ id: tables.id })
+    .from(tables)
+    .where(and(eq(tables.id, candidate), eq(tables.ownerId, ownerId)))
+    .catch(() => []);
+  return found.length > 0 ? candidate : undefined;
+}
+
+async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, input: unknown, at: ItemAt | undefined, seen: Seen): Promise<ToolResult> {
+  const refuse = (reason: string, error: string): ToolResult => {
+    seen.reason = reason;
+    return { ok: false, error };
+  };
+  const done = (result: ToolResult): ToolResult => {
+    if (result.ok) seen.output = result.output;
+    else seen.reason ??= "refused";
+    return result;
+  };
   let taken: ItemAt | null = null;
   try {
     const rights = await rightsOf(app.db, job);
-    if (!rights) return { ok: false, error: OVER };
-    if (!allowed(tool, rights)) return { ok: false, error: `This agent may not use ${tool.name}` };
+    if (!rights) return refuse("over", OVER);
+    if (!allowed(tool, rights)) return refuse("bundle", `This agent may not use ${tool.name}`);
     const parsed = tool.input.safeParse(input ?? {});
-    if (!parsed.success) return { ok: false, error: issues(parsed.error) };
+    if (!parsed.success) return refuse("invalid", issues(parsed.error));
     const scope = rights.tables;
     const touched = await tool.tables(app.db, job.ownerId, parsed.data);
+    seen.tableId = await resolvedTable(app.db, job.ownerId, touched, scope);
     // Outside the Job's tables, or naming nothing: the same answer, so a Job learns nothing about what it can't reach.
-    if (touched.some((id) => id === null || (scope !== "all" && !scope.includes(id)))) return { ok: false, error: NOT_FOUND };
+    if (touched.some((id) => id === null || (scope !== "all" && !scope.includes(id)))) return refuse("not-found", NOT_FOUND);
     if (tool === PROPOSE) {
-      const made = await createProposal(app.db, job, ALL.filter((t) => allowed(t, rights)), scope, parsed.data);
-      if ("error" in made) return { ok: false, error: made.error };
-      return {
+      const made = await createProposal(app.db, job, ALL_TOOLS.filter((t) => allowed(t, rights)), scope, parsed.data);
+      if ("error" in made) return refuse("invalid", made.error);
+      return done({
         ok: true,
         output: { ...made, next: `Now call the tool request_approval (in Claude Code it is mcp__dispand__request_approval, not a tool of the job server) with a message saying what you propose and why, and proposal: "${made.proposalId}". Once approved, call proposal_apply with proposalId "${made.proposalId}": it makes every call as listed, in order.` },
-      };
+      });
     }
-    if (tool === APPLY) return await applyProposal(app, job, (parsed.data as { proposalId: string }).proposalId);
-    if (tool.run) return await tool.run(app, job, parsed.data, rights);
+    if (tool === APPLY) return done(await applyProposal(app, job, (parsed.data as { proposalId: string }).proposalId));
+    if (tool.run) return done(await tool.run(app, job, parsed.data, rights));
     // What changes what agents may do: only as a person approved it for this Job, and once. Any
     // other write uses a matching item too, so what it creates is what later items name.
     taken = at || tool.grant || tool.write ? await takeItem(app.db, job, tool.name, parsed.data, at) : null;
-    if (!taken && at) return { ok: false, error: ITEM_USED };
-    if (!taken && tool.grant) return { ok: false, error: NEEDS_PROPOSAL };
+    seen.taken = taken;
+    if (!taken && at) return refuse("item-used", ITEM_USED);
+    if (!taken && tool.grant) return refuse("needs-proposal", NEEDS_PROPOSAL);
     const output = await call(procedureOf(router, tool.path) as never, parsed.data as never, {
       context: { ...app, job, headers: new Headers(), resHeaders: new Headers() } as never,
       // The procedure's name, for its span: a call in process has none of its own.
@@ -82,11 +153,13 @@ export async function callPlatformTool(app: PlatformApp, job: JobIdentity, name:
     // Made by `proposal_apply` or by a direct call alike: listed in the generated plugin the proposal names.
     // Bookkeeping only: a failure here never turns the write that was made into a refusal.
     if (taken && created) await recordInPlugin(app.db, job.ownerId, taken.proposalId).catch((e: unknown) => logError("generated plugin not recorded", e, { ref: taken!.proposalId }));
+    seen.output = output;
     return { ok: true, output: tool.filter ? tool.filter(output, scope) : output };
   } catch (err) {
     // A used item whose call failed: shown so, and the items naming it can't run.
     if (taken) await recordOutcome(app.db, taken, { failed: true }).catch((e: unknown) => logError("proposal item not recorded", e, { ref: taken!.proposalId }));
-    if (err instanceof ORPCError) return { ok: false, error: err.code === "NOT_FOUND" ? NOT_FOUND : err.message };
+    if (err instanceof ORPCError) return refuse(err.code === "NOT_FOUND" ? "not-found" : err.code.toLowerCase(), err.code === "NOT_FOUND" ? NOT_FOUND : err.message);
+    seen.failed = true;
     logError("platform tool failed", err, { ref: `${job.runId}:${tool.name}` });
     return { ok: false, error: "The tool failed" };
   }
@@ -132,7 +205,7 @@ function applyProposal(app: PlatformApp, job: JobIdentity, proposalId: string): 
           stopped = `Item ${index + 1} (${item.tool}) was refused: ${done.error}`;
           continue;
         }
-        const id = ALL.find((t) => t.name === item.tool)?.creates?.id(done.output);
+        const id = ALL_TOOLS.find((t) => t.name === item.tool)?.creates?.id(done.output);
         outcomes.push({ $item: index, tool: item.tool, outcome: "made", ...(id ? { id } : {}) });
       }
       for (const [index, item] of first.entries()) if (index >= outcomes.length) outcomes.push({ $item: index, tool: item.tool, outcome: "not made" });

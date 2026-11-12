@@ -60,8 +60,9 @@ export type AuditResult = (typeof AUDIT_RESULTS)[number];
 export type AuditActor = Exclude<EventActor, { type: "step" }> | { type: "scheduler" };
 
 /** A server-made id (or a built-in kind used as one). */
-const id = z.string().regex(/^[A-Za-z0-9_.:-]{1,200}$/);
+export const AuditId = z.string().regex(/^[A-Za-z0-9_.:-]{1,200}$/);
 /** A name as it was then (an agent's, a tool's): cut at the cap by the writer. */
+const id = AuditId;
 const name = z.string();
 /** A kind: a short code, never words. */
 const kind = z.string().regex(/^[a-z0-9_.-]{1,64}$/);

@@ -1,0 +1,1 @@
+ALTER TABLE "plugins" ADD COLUMN "definitions" jsonb DEFAULT '{"agents":[],"primitives":[],"triggers":[]}'::jsonb NOT NULL;

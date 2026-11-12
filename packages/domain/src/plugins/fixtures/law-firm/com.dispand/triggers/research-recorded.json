@@ -1,0 +1,6 @@
+{
+  "agent": "Drafting",
+  "name": "Research recorded",
+  "instructions": "Draft the reply.",
+  "config": { "kind": "primitive", "table": "Research", "operations": ["created"] }
+}
