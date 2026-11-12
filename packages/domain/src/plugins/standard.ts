@@ -3,6 +3,7 @@ import { storable } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { isLoopback } from "../harnesses/procedures.ts";
 import { Headers } from "../tools/procedures.ts";
+import { allStorable } from "./marketplace.ts";
 import { inside, kindAt, list, MAX_JSON_BYTES, type NotImported, Notes, PluginError, readRegular, readSkillFolders, spend } from "./fs.ts";
 import type { PluginContents, PluginMcpServer } from "./read-plugin.ts";
 
@@ -131,7 +132,7 @@ function readServer(root: string, name: string, raw: unknown): PluginMcpServer |
   if (!fields) return skip("Its type isn't stdio, streamable-http or sse");
   const unknown = Object.keys(raw).find((key) => !fields.has(key));
   if (unknown !== undefined) return skip(`It has a field its type doesn't take${storable(unknown) ? `: ${cut(unknown, 100)}` : ""}`);
-  if (!storable(JSON.stringify(raw))) return skip("Its settings aren't readable");
+  if (!allStorable(raw)) return skip("Its settings aren't readable");
   if (raw.type === "stdio") {
     if (typeof raw.command !== "string" || !isCommand(root, raw.command)) return skip("Its command isn't one name or one ./ path inside the plugin");
     if (raw.args !== undefined && !strings(raw.args)) return skip("Its arguments aren't a list of strings");

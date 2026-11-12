@@ -273,6 +273,8 @@ test("enforces cwd containment and remote URL and header rules", () => {
       headerType: remote("https://mcp.example.com/mcp", { "X-Tenant": 1 }),
       headerTwice: remote("https://mcp.example.com/mcp", { "X-Tenant": "a", "x-tenant": "b" }),
       placeholder: remote("https://mcp.example.com/${PLUGIN_ROOT}"),
+      nul: remote("https://mcp.example.com/a\u0000b"),
+      surrogate: stdio({ args: ["\ud800"] }),
     }),
   });
   expect(got.mcpServers.map((s) => s.name)).toEqual(["cwdRel", "cwdRoot", "cwdData", "cwdDataSub", "https", "loopback", "loopbackIp", "headerOk"]);
@@ -298,6 +300,8 @@ test("enforces cwd containment and remote URL and header rules", () => {
     headerType: headers,
     headerTwice: "It names a header twice",
     placeholder: "Its URL or headers hold ${…}, which Dispand would read as a setting",
+    nul: "Its settings aren't readable",
+    surrogate: "Its settings aren't readable",
   });
 });
 
