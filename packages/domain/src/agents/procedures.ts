@@ -204,7 +204,7 @@ const update = owner.input(Fields.extend({ id: z.string() })).handler(async ({ i
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
   const dataTables = await ownTables(context.db, context.ownerId, input.dataTables);
   await guard(context.db, context.ownerId, id, { kind: "update", bundles, dataTables, skillPackageIds });
-  const row = await context.db.transaction(async (tx) => {
+  const { row, ended } = await context.db.transaction(async (tx) => {
     const [row] = await tx
       .update(agentsTable)
       .set({ ...fields, model: fields.model ?? null, ...(bundles ? { bundles } : {}), ...(dataTables ? { dataTables } : {}) })
@@ -213,8 +213,10 @@ const update = owner.input(Fields.extend({ id: z.string() })).handler(async ({ i
     if (!row) throw new ORPCError("NOT_FOUND");
     await attach(tx, context.ownerId, id, skillPackageIds, toolIds, harness.runnerId);
     await consults(tx, context.ownerId, id, entries);
-    return row;
+    // A right taken back (an entry removed, a flag added, a bundle change across `configure`) ends the consults in flight on it, at once.
+    return { row, ended: await context.engine.endConsults(tx, context.ownerId, [id]) };
   });
+  context.engine.settled(ended);
   return (await withPlugins(context.db, [row]))[0]!;
 });
 

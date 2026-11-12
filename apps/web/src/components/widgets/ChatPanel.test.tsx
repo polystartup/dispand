@@ -72,6 +72,7 @@ test("while the chat's question waits, sending is off with a hint", async () => 
           about: null,
           proposalId: null,
           rootId: null,
+          consultId: null,
           runId: "run_1",
           stepRunId: "s_chat",
           placement: "chat",
