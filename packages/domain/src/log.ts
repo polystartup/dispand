@@ -33,9 +33,8 @@ function summarize(err: unknown) {
 export function logError(event: string, err: unknown, meta: { runnerId?: string; ref?: string } = {}): void {
   const error = summarize(err);
   const ids = { ...(meta.runnerId && { runnerId: meta.runnerId }), ...(meta.ref && { ref: meta.ref }) };
-  // Always on stdout, as before: an install without a collector reads its logs there.
-  console.error(event, { ...ids, error });
-  // And as a log record, with the trace, span and Job it happened in: the same fields, flattened.
+  // A log record, with the trace, span and Job it happened in: telemetry prints it, and sends it
+  // to the collector when there is one.
   emitLog("log", "error", event, {
     ...ids,
     "error.type": error.name,

@@ -213,7 +213,8 @@ test("seqs past the 32-bit range are handled, recorded and acked, also after a r
 
 test("an event whose handler fails is not acked, and the runner is disconnected", async () => {
   const { context, token, url } = await pairedRunner();
-  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  const t = await captureTelemetry();
+  onTestFinished(() => t.stop());
   context.hub.onEvent(async () => {
     throw new Error("engine down");
   });
@@ -222,7 +223,7 @@ test("an event whose handler fails is not acked, and the runner is disconnected"
   runner.send(hello);
   runner.send(event(1));
   expect(await runner.closed).toBe(1011);
-  expect(error).toHaveBeenCalled();
+  expect(t.logs().map((r) => r.body)).toContain("runner message failed");
 
   const handled: number[] = [];
   context.hub.onEvent(async () => {
@@ -378,12 +379,13 @@ test("malformed and unknown upgrade targets are refused and the server keeps ser
 });
 
 test("a hub that can't load refuses the upgrade with 503", async () => {
-  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  const t = await captureTelemetry();
+  onTestFinished(() => t.stop());
   const url = await listen(async () => {
     throw new Error("database unavailable");
   });
   expect((await rawUpgrade(url, "/runner/ws")).response).toMatch(/^HTTP\/1\.1 503 /);
-  expect(error).toHaveBeenCalled();
+  expect(t.logs().map((r) => r.body)).toContain("runner hub unavailable");
 });
 
 test("a malformed frame from an authenticated runner closes only that connection", async () => {
@@ -433,7 +435,8 @@ test("a revoke racing an in-flight upgrade leaves the runner offline", async () 
 
 test("a handler whose insert fails logs nothing of the event", async () => {
   const { context, token, url } = await pairedRunner();
-  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  const t = await captureTelemetry();
+  onTestFinished(() => t.stop());
   // The insert fails, and Drizzle's error carries the bound params.
   context.hub.onEvent(async (_r, _s, e) => {
     await context.db.execute(sql`insert into missing_table values (${e.type === "text" ? e.delta : ""})`);
@@ -443,8 +446,8 @@ test("a handler whose insert fails logs nothing of the event", async () => {
   runner.send(hello);
   runner.send(event(1, { type: "text", delta: "secret-token-in-payload" }));
   expect(await runner.closed).toBe(1011);
-  expect(error).toHaveBeenCalled();
-  const logged = JSON.stringify(error.mock.calls, (_k, v: unknown) => (v instanceof Error ? { ...v, message: v.message, stack: v.stack } : v));
+  expect(t.logs()).not.toEqual([]);
+  const logged = await t.all();
   expect(logged).not.toContain("secret-token-in-payload");
   expect(logged).not.toContain("insert into");
 });
@@ -680,7 +683,8 @@ test("connections end only through retire()", () => {
 
 test("an event Postgres refuses as data (class 22) is logged, acked and dropped; the runner moves on", async () => {
   const { context, runnerId, token, url } = await pairedRunner();
-  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  const t = await captureTelemetry();
+  onTestFinished(() => t.stop());
   // Validation can't foresee every value storage refuses: stand one in with a cast the handler makes.
   const handled: string[] = [];
   context.hub.onEvent(async (_r, _s, e) => {
@@ -697,7 +701,7 @@ test("an event Postgres refuses as data (class 22) is logged, acked and dropped;
   expect(await runner.next()).toEqual({ type: "ack", seq: 2 });
   expect(runner.ws.readyState).toBe(WebSocket.OPEN);
   expect(handled).toEqual(["boom", "2"]);
-  expect(error.mock.calls[0]).toEqual(["runner event not storable, dropped", { runnerId, error: expect.objectContaining({ code: "22P02" }) }]);
+  expect(t.logs()[0]).toMatchObject({ body: "runner event not storable, dropped", attributes: { runnerId, "db.response.status_code": "22P02" } });
   // A resend of the dropped seq is a duplicate now.
   runner.send(event(1, { type: "text", delta: "boom" }));
   expect(await runner.next()).toEqual({ type: "ack", seq: 1 });
