@@ -25,6 +25,7 @@ vi.mock("@dispand/domain", () => ({
   InstalledTools: class {},
   pollCaller: () => ({}),
   sweepAttachments: async () => ({ removed: 0 }),
+  sweepAudit: async () => ({ removed: 0 }),
   logError: () => {},
   startTelemetry: () => true,
   stopTelemetry: async () => {},

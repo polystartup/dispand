@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { reviewSignals } from "../assistant/review.ts";
+import { DEFAULT_RETENTION_DAYS } from "../audit/sweep.ts";
 import { agents, triggers, workspaceSettings } from "../db/schema.ts";
 import { checkpointOf } from "../engine/roots.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -27,6 +28,28 @@ const setCheckpoint = owner.input(z.object({ checkpoint: Checkpoint })).handler(
   return { checkpoint: input.checkpoint };
 });
 
+/** How many days Audit rows are kept (design 6.8). */
+export const AuditRetentionDays = z.number().int().min(1).max(3650);
+
+/** How many days the workspace keeps Audit rows (90 until set; `audit/sweep.ts` deletes older ones). */
+const auditRetention = owner.handler(async ({ context }) => {
+  const [settings] = await context.db.select({ days: workspaceSettings.auditRetentionDays }).from(workspaceSettings).where(eq(workspaceSettings.ownerId, context.ownerId));
+  return { days: settings?.days ?? DEFAULT_RETENTION_DAYS };
+});
+
+/**
+ * Sets how many days Audit rows are kept; the next hourly sweep deletes what is older. The
+ * owner's only: shortening it erases the trail of what agents did, so it is no tool and no
+ * proposal can ask for it (`NOT_TOOLS`).
+ */
+const setAuditRetention = owner.input(z.object({ days: AuditRetentionDays })).handler(async ({ input, context }) => {
+  await context.db
+    .insert(workspaceSettings)
+    .values({ ownerId: context.ownerId, auditRetentionDays: input.days })
+    .onConflictDoUpdate({ target: workspaceSettings.ownerId, set: { auditRetentionDays: input.days } });
+  return { days: input.days };
+});
+
 /**
  * What could be better in the workspace (`assistant/review.ts`). Hours are read in the time zone
  * of the Assistant's review, which is the owner's once they turned it on.
@@ -41,4 +64,4 @@ const review = owner.handler(async ({ context }) => {
   return reviewSignals(context.db, context.ownerId, (context.now ?? (() => new Date()))(), timezone);
 });
 
-export const workspace = { checkpoint, setCheckpoint, review };
+export const workspace = { checkpoint, setCheckpoint, auditRetention, setAuditRetention, review };

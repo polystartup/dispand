@@ -32,6 +32,8 @@ export const METRICS = {
   "dispand.plugins.setups": ["dispand.result"],
   // An Audit row written (`audit/record.ts`), by its action; `failed`: a write after the fact that didn't go through.
   "dispand.audit.rows": ["dispand.audit.action", "dispand.result"],
+  // Audit rows past their owner's retention, deleted by `audit/sweep.ts`.
+  "dispand.audit.swept": [],
   // A memory write (`memory/store.ts`): its scope, operation and result, never a path or a body.
   "dispand.memory.writes": ["dispand.memory.scope", "dispand.memory.op", "dispand.result"],
   // A Job's `memory_read` (`memory/tools.ts`): its scope and result.

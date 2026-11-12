@@ -41,7 +41,9 @@ changes it updates this file.
   returned); never the call's input or output, and a failure to write it never changes the
   call's result. `configure` reads the Audit (`audit_list`), without the rows naming a table
   outside the Job's (left out in the query, so a page and its cursor say nothing of them); the
-  trace link's address (`audit.traceUrl`) is the owner's only.
+  trace link's address (`audit.traceUrl`) is the owner's only. How long Audit keeps its rows is the owner's
+  only too: shortening it erases the trail of what agents did, so its procedures are no tool
+  and no proposal can carry them.
 - **A session gets its agent's skills and tools, and no more.** For a Job, what its snapshot
   holds and the agent still has; for a workflow run, the agent's as they are. A tool reached by
   URL is called on the server only, for cloud sessions, with its sealed headers opened for that

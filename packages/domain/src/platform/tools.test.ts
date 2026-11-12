@@ -85,8 +85,9 @@ test("the tools are exactly the data and configure ones, on tables, fields, rows
   expect(PLATFORM_TOOLS.filter((t) => t.path.startsWith("harnesses.")).map((t) => t.path)).toEqual(["harnesses.limits", "harnesses.setLimit"]);
   // What changes what agents may do is marked: it runs only on a proposal a person approved.
   expect(PLATFORM_TOOLS.filter((t) => t.grant).map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "harnesses_set_limit", "tables_delete", "tools_add", "tools_add_from_catalog", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
-  // What needs a person, and what agents never touch, are named as not tools.
-  for (const path of ["fields.retype", "auth.setup", "runners.create", "tools.create", "tools.update", "tools.refresh", "agents.delete", "jobs.start", "jobs.consults", "runs.get", "runs.list", "questions.list", "questions.answer", "files.upload", "audit.traceUrl"]) {
+  // What needs a person, and what agents never touch, are named as not tools. Audit retention is
+  // the owner's only, not even a grant: shortening it erases the trail of what agents did.
+  for (const path of ["fields.retype", "auth.setup", "runners.create", "tools.create", "tools.update", "tools.refresh", "agents.delete", "jobs.start", "jobs.consults", "runs.get", "runs.list", "questions.list", "questions.answer", "files.upload", "audit.traceUrl", "workspace.auditRetention", "workspace.setAuditRetention"]) {
     expect(NOT_TOOLS).toContain(path);
   }
 });
