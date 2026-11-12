@@ -33,8 +33,8 @@ const fields: FieldSchema[] = [
 const page = (rows: unknown[]) => ({ rows, total: rows.length, attachments: {}, references: {} });
 let client: QueryClient;
 
-function setup() {
-  fake.rows.list.mockResolvedValue(page([]));
+function setup(list: Promise<unknown> = Promise.resolve(page([]))) {
+  fake.rows.list.mockReturnValue(list);
   fake.rows.stream.mockResolvedValue((async function* () {})());
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -120,9 +120,21 @@ test("a list read that brings the row before its creation answers leaves one row
   fake.rows.create.mockReturnValue(new Promise((resolve) => (answer = resolve)));
   await user.click(await screen.findByRole("button", { name: "New row" }));
   await user.type(screen.getByRole("textbox", { name: "Name" }), "Dispand{Enter}");
-  fake.rows.list.mockResolvedValue(page([created]));
+  // Another tab filled the note meanwhile: the read brings it, and it stays.
+  fake.rows.list.mockResolvedValue(page([{ ...created, values: { ...created.values, f_note: "Agents" } }]));
   await client.invalidateQueries();
   answer(created);
   await waitFor(() => expect(screen.getAllByRole("button", { name: "Open row" })).toHaveLength(1));
+  await waitFor(() => expect(screen.getAllByRole("gridcell").map((c) => c.textContent)).toEqual(["Dispand", "Agents"]));
+});
+
+test("a row created before the first page of rows answers shows once it does", async () => {
+  let listed: (p: unknown) => void = () => {};
+  const user = setup(new Promise((resolve) => (listed = resolve)));
+  fake.rows.create.mockResolvedValue(created);
+  await user.click(await screen.findByRole("button", { name: "New row" }));
+  await user.type(screen.getByRole("textbox", { name: "Name" }), "Dispand{Enter}");
+  await waitFor(() => expect(fake.rows.create).toHaveBeenCalledOnce());
+  listed(page([created]));
   await waitFor(() => expect(nameCells()).toEqual(["Dispand"]));
 });
