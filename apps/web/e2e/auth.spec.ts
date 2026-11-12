@@ -14,7 +14,8 @@ test("fresh app asks for setup, shows the shell, and signs out to login", async 
   // The first page is the Assistant's, which asks where it runs: there is no harness yet.
   await expect(page).toHaveURL(/\/assistant$/);
   const sidebar = page.getByRole("navigation", { name: "Main" });
-  await expect(sidebar.getByRole("link", { name: "Home" })).toBeVisible();
+  // The first visit to the shell compiles it on the dev server: seconds on a busy machine.
+  await expect(sidebar.getByRole("link", { name: "Home" })).toBeVisible({ timeout: 15_000 });
   for (const name of ["Assistant", "Harnesses", "Agents", "Skills", "Tools", "Data", "Workflows", "Help"]) {
     await expect(sidebar.getByRole("link", { name })).toBeVisible();
   }
