@@ -66,8 +66,10 @@ test("a Job's life from a manual start to its end writes created, queued, starte
   await s.emit(sessionId, { type: "result", text: "Done." });
   await vi.waitFor(async () => expect((await s.context.db.select({ status: runs.status }).from(runs).where(eq(runs.id, runId)))[0]!.status).toBe("succeeded"));
 
-  const rows = await s.rowsOf(runId);
-  expect(rows.map((r) => r.action)).toEqual(["job.created", "job.queued", "job.started", "job.waiting", "job.finished"]);
+  // Its Question's rows are the question's own, between them.
+  const all = await s.rowsOf(runId);
+  expect(all.map((r) => r.action)).toEqual(["job.created", "job.queued", "job.started", "question.asked", "job.waiting", "question.answered", "job.finished"]);
+  const rows = all.filter((r) => r.resourceType === "job");
   for (const r of rows) expect(r).toMatchObject({ ownerId: s.context.ownerId, jobId: runId, actorAgentId: s.agent.id, resourceType: "job", resourceId: runId });
   const [created, queued, started, waiting, finished] = rows;
   expect(created).toMatchObject({
@@ -81,7 +83,7 @@ test("a Job's life from a manual start to its end writes created, queued, starte
   expect(waiting).toMatchObject({ details: { questionId: asked!.id } });
   expect(finished).toMatchObject({ result: "ok", details: {} });
   // Nothing of what the Job was told or said.
-  expect(JSON.stringify(rows)).not.toMatch(/Write\.|Done\.|"ls"/);
+  expect(JSON.stringify(all)).not.toMatch(/Write\.|Done\.|"ls"/);
 });
 
 test("a stopped Job writes job.failed with the reason stopped, never the error's words", async () => {
@@ -153,4 +155,32 @@ test("a Job whose agent is deleted is stopped and audited, and its rows name the
     // A person's start: no agent acted.
     ["job.created", null],
   ]);
+});
+
+test("a Question asked and answered by the owner writes question.asked and question.answered, the answer's actor the person, with none of its words", async () => {
+  const s = await setup();
+  const runId = await s.engine.startJob(s.trigger.id, s.context.ownerId);
+  const sessionId = await s.sessionOf(runId);
+  const payload = { kind: "choice" as const, questions: [{ question: "Sentinel question words?", header: "Pick", options: [{ label: "Sentinel option" }, { label: "No" }], multiSelect: false }] };
+  await s.emit(sessionId, { type: "question", questionId: "rq_1", payload });
+  const [asked] = await s.context.db.select().from(questions).where(eq(questions.runId, runId));
+  await s.engine.answer(asked!.id, { kind: "choice", answers: { "Sentinel question words?": "Sentinel option" } }, { type: "user", userId: s.context.ownerId });
+  const rows = (await s.rowsOf(runId)).filter((r) => r.resourceType === "question");
+  expect(rows.map((r) => r.action)).toEqual(["question.asked", "question.answered"]);
+  for (const r of rows) expect(r).toMatchObject({ jobId: runId, resourceId: asked!.id, result: "ok" });
+  expect(rows[0]).toMatchObject({ actor: { type: "job", runId }, actorAgentId: s.agent.id, details: { questionKind: "question" } });
+  expect(rows[1]).toMatchObject({ actor: { type: "user", userId: s.context.ownerId }, actorAgentId: null, details: { questionKind: "question", decision: "choice", answeredBy: "person" } });
+  expect(JSON.stringify(rows)).not.toMatch(/Sentinel/);
+});
+
+test("an Approval left pending when its Job is stopped writes question.expired, with its kind", async () => {
+  const s = await setup();
+  const runId = await s.engine.startJob(s.trigger.id, s.context.ownerId);
+  const sessionId = await s.sessionOf(runId);
+  await s.emit(sessionId, { type: "question", questionId: "rq_1", payload: { kind: "permission", toolName: "Bash", input: { command: "sentinel-command" }, canAlwaysAllow: false } });
+  await s.engine.stopRun(runId);
+  const rows = (await s.rowsOf(runId)).filter((r) => r.resourceType === "question");
+  expect(rows.map((r) => r.action)).toEqual(["question.asked", "question.expired"]);
+  expect(rows[1]).toMatchObject({ actor: { type: "job", runId }, details: { questionKind: "approval" } });
+  expect(JSON.stringify(rows)).not.toContain("sentinel-command");
 });

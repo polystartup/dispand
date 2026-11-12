@@ -514,7 +514,16 @@
   (`job.finished`, or `job.failed` with `reason` `stopped`, `stopped-checkpoint`,
   `consult-revoked` or `failed`, threaded from `stopIn`, never the error's words); the
   scheduler's firings that end with no Job for good (`job.skipped`, on the trigger, with the fire
-  status; `deferred` and `stopped` write nothing). `audit.list` (owner-only, keyset pages of 50 on
+  status; `deferred` and `stopped` write nothing); `recordInteraction`, in the transaction of the
+  question it records (`question.asked`, `question.answered`, `question.expired`, on the question,
+  with its kind and, for an answer, the decision as a kind and who answered: a person or an
+  agent's Job, the actor), so a checkpoint's Approval and a consult's are Questions' rows too;
+  `pause` (`checkpoint.reached`, on the root, by the Job that reached it, with the count of Jobs)
+  and `settleRoot` (`checkpoint.answered`, `approve`, `dont-ask` or `decline`, and on a decline the
+  count of held events marked processed and of Jobs stopped: one row, the events keep their own
+  record); a consult asked (`consult.asked`, by the asking Job, naming the consulted agent) and
+  each way it ends (`consult.ended`, `outcome` `answered`, `refused`, `failed` or `stopped`, the
+  consulted Job named, by that Job when it answered, else the asker's). `audit.list` (owner-only, keyset pages of 50 on
   `(at, id)`, the cursor carrying `at` to the microsecond) filters by actor type, agent, Job,
   action or family, resource, result and dates; `audit.traceUrl` gives the page
   `DISPAND_TRACE_URL`. Each row counts in `dispand.audit.rows` (by action, and `failed` for a

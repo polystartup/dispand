@@ -108,7 +108,10 @@ Status: Prototype
   harness, started (on which harness and runner, or resumed), waiting for an answer, finished or
   failed (stopped by a person, at a declined checkpoint, by a consult taken back, or failed), and
   a trigger's firing that started no Job (skipped while its Job runs, refused, out of the
-  agent's reach, or a Job's own change). A row names what was touched (ids, names, counts and
+  agent's reach, or a Job's own change); its Questions and Approvals asked, answered (with the
+  decision and whether a person or an agent answered) or expired; a checkpoint reached and
+  answered (approved, don't ask again, or declined, with how many held events and Jobs it
+  stopped); and a consult asked and how it ended. A row names what was touched (ids, names, counts and
   kinds), never what an agent read or wrote, and carries the trace it was recorded in: with
   `DISPAND_TRACE_URL` set, the trace id links to the tracing tool. Workflow runs have no rows.
   Rows are kept 90 days by default (`workspace_settings.audit_retention_days`; nothing sweeps
