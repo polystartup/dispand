@@ -318,3 +318,14 @@ test("one read of a standard plugin has the same budget", () => {
   for (let i = 0; i < 201; i++) skills[`skills/s${i}/SKILL.md`] = skillMd(`s${i}`);
   expect(() => read(skills)).toThrow("more than 200 skills");
 });
+
+test("a schema-less root manifest permits a named Claude plugin without weakening explicit schemas", () => {
+  const claude = { ".claude-plugin/plugin.json": JSON.stringify({ name: "demo" }), "skills/demo/SKILL.md": skillMd("demo") };
+  const got = readPlugin(tree({ ...claude, "plugin.json": JSON.stringify({ name: "demo" }) }), entry);
+  expect(got.layout).toBe("claude");
+  expect(got.skills.map((skill) => skill.name)).toEqual(["demo"]);
+  for (const $schema of [null, "https://example.com/plugin.schema.json"]) {
+    expect(() => readPlugin(tree({ ...claude, "plugin.json": JSON.stringify({ name: "demo", $schema }) }), entry)).toThrow("Agent Plugins version");
+  }
+  expect(() => readPlugin(tree({ "plugin.json": JSON.stringify({ name: "demo" }), ".claude-plugin/plugin.json": "{}" }), entry)).toThrow("has no $schema");
+});
