@@ -91,3 +91,14 @@ test("install sheet imports once, then previews the selected pair and keeps a fa
   await userEvent.click(screen.getByRole("button", { name: "Done" }));
   expect(close).toHaveBeenCalledTimes(1);
 });
+
+test("collapsed harness skills do not start runner requests; opening loads inventory", async () => {
+  fake.runners.plugins.mockResolvedValue({ targets: [target], packages: [] });
+  fake.runners.workspaceSkills.mockResolvedValue([]);
+  mount(<NativeWorkspaceSkills harness={harness} runner={runner} />);
+  expect(fake.runners.plugins).not.toHaveBeenCalled();
+  expect(fake.runners.workspaceSkills).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByText("Workspace skills on Review"));
+  await waitFor(() => expect(fake.runners.plugins).toHaveBeenCalledTimes(1));
+  expect(fake.runners.workspaceSkills).toHaveBeenCalledTimes(1);
+});

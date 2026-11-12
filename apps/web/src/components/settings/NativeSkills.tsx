@@ -89,13 +89,14 @@ export function NativePluginAction({ harnessId, resource, name, action, onDone, 
 
 export function NativeWorkspaceSkills({ harness, runner }: { harness: CliHarness; runner?: Runner }) {
   const queryClient = useQueryClient();
-  const workspace = useQuery(orpc.runners.workspaceSkills.queryOptions());
-  const inventory = useQuery(inventoryOptions(harness.runnerId, runner?.status === "online"));
+  const [expanded, setExpanded] = useState(false);
+  const workspace = useQuery({ ...orpc.runners.workspaceSkills.queryOptions(), enabled: expanded });
+  const inventory = useQuery(inventoryOptions(harness.runnerId, expanded && runner?.status === "online"));
   const [action, setAction] = useState<{ resource: Resource; name: string; action: "add" | "remove" } | null>(null);
   const target = inventory.data?.targets?.find((t) => t.harness === harness.kind);
   const available = runner?.status === "online" && !inventory.error && !inventory.data?.error && target?.available;
   return (
-    <details className="border-t border-line px-5 py-3">
+    <details className="border-t border-line px-5 py-3" onToggle={(event) => setExpanded(event.currentTarget.open)}>
       <summary className="cursor-pointer text-[13px] font-medium">Workspace skills on {harness.name}</summary>
       <div className="mt-3 space-y-3">
         <p className="text-[13px] text-muted">Native installations are shared by all {cliLabels[harness.kind]} harnesses on {runner?.name ?? "this runner"}. Sessions use matching, enabled native skills; otherwise they load the stripped workspace copy.</p>
