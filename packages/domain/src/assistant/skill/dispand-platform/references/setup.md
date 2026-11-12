@@ -107,7 +107,9 @@ Give every proposal of a setup the same `plugin`: the business or use case's nam
 "Generated: Acme Law", so the owner finds the whole setup in one place.
 
 Say in the approval message what the setup does as a whole, then let the items speak. After
-it is applied, end with each tool that needs the owner to sign in or enter a key: `tools_get`
-gives its `signIn` (`needed`, `connected` or `none`) and its `signInPath`. Link each one as
+it is applied, write a closing message to the owner, before anything else: what was made, and
+each tool that needs the owner to sign in or enter a key. `tools_get` gives its `signIn`
+(`needed`, `connected` or `none`) and its `signInPath`. Link each one as
 `[the tool's name](signInPath)`: the link opens its page in the app. Until then, nothing calls
-it, and its polls wait for it.
+it, and its polls wait for it. Only once that message is written may you end the chat with
+`submit_outputs`: ending it never replaces the message.

@@ -1,4 +1,4 @@
-import { DEFAULT_TIMEZONE } from "@dispand/domain/workflows/schedule";
+import { DEFAULT_TIMEZONE, knownTimezone } from "@dispand/domain/workflows/schedule";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -25,10 +25,10 @@ const STARTS: [Starts, string, string][] = [
 /** What a trigger's kind lets it become: a manual one moves between chat and button only. */
 const KINDS: Record<string, Starts[]> = { manual: ["chat", "button"], schedule: ["schedule"], primitive: ["change"], poll: ["poll"] };
 
-/** The browser's timezone when schedules accept it (they take IANA zones: not "UTC"), else the default. */
+/** The browser's timezone when schedules accept it, else the default. */
 export function localTimezone(): string {
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return Intl.supportedValuesOf("timeZone").includes(zone) ? zone : DEFAULT_TIMEZONE;
+  return knownTimezone(zone) ? zone : DEFAULT_TIMEZONE;
 }
 
 type Props = {
