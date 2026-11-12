@@ -15,7 +15,7 @@ const { PluginInstallSheet } = await import("./PluginInstallSheet.tsx");
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 const harness = { id: "h1", ownerId: "owner_1", type: "cli" as const, name: "Review", runnerId: "r1", kind: "codex" as const, permissionMode: "default" as const };
-const runner = { id: "r1", name: "Workstation", status: "online" as const, clis: {}, tools: [], lastSeenAt: null };
+const runner = { id: "r1", name: "Workstation", status: "online" as const, runnerUpdate: "unavailable" as const, clis: {}, tools: [], lastSeenAt: null };
 const target = { harness: "codex", available: true, add: true, remove: true };
 const plugin = { resource: { kind: "plugin", id: "plugin_1" }, name: "Review tools", nativeName: "dispand-plugin_1", sourceKey: "pinned-source", skills: ["review", "check"], unavailable: null };
 const standalone = { resource: { kind: "skill", id: "skillpkg_1" }, name: "Writing", nativeName: "dispand-skillpkg_1", sourceKey: "workspace:content", skills: ["writing"], unavailable: null };

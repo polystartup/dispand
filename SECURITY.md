@@ -675,3 +675,12 @@ plugin imports keep their workspace skills. An explicit native-install intent re
 preview review token even when workspace components are also selected. Codex's local plugin
 cache, marketplace code and skills directories are readable in its sandbox; its parent config
 directory, settings and credentials remain denied, and native code is never writable by the session.
+
+### Runner updates
+
+Installer-managed runners poll the authenticated `/runner/update` control channel independently
+of the session protocol. Only the signed-in owner can request an update of their runner.
+An update executes the existing installer from the runner's locally configured server (no
+redirects), in a transient systemd user unit so it survives restarting the runner. The server
+cannot supply a command, URL or local configuration through the update request. As with the
+initial installation, the configured Dispand operator is trusted to supply runner code.

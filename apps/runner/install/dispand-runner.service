@@ -7,6 +7,7 @@ Wants=network-online.target
 [Service]
 # What the runner and the CLI write stays the runner's user's own.
 UMask=0077
+Environment="DISPAND_RUNNER_MANAGED=1"
 ExecStart="@NODE@" "@DEST@/main.mjs" run --config "@CONFIG@"
 # The PATH of the shell that ran install.sh, so the runner finds `claude` as the user does.
 Environment="PATH=@PATH@"

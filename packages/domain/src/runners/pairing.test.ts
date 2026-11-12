@@ -61,7 +61,7 @@ test("list shows the owner's runners only, and revoke hides them", async () => {
   await context.db.insert(runners).values({ id: "runner_other", ownerId: "user_other", name: "Eve's" });
 
   expect(await call(router.runners.list, undefined, { context })).toEqual([
-    { id: runnerId, name: "Workstation", status: "offline", lastSeenAt: null, tools: [], clis: {} },
+    { id: runnerId, name: "Workstation", status: "offline", runnerUpdate: "unavailable", lastSeenAt: null, tools: [], clis: {} },
   ]);
   await expect(call(router.runners.revoke, { runnerId: "runner_other" }, { context })).rejects.toMatchObject({
     code: "NOT_FOUND",
@@ -110,6 +110,7 @@ test("runners procedures require the owner's session", async () => {
     call(router.runners.create, { name: "x" }, { context }),
     call(router.runners.list, undefined, { context }),
     call(router.runners.update, { runnerId: "runner_x", name: "x" }, { context }),
+    call(router.runners.installUpdate, { runnerId: "runner_x" }, { context }),
     call(router.runners.revoke, { runnerId: "runner_x" }, { context }),
   ]) {
     await expect(procedure).rejects.toMatchObject({ code: "UNAUTHORIZED" });

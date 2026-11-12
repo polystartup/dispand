@@ -33,7 +33,9 @@ function EditRunner({ runner, onDone }: { runner: Runner; onDone: () => void }) 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.runners.key() });
   const update = useMutation(orpc.runners.update.mutationOptions({ onSuccess: invalidate }));
   const revoke = useMutation(orpc.runners.revoke.mutationOptions({ onSuccess: invalidate }));
-  const busy = update.isPending || revoke.isPending;
+  const install = useMutation(orpc.runners.installUpdate.mutationOptions({ onSuccess: invalidate }));
+  const busy = update.isPending || revoke.isPending || install.isPending;
+  const updating = runner.runnerUpdate === "updating";
 
   async function save() {
     setError(null);
@@ -65,6 +67,16 @@ function EditRunner({ runner, onDone }: { runner: Runner; onDone: () => void }) 
         void save();
       }}
     >
+      <div className="space-y-2 text-[14px]">
+        {runner.runnerUpdate === "current" && <p className="text-muted">Runner is up to date.</p>}
+        {(runner.runnerUpdate === "available" || runner.runnerUpdate === "failed" || updating) && <>
+          <p>{updating ? "Updating runner… It will reconnect when ready." : runner.runnerUpdate === "failed" ? "The update failed or the runner did not reconnect. You can retry." : "A runner update is available. The runner will restart; running sessions resume afterwards."}</p>
+          <Button type="button" disabled={busy || updating} onClick={() => install.mutate({ runnerId: runner.id })}>
+            {updating ? "Updating…" : "Update runner"}
+          </Button>
+        </>}
+        {install.isError && <p role="alert" className="text-danger">Could not start the update. Check that the runner is reachable and try again.</p>}
+      </div>
       <FormField label="Runner name" htmlFor="runner-name">
         <Input id="runner-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
       </FormField>
