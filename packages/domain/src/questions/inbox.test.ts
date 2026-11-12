@@ -118,7 +118,9 @@ test("an inbox Job lists, reads and answers another agent's Question on its tabl
   expect(event!.actor).toEqual({ type: "job", runId: job.runId });
   // Audited on the asking Job, as the answering Job's: its kind and decision, never its words.
   const rows = await s.context.db.select().from(audit).where(eq(audit.resourceId, q.id));
-  expect(rows.map((r) => r.action).sort()).toEqual(["question.answered", "question.asked"]);
+  // With the answering Job's own call that read it (`questions_get`).
+  expect(rows.map((r) => r.action).sort()).toEqual(["platform.call", "question.answered", "question.asked"]);
+  expect(rows.find((r) => r.action === "platform.call")).toMatchObject({ actor: { type: "job", runId: job.runId }, jobId: job.runId, details: { tool: "questions_get" } });
   expect(rows.find((r) => r.action === "question.answered")).toMatchObject({
     actor: { type: "job", runId: job.runId },
     actorAgentId: s.answerer.id,
