@@ -48,9 +48,12 @@ const Trace: ToolCallMessagePartComponent<{ text: string }> = ({ args }) => (
 const ConsultPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ args }) => {
   const q = useContext(Questions).get(args.questionId);
   const agents = useQuery(orpc.agents.list.queryOptions());
+  const consultedId = q?.payload.kind === "consult" ? q.payload.agentId : undefined;
+  const now = agents.data?.find((a) => a.id === consultedId)?.name;
+  // A deleted agent is named as its consulted Job kept it: "Order drafter (Deleted)".
+  const consults = useQuery({ ...orpc.jobs.consults.queryOptions({ input: { runId: q?.runId ?? "" } }), enabled: !!q && !!agents.data && !now });
   if (!q || q.payload.kind !== "consult") return null;
-  const agentId = q.payload.agentId;
-  const agent = agents.data ? (agents.data.find((a) => a.id === agentId)?.name ?? "a deleted agent") : "another agent";
+  const agent = now ?? (agents.data ? (consults.data?.asked.find((c) => c.questionId === q.id)?.agent ?? "a deleted agent") : "another agent");
   const failed = q.status === "answered" && q.answer?.kind === "consult" && q.answer.outcome === "failed";
   const text = q.status === "pending" ? `Consulting ${agent}…` : failed ? `${agent} gave no answer` : `Consulted ${agent}`;
   return (

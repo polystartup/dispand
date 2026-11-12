@@ -280,12 +280,14 @@ export const runs = pgTable(
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    // A workflow run has its workflow and version; a Job (`source: "agent"`) has its agent, its
-    // trigger and its own definition.
+    // A workflow run has its workflow and version; a Job (`source: "agent"`) has its agent (null
+    // once deleted), its trigger and its own definition.
     source: text("source").$type<RunSource>().notNull().default("workflow"),
     workflowId: text("workflow_id").references(() => workflows.id, { onDelete: "cascade" }),
     version: integer("version").notNull(),
-    agentId: text("agent_id").references(() => agents.id, { onDelete: "cascade" }),
+    // A Job outlives its agent: deleting the agent clears the link and keeps the name it had then.
+    agentId: text("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    agentName: text("agent_name"),
     triggerId: text("trigger_id").references((): AnyPgColumn => triggers.id, { onDelete: "set null" }),
     def: jsonb("def").$type<WorkflowDef>(),
     snapshot: jsonb("snapshot").$type<AgentSnapshot>(),

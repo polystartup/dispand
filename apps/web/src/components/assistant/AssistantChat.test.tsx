@@ -63,13 +63,13 @@ function mount(initial?: string) {
 
 const at = new Date(0);
 const chatDef = { trigger: { type: "manual", field: { id: "trigger_chat", key: "trigger", type: "chat", label: "Chat", agentId: "agent_a", prompt: "" } }, steps: [], edges: [] };
-const job = (id: string, title: string | null, createdAt: Date) => ({ id, source: "agent", workflowId: null, version: 1, agentId: "agent_a", triggerId: "trigger_chat", status: "running", trigger: { type: "manual" }, error: null, createdAt, finishedAt: null, queued: false, title });
+const job = (id: string, title: string | null, createdAt: Date) => ({ id, source: "agent", workflowId: null, version: 1, agentId: "agent_a", deletedAgentName: null, triggerId: "trigger_chat", status: "running", trigger: { type: "manual" }, error: null, createdAt, finishedAt: null, queued: false, title });
 
 /** A conversation as its run stream tells it: the owner's message, then the answer. */
 function conversation(runId: string, said: string, answered: string): RunSnapshot {
   const message = (role: "user" | "assistant", text: string, n: number) => ({ id: `${runId}_${n}`, runId, stepRunId: `${runId}_s`, role, text, createdAt: at });
   return {
-    run: { id: runId, source: "agent", workflowId: null, agentId: "agent_a", triggerId: "trigger_chat", version: 1, status: "running", trigger: { type: "manual" }, error: null, createdAt: at, finishedAt: null },
+    run: { id: runId, source: "agent", workflowId: null, agentId: "agent_a", deletedAgentName: null, triggerId: "trigger_chat", version: 1, status: "running", trigger: { type: "manual" }, error: null, createdAt: at, finishedAt: null },
     steps: [{ id: `${runId}_s`, runId, nodeId: "trigger_chat", iteration: 0, status: "running", outputs: null, error: null, startedAt: at, finishedAt: null, queuedAt: null, interactive: true, prompt: null }],
     messages: [message("user", said, 1), message("assistant", answered, 2)],
     questions: [],

@@ -1,6 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { agents, questions, runs } from "../db/schema.ts";
+import { jobAgentName } from "./agent-name.ts";
 
 // How a consult shows on the Jobs' pages and in the Jobs list (design 6.13): the Job that asks
 // waits on a `consult` question row, and the Job that answers it carries that row in its cause.
@@ -9,7 +10,7 @@ import { agents, questions, runs } from "../db/schema.ts";
 type RunRow = typeof runs.$inferSelect;
 type QuestionRow = typeof questions.$inferSelect;
 
-/** Where an agent whose row is gone shows. */
+/** Where an agent whose row is gone shows, when no Job of it kept its name (`agent-name.ts`). */
 const DELETED = "Deleted agent";
 
 /** `waiting`: no answer yet (the Job may not exist yet: its root is paused, or the owner is asked first). `ended`: the question expired with its step, unanswered. */
@@ -42,6 +43,11 @@ export async function consultsOfJob(db: Db, run: Pick<RunRow, "id" | "ownerId" |
   const [asking] = cause ? await db.select().from(runs).where(and(eq(runs.id, cause.jobId), eq(runs.ownerId, run.ownerId))) : [];
   const [row] = cause ? await db.select().from(questions).where(and(eq(questions.id, cause.questionId), eq(questions.ownerId, run.ownerId))) : [];
   const names = await namesOf(db, run.ownerId, [...rows.flatMap((q) => (q.payload.kind === "consult" ? [q.payload.agentId] : [])), ...(asking?.agentId ? [asking.agentId] : [])]);
+  // A consulted Job keeps its agent's name once the agent is deleted.
+  const made = rows.flatMap((q) => (q.consultRunId ? [q.consultRunId] : []));
+  const kept = new Map(
+    made.length ? (await db.select({ id: runs.id, agentName: runs.agentName }).from(runs).where(and(eq(runs.ownerId, run.ownerId), inArray(runs.id, made)))).map((r) => [r.id, r.agentName]) : [],
+  );
   return {
     asked: rows.flatMap((q) =>
       q.payload.kind !== "consult"
@@ -50,7 +56,7 @@ export async function consultsOfJob(db: Db, run: Pick<RunRow, "id" | "ownerId" |
             {
               questionId: q.id,
               agentId: q.payload.agentId,
-              agent: names.get(q.payload.agentId) ?? DELETED,
+              agent: jobAgentName(names.get(q.payload.agentId), (q.consultRunId && kept.get(q.consultRunId)) || null) ?? DELETED,
               runId: q.consultRunId,
               state: consultState(q),
               question: q.payload.question,
@@ -62,14 +68,14 @@ export async function consultsOfJob(db: Db, run: Pick<RunRow, "id" | "ownerId" |
     ),
     answering:
       asking && row?.payload.kind === "consult"
-        ? { runId: asking.id, agentId: asking.agentId, agent: (asking.agentId && names.get(asking.agentId)) || DELETED, question: row.payload.question }
+        ? { runId: asking.id, agentId: asking.agentId, agent: jobAgentName(asking.agentId && names.get(asking.agentId), asking.agentName) ?? DELETED, question: row.payload.question }
         : null,
   };
 }
 
 /**
  * What the Jobs list says of each Job in `rows`: the agent a pending consult of it waits on, and
- * the agent that consulted it. Both by name, as the agent is now.
+ * the agent that consulted it. Both by name, as the agent is now (or as a Job of it kept it).
  */
 export async function consultMarks(db: Db, rows: Pick<RunRow, "id" | "ownerId" | "cause">[]) {
   const ids = rows.map((r) => r.id);
@@ -81,10 +87,13 @@ export async function consultMarks(db: Db, rows: Pick<RunRow, "id" | "ownerId" |
     .where(and(eq(questions.ownerId, ownerId), inArray(questions.runId, ids), eq(questions.kind, "consult"), eq(questions.status, "pending")))
     .orderBy(questions.createdAt, questions.id);
   const askers = rows.flatMap((r) => (r.cause?.kind === "consult" ? [r.cause.jobId] : []));
-  const askerRuns = askers.length ? await db.select({ id: runs.id, agentId: runs.agentId }).from(runs).where(and(eq(runs.ownerId, ownerId), inArray(runs.id, askers))) : [];
+  const askerRuns = askers.length
+    ? await db.select({ id: runs.id, agentId: runs.agentId, agentName: runs.agentName }).from(runs).where(and(eq(runs.ownerId, ownerId), inArray(runs.id, askers)))
+    : [];
   const waitingOn = new Map<string, string>();
   for (const q of waiting) if (q.payload.kind === "consult" && !waitingOn.has(q.runId)) waitingOn.set(q.runId, q.payload.agentId);
   const askerAgent = new Map(askerRuns.map((r) => [r.id, r.agentId]));
+  const askerKept = new Map(askerRuns.map((r) => [r.id, r.agentName]));
   const names = await namesOf(db, ownerId, [...waitingOn.values(), ...[...askerAgent.values()].filter((id): id is string => !!id)]);
   return new Map(
     rows.map((r) => {
@@ -94,7 +103,7 @@ export async function consultMarks(db: Db, rows: Pick<RunRow, "id" | "ownerId" |
         r.id,
         {
           waitingOn: on === undefined ? null : (names.get(on) ?? DELETED),
-          consultedBy: r.cause?.kind !== "consult" ? null : ((by && names.get(by)) || DELETED),
+          consultedBy: r.cause?.kind !== "consult" ? null : (jobAgentName(by && names.get(by), askerKept.get(r.cause.jobId) ?? null) ?? DELETED),
         },
       ] as const;
     }),

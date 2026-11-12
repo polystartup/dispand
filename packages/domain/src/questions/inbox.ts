@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents, questions, runs } from "../db/schema.ts";
 import { attributed, EngineError } from "../engine/engine.ts";
+import { jobAgentNameSql } from "../jobs/agent-name.ts";
 import type { JobIdentity, PlatformApp, ToolResult } from "../platform/call.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { jobScope, reachable, type InboxScope } from "./inbox-scope.ts";
@@ -33,7 +34,7 @@ type Asked = { q: typeof questions.$inferSelect; agentId: string | null; agentNa
 async function openItem(db: Db, scope: InboxScope, questionId: string): Promise<Asked | string> {
   if (!(await reachable(db, scope, questionId))) return NOT_FOUND;
   const [row] = await db
-    .select({ q: questions, agentId: agents.id, agentName: agents.name })
+    .select({ q: questions, agentId: runs.agentId, agentName: jobAgentNameSql })
     .from(questions)
     .innerJoin(runs, eq(runs.id, questions.runId))
     .leftJoin(agents, eq(agents.id, runs.agentId))
@@ -69,7 +70,7 @@ function traced(db: Db, tool: string, job: JobIdentity, work: (scope: InboxScope
 export function listQuestions(app: PlatformApp, job: JobIdentity): Promise<ToolResult> {
   return traced(app.db, "list", job, async (scope) => {
     const open = await app.db
-      .select({ q: questions, agentId: agents.id, agentName: agents.name })
+      .select({ q: questions, agentId: runs.agentId, agentName: jobAgentNameSql })
       .from(questions)
       .innerJoin(runs, eq(runs.id, questions.runId))
       .leftJoin(agents, eq(agents.id, runs.agentId))
