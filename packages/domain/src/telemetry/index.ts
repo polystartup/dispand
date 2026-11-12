@@ -32,7 +32,7 @@ import { redactLogRecord, redactSpan } from "./redact.ts";
 // the providers run anyway, so tests read what would have been sent. Log records always also go
 // to the process's output. Whatever is exported or printed first goes through `redact.ts`.
 
-export { rememberSecret } from "./redact.ts";
+export { isOpenedSecret, rememberSecret } from "./redact.ts";
 export type { Span } from "@opentelemetry/api";
 
 const JOB = createContextKey("dispand.job");

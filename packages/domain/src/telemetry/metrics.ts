@@ -27,6 +27,8 @@ export const METRICS = {
   "dispand.inbox.calls": ["dispand.inbox.tool", "dispand.result"],
   // `proposal_apply` (`platform/call.ts`): every item made (done), some refused by an earlier call (partial), stopped at a refusal or at an item still being made, or refused at once.
   "dispand.proposals.applied": ["dispand.result"],
+  // An Audit row written (`audit/record.ts`), by its action; `failed`: a write after the fact that didn't go through.
+  "dispand.audit.rows": ["dispand.audit.action", "dispand.result"],
   "dispand.checkpoints.reached": [],
   "dispand.checkpoints.answered": ["dispand.checkpoint.answer"],
   "dispand.roots.paused": [],

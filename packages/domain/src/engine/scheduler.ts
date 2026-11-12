@@ -22,6 +22,7 @@ import {
   type ScheduleFireStatus,
 } from "../db/schema.ts";
 import { newId } from "../ids.ts";
+import { recordAudit } from "../audit/record.ts";
 import { errorKind, logError } from "../log.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { fillLastPoll, itemsOf, MAX_ITEM_BYTES, nextToken, noPolls, type PollCaller } from "../tools/poll.ts";
@@ -39,6 +40,22 @@ export const SCHEDULER_TICK_MS = 15_000;
 
 const traces = tracer("scheduler");
 const counts = meter("scheduler");
+
+/** The fire statuses that end a firing for good with no Job: each leaves a `job.skipped` Audit row. */
+type Skipped = "skipped-overlap" | "refused" | "skipped-same-agent" | "out-of-scope";
+
+/** A trigger's firing that ends with no Job and won't be tried again, in `tx` with its fire's record. */
+function skipped(tx: Tx, trigger: Pick<TriggerRow, "id" | "ownerId" | "agentId" | "name">, firing: "schedule" | "event" | "poll", reason: Skipped, extra: { eventId?: string; items?: number } = {}) {
+  return recordAudit(tx, {
+    ownerId: trigger.ownerId,
+    actor: { type: "scheduler" },
+    agentId: trigger.agentId,
+    action: "job.skipped",
+    resource: { type: "trigger", id: trigger.id },
+    result: reason === "refused" || reason === "out-of-scope" ? "refused" : "ok",
+    details: { triggerId: trigger.id, triggerName: trigger.name, agentId: trigger.agentId, firing, reason, ...extra },
+  });
+}
 
 /** What firing one schedule came to: the run it created, or why none. */
 type Fired = { runId: string | null; result: "started" | "already" | "skipped-overlap" | "refused" | EventFireStatus };
@@ -488,12 +505,14 @@ export class Scheduler {
     if (ids.length === 0) return [];
     if (!trigger.enabled || trigger.config.kind !== "poll") {
       await tx.update(pollItems).set({ status: "refused", message: "The trigger is off" }).where(inArray(pollItems.id, ids));
+      await skipped(tx, trigger, "poll", "refused", { items: ids.length });
       return [];
     }
     const config = trigger.config;
     const problem = await pollProblem(tx, trigger.ownerId, trigger.agentId, config.toolId, config.action);
     if (problem) {
       await tx.update(pollItems).set({ status: "out-of-scope", message: problem }).where(inArray(pollItems.id, ids));
+      await skipped(tx, trigger, "poll", "out-of-scope", { items: ids.length });
       return [];
     }
     const started: string[] = [];
@@ -526,6 +545,7 @@ export class Scheduler {
     } catch (err) {
       if (!(err instanceof EngineError)) throw err;
       await tx.update(pollItems).set({ status: "refused", message: err.message }).where(eq(pollItems.id, item.id));
+      await skipped(tx, trigger, "poll", "refused", { items: 1 });
       return { runId: null, result: "refused" };
     }
   }
@@ -655,15 +675,19 @@ export class Scheduler {
    * row (with no limit of depth: the root's checkpoints catch a loop).
    */
   private async fireEvent(tx: Tx, triggerId: string, event: EventRow, fireId: string, now: Date, root: { id: string; state: string }): Promise<Fired> {
+    // The trigger once read: a firing it ends for good is audited on it.
+    const read: { trigger?: TriggerRow } = {};
     const record = async (status: EventFireStatus, set: { runId?: string; message?: string } = {}): Promise<Fired> => {
       await tx
         .update(eventFires)
         .set({ status, ...set, ...(status === "started" ? { startedAt: now } : {}) })
         .where(eq(eventFires.id, fireId));
+      if (read.trigger && (status === "refused" || status === "skipped-same-agent" || status === "out-of-scope")) await skipped(tx, read.trigger, "event", status, { eventId: event.id });
       return { runId: set.runId ?? null, result: status };
     };
     if (root.state === "stopped") return record("stopped", { message: ROOT_STOPPED });
     const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, triggerId)).for("no key update");
+    read.trigger = trigger;
     if (!trigger?.enabled || !watches(trigger, event)) return record("refused", { message: "The trigger no longer watches this change" });
     // A Question or an Approval: its Job is the asking Job's, whoever answered it.
     const interaction = event.tableId === INTERACTION;
@@ -730,6 +754,7 @@ export class Scheduler {
         .limit(1);
       if (active) {
         await record("skipped-overlap", {});
+        await skipped(tx, trigger, "schedule", "skipped-overlap");
         return { runId: null, result: "skipped-overlap" };
       }
     }
@@ -750,6 +775,7 @@ export class Scheduler {
     } catch (err) {
       if (!(err instanceof EngineError)) throw err;
       await record("refused", { message: err.message });
+      await skipped(tx, trigger, "schedule", "refused");
       return { runId: null, result: "refused" };
     }
   }

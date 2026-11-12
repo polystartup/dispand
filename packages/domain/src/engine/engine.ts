@@ -65,6 +65,8 @@ import { pollProblem } from "../tools/pollable.ts";
 import { give, next, take } from "./slots.ts";
 import { checkpointOf, newRoot, pause, pausedGauge, ROOT_STOPPED, rootGoing } from "./roots.ts";
 import { recordInteraction, recordInteractions } from "./interactions.ts";
+import { recordAudit, recordAuditAfter } from "../audit/record.ts";
+import type { AuditActor } from "../audit/model.ts";
 import { jobScope, startable } from "../questions/inbox-scope.ts";
 import { INTERACTION } from "../triggers/model.ts";
 
@@ -78,6 +80,16 @@ const traces = tracer("engine");
 const counts = meter("engine");
 
 const ACTIVE_RUN: RunStatus[] = ["running", "waiting"];
+
+/** Why a Job was stopped, as its `job.failed` Audit row says: a person, a declined checkpoint, a consult taken back. */
+type StopReason = "stopped" | "stopped-checkpoint" | "consult-revoked";
+
+/** Who made a Job, for its `job.created` row: the person who started it, the asking Job of a consult, else the scheduler that fired it. */
+function creatorOf(ownerId: string, cause: JobCause): AuditActor {
+  if (cause.kind === "user") return { type: "user", userId: ownerId };
+  if (cause.kind === "consult") return { type: "job", runId: cause.jobId };
+  return { type: "scheduler" };
+}
 const ACTIVE_STEP: StepStatus[] = ["running", "waiting"];
 const OPEN_STEP: StepStatus[] = ["pending", "running", "waiting"];
 
@@ -499,6 +511,25 @@ export class Engine {
       traceId: currentTraceId() ?? null,
     });
     counts.counter("dispand.runs.created").add(1, { "dispand.run.source": "agent", "dispand.run.trigger": firing.type });
+    const creator = creatorOf(ownerId, cause);
+    await recordAudit(tx, {
+      ownerId,
+      actor: creator,
+      // A consult's row is its asking Job's; any other is filed under the Job's agent.
+      ...(creator.type === "job" ? {} : { agentId }),
+      jobId: runId,
+      action: "job.created",
+      resource: { type: "job", id: runId },
+      details: {
+        agentId,
+        agentName: agent.name,
+        ...(trigger ? { triggerId: trigger.id, triggerName: trigger.name } : {}),
+        rootId,
+        causeKind: cause.kind,
+        firing: firing.type,
+        ...(cause.kind === "event" ? { eventId: cause.eventId } : {}),
+      },
+    });
     await tx
       .insert(stepRuns)
       .values(nodesOf(def).map((n) => ({ id: newId("step"), ownerId, runId, nodeId: n.id, harnessId: n.agentId ? snapshot.harnessId : null, status: "pending" as const })));
@@ -533,14 +564,14 @@ export class Engine {
   }
 
   /** Fails every open step of the run, and the run, in `tx`; returns the steps, whose sessions end once it commits (`endSessions`). */
-  private async stopIn(tx: Tx, runId: string, out: Out[]): Promise<StepRow[]> {
+  private async stopIn(tx: Tx, runId: string, out: Out[], reason: StopReason = "stopped"): Promise<StepRow[]> {
     const open = await tx
       .select()
       .from(stepRuns)
       .where(and(eq(stepRuns.runId, runId), inArray(stepRuns.status, OPEN_STEP)));
-    for (const step of open) await this.fail(tx, step, STOPPED, out);
+    for (const step of open) await this.fail(tx, step, STOPPED, out, reason);
     // A run with no step open (between two steps) is closed here.
-    await this.finishRun(tx, runId, "failed", STOPPED, out);
+    await this.finishRun(tx, runId, "failed", STOPPED, out, reason);
     return open;
   }
 
@@ -981,7 +1012,7 @@ export class Engine {
       ? await tx.select({ id: runs.id }).from(runs).where(and(inArray(runs.id, consulted), inArray(runs.status, ACTIVE_RUN))).for("update")
       : [];
     // Each stops as a person's stop does; its end answers its consult with the reason (`answerConsult`).
-    for (const { id } of going) out.push({ type: "end", steps: await this.stopIn(tx, id, out) });
+    for (const { id } of going) out.push({ type: "end", steps: await this.stopIn(tx, id, out, "consult-revoked") });
     for (const { q, problem } of ended) {
       if (q.status === "pending") await this.settleConsult(tx, q.id, failed(problem), null, out, "stopped");
       else {
@@ -1042,7 +1073,7 @@ export class Engine {
     const sessions: StepRow[] = [];
     for (const { id } of going) {
       const out: Out[] = [];
-      sessions.push(...(await this.stopIn(tx, id, out)));
+      sessions.push(...(await this.stopIn(tx, id, out, "stopped-checkpoint")));
       outs.set(id, out);
     }
     return { stopped: { outs, sessions } };
@@ -1423,6 +1454,7 @@ export class Engine {
     const [now] = await this.db.select({ status: stepRuns.status }).from(stepRuns).where(eq(stepRuns.id, step.id));
     if (!now || !ACTIVE_STEP.includes(now.status)) return;
     if (await this.refusedForScope(step)) return;
+    await this.auditResume(step);
     this.launch(step.harness!, start, step, held, async () => {
       const now = new Date();
       if (answers.length) await this.db.update(questions).set({ deliveredAt: now }).where(inArray(questions.id, answers.map((q) => q.id)));
@@ -1439,6 +1471,31 @@ export class Engine {
       for (const q of orphaned) this.deliverAnswer(q);
     }
     for (const m of laterMessages) this.deliverMessage(sessionId, m);
+  }
+
+  /** A Job's session resumed: its `job.started` row, `resumed`, with the harness and runner it runs on. */
+  private async auditResume(step: StepRow) {
+    const [run] = await this.db.select({ ownerId: runs.ownerId, source: runs.source, agentId: runs.agentId }).from(runs).where(eq(runs.id, step.runId));
+    if (run?.source !== "agent") return;
+    const harnessId = step.harness?.id ?? step.harnessId;
+    const [h] = harnessId ? await this.db.select({ name: harnesses.name }).from(harnesses).where(eq(harnesses.id, harnessId)) : [];
+    const runnerId = step.harness && !isCloud(step.harness) ? step.harness.runnerId : null;
+    const [runner] = runnerId ? await this.db.select({ name: runners.name }).from(runners).where(eq(runners.id, runnerId)) : [];
+    await recordAuditAfter(this.db, {
+      ownerId: run.ownerId,
+      actor: { type: "job", runId: step.runId },
+      agentId: run.agentId,
+      jobId: step.runId,
+      action: "job.started",
+      resource: { type: "job", id: step.runId },
+      details: {
+        status: "resumed",
+        ...(harnessId ? { harnessId } : {}),
+        ...(h ? { harnessName: h.name } : {}),
+        ...(runnerId ? { runnerId } : {}),
+        ...(runner ? { runnerName: runner.name } : {}),
+      },
+    });
   }
 
   /**
@@ -1831,12 +1888,14 @@ export class Engine {
     }
     const model = agent.model ?? h.model;
     let harness: Harness;
+    let runnerRow: RunnerRow | undefined;
     if (h.type === "cloud") {
       // The harness's settings and key are read at each model call: only the agent's model is kept.
       harness = { id: h.id, type: "cloud", kind: h.kind as CloudKind, ...(agent.model ? { model: agent.model } : {}) };
     } else {
       // A revoked runner never comes back: the step would wait forever.
       const [runner] = h.runnerId ? await this.db.select().from(runners).where(eq(runners.id, h.runnerId)) : [];
+      runnerRow = runner;
       const problem = !runner || runner.revokedAt || !h.permissionMode ? "The agent's runner was revoked" : cliProblem(h.kind, runner);
       if (problem) {
         const out: Out[] = [];
@@ -1885,14 +1944,24 @@ export class Engine {
         await this.hold(tx, step.id, { kind: "start" }, held);
         return [];
       }
+      const life = { ownerId: run.ownerId, actor: { type: "job", runId: run.id }, agentId: run.agentId, jobId: run.id, resource: { type: "job", id: run.id } } as const;
       if ((await take(tx, { id: step.id, harnessId: h.id }, cls)) === "queued") {
+        if (run.source === "agent") await recordAudit(tx, { ...life, action: "job.queued", details: { harnessId: h.id, harnessName: h.name } });
         return [undefined, (await tx.select().from(stepRuns).where(eq(stepRuns.id, step.id)))[0]];
       }
-      return tx
+      const begun = await tx
         .update(stepRuns)
         .set({ status: "running", sessionId: start.sessionId, harness, runnerId: isCloud(harness) ? CLOUD_SOURCE : harness.runnerId, start, startedAt: new Date(), pendingAction: null })
         .where(eq(stepRuns.id, step.id))
         .returning();
+      if (run.source === "agent") {
+        await recordAudit(tx, {
+          ...life,
+          action: "job.started",
+          details: { harnessId: h.id, harnessName: h.name, ...(runnerRow ? { runnerId: runnerRow.id, runnerName: runnerRow.name } : {}) },
+        });
+      }
+      return begun;
     });
     this.publish(held);
     if (queued) this.publish([{ type: "step", step: stepView(queued) }]);
@@ -2068,7 +2137,7 @@ export class Engine {
   }
 
   /** Fails the step and its run; the run's pending questions expire. */
-  private async fail(tx: Tx, step: StepRow, error: string, out: Out[]) {
+  private async fail(tx: Tx, step: StepRow, error: string, out: Out[], stop?: StopReason) {
     const [row] = await tx
       .update(stepRuns)
       .set({ status: "failed", error, finishedAt: new Date() })
@@ -2094,7 +2163,7 @@ export class Engine {
     }
     // A checkpoint's Approval asked on this run is its root's: it stays.
     await this.expire(tx, eq(questions.runId, step.runId), out);
-    await this.finishRun(tx, step.runId, "failed", error, out);
+    await this.finishRun(tx, step.runId, "failed", error, out, stop);
     // Nothing more of the run starts or resumes: its steps queued (to start, for an answer or a
     // message, or to resume) or handed a slot leave the queue. Its steps waiting on a question
     // (expired above) never go on: one still holding a slot gives it back.
@@ -2122,8 +2191,11 @@ export class Engine {
     for (const r of rows) out.push({ type: "slot", runId: r.runId, stepId: r.id });
   }
 
-  /** Ends the run, in `tx`; a consulted run's consult is answered with it (`answerConsult`). */
-  private async finishRun(tx: Tx, runId: string, status: "succeeded" | "failed", error: string | null, out: Out[]) {
+  /**
+   * Ends the run, in `tx`; a consulted run's consult is answered with it (`answerConsult`). A
+   * Job's end is audited with why it failed (`stop`, else `failed`), never its error's words.
+   */
+  private async finishRun(tx: Tx, runId: string, status: "succeeded" | "failed", error: string | null, out: Out[], stop?: StopReason) {
     const [row] = await tx
       .update(runs)
       .set({ status, error, finishedAt: new Date() })
@@ -2134,6 +2206,18 @@ export class Engine {
       const attributes = { "dispand.run.source": row.source, "dispand.run.status": status };
       counts.counter("dispand.runs.finished").add(1, attributes);
       counts.histogram("dispand.run.duration", { unit: "ms", description: "From a run's creation to its end" }).record(row.finishedAt!.getTime() - row.createdAt.getTime(), attributes);
+      if (row.source === "agent") {
+        await recordAudit(tx, {
+          ownerId: row.ownerId,
+          actor: { type: "job", runId: row.id },
+          agentId: row.agentId,
+          jobId: row.id,
+          action: status === "succeeded" ? "job.finished" : "job.failed",
+          resource: { type: "job", id: row.id },
+          result: status === "succeeded" ? "ok" : "failed",
+          ...(status === "failed" ? { details: { reason: stop ?? (error === STOPPED ? "stopped" : "failed") } } : {}),
+        });
+      }
       await this.answerConsult(tx, row, out);
     }
   }
@@ -2168,6 +2252,24 @@ export class Engine {
       .where(and(eq(runs.id, runId), inArray(runs.status, ACTIVE_RUN), sql`${runs.status} <> ${runStatus}`))
       .returning();
     if (run) out.push({ type: "run", run: runView(run) });
+    // A Job's run turning `waiting` (not each question: those have rows of their own).
+    if (run?.status === "waiting" && run.source === "agent") {
+      const [asked] = await tx
+        .select({ id: questions.id })
+        .from(questions)
+        .where(and(eq(questions.runId, runId), eq(questions.status, "pending"), isNull(questions.rootId)))
+        .orderBy(desc(questions.createdAt))
+        .limit(1);
+      await recordAudit(tx, {
+        ownerId: run.ownerId,
+        actor: { type: "job", runId },
+        agentId: run.agentId,
+        jobId: runId,
+        action: "job.waiting",
+        resource: { type: "job", id: runId },
+        details: asked ? { questionId: asked.id } : {},
+      });
+    }
   }
 
   /** A Job carries its own definition; a workflow run reads the version it started on. */
