@@ -4,7 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ triggers: { create: vi.fn(), update: vi.fn(), delete: vi.fn() }, tables: { list: vi.fn(), get: vi.fn() }, tools: { pollable: vi.fn() }, agents: { get: vi.fn() } }));
+const fake = vi.hoisted(() => ({ triggers: { create: vi.fn(), update: vi.fn(), delete: vi.fn() }, tables: { list: vi.fn(), get: vi.fn() }, tools: { pollable: vi.fn(), list: vi.fn(), catalog: vi.fn() }, agents: { get: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -281,4 +281,29 @@ test("TriggerSheet edits a poll trigger as one, and shows what its latest polls 
   await screen.findByRole("option", { name: "list_mail" });
   await user.click(screen.getByRole("button", { name: "Save" }));
   expect(fake.triggers.update.mock.calls[0]![0]).toMatchObject({ id: "trigger_1", rateCap: 5, enabled: true, config });
+});
+
+test("TriggerSheet fills a poll from the catalog preset of the tool picked, continuation included", async () => {
+  fake.triggers.create.mockResolvedValue({});
+  fake.agents.get.mockResolvedValue({ id: "agent_1", tools: [{ toolId: "tool_outlook", name: "Outlook", kind: "runner" }] });
+  fake.tools.pollable.mockResolvedValue([{ name: "list-mail-folder-messages", readOnly: true, allowed: true, askedBy: [], pollable: true }]);
+  fake.tools.list.mockResolvedValue([{ id: "tool_outlook", name: "Outlook", catalogId: "microsoft-365" }]);
+  const preset = {
+    action: "list-mail-folder-messages",
+    arguments: { mailFolderId: "inbox", filter: "receivedDateTime ge {{lastPoll}}" },
+    itemsPath: "value",
+    idPath: "id",
+    continuation: { path: "@odata.nextLink", argument: "skiptoken" },
+  };
+  fake.tools.catalog.mockResolvedValue([{ id: "microsoft-365", name: "Microsoft 365 mail", kind: "runner", poll: preset }]);
+  const { user } = mount();
+  await user.type(screen.getByLabelText("Name"), "New mail");
+  await user.click(screen.getByRole("radio", { name: "Poll" }));
+  await screen.findByRole("option", { name: "Outlook" });
+  await vi.waitFor(() => expect(fake.tools.catalog).toHaveBeenCalled());
+  await user.selectOptions(screen.getByLabelText("Tool"), "tool_outlook");
+  await screen.findByText(/Filled in from the tool's catalog entry/);
+  expect(screen.getByText(/Pages through the result/).textContent).toContain("@odata.nextLink");
+  await user.click(screen.getByRole("button", { name: "Create trigger" }));
+  expect(fake.triggers.create.mock.calls[0]![0]).toMatchObject({ config: { kind: "poll", toolId: "tool_outlook", interval: 300, ...preset } });
 });

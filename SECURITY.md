@@ -174,7 +174,10 @@ changes it updates this file.
   (`agent_tools.unasked`); every other action asks as above, in a cloud session and at the
   tools endpoint, which read the list at each call (an action put back asks from its next
   call on, in Jobs already running). The list starts with the actions the tool's server calls
-  read-only (`readOnlyHint`) when a person adds the tool to the agent. That hint is the
+  read-only (`readOnlyHint`) when a person adds the tool to the agent, or, for a tool installed
+  from the catalog, with the actions its entry names that the server lists then (`defaultUnasked`
+  in `tools/catalog.ts`: Dispand's own choice, shipped with the code; a tool pointed at another
+  server or runner tool is no longer its entry). That hint is the
   server's claim and is read only then: a server that later calls another action read-only
   gains nothing, an action that appears later asks, and a tool that only comes with a skill
   asks for everything. A tool pointed at another address or transport asks for everything

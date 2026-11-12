@@ -43,7 +43,11 @@ export type OAuthStore = {
  * recorded for the callback). `finish`: the callback, with the flow it consumed. `use`: a listing
  * or a call, which may refresh the tokens but never starts a flow.
  */
-export type OAuthMode = { kind: "authorize" } | { kind: "finish"; pending: NonNullable<OAuthState["pending"]> } | { kind: "use" };
+/** What a sign-in asks for, where a catalog entry says: these scopes, and these parameters added to the authorization request. */
+export type OAuthRequest = { scopes: string[]; params: Record<string, string> };
+
+/** `authorize` with a `request`: its scopes in place of the server's whole list, its parameters on the authorization URL. */
+export type OAuthMode = { kind: "authorize"; request?: OAuthRequest } | { kind: "finish"; pending: NonNullable<OAuthState["pending"]> } | { kind: "use" };
 
 /** A listing or call needs its owner to sign in again; the tool is marked so before this is thrown. */
 export class ReauthorizeError extends ToolError {
@@ -111,7 +115,8 @@ export function stateSecrets(state: OAuthState): string[] {
  * it read or saved, so what the server sends back is redacted of them.
  */
 export function createOAuthProvider(store: OAuthStore, mode: OAuthMode, appUrl: string, secrets: Set<string>) {
-  const metadata = clientMetadata(appUrl);
+  const request = mode.kind === "authorize" ? mode.request : undefined;
+  const metadata = { ...clientMetadata(appUrl), ...(request ? { scope: request.scopes.join(" ") } : {}) };
   // The SDK refuses a metadata document's URL that isn't https: it registers instead (development).
   const documentUrl = new URL(appUrl).protocol === "https:" ? clientDocumentUrl(appUrl) : undefined;
   const keep = (tokens: StoredOAuthTokens | undefined) => {
@@ -215,7 +220,8 @@ export function createOAuthProvider(store: OAuthStore, mode: OAuthMode, appUrl: 
     async redirectToAuthorization(url) {
       release();
       if (mode.kind === "authorize") {
-        flow.url = url;
+        flow.url = new URL(url);
+        for (const [name, value] of Object.entries(request?.params ?? {})) flow.url.searchParams.set(name, value);
         return;
       }
       if (mode.kind === "use") {

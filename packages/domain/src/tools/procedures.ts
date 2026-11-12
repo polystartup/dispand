@@ -11,7 +11,7 @@ import { logError } from "../log.ts";
 import { authed, base } from "../rpc/context.ts";
 import { type RunnerHub, RunnerRequestFailed } from "../runners/hub.ts";
 import { secretAad, type SecretBox } from "../secrets.ts";
-import { CATALOG, fillHeaders, MissingSetting, runnerSnippet, searchCatalog } from "./catalog.ts";
+import { CATALOG, catalogEntry, fillHeaders, MissingSetting, runnerSnippet, searchCatalog } from "./catalog.ts";
 import { AUTHS, ToolError, TRANSPORTS, type ToolAuth, type ToolConnector, type ToolTarget, type ToolTransport } from "./mcp.ts";
 import { oauthStep, oauthStore } from "./oauth-store.ts";
 import { pollableActions } from "./pollable.ts";
@@ -133,9 +133,12 @@ function nameTaken(error: unknown, name: string): never {
 export function toolTarget(row: Row, secrets: SecretBox): ToolTarget {
   if (row.url === null || row.transport === null) throw new Error(`tool ${row.id} isn't an HTTP tool`);
   const headers = Object.fromEntries(Object.entries(row.headersSealed).map(([name, sealed]) => [name, secrets.open(sealed, headerAad(row.id, name))]));
-  if (row.urlSealed === null) return { url: row.url, transport: row.transport, headers };
+  // A catalog entry's sign-in asks for its own scopes, not every one the server supports.
+  const entry = row.auth === "oauth" ? catalogEntry(row.catalogId) : undefined;
+  const request = entry?.kind === "http" && entry.oauth ? { oauthRequest: entry.oauth } : {};
+  if (row.urlSealed === null) return { url: row.url, transport: row.transport, headers, ...request };
   const secret = JSON.parse(secrets.open(row.urlSealed, urlAad(row.id))) as { url: string; secrets: string[] };
-  return { url: secret.url, transport: row.transport, headers, urlSecrets: secret.secrets };
+  return { url: secret.url, transport: row.transport, headers, urlSecrets: secret.secrets, ...request };
 }
 
 /** What a sign-in that stopped working says on each call, until its owner re-authorizes the tool. */
@@ -229,6 +232,8 @@ export type ToolFields = {
   /** OAuth: no headers; its owner connects it afterwards. Otherwise it follows from the headers. */
   oauth?: boolean;
   catalogId?: string;
+  /** The actions a poll may read (a catalog entry's); absent: the ones the server calls read-only. */
+  pollable?: string[];
   /** The URL to call when it holds secrets (named in `secrets`); `url` is then its template, shown in its place. */
   secretUrl?: { url: string; secrets: string[] };
   plugin?: { id: string; component: string };
@@ -268,6 +273,7 @@ export async function insertTool(db: Db | Tx, secrets: SecretBox, ownerId: strin
       auth: authOf(input.oauth === true, headers),
       oauthStatus: input.oauth ? "authorize" : null,
       catalogId: input.catalogId ?? null,
+      pollable: input.pollable ?? null,
       pluginId: input.plugin?.id ?? null,
       pluginComponent: input.plugin?.component ?? null,
     })
@@ -304,14 +310,35 @@ async function createTool(context: Pick<InitialContext, "db" | "secrets" | "tool
   return view(context.db, row.auth === "oauth" ? row : await refreshActions(context.db, context.secrets, context.tools, row));
 }
 
-const RunnerTool = z.object({ kind: z.literal("runner"), name: Name, runnerId: z.string().max(100), runnerTool: McpServerName });
+const RunnerTool = z.object({
+  kind: z.literal("runner"),
+  name: Name,
+  runnerId: z.string().max(100),
+  runnerTool: McpServerName,
+  /** The runner entry of the catalog it was set up from: its flags, the actions a poll may read and its poll preset. */
+  catalogId: z
+    .string()
+    .max(64)
+    .refine((id) => catalogEntry(id)?.kind === "runner", "Not a runner entry of the catalog")
+    .optional(),
+});
 
 /** Saves a runner tool, once its runner reports the server; its actions are then listed by the runner. */
 async function createRunnerTool(context: Pick<InitialContext, "db" | "hub"> & { ownerId: string }, input: z.infer<typeof RunnerTool>) {
   await requireRunnerTool(context.db, context.ownerId, input.runnerId, input.runnerTool);
+  const entry = catalogEntry(input.catalogId);
   const [row] = await context.db
     .insert(toolsTable)
-    .values({ id: newId("tool"), ownerId: context.ownerId, name: input.name, kind: "runner", runnerId: input.runnerId, runnerTool: input.runnerTool })
+    .values({
+      id: newId("tool"),
+      ownerId: context.ownerId,
+      name: input.name,
+      kind: "runner",
+      runnerId: input.runnerId,
+      runnerTool: input.runnerTool,
+      catalogId: entry?.id ?? null,
+      pollable: entry?.pollable ?? null,
+    })
     .returning()
     .catch((e: unknown) => nameTaken(e, input.name));
   return view(context.db, await refreshRunnerActions(context.db, context.hub, row!));
@@ -365,6 +392,8 @@ const installFromCatalog = owner
     const entry = CATALOG.find((e) => e.id === input.catalogId);
     if (!entry) throw new ORPCError("NOT_FOUND", { message: "Not in the catalog" });
     if (entry.kind === "runner") return { runnerSnippet: runnerSnippet(entry) };
+    // An OAuth entry is connected afterwards, on the tool's page, with the owner's own client.
+    if (entry.oauth) return { tool: await createTool(context, { name: input.name ?? entry.name, url: entry.url, transport: entry.transport, headers: {}, oauth: true, catalogId: entry.id, pollable: entry.pollable }) };
     let headers: Record<string, string>;
     try {
       headers = fillHeaders(entry, input.settings);
@@ -372,7 +401,7 @@ const installFromCatalog = owner
       if (error instanceof MissingSetting) bad(error.message);
       throw error;
     }
-    const tool = await createTool(context, { name: input.name ?? entry.name, url: entry.url, transport: entry.transport, headers, catalogId: entry.id });
+    const tool = await createTool(context, { name: input.name ?? entry.name, url: entry.url, transport: entry.transport, headers, catalogId: entry.id, pollable: entry.pollable });
     return { tool };
   });
 
@@ -394,7 +423,7 @@ async function updateRunnerTool(context: Pick<InitialContext, "db" | "hub"> & { 
   }
   const [row] = await context.db
     .update(toolsTable)
-    .set({ name: input.name ?? current.name, runnerId, runnerTool, ...(moved ? { actions: [], refreshedAt: null } : {}) })
+    .set({ name: input.name ?? current.name, runnerId, runnerTool, ...(moved ? { actions: [], refreshedAt: null, catalogId: null } : {}) })
     .where(and(eq(toolsTable.id, current.id), eq(toolsTable.ownerId, context.ownerId)))
     .returning()
     .catch((e: unknown) => nameTaken(e, input.name ?? current.name));
@@ -455,8 +484,8 @@ const update = owner
         headersSealed,
         auth: authOf(oauth, headersSealed),
         ...oauthColumns,
-        // Another server's actions don't describe this one.
-        ...(moved ? { actions: [], refreshedAt: null } : {}),
+        // Another server's actions don't describe this one, nor does the catalog entry it came from.
+        ...(moved ? { actions: [], refreshedAt: null, catalogId: null } : {}),
       })
       .where(and(eq(toolsTable.id, current.id), eq(toolsTable.ownerId, context.ownerId)))
       .returning()
