@@ -262,6 +262,20 @@ test("a right taken back after the answer was recorded and before it reached the
   expect((await s.question(q.id)).answer).toEqual({ kind: "consult", outcome: "failed", text: NOT_LISTED });
 });
 
+test("a failure recorded before a right was taken back reaches the asker as the reason, not the consulted Job's error", async () => {
+  const s = await setup();
+  const other = await s.start();
+  const asker = await s.start();
+  const q = await s.consult(asker.sessionId, s.expert.id);
+  const expertSession = await s.sessionOf(await s.consulted(q.id));
+  await s.engine().setLimit(s.harness.id, 1);
+  await s.emit(expertSession, { type: "error", message: "what the expert read" });
+  await vi.waitFor(async () => expect((await s.question(q.id)).status).toBe("answered"));
+  await s.list(s.asker.id, []);
+  await s.engine().stopRun(other.runId);
+  expect(await s.answered(asker.sessionId)).toEqual([{ kind: "consult", outcome: "failed", text: NOT_LISTED }]);
+});
+
 test("a consult is no Inbox item: no list, count, answer, inbox tool, approval or interaction event reaches it", async () => {
   const s = await setup();
   await s.set(s.third.id, { bundles: ["inbox"] });

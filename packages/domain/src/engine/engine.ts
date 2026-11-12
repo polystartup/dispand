@@ -840,6 +840,9 @@ export class Engine {
    * down its chain of consults.
    */
   private async expire(tx: Tx, where: SQL, out: Out[]): Promise<void> {
+    // The consulted runs first, then the consults: the order a consulted run's end takes them in (`answerConsult`).
+    const consulted = tx.select({ id: questions.consultRunId }).from(questions).where(and(where, eq(questions.status, "pending"), isNull(questions.rootId)));
+    await tx.select({ id: runs.id }).from(runs).where(inArray(runs.id, consulted)).for("update");
     const expired = await tx
       .update(questions)
       .set({ status: "expired" })
@@ -1329,9 +1332,10 @@ export class Engine {
    * path that sends answers reads them through here (`undeliveredAnswers`, `redeliverAnswer`).
    */
   private async checkedAnswer(q: QuestionRow): Promise<QuestionRow> {
-    if (q.kind !== "consult" || q.answer?.kind !== "consult" || q.answer.outcome === "failed") return q;
+    if (q.kind !== "consult" || q.answer?.kind !== "consult") return q;
+    // A failure too: its reason may quote the consulted Job's error.
     const problem = await deliveryProblem(this.db, q);
-    if (!problem) return q;
+    if (!problem || (q.answer.outcome === "failed" && q.answer.text === failed(problem).text)) return q;
     const [replaced] = await this.db
       .update(questions)
       .set({ answer: failed(problem) })
