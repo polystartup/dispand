@@ -215,13 +215,17 @@
   either agent; one a later bundle change puts across that line is kept and shown inactive.
   A Job's cloud session gets a `consult` tool listing them (`StartParams.consults`): a call is a
   `questions` row of kind `consult` (protocol 11) that `Engine.openConsult` checks
-  (`consultProblem`) and answers at once when refused, or turns into a Job of the consulted agent
+  (`consultProblem`) and answers at once when refused, puts to the owner first when its entry is
+  flagged (an `approval` row whose `consult_id` names the consult and that no session waits on:
+  a yes opens the consult, a no answers it), or turns into a Job of the consulted agent
   with no trigger (`RunTrigger` `consult`, `cause` the asking Job, the asking Job's root; its
   prompt is `CONSULT_PROMPT`). A consult asked while its root is paused waits with no Job until the
   root goes on (or `recover()`). When that Job ends, `finishRun` answers the row in the same
   transaction (`answerConsult`); every read of answers to send checks the rights again
   (`deliveryProblem`). A consult row that expires (its asker stopped, failed, or a resumed session
-  asked again) stops its consulted run, recursively.
+  asked again) stops its consulted run, recursively, and expires its Approval. `agents.update`
+  calls `Engine.endConsults` in its transaction: the consults on either side of the agent that its
+  pair no longer allows end there, with the reason.
   `jobs.start` starts a manual trigger's Job, `jobs.def` gives a Job's definition, and
   `runs.list` takes an `agentId`, a `triggerId` and `kind: "chat"` (the Jobs whose own definition opens with a chat), and gives each run a `title`: its first message's first 80 characters, whitespace folded, null before one. An agent is never deleted under a Job still going, by itself or
   with its plugin: both paths lock its triggers and the agent in the deleting transaction
@@ -515,8 +519,8 @@
   (`skill_packages.built_in`, migration 0050, a partial unique index), replacing its files when
   they differ from the build's; it runs at server start for every owner
   (`syncPlatformSkills`) and in `ensureAssistant`, which attaches it to the Assistant. It
-  reaches sessions like any skill package (a CLI start names it; cloud sessions don't get
-  skills yet). Any agent may be given it: it describes, it grants nothing.
+  reaches sessions like any skill package (a CLI start names it; a cloud session lists it and
+  reads it with `read_skill`). Any agent may be given it: it describes, it grants nothing.
 - **Skills and tools in sessions:** `engine/tooling.ts` says what a session's agent gives it
   (`sessionTooling`, from the session's step: the Job's agent, or the workflow node's): the
   agent's skill packages and effective tools as they are now, kept, for a Job, to those of its
@@ -556,7 +560,19 @@
   `platform/exposed.ts`) and marks the answer consumed, or brings the answer down to "allow"
   when the name stands for nothing the agent chose; the runner adds the name to the session's
   unasked ones. Workflow runs' CLI sessions have no Job token, so
-  no such tools; cloud sessions don't get skills yet.
+  no such tools.
+- **Skills in cloud sessions** (`skills/cloud.ts`): the way Agent Skills work. At every model
+  call `sessionSkills` reads the skills of the session's packages (`sessionTooling`: for a Job,
+  its snapshot's that the agent still has); the system prompt lists each skill's name and
+  description (`<package>:<name>` when two packages share a name), and the built-in
+  `read_skill` (`cloud/builtins.ts`, a name `tool-names.ts` reserves; offered only when there
+  are skills) reads one file of one of them, `SKILL.md` first, without asking the owner. A call
+  reads the skills again, refuses a path `isSafeRelativePath` refuses (`..`, `.`, absolute,
+  backslash), and looks the file up by its exact stored path `<skill>/<path>` in that package:
+  nothing is decoded or normalized and no filesystem is involved, so an encoded path names no
+  file. A missing file's answer lists the skill's files; a file that isn't UTF-8 text is
+  refused; a longer one than a tool result may hold is cut. Each read makes a `skill.read` span
+  and counts in `dispand.skill.reads` (how it ended only).
 - **What polls may read** (`tools/pollable.ts`): `tools.pollable` (the owner's list, migration
   0042; null: the actions the server marks read-only) says which of a tool's actions a poll may
   call, and `isPollable` adds that no agent holding the tool must ask before using it (the

@@ -1,18 +1,20 @@
 import { call } from "@orpc/server";
 import type { Answer, HarnessEvent } from "@dispand/runner-protocol";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { agentConsults, agents, events, questions, roots, runs, stepRuns } from "../db/schema.ts";
+import { agentConsults, agents, events, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
 import { takeApproval } from "../platform/approvals.ts";
 import { jobScope, reachable } from "../questions/inbox-scope.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { INTERACTION } from "../triggers/model.ts";
-import { CONSULTED_STOPPED, FLAGGED, IN_CHAIN, NOT_LISTED } from "./consults.ts";
+import { CONSULTED_STOPPED, CONSULTED_STOPPED_AT_CHECKPOINT, DECLINED, FLAGGED, IN_CHAIN, NOT_LISTED, TOO_LONG } from "./consults.ts";
 import { answerText, Engine, EngineError, STOPPED } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { JOB_STEP } from "./job-def.ts";
-import { ROOT_STOPPED } from "./roots.ts";
+import { CHECKPOINT, pause, ROOT_STOPPED } from "./roots.ts";
+import { Scheduler } from "./scheduler.ts";
+import { callPlatformTool } from "../platform/call.ts";
 
 class FakeAdapter implements HarnessAdapter {
   starts: { harness: Harness; start: StartParams }[] = [];
@@ -107,7 +109,47 @@ async function setup() {
     await engine.recover();
     return engine;
   };
-  return { context, runnerId, harness, third, asker, expert, list, set, trigger, adapter, engine: () => engine, emit, start, consult, consulted, question, run, answered, stepOf, sessionOf, restart };
+  /** A person's change on the agent's page, through the procedure: what it takes back ends the consults in flight on it. */
+  const edit = async (agentId: string, patch: { consults?: { agentId: string; ask: boolean }[]; bundles?: ("data" | "configure" | "inbox")[]; description?: string }) => {
+    const [row] = await context.db.select().from(agents).where(eq(agents.id, agentId));
+    await call(router.agents.update, { id: agentId, name: row!.name, harnessId: row!.harnessId, systemPrompt: row!.systemPrompt, ...patch }, { context: { ...context, engine } });
+  };
+  /** The owner's answer from the Inbox. */
+  const approve = (questionId: string, decision: "allow" | "allow-always" | "deny") =>
+    call(router.questions.answer, { questionId, answer: { kind: "permission", decision } }, { context: { ...context, engine } });
+  /** The Approvals of consults, oldest first. */
+  const approvals = () =>
+    context.db
+      .select()
+      .from(questions)
+      .where(and(eq(questions.kind, "approval"), isNotNull(questions.consultId)))
+      .orderBy(asc(questions.createdAt));
+  return {
+    context,
+    runnerId,
+    harness,
+    third,
+    asker,
+    expert,
+    list,
+    set,
+    trigger,
+    adapter,
+    engine: () => engine,
+    emit,
+    start,
+    consult,
+    consulted,
+    question,
+    run,
+    answered,
+    stepOf,
+    sessionOf,
+    restart,
+    edit,
+    approve,
+    approvals,
+  };
 }
 
 test("a Job consults an agent: a Job of that agent answers, and the asker goes on with its answer", async () => {
@@ -151,9 +193,6 @@ test("each refusal at the call answers the consult with its reason and makes no 
   expect(await refused(s.third.id)).toBe(NOT_LISTED);
   // Itself.
   expect(await refused(s.asker.id)).toBe(NOT_LISTED);
-  // Flagged: the owner's Approval of it isn't built yet.
-  await s.list(s.asker.id, [s.expert.id], true);
-  expect(await refused(s.expert.id)).toBe(FLAGGED);
   // Taken off the agent since its Job started: the snapshot isn't enough.
   await s.list(s.asker.id, [s.expert.id]);
   const asker = await s.start();
@@ -357,4 +396,252 @@ test("restarts: a consult with no Job yet is opened, one whose Job ended is answ
   expect(await s.context.db.select().from(runs).where(and(eq(runs.agentId, s.expert.id)))).toHaveLength(1);
   expect(s.adapter.answers).toHaveLength(1);
   expect(await s.context.db.select().from(agentConsults)).toHaveLength(3);
+});
+
+test("a flagged entry asks the owner first: one Approval showing the question whole, and no Job until a yes", async () => {
+  const s = await setup();
+  await s.list(s.asker.id, [s.expert.id], true);
+  const asker = await s.start();
+  const q = await s.consult(asker.sessionId, s.expert.id, "Which plan, and why?");
+  expect(await s.question(q.id)).toMatchObject({ status: "pending", consultRunId: null });
+  expect(await s.stepOf(asker.runId)).toMatchObject({ status: "waiting", working: false });
+  // One Inbox item: the agent consulted and the question, whole, with "don't ask again".
+  const [item, ...more] = await call(router.questions.list, { status: "pending" }, { context: s.context });
+  expect(more).toEqual([]);
+  expect(item).toMatchObject({
+    consultId: q.id,
+    payload: { kind: "permission", toolName: "consult", input: { agent: "Expert", question: "Which plan, and why?" }, canAlwaysAllow: true },
+  });
+  expect(await call(router.questions.count, undefined, { context: s.context })).toEqual({ count: 1 });
+  // A restart asks nothing more, and makes no Job.
+  await s.restart();
+  expect(await s.approvals()).toHaveLength(1);
+  expect(await s.context.db.select().from(runs).where(eq(runs.agentId, s.expert.id))).toEqual([]);
+  await s.approve(item!.id, "allow");
+  const consultedId = await s.consulted(q.id);
+  await s.emit(await s.sessionOf(consultedId), { type: "result", text: "Plan B." });
+  // The session gets the consult's answer only: no session asked the Approval.
+  expect(await s.answered(asker.sessionId)).toEqual([{ kind: "consult", outcome: "answered", text: "Plan B." }]);
+  await new Promise((r) => setTimeout(r, 50));
+  expect(s.adapter.answers).toHaveLength(1);
+  // A yes is for this consult: the flag stays, and the next one asks again.
+  const next = await s.consult(asker.sessionId, s.expert.id);
+  expect(await s.question(next.id)).toMatchObject({ status: "pending", consultRunId: null });
+  expect(await s.approvals()).toHaveLength(2);
+});
+
+test("a no answers the consult with the owner's refusal, and makes no Job", async () => {
+  const s = await setup();
+  await s.list(s.asker.id, [s.expert.id], true);
+  const asker = await s.start();
+  const q = await s.consult(asker.sessionId, s.expert.id);
+  const [approval] = await s.approvals();
+  await s.approve(approval!.id, "deny");
+  expect(await s.answered(asker.sessionId)).toEqual([{ kind: "consult", outcome: "failed", text: DECLINED }]);
+  expect((await s.question(q.id)).consultRunId).toBeNull();
+  expect(await s.context.db.select().from(runs).where(eq(runs.agentId, s.expert.id))).toEqual([]);
+});
+
+test("don't ask again takes the flag off the entry, and the next consult makes its Job at once", async () => {
+  const s = await setup();
+  await s.list(s.asker.id, [s.expert.id], true);
+  const asker = await s.start();
+  const q = await s.consult(asker.sessionId, s.expert.id);
+  const [approval] = await s.approvals();
+  await s.approve(approval!.id, "allow-always");
+  await s.emit(await s.sessionOf(await s.consulted(q.id)), { type: "result", text: "Yes." });
+  await s.answered(asker.sessionId);
+  expect(await s.context.db.select({ ask: agentConsults.ask }).from(agentConsults).where(eq(agentConsults.agentId, s.asker.id))).toEqual([{ ask: false }]);
+  // On the agent and in this Job's snapshot: the same Job consults again with no Approval.
+  expect((await s.run(asker.runId)).snapshot!.consults).toEqual([{ agentId: s.expert.id, ask: false }]);
+  const again = await s.consult(asker.sessionId, s.expert.id);
+  await s.consulted(again.id);
+  expect(await s.approvals()).toHaveLength(1);
+});
+
+test("a question too long to show the owner whole is refused at the call", async () => {
+  const s = await setup();
+  await s.list(s.asker.id, [s.expert.id], true);
+  const asker = await s.start();
+  // Within a consult's limit, but every quote doubles once shown as the Approval's input.
+  await s.consult(asker.sessionId, s.expert.id, '"'.repeat(150_000));
+  expect(await s.answered(asker.sessionId)).toEqual([{ kind: "consult", outcome: "failed", text: TOO_LONG }]);
+  expect(await s.approvals()).toEqual([]);
+});
+
+test("a consult whose Approval waits ends with it: the session that asked is replaced, and the Approval leaves the Inbox", async () => {
+  const s = await setup();
+  await s.list(s.asker.id, [s.expert.id], true);
+  const asker = await s.start();
+  const q = await s.consult(asker.sessionId, s.expert.id);
+  await s.emit(asker.sessionId, { type: "error", message: "the session is not running on this runner" });
+  await vi.waitFor(async () => expect((await s.question(q.id)).orphaned).toBe(true));
+  // The resumed session asks again: the first consult expires, its Approval with it.
+  await s.consult(asker.sessionId, s.expert.id);
+  expect((await s.question(q.id)).status).toBe("expired");
+  const [first, second] = await s.approvals();
+  expect(first).toMatchObject({ consultId: q.id, status: "expired" });
+  expect(second).toMatchObject({ status: "pending" });
+  await expect(s.approve(first!.id, "allow")).rejects.toThrow();
+  expect(await s.context.db.select().from(runs).where(eq(runs.agentId, s.expert.id))).toEqual([]);
+});
+
+test("each right taken back while a consult is in flight stops its consulted Job, and the asker gets why", async () => {
+  const s = await setup();
+  const inFlight = async () => {
+    const asker = await s.start();
+    const q = await s.consult(asker.sessionId, s.expert.id);
+    const consultedId = await s.consulted(q.id);
+    return { asker, consultedId, session: await s.sessionOf(consultedId) };
+  };
+  const ended = async ({ asker, consultedId, session }: Awaited<ReturnType<typeof inFlight>>) => {
+    expect(await s.run(consultedId)).toMatchObject({ status: "failed", error: STOPPED });
+    await vi.waitFor(() => expect(s.adapter.stops).toContain(session));
+    const [answer] = await s.answered(asker.sessionId);
+    await s.engine().stopRun(asker.runId);
+    return (answer as Extract<Answer, { kind: "consult" }>).text;
+  };
+  // The entry removed.
+  let c = await inFlight();
+  await s.edit(s.asker.id, { consults: [] });
+  expect(await ended(c)).toBe(NOT_LISTED);
+  // A flag added: the asker may consult again, and then gets the Approval.
+  await s.edit(s.asker.id, { consults: [{ agentId: s.expert.id, ask: false }] });
+  c = await inFlight();
+  await s.edit(s.asker.id, { consults: [{ agentId: s.expert.id, ask: true }] });
+  expect(await ended(c)).toBe(FLAGGED);
+  // A bundle change that puts the pair on two sides of `configure`.
+  await s.edit(s.asker.id, { consults: [{ agentId: s.expert.id, ask: false }] });
+  c = await inFlight();
+  await s.edit(s.expert.id, { bundles: ["configure"] });
+  expect(await ended(c)).toContain("never consult each other");
+});
+
+test("a change that takes nothing back leaves consults in flight alone, and an approved consult outlives its flag", async () => {
+  const s = await setup();
+  await s.list(s.asker.id, [s.expert.id], true);
+  const asker = await s.start();
+  const q = await s.consult(asker.sessionId, s.expert.id);
+  const [approval] = await s.approvals();
+  await s.approve(approval!.id, "allow");
+  const consultedId = await s.consulted(q.id);
+  await s.edit(s.asker.id, { description: "Asks." });
+  await s.edit(s.expert.id, { description: "Answers." });
+  expect(await s.run(consultedId)).toMatchObject({ status: "running" });
+  await s.emit(await s.sessionOf(consultedId), { type: "result", text: "Plan F." });
+  expect(await s.answered(asker.sessionId)).toEqual([{ kind: "consult", outcome: "answered", text: "Plan F." }]);
+});
+
+test("an answer recorded while the asker is held, then taken back before delivery, reaches it as the reason, after a restart too", async () => {
+  const s = await setup();
+  const asker = await s.start();
+  const q = await s.consult(asker.sessionId, s.expert.id);
+  const expertSession = await s.sessionOf(await s.consulted(q.id));
+  // The asker's root pauses: the answer is recorded and held.
+  const rootId = (await s.run(asker.runId)).rootId!;
+  await s.context.db.update(roots).set({ state: "paused" }).where(eq(roots.id, rootId));
+  await s.emit(expertSession, { type: "result", text: "Plan G." });
+  await vi.waitFor(async () => expect((await s.question(q.id)).status).toBe("answered"));
+  // Taken back, then given again: the consult ended there, for good.
+  await s.edit(s.asker.id, { consults: [] });
+  expect((await s.question(q.id)).answer).toEqual({ kind: "consult", outcome: "failed", text: NOT_LISTED });
+  await s.edit(s.asker.id, { consults: [{ agentId: s.expert.id, ask: false }] });
+  await s.context.db.update(roots).set({ state: "going" }).where(eq(roots.id, rootId));
+  await s.restart();
+  expect(await s.answered(asker.sessionId)).toEqual([{ kind: "consult", outcome: "failed", text: NOT_LISTED }]);
+});
+
+test("a chain of consults reaches its root's checkpoint like any Jobs, and the consulted Job is held there", async () => {
+  const s = await setup();
+  await s.context.db.insert(workspaceSettings).values({ ownerId: s.context.ownerId, checkpoint: 2 });
+  // The asker's start counts 1, its consulted Job 2: that one reaches the checkpoint, made and held.
+  const asker = await s.start();
+  const q = await s.consult(asker.sessionId, s.expert.id);
+  const expertRun = await s.consulted(q.id);
+  const rootId = (await s.run(asker.runId)).rootId!;
+  expect((await s.context.db.select().from(roots).where(eq(roots.id, rootId)))[0]).toMatchObject({ state: "paused", jobs: 2 });
+  expect(await s.stepOf(expertRun)).toMatchObject({ sessionId: null });
+  const [checkpoint] = await s.context.db.select().from(questions).where(and(eq(questions.rootId, rootId), eq(questions.status, "pending")));
+  expect(checkpoint!.payload).toMatchObject({ toolName: CHECKPOINT });
+  await s.engine().answer(checkpoint!.id, { kind: "permission", decision: "allow" }, { type: "user", userId: s.context.ownerId });
+  await s.emit(await s.sessionOf(expertRun), { type: "result", text: "Plan H." });
+  expect(await s.answered(asker.sessionId)).toEqual([{ kind: "consult", outcome: "answered", text: "Plan H." }]);
+});
+
+test("a consult asked by a turn in progress while its root is paused makes no Job until the root goes on; declined, it ends with the root", async () => {
+  const s = await setup();
+  /** The asker consults the expert, whose turn is in progress when the root pauses; it consults the third agent then. */
+  const pausedConsult = async () => {
+    const asker = await s.start();
+    const expertRun = await s.consulted((await s.consult(asker.sessionId, s.expert.id)).id);
+    const expertSession = await s.sessionOf(expertRun);
+    const [root] = await s.context.db.select().from(roots).where(eq(roots.id, (await s.run(asker.runId)).rootId!));
+    const checkpoint = await s.context.db.transaction((tx) => pause(tx, root!, root!.jobs, expertRun));
+    const q = await s.consult(expertSession, s.third.id);
+    expect(await s.question(q.id)).toMatchObject({ status: "pending", consultRunId: null });
+    return { asker, expertRun, q, checkpoint };
+  };
+  const answer = (id: string, decision: "allow" | "deny") => s.engine().answer(id, { kind: "permission", decision }, { type: "user", userId: s.context.ownerId });
+  const approved = await pausedConsult();
+  await answer(approved.checkpoint, "allow");
+  expect(await s.run(await s.consulted(approved.q.id))).toMatchObject({ agentId: s.third.id, status: "running" });
+
+  const declined = await pausedConsult();
+  await answer(declined.checkpoint, "deny");
+  for (const id of [declined.asker.runId, declined.expertRun]) expect(await s.run(id)).toMatchObject({ status: "failed", error: STOPPED });
+  expect((await s.question(declined.q.id)).consultRunId).toBeNull();
+  expect((await s.question(declined.q.id)).status).not.toBe("pending");
+  // Nothing of it comes back: no Job of the third agent for it, after a restart too.
+  await s.restart();
+  expect(await s.context.db.select().from(runs).where(eq(runs.agentId, s.third.id))).toHaveLength(1);
+});
+
+test("a decline at a checkpoint stops the chain below, and an asker in another root's chat gets why", async () => {
+  const s = await setup();
+  await s.context.db.insert(workspaceSettings).values({ ownerId: s.context.ownerId, checkpoint: 2 });
+  const chat = await call(router.triggers.create, { agentId: s.asker.id, name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } }, { context: s.context });
+  const chatRun = await s.engine().startJob(chat.id, s.context.ownerId);
+  const chatSession = await vi.waitFor(async () => {
+    const [step] = await s.context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, chatRun), isNotNull(stepRuns.sessionId)));
+    if (!step || !s.adapter.starts.some((x) => x.start.sessionId === step.sessionId)) throw new Error("not started");
+    return step.sessionId!;
+  });
+  // A message: a root of its own, where the chat consults the expert (its first Job).
+  await s.engine().sendChat(chatRun, "Ask the expert.");
+  const asked = (await s.run(chatRun)).rootId!;
+  const q = await s.consult(chatSession, s.expert.id);
+  const expertRun = await s.consulted(q.id);
+  // The owner writes again: the chat moves on to a new root while it waits.
+  await s.engine().sendChat(chatRun, "And then?");
+  expect((await s.run(chatRun)).rootId).not.toBe(asked);
+  // The expert consults the third agent: the second Job of the first message reaches its checkpoint.
+  const q2 = await s.consult(await s.sessionOf(expertRun), s.third.id);
+  const thirdRun = await s.consulted(q2.id);
+  const [approval] = await s.context.db.select().from(questions).where(and(eq(questions.rootId, asked), eq(questions.status, "pending")));
+  await s.engine().answer(approval!.id, { kind: "permission", decision: "deny" }, { type: "user", userId: s.context.ownerId });
+  for (const id of [expertRun, thirdRun]) expect(await s.run(id)).toMatchObject({ status: "failed", error: STOPPED });
+  expect(await s.run(chatRun)).toMatchObject({ status: "running" });
+  expect(await s.answered(chatSession)).toEqual([{ kind: "consult", outcome: "failed", text: CONSULTED_STOPPED_AT_CHECKPOINT }]);
+});
+
+test("an event a consulted Job writes fires the asking agent's trigger, in the same root", async () => {
+  const s = await setup();
+  await s.set(s.asker.id, { bundles: ["data"] });
+  await s.set(s.expert.id, { bundles: ["data"] });
+  const backlog = await call(router.tables.create, { name: "Backlog" }, { context: s.context });
+  const title = (await call(router.tables.get, { id: backlog.id }, { context: s.context })).fields[0]!;
+  await call(router.tables.setPrimitive, { id: backlog.id, primitive: true }, { context: s.context });
+  const next = await call(
+    router.triggers.create,
+    { agentId: s.asker.id, name: "Next task", instructions: "Take it.", config: { kind: "primitive", tableId: backlog.id, operations: ["created"] } },
+    { context: s.context },
+  );
+  const asker = await s.start();
+  const q = await s.consult(asker.sessionId, s.expert.id);
+  const expertRun = await s.consulted(q.id);
+  await callPlatformTool(s.context, { runId: expertRun, ownerId: s.context.ownerId, agentId: s.expert.id }, "rows_create", { tableId: backlog.id, values: { [title.id]: "Do it first" } });
+  await new Scheduler(s.context.db, s.engine()).tick();
+  const [job] = await s.context.db.select().from(runs).where(eq(runs.triggerId, next.id));
+  expect(job).toMatchObject({ agentId: s.asker.id, rootId: (await s.run(asker.runId)).rootId });
+  expect(job!.cause).toMatchObject({ kind: "event", jobId: expertRun });
 });

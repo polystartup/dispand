@@ -609,11 +609,14 @@ export const questions = pgTable(
     rootId: text("root_id").references(() => roots.id, { onDelete: "cascade" }),
     // A consult: the consulted Job, once made (null while its root is paused, or when it was refused).
     consultRunId: text("consult_run_id").references((): AnyPgColumn => runs.id, { onDelete: "set null" }),
+    // An Approval of a flagged consult: the consult row it is for (`engine/consults.ts`). No session waits on it, its consult does.
+    consultId: text("consult_id").references((): AnyPgColumn => questions.id, { onDelete: "cascade" }),
   },
   (t) => [
     unique().on(t.sessionId, t.runnerQuestionId),
     index("questions_run_idx").on(t.runId),
     index("questions_consult_run_idx").on(t.consultRunId),
+    index("questions_consult_idx").on(t.consultId),
     uniqueIndex("questions_checkpoint_idx").on(t.rootId).where(sql`${t.status} = 'pending'`),
   ],
 );

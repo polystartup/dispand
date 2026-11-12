@@ -3,14 +3,25 @@ import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ProposalItems, type ProposalView } from "./ProposalItems.tsx";
+import { CONSULT_LINE, ProposalItems, type ProposalView } from "./ProposalItems.tsx";
 
 /** For a call of one of an agent's tools: the tool and the action it is for, in full (the name it is asked under is cut short). */
 export type About = { tool: string; action: string; description: string };
 
 export type QuestionFormProps = {
-  /** `proposalId`: the Approval is for a proposal; `proposal`: that proposal as its owner reads it (the Inbox loads it). */
-  question: { payload: QuestionPayload; orphaned?: boolean; about?: About | null; proposalId?: string | null; proposal?: ProposalView | null; rootId?: string | null };
+  /**
+   * `proposalId`: the Approval is for a proposal; `proposal`: that proposal as its owner reads it (the Inbox loads it).
+   * `rootId`: a checkpoint's Approval; `consultId`: a consult's.
+   */
+  question: {
+    payload: QuestionPayload;
+    orphaned?: boolean;
+    about?: About | null;
+    proposalId?: string | null;
+    proposal?: ProposalView | null;
+    rootId?: string | null;
+    consultId?: string | null;
+  };
   onAnswer: (answer: Answer) => void;
   /** An answer is being sent: the form can't be submitted again. */
   busy?: boolean;
@@ -29,7 +40,8 @@ export function QuestionForm({ question, onAnswer, busy, error }: QuestionFormPr
       )}
       {payload.kind === "choice" && <Choice payload={payload} onAnswer={onAnswer} busy={busy} />}
       {payload.kind === "permission" && question.rootId && <Checkpoint payload={payload} onAnswer={onAnswer} busy={busy} />}
-      {payload.kind === "permission" && !question.rootId && (
+      {payload.kind === "permission" && question.consultId && <Consult payload={payload} onAnswer={onAnswer} busy={busy} />}
+      {payload.kind === "permission" && !question.rootId && !question.consultId && (
         <Permission payload={payload} about={question.about ?? null} proposalId={question.proposalId ?? null} proposal={question.proposal ?? null} onAnswer={onAnswer} busy={busy} />
       )}
       {payload.kind === "confirm-outputs" && <Confirm payload={payload} onAnswer={onAnswer} busy={busy} />}
@@ -38,6 +50,42 @@ export function QuestionForm({ question, onAnswer, busy, error }: QuestionFormPr
           {error}
         </p>
       )}
+    </div>
+  );
+}
+
+/** What a consult's Approval says (`engine/consults.ts`): the agent consulted, by name, and the question whole. */
+export function consultInput(payload: QuestionPayload): { agent: string; question: string } {
+  const input = (payload.kind === "permission" ? payload.input : null) as { agent?: unknown; question?: unknown } | null;
+  return { agent: typeof input?.agent === "string" ? input.agent : "an agent", question: typeof input?.question === "string" ? input.question : "" };
+}
+
+/** A consult of an agent whose entry asks before use: no Job of it is made until the owner says yes. */
+function Consult({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { kind: "permission" }>>) {
+  const c = consultInput(payload);
+  const send = (decision: "allow" | "allow-always" | "deny") => onAnswer({ kind: "permission", decision });
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-[15px]">
+        The agent wants to consult <span className="font-medium">{c.agent}</span>. A Job of {c.agent} answers this question:
+      </p>
+      <p aria-label="Question" className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-hover p-3 text-[14px]">
+        {c.question}
+      </p>
+      <p className="text-[13px] text-muted">{CONSULT_LINE}</p>
+      <div className="flex flex-wrap gap-2">
+        <Button disabled={busy} onClick={() => send("allow")}>
+          Allow
+        </Button>
+        {payload.canAlwaysAllow && (
+          <Button variant="outline" disabled={busy} onClick={() => send("allow-always")}>
+            Don't ask again
+          </Button>
+        )}
+        <Button variant="outline" disabled={busy} onClick={() => send("deny")}>
+          Deny
+        </Button>
+      </div>
     </div>
   );
 }

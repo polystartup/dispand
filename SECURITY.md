@@ -33,7 +33,10 @@ changes it updates this file.
   URL is called on the server only, for cloud sessions, with its sealed headers opened for that
   call: a session start never carries a tool's address or headers, only the names of the
   runner's own MCP servers the agent was given (and only those of the harness's runner). Every
-  call of such a tool asks the owner first, in a cloud session as on a runner.
+  call of such a tool asks the owner first, in a cloud session as on a runner. A cloud session's
+  `read_skill` reads only a file of a skill in those packages, checked again at each call, by
+  its exact stored path inside the skill's folder (an unsafe path is refused, nothing is
+  decoded): it reaches no other package and no file on the server.
 - **An agent's tool reached by URL is called on the server, and on a runner only after the
   owner approved that exact call.** A Job's CLI session gets these tools from a second
   endpoint, `/mcp/job/tools` (same Job token, address built by the runner like the Job
@@ -116,15 +119,22 @@ changes it updates this file.
 - **A consult reaches only an agent its Job may consult, and nothing answers in that agent's
   place.** A Job's `consult` tool (cloud sessions; absent when its agent may consult none, and
   in workflow steps) names an agent by id. At the call the engine checks that the entry is in
-  the Job's snapshot and on its agent now, that neither flags it "ask before use" (refused
-  until the owner's Approval of a consult exists), that the pair still passes the `configure`
+  the Job's snapshot and on its agent now, that the pair still passes the `configure`
   rule, that the agent isn't already higher in the same chain of consults (A asks B, B asks A),
-  and that the root isn't stopped (`engine/consults.ts`); a refusal is the answer. The
+  and that the root isn't stopped (`engine/consults.ts`); a refusal is the answer. An entry
+  flagged "ask before use" in either raises one Approval, showing the question whole, and no
+  Job is made before a person's yes (a question too long to show whole is refused); a no is the
+  answer, and a person's "don't ask again" takes the flag off the entry. That Approval is the
+  consult's: its answer reaches no session, and only a person answers it. The
   consulted Job is a Job of its own agent, with its own snapshot and rights, created in the
   asking Job's root (it counts toward the checkpoint) and told the question, the asking
   agent's name and Job id, nothing else. Its result is the answer, recorded by the engine as
   that agent's; the same rights are checked again before the answer is sent, every time it is
-  sent, and a right taken back turns it into the reason. A consult is a `questions` row of kind
+  sent, and a right taken back turns it into the reason. A change on the agent's page or by an
+  approved proposal that takes a right back (an entry removed, a flag added, a bundle change
+  across `configure`) ends every consult in flight it touches in the same transaction: its
+  consulted Job stops, and the asker gets the reason, also in place of an answer recorded and
+  not yet delivered. A consult is a `questions` row of kind
   `consult` that no person and no `inbox` agent answers: the Inbox, its count, `questions.answer`,
   the `inbox` tools and approvals all leave it out, and it records no interaction event.
   Stopping or failing the asker stops its consulted Job, and so on down the chain. Accepted:
