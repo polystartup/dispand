@@ -11,6 +11,7 @@ import { FormField } from "./parts.tsx";
 import { PollableActions } from "./PollableActions.tsx";
 import { CatalogSettings } from "./CatalogSettings.tsx";
 import { ToolSignIn } from "./ToolSignIn.tsx";
+import { Overridden } from "./Overridden.tsx";
 
 export type Tool = Awaited<ReturnType<typeof api.tools.list>>[number];
 type Action = Tool["actions"][number];
@@ -56,6 +57,8 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
   const update = useMutation(orpc.tools.update.mutationOptions({ onSuccess: invalidate }));
   const refresh = useMutation(orpc.tools.refresh.mutationOptions({ onSuccess: invalidate }));
   const del = useMutation(orpc.tools.delete.mutationOptions({ onSuccess: invalidate }));
+  // Back to the plugin's value: the sheet closes, and opens again on the tool as it is then.
+  const reset = useMutation(orpc.plugins.resetOverride.mutationOptions({ onSuccess: async () => { await invalidate(); onClose(); } }));
   const authorize = useMutation(orpc.tools.authorize.mutationOptions({ onSuccess: invalidate }));
   const actionEnabled = useMutation(orpc.tools.setActionEnabled.mutationOptions({
     onSuccess: async (saved) => {
@@ -147,10 +150,13 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
           <SheetTitle className="text-[20px] tracking-tight">{current ? current.name : "Add MCP server"}</SheetTitle>
           <SheetDescription>
             An MCP server reached over HTTP. It acts as whatever account its headers, or its sign-in, authorize.
-            {current?.plugin && ` From the plugin ${current.plugin.name}: removing the plugin keeps it.`}
           </SheetDescription>
         </SheetHeader>
         <div className="space-y-8 px-6 pb-6">
+          {current?.plugin && (
+            <Overridden plugin={current.plugin.name} overridden={current.overridden} labels={{ name: "Name", url: "URL", transport: "Transport" }} busy={reset.isPending} onReset={(field) => reset.mutate({ kind: "tool", id: current.id, field })} />
+          )}
+          {reset.error && <p role="alert" className="text-[13px] text-danger">{errorMessage(reset.error, "Could not reset the field. Try again.")}</p>}
           <form
             className="space-y-5"
             onSubmit={(e) => {
@@ -272,7 +278,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
               <Button type="button" variant="ghost" onClick={onClose}>
                 {current ? "Close" : "Cancel"}
               </Button>
-              {current && (
+              {current && !current.plugin && (
                 <Button type="button" variant="ghost" className="ml-auto text-danger" disabled={busy} onClick={() => void remove()}>
                   Delete
                 </Button>

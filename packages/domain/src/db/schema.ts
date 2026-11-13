@@ -152,9 +152,12 @@ export const agents = pgTable("agents", {
   // Where its Jobs may write memory (`memory/model.ts`); empty, they learn nothing.
   selfLearning: jsonb("self_learning").$type<MemoryTarget[]>().notNull().default([]),
   cliRules: jsonb("cli_rules").$type<{ cli: "claude-code" | "codex"; rule: string; decision: "allow" | "deny" }[]>().notNull().default([]),
-  // The plugin it came from, and its name there (`plugins/`); it stays when the plugin goes.
+  // The plugin it is an element of, and its name there (`plugins/`).
   pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
   pluginComponent: text("plugin_component"),
+  // A plugin's element: the plugin's values of its fields, and the fields its owner changed (`plugins/overrides.ts`).
+  upstream: jsonb("upstream").$type<Record<string, unknown>>(),
+  overridden: jsonb("overridden").$type<string[]>().notNull().default([]),
   // `"assistant"`: the workspace's Assistant (`agents/builtin.ts`), one per owner. No input sets it.
   builtIn: text("built_in").$type<"assistant">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -1001,7 +1004,8 @@ export const plugins = pgTable(
 /**
  * Tools: MCP servers agents and Tool steps call (`tools/`). `http` tools are called by URL from
  * the server (and by the CLIs), with headers sealed one by one (`headerAad(id, name)`);
- * `runner` tools add their own columns. Names are unique case-insensitively per owner.
+ * `runner` tools add their own columns. Names are unique case-insensitively per owner among its
+ * own tools, and within each plugin among that plugin's.
  */
 export const tools = pgTable(
   "tools",
@@ -1038,6 +1042,8 @@ export const tools = pgTable(
     // The plugin it came from, and its MCP server's name there; it stays when the plugin goes.
     pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
     pluginComponent: text("plugin_component"),
+    upstream: jsonb("upstream").$type<Record<string, unknown>>(),
+    overridden: jsonb("overridden").$type<string[]>().notNull().default([]),
     // A runner tool's runner, and the server's name in its config (one the runner reported in `hello`).
     runnerId: text("runner_id").references(() => runners.id),
     runnerTool: text("runner_tool"),
@@ -1054,7 +1060,7 @@ export const tools = pgTable(
     oauthClientId: text("oauth_client_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("tools_owner_name_idx").on(t.ownerId, sql`lower(${t.name})`), index("tools_oauth_state_idx").on(t.oauthStateHash)],
+  (t) => [uniqueIndex("tools_owner_name_idx").on(t.ownerId, sql`coalesce(${t.pluginId}, '')`, sql`lower(${t.name})`), index("tools_oauth_state_idx").on(t.oauthStateHash)],
 );
 
 const bytea = customType<{ data: Uint8Array; driverData: Uint8Array }>({ dataType: () => "bytea" });

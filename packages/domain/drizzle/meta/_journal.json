@@ -498,6 +498,13 @@
       "when": 1794549621610,
       "tag": "0070_reopened_chat_session",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1794613167948,
+      "tag": "0071_plugin_overrides",
+      "breakpoints": true
     }
   ]
 }

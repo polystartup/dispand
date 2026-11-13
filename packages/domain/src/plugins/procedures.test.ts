@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
+import { ELEMENT_FIELDS } from "./overrides.ts";
 import { messages, plugins as pluginsTable, questions, runs as runsTable, skillFiles, skillPackages, stepRuns, tools } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { router } from "../rpc/router.ts";
@@ -379,10 +380,10 @@ test("plugin-root server not imported; an HTTP server is installed with its sett
   const [installed] = await call(router.plugins.list, undefined, { context: ctx });
   expect(installed).toMatchObject({ tools: [{ id: tool!.id, name: "github" }], available: { mcpServers: [{ name: "tenant" }, { name: "fetch" }] } });
 
-  // The owner may edit or delete it, the plugin installed: its server is then available again.
+  // The owner may edit it, as an override; it goes only with its plugin.
   await call(router.tools.update, { id: tool!.id, name: "GitHub" }, { context: ctx });
-  await call(router.tools.delete, { id: tool!.id }, { context: ctx });
-  expect((await call(router.plugins.list, undefined, { context: ctx }))[0]).toMatchObject({ tools: [], available: { mcpServers: [{ name: "github" }, { name: "tenant" }, { name: "fetch" }] } });
+  await expect(call(router.tools.delete, { id: tool!.id }, { context: ctx })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  expect((await call(router.plugins.list, undefined, { context: ctx }))[0]).toMatchObject({ tools: [{ id: tool!.id, name: "GitHub" }], available: { mcpServers: [{ name: "tenant" }, { name: "fetch" }] } });
   await fx.remove();
 });
 
@@ -420,7 +421,7 @@ test("a marketplace entry may point at an Agent Plugins plugin: its skill and HT
   await server.close();
 });
 
-test("a placeholder in the URL makes the whole URL a secret; a clashing name gets the plugin's prefix", async () => {
+test("a placeholder in the URL makes the whole URL a secret; a plugin's tool may be called as one of the owner's is", async () => {
   const ctx = await context();
   const fx = await toolPlugin();
   const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
@@ -431,7 +432,7 @@ test("a placeholder in the URL makes the whole URL a secret; a clashing name get
     { context: ctx },
   );
   const tool = await call(router.tools.get, { id: toolIds[0]! }, { context: ctx });
-  expect(tool).toMatchObject({ name: "github-tenant", url: expect.stringMatching(/\/\$\{TENANT\}\/mcp$/), urlSet: true, actionsError: null });
+  expect(tool).toMatchObject({ name: "tenant", url: expect.stringMatching(/\/\$\{TENANT\}\/mcp$/), urlSet: true, actionsError: null });
   // The server may echo it: redacted like a header.
   expect(tool.actions).toEqual([expect.objectContaining({ name: "echo", description: "Says it back to ••••" })]);
   const [row] = await ctx.db.select().from(tools).where(eq(tools.id, tool.id));
@@ -475,8 +476,9 @@ test("an agent is created on the chosen harness with the plugin's skills and too
     { context: ctx },
   );
   const agent = await call(router.agents.get, { id: agentIds[0]! }, { context: ctx });
+  // The owner's own "reviewer" is no clash: the plugin's agents are named inside the plugin.
   expect(agent).toMatchObject({
-    name: "reviewer (github)",
+    name: "reviewer",
     harnessId: h.id,
     systemPrompt: "You review pull requests.",
     plugin: { id: pluginId, name: "github" },
@@ -485,10 +487,9 @@ test("an agent is created on the chosen harness with the plugin's skills and too
   });
   expect(agent).not.toHaveProperty("model");
   const [installed] = await call(router.plugins.list, undefined, { context: ctx });
-  expect(installed).toMatchObject({ agents: [{ id: agent.id, name: "reviewer (github)" }], available: { agents: [] } });
-  // The owner may delete it, the plugin installed: it is then available again.
-  await call(router.agents.delete, { id: agent.id }, { context: ctx });
-  expect((await call(router.plugins.list, undefined, { context: ctx }))[0]).toMatchObject({ agents: [], available: { agents: [{ name: "reviewer" }] } });
+  expect(installed).toMatchObject({ agents: [{ id: agent.id, name: "reviewer" }], available: { agents: [] } });
+  // It goes only with its plugin.
+  await expect(call(router.agents.delete, { id: agent.id }, { context: ctx })).rejects.toMatchObject({ code: "FORBIDDEN" });
   await fx.remove();
 });
 
@@ -537,6 +538,8 @@ test("uninstall keeps its agents with their Jobs and its tools with their header
   });
   expect(await call(router.agents.get, { id: mine.id }, { context: ctx })).toMatchObject({ tools: [{ toolId }] });
   expect(await call(router.tools.get, { id: toolId }, { context: ctx })).toMatchObject({ name: "github", plugin: null, headerNames: ["authorization"] });
+  // Kept, it is the owner's own from now on: a change of it is no override of anything.
+  expect(await call(router.tools.update, { id: toolId, name: "GitHub (kept)" }, { context: ctx })).toMatchObject({ overridden: [] });
   const [tool] = await ctx.db.select().from(tools).where(eq(tools.id, toolId));
   expect(toolTarget(tool!, ctx.secrets).headers).toEqual({ authorization: `Bearer ${TOKEN}` });
   expect(await call(router.skills.list, undefined, { context: ctx })).toMatchObject([{ packageId: skill.packageId, requiredTools: [{ id: toolId }] }]);
@@ -544,10 +547,11 @@ test("uninstall keeps its agents with their Jobs and its tools with their header
   expect(await ctx.db.select({ id: runsTable.id }).from(runsTable).where(eq(runsTable.id, runId))).toHaveLength(1);
   expect(await ctx.db.select().from(messages).where(eq(messages.runId, runId))).toHaveLength(1);
   expect(await ctx.db.select().from(questions).where(eq(questions.runId, runId))).toHaveLength(1);
-  // Reinstalled, it makes copies named apart from what stayed.
+  // Reinstalled, its elements are the plugin's again, named inside it, beside what stayed.
+  await call(router.tools.update, { id: toolId, name: "github" }, { context: ctx });
   const again = await install();
-  expect(await call(router.agents.get, { id: again.agentIds[0]! }, { context: ctx })).toMatchObject({ name: "reviewer (github)", plugin: { id: again.pluginId } });
-  expect(await call(router.tools.get, { id: again.toolIds[0]! }, { context: ctx })).toMatchObject({ name: "github-github", plugin: { id: again.pluginId } });
+  expect(await call(router.agents.get, { id: again.agentIds[0]! }, { context: ctx })).toMatchObject({ name: "reviewer", plugin: { id: again.pluginId } });
+  expect(await call(router.tools.get, { id: again.toolIds[0]! }, { context: ctx })).toMatchObject({ name: "github", plugin: { id: again.pluginId } });
   expect(await call(router.agents.get, { id: agentId }, { context: ctx })).toMatchObject({ plugin: null });
   await ctx.db.update(runsTable).set({ status: "failed" }).where(eq(runsTable.id, runId));
   await fx.remove();
@@ -879,4 +883,104 @@ test("removal leaves active agents unticked in preview and preserves Jobs when e
     expect(job).toMatchObject({ agentId: null, agentName: "reviewer", status: "failed" });
     expect(await ctx.db.select({ id: messages.id }).from(messages).where(eq(messages.id, messageId))).toEqual([{ id: messageId }]);
   } finally { await fx.remove(); }
+});
+
+/** The github plugin installed with its HTTP server and its agent. */
+async function withElements() {
+  const ctx = await context();
+  const fx = await toolPlugin();
+  const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
+  const h = await harness(ctx);
+  const { pluginId, toolIds, agentIds } = await call(
+    router.plugins.install,
+    { marketplaceId: market.id, entryName: "github", reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["github"], agents: ["reviewer"], harnessId: h.id, settings: { github: { GITHUB_TOKEN: TOKEN } } },
+    { context: ctx },
+  );
+  const agent = () => call(router.agents.get, { id: agentIds[0]! }, { context: ctx });
+  const tool = () => call(router.tools.get, { id: toolIds[0]! }, { context: ctx });
+  /** `agents.update` takes the whole agent: the one it is now, with `changes`. */
+  const editAgent = async (changes: Record<string, unknown>) => {
+    const a = await agent();
+    const whole = { id: a.id, name: a.name, description: a.description, harnessId: a.harnessId, systemPrompt: a.systemPrompt, bundles: a.bundles, selfLearning: a.selfLearning, dataTables: a.dataTables, skillPackageIds: a.skills.map((s) => s.packageId), toolIds: a.tools.filter((t) => t.explicit).map((t) => t.toolId), consults: a.consults.map(({ agentId, ask }) => ({ agentId, ask })) };
+    return call(router.agents.update, { ...whole, ...changes } as never, { context: ctx });
+  };
+  return { ctx, fx, h, pluginId, agent, tool, editAgent };
+}
+
+test("an owner's change to a field of a plugin's agent is an override, and the plugin's value written back removes it", async () => {
+  const { ctx, fx, h, agent, editAgent } = await withElements();
+  expect(await agent()).toMatchObject({ name: "reviewer", overridden: [] });
+  const table = await call(router.tables.create, { name: "Reviews" }, { context: ctx });
+  const other = await call(router.agents.create, { name: "Helper", harnessId: h.id, systemPrompt: "Help.", skillPackageIds: [], toolIds: [] }, { context: ctx });
+  const mine = await call(router.skills.create, { name: "mine", description: "Mine.", instructions: "Do it.", requiredToolIds: [] }, { context: ctx });
+  const changes: Record<string, unknown> = {
+    name: "Reviewer",
+    description: "Reviews.",
+    systemPrompt: "Mine.",
+    bundles: ["data"],
+    dataTables: [table.id],
+    selfLearning: ["agent"],
+    skillPackageIds: [mine.packageId],
+    toolIds: [],
+    consults: [{ agentId: other.id, ask: true }],
+  };
+  // Every field a plugin gives an agent, one by one.
+  expect(Object.keys(changes).sort()).toEqual([...ELEMENT_FIELDS.agent.overridable].sort());
+  for (const [field, value] of Object.entries(changes)) {
+    const before = await agent();
+    const plugins = { skillPackageIds: before.skills.map((s) => s.packageId), toolIds: before.tools.filter((t) => t.explicit).map((t) => t.toolId), consults: [] } as Record<string, unknown>;
+    expect((await editAgent({ [field]: value })).overridden, field).toEqual([field]);
+    expect((await editAgent({ [field]: plugins[field] ?? (before as Record<string, unknown>)[field] })).overridden, `${field} back`).toEqual([]);
+  }
+  // A local setting is never an override.
+  expect((await editAgent({ model: "claude-haiku-5-5" })).overridden).toEqual([]);
+  await fx.remove();
+});
+
+test("an owner's change to a plugin's tool is an override; another origin drops its headers, and so does the way back", async () => {
+  const { ctx, fx, tool } = await withElements();
+  const id = (await tool()).id;
+  expect(await tool()).toMatchObject({ name: "github", overridden: [], headerNames: ["authorization"] });
+  expect(await call(router.tools.update, { id, name: "GitHub" }, { context: ctx })).toMatchObject({ overridden: ["name"] });
+  // Typed back by hand: the plugin's again, and its next update applies.
+  expect(await call(router.tools.update, { id, name: "github" }, { context: ctx })).toMatchObject({ overridden: [] });
+  expect(await call(router.tools.update, { id, headers: { "x-extra": "1" } }, { context: ctx })).toMatchObject({ overridden: [] });
+  const elsewhere = await startFakeMcp([echo]);
+  expect(await call(router.tools.update, { id, url: elsewhere.url }, { context: ctx })).toMatchObject({ overridden: ["url"], headerNames: [] });
+  await call(router.tools.update, { id, headers: { authorization: "Bearer other" } }, { context: ctx });
+  expect(await call(router.plugins.resetOverride, { kind: "tool", id, field: "url" }, { context: ctx })).toEqual({ overridden: [] });
+  expect(await tool()).toMatchObject({ url: fx.server.url, headerNames: [] });
+  await elsewhere.close();
+  await fx.remove();
+});
+
+test("an update of the plugin replaces what the owner left alone and keeps an override, with the new value underneath", async () => {
+  const { ctx, fx, pluginId, agent, tool, editAgent } = await withElements();
+  await editAgent({ systemPrompt: "Mine." });
+  await call(router.tools.update, { id: (await tool()).id, name: "GitHub" }, { context: ctx });
+  const v2 = fx.server.url.replace(/\/mcp$/, "/v2/mcp");
+  fx.plugin.commit({
+    ".mcp.json": JSON.stringify({ github: { type: "http", url: v2, headers: { Authorization: "Bearer ${GITHUB_TOKEN}" } } }),
+    "agents/reviewer.md": "---\nname: reviewer\n---\n\nYou review carefully.\n",
+  });
+  await call(router.plugins.update, { id: pluginId }, { context: ctx });
+  expect(await agent()).toMatchObject({ systemPrompt: "Mine.", overridden: ["systemPrompt"] });
+  // The tool's name is the owner's; its URL, which they left alone, follows.
+  expect(await tool()).toMatchObject({ name: "GitHub", url: v2, overridden: ["name"] });
+  // Reset gives the plugin's value as it is now, not as it was when overridden.
+  expect(await call(router.plugins.resetOverride, { kind: "agent", id: (await agent()).id, field: "systemPrompt" }, { context: ctx })).toEqual({ overridden: [] });
+  expect(await agent()).toMatchObject({ systemPrompt: "You review carefully.", overridden: [] });
+  await expect(call(router.plugins.resetOverride, { kind: "agent", id: (await agent()).id, field: "harnessId" }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await fx.remove();
+});
+
+test("a plugin's agent or tool can't be deleted on its own, and shares no name space with the owner's", async () => {
+  const { ctx, fx, agent, tool } = await withElements();
+  const refusal = { code: "FORBIDDEN", message: "It is github's: uninstall the plugin to remove it" };
+  await expect(call(router.agents.delete, { id: (await agent()).id }, { context: ctx })).rejects.toMatchObject(refusal);
+  await expect(call(router.tools.delete, { id: (await tool()).id }, { context: ctx })).rejects.toMatchObject(refusal);
+  // A local tool may be called as the plugin's is; a rename of the plugin's can't take a name twice inside the plugin.
+  const local = await call(router.tools.create, { name: "github", url: fx.server.url, transport: "streamable-http", headers: {} }, { context: ctx });
+  await call(router.tools.delete, { id: local.id }, { context: ctx });
+  await fx.remove();
 });

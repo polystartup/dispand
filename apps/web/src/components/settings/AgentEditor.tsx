@@ -15,9 +15,17 @@ import { ToolAsk } from "./ToolAsk.tsx";
 import { CliRules } from "./CliRules.tsx";
 import { JobRights, type Rights } from "./JobRights.tsx";
 import { SelfLearning } from "./SelfLearning.tsx";
+import { qualifiedName } from "@dispand/domain/plugins/names";
+import { Overridden } from "./Overridden.tsx";
 import { BannerSlot, Empty, FormField, NextStep } from "./parts.tsx";
 
+/** The fields a plugin gives an agent, as this form names them. */
+const FIELD_LABELS = { name: "Name", description: "Description", systemPrompt: "Instructions", bundles: "What its Jobs may do", dataTables: "Tables", selfLearning: "Learns", skillPackageIds: "Skills", toolIds: "Tools", consults: "May consult" };
+
 export type Agent = Awaited<ReturnType<typeof api.agents.get>>;
+
+/** A tool as its lists name it: a plugin's under its plugin's name, so it never reads as one of the owner's. */
+const toolLabel = (tool: { name: string; plugin: { name: string } | null } | undefined) => tool && qualifiedName(tool.plugin?.name ?? null, tool.name);
 
 /** Why the server refused the change, when it says so for a person to read; else `fallback`. */
 function refusal(e: unknown, fallback: string): string {
@@ -27,7 +35,7 @@ function refusal(e: unknown, fallback: string): string {
 }
 
 /** Create (no `agent`) or edit an agent. A new agent goes back to the list; both offer the next step. */
-export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaultHarnessId?: string }) {
+export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agent; defaultHarnessId?: string; /** A field went back to its plugin's value: the form is stale. */ onReset?: () => void }) {
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   const packages = useQuery(orpc.skills.list.queryOptions());
   const tools = useQuery(orpc.tools.list.queryOptions());
@@ -35,6 +43,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
   const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.agents.key() });
   const create = useMutation(orpc.agents.create.mutationOptions({ onSuccess: invalidate }));
   const update = useMutation(orpc.agents.update.mutationOptions({ onSuccess: invalidate }));
+  const reset = useMutation(orpc.plugins.resetOverride.mutationOptions({ onSuccess: async () => { await invalidate(); onReset?.(); } }));
   // Which actions of the agent's own tools ask before use: saved one by one, apart from the form.
   const toolAsk = useQuery({ ...orpc.agents.toolAsk.queryOptions({ input: { id: agent?.id ?? "" } }), enabled: agent !== undefined });
   const asks = new Map((toolAsk.data ?? []).map((t) => [t.toolId, t.actions]));
@@ -53,7 +62,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
     toolIds,
     chosen.map((p) => ({ name: p.name, requiredToolIds: p.requiredTools.map((t) => t.id) })),
   )
-    .map((t) => ({ ...t, name: tools.data?.find((row) => row.id === t.toolId)?.name ?? agent?.tools.find((row) => row.toolId === t.toolId)?.name ?? t.toolId }))
+    .map((t) => ({ ...t, name: toolLabel(tools.data?.find((row) => row.id === t.toolId)) ?? agent?.tools.find((row) => row.toolId === t.toolId)?.name ?? t.toolId }))
     .sort((a, b) => a.name.localeCompare(b.name));
   const addable = (tools.data ?? []).filter((t) => !agentTools.some((a) => a.toolId === t.id));
   const tables = useQuery(orpc.tables.list.queryOptions());
@@ -109,8 +118,9 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
           <p className="text-[13px] text-muted">The workspace's Assistant: it can't be deleted. Its name, harness, model and instructions are yours to change.</p>
         )}
         {agent?.plugin && (
-          <p className="text-[13px] text-muted">From the plugin {agent.plugin.name}: removing the plugin keeps it. Updating the plugin refreshes its system prompt.</p>
+          <Overridden plugin={agent.plugin.name} overridden={agent.overridden} labels={FIELD_LABELS} busy={reset.isPending} onReset={(field) => reset.mutate({ kind: "agent", id: agent.id, field })} />
         )}
+        {reset.error && <p role="alert" className="text-[13px] text-danger">{refusal(reset.error, "Could not reset the field. Try again.")}</p>}
         <FormField label="Name" htmlFor="agent-name">
           <Input id="agent-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus={!agent} />
         </FormField>
@@ -211,7 +221,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
               <SelectContent>
                 {addable.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
-                    {t.name}
+                    {toolLabel(t)}
                   </SelectItem>
                 ))}
               </SelectContent>

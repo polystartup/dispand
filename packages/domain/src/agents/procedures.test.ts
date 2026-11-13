@@ -27,6 +27,7 @@ test("agent create, get, list, update, delete", async () => {
     id: expect.stringMatching(/^agent_/),
     ownerId: context.ownerId,
     name: "Writer",
+    overridden: [],
     description: "",
     harnessId: harness.id,
     systemPrompt: "Be brief.",

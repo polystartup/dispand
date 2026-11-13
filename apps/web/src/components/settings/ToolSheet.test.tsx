@@ -4,7 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ tools: { authorize: vi.fn(), pollable: vi.fn(), setPollable: vi.fn(), setActionEnabled: vi.fn(), create: vi.fn(), update: vi.fn(), refresh: vi.fn(), delete: vi.fn(), catalog: vi.fn(), fillSettings: vi.fn() } }));
+const fake = vi.hoisted(() => ({ tools: { authorize: vi.fn(), pollable: vi.fn(), setPollable: vi.fn(), setActionEnabled: vi.fn(), create: vi.fn(), update: vi.fn(), refresh: vi.fn(), delete: vi.fn(), catalog: vi.fn(), fillSettings: vi.fn() }, plugins: { resetOverride: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -106,4 +106,19 @@ test("workspace action controls save immediately without discarding unsaved tool
   expect((screen.getByRole("checkbox", { name: "Enable Mail send workspace-wide" }) as HTMLInputElement).checked).toBe(false);
   expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Edited mail");
   expect(saved).not.toHaveBeenCalled();
+});
+
+test("a plugin's tool has no Delete, and a field its owner changed goes back to the plugin's value", async () => {
+  fake.plugins.resetOverride.mockResolvedValue({ overridden: [] });
+  sheet({ ...tool, auth: "none", oauthStatus: null, plugin: { id: "plugin_1", name: "law-firm" }, overridden: ["url"] } as unknown as NonNullable<Tool>);
+  expect(screen.getByText(/It is law-firm's/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  await userEvent.setup().click(screen.getByRole("button", { name: "Reset URL to the plugin's" }));
+  expect(fake.plugins.resetOverride.mock.calls[0]![0]).toEqual({ kind: "tool", id: "tool_mail", field: "url" });
+});
+
+test("the owner's own tool keeps its Delete and says nothing of a plugin", () => {
+  sheet({ ...tool, overridden: [] } as unknown as NonNullable<Tool>);
+  expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
+  expect(screen.queryByText(/An update of the plugin/)).toBeNull();
 });

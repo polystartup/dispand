@@ -13,6 +13,7 @@
     "./workflows/*": "./src/workflows/*.ts",
     "./pages/*": "./src/pages/*.ts",
     "./audit/model": "./src/audit/model.ts",
+    "./plugins/names": "./src/plugins/names.ts",
     "./test-support": "./src/runners/test-support.ts"
   },
   "scripts": {
