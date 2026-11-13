@@ -77,3 +77,20 @@ test("a partial native failure retains the workspace and retries without repeati
   expect(fake.runners.workspacePlugin).toHaveBeenCalledTimes(3);
   expect(fake.plugins.uninstall).toHaveBeenCalledTimes(1);
 });
+
+
+test("a cached removal preview cannot select an agent before fresh usage is loaded", async () => {
+  const { orpc } = await import("../../lib/api.ts");
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(orpc.plugins.uninstallPreview.queryOptions({ input: { id: "plugin_1" } }).queryKey, preview);
+  let finish!: (value: typeof preview) => void;
+  fake.plugins.uninstallPreview.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  fake.harnesses.list.mockResolvedValue([]);
+  fake.runners.list.mockResolvedValue([]);
+  render(<QueryClientProvider client={client}><PluginRemoveSheet id="plugin_1" name="Writing kit" onClose={vi.fn()} /></QueryClientProvider>);
+  expect(screen.queryByRole("checkbox", { name: /Writer/ })).toBeNull();
+  finish({ ...preview, agents: [{ ...preview.agents[0]!, inUse: "A workflow uses this agent", blocked: true }] });
+  const agent = await screen.findByRole("checkbox", { name: /Writer/ });
+  expect(agent).toHaveProperty("checked", false);
+  expect(agent).toHaveProperty("disabled", true);
+});

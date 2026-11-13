@@ -10,14 +10,14 @@ import { cliLabels } from "./HarnessSheet.tsx";
 type Preview = Awaited<ReturnType<typeof api.plugins.uninstallPreview>>;
 
 export function PluginRemoveSheet({ id, name, onClose }: { id: string; name: string; onClose: () => void }) {
-  const preview = useQuery({ ...orpc.plugins.uninstallPreview.queryOptions({ input: { id } }), retry: false, refetchOnWindowFocus: false });
+  const preview = useQuery({ ...orpc.plugins.uninstallPreview.queryOptions({ input: { id } }), retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false });
   return <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
-    <SheetContent className="overflow-y-auto">
-      <SheetHeader>
-        <SheetTitle>Remove {name}</SheetTitle>
+    <SheetContent className="w-full overflow-y-auto bg-surface sm:max-w-lg">
+      <SheetHeader className="px-6 pt-6">
+        <SheetTitle className="text-[20px] tracking-tight">Remove {name}</SheetTitle>
         <SheetDescription>Choose what to remove. Unticked items stay in your workspace. Checked skills and tools are also removed from agents that use them. Job history and data created during setup are kept.</SheetDescription>
       </SheetHeader>
-      <div className="mt-6">{preview.data ? <RemoveForm id={id} preview={preview.data} onClose={onClose} /> : preview.error ? <p role="alert">{refusal(preview.error, "Could not read the plugin. Close this dialog and try again.")}</p> : <p>Reading what this plugin installed…</p>}</div>
+      <div className="px-6 pb-6">{preview.data && preview.isFetchedAfterMount && !preview.error ? <RemoveForm id={id} preview={preview.data} onClose={onClose} /> : preview.error ? <p role="alert">{refusal(preview.error, "Could not read the plugin. Close this dialog and try again.")}</p> : <p>Reading what this plugin installed…</p>}</div>
     </SheetContent>
   </Sheet>;
 }
@@ -31,7 +31,7 @@ function RemoveForm({ id, preview, onClose }: { id: string; preview: Preview; on
   const [removedNative, setRemovedNative] = useState(() => new Set<string>());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const agents = preview.agents.filter((a) => !kept.has(a.id)).map((a) => a.id);
+  const agents = preview.agents.filter((a) => !a.blocked && !kept.has(a.id)).map((a) => a.id);
   const skills = preview.skills.filter((s) => !kept.has(s.id)).map((s) => s.id);
   const tools = preview.tools.filter((t) => !kept.has(t.id)).map((t) => t.id);
   const native = targets.filter((t) => removedNative.has(t.harness.id) || t.bindings.some((b) => b.name === preview.nativeName || (!!preview.sourceKey && b.sourceKey === preview.sourceKey)));
