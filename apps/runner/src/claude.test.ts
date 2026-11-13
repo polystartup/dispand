@@ -1549,7 +1549,7 @@ test.each([true, false])("a runner grant runs until revoked (Job context: %s)", 
   expect(outputs[1]).toMatchObject({ hookSpecificOutput: { permissionDecision: "ask" } });
 });
 
-test("an always answer queued across a revocation cannot restore a runner grant", async () => {
+test.each([{ kind: "permission", decision: "allow-always" }, { kind: "permission", decision: "allow", remember: "run" }, { kind: "permission", decision: "allow", remember: "always" }] as const)("an answer queued across revocation cannot restore a runner grant: %j", async (firstAnswer) => {
   const decisions: unknown[] = [];
   const fake = fakeQuery(async function* ({ next, options }) {
     await next();
@@ -1561,7 +1561,7 @@ test("an always answer queued across a revocation cannot restore a runner grant"
     if (e.type !== "question") return;
     const first = ++asked === 1;
     if (first) session.narrowPermissions!([{ name: "mail", unasked: [] }]);
-    queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: first ? "allow-always" : "deny" }));
+    queueMicrotask(() => session.answer(e.questionId, first ? firstAnswer : { kind: "permission", decision: "deny" }));
   }, { query: fake.query, jobServer: "job" });
   await session.done;
   expect(asked).toBe(2);
@@ -1654,4 +1654,22 @@ test.each([
   await session.done;
   expect(asked).toBe(1);
   expect(decisions).toEqual(["deny", "deny"]);
+});
+
+
+test.each([["allow", "run"], ["deny", "run"], ["allow", "always"], ["deny", "always"]] as const)("Claude remembers owner %s for %s without another prompt", async (decision, scope) => {
+  const decisions: unknown[] = [];
+  const events: HarnessEvent[] = [];
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    for (let i = 0; i < 2; i++) decisions.push((await options.canUseTool!("mcp__mail__send_email", {}, ctx()))?.behavior);
+    yield result();
+  });
+  const session = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] }, "/work", (event) => {
+    events.push(event);
+    if (event.type === "question") queueMicrotask(() => session.answer(event.questionId, { kind: "permission", decision, remember: scope }));
+  }, { query: fake.query, ...(scope === "always" ? { jobServer: "job" } : {}) });
+  await session.done;
+  expect(decisions).toEqual([decision, decision]);
+  expect(events.filter((e) => e.type === "question")).toHaveLength(1);
 });

@@ -278,7 +278,13 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         // Each call asks: Codex's "for the session" and "always" would persist beyond what the owner sees.
         // For one of the Job's agent's tools, "always" is the owner taking that action off the agent's
         // asking ones, on the server: here it only means this session stops asking about it too.
-        const decision = await approve({ kind: "permission", toolName, input, canAlwaysAllow: jobTool && deps.jobServer !== undefined }, signal);
+        const payload: Extract<QuestionPayload, { kind: "permission" }> = { kind: "permission", toolName, input, canAlwaysAllow: jobTool && deps.jobServer !== undefined };
+        const answer = fitsWhole({ type: "question", questionId: "", payload }) ? await ask(payload, signal) : null;
+        if (answer?.kind === "permission" && answer.remember && jobTool) {
+          if (answer.decision === "deny") deniedToolsState.names.add(toolName);
+          else if (answer.decision === "allow" && version === permissionsVersion) unasked.add(toolName);
+        }
+        const decision = answer?.kind === "permission" && answer.decision !== "deny" ? answer.decision : null;
         if (deniedToolsState.blocks(toolName)) return decline;
         if (decision === "allow-always" && jobTool && deps.jobServer !== undefined && version === permissionsVersion) unasked.add(toolName);
         return decision ? { action: "accept" as const, content: {}, _meta: null } : decline;

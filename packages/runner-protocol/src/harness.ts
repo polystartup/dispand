@@ -52,23 +52,24 @@ export const Answer = z.discriminatedUnion("kind", [
     kind: z.literal("choice"),
     // Keyed by question text, so keys take the question's own limit.
     answers: record(z.union([short(), z.array(short()).max(50)]), 20, short()),
-  }),
+  }).strict(),
   z.object({
     kind: z.literal("permission"),
     decision: z.enum(["allow", "allow-always", "deny"]),
     message: short().optional(),
+    remember: z.enum(["run", "always"]).optional(),
   }),
   z.object({
     kind: z.literal("confirm-outputs"),
     confirmed: z.boolean(),
     feedback: text().optional(),
-  }),
+  }).strict(),
   // The consulted agent's answer, or why there is none.
   z.object({
     kind: z.literal("consult"),
     outcome: z.enum(["answered", "failed"]),
     text: text(),
-  }),
+  }).strict(),
 ]);
 export type Answer = z.infer<typeof Answer>;
 
@@ -88,3 +89,11 @@ export const HarnessEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("error"), message: short() }),
 ]);
 export type HarnessEvent = z.infer<typeof HarnessEvent>;
+
+
+/** Claude's private SDK naming at the MCP boundary; Codex keeps the server-local name. */
+export function mcpActionName(action: string, harness?: string): string {
+  if (harness !== "claude-code") return action;
+  const safe = action.replace(/[^a-zA-Z0-9_-]/g, "_");
+  return action.startsWith("claude.ai ") ? safe.replace(/_+/g, "_").replace(/^_|_$/g, "") : safe;
+}

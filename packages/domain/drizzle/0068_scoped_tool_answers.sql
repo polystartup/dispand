@@ -1,0 +1,1 @@
+ALTER TABLE "cloud_sessions" DROP COLUMN "allowed_keys";

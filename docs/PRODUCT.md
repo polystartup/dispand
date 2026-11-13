@@ -64,7 +64,11 @@ Status: Prototype
     a tool is added to an agent, the actions the tool calls read-only start without asking
     and the others ask (for a tool from the catalog, the actions its entry lets run start without
     asking, and every other one asks, whatever the tool says); after that only the owner changes it, action by action, on the
-    agent's page (under each tool) or by answering "Always allow" to an approval of that action. An action
+    agent's page (under each tool) or through the memory choices on an approval of that action.
+    A tool approval offers Just this call, Remember this for this run only, and, for a chosen
+    tool in a Job, Remember this for this and all future runs. A run-only choice leaves the
+    agent's settings unchanged; a future-run Allow sets Run and a future-run Deny sets Off.
+    Workflow sessions offer run-only memory. An action
     that reaches outside can carry what the agent read, so it is worth keeping it asking on
     an agent that reads confidential data.
   - An agent that may configure the workspace can create or change agents, delete a table or

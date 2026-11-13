@@ -1706,3 +1706,16 @@ test("run ceilings and denials are sent on Job and workflow permission updates a
   await vi.waitFor(() => expect(starts()).toHaveLength(4));
   for (const start of starts().slice(2)) expect(start.mcpServers).toMatchObject([{ unasked: ["read"], denied: ["send"] }]);
 });
+
+
+test.each([[["send.email"]], [["send_email"]], [["send.email", "send_email"]]])("Claude startup grants do not authorize an asking action with the same alias: %j", async (names) => {
+  const { context, engine, agent, starts } = await toolingSetup();
+  await context.db.update(tools).set({ actions: ["send.email", "send_email"].map((name) => ({ name, description: "", inputSchema: {} })) }).where(eq(tools.id, "tool_fetch"));
+  await context.db.update(agentTools).set({ unasked: names }).where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, "tool_fetch")));
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(() => expect(starts()).toHaveLength(1));
+  const ref = starts()[0]!.mcpServers[0]!;
+  if (names.length === 2) expect(ref).toMatchObject({ unasked: ["send.email", "send_email"] });
+  else expect(ref).not.toHaveProperty("unasked");
+});

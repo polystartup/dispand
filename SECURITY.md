@@ -310,9 +310,13 @@ changes it updates this file.
   Effective tooling applies run memory only to that agent and target: an allow never adds a
   tool outside current access or a Job snapshot; current Off/workspace restrictions and a
   run-level deny override allows. Run memory does not affect another agent in a workflow.
-  Workflow questions cannot persist a future-run choice. Writes can share the answer's
-  transaction. This storage foundation has no question-answer or UI caller yet; current
-  approval behavior is unchanged until that integration is enabled.
+  Workflow questions cannot persist a future-run choice. The answer transaction validates the
+  offered scope before marking the question answered; remembered allows consume that approval,
+  so revoking the grant cannot leave a spare single-call approval. The UI defaults to Just this
+  call, offers run-only memory, and offers future-run memory only for a Job's chosen agent tool.
+  Allow + future-run selects Run; Deny + future-run selects Off. Agent answers cannot remember.
+  Legacy Always is refused for MCP tool questions. Undelivered positive answers are checked
+  again before they may populate a runner's local cache.
 - **Which actions of a tool run without asking is the owner's choice, per agent, and only a
   person changes it.** Each agent keeps, for each tool it chose, the actions that run unasked
   (`agent_tools.unasked`) and those that are off (`agent_tools.denied`). An Off action is
@@ -677,9 +681,10 @@ changes it updates this file.
   with a short reason (refused key, rate limit, status code, unreachable host), never the
   provider's body. A cloud agent's tool calls (other than `ask_user` and `submit_outputs`, which
   Dispand answers itself) each need the owner's approval, shown whole, but for the actions the
-  agent lets run unasked (above). "Always allow" on such an approval is the owner taking that
-  action off the agent's asking ones: it holds for that agent from then on, until the owner
-  puts it back, and no session keeps an allowance of its own.
+  agent lets run unasked (above). The owner may remember a decision for the run or, when offered,
+  for the agent's future runs. The engine stores it from the server-resolved tool key; no cloud
+  caller writes permanent permissions independently. The obsolete session allowance column is
+  removed; current permission policy is read at every call.
   A tool's headers go only to its URL, which must be `https://` when it has headers (plain
   http only to loopback) and can't carry credentials itself. They are for the server they
   were entered for: changing a tool's origin (scheme, host, port) or its transport drops
@@ -730,3 +735,13 @@ An update executes the existing installer from the runner's locally configured s
 redirects), in a transient systemd user unit so it survives restarting the runner. The server
 cannot supply a command, URL or local configuration through the update request. As with the
 initial installation, the configured Dispand operator is trusted to supply runner code.
+
+Protocol 20 carries an optional `remember: run | always` on permission answers. Runner MCP
+action names in grant lists are bounded raw server-local names, including punctuation. The
+runner constructs the fully qualified name and compares it literally; these strings never
+become shell/file permission patterns. Server and runner share Claude's MCP name normalization.
+If distinct raw actions share a Claude alias, startup grants require all those actions to be
+allowed and the server offers no scoped answer for an ambiguous alias. Explicit denials still
+win. A scoped answer can add only its question's MCP action to the current session's cache;
+live permission updates remain intersection-only, and a revocation during an outstanding
+question prevents a late positive answer from repopulating that cache.

@@ -1,3 +1,4 @@
+import { runnerServerName } from "../engine/tooling.ts";
 import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
@@ -6,7 +7,7 @@ import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { toolPermissionTarget } from "./tool-ask.ts";
-import { remember, rememberedDecision, type Subject } from "./remember.ts";
+import { offerForQuestion, remember, toolAnswerPermission, rememberedDecision, type Subject } from "./remember.ts";
 
 async function setup() {
   const context = await ownerContext();
@@ -131,4 +132,42 @@ test("an offer for another agent cannot write run memory", async () => {
   await s.context.db.update(questions).set({ remember: { scopes: ["run"], subject: { ...s.subject, agentId: "another-agent" } } }).where(eq(questions.id, "q_tool"));
   expect(await remember(s.context.db, { questionId: "q_tool", decision: "allow", scope: "run", by: s.by })).toBe(false);
   expect(await s.state()).toEqual({ allow: [], deny: [] });
+});
+
+
+test("offers resolve runner identity and workflow sessions never offer future-run permission", async () => {
+  const s = await setup();
+  const [tool] = await s.context.db.select().from(tools).where(eq(tools.id, s.subject.toolId));
+  const name = `mcp__${runnerServerName({ id: tool!.id, runnerId: tool!.runnerId!, tool: tool!.runnerTool! })}__${s.subject.action}`;
+  const input = { ownerId: s.context.ownerId, sessionId: s.step.sessionId!, questionId: "rq_native", payload: { kind: "permission" as const, toolName: name, input: {}, canAlwaysAllow: false }, harness: "codex" };
+  expect(await offerForQuestion(s.context.db, input)).toMatchObject({ remember: { scopes: ["run", "always"], subject: s.subject } });
+  await s.context.db.update(runs).set({ source: "workflow", agentId: null, snapshot: null, def: { trigger: { type: "manual", field: { id: "go", key: "go", type: "button", label: "Go" } }, steps: [{ id: s.step.nodeId, key: "work", type: "agent", name: "Work", agentId: s.agent.id, prompt: "Work" }], edges: [] } }).where(eq(runs.id, s.runId));
+  expect(await offerForQuestion(s.context.db, input)).toMatchObject({ remember: { scopes: ["run"], subject: s.subject } });
+  expect(await offerForQuestion(s.context.db, { ...input, payload: { ...input.payload, toolName: "mcp__other__draft", input: { remember: "always" } } })).toBeNull();
+});
+
+test("an ambiguous Claude action alias cannot offer permission for the wrong action", async () => {
+  const s = await setup();
+  const [tool] = await s.context.db.select().from(tools).where(eq(tools.id, s.subject.toolId));
+  await s.context.db.update(tools).set({ actions: ["send.email", "send_email"].map((name) => ({ name, description: "", inputSchema: {} })) }).where(eq(tools.id, tool!.id));
+  const name = `mcp__${runnerServerName({ id: tool!.id, runnerId: tool!.runnerId!, tool: tool!.runnerTool! })}__send_email`;
+  const input = { ownerId: s.context.ownerId, sessionId: s.step.sessionId!, questionId: "rq_native", payload: { kind: "permission" as const, toolName: name, input: {}, canAlwaysAllow: true }, harness: "claude-code" };
+  expect(await offerForQuestion(s.context.db, input)).toBeNull();
+  expect(await offerForQuestion(s.context.db, { ...input, harness: "codex" })).toMatchObject({ remember: { subject: { action: "send_email" } } });
+});
+
+
+test("an undelivered remembered allow is checked again before native caching", async () => {
+  const s = await setup();
+  await remember(s.context.db, { questionId: "q_tool", decision: "allow", scope: "run", by: s.by });
+  await s.context.db.update(questions).set({ status: "answered", answer: { kind: "permission", decision: "allow", remember: "run" } }).where(eq(questions.id, "q_tool"));
+  const [q] = await s.context.db.select().from(questions).where(eq(questions.id, "q_tool"));
+  expect(await toolAnswerPermission(s.context.db, q!)).toBe("remember");
+  await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: s.subject.toolId, action: s.subject.action, permission: "off" }, { context: s.context });
+  expect(await toolAnswerPermission(s.context.db, q!)).toBe("deny");
+  await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: s.subject.toolId, action: s.subject.action, permission: "ask" }, { context: s.context });
+  await s.context.db.update(runs).set({ remembered: { allow: [], deny: [] } }).where(eq(runs.id, s.runId));
+  expect(await toolAnswerPermission(s.context.db, q!)).toBe("once");
+  await s.context.db.update(tools).set({ permissionRevision: 1 }).where(eq(tools.id, s.subject.toolId));
+  expect(await toolAnswerPermission(s.context.db, q!)).toBe("deny");
 });

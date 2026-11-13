@@ -222,7 +222,7 @@ export function startClaudeSession(
    * A tool of Dispand's Job server (Dispand authorizes each of its calls itself), or an action
    * of the agent's tools that it lets run unasked: the owner isn't asked.
    */
-  const { names: unasked, servers: agentServers } = unaskedTools(start.mcpServers, deps.jobServer === undefined ? undefined : (deps.unasked ?? []));
+  const { names: unasked, servers: agentServers } = unaskedTools(start.mcpServers, deps.jobServer === undefined ? undefined : (deps.unasked ?? []), "claude-code");
   const denied = deniedTools(start.mcpServers, "claude-code");
   let permissionsVersion = 0;
   const runnerTool = (name: string) => agentServers.some((server) => server !== "job_tools" && name.startsWith(`mcp__${server}__`));
@@ -344,6 +344,10 @@ export function startClaudeSession(
     }
     const answer = await ask(payload, signal);
     if (denied.blocks(toolName)) return { behavior: "deny", message: "This tool action is disabled for this session." };
+    if (answer?.kind === "permission" && answer.remember && jobTool) {
+      if (answer.decision === "deny") denied.names.add(toolName);
+      else if (answer.decision === "allow" && version === permissionsVersion) unasked.add(toolName);
+    }
     if (answer?.kind !== "permission" || answer.decision === "deny") {
       return { behavior: "deny", message: (answer?.kind === "permission" && answer.message) || "The owner denied this." };
     }
@@ -532,7 +536,7 @@ export function startClaudeSession(
       if (unanswered.length > MAX_WAITING || waiting + Buffer.byteLength(text) > MAX_WAITING_BYTES) return finish({ type: "error", message: "too many messages waiting for the agent: the session was stopped" });
       say(text);
     },
-    narrowPermissions: (servers) => { permissionsVersion++; denied.narrow(servers); narrowUnasked(unasked, agentServers.filter((s) => s !== "job_tools"), servers); },
+    narrowPermissions: (servers) => { permissionsVersion++; denied.narrow(servers); narrowUnasked(unasked, agentServers.filter((s) => s !== "job_tools"), servers, "claude-code"); },
     answer: questions.answer,
     interrupt: async () => {
       // Idle: nothing to cut short, and no later error may pass for an interrupted turn.

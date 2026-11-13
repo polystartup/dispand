@@ -273,3 +273,18 @@ test.each([
     expect(codex.blocks(`mcp__mail__${alias}`)).toBe(false);
   }
 });
+
+
+test("raw runner action names are literal namespaced grants, never CLI rules", () => {
+  const refs = [{ name: "mail", type: "runner" as const, tool: "gmail", unasked: ["draft.email", "Bash(*)", "draft*"] }];
+  const codex = unaskedTools(refs, undefined);
+  expect([...codex.names]).toEqual(["mcp__mail__draft.email", "mcp__mail__Bash(*)", "mcp__mail__draft*"]);
+  expect(codex.names.has("Bash(*)")).toBe(false);
+  expect(codex.names.has("mcp__mail__draft_email")).toBe(false);
+  const claude = unaskedTools(refs, undefined, "claude-code");
+  expect(claude.names.has("mcp__mail__draft_email")).toBe(true);
+  narrowUnasked(claude.names, claude.servers, [{ name: "mail", unasked: ["draft.email"] }], "claude-code");
+  expect([...claude.names]).toEqual(["mcp__mail__draft_email"]);
+  narrowUnasked(claude.names, claude.servers, [{ name: "mail", unasked: [] }], "claude-code");
+  expect([...claude.names]).toEqual([]);
+});

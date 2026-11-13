@@ -1,3 +1,4 @@
+import { offerForQuestion, remember, toolAnswerPermission } from "../agents/remember.ts";
 import { EventPublisher } from "@orpc/server";
 import {
   type Answer,
@@ -52,7 +53,7 @@ import type { CloudKind } from "../harnesses/cloud.ts";
 import { CLOUD_SOURCE, type CliHarness, type ConsultTarget, type Harness, type HarnessAdapter, isCloud, type StartParams } from "./harness.ts";
 import { runDataStep } from "./data-step.ts";
 import { sessionTooling } from "./tooling.ts";
-import { aboutExposed, runnerGrantCurrent, stopAsking } from "../platform/exposed.ts";
+import { runnerGrantCurrent, stopAsking } from "../platform/exposed.ts";
 import { annotate, currentTraceId, meter, recordError, spanEvent, tracer, withJob } from "../telemetry/index.ts";
 import { CONSULT, REQUEST_APPROVAL } from "../cloud/builtins.ts";
 import { attachProposal, settleProposal } from "../platform/proposals.ts";
@@ -124,7 +125,7 @@ export function messageView(m: MessageRow) {
 export function questionView(q: QuestionRow) {
   // `rootId`: a checkpoint's Approval (`roots.ts`), and `consultId` a consult's, each told apart by it and never by its tool name.
   const { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId, rootId, consultId } = q;
-  return { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId, rootId, consultId };
+  return { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId, rootId, consultId, ...(q.remember ? { remember: { scopes: q.remember.scopes, label: about ? `${about.tool}: ${about.action}` : payload.kind === "permission" ? payload.toolName : "" } } : {}) };
 }
 
 /** What `runs.stream` forwards: each carries the whole row as it is now (upserts by id). */
@@ -223,7 +224,8 @@ export function answerText(q: Pick<QuestionRow, "payload" | "answer"> & Partial<
     if (asked !== null) return `The owner ${a.decision === "deny" ? "denied" : "approved"} your request (“${asked.slice(0, 500).toWellFormed()}”)${a.message ? `: ${a.message}` : "."}`;
     const tool = q.payload.kind === "permission" ? q.payload.toolName : "the tool";
     const verdict = a.decision === "deny" ? "denied" : "allowed";
-    return `The owner ${verdict} ${tool}${a.message ? `: ${a.message}` : "."}`;
+    const scope = a.remember === "run" ? " for this run" : a.remember === "always" ? " for this and future runs" : "";
+    return `The owner ${verdict} ${tool}${scope}${a.message ? `: ${a.message}` : "."}`;
   }
   return a.confirmed
     ? "The owner confirmed your values: call submit_outputs again with them."
@@ -406,10 +408,10 @@ export class Engine {
   ) {}
 
   /** Revoke grants in every live session of this agent, including workflow steps. */
-  async narrowSessions(agentId: string, db: Db = this.db): Promise<void> {
+  async narrowSessions(agentId: string, db: Db = this.db, runId?: string): Promise<void> {
     const sessions = await db.select({ sessionId: stepRuns.sessionId }).from(stepRuns)
       .innerJoin(runs, eq(runs.id, stepRuns.runId))
-      .where(and(inArray(runs.status, ACTIVE_RUN), inArray(stepRuns.status, ACTIVE_STEP), isNotNull(stepRuns.sessionId)));
+      .where(and(inArray(runs.status, ACTIVE_RUN), inArray(stepRuns.status, ACTIVE_STEP), isNotNull(stepRuns.sessionId), runId ? eq(runs.id, runId) : undefined));
     for (const { sessionId } of sessions) {
       if ((await sessionTooling(db, sessionId!)).agentId === agentId) await this.adapter.narrowPermissions?.(sessionId!, db);
     }
@@ -782,9 +784,15 @@ export class Engine {
         await lockConsults(tx, asked.ownerId);
         await this.rootGoingLocked(tx, asked.runId);
       }
+      const [pending] = await tx.select().from(questions).where(and(eq(questions.id, questionId), eq(questions.status, "pending"))).for("update");
+      if (!pending) return undefined;
+      if (answer.kind === "permission" && answer.decision === "allow-always" && (pending.remember || (pending.payload.kind === "permission" && pending.payload.toolName.startsWith("mcp__")))) throw new EngineError("INVALID", "Choose a remember scope for this tool permission");
+      if (answer.kind === "permission" && answer.remember) {
+        if (answer.decision === "allow-always" || !by || !(await remember(tx, { questionId, decision: answer.decision, scope: answer.remember, by }))) throw new EngineError("INVALID", "This permission changed or cannot be remembered: refresh and answer again");
+      }
       const [q] = await tx
         .update(questions)
-        .set({ status: "answered", answer, answeredAt: new Date(), answeredBy: by ?? null })
+        .set({ status: "answered", answer, answeredAt: new Date(), answeredBy: by ?? null, ...(answer.kind === "permission" && answer.remember && answer.decision === "allow" ? { consumedAt: new Date() } : {}) })
         .where(and(eq(questions.id, questionId), eq(questions.status, "pending")))
         .returning();
       if (!q) return undefined;
@@ -831,6 +839,7 @@ export class Engine {
     const decision = q.answer?.kind === "permission" ? q.answer.decision : q.answer?.kind ?? "none";
     counts.counter("dispand.questions.answered").add(1, { "dispand.question.kind": q.kind, "dispand.answer.decision": decision, "dispand.answer.by": q.answeredBy?.type ?? "user" });
     counts.histogram("dispand.question.wait", { unit: "ms", description: "From a question to its answer" }).record(q.answeredAt!.getTime() - q.createdAt.getTime(), { "dispand.question.kind": q.kind });
+    if (q.remember && q.answer?.kind === "permission" && q.answer.remember && q.answer.decision === "deny") await this.narrowSessions(q.remember.subject.agentId, this.db, q.answer.remember === "run" ? q.runId : undefined);
     this.publish(out);
     if (step) await this.flush(step.id, step.sessionId!);
     if (root?.stopped) {
@@ -1642,6 +1651,11 @@ export class Engine {
    * path that sends answers reads them through here (`undeliveredAnswers`, `redeliverAnswer`).
    */
   private async checkedAnswer(q: QuestionRow): Promise<QuestionRow> {
+    if (q.remember && q.answer?.kind === "permission" && q.answer.decision === "allow") {
+      const current = await toolAnswerPermission(this.db, q);
+      if (current === "deny") return { ...q, answer: { kind: "permission", decision: "deny", message: "This tool permission changed before the answer was delivered." } };
+      if (q.answer.remember && current === "once") { const { remember: _scope, ...answer } = q.answer; void _scope; return { ...q, answer }; }
+    }
     if (q.about?.toolId && q.payload.kind === "permission" && q.answer?.kind === "permission" && q.answer.decision === "allow-always" && !(await runnerGrantCurrent(this.db, q.runId, q.payload.toolName, q.about))) return { ...q, answer: { ...q.answer, decision: "allow" } };
     if (q.kind !== "consult" || q.answer?.kind !== "consult") return q;
     // A failure too: its reason may quote the consulted Job's error.
@@ -1707,15 +1721,7 @@ export class Engine {
       case "question": {
         // A call of one of the Job's exposed tools is asked under a short name, a runner tool's
         // under its session server's: say which tool and action it is.
-        const [asking] =
-          event.payload.kind === "permission"
-            ? await tx.select({ id: runs.id, ownerId: runs.ownerId, agentId: runs.agentId }).from(runs).where(eq(runs.id, step.runId))
-            : [];
-        const [harness] = asking?.agentId && step.harnessId ? await tx.select({ runnerId: harnesses.runnerId }).from(harnesses).where(eq(harnesses.id, step.harnessId)) : [];
-        const about =
-          asking?.agentId && event.payload.kind === "permission"
-            ? await aboutExposed(tx as unknown as Db, { runId: asking.id, ownerId: asking.ownerId, agentId: asking.agentId, runnerId: harness?.runnerId ?? null }, event.payload.toolName)
-            : null;
+        const offer = await offerForQuestion(tx, { ownerId: step.ownerId, sessionId: step.sessionId!, questionId: event.questionId, payload: event.payload, harness: step.harness?.kind });
         const [row] = await tx
           .insert(questions)
           .values({
@@ -1727,8 +1733,9 @@ export class Engine {
             runnerQuestionId: event.questionId,
             placement: step.start?.interactive ? "chat" : "notifications",
             kind: event.payload.kind === "permission" ? "approval" : event.payload.kind === "consult" ? "consult" : "question",
-            about,
-            payload: event.payload,
+            about: offer?.about ?? null,
+            remember: offer?.remember ?? null,
+            payload: event.payload.kind === "permission" && (offer || event.payload.toolName.startsWith("mcp__")) ? { ...event.payload, canAlwaysAllow: false } : event.payload,
             status: "pending",
           })
           .onConflictDoNothing()
