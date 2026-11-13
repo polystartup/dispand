@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { McpServerName } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { inside, isConfigPath, realOf } from "./boundary.ts";
+import { runnerPackageDir } from "./skillshare.ts";
 import { moveDurable, writeDurable } from "./durable.ts";
 
 const HTTPS_ONLY = "the server must use https (plain http only on localhost, 127.0.0.0/8 or ::1)";
@@ -36,7 +37,7 @@ const RunnerConfig = z.object({
   server: z.string().refine(isAllowedServer, HTTPS_ONLY),
   roots: z.array(z.string().refine(isAbsolute, "must be an absolute path")).min(1),
   allowBypass: z.boolean().default(false),
-  /** Local opt-in: Skillshare target/account names; absent means native management is disabled. */
+  /** Local override: Skillshare target/account names; absent uses runner-managed accounts, {} disables native management. */
   pluginTargets: z.object({ "claude-code": z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/).optional(), codex: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/).optional() }).optional(),
   /** The runner's token, in the same file so pairing writes both at once (mode 0600). */
   token: z.string().min(1).optional(),
@@ -110,6 +111,7 @@ export function machineConfigPaths(runnerConfigDir: string, env: NodeJS.ProcessE
     env.SKILLSHARE_CONFIG ? dirname(resolve(env.SKILLSHARE_CONFIG)) : join(env.XDG_CONFIG_HOME || join(home, ".config"), "skillshare"),
     join(env.XDG_STATE_HOME || join(home, ".local", "state"), "skillshare"),
     join(env.XDG_DATA_HOME || join(home, ".local", "share"), "skillshare"),
+    runnerPackageDir(),
   ];
 }
 

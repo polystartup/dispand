@@ -587,12 +587,18 @@ changes it updates this file.
   directory); reads are allowed. The SDK loads them with `skipMcpDiscovery`. They are written
   again at every start or resume and removed when the session ends and when the runner starts,
   so a changed copy never outlives its session.
-- **Native plugins are an explicit runner-local opt-in.** The owner-authenticated `runners.plugins`
+- **Native plugin installation requires explicit owner approval.** The owner-authenticated `runners.plugins`
   and `runners.workspacePlugin` procedures check runner ownership and CLI harness membership. They
   reject Job contexts and are absent from management tools. Protocol 15's native requests run only
-  the maintained Skillshare executable on the runner, from its home directory, with explicit global
-  scope and target/account names from local `pluginTargets`. The server cannot set commands or
-  account config paths. Complete plugin sources are credential-free HTTPS Git URLs, pinned to the
+  the runner's bundled Skillshare executable by absolute path, from its home directory, with
+  explicit global scope. Runner builds pin the upstream version and SHA-256 of each Linux release
+  archive and ship its MIT license; dependency changes alter the runner build identity. Runtime
+  never downloads or upgrades a dependency independently. The default targets are managed accounts
+  in the runner's own protected config directory, bound to the same local CLI homes as sessions.
+  Explicit local `pluginTargets` override those accounts, and `{}` disables native management.
+  Personal Skillshare configuration is not edited. The server cannot set commands or account
+  config paths. The runner installation directory, including bundled executables, is excluded
+  from session roots. Complete plugin sources are credential-free HTTPS Git URLs, pinned to the
   workspace source commit and entry identity; no server-selected local paths or other transports.
   Standalone workspace packages use `add-workspace`: bounded package-relative files, staged
   atomically under the runner state directory at
@@ -600,8 +606,9 @@ changes it updates this file.
   rewrites frontmatter, producing only a skills directory and its own manifest. The staged source
   persists for Skillshare's reinstall lifecycle; it stays outside roots and cannot change CLI
   settings. Mutations select explicit targets and require a preview revision. Complete native
-  plugins may execute their native hooks, commands and MCP integrations: opting a target in
-  authorizes that native lifecycle, separately from sanitized workspace imports. Skillshare config,
+  plugins may execute their native hooks, commands and MCP integrations: the owner approves that
+  native lifecycle through its reviewed preview, separately from sanitized workspace imports.
+  Skillshare config,
   data and state directories join the machine paths excluded from roots and session access. Custom
   account config directories must be outside roots and protected locally like CLI homes. Native
   replies expose a bounded projection, never raw paths, identifiers or error text. One operation
@@ -613,7 +620,7 @@ changes it updates this file.
   enabled and free of pending operations or changed account/source context on that session's
   harness. Missing, disabled, unknown, mismatched or unavailable native inventory retains the
   stripped workspace copy. Native execution failures never trigger automatic fallback or retries.
-  The locally authorized Skillshare target must name the same CLI account sessions use.
+  A locally overridden Skillshare target must name the same CLI account sessions use.
 - **Workspace plugin imports bring files, never code that runs.** Marketplaces and plugins are fetched with
   `fetchGit` (`packages/domain/src/plugins/git.ts`): `https://` only (no credentials in the URL;
   `file://` only in a development build with `DISPAND_GIT_FILE_URLS=1`, for e2e fixtures),

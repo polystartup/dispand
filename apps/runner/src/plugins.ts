@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { skillshareBinary } from "./skillshare.ts";
 import { createHash } from "node:crypto";
 import { lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
@@ -26,8 +27,8 @@ type Harness = z.infer<typeof PluginHarness>;
 const workspacePluginName = (name: string) => name.toLowerCase().replace(/[._]/g, "-");
 export type PluginExec = (args: string[], env: NodeJS.ProcessEnv) => Promise<{ stdout: string; failed: boolean }>;
 
-const execute: PluginExec = (args, env) => new Promise((resolve) => {
-  const child = spawn("skillshare", args, { cwd: homedir(), env, detached: true, stdio: ["ignore", "pipe", "ignore"] });
+export const skillshareExec = (binary: string): PluginExec => (args, env) => new Promise((resolve) => {
+  const child = spawn(binary, args, { cwd: homedir(), env, detached: true, stdio: ["ignore", "pipe", "ignore"] });
   const chunks: Buffer[] = [];
   let bytes = 0;
   let stopped = false;
@@ -61,7 +62,7 @@ export class NativePlugins {
   private readonly env: NodeJS.ProcessEnv;
   private readonly exec: PluginExec;
   private readonly workspaceRoot: string;
-  constructor(targets: Partial<Record<Harness, string>>, env: NodeJS.ProcessEnv, exec: PluginExec = execute) {
+  constructor(targets: Partial<Record<Harness, string>>, env: NodeJS.ProcessEnv, exec: PluginExec = skillshareExec(skillshareBinary())) {
     this.targets = targets;
     this.workspaceRoot = join(runnerStateDir(env), "native-skills");
     // Match machineConfigPaths even when the operator supplied relative local env paths:
@@ -156,7 +157,7 @@ export class NativePlugins {
       if (failed) report.error = "Skillshare reported a native plugin failure; inspect each target before retrying";
       return PluginReport.parse(report);
     } catch {
-      return { error: "Skillshare could not complete native plugin management; check its installation and local configuration on the runner" };
+      return { error: "Skillshare could not complete native plugin management; check the runner installation and native account configuration" };
     } finally {
       this.busy = false;
     }

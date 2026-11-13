@@ -50,8 +50,12 @@
   session's file tools and never editable. They are written again at each start or resume and
   removed when the session ends (and on the runner's start). A plugin error at init that names one
   of them ends the session; a duplicate name doesn't.
-- **Native skill selection (protocol 16):** runner-local `pluginTargets` authorize Skillshare's
-  native lifecycle. The owner-only `runners.workspacePlugin` resolves a workspace plugin or
+- **Native skill selection (protocol 16):** the runner bundles checksum-pinned Skillshare
+  executables for Linux x86-64 and ARM64. Runner updates carry the tested dependency version
+  (`build.json` records it), with no runtime dependency downloads or system PATH lookup. Default
+  managed accounts follow the session CLI homes in a runner-private Skillshare config; explicit
+  local `pluginTargets` override them, with `{}` disabling native management. The owner-only
+  `runners.workspacePlugin` resolves a workspace plugin or
   standalone skill package and one CLI harness, previews through Skillshare, then applies only
   the reviewed revision. Complete plugins use their stored repository/commit/entry; standalone
   packages use a persistent content-addressed skills-only plugin written by the session writer.

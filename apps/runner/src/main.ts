@@ -16,6 +16,7 @@ import { protocolString } from "./sanitize.ts";
 import { atLeast, MIN_CLAUDE, Sessions } from "./sessions.ts";
 import { codexRequired, codexStatus } from "./codex/version.ts";
 import { NativePlugins } from "./plugins.ts";
+import { prepareSkillshare } from "./skillshare.ts";
 import { shutdown } from "./shutdown.ts";
 
 const USAGE = `Usage:
@@ -164,7 +165,8 @@ async function run(args: string[]) {
     ).finally(() => calling.delete(tool));
   };
 
-  const plugins = new NativePlugins(config.pluginTargets ?? {}, env);
+  const native = prepareSkillshare(dir, config.pluginTargets, env);
+  const plugins = new NativePlugins(native.targets, native.env);
   const conn: Connection = new Connection({
     server: config.server,
     token,

@@ -213,22 +213,32 @@ starts.
 
 ### Native plugins and workspace skills (protocol 16)
 
-Native management is opt-in on each runner. Install the maintained
-[Skillshare CLI](https://github.com/runkids/skillshare) alongside Claude Code/Codex,
-using its official release installer or Homebrew; this integration's JSON contract
-was checked against v0.30.6. The web server never installs or runs it. Initialize
-Skillshare locally before enabling it. In the runner's local `config.json`, add:
+The runner package includes [Skillshare](https://github.com/runkids/skillshare) v0.30.6
+for Linux x86-64 and ARM64. No separate installation, initialization or updates are
+needed. Each runner build downloads the pinned release archives, checks their SHA-256
+against `skillshare-release.ts`, and includes the executables and MIT license. The
+runner invokes its bundled executable by absolute path; a system Skillshare is never
+used. Updating the runner replaces Skillshare with the version tested for that build.
+`build.json` records the version, and changing a release pin changes the runner build id.
+The runner tests exercise the real pinned executable's inventory, preview, stale-revision
+refusal, install and removal contracts against isolated native client fixtures.
 
-```json
-{ "pluginTargets": { "claude-code": "claude", "codex": "codex" } }
-```
+By default, the runner maintains `skillshare/config.yaml` under its own config directory.
+It uses the built-in `claude` / `codex` targets for default CLI homes, and named
+`dispand-claude` / `dispand-codex` accounts for custom `CLAUDE_CONFIG_DIR` / `CODEX_HOME`
+paths, matching the accounts sessions use. Its plugin
+declarations survive restarts and runner updates. The personal Skillshare configuration
+is not changed. Native installation still requires an owner-only preview and explicit
+approval of the whole plugin in Dispand; importing workspace skills alone installs nothing
+natively. A missing or unsupported native CLI remains unavailable.
 
-Only list harnesses/accounts this machine authorizes for complete native plugins.
-For a separate account, put its named target in `pluginTargets` and configure that
-account's `agent` and `config_dir` in Skillshare's global config. Its config directory
-must match the runner CLI's `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, stay outside every
-runner root, and be protected like the default CLI home. No account directory or
-command comes from Dispand. Re-pairing preserves the local target choices.
+To disable native management on a runner, set `"pluginTargets": {}` in its local
+`config.json`. An explicit nonempty `pluginTargets` retains the advanced configuration:
+its values name accounts in the operator's own Skillshare configuration (or
+`SKILLSHARE_CONFIG`), as before. Those accounts must use the same config directories as
+sessions, outside every runner root. The runner still uses its bundled executable.
+Re-pairing preserves explicit target choices. A runner started from source needs
+`pnpm --filter @dispand/runner build` first to prepare the bundled executables.
 
 The owner-authenticated `runners.plugins` API accepts `list`, `discover`, `add`,
 `add-workspace` and `remove`. These operations are not management tools and reject
@@ -237,8 +247,8 @@ Job contexts. The workspace-bound `runners.workspacePlugin` API resolves the own
 one or both CLI harness kinds on that runner. Every mutation first uses
 `dryRun: true`; application repeats the same operation with `dryRun: false` and its
 preview `revision`. Skillshare refuses stale revisions. Targets become repeatable
-`--target` arguments, with explicit global scope; only locally opted-in targets
-can be changed. See [Skillshare's command reference](https://skillshare.runkids.cc/docs/reference/commands/plugin/).
+`--target` arguments, with explicit global scope; only the runner’s managed or locally
+overridden targets can be changed. See [Skillshare's command reference](https://skillshare.runkids.cc/docs/reference/commands/plugin/).
 
 **Add/remove affects the whole native plugin**, including its native hooks, commands
 and MCP integrations, not just a skill. Native removal keeps Dispand's workspace
