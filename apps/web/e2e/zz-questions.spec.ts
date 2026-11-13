@@ -155,3 +155,36 @@ test("tool approvals offer run-only and future-run memory and deliver the select
     local.close();
   }
 });
+
+test("Codex native approvals remember Allow and keep Deny on the current call", async ({ page }) => {
+  await signIn(page);
+  const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Native test" });
+  const local = await FakeRunner.pair(SERVER, created.pairingCode, { codex: { version: "0.167.0", signedIn: true } });
+  try {
+    const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Native Codex", runnerId: created.runnerId, kind: "codex", permissionMode: "default" });
+    const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Native writer", harnessId: harness.id, systemPrompt: "" });
+    const trigger = await rpc<{ id: string }>(page, "triggers/create", { agentId: agent.id, name: "Native work", instructions: "Work", config: { kind: "manual", placement: "button" } });
+    await rpc(page, "jobs/start", { triggerId: trigger.id });
+    const { start } = await local.waitFor("session.start");
+    const payload = { kind: "permission" as const, toolName: "Shell", input: { command: "npm test" }, canAlwaysAllow: true, remembers: 'Shell:["npm","test"]' };
+    local.emit(start.sessionId, { type: "question", questionId: "native_allow", payload });
+    await page.goto("/inbox");
+    const card = page.getByRole("region", { name: "Waiting for you" }).getByRole("article").filter({ hasText: 'Shell:["npm","test"]' });
+    await expect(card.getByText("Deny applies only to this call.")).toBeVisible();
+    await card.getByLabel("Remember this for this and all future runs").check();
+    await page.screenshot({ path: test.info().outputPath("native-codex-memory.png"), fullPage: true });
+    await card.getByRole("button", { name: "Allow", exact: true }).click();
+    expect((await local.waitFor("session.answer")).answer).toEqual({ kind: "permission", decision: "allow", remember: "always" });
+    await rpc(page, "jobs/start", { triggerId: trigger.id });
+    const next = (await local.waitFor("session.start")).start;
+    expect(next.rules).toEqual({ allow: [payload.remembers], deny: [] });
+    local.emit(next.sessionId, { type: "question", questionId: "native_deny", payload: { ...payload, input: { command: "npm publish" }, remembers: "Shell=npm publish" } });
+    const denied = page.getByRole("region", { name: "Waiting for you" }).getByRole("article").filter({ hasText: "Shell=npm publish" });
+    await denied.getByLabel("Remember this for this run only").check();
+    await denied.getByRole("button", { name: "Deny", exact: true }).click();
+    expect((await local.waitFor("session.answer")).answer).toEqual({ kind: "permission", decision: "deny" });
+    expect(await rpc(page, "agents/cliRules", { id: agent.id })).toEqual([{ cli: "codex", rule: payload.remembers, decision: "allow" }]);
+  } finally {
+    local.close();
+  }
+});

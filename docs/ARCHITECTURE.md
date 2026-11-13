@@ -1374,7 +1374,8 @@ catalog. General agent get/list responses omit the rules. Removal locks the agen
 updates only its rules, so concurrent removals and general agent edits cannot restore a removed
 entry. The agent editor manages this list independently from its Save button and says removal
 takes effect at the next session start. RPC middleware traces outcomes without rule content.
-Approval producers do not yet write native rules; that integration follows separately.
+Native Job approvals bind a supported rule to the stored agent and CLI. Only the owner may
+save a scope that the server offered; native workflow and cloud questions have no CLI rule scope.
 
 Protocol 21 carries native `rules.allow` and `rules.deny` snapshots (at most 200 each, bounded
 rule strings), only with a Job token. The CLI adapter reads the agent's current entries for the
@@ -1385,11 +1386,11 @@ auto-approved by the SDK. Codex checks extra permissions, repeat sandbox request
 paths before accepting a matching grant. Neither broker installs native wildcard rules or
 execpolicy amendments. Wrapped shell commands, quotes and expansions use exact command rules.
 
-Codex can run known-safe commands without an approval callback. It therefore cannot enforce
-these denial rules across every execution path. A Codex snapshot with a supported denial is
+The current Codex integration can run known-safe commands without an approval callback.
+It therefore cannot enforce these denial rules across every execution path. A Codex snapshot with a supported denial is
 refused before its binary starts; a scoped native denial ends the session. No denial is silently
-treated as enforced. Native Codex Allow memory remains supported. The product's approval-scope
-behavior for this provider limitation needs a decision before enabling native approval writers.
+treated as enforced. Native Codex Allow memory remains supported. The server and UI offer remembered Allow only for Codex; Deny applies to the current call.
+This restriction can be revisited when Codex provides a reliable denial enforcement path.
 PreToolUse hooks can reject supported calls but fail open on errors and timeouts, so they are
 not used as a denial boundary (see the [OpenAI Hooks documentation](https://learn.chatgpt.com/docs/hooks)).
 
@@ -1397,7 +1398,11 @@ Permission questions can carry a bounded `remembers` candidate checked against t
 Only supported addRules suggestions are considered; otherwise a bounded exact command or
 native tool/domain rule is offered as candidate data. The sanitizer preserves it whole or
 refuses the question. An explicit scoped answer can cache that matching rule in this session,
-without writing CLI settings (Codex accepts remembered allows only). The server's binding of these candidates to owner approval
-scopes and saved agent rules follows separately. Existing server authorization and telemetry
+without writing CLI settings (Codex accepts remembered allows only). The server binds each candidate to the active Job's stored CLI and agent, shows the rule
+whole, and writes run-only or future-run memory in the answer transaction. A remembered
+Codex denial is refused even if a client submits one directly. The CLI adapter merges
+current agent and run rules at each start/resume; unsupported entries are dropped, duplicate
+allows are merged, and denial overflow refuses the start rather than omitting a denial.
+An undelivered answer is checked again: a removed grant loses its cache scope. Existing server authorization and telemetry
 for managed MCP approvals are unchanged. `native-permissions.ts` is pure policy code with no
 I/O or content telemetry; the operational paths retain their existing session/question events.
