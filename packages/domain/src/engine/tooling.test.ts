@@ -1,3 +1,4 @@
+import { toolPermissionTarget } from "../agents/tool-ask.ts";
 import { runnerServers } from "./tooling.ts";
 import { call } from "@orpc/server";
 import { McpServerRef } from "@dispand/runner-protocol";
@@ -101,4 +102,52 @@ test("workspace-disabled names are absent from effective grants as well as actio
   await call(router.tools.setActionEnabled, { toolId: "tool_fetch", action: "read", enabled: false }, { context });
   const current = await toolingOf(context.db, { ownerId: context.ownerId, snapshot: null }, agent.id);
   expect(current.runnerTools[0]).toMatchObject({ actions: [], unasked: [], denied: ["read"] });
+});
+
+test.each(["tool_gh", "tool_fc", "tool_fetch"])("run memory applies only to current actions of %s and never adds tools", async (toolId) => {
+  const s = await setup();
+  const actions = ["read", "send"].map((name) => ({ name, description: name, inputSchema: {} }));
+  await s.context.db.update(tools).set({ actions }).where(eq(tools.id, toolId));
+  const [tool] = await s.context.db.select().from(tools).where(eq(tools.id, toolId));
+  const subject = { kind: "tool" as const, agentId: s.agent.id, toolId, action: "read", target: toolPermissionTarget(tool!) };
+  const remembered = { allow: [subject, { ...subject, toolId: "tool_not_chosen" }], deny: [{ ...subject, action: "send" }] };
+  const run = { ownerId: s.context.ownerId, snapshot: null, remembered };
+  const current = await toolingOf(s.context.db, run, s.agent.id);
+  const given = [...current.httpTools, ...current.runnerTools];
+  expect(given.find((t) => t.id === toolId)).toMatchObject({ actions: [actions[0]], unasked: ["read"] });
+  expect(given.some((t) => t.id === "tool_not_chosen")).toBe(false);
+  const another = await toolingOf(s.context.db, { ownerId: s.context.ownerId, snapshot: null }, s.agent.id);
+  expect([...another.httpTools, ...another.runnerTools].find((t) => t.id === toolId)).toMatchObject({ actions, unasked: [] });
+  // Changing the target revision invalidates both kinds of remembered decision.
+  await s.context.db.update(tools).set({ permissionRevision: 1 }).where(eq(tools.id, toolId));
+  const changed = await toolingOf(s.context.db, run, s.agent.id);
+  expect([...changed.httpTools, ...changed.runnerTools].find((t) => t.id === toolId)).toMatchObject({ actions, unasked: [] });
+});
+
+test("current agent Off and workspace disable take precedence over run allows", async () => {
+  const s = await setup();
+  const action = { name: "read", description: "Read", inputSchema: {} };
+  await s.context.db.update(tools).set({ actions: [action] }).where(eq(tools.id, "tool_fetch"));
+  const [tool] = await s.context.db.select().from(tools).where(eq(tools.id, "tool_fetch"));
+  const run = { ownerId: s.context.ownerId, snapshot: null, remembered: { allow: [{ kind: "tool" as const, agentId: s.agent.id, toolId: tool!.id, action: action.name, target: toolPermissionTarget(tool!) }], deny: [] } };
+  await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: tool!.id, action: action.name, permission: "off" }, { context: s.context });
+  expect((await toolingOf(s.context.db, run, s.agent.id)).runnerTools[0]).toMatchObject({ actions: [], unasked: [], denied: ["read"] });
+  await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: tool!.id, action: action.name, permission: "ask" }, { context: s.context });
+  await call(router.tools.setActionEnabled, { toolId: tool!.id, action: action.name, enabled: false }, { context: s.context });
+  expect((await toolingOf(s.context.db, run, s.agent.id)).runnerTools[0]).toMatchObject({ actions: [], unasked: [], denied: ["read"] });
+});
+
+
+test("workflow run memory remains scoped to its agent and run denial beats a permanent Run", async () => {
+  const s = await setup();
+  const actions = ["read", "send"].map((name) => ({ name, description: name, inputSchema: {} }));
+  await s.context.db.update(tools).set({ actions }).where(eq(tools.id, "tool_fetch"));
+  const [tool] = await s.context.db.select().from(tools).where(eq(tools.id, "tool_fetch"));
+  await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: tool!.id, action: "send", permission: "run" }, { context: s.context });
+  const other = await call(router.agents.create, { name: "Other", harnessId: s.agent.harnessId, systemPrompt: "", toolIds: [tool!.id] }, { context: s.context });
+  await call(router.agents.setToolPermission, { agentId: other.id, toolId: tool!.id, action: "send", permission: "run" }, { context: s.context });
+  const subject = { kind: "tool" as const, agentId: s.agent.id, toolId: tool!.id, action: "read", target: toolPermissionTarget(tool!) };
+  const run = { ownerId: s.context.ownerId, snapshot: null, remembered: { allow: [subject], deny: [{ ...subject, action: "send" }] } };
+  expect((await toolingOf(s.context.db, run, s.agent.id)).runnerTools[0]).toMatchObject({ actions: [actions[0]], unasked: ["read"], denied: ["send"] });
+  expect((await toolingOf(s.context.db, run, other.id)).runnerTools[0]).toMatchObject({ actions, unasked: ["send"], denied: [] });
 });

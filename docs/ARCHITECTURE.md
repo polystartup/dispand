@@ -1335,6 +1335,15 @@ Remembered tool-approval storage is staged independently from answer delivery. A
 nullable `remember` offer binds scopes to a server-resolved tool action and target revision;
 `runs.remembered` holds disjoint allow/deny lists, initially empty. `agents/remember.ts` checks
 the pending question, owner, run and current tooling inside the answer transaction before
-storing a run decision or changing the Job agent's saved permission. Tool subjects include a
-target fingerprint so a remembered decision cannot follow a retargeted tool. No answer or UI
+storing a run decision or changing the Job agent's saved permission. Tool subjects include the agent id and a
+target fingerprint so a remembered decision cannot cross agents or follow a retargeted tool. No answer or UI
 path calls this storage layer yet. CLI rule subjects and delivery are separate integrations.
+
+Effective tooling combines a run's matching decisions with the agent's current permissions,
+after restricting the tool set to current access and the Job snapshot. Denies take precedence;
+a remembered allow applies only to a currently listed action. The tools endpoint and cloud
+caller use these permissions at each call; runner starts, updates and resumes receive the same
+restrictions. Live permission updates only narrow the current grant ceiling; a newly approved
+allow must be delivered through the owner-answer path. Workflow runner sessions receive run-only allows, while their per-agent Run
+settings retain their existing Job-only behavior. No answer path populates run memory yet;
+the owner-facing scope controls and delivery are connected separately.

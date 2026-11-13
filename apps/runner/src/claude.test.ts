@@ -1518,7 +1518,7 @@ test("a session whose start lists no agent to consult has no consult tool, and a
   expect(outputs).toEqual([{ hookSpecificOutput: expect.objectContaining({ permissionDecision: "ask" }) }]);
 });
 
-test("a runner action runs unasked until revoked; other servers and actions ask", async () => {
+test.each([true, false])("a runner grant runs until revoked (Job context: %s)", async (withJob) => {
   const decisions: unknown[] = [];
   const outputs: unknown[] = [];
   const names = ["mcp__mail__draft_email", "mcp__mail__send_email", "mcp__other__draft_email", "mcp__mail__draft_email"];
@@ -1540,10 +1540,11 @@ test("a runner action runs unasked until revoked; other servers and actions ask"
   const session: ClaudeSession = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["draft_email"] }] }, "/work", (e) => {
     events.push(e);
     if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "deny" }));
-  }, { query: fake.query, jobServer: "job", unasked: [] });
+  }, { query: fake.query, ...(withJob ? { jobServer: "job", unasked: [] } : {}) });
   await session.done;
   expect(decisions).toEqual(["allow", "deny", "deny", "deny"]);
   expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: { toolName: string } }).payload.toolName)).toEqual(names.slice(1));
+  expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: { canAlwaysAllow: boolean } }).payload.canAlwaysAllow)).toEqual([withJob, false, withJob]);
   expect(outputs[0]).toMatchObject({ hookSpecificOutput: { permissionDecision: "ask" } });
   expect(outputs[1]).toMatchObject({ hookSpecificOutput: { permissionDecision: "ask" } });
 });
@@ -1567,14 +1568,14 @@ test("an always answer queued across a revocation cannot restore a runner grant"
   expect(decisions).toEqual(["allow", "deny"]);
 });
 
-test("an unasked runner MCP action cannot read a protected configuration file", async () => {
+test.each([true, false])("an unasked runner action protects configuration (Job context: %s)", async (withJob) => {
   let decision: unknown;
   const fake = fakeQuery(async function* ({ next, options }) {
     await next();
     decision = await options.canUseTool!("mcp__mail__read_file", { path: "/guarded/config.json" }, ctx());
     yield result();
   });
-  const session = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "files", unasked: ["read_file"] }] }, "/work", () => undefined, { query: fake.query, jobServer: "job", secrets: ["/guarded/config.json"] });
+  const session = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "files", unasked: ["read_file"] }] }, "/work", () => undefined, { query: fake.query, ...(withJob ? { jobServer: "job" } : {}), secrets: ["/guarded/config.json"] });
   await session.done;
   expect(decision).toMatchObject({ behavior: "deny" });
 });

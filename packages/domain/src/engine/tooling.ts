@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { JOB_SERVER_NAME, JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
 import { and, eq, inArray } from "drizzle-orm";
+import type { RememberedPermissions } from "../agents/remember.ts";
+import { toolPermissionTarget } from "../agents/tool-ask.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import type { Db } from "../db/client.ts";
 import { agents, agentTools, runs, stepRuns, tools, workflowVersions, type AgentSnapshot } from "../db/schema.ts";
@@ -16,12 +18,12 @@ export type Tooling = {
   skills: { packageId: string; name: string }[];
   /**
    * Tools that run on a runner: `tool` is the name of the runner's own MCP server. `unasked`
-   * names the actions that run without asking the owner, as the agent has them now.
+   * names the actions allowed by current agent permissions or remembered for this run.
    */
-  runnerTools: { id: string; name: string; tool: string; runnerId: string; actions: ToolRow["actions"]; unasked: string[]; denied: string[] }[];
+  runnerTools: { id: string; name: string; tool: string; runnerId: string; actions: ToolRow["actions"]; unasked: string[]; denied: string[]; runUnasked?: string[] }[];
   /**
    * Tools reached by URL: called on the server only, where their sealed headers stay. `unasked`
-   * names the actions that run without asking the owner, as the agent has them now.
+   * names the actions allowed by current agent permissions or remembered for this run.
    */
   httpTools: (ToolRow & { unasked: string[]; chosen: boolean })[];
   /** The agent they come from, when there is one. */
@@ -33,7 +35,7 @@ export type Tooling = {
 /** What a runner accepts as a skill's name (the protocol's rule): others are left out, or it would refuse the start. */
 const SKILL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 
-export async function toolingOf(db: Db, run: { ownerId: string; snapshot: AgentSnapshot | null }, agentId: string): Promise<Tooling> {
+export async function toolingOf(db: Db, run: { ownerId: string; snapshot: AgentSnapshot | null; remembered?: RememberedPermissions }, agentId: string): Promise<Tooling> {
   const [agent] = await db
     .select({ id: agents.id })
     .from(agents)
@@ -53,13 +55,18 @@ export async function toolingOf(db: Db, run: { ownerId: string; snapshot: AgentS
   const chosen = await db.select({ toolId: agentTools.toolId, unasked: agentTools.unasked, denied: agentTools.denied }).from(agentTools).where(eq(agentTools.agentId, agentId));
   const permitted = rows.map((tool) => {
     const mine = chosen.find((c) => c.toolId === tool.id);
-    const denied = [...new Set([...tool.disabled, ...(mine?.denied ?? [])])];
-    return { ...tool, actions: tool.actions.filter((a) => !denied.includes(a.name)), unasked: (mine?.unasked ?? []).filter((name) => !denied.includes(name)), denied, chosen: mine !== undefined };
+    const target = toolPermissionTarget(tool);
+    const matches = (s: RememberedPermissions["allow"][number]) => s.kind === "tool" && s.agentId === agentId && s.toolId === tool.id && s.target === target;
+    const allowed = (run.remembered?.allow ?? []).filter(matches).map((s) => s.action).filter((name) => tool.actions.some((a) => a.name === name));
+    const refused = (run.remembered?.deny ?? []).filter(matches).map((s) => s.action);
+    const denied = [...new Set([...tool.disabled, ...(mine?.denied ?? []), ...refused])];
+    const runUnasked = allowed.filter((name) => !denied.includes(name));
+    return { ...tool, actions: tool.actions.filter((a) => !denied.includes(a.name)), unasked: [...new Set([...(mine?.unasked ?? []), ...runUnasked])].filter((name) => !denied.includes(name)), denied, runUnasked, chosen: mine !== undefined };
   });
   return {
     skills,
     runnerTools: permitted.flatMap((t) => t.kind === "runner" && t.runnerId && t.runnerTool
-      ? [{ id: t.id, name: t.name, tool: t.runnerTool, runnerId: t.runnerId, actions: t.actions, unasked: t.unasked, denied: t.denied }]
+      ? [{ id: t.id, name: t.name, tool: t.runnerTool, runnerId: t.runnerId, actions: t.actions, unasked: t.unasked, denied: t.denied, ...(t.runUnasked.length ? { runUnasked: t.runUnasked } : {}) }]
       : []),
     httpTools: permitted.filter((t) => t.kind === "http"),
     agentId,

@@ -1,3 +1,4 @@
+import { toolPermissionTarget } from "../agents/tool-ask.ts";
 import { runnerServerName } from "../engine/tooling.ts";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { call } from "@orpc/server";
@@ -382,4 +383,21 @@ test("workspace-disabled actions disappear from cloud specs and the Job endpoint
   expect(await stopAsking(s.context.db, s.runId, `mcp__job_tools__${list}`, null)).toBe(false);
   await call(router.tools.setActionEnabled, { toolId: s.tool.id, action: "list_issues", enabled: true }, { context: s.context });
   expect((await s.client.listTools()).tools.map((t) => t.name)).toContain(list);
+});
+
+
+test.each(["allow", "deny"] as const)("a stored run %s governs the Job endpoint without changing another Job", async (decision) => {
+  const s = await setup();
+  const name = await named(s.client, "github_list_issues");
+  const [tool] = await s.context.db.select().from(toolsTable).where(eq(toolsTable.id, s.tool.id));
+  const subject = { kind: "tool" as const, agentId: s.agent.id, toolId: tool!.id, action: "list_issues", target: toolPermissionTarget(tool!) };
+  await s.context.db.update(runs).set({ remembered: { allow: decision === "allow" ? [subject] : [], deny: decision === "deny" ? [subject] : [] } }).where(eq(runs.id, s.runId));
+  const result = await s.client.callTool({ name, arguments: {} });
+  expect(result.isError === true).toBe(decision === "deny");
+  expect(s.calls).toHaveLength(decision === "allow" ? 1 : 0);
+  expect((await s.client.listTools()).tools.some((t) => t.name === name)).toBe(decision === "allow");
+  const [original] = await s.context.db.select().from(runs).where(eq(runs.id, s.runId));
+  const another = await call(router.jobs.start, { triggerId: original!.triggerId! }, { context: s.context });
+  expect((await exposedTools(s.context.db, { runId: another.runId, ownerId: s.context.ownerId, agentId: s.agent.id })).find((t) => t.name === name)).toMatchObject({ ask: true });
+  expect((await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, s.agent.id)))[0]).toMatchObject({ unasked: [], denied: [] });
 });

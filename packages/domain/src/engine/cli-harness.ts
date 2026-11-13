@@ -60,9 +60,10 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
     return {
       skills,
       // With each, the actions the agent lets run unasked: the runner doesn't prompt for these
-      // (only in a Job's session, as for the tools endpoint's).
+      // (per-agent grants only in Jobs; run-only grants also in workflow sessions).
       mcpServers: runnerServers(tooling, runnerId).map((t) => {
-        const unasked = tooling.jobId ? t.actions.filter((a) => t.unasked.includes(a.name) && RUNNER_ACTION.test(a.name)).map((a) => a.name).slice(0, 500) : [];
+        const grants = tooling.jobId ? t.unasked : (t.runUnasked ?? []);
+        const unasked = t.actions.filter((a) => grants.includes(a.name) && RUNNER_ACTION.test(a.name)).map((a) => a.name).slice(0, 500);
         return { name: t.server, type: "runner" as const, tool: t.tool, ...(t.denied.length ? { denied: t.denied } : {}), ...(unasked.length ? { unasked } : {}) };
       }),
       // The actions the agent lets run unasked, under the names the tools endpoint lists them:

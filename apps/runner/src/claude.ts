@@ -229,7 +229,7 @@ export function startClaudeSession(
   const mcpDenied = codexDenied([...(deps.secrets ?? []), join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...pluginRoots]);
   const protectedArgs = (name: string, args: unknown) => runnerTool(name) && !runnerArgumentsAllowed(args, mcpDenied);
   const isAgentTool = (name: string) => agentServers.some((server) => name.startsWith(`mcp__${server}__`));
-  const isJobTool = (name: string) => deps.jobServer !== undefined && (name.startsWith(`mcp__${deps.jobServer}__`) || unasked.has(name));
+  const isAllowedMcpTool = (name: string) => (deps.jobServer !== undefined && name.startsWith(`mcp__${deps.jobServer}__`)) || unasked.has(name);
 
   /**
    * The approval the turn waits on, from the moment the CLI is about to call `request_approval`:
@@ -301,7 +301,7 @@ export function startClaudeSession(
     if (denied.blocks(toolName)) return { behavior: "deny", message: "This tool action is disabled for this session." };
     if (protectedArgs(toolName, toolInput)) return { behavior: "deny", message: PROTECTED_DENIAL };
     // `request_approval` asks the owner itself, in the agent's words: no second question about calling it.
-    if (toolName === SUBMIT_OUTPUTS || toolName === REQUEST_APPROVAL_TOOL || (toolName === CONSULT_TOOL && consults.length > 0) || isJobTool(toolName)) return { behavior: "allow", updatedInput: toolInput };
+    if (toolName === SUBMIT_OUTPUTS || toolName === REQUEST_APPROVAL_TOOL || (toolName === CONSULT_TOOL && consults.length > 0) || isAllowedMcpTool(toolName)) return { behavior: "allow", updatedInput: toolInput };
     // canUseTool doesn't learn the CLI's current directory: relative paths are the owner's call.
     const edit = boundary.editDecision(toolName, toolInput, null);
     const read = boundary.readDecision(toolName, toolInput, null);
@@ -335,7 +335,7 @@ export function startClaudeSession(
     // owner taking that action off the agent's asking ones, on the server. Here it only means
     // this session stops asking about it too.
     const jobTool = isAgentTool(toolName);
-    const canAlwaysAllow = updates.length > 0 || jobTool;
+    const canAlwaysAllow = updates.length > 0 || (jobTool && deps.jobServer !== undefined);
     const version = permissionsVersion;
     const payload: QuestionPayload = { kind: "permission", toolName, input: toolInput, canAlwaysAllow };
     // The owner approves exactly what they see: an input that can't be shown whole isn't asked about.
@@ -347,7 +347,7 @@ export function startClaudeSession(
     if (answer?.kind !== "permission" || answer.decision === "deny") {
       return { behavior: "deny", message: (answer?.kind === "permission" && answer.message) || "The owner denied this." };
     }
-    if (answer.decision === "allow-always" && jobTool && version === permissionsVersion) {
+    if (answer.decision === "allow-always" && jobTool && deps.jobServer !== undefined && version === permissionsVersion) {
       unasked.add(toolName);
       return { behavior: "allow", updatedInput: toolInput };
     }
@@ -421,7 +421,7 @@ export function startClaudeSession(
                 }
                 if (protectedArgs(call.tool_name, toolInput)) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: PROTECTED_DENIAL } };
                 // Even where a rule (the user's settings) would allow it.
-                if (isMcpTool(call.tool_name) && !isJobTool(call.tool_name) && (start.permissionMode !== "bypassPermissions" || isAgentTool(call.tool_name))) {
+                if (isMcpTool(call.tool_name) && !isAllowedMcpTool(call.tool_name) && (start.permissionMode !== "bypassPermissions" || isAgentTool(call.tool_name))) {
                   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: MCP_ASK } };
                 }
                 return {};

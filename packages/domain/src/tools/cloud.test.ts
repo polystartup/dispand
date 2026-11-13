@@ -1,3 +1,5 @@
+import { remember } from "../agents/remember.ts";
+import { toolPermissionTarget } from "../agents/tool-ask.ts";
 import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
@@ -248,4 +250,25 @@ test("off refuses a pending cloud call and a late persistent answer cannot re-en
   const [row] = await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, s.agent.id));
   expect(row!.denied).toContain("list_repos");
   expect(row!.unasked).not.toContain("list_repos");
+});
+
+
+test.each(["allow", "deny"] as const)("a stored run %s controls repeat cloud calls and leaves another Job asking", async (decision) => {
+  const s = await setup([use("GitHub_create_repository", { name: "one" }), use("GitHub_create_repository", { name: "two" }), say("Done"), use("GitHub_create_repository", { name: "next" }), say("Done")]);
+  const runId = await s.start();
+  const q = await s.pending(runId);
+  const [tool] = await s.context.db.select().from(toolsTable).where(eq(toolsTable.id, s.tool.id));
+  const subject = { kind: "tool" as const, agentId: s.agent.id, toolId: tool!.id, action: "create_repository", target: toolPermissionTarget(tool!) };
+  // The owner-facing scope choices are connected separately; seed the server's offer here.
+  await s.context.db.update(questions).set({ remember: { scopes: ["run"], subject } }).where(eq(questions.id, q.id));
+  expect(await remember(s.context.db, { questionId: q.id, decision, scope: "run", by: { type: "user", userId: s.context.ownerId } })).toBe(true);
+  await s.engine.answer(q.id, { kind: "permission", decision });
+  await s.until(runId, "succeeded");
+  expect(s.calls).toHaveLength(decision === "allow" ? 2 : 0);
+  expect(await s.context.db.select().from(questions).where(eq(questions.runId, runId))).toHaveLength(1);
+  expect((await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, s.agent.id)))[0]).toMatchObject({ unasked: ["get_logo"], denied: [] });
+  const another = await s.start();
+  expect((await s.pending(another)).payload).toMatchObject({ kind: "permission", toolName: "GitHub create_repository" });
+  await s.engine.answer((await s.pending(another)).id, { kind: "permission", decision: "deny" });
+  await s.until(another, "succeeded");
 });
