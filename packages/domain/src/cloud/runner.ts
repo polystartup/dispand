@@ -485,7 +485,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       if (call.name === SUBMIT_OUTPUTS && offersSubmit(row.start)) {
         const given = outputValues(args, row.start.expectedOutputs);
         if ("error" in given) await done(given.error, true);
-        else if (row.start.interactive) await ask({ kind: "confirm-outputs", values: given.values });
+        else if (row.start.interactive && row.start.expectedOutputs.length > 0) await ask({ kind: "confirm-outputs", values: given.values });
         else await this.emit(id, { items: items(TEXTS.confirmed, false), status: "done" }, { type: "outputs-accepted", values: given.values });
         return null;
       }

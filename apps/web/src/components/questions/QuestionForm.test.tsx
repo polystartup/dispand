@@ -68,10 +68,10 @@ test("confirm-outputs: Go ahead confirms, Not yet returns confirmed false with f
   expect(onAnswer).toHaveBeenLastCalledWith({ kind: "confirm-outputs", confirmed: false, feedback: "Add the audience" });
 });
 
-test("confirm-outputs with nothing to hand back asks to end the chat, with no empty list", async () => {
+test("a legacy empty-output confirmation remains answerable without a special chat-ending variant", async () => {
   const { onAnswer, user } = setup({ kind: "confirm-outputs", values: {} });
-  expect(screen.getByText("The agent says it is done and has nothing to hand back. End this chat?")).toBeTruthy();
-  expect(screen.queryByText(/Go ahead with these/)).toBeNull();
+  expect(screen.getByText("The agent has what it needs. Go ahead with these?")).toBeTruthy();
+  expect(screen.queryByText(/End this chat/)).toBeNull();
   expect(screen.queryByRole("term")).toBeNull();
   await user.click(screen.getByRole("button", { name: "Go ahead" }));
   expect(onAnswer).toHaveBeenLastCalledWith({ kind: "confirm-outputs", confirmed: true });

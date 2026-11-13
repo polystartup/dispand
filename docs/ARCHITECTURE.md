@@ -79,7 +79,8 @@
   `HarnessEvent`s, with `runnerId` `cloud` (`CLOUD_SOURCE`). Dispand runs the tool loop: the
   model gets the built-in `ask_user` (Claude Code's `AskUserQuestion` shape, a `choice`
   question) and, in a chat or a step that expects outputs, `submit_outputs` (`builtins.ts`, the
-  runner's rules and texts: `confirm-outputs` in a chat (with nothing to hand back, it asks to end the chat and lists no values), one reminder elsewhere; any other step,
+  runner's rules and texts: `confirm-outputs` in a chat only when later steps expect values,
+  one reminder elsewhere; any other step,
   such as a consulted Job, ends with its last message as `result`), and the agent's tools through a `ToolCaller` (none until
   agents get tools); every other tool call asks a `permission` question, unless its spec says
   `ask: false` (read at every call). Tool questions carry a server-resolved memory offer.
@@ -881,7 +882,11 @@
   never the run folder's), resuming only a CLI session the runner recorded for that run key
   (`sessions.json`). Claude Code and Codex run as the runner machine's user, with that user's
   profile (settings, instructions files, memory, hooks, sign-in), which the session's agent
-  sees and uses. Permission prompts and
+  sees and uses. A chat whose agent calls `submit_outputs` with no expected values completes
+  without an owner confirmation, on both native and cloud harnesses. Workflow chats that hand
+  values to later steps still ask for confirmation. Old pending empty confirmations remain
+  answerable after an upgrade. No protocol change is needed: starts already carry expected outputs.
+  Permission prompts and
   `AskUserQuestion` become `question` events; the agent returns its outputs through the
   `submit_outputs` tool of the in-process MCP server `dispand` (for a step outside a chat that
   expects none, the engine leaves its `outputs-accepted` aside and completes the step with the `result` that

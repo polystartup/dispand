@@ -149,7 +149,7 @@ export function sessionOutcome(
         return `The outputs are too large: at most ${TEXT} characters each and 512 KiB in all. Shorten them and call submit_outputs again.`;
       }
       const values = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, protocolString(v, TEXT)]));
-      if (start.interactive) {
+      if (start.interactive && start.expectedOutputs.length > 0) {
         // Withdrawn when the call is cancelled or its turn interrupted: a late answer finds nothing to resolve.
         const answer = await io.ask({ kind: "confirm-outputs", values }, signal);
         if (answer === null) return "Interrupted before the owner confirmed these values.";

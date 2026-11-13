@@ -30,6 +30,32 @@ async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
 let runner: FakeRunner | undefined;
 test.afterAll(() => runner?.close());
 
+test("a Job chat completes without asking the owner to confirm empty outputs", async ({ page }) => {
+  await signIn(page);
+  const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Completion box" });
+  const local = await FakeRunner.pair(SERVER, created.pairingCode);
+  try {
+    const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Completion harness", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
+    const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Completion partner", harnessId: harness.id, systemPrompt: "" });
+    const trigger = await rpc<{ id: string }>(page, "triggers/create", { agentId: agent.id, name: "Finish a conversation", instructions: "Finish when ready.", config: { kind: "manual", placement: "chat" } });
+    const { runId } = await rpc<{ runId: string }>(page, "jobs/start", { triggerId: trigger.id });
+    const { start } = await local.waitFor("session.start", WAIT_MS);
+    expect(start.interactive).toBe(true);
+    expect(start.expectedOutputs).toEqual([]);
+    local.emit(start.sessionId, { type: "text", delta: "All done." });
+    local.emit(start.sessionId, { type: "outputs-accepted", values: {} });
+    await expect.poll(async () => (await rpc<{ status: string }>(page, "jobs/get", { id: runId })).status).toBe("succeeded");
+    await page.goto(`/settings/workflows/runs/${runId}`);
+    await page.getByText("Transcript (1)", { exact: true }).click();
+    await expect(page.getByText("All done.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Go ahead", exact: true })).toHaveCount(0);
+    await expect(page.getByText(/End this chat/)).toHaveCount(0);
+    await page.screenshot({ path: test.info().outputPath("chat-auto-complete.png"), fullPage: true });
+  } finally {
+    local.close();
+  }
+});
+
 test("a chat widget on Home: inline question, confirmation, then the next step's result", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 });
   await signIn(page);
