@@ -365,3 +365,20 @@ test("unrelated agent updates preserve off actions and cannot restore them throu
   await expect(call(router.agents.update, { ...fields, id: agent.id, toolPermissions: [{ toolId: "tool_gh", unasked: ["send"] }] }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
   expect(await saved()).toMatchObject({ unasked: ["read"], denied: ["send"] });
 });
+
+
+test("Off survives a missing discovery action while another permission changes", async () => {
+  const { context, harness } = await setup();
+  await withTools(context);
+  const listed = ["read", "send"].map((name) => ({ name, description: name, inputSchema: {} }));
+  await context.db.update(tools).set({ actions: listed }).where(eq(tools.id, "tool_gh"));
+  const fields = { name: "Mail", harnessId: harness.id, systemPrompt: "", toolIds: ["tool_gh"] };
+  const agent = await call(router.agents.create, fields, { context });
+  const change = (action: string, permission: "run" | "ask" | "off") => call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_gh", action, permission }, { context });
+  await change("send", "off");
+  await context.db.update(tools).set({ actions: listed.slice(0, 1) }).where(eq(tools.id, "tool_gh"));
+  await change("read", "run");
+  await call(router.agents.update, { ...fields, id: agent.id, name: "Renamed" }, { context });
+  await context.db.update(tools).set({ actions: listed }).where(eq(tools.id, "tool_gh"));
+  expect((await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions.find((a) => a.name === "send")!.permission).toBe("off");
+});

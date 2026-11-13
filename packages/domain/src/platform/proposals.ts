@@ -136,7 +136,7 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
         if (fields.permission === "run") unasked.push(fields.action);
         if (fields.permission === "off") denied.push(fields.action);
         const listed = typeof fields.toolId === "string" ? found.find((t) => t.id === fields.toolId)?.actions : undefined;
-        kept.set(key(fields.toolId), { unasked: listed ? unasked.filter((name) => listed.some((a) => a.name === name)) : unasked, denied: listed ? denied.filter((name) => listed.some((a) => a.name === name)) : denied });
+        kept.set(key(fields.toolId), { unasked: listed ? unasked.filter((name) => listed.some((a) => a.name === name)) : unasked, denied });
       }
     }
   }

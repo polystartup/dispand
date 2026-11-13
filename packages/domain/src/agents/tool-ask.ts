@@ -24,10 +24,11 @@ async function writePermission(db: Db, ownerId: string, to: Change, remembering:
       .where(and(eq(agentTools.agentId, to.agentId), eq(agentTools.toolId, to.toolId), eq(agents.ownerId, ownerId), eq(tools.ownerId, ownerId), inArray(tools.kind, ["http", "runner"])))
       .for("update", { of: agentTools });
     if (!row?.actions.some((a) => a.name === to.action) || (remembering && row.denied.includes(to.action))) return false;
-    // Forget actions the tool no longer lists: if they return, they ask.
+    // Forget stale positive grants, but keep Off until it is explicitly changed.
     const names = row.actions.map((a) => a.name);
     const unasked = names.filter((name) => name === to.action ? to.permission === "run" : row.unasked.includes(name));
-    const denied = names.filter((name) => name === to.action ? to.permission === "off" : row.denied.includes(name));
+    const denied = row.denied.filter((name) => name !== to.action);
+    if (to.permission === "off") denied.push(to.action);
     await tx.update(agentTools).set({ unasked, denied }).where(and(eq(agentTools.agentId, to.agentId), eq(agentTools.toolId, to.toolId)));
     return true;
   });

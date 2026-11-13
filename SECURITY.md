@@ -318,7 +318,8 @@ changes it updates this file.
   a fetch) can carry in its arguments what the Job read; the owner keeps such actions asking
   on agents that read confidential tables. An unasked action also runs for a session in
   `bypassPermissions` mode. Run/Ask/Off changes keep the two lists disjoint under a row lock;
-  a late Always answer cannot re-enable an Off action. Unrelated agent updates preserve both
+  a late Always answer cannot re-enable an Off action. Off names remain saved if discovery
+  temporarily omits them, even when another permission changes. Unrelated agent updates preserve both
   lists, and an explicit unasked list that would restore an Off action is refused. Enabling an
   action selects Ask; changing it to Run is a separate grant. Runner denials are sent to live
   Job and workflow sessions, including after reconnect; re-enabling applies in a new CLI

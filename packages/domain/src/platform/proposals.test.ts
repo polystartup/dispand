@@ -913,3 +913,18 @@ test("a permission proposal requires a literal action name", async () => {
   const s = await setup();
   expect(await s.propose([{ tool: "tables_create", input: { name: "Example" } }, { tool: "agents_set_tool_permission", input: { agentId: s.agent.id, toolId: "tool_mail", action: { $item: 0 }, permission: "run" } }])).toMatchObject({ ok: false, error: expect.stringContaining("literal action") });
 });
+
+
+test("an earlier permission change keeps Off for an action missing from discovery", async () => {
+  const s = await setup();
+  const listed = ["read", "send"].map((name) => ({ name, description: name, inputSchema: {} }));
+  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", actions: listed });
+  const input = { ...s.base, id: s.agent.id, toolIds: ["tool_mail"] };
+  await call(router.agents.update, input, { context: s.context });
+  await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: "tool_mail", action: "send", permission: "off" }, { context: s.context });
+  await s.context.db.update(toolsTable).set({ actions: listed.slice(0, 1) }).where(eq(toolsTable.id, "tool_mail"));
+  expect(await s.propose([
+    { tool: "agents_set_tool_permission", input: { agentId: s.agent.id, toolId: "tool_mail", action: "read", permission: "run" } },
+    { tool: "agents_update", input: { ...input, toolPermissions: [{ toolId: "tool_mail", unasked: ["send"] }] } },
+  ])).toMatchObject({ ok: false, error: expect.stringContaining("disabled") });
+});
