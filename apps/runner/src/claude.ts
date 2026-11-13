@@ -543,6 +543,10 @@ export function startClaudeSession(
   })();
 
   return {
+    commands: async () => {
+      const { HarnessCommands } = await import("@dispand/runner-protocol");
+      return HarnessCommands.parse(await (await queryReady).supportedCommands());
+    },
     send(text) {
       // Every error is terminal for the engine, so the session ends with it.
       const waiting = [...unansweredBytes.values()].reduce((a, b) => a + b, 0);

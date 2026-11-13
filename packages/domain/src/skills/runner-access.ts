@@ -1,10 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
-import { agents, agentSkills, harnesses, plugins, runners, skillFiles, skillPackages } from "../db/schema.ts";
+import { agents, agentSkills, harnesses, plugins, runners, skillFiles, skillPackages, runs, stepRuns } from "../db/schema.ts";
 import { pluginNativeKey, workspaceNativeKey } from "./native.ts";
 
 /**
- * Whether an agent whose harness is on `runnerId` uses the package: the rule a runner's fetch
+ * Whether an agent on `runnerId` uses the package, or its Assistant conversation invoked it: the rule a runner's fetch
  * is served by, and so the rule a start follows before it names a package to that runner.
  */
 export async function usedOnRunner(db: Db, runnerId: string, packageId: string): Promise<boolean> {
@@ -15,7 +15,13 @@ export async function usedOnRunner(db: Db, runnerId: string, packageId: string):
     .innerJoin(harnesses, eq(harnesses.id, agents.harnessId))
     .where(and(eq(agentSkills.packageId, packageId), eq(harnesses.runnerId, runnerId)))
     .limit(1);
-  return row !== undefined;
+  if (row) return true;
+  const selected = await db.select({ snapshot: runs.snapshot }).from(runs)
+    .innerJoin(stepRuns, eq(stepRuns.runId, runs.id))
+    .innerJoin(runners, and(eq(runners.id, stepRuns.runnerId), eq(runners.ownerId, runs.ownerId)))
+    .innerJoin(agents, and(eq(agents.id, runs.agentId), eq(agents.builtIn, "assistant")))
+    .where(and(eq(stepRuns.runnerId, runnerId), eq(agents.ownerId, runs.ownerId)));
+  return selected.some((r) => r.snapshot?.invokedSkills?.includes(packageId));
 }
 
 /**

@@ -61,7 +61,7 @@ test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ pa
   await expect(page).toHaveURL(/\/assistant$/);
 
   const chat = page.getByRole("region", { name: "Assistant" });
-  await chat.getByRole("textbox", { name: "Message", exact: true }).fill("What fires a Job?");
+  await chat.getByRole("combobox", { name: "Message", exact: true }).fill("What fires a Job?");
   await chat.getByRole("button", { name: "Send" }).click();
   const { start } = await runner.waitFor("session.start", WAIT_MS);
   expect(start.interactive).toBe(true);
@@ -83,7 +83,7 @@ test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ pa
   await expect(page).toHaveURL(/\/assistant\?run=new$/);
   await expect(chat.getByText("Describe your business or use case and how you'd like to automate it.")).toBeVisible();
   await expect(chat.getByText("A trigger does.")).toBeHidden();
-  await chat.getByRole("textbox", { name: "Message", exact: true }).fill("And what stops one?");
+  await chat.getByRole("combobox", { name: "Message", exact: true }).fill("And what stops one?");
   await chat.getByRole("button", { name: "Send" }).click();
   const second = await runner.waitFor("session.start", WAIT_MS);
   expect((await runner.waitFor("session.send", WAIT_MS)).text).toBe("And what stops one?");
@@ -109,7 +109,7 @@ test("a proposal in the Assistant's chat: shown whole, approved from the compose
   await signIn(page);
   await page.goto("/assistant?run=new");
   const chat = page.getByRole("region", { name: "Assistant" });
-  const box = chat.getByRole("textbox", { name: "Message", exact: true });
+  const box = chat.getByRole("combobox", { name: "Message", exact: true });
   await box.fill("Let the Assistant box run two sessions at once.");
   await chat.getByRole("button", { name: "Send" }).click();
   const { start } = await runner!.waitFor("session.start", WAIT_MS);

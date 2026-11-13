@@ -803,3 +803,14 @@ current tool permissions and its fresh token. Cloud transcript inheritance is re
 the same owner and step, and every unanswered inherited call is marked interrupted instead
 of executed. A revoked historical runner is refused before the Job becomes active. Failed
 or stopped Jobs and workflow runs cannot be reopened.
+
+
+A person may explicitly invoke an installed skill from the Assistant composer. Its owner-scoped
+skill id is resolved server-side and extends only that conversation's snapshot (`invokedSkills`)
+with the package and its required tools. Agent-originated RPC calls cannot make this choice.
+This is an explicit exception to the ordinary snapshot/agent intersection: currently installed,
+selected packages remain available to that conversation, without editing permanent agent
+configuration. Required tool actions still use the existing approval broker; selection grants
+no unasked actions. A runner serves selected files only for its owner's Assistant conversation
+on that runner. Deleted packages cease to be readable through the server. Local discovery
+paths never reach the browser; Codex skill inputs resolve paths only inside its runner.

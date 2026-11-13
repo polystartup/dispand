@@ -356,6 +356,7 @@ export const MEMORY_TOOLS: PlatformTool[] = [
 
 /** Every other procedure: not a tool. A new procedure goes here or above, or the walk test fails. */
 export const NOT_TOOLS: string[] = [
+  "assistantCommands",
   // Signing in and the owner's account.
   "auth.setup",
   "auth.status",

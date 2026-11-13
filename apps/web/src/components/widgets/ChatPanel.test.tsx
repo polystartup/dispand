@@ -8,6 +8,7 @@ import type { RunSnapshot } from "../../lib/run-state.ts";
 import "../../test/jsdom-shims.ts";
 
 const fake = vi.hoisted(() => ({
+  assistantCommands: vi.fn(),
   runs: { start: vi.fn(), sendChat: vi.fn(), stream: vi.fn(), list: vi.fn() },
   workflows: { get: vi.fn() },
   jobs: { start: vi.fn(), def: vi.fn() },
@@ -276,4 +277,43 @@ test("a finished Job with a recorded transcript sends to the same conversation",
   await user.click(screen.getByRole("button", { name: /^Send$/ }));
   await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledWith({ runId: "run_1", text: "One more thing." }));
   expect(fake.jobs.start).not.toHaveBeenCalled();
+});
+
+test("Assistant slash picker selects without sending and passes a Dispand skill on submission", async () => {
+  fake.assistantCommands.mockResolvedValue({ entries: [{ name: "office:tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" }], nativeUnavailable: false });
+  fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
+  fake.runs.stream.mockImplementation(streamOf(snapshot()));
+  fake.runs.sendChat.mockResolvedValue(undefined);
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatPanel assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></QueryClientProvider>);
+  const user = userEvent.setup();
+  const box = screen.getByLabelText("Message");
+  await user.type(box, "/ti");
+  expect(await screen.findByRole("option", { name: /office:tidy/ })).toBeTruthy();
+  await user.keyboard("{Enter}");
+  expect((box as HTMLTextAreaElement).value).toBe("/office:tidy ");
+  expect(fake.runs.sendChat).not.toHaveBeenCalled();
+  await user.type(box, "these rows{Enter}");
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledWith({ runId: "run_1", text: "/office:tidy these rows", skillId: "skill_tidy" }));
+});
+
+test("Assistant picker supports arrows, Tab, mouse, Escape and discovery fallback", async () => {
+  fake.assistantCommands.mockResolvedValue({ entries: [{ name: "first", description: "First", source: "harness" }, { name: "office:tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" }], nativeUnavailable: true });
+  fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
+  fake.runs.stream.mockImplementation(streamOf(snapshot()));
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatPanel assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></QueryClientProvider>);
+  const user = userEvent.setup();
+  const box = screen.getByLabelText("Message");
+  await user.type(box, "/");
+  expect(await screen.findByText(/Harness commands unavailable/)).toBeTruthy();
+  await user.keyboard("{ArrowDown}{Tab}");
+  expect((box as HTMLTextAreaElement).value).toBe("/office:tidy ");
+  expect(fake.runs.sendChat).not.toHaveBeenCalled();
+  await user.clear(box);
+  await user.type(box, "/");
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("listbox")).toBeNull();
+  await user.type(box, "ti");
+  await user.click(await screen.findByRole("option", { name: /office:tidy/ }));
+  expect((box as HTMLTextAreaElement).value).toBe("/office:tidy ");
+  expect(document.activeElement).toBe(box);
 });

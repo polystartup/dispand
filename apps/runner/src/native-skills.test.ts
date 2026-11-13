@@ -24,3 +24,12 @@ test("absent, disabled, unknown, pending or failed native inventory keeps worksp
     { packages: [{ ...native, pending: true }] },
   ]) expect(fallbackPackages(packages, "codex", report)).toEqual(packages);
 });
+
+test("a fallback invocation resolves to the namespace of the verified native installation", async () => {
+  const { nativeSkillAliases, resolveSkillAlias } = await import("./native-skills.ts");
+  const report = { packages: [{ ...native, namespace: "actual-native" }] };
+  const aliases = nativeSkillAliases(packages, "codex", report);
+  expect(resolveSkillAlias("/review:tidy these rows", aliases)).toBe("/actual-native:tidy these rows");
+  expect(nativeSkillAliases(packages, "claude-code", report)).toEqual([]);
+  expect(resolveSkillAlias("/review:tidy", nativeSkillAliases(packages, "codex", { packages: [{ ...native, namespace: "other", sourceKey: "wrong" }] }))).toBe("/review:tidy");
+});

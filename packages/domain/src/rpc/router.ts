@@ -1,3 +1,4 @@
+import { assistantCommands } from "../assistant/commands.ts";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { ORPCError } from "@orpc/server";
@@ -75,6 +76,7 @@ const status = base.handler(async ({ context }) => {
 const me = base.use(authed).handler(async ({ context }) => ({ ownerId: context.ownerId }));
 
 export const router = {
+  assistantCommands,
   auth: { setup, status, me },
   runners,
   harnesses,

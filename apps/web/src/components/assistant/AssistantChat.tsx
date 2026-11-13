@@ -68,7 +68,7 @@ function Conversation({ triggerId, agentId, reviewTriggerId, run, onOpen }: { tr
       </SheetContent></Sheet>}
       {settings && <Sheet open onOpenChange={setSettings}><SheetContent className="bg-surface"><SheetHeader><SheetTitle>Assistant options</SheetTitle><SheetDescription>Settings for the workspace Assistant.</SheetDescription></SheetHeader><div className="p-4">{reviewTriggerId && <ReviewSwitch triggerId={reviewTriggerId} />}</div></SheetContent></Sheet>}
       <section aria-label="Assistant" className="flex min-h-0 flex-1 flex-col">
-        <ChatPanel start={() => api.jobs.start({ triggerId, timezone: localTimezone() })} runId={runId} onRunStarted={(id) => onOpen(id, { replace: true })} onNewConversation={() => onOpen(NEW_CONVERSATION)} welcome={WELCOME} composerTools={<AssistantSettings agentId={agentId} />} />
+        <ChatPanel assistantAgentId={agentId} start={(skillId) => api.jobs.start({ triggerId, timezone: localTimezone(), ...(skillId ? { skillId } : {}) })} runId={runId} onRunStarted={(id) => onOpen(id, { replace: true })} onNewConversation={() => onOpen(NEW_CONVERSATION)} welcome={WELCOME} composerTools={<AssistantSettings agentId={agentId} />} />
       </section>
     </div>
   );

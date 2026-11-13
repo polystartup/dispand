@@ -13,7 +13,7 @@ import { consultsOfJob } from "./consults.ts";
 const owner = base.use(authed);
 
 /** Starts a Job of a manual trigger, in the owner's `timezone` when the browser gives it; a chat placement also gives the conversation's session. */
-const start = owner.input(z.object({ triggerId: z.string(), timezone: z.string().refine(knownTimezone, "Unknown timezone").optional() })).handler(async ({ input, context }) => {
+const start = owner.input(z.object({ triggerId: z.string(), timezone: z.string().refine(knownTimezone, "Unknown timezone").optional(), skillId: z.string().max(64).optional() })).handler(async ({ input, context }) => {
   const [trigger] = await context.db
     .select()
     .from(triggers)
@@ -21,7 +21,8 @@ const start = owner.input(z.object({ triggerId: z.string(), timezone: z.string()
   if (!trigger) throw new ORPCError("NOT_FOUND");
   if (trigger.config.kind !== "manual") throw new ORPCError("BAD_REQUEST", { message: "Only a manual trigger can be started by hand" });
   if (!trigger.enabled) throw new ORPCError("BAD_REQUEST", { message: "This trigger is disabled" });
-  const runId = await context.engine.startJob(trigger.id, context.ownerId, input.timezone).catch(engineError);
+  if (context.job && input.skillId) throw new ORPCError("FORBIDDEN");
+  const runId = await context.engine.startJob(trigger.id, context.ownerId, input.timezone, input.skillId).catch(engineError);
   if (trigger.config.placement !== "chat") return { runId };
   const [chat] = await context.db
     .select({ sessionId: stepRuns.sessionId })

@@ -40,7 +40,7 @@ export type PluginOperation = z.infer<typeof PluginOperation>;
 export const PluginReport = z.object({
   targets: z.array(z.object({ harness: PluginHarness, available: z.boolean(), add: z.boolean(), remove: z.boolean() })).max(2).optional(),
   candidates: z.array(z.object({ name: PluginName, targets: z.array(PluginHarness).max(2), blocked: z.boolean() })).max(200).optional(),
-  packages: z.array(z.object({ name: PluginName, sourceKey: string(128).optional(), harness: PluginHarness, installed: z.boolean(), enabled: z.boolean().nullable(), pending: z.boolean() })).max(500).optional(),
+  packages: z.array(z.object({ name: PluginName, namespace: string(256).regex(/^[^\s/:]+$/).optional(), sourceKey: string(128).optional(), harness: PluginHarness, installed: z.boolean(), enabled: z.boolean().nullable(), pending: z.boolean() })).max(500).optional(),
   revision: id().min(1).optional(),
   blocked: z.boolean().optional(),
   changes: z.array(z.object({ name: PluginName, harness: PluginHarness.optional(), action: id().regex(/^[a-z_-]{1,40}$/) })).max(500).optional(),

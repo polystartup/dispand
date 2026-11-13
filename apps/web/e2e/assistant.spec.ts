@@ -142,7 +142,7 @@ test("the lawyer: a fresh install's Assistant sets up the whole workspace from o
   );
 
   // 2. The description; the proposal is one Approval in the chat, every item shown.
-  await chat.getByRole("textbox", { name: "Message", exact: true }).fill(DESCRIPTION);
+  await chat.getByRole("combobox", { name: "Message", exact: true }).fill(DESCRIPTION);
   await chat.getByRole("button", { name: "Send" }).click();
   await approve(page, items.length, ["Clients", "Matters", "Research", "Gmail", "Case law", "Intake and research", "Drafting", "Matter upkeep", "New client email", "Do you want to modify anything", "Runs without asking:", "Other enabled actions ask"]);
 
@@ -251,7 +251,7 @@ test("the studio: a second conversation's setup stops at a name taken, goes on, 
 
   await page.goto("/assistant?run=new");
   const chat = page.getByRole("region", { name: "Assistant" });
-  const box = chat.getByRole("textbox", { name: "Message", exact: true });
+  const box = chat.getByRole("combobox", { name: "Message", exact: true });
   await box.fill(
     "I run a studio that builds software products. Each product has features; when a feature is created, an agent on my machine should propose its design in the repository and open a pull request; every Monday, review each product's website copy.",
   );
@@ -309,7 +309,7 @@ test("Assistant settings selects the next conversation's harness and model; chat
     await sheet.getByRole("button", { name: "Save settings" }).click();
     await expect(sheet).toHaveCount(0);
     const chat = page.getByRole("region", { name: "Assistant", exact: true });
-    await chat.getByRole("textbox", { name: "Message", exact: true }).fill("Use the selected harness and model.");
+    await chat.getByRole("combobox", { name: "Message", exact: true }).fill("Use the selected harness and model.");
     await chat.getByRole("button", { name: "Send", exact: true }).click();
     const { start } = await settingsRunner.waitFor("session.start", WAIT_MS);
     expect(start.harness).toBe("claude-code");
@@ -321,7 +321,7 @@ test("Assistant settings selects the next conversation's harness and model; chat
       if (expanded) await page.getByRole("button", { name: "Full page", exact: true }).click();
       for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
         await page.setViewportSize(viewport);
-        await expect(chat.getByRole("textbox", { name: "Message", exact: true })).toBeInViewport();
+        await expect(chat.getByRole("combobox", { name: "Message", exact: true })).toBeInViewport();
         const bounds = (await chat.boundingBox())!;
         expect(bounds.x + bounds.width).toBeGreaterThan(viewport.width - 30);
         expect(bounds.y + bounds.height).toBeGreaterThan(viewport.height - 30);
@@ -339,10 +339,28 @@ test("Assistant settings selects the next conversation's harness and model; chat
     await sheet.getByRole("button", { name: "Save settings" }).click();
     await expect(sheet).toHaveCount(0);
     await page.getByRole("button", { name: "New conversation", exact: true }).click();
-    await chat.getByRole("textbox", { name: "Message", exact: true }).fill("Use the default model.");
+    await chat.getByRole("combobox", { name: "Message", exact: true }).fill("Use the default model.");
     await chat.getByRole("button", { name: "Send", exact: true }).click();
     expect((await settingsRunner.waitFor("session.start", WAIT_MS)).start.model).toBeUndefined();
   } finally {
     settingsRunner.close();
   }
+});
+
+test("Assistant slash picker offers installed Dispand skills and inserts an editable invocation", async ({ page }) => {
+  await signIn(page);
+  const agent = await rpc<{ id: string; name: string; systemPrompt: string; skills: { packageId: string }[] }>(page, "agents/get", { id: ids.assistant });
+  await rpc(page, "agents/update", { id: agent.id, name: agent.name, systemPrompt: agent.systemPrompt, harnessId: ids.cloud, skillPackageIds: agent.skills.map((s) => s.packageId), toolIds: [] });
+  await rpc(page, "skills/create", { name: "picker-test", description: "A skill installed in Dispand", instructions: "Help with the request.", requiredToolIds: [] });
+  await page.goto("/assistant?run=new");
+  const box = page.getByRole("combobox", { name: "Message", exact: true });
+  await box.fill("/picker");
+  const option = page.getByRole("option", { name: /picker-test:picker-test/ });
+  await expect(option).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("assistant-slash-picker.png"), animations: "disabled" });
+  await box.press("Enter");
+  await expect(box).toHaveValue("/picker-test:picker-test ");
+  await box.pressSequentially("with these arguments");
+  await expect(box).toHaveValue("/picker-test:picker-test with these arguments");
+  await expect(page.getByRole("listbox", { name: "Commands and skills" })).toHaveCount(0);
 });

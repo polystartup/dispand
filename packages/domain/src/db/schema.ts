@@ -212,6 +212,8 @@ export type PendingAction = { kind: "start" | "deliver" | "resume" };
 
 /** The agent as it was when its Job was created: the Job's sessions read it, not the `agents` row. */
 export type AgentSnapshot = {
+  /** Packages explicitly invoked by the person in this Assistant conversation. */
+  invokedSkills?: string[];
   id: string;
   name: string;
   harnessId: string;

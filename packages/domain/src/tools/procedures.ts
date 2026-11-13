@@ -1,11 +1,10 @@
 import { ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import { toolHolder } from "../agents/usage.ts";
 import type { Db, Tx } from "../db/client.ts";
 import { McpServerName } from "@dispand/runner-protocol";
-import { agents, agentTools, plugins, runners, tools as toolsTable } from "../db/schema.ts";
+import { agentTools, plugins, runners, tools as toolsTable } from "../db/schema.ts";
 import { isLoopback } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
 import { logError } from "../log.ts";
@@ -530,9 +529,8 @@ async function updateRunnerTool(context: Pick<InitialContext, "db" | "hub" | "en
     .catch((e: unknown) => nameTaken(e, input.name ?? current.name));
   if (!row) throw new ORPCError("NOT_FOUND");
   if (moved) {
-    const holders = await context.db.select({ agentId: agentTools.agentId }).from(agentTools).where(eq(agentTools.toolId, row.id));
     await askAgain(context.db, row.id);
-    for (const holder of holders) await context.engine.narrowSessions(holder.agentId, context.db);
+    await context.engine.narrowOwnerSessions(context.ownerId, context.db);
   }
   return view(context.db, moved ? await refreshRunnerActions(context.db, context.hub, row) : row);
 }
@@ -598,10 +596,9 @@ const update = owner
       .catch((e: unknown) => nameTaken(e, input.name ?? current.name));
     if (!row) throw new ORPCError("NOT_FOUND");
     if (moved) {
-    const holders = await context.db.select({ agentId: agentTools.agentId }).from(agentTools).where(eq(agentTools.toolId, row.id));
-    await askAgain(context.db, row.id);
-    for (const holder of holders) await context.engine.narrowSessions(holder.agentId, context.db);
-  }
+      await askAgain(context.db, row.id);
+      await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+    }
     const changed = moved || (input.headers !== undefined && Object.keys(input.headers).length > 0) || row.auth !== current.auth;
     // An OAuth tool lists its actions once connected.
     const listable = row.auth !== "oauth" || row.oauthStatus === "connected";
@@ -714,12 +711,7 @@ const setActionEnabled = owner.input(z.object({ toolId: z.string(), action: z.st
     const [updated] = await tx.update(toolsTable).set({ disabled, permissionRevision: sql`${toolsTable.permissionRevision} + 1` }).where(eq(toolsTable.id, tool.id)).returning();
     return updated!;
   });
-  if (!input.enabled) {
-    const owned = await context.db.select({ id: agents.id }).from(agents).where(eq(agents.ownerId, context.ownerId));
-    for (const agent of owned) {
-      if ((await skillsAndTools(context.db, agent.id)).tools.some((t) => t.toolId === row.id)) await context.engine.narrowSessions(agent.id, context.db);
-    }
-  }
+  if (!input.enabled) await context.engine.narrowOwnerSessions(context.ownerId, context.db);
   return view(context.db, row);
 });
 

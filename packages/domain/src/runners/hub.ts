@@ -38,6 +38,8 @@ const MAX_PAYLOAD_BYTES = 1024 * 1024;
 const MAX_PENDING_MESSAGES = 1000;
 const MAX_PENDING_BYTES = 8 * 1024 * 1024;
 
+type CommandsRequest = Extract<ServerToRunner, { type: "commands.request" }>;
+type CommandsReply = Extract<RunnerToServer, { type: "commands.replied" }>;
 type ModelsRequest = Extract<ServerToRunner, { type: "models.request" }>;
 type ModelsReply = Extract<RunnerToServer, { type: "models.replied" }>;
 type PluginRequest = Extract<ServerToRunner, { type: "plugin.request" }>;
@@ -47,7 +49,7 @@ type Discovered = Extract<RunnerToServer, { type: "tool.discovered" }>;
 type Call = Extract<ServerToRunner, { type: "tool.call" }>;
 type Called = Extract<RunnerToServer, { type: "tool.called" }>;
 /** A `request` waiting for its reply, from that runner only. */
-type Waiting = { runnerId: string; type: "tool.discovered" | "tool.called" | "plugin.replied" | "models.replied"; resolve: (reply: Discovered | Called | PluginReply | ModelsReply) => void; reject: (err: Error) => void };
+type Waiting = { runnerId: string; type: "tool.discovered" | "tool.called" | "plugin.replied" | "models.replied" | "commands.replied"; resolve: (reply: Discovered | Called | PluginReply | ModelsReply | CommandsReply) => void; reject: (err: Error) => void };
 
 /** Why `request` got no reply. */
 export class RunnerRequestFailed extends Error {
@@ -174,7 +176,26 @@ export class RunnerHub {
     });
   }
 
-  /** Native plugin operations are never replayed after a disconnect or timeout. */
+  /** Catalog discovery is correlated to its runner and never replayed. */
+  commands(runnerId: string, msg: CommandsRequest): Promise<CommandsReply> {
+    return traces.startActiveSpan("runner.commands", { attributes: { "dispand.runner.id": runnerId } }, async (span) => {
+      let result = "failed";
+      try {
+        const reply = await this.ask(runnerId, msg, 25_000) as CommandsReply;
+        result = reply.error ? "error" : "ok";
+        return reply;
+      } catch (err) {
+        recordError(span, errorKind(err));
+        throw err;
+      } finally {
+        span.setAttribute("dispand.result", result);
+        span.end();
+        counts.counter("dispand.runner.command_lists").add(1, { "dispand.result": result });
+        emitLog("runners", result === "ok" ? "info" : "warn", "command discovery completed", { "dispand.runner.id": runnerId, "dispand.result": result });
+      }
+    });
+  }
+
   models(runnerId: string, msg: ModelsRequest): Promise<ModelsReply> {
     return traces.startActiveSpan("runner.models", { attributes: { "dispand.runner.id": runnerId } }, async (span) => {
       let result = "failed";
@@ -214,9 +235,9 @@ export class RunnerHub {
     });
   }
 
-  private ask(runnerId: string, msg: Discover | Call | PluginRequest | ModelsRequest, timeoutMs: number): Promise<Discovered | Called | PluginReply | ModelsReply> {
+  private ask(runnerId: string, msg: Discover | Call | PluginRequest | ModelsRequest | CommandsRequest, timeoutMs: number): Promise<Discovered | Called | PluginReply | ModelsReply | CommandsReply> {
     if (this.waiting.has(msg.requestId)) return Promise.reject(new RunnerRequestFailed("duplicate request id"));
-    const reply = new Promise<Discovered | Called | PluginReply | ModelsReply>((resolve, reject) => {
+    const reply = new Promise<Discovered | Called | PluginReply | ModelsReply | CommandsReply>((resolve, reject) => {
       const timer = setTimeout(() => settle(() => reject(new RunnerRequestFailed("timed out"))), timeoutMs);
       const settle = (done: () => void) => {
         clearTimeout(timer);
@@ -225,7 +246,7 @@ export class RunnerHub {
       };
       this.waiting.set(msg.requestId, {
         runnerId,
-        type: msg.type === "models.request" ? "models.replied" : msg.type === "plugin.request" ? "plugin.replied" : msg.type === "tool.call" ? "tool.called" : "tool.discovered",
+        type: msg.type === "commands.request" ? "commands.replied" : msg.type === "models.request" ? "models.replied" : msg.type === "plugin.request" ? "plugin.replied" : msg.type === "tool.call" ? "tool.called" : "tool.discovered",
         resolve: (r) => settle(() => resolve(r)),
         reject: (err) => settle(() => reject(err)),
       });
@@ -420,7 +441,7 @@ export class RunnerHub {
 
   private async handle(conn: Connection, state: RunnerState, msg: RunnerToServer) {
     if (msg.type === "hello") await this.hello(conn, msg);
-    else if (msg.type === "tool.discovered" || msg.type === "tool.called" || msg.type === "plugin.replied" || msg.type === "models.replied") this.reply(conn, msg);
+    else if (msg.type === "tool.discovered" || msg.type === "tool.called" || msg.type === "plugin.replied" || msg.type === "models.replied" || msg.type === "commands.replied") this.reply(conn, msg);
     else await this.event(conn, state, msg);
     await this.catchUp(conn, state);
   }
@@ -434,7 +455,7 @@ export class RunnerHub {
   }
 
   /** A reply resolves only a request of its kind sent to the runner that answers it. */
-  private reply(conn: Connection, msg: Discovered | Called | PluginReply | ModelsReply) {
+  private reply(conn: Connection, msg: Discovered | Called | PluginReply | ModelsReply | CommandsReply) {
     const w = this.waiting.get(msg.requestId);
     if (w?.runnerId === conn.runnerId && w.type === msg.type) w.resolve(msg);
   }

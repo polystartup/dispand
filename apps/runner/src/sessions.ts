@@ -18,7 +18,7 @@ import type { HarnessSession } from "./outcome.ts";
 import { codexMcpServers, mcpConfigFor, withJobServer } from "./mcp.ts";
 import { fetchPackages, removeSkills, sessionPluginsDir, writeSkills } from "./skills.ts";
 import { resolveWorkdir } from "./workdir.ts";
-import { fallbackPackages } from "./native-skills.ts";
+import { fallbackPackages, nativeSkillAliases, resolveSkillAlias } from "./native-skills.ts";
 import type { NativePlugins } from "./plugins.ts";
 import { removeMemoryFiles, writeMemoryFiles } from "./memory.ts";
 
@@ -178,7 +178,7 @@ export class Sessions {
    * Handles a server message after the earlier ones for the same session; messages for other
    * sessions don't wait for it. Settles once this one is handled.
    */
-  handle(msg: Exclude<ServerToRunner, { type: "ack" | "tool.discover" | "tool.call" | "plugin.request" | "models.request" }>): Promise<void> {
+  handle(msg: Exclude<ServerToRunner, { type: "ack" | "tool.discover" | "tool.call" | "plugin.request" | "models.request" | "commands.request" }>): Promise<void> {
     if (msg.type === "session.permissions") {
       const preparing = this.starting.get(msg.sessionId);
       if (preparing) {
@@ -206,7 +206,13 @@ export class Sessions {
     return done;
   }
 
-  private async dispatch(msg: Exclude<ServerToRunner, { type: "ack" | "tool.discover" | "tool.call" | "plugin.request" | "models.request" }>): Promise<void> {
+  async commands(sessionId: string) {
+    const session = this.live.get(sessionId);
+    if (!session?.commands) throw new Error("Session unavailable");
+    return session.commands();
+  }
+
+  private async dispatch(msg: Exclude<ServerToRunner, { type: "ack" | "tool.discover" | "tool.call" | "plugin.request" | "models.request" | "commands.request" }>): Promise<void> {
     if (msg.type === "session.start") {
       const started = this.start(msg.start);
       this.inFlight.add(started);
@@ -312,6 +318,8 @@ export class Sessions {
       const native = packages.some((pkg) => pkg.nativePlugin) && this.options.nativePlugins
         ? await this.options.nativePlugins.request({ action: "list" }) : {};
       const fallback = fallbackPackages(packages, start.harness, native);
+      const aliases = nativeSkillAliases(packages, start.harness, native);
+      start.prompt = resolveSkillAlias(start.prompt, aliases);
       const pluginRoots = pluginsDir ? await writeSkills(pluginsDir, fallback) : [];
       // Writing them took time: check again that the runner may still launch.
       if (this.shuttingDown) return cleanUp();
@@ -342,6 +350,8 @@ export class Sessions {
               mcpServers: claudeMcp,
               ...jobServer,
             });
+      const send = session.send.bind(session);
+      session.send = (text) => send(resolveSkillAlias(text, aliases));
       this.live.set(start.sessionId, session);
       this.toldNotRunning.delete(start.sessionId);
       // Shutdown waits for it: memory files must not outlive their session.

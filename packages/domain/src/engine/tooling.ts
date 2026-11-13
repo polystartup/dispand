@@ -9,8 +9,8 @@ import { agents, agentTools, runs, stepRuns, tools, workflowVersions, type Agent
 import { nodesOf } from "../workflows/model.ts";
 
 // What a session's agent gives it: its skill packages and its tools. For a Job, what its
-// snapshot holds and the agent still has (rights shrink with the agent and never grow after
-// the Job was created); for a workflow run, the agent's as they are.
+// snapshot holds and the agent still has, plus installed packages the person explicitly
+// invoked in that conversation; for a workflow run, the agent's as they are.
 
 type ToolRow = typeof tools.$inferSelect;
 
@@ -41,7 +41,7 @@ export async function toolingOf(db: Db, run: { ownerId: string; snapshot: AgentS
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.ownerId, run.ownerId)));
   if (!agent) return { skills: [], runnerTools: [], httpTools: [] };
-  const now = await skillsAndTools(db, agentId);
+  const now = await skillsAndTools(db, agentId, run.snapshot?.invokedSkills);
   const snapshot = run.snapshot;
   const skills = now.skills.filter((s) => SKILL_NAME.test(s.name) && (!snapshot || snapshot.skills.some((k) => k.packageId === s.packageId)));
   const toolIds = now.tools.map((t) => t.toolId).filter((id) => !snapshot || snapshot.tools.some((t) => t.toolId === id));

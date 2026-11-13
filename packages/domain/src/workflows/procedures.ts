@@ -303,10 +303,11 @@ const start = owner.input(z.object({ workflowId: z.string() })).handler(async ({
 });
 
 const sendChat = owner
-  .input(z.object({ runId: z.string(), text: StorableText(100_000).trim().min(1) }))
+  .input(z.object({ runId: z.string(), text: StorableText(100_000).trim().min(1), skillId: z.string().max(64).optional() }))
   .handler(async ({ input, context }) => {
     await requireRun(context.db, context.ownerId, input.runId);
-    await context.engine.sendChat(input.runId, input.text).catch(engineError);
+    if (context.job && input.skillId) throw new ORPCError("FORBIDDEN");
+    await context.engine.sendChat(input.runId, input.text, input.skillId).catch(engineError);
   });
 
 /** Stops a run or a Job still going: its open steps fail with "Stopped" and its sessions end. */

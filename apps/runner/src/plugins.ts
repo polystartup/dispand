@@ -189,7 +189,7 @@ export class NativePlugins {
             const sourcePath = sourcePaths.get(binding);
             const identity = sourcePath ? nativeSourceKey(binding.source ?? "", binding.commit ?? "", binding.plugin ?? "", sourcePath) : undefined;
             const sourceKey = native?.filtered ? undefined : digest && /^[a-f0-9]{64}$/.test(digest) ? `workspace:${digest}` : identity ? createHash("sha256").update(identity).digest("hex") : undefined;
-            return [{ name, ...(sourceKey ? { sourceKey } : {}), harness, installed: host?.status === "ready" && !host.error && !!native && (harness === "claude-code" || native.installed === true), enabled: native?.enabledKnown ? native.enabled : null, pending: !!binding.pending || !!binding.contextChanged || !!binding.cleanup || !!binding.refChanged }];
+            return [{ name, ...(sourceKey ? { sourceKey } : {}), ...(sourceKey && (harness === "codex" ? binding.id : binding.plugin)?.match(/^[^\s/:]{1,256}$/) ? { namespace: harness === "codex" ? binding.id : binding.plugin! } : {}), harness, installed: host?.status === "ready" && !host.error && !!native && (harness === "claude-code" || native.installed === true), enabled: native?.enabledKnown ? native.enabled : null, pending: !!binding.pending || !!binding.contextChanged || !!binding.cleanup || !!binding.refChanged }];
           })),
         };
       } else if (op.action === "discover") {
