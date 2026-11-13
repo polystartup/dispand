@@ -1415,7 +1415,8 @@ in the same Job. The existing chat step and its messages remain in that thread; 
 gets a fresh session id, Job token and chat root cause, with completion timestamps cleared.
 The message and the `job.reopened` owner Audit row commit with that transition. Failed or
 stopped Jobs, workflow runs, deleted agents and chats without recorded history remain closed.
-A new conversation still starts a separate Job.
+A revoked historical runner is refused without reopening the Job. A new conversation still
+starts a separate Job.
 
 Migration 0070 adds nullable `step_runs.resume_after_session`. It records the former session
 and whether its process has ended, until the resumed start is written. Protocol 22 adds
@@ -1430,6 +1431,8 @@ session has started, a missing-session report never queues the previous conversa
 The resume retains the run folder and CLI transcript id and carries undelivered new messages
 through the existing resume prompt. Its start reads the fresh token and current permissions,
 so tools removed since completion are absent. Cloud sessions inherit the previous model
-items under their new id after the former loop has ended. The former token stays invalid.
+items under their new id after the former loop has ended. Unanswered calls from the old
+model batch are settled as interrupted before the new message is consumed; they never run
+as part of that follow-up. The former token stays invalid.
 The browser keeps watching resumable chats after success, within its normal connection cap,
 so the same composer can send and receive a new turn without starting another Job.

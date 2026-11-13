@@ -707,6 +707,10 @@ export class Engine {
   private async reopen(tx: Tx, step: StepRow, out: Out[]): Promise<StepRow> {
     const [run] = await tx.select().from(runs).where(eq(runs.id, step.runId));
     if (!run || run.source !== "agent" || !run.agentId || run.status !== "succeeded" || run.def?.trigger.field.type !== "chat" || step.status !== "succeeded" || !step.cliSessionId || !step.sessionId || !step.start?.interactive || !step.harness || (run.tokenSealed && !this.secrets)) throw new EngineError("CLOSED", "The chat is over");
+    if (step.runnerId !== CLOUD_SOURCE) {
+      const [runner] = await tx.select({ revokedAt: runners.revokedAt }).from(runners).where(and(eq(runners.id, step.runnerId!), eq(runners.ownerId, run.ownerId))).for("share");
+      if (!runner || runner.revokedAt) throw new EngineError("CLOSED", "The chat's runner is no longer available");
+    }
     const token = this.secrets ? issueJobToken(this.secrets, run.id) : null;
     const [reopened] = await tx.update(runs).set({ status: "running", finishedAt: null, rootId: await newRoot(tx, run.ownerId, "chat", run.id), ...(token ? { tokenHash: token.hash, tokenSealed: token.sealed } : {}) }).where(and(eq(runs.id, run.id), eq(runs.status, "succeeded"))).returning();
     if (!reopened) throw new EngineError("CLOSED", "The chat is over");
@@ -1630,7 +1634,8 @@ export class Engine {
         .returning();
       for (const q of orphaned) this.deliverAnswer(q);
     }
-    for (const m of laterMessages) this.deliverMessage(sessionId, m);
+    // A reopened session is new: its written callback flushes overflow after the start.
+    if (!step.resumeAfterSession) for (const m of laterMessages) this.deliverMessage(sessionId, m);
   }
 
   /** A Job's session resumed: its `job.started` row, `resumed`, with the harness and runner it runs on. */

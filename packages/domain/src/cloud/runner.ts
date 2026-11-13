@@ -180,8 +180,12 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
           ? await this.db.select().from(cloudSessions).where(and(eq(cloudSessions.id, start.resumeCliSessionId), eq(cloudSessions.ownerId, step.ownerId), eq(cloudSessions.stepRunId, step.id)))
           : [];
         if (start.resumeCliSessionId && !previous) throw new Error("unknown cloud transcript");
-        const call = previous?.pending ? nextCall(previous.items) : undefined;
-        const history: ChatItem[] = previous ? (call ? [...previous.items, { role: "tool", callId: call.id, name: call.name, result: TEXTS.notAnswered, isError: true }] : previous.items) : [];
+        const history: ChatItem[] = previous ? [...previous.items] : [];
+        // A completion may leave later calls in the same model batch unanswered. They belong
+        // to the former turn: settle all of them before consuming the new owner's message.
+        for (let call = nextCall(history); call; call = nextCall(history)) {
+          history.push({ role: "tool", callId: call.id, name: call.name, result: TEXTS.notAnswered, isError: true });
+        }
         await this.db.insert(cloudSessions).values({
           id,
           ownerId: step.ownerId,

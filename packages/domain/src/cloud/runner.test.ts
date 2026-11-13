@@ -531,7 +531,7 @@ test("a cloud session holds its harness's slot only while it works: not between 
 });
 
 test("a finished cloud Job reopens in the same Job with its complete model transcript", async () => {
-  const model = fakeModel(() => ({ text: "First answer.", toolCalls: [{ id: "end1", name: "submit_outputs", args: {} }] }), () => ({ text: "Second answer.", toolCalls: [{ id: "end2", name: "submit_outputs", args: {} }] }));
+  const model = fakeModel(() => ({ text: "First answer.", toolCalls: [{ id: "end1", name: "submit_outputs", args: {} }, { id: "old_trailing", name: "submit_outputs", args: {} }] }), () => ({ text: "Second answer.", toolCalls: [{ id: "end2", name: "submit_outputs", args: {} }] }));
   const { context, engine, agent } = await setup(buttonStep, { client: model.client });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } }, { context });
   const runId = await engine.startJob(trigger.id, context.ownerId);
@@ -547,6 +547,7 @@ test("a finished cloud Job reopens in the same Job with its complete model trans
   expect(after.cliSessionId).toBe(after.sessionId);
   const continued = model.inputs.find((input) => input.items.some((item) => item.role === "user" && item.text.includes("One more thing.")))!;
   expect(continued.items.some((item) => item.role === "assistant" && item.text === "First answer.")).toBe(true);
+  expect(continued.items.some((item) => item.role === "tool" && item.callId === "old_trailing" && item.isError)).toBe(true);
   expect(continued.items.some((item) => item.role === "user" && item.text.includes("First request."))).toBe(true);
   const transcript = await context.db.select().from(messages).where(eq(messages.runId, runId)).orderBy(messages.position);
   expect(transcript.filter((m) => m.role !== "tool").map((m) => m.text)).toEqual(["First request.", "First answer.", "One more thing.", "Second answer."]);

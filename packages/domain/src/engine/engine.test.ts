@@ -1923,3 +1923,37 @@ test("stopping a reopened chat while it waits prevents a later exit acknowledgem
   expect(adapter.starts).toHaveLength(1);
   expect((await runOf(engine, runId)).run.status).toBe("failed");
 });
+
+test("a reopened chat sends prompt overflow only after its resumed start is written", async () => {
+  const { context, adapter, engine, emit, trigger } = await jobSetup("chat");
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const old = adapter.starts[0]!.start.sessionId;
+  await emit(old, { type: "cli-session", cliSessionId: "cli_history" });
+  await emit(old, { type: "outputs-accepted", values: {} });
+  await engine.sendChat(runId, "a".repeat(100_000));
+  await engine.sendChat(runId, "b".repeat(100_000));
+  let write!: () => void;
+  adapter.hold = new Promise<void>((resolve) => (write = resolve));
+  try {
+    await emit(old, { type: "session-ended" });
+    expect(adapter.starts).toHaveLength(2);
+    expect(adapter.starts[1]!.start.prompt).toContain("a".repeat(100_000));
+    expect(adapter.sent).toEqual([]);
+    write();
+    await engine.stop();
+    expect(adapter.sent).toEqual([[adapter.starts[1]!.start.sessionId, "b".repeat(100_000)]]);
+  } finally {
+    write();
+  }
+});
+
+test("a successful chat cannot reopen on its revoked historical runner", async () => {
+  const { context, adapter, engine, emit, trigger, runnerId } = await jobSetup("chat");
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const old = adapter.starts[0]!.start.sessionId;
+  await emit(old, { type: "cli-session", cliSessionId: "cli_history" });
+  await emit(old, { type: "outputs-accepted", values: {} });
+  await context.db.update(runners).set({ revokedAt: new Date() }).where(eq(runners.id, runnerId));
+  await expect(engine.sendChat(runId, "Continue?")).rejects.toMatchObject({ code: "CLOSED" });
+  expect((await runOf(engine, runId)).run.status).toBe("succeeded");
+});

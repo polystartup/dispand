@@ -786,4 +786,6 @@ stop only after the process exits and its session cleanup finishes (or when it i
 the new CLI session waits for that acknowledgement or reconnect proof of absence. This wait
 is durable across server restarts. The resumed session retains its transcript but reads
 current tool permissions and its fresh token. Cloud transcript inheritance is restricted to
-the same owner and step. Failed or stopped Jobs and workflow runs cannot be reopened.
+the same owner and step, and every unanswered inherited call is marked interrupted instead
+of executed. A revoked historical runner is refused before the Job becomes active. Failed
+or stopped Jobs and workflow runs cannot be reopened.
