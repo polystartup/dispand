@@ -308,6 +308,8 @@ same plugin name in that repository's marketplace is refused. Update older works
 with no recorded folder before installing them natively. Source matching includes the selected
 folder; discovery failures keep workspace skill fallback enabled. Immutable source discoveries
 are cached in memory (up to 200 sources) to avoid repeated Git fetches during inventory polling.
+Remote discovery shares a ten-second deadline per request, including cancellation of its
+process group. Failed sources are attempted only once per request.
 Protocol 24 requires updating runners along with the server.
 
 ## Updating from Settings

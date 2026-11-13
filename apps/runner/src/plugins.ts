@@ -25,9 +25,10 @@ const Result = z.object({ results: rows(z.object({ name, target: name, status: n
 type Harness = z.infer<typeof PluginHarness>;
 // Native manifests use kebab-case; Skillshare's logical binding retains the workspace id.
 const workspacePluginName = (name: string) => name.toLowerCase().replace(/[._]/g, "-");
-export type PluginExec = (args: string[], env: NodeJS.ProcessEnv) => Promise<{ stdout: string; failed: boolean }>;
+export type PluginExec = (args: string[], env: NodeJS.ProcessEnv, signal?: AbortSignal) => Promise<{ stdout: string; failed: boolean }>;
 
-export const skillshareExec = (binary: string): PluginExec => (args, env) => new Promise((resolve) => {
+export const skillshareExec = (binary: string): PluginExec => (args, env, signal) => new Promise((resolve) => {
+  if (signal?.aborted) return resolve({ stdout: "", failed: true });
   const child = spawn(binary, args, { cwd: homedir(), env, detached: true, stdio: ["ignore", "pipe", "ignore"] });
   const chunks: Buffer[] = [];
   let bytes = 0;
@@ -39,6 +40,7 @@ export const skillshareExec = (binary: string): PluginExec => (args, env) => new
     }
   };
   const timer = setTimeout(stop, 120_000);
+  signal?.addEventListener("abort", stop, { once: true });
   child.stdout.on("data", (chunk: Buffer) => {
     bytes += chunk.length;
     if (bytes > 8 * 1024 * 1024) stop();
@@ -46,10 +48,12 @@ export const skillshareExec = (binary: string): PluginExec => (args, env) => new
   });
   child.on("error", () => {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", stop);
     resolve({ stdout: "", failed: true });
   });
   child.on("close", (code) => {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", stop);
     if (code !== 0) stop();
     resolve({ stdout: Buffer.concat(chunks).toString("utf8"), failed: stopped || code !== 0 });
   });
@@ -59,7 +63,7 @@ export const skillshareExec = (binary: string): PluginExec => (args, env) => new
 export class NativePlugins {
   private busy = false;
   // Only immutable commits are cached, so inventory polling does not repeatedly clone sources.
-  private readonly discoveries = new Map<string, Promise<z.infer<typeof Discovery>>>();
+  private readonly discoveries = new Map<string, z.infer<typeof Discovery>>();
   private readonly targets: Partial<Record<Harness, string>>;
   private readonly env: NodeJS.ProcessEnv;
   private readonly exec: PluginExec;
@@ -125,17 +129,23 @@ export class NativePlugins {
         if (op.dryRun) args.push("--dry-run");
         else args.push("--revision", op.revision!);
       }
+      const discoverySignal = AbortSignal.timeout(10_000);
+      const attempts = new Map<string, Promise<z.infer<typeof Discovery>>>();
       const discover = (source: string, commit: string) => {
         const key = JSON.stringify([source, commit]);
-        let pending = this.discoveries.get(key);
+        const cached = this.discoveries.get(key);
+        if (cached) return Promise.resolve(cached);
+        let pending = attempts.get(key);
         if (!pending) {
-          pending = this.exec(["plugin", "discover", "--global", "--json", "--no-tui", source, "--source-ref", commit], this.env).then(({ stdout, failed }) => {
+          if (discoverySignal.aborted) return Promise.reject(new Error("source discovery timed out"));
+          pending = this.exec(["plugin", "discover", "--global", "--json", "--no-tui", source, "--source-ref", commit], this.env, discoverySignal).then(({ stdout, failed }) => {
             if (failed) throw new Error("source discovery failed");
-            return Discovery.parse(JSON.parse(stdout));
+            const discovery = Discovery.parse(JSON.parse(stdout));
+            if (this.discoveries.size >= 200) this.discoveries.delete(this.discoveries.keys().next().value!);
+            this.discoveries.set(key, discovery);
+            return discovery;
           });
-          if (this.discoveries.size >= 200) this.discoveries.delete(this.discoveries.keys().next().value!);
-          this.discoveries.set(key, pending);
-          void pending.catch(() => this.discoveries.delete(key));
+          attempts.set(key, pending);
         }
         return pending;
       };

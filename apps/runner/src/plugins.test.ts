@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { PluginOperation, PluginSource, workspacePluginContent } from "@dispand/runner-protocol";
-import { NativePlugins } from "./plugins.ts";
+import { NativePlugins, skillshareExec } from "./plugins.ts";
 import { fallbackPackages } from "./native-skills.ts";
 import { unlock } from "./skills.ts";
 
@@ -149,13 +149,16 @@ test("Claude registrations are installed without the Codex installed flag", asyn
 });
 
 test("filtered native registrations cannot replace an entire workspace package", async () => {
-  const exec = vi.fn().mockResolvedValue({ failed: false, stdout: JSON.stringify({
-    targetDefinitions: [],
-    packages: { review: { bindings: { codex: { id: "review@market", source: "https://example.com/review.git", commit: "a".repeat(40), plugin: "review" } } } },
-    hosts: [{ target: "codex", status: "ready", installed: [{ id: "review@market", installed: true, enabledKnown: true, enabled: true, filtered: true }] }],
-  }) });
-  const report = await new NativePlugins({ codex: "codex" }, {}, exec).request({ action: "list" });
-  expect(report.packages![0]!.sourceKey).toBeUndefined();
+  for (const filtered of [false, true]) {
+    const exec = vi.fn().mockImplementation(async (args: string[]) => ({ failed: false, stdout: JSON.stringify(args[1] === "discover" ? { candidates: [{ name: "review", path: ".", targets: ["codex"] }] } : {
+      targetDefinitions: [],
+      packages: { review: { bindings: { codex: { id: "review@market", source: "https://example.com/review.git", commit: "a".repeat(40), plugin: "review" } } } },
+      hosts: [{ target: "codex", status: "ready", installed: [{ id: "review@market", installed: true, enabledKnown: true, enabled: true, filtered }] }],
+    }) }));
+    const report = await new NativePlugins({ codex: "codex" }, {}, exec).request({ action: "list" });
+    if (filtered) expect(report.packages![0]!.sourceKey).toBeUndefined();
+    else expect(report.packages![0]!.sourceKey).toBe(createHash("sha256").update(JSON.stringify(["https://example.com/review", "a".repeat(40), "review"])).digest("hex"));
+  }
 });
 
 
@@ -210,4 +213,39 @@ test("failed source discovery leaves native inventory readable without claiming 
   expect(report.packages?.[0]).toMatchObject({ installed: true, enabled: true });
   expect(report.packages?.[0]?.sourceKey).toBeUndefined();
   expect(JSON.stringify(report)).not.toContain("private failure");
+});
+
+
+test("inventory shares a discovery deadline and deduplicates failures across harnesses", async () => {
+  const controller = new AbortController();
+  const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
+  const inventory = { packages: { demo: { bindings: Object.fromEntries(["claude", "codex"].map((target) => [target, { id: "demo@native", source: add.source, commit: "a".repeat(40), plugin: "demo" }])) } }, hosts: [] };
+  let started!: () => void;
+  const ready = new Promise<void>((resolve) => { started = resolve; });
+  const exec = vi.fn().mockImplementation(async (args: string[], _env, signal?: AbortSignal) => {
+    if (args[1] === "list") return { failed: false, stdout: JSON.stringify(inventory) };
+    started();
+    if (!signal) return { failed: true, stdout: "" };
+    return new Promise((resolve) => signal.addEventListener("abort", () => resolve({ failed: true, stdout: "" }), { once: true }));
+  });
+  try {
+    const pending = new NativePlugins({ "claude-code": "claude", codex: "codex" }, {}, exec).request({ action: "list" });
+    await ready;
+    controller.abort();
+    const report = await pending;
+    expect(report.error).toBeUndefined();
+    expect(report.packages).toHaveLength(2);
+    expect(report.packages!.every((pkg) => pkg.sourceKey === undefined)).toBe(true);
+    expect(exec).toHaveBeenCalledTimes(2);
+  } finally { timeout.mockRestore(); }
+});
+
+
+test("discovery cancellation stops its native process group", async () => {
+  const controller = new AbortController();
+  const exec = skillshareExec("/bin/sh");
+  const pending = exec(["-c", "sleep 60"], process.env, controller.signal);
+  controller.abort();
+  expect(await pending).toEqual({ failed: true, stdout: "" });
+  expect(await exec(["-c", "sleep 60"], process.env, controller.signal)).toEqual({ failed: true, stdout: "" });
 });
