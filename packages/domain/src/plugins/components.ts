@@ -1,7 +1,7 @@
 import { ORPCError } from "@orpc/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Tx } from "../db/client.ts";
-import { agents, tools } from "../db/schema.ts";
+import { agents, skillPackages, tools } from "../db/schema.ts";
 import { Headers, Url, type ToolFields } from "../tools/procedures.ts";
 import type { PluginMcpServer } from "./read-plugin.ts";
 
@@ -107,4 +107,16 @@ export async function agentName(tx: Tx, ownerId: string, name: string, plugin: s
     .where(and(eq(agents.ownerId, ownerId), eq(agents.name, name)))
     .limit(1);
   return taken ? cut(`${name} (${plugin})`, 100) : name;
+}
+
+
+/** Retained workspace skills keep their names and agent links when a plugin is reinstalled. */
+export async function skillPackageName(tx: Tx, ownerId: string, base: string): Promise<string> {
+  const taken = new Set((await tx.select({ name: skillPackages.name }).from(skillPackages).where(eq(skillPackages.ownerId, ownerId))).map((p) => p.name));
+  let name = base;
+  for (let n = 2; taken.has(name); n++) {
+    const suffix = `-${n}`;
+    name = `${base.slice(0, 64 - suffix.length)}${suffix}`;
+  }
+  return name;
 }

@@ -120,9 +120,9 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await sheet.getByRole("checkbox", { name: /editor/ }).uncheck();
   await expect(sheet.getByLabel("Harness", { exact: true })).toBeHidden();
   await sheet.getByRole("checkbox", { name: /review-notes/ }).uncheck();
-  await sheet.getByRole("checkbox", { name: /Install the complete native plugin/ }).check();
-  await sheet.getByRole("checkbox", { name: /Workstation \/ Claude Code/ }).check();
-  await sheet.getByRole("checkbox", { name: /Workstation \/ Codex/ }).check();
+  await expect(sheet.getByRole("checkbox", { name: /Install the complete native plugin/ })).toBeChecked();
+  await expect(sheet.getByRole("checkbox", { name: /Workstation \/ Claude Code/ })).toBeChecked();
+  await expect(sheet.getByRole("checkbox", { name: /Workstation \/ Codex/ })).toBeChecked();
   await sheet.getByRole("button", { name: "Install" }).click();
   const progress = sheet.getByRole("list", { name: "Native installations" });
   await expect(progress.getByRole("status")).toHaveText(["Installing…", "Installing…"]);
@@ -205,6 +205,7 @@ test("add a Git repository of skills: one entry, installed like a plugin, then r
   await page.getByRole("button", { name: "Install skill-repo" }).click();
   const sheet = page.getByRole("dialog");
   await expect(sheet.getByRole("checkbox", { name: /tidy-notes/ })).toBeChecked();
+  await expect(sheet.getByRole("checkbox", { name: /Install the complete native plugin/ })).not.toBeChecked();
   await sheet.getByRole("button", { name: "Install" }).click();
   await expect(sheet).toBeHidden();
   await page.getByRole("link", { name: "Installed", exact: true }).click();
