@@ -1,3 +1,4 @@
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { effectiveTools } from "@dispand/domain/agents/tools";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -5,7 +6,7 @@ import { Lock, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { HarnessModelPicker } from "./HarnessModelPicker.tsx";
 import { Textarea } from "@/components/ui/textarea";
 import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
@@ -17,11 +18,6 @@ import { SelfLearning } from "./SelfLearning.tsx";
 import { BannerSlot, Empty, FormField, NextStep } from "./parts.tsx";
 
 export type Agent = Awaited<ReturnType<typeof api.agents.get>>;
-
-/** Claude Code's model aliases; any other model id goes in "Other". */
-const MODEL_ALIASES = ["opus", "sonnet", "haiku"];
-const HARNESS_DEFAULT = "harness-default";
-const OTHER = "other";
 
 /** Why the server refused the change, when it says so for a person to read; else `fallback`. */
 function refusal(e: unknown, fallback: string): string {
@@ -48,11 +44,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
   const [name, setName] = useState(agent?.name ?? "");
   const [harnessId, setHarnessId] = useState(agent?.harnessId ?? defaultHarnessId ?? "");
   const [systemPrompt, setSystemPrompt] = useState(agent?.systemPrompt ?? "");
-  const [modelChoice, setModelChoice] = useState(
-    agent?.model === undefined ? HARNESS_DEFAULT : MODEL_ALIASES.includes(agent.model) ? agent.model : OTHER,
-  );
-  const [otherModel, setOtherModel] = useState(agent?.model !== undefined && !MODEL_ALIASES.includes(agent.model) ? agent.model : "");
-  const harnessModel = harnesses.data?.find((h) => h.id === harnessId)?.model;
+  const [model, setModel] = useState(agent?.model ?? "");
   const [skillPackageIds, setSkillPackageIds] = useState(agent?.skills.map((s) => s.packageId) ?? []);
   // Explicit tools only: the ones the skills require come with them.
   const [toolIds, setToolIds] = useState(agent?.tools.filter((t) => t.explicit).map((t) => t.toolId) ?? []);
@@ -90,7 +82,6 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
     setError(null);
     setSaved(false);
     try {
-      const model = modelChoice === HARNESS_DEFAULT ? undefined : modelChoice === OTHER ? otherModel.trim() : modelChoice;
       const fields = { name, description, harnessId, systemPrompt, skillPackageIds, toolIds, consults, selfLearning, ...rights, ...(model ? { model } : {}) };
       if (!agent) {
         await create.mutateAsync(fields);
@@ -126,46 +117,7 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
         <FormField label="Description" htmlFor="agent-description" hint="What it is for and when to consult it: agents that may consult it read this.">
           <Textarea id="agent-description" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} rows={2} />
         </FormField>
-        <FormField label="Harness" htmlFor="agent-harness">
-          <Select value={harnessId} onValueChange={setHarnessId}>
-            <SelectTrigger id="agent-harness" className="w-full">
-              <SelectValue placeholder="Pick a harness" />
-            </SelectTrigger>
-            <SelectContent>
-              {harnesses.data?.map((h) => (
-                <SelectItem key={h.id} value={h.id}>
-                  {h.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </FormField>
-        {harnesses.error && !harnesses.data && (
-          <p role="alert" className="text-[13px] text-danger">
-            Could not load the harnesses. Reload the page to try again.
-          </p>
-        )}
-        <FormField label="Model" htmlFor="agent-model" hint="Overrides the harness's default model for this agent.">
-          <Select value={modelChoice} onValueChange={setModelChoice}>
-            <SelectTrigger id="agent-model" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={HARNESS_DEFAULT}>Harness default ({harnessModel ?? "CLI default"})</SelectItem>
-              {MODEL_ALIASES.map((m) => (
-                <SelectItem key={m} value={m}>
-                  {m}
-                </SelectItem>
-              ))}
-              <SelectItem value={OTHER}>Other…</SelectItem>
-            </SelectContent>
-          </Select>
-        </FormField>
-        {modelChoice === OTHER && (
-          <FormField label="Model id" htmlFor="agent-model-id" hint="A full model id, such as claude-sonnet-4-5.">
-            <Input id="agent-model-id" value={otherModel} onChange={(e) => setOtherModel(e.target.value)} maxLength={100} required />
-          </FormField>
-        )}
+        <HarnessModelPicker harnessId={harnessId} model={model} onChange={(id, next) => { setHarnessId(id); setModel(next); }} />
         <section aria-labelledby="agent-skills" className="space-y-2">
           <h3 id="agent-skills" className="text-[13px] font-medium text-muted">
             Skills

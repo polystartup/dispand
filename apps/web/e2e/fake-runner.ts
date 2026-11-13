@@ -45,6 +45,10 @@ export class FakeRunner {
     this.ws.on("message", (data) => {
       const msg = parseServerMessage(String(data));
       if (msg.type === "ack") return;
+      if (msg.type === "models.request") {
+        this.send({ type: "models.replied", requestId: msg.requestId, models: msg.harness === "codex" ? [{ id: "test-codex", label: "Test Codex" }] : [{ id: "sonnet", label: "Sonnet" }] });
+        return;
+      }
       this.received.push(msg);
       for (const wake of this.waiters.splice(0)) wake();
     });

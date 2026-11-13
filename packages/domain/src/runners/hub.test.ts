@@ -978,3 +978,22 @@ test("an owner can preview and apply an unused workspace skill through the runne
   expect(all).not.toContain("sentinel-private-native-instructions");
   expect(all).not.toContain(Buffer.from("sentinel-private-native-instructions").toString("base64"));
 });
+
+
+test("model discovery correlates replies and records only result metadata", async () => {
+  const t = await captureTelemetry();
+  onTestFinished(() => t.stop());
+  const { context, runnerId, token, url } = await pairedRunner();
+  const runner = fakeRunner(url, token);
+  await runner.opened;
+  runner.send(hello);
+  await vi.waitFor(() => expect(context.hub.isOnline(runnerId)).toBe(true));
+  const pending = call(router.harnesses.models, { runnerId, kind: "codex" }, { context });
+  const request = await runner.next();
+  if (request.type !== "models.request") throw new Error("expected model request");
+  runner.send({ type: "tool.discovered", requestId: request.requestId, actions: [] });
+  runner.send({ type: "models.replied", requestId: request.requestId, models: [{ id: "model-a", label: "Model A" }] });
+  expect(await pending).toEqual([{ id: "model-a", label: "Model A" }]);
+  expect(t.spans().some((s) => s.name === "runner.models")).toBe(true);
+  expect(await t.metrics()).toContainEqual({ name: "dispand.runner.model_lists", attributes: { "dispand.result": "ok" } });
+});

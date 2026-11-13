@@ -274,3 +274,18 @@ test("a CLI row stored without a type reads back as a CLI harness", async () => 
     permissionMode: "plan",
   });
 });
+
+test("CLI model discovery uses the owned harness or an owned runner, and reports offline failures", async () => {
+  const { context, runnerId } = await setup();
+  const created = await call(router.harnesses.create, { ...fields, runnerId }, { context });
+  const probe = vi.spyOn(context.hub, "models").mockResolvedValue({ type: "models.replied", requestId: "r", models: [{ id: "sonnet", label: "Sonnet" }] });
+  expect(await call(router.harnesses.models, { harnessId: created.id }, { context })).toEqual([{ id: "sonnet", label: "Sonnet" }]);
+  expect(probe).toHaveBeenCalledWith(runnerId, expect.objectContaining({ harness: "claude-code" }));
+  await call(router.harnesses.models, { runnerId, kind: "codex" }, { context });
+  expect(probe).toHaveBeenLastCalledWith(runnerId, expect.objectContaining({ harness: "codex" }));
+  probe.mockRejectedValue(new Error("private runner error"));
+  await expect(call(router.harnesses.models, { harnessId: created.id }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  const stranger = await ownerContext();
+  await expect(call(router.harnesses.models, { runnerId, kind: "codex" }, { context: stranger })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.harnesses.models, { harnessId: created.id }, { context: stranger })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
