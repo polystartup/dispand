@@ -305,9 +305,7 @@ test("Assistant settings selects the next conversation's harness and model; chat
     await rpc(page, "harnesses/create", { name: "Assistant settings CLI", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
     await page.getByRole("button", { name: "Assistant settings" }).click();
     const sheet = page.getByRole("dialog");
-    await sheet.getByLabel("Harness", { exact: true }).click();
-    await page.getByRole("option", { name: "Assistant settings CLI", exact: true }).click();
-    await sheet.getByLabel("Model", { exact: true }).fill("sonnet");
+    await sheet.getByRole("group", { name: "Assistant settings CLI", exact: true }).getByRole("button", { name: "Sonnet", exact: true }).click();
     await sheet.getByRole("button", { name: "Save settings" }).click();
     await expect(sheet).toHaveCount(0);
     const chat = page.getByRole("region", { name: "Assistant", exact: true });

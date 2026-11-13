@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
 const fake = vi.hoisted(() => ({
-  harnesses: { list: vi.fn() },
+  harnesses: { list: vi.fn(), models: vi.fn().mockResolvedValue([]) },
   skills: { list: vi.fn() },
   tools: { list: vi.fn() },
   tables: { list: vi.fn() },
@@ -44,6 +44,7 @@ const agent = {
 
 function mount(shown: Agent, rules: unknown[] = []) {
   fake.harnesses.list.mockResolvedValue([{ id: "harness_1", name: "Claude Code" }]);
+  fake.harnesses.models.mockResolvedValue([{ id: "sonnet", label: "Sonnet" }]);
   fake.skills.list.mockResolvedValue([platform, writing]);
   fake.tools.list.mockResolvedValue([]);
   fake.tables.list.mockResolvedValue([]);
@@ -134,4 +135,16 @@ test("the self-learning switches set and clear the agent's targets, and writing 
   await user.click(workspace);
   await user.click(screen.getByRole("button", { name: "Save" }));
   expect(fake.agents.update.mock.calls[1]![0]).toMatchObject({ selfLearning: [] });
+});
+
+
+test("the shared picker saves the selected model and can restore the harness default", async () => {
+  const user = mount(agent);
+  fake.agents.update.mockResolvedValue(agent);
+  await user.click(await screen.findByRole("button", { name: "Sonnet" }));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(fake.agents.update).toHaveBeenCalledWith(expect.objectContaining({ harnessId: "harness_1", model: "sonnet" }), expect.anything());
+  await user.click(screen.getByRole("button", { name: /CLI default\s*Default/ }));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(fake.agents.update.mock.calls.at(-1)![0]).not.toHaveProperty("model");
 });

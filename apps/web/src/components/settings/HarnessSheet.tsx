@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -134,6 +134,7 @@ function CliHarnessForm({ harness, runners, step, setStep, onClose, onSaved }: C
   const [kind, setKind] = useState<CliHarness["kind"]>(harness?.kind ?? "claude-code");
   const [permissionMode, setPermissionMode] = useState<keyof typeof permissionLabels>(harness?.permissionMode ?? "default");
   const [model, setModel] = useState(harness?.model ?? "");
+  const models = useQuery({ ...orpc.harnesses.models.queryOptions({ input: { runnerId, kind } }), enabled: !!runnerId, retry: false, staleTime: 60_000 });
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.harnesses.key() });
@@ -252,6 +253,13 @@ function CliHarnessForm({ harness, runners, step, setStep, onClose, onSaved }: C
                 </Select>
               </FormField>
 
+              {!!models.data?.length && <FormField label="Available models" htmlFor="harness-model-list">
+                <Select value={models.data.some((m) => m.id === model) ? model : ""} onValueChange={setModel}>
+                  <SelectTrigger id="harness-model-list"><SelectValue placeholder="Pick a model" /></SelectTrigger>
+                  <SelectContent>{models.data.map((m) => <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </FormField>}
+              {models.isError && <p role="status" className="text-xs text-muted">Could not list models. You can enter a model ID below.</p>}
               <FormField label="Default model (optional)" htmlFor="harness-model" hint="Leave empty for the CLI's default. An agent can pick its own.">
                 <Input id="harness-model" value={model} onChange={(e) => setModel(e.target.value)} maxLength={100} />
               </FormField>

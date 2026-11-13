@@ -3,6 +3,7 @@ export { type CliRule, type CliRuleCall, MAX_CLI_RULE_LENGTH, matchesRule, parse
 export { ID, PERMISSION_INPUT, SHORT, storable, TEXT } from "./bounds.ts";
 export { mcpActionName, Answer, HarnessEvent, OutputField, QuestionPayload, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING } from "./harness.ts";
 export {
+  HarnessModels,
   ClaudePermissionMode,
   type ClaudeSessionStart,
   CodexPermissionMode,

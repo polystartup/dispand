@@ -9,7 +9,9 @@ import { MAX_CLI_RULE_LENGTH } from "./rules.ts";
  * Sent by the runner as the `Dispand-Protocol` header when it connects. Bumped by every
  * change a runner of the previous version can't parse or honor; the hub turns older runners away.
  */
-export const PROTOCOL_VERSION = 22;
+export const HarnessModels = z.array(z.object({ id: string(100).min(1), label: short().min(1) })).max(500);
+
+export const PROTOCOL_VERSION = 23;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -174,6 +176,7 @@ export const SessionToolPermissions = z.object({
 export type SessionToolPermissions = z.infer<typeof SessionToolPermissions>;
 
 export const ServerToRunner = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("models.request"), requestId: id().min(1), harness: z.enum(["claude-code", "codex"]) }),
   z.object({ type: z.literal("plugin.request"), requestId: id().min(1), operation: PluginOperation }),
   z.object({ type: z.literal("session.start"), start: SessionStart }),
   z.object({ type: z.literal("session.permissions"), sessionId: id(), servers: z.array(SessionToolPermissions).max(50) }),
@@ -194,6 +197,7 @@ export const ServerToRunner = z.discriminatedUnion("type", [
 export type ServerToRunner = z.infer<typeof ServerToRunner>;
 
 export const RunnerToServer = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("models.replied"), requestId: id().min(1), models: HarnessModels.optional(), error: short().optional() }),
   z.object({ type: z.literal("plugin.replied"), requestId: id().min(1), report: PluginReport }),
   z.object({
     type: z.literal("hello"),

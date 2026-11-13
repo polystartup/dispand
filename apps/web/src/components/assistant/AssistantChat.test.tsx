@@ -290,14 +290,14 @@ test("model search groups provider choices, saves the chosen harness and support
   await user.click(screen.getByRole("button", { name: "Assistant settings" }));
   const search = await screen.findByRole("textbox", { name: "Find a model" });
   await user.type(search, "fast");
-  await user.click(await screen.findByRole("button", { name: "Fast model" }));
+  await user.click(await within(screen.getByRole("group", { name: "Cloud" })).findByRole("button", { name: "Fast model" }));
   expect(screen.queryByRole("button", { name: "Deep model" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Fast model" }).getAttribute("aria-pressed")).toBe("true");
+  expect(within(screen.getByRole("group", { name: "Cloud" })).getByRole("button", { name: "Fast model" }).getAttribute("aria-pressed")).toBe("true");
   await user.click(screen.getByRole("button", { name: "Save settings" }));
   await waitFor(() => expect(fake.agents.update).toHaveBeenCalledWith(expect.objectContaining({ harnessId: "h1", model: "fast" })));
   await user.click(screen.getByRole("button", { name: "Assistant settings" }));
   await screen.findByRole("dialog");
   await user.keyboard("{Escape}");
   expect(screen.getByRole("button", { name: "Exit full page" })).toBeDefined();
-  expect(fake.harnesses.models.mock.calls.every(([input]) => input.harnessId === "h1")).toBe(true);
+  expect(fake.harnesses.models).toHaveBeenCalledWith({ harnessId: "h2" }, expect.anything());
 });

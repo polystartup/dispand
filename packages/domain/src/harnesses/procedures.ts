@@ -196,14 +196,30 @@ const models = owner
   .input(
     z.union([
       z.object({ harnessId: z.string() }),
+      z.object({ runnerId: z.string(), kind: z.enum(["codex", "claude-code"]) }),
       CloudFields.pick({ kind: true, baseUrl: true, apiKey: true }),
     ]),
   )
   .handler(async ({ input, context }) => {
+    const cliModels = async (runnerId: string, kind: "codex" | "claude-code") => {
+        try {
+          const reply = await context.hub.models(runnerId, { type: "models.request", requestId: newId("models"), harness: kind });
+          if (reply.error || !reply.models) throw new Error("Model discovery failed");
+          return reply.models;
+        } catch {
+          throw new ORPCError("BAD_REQUEST", { message: "Could not list models. Check that the runner is connected and signed in, or enter a model ID." });
+        }
+    };
+    if ("runnerId" in input) {
+      await requireRunner(context.db, context.ownerId, input.runnerId);
+      return cliModels(input.runnerId, input.kind);
+    }
     let target: { kind: CloudKind; baseUrl?: string; apiKey?: string };
     if ("harnessId" in input) {
       const row = await find(context.db, context.ownerId, input.harnessId);
-      if (row.type !== "cloud") throw new ORPCError("NOT_FOUND");
+      if (row.type !== "cloud") {
+        return cliModels(row.runnerId!, row.kind as "codex" | "claude-code");
+      }
       target = await loadCloudHarness(context.db, context.secrets, context.ownerId, row.id);
     } else {
       target = { kind: input.kind, ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}), ...(input.apiKey ? { apiKey: input.apiKey } : {}) };
