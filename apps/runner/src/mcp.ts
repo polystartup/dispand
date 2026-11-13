@@ -6,7 +6,7 @@ import { isAbsolute, resolve } from "node:path";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { Client, type Tool } from "@modelcontextprotocol/client";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import { JOB_SERVER_NAME, JOB_TOOLS_SERVER, McpAction, type McpServerRef, type SessionToolPermissions, SHORT } from "@dispand/runner-protocol";
+import { JOB_SERVER_NAME, JOB_TOOLS_SERVER, mcpActionName, McpAction, type McpServerRef, type SessionToolPermissions, SHORT } from "@dispand/runner-protocol";
 import { overlapping, type RunnerConfig } from "./config.ts";
 import type { JsonValue } from "./codex/protocol/serde_json/JsonValue.ts";
 import { cleanJson, FRAME_BUDGET, protocolString } from "./sanitize.ts";
@@ -39,23 +39,17 @@ export function withJobServer(refs: McpServerRef[], server: string, jobToken: st
  * The runner derives every name from a server it starts and an action Dispand named: nothing
  * here can name a command, a file tool or another server's tool. Live updates only narrow.
  */
-export function unaskedTools(refs: McpServerRef[], jobTools: string[] | undefined): { names: Set<string>; servers: string[] } {
+export function unaskedTools(refs: McpServerRef[], jobTools: string[] | undefined, harness: "claude-code" | "codex" = "codex"): { names: Set<string>; servers: string[] } {
   const runner = refs.flatMap((ref) => (ref.type === "runner" ? [ref] : []));
   return {
-    names: new Set([...(jobTools ?? []).map((name) => `mcp__${JOB_TOOLS_SERVER}__${name}`), ...runner.flatMap((ref) => (ref.unasked ?? []).map((action) => `mcp__${ref.name}__${action}`))]),
+    names: new Set([...(jobTools ?? []).map((name) => `mcp__${JOB_TOOLS_SERVER}__${name}`), ...runner.flatMap((ref) => (ref.unasked ?? []).map((action) => `mcp__${ref.name}__${mcpActionName(action, harness)}`))]),
     servers: [...(jobTools === undefined ? [] : [JOB_TOOLS_SERVER]), ...runner.map((ref) => ref.name)],
   };
 }
 
-/** Claude's MCP normalizer is private in the SDK; mirror its naming at this boundary only. */
-function claudeActionName(action: string): string {
-  const name = action.replace(/[^a-zA-Z0-9_-]/g, "_");
-  return action.startsWith("claude.ai ") ? name.replace(/_+/g, "_").replace(/^_|_$/g, "") : name;
-}
-
 /** Denials only accumulate during a session; removing a runner server blocks all its actions. */
 export function deniedTools(refs: McpServerRef[], harness: "claude-code" | "codex") {
-  const key = (server: string, action: string) => `mcp__${server}__${harness === "claude-code" ? claudeActionName(action) : action}`;
+  const key = (server: string, action: string) => `mcp__${server}__${mcpActionName(action, harness)}`;
   const servers = refs.filter((ref) => ref.type === "runner");
   const names = new Set(servers.flatMap((ref) => (ref.denied ?? []).map((action) => key(ref.name, action))));
   const removed = new Set<string>();
@@ -357,8 +351,8 @@ export function credentialValues(files: string[]): string[] {
 }
 
 /** Revocations intersect the current grant; an update can never add an action or server. */
-export function narrowUnasked(names: Set<string>, servers: string[], update: SessionToolPermissions[]): void {
-  const allowed = new Set(update.flatMap((ref) => ref.unasked.map((action) => `mcp__${ref.name}__${action}`)));
+export function narrowUnasked(names: Set<string>, servers: string[], update: SessionToolPermissions[], harness: "claude-code" | "codex" = "codex"): void {
+  const allowed = new Set(update.flatMap((ref) => ref.unasked.map((action) => `mcp__${ref.name}__${mcpActionName(action, harness)}`)));
   for (const name of names) {
     if (servers.some((server) => name.startsWith(`mcp__${server}__`)) && !allowed.has(name)) names.delete(name);
   }

@@ -389,7 +389,7 @@ test("permission updates carry bounded server-local action names", () => {
   expect(parseServerMessage(JSON.stringify(update))).toEqual(update);
   for (const servers of [
     [{ name: "mcp__other", unasked: ["draft_email"] }],
-    [{ name: "mail", unasked: ["Bash(*)"] }],
+    [{ name: "mail", unasked: ["a".repeat(201)] }],
     [{ name: "mail", unasked: Array.from({ length: 501 }, () => "draft_email") }],
   ]) expect(() => parseServerMessage(JSON.stringify({ ...update, servers }))).toThrow(ProtocolError);
 });
@@ -406,4 +406,15 @@ test("denials carry full action names in starts and permission updates", () => {
     expect(() => parseServerMessage(JSON.stringify({ ...message, start: { ...start, mcpServers: [{ ...ref, denied: invalid }] } }))).toThrow(ProtocolError);
     expect(() => parseServerMessage(JSON.stringify({ ...update, servers: [{ ...update.servers[0], denied: invalid }] }))).toThrow(ProtocolError);
   }
+});
+
+
+test("remembered permission answers carry only supported scopes and other answer kinds cannot remember", () => {
+  const message = { type: "session.answer", sessionId: "session_1", questionId: "q_1" };
+  for (const remember of ["run", "always"]) for (const decision of ["allow", "deny"]) {
+    const answer = { kind: "permission", decision, remember };
+    expect(parseServerMessage(JSON.stringify({ ...message, answer }))).toEqual({ ...message, answer });
+  }
+  for (const remember of ["workspace", "", true, []]) expect(() => parseServerMessage(JSON.stringify({ ...message, answer: { kind: "permission", decision: "allow", remember } }))).toThrow(ProtocolError);
+  for (const answer of [{ kind: "choice", answers: {} }, { kind: "confirm-outputs", confirmed: true }, { kind: "consult", outcome: "answered", text: "Done" }]) expect(() => parseServerMessage(JSON.stringify({ ...message, answer: { ...answer, remember: "run" } }))).toThrow(ProtocolError);
 });

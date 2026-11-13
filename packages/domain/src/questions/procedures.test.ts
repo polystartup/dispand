@@ -353,3 +353,17 @@ test("an approval asked in words is told back in words to a session that was res
   // A tool permission keeps its wording.
   expect(answerText({ payload: permission, answer: { kind: "permission", decision: "allow" } })).toBe("The owner allowed Bash.");
 });
+
+
+test.each(["Bash", "request_approval", "checkpoint", "consult"])("%s without a server offer cannot accept remember", async (toolName) => {
+  const s = await asked({ kind: "permission", toolName, input: {}, canAlwaysAllow: true });
+  await expect(call(router.questions.answer, { questionId: s.question.id, answer: { kind: "permission", decision: "allow", remember: "run" } }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  expect(s.adapter.answers).toHaveLength(0);
+});
+
+
+test("remember cannot be smuggled into choice or output-confirmation answers", async () => {
+  const s = await asked({ kind: "confirm-outputs", values: {} });
+  await expect(call(router.questions.answer, { questionId: s.question.id, answer: { kind: "confirm-outputs", confirmed: true, remember: "run" } as never }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  expect(s.adapter.answers).toHaveLength(0);
+});

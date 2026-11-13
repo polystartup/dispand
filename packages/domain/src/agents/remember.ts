@@ -1,7 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { questions, runs, tools, type AnsweredBy } from "../db/schema.ts";
-import { sessionTooling } from "../engine/tooling.ts";
+import { agentTools, cloudSessions, questions, runs, stepRuns, tools, type AnsweredBy } from "../db/schema.ts";
+import { mcpActionName, type QuestionPayload } from "@dispand/runner-protocol";
+import { exposedName } from "../platform/exposed.ts";
+import { runnerServerName, sessionTooling } from "../engine/tooling.ts";
 import { meter, tracer } from "../telemetry/index.ts";
 import { rememberAllowedAction, setPermission, toolPermissionTarget } from "./tool-ask.ts";
 
@@ -75,4 +77,45 @@ async function write(db: Db | Tx, input: Input): Promise<boolean> {
     await tx.update(runs).set({ remembered: state }).where(eq(runs.id, run.id));
     return true;
   });
+}
+
+
+/** Resolve an offer from the active session's identities, never the runner's display label. */
+export async function offerForQuestion(db: Db | Tx, input: { ownerId: string; sessionId: string; questionId: string; payload: QuestionPayload; harness?: string }): Promise<{ remember: RememberOffer; about: { tool: string; action: string; description: string; toolId: string } } | null> {
+  if (input.payload.kind !== "permission" || ["request_approval", "checkpoint", "consult"].includes(input.payload.toolName)) return null;
+  const [run] = await db.select({ source: runs.source, agentId: runs.agentId, status: runs.status }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId))
+    .where(and(eq(stepRuns.sessionId, input.sessionId), eq(runs.ownerId, input.ownerId)));
+  if (!run || !["running", "waiting"].includes(run.status)) return null;
+  const tooling = await sessionTooling(db, input.sessionId);
+  if (!tooling.agentId) return null;
+  const [cloud] = await db.select({ pending: cloudSessions.pending }).from(cloudSessions).where(and(eq(cloudSessions.id, input.sessionId), eq(cloudSessions.ownerId, input.ownerId)));
+  const cloudKey = cloud?.pending?.questionId === input.questionId ? cloud.pending.key : undefined;
+  const named = input.payload.toolName;
+  const candidates = [
+    ...tooling.httpTools.flatMap((tool) => tool.actions.filter((a) => cloudKey === `tool:${tool.id}:${a.name}` || named === `mcp__job_tools__${exposedName(tool, a.name)}`).map((action) => ({ tool, action }))),
+    ...tooling.runnerTools.flatMap((tool) => tool.actions.filter((a) => named === `mcp__${runnerServerName(tool)}__${mcpActionName(a.name, input.harness)}`).map((action) => ({ tool, action }))),
+  ];
+  if (candidates.length !== 1) return null;
+  const { tool, action } = candidates[0]!;
+  const [row] = await db.select().from(tools).where(and(eq(tools.id, tool.id), eq(tools.ownerId, input.ownerId)));
+  if (!row) return null;
+  const [chosen] = await db.select({ id: agentTools.toolId }).from(agentTools).where(and(eq(agentTools.agentId, tooling.agentId), eq(agentTools.toolId, tool.id)));
+  return {
+    remember: { scopes: run.source === "agent" && run.agentId === tooling.agentId && chosen ? ["run", "always"] : ["run"], subject: { kind: "tool", agentId: tooling.agentId, toolId: tool.id, action: action.name, target: toolPermissionTarget(row) } },
+    about: { tool: row.name, toolId: row.id, action: action.name, description: action.description },
+  };
+}
+
+/** Whether an undelivered positive answer still authorizes caching its permission. */
+export async function toolAnswerPermission(db: Db, q: typeof questions.$inferSelect): Promise<"deny" | "once" | "remember"> {
+  if (!q.remember || !q.sessionId) return "deny";
+  const { subject } = q.remember;
+  const [run] = await db.select({ status: runs.status }).from(runs).where(and(eq(runs.id, q.runId), eq(runs.ownerId, q.ownerId)));
+  if (!run || !["running", "waiting"].includes(run.status)) return "deny";
+  const [tool] = await db.select().from(tools).where(and(eq(tools.id, subject.toolId), eq(tools.ownerId, q.ownerId)));
+  if (!tool || toolPermissionTarget(tool) !== subject.target) return "deny";
+  const tooling = await sessionTooling(db, q.sessionId);
+  const current = [...tooling.httpTools, ...tooling.runnerTools].find((t) => t.id === subject.toolId && t.actions.some((a) => a.name === subject.action));
+  if (tooling.agentId !== subject.agentId || !current) return "deny";
+  return current.unasked.includes(subject.action) ? "remember" : "once";
 }

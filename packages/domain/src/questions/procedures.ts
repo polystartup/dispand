@@ -163,6 +163,7 @@ const answer = owner.input(z.object({ questionId: z.string(), answer: Answer }))
   }
   // The engine's pending → answered update is the atomic step: a second answer finds nothing pending.
   await context.engine.answer(q.id, delivered, { type: "user", userId: context.ownerId }).catch((err: unknown) => {
+    if (err instanceof EngineError && err.code === "INVALID") throw new ORPCError("BAD_REQUEST", { message: err.message });
     if (err instanceof EngineError && err.code === "NOT_PENDING") throw new ORPCError("CONFLICT", { message: err.message });
     throw err;
   });

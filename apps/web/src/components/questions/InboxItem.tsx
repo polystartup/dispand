@@ -40,8 +40,9 @@ export function answerLine(answer: Answer, payload?: QuestionPayload, rootId?: s
       .join(" · ");
   }
   if (answer.kind === "permission") {
-    if (answer.decision === "deny") return answer.message ? `Denied: ${answer.message}` : "Denied";
-    return answer.decision === "allow-always" ? "Allowed, always" : "Allowed";
+    const scope = answer.remember === "run" ? " for this run" : answer.remember === "always" ? " for this and future runs" : "";
+    if (answer.decision === "deny") return answer.message ? `Denied${scope}: ${answer.message}` : `Denied${scope}`;
+    return answer.decision === "allow-always" ? "Allowed, always" : `Allowed${scope}`;
   }
   if (answer.kind === "consult") return answer.outcome === "answered" ? "Answered by the agent consulted" : "No answer";
   return answer.confirmed ? "Confirmed" : answer.feedback ? `Not confirmed: ${answer.feedback}` : "Not confirmed";

@@ -641,14 +641,14 @@ const localApproval = (tool: string, input: Record<string, unknown> = {}) => ({
   params: { threadId: "$THREAD", turnId: "$TURN", serverName: "mail", mode: "form", message: "Allow tool?", requestedSchema: { type: "object", properties: {} }, _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_name: tool, tool_params: input } },
 });
 
-test("on Codex an old always answer cannot restore a revoked runner grant", async () => {
+test.each([{ kind: "permission", decision: "allow-always" }, { kind: "permission", decision: "allow", remember: "run" }, { kind: "permission", decision: "allow", remember: "always" }] as const)("Codex cannot restore a revoked grant from an old answer: %j", async (firstAnswer) => {
   let asked = 0;
   const s = await run({
     start: { mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] },
     deps: { jobServer: "job" },
     turns: [[localApproval("draft_email"), localApproval("draft_email"), message("Done")]],
     answer: () => {
-      if (++asked === 1) { active.narrowPermissions!([{ name: "mail", unasked: [] }]); return { kind: "permission", decision: "allow-always" }; }
+      if (++asked === 1) { active.narrowPermissions!([{ name: "mail", unasked: [] }]); return firstAnswer; }
       return { kind: "permission", decision: "deny" };
     },
   });
@@ -723,4 +723,17 @@ test.each([
   expect(questions(s.events)).toHaveLength(1);
   expect(await s.replyTo("r0")).toMatchObject({ action: "decline" });
   expect(await s.replyTo("r1")).toMatchObject({ action: "decline" });
+});
+
+
+test.each([["allow", "run"], ["deny", "run"], ["allow", "always"], ["deny", "always"]] as const)("Codex remembers owner %s for %s without another prompt", async (decision, scope) => {
+  const s = await run({
+    start: { mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] },
+    deps: scope === "always" ? { jobServer: "job" } : {},
+    turns: [[localApproval("send_email"), localApproval("send_email"), message("Done")]],
+    answer: () => ({ kind: "permission", decision, remember: scope }),
+  });
+  await s.ended();
+  expect(questions(s.events)).toHaveLength(1);
+  for (const id of ["r0", "r1"]) expect(await s.replyTo(id)).toMatchObject({ action: decision === "allow" ? "accept" : "decline" });
 });

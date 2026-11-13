@@ -82,9 +82,10 @@
   runner's rules and texts: `confirm-outputs` in a chat (with nothing to hand back, it asks to end the chat and lists no values), one reminder elsewhere; any other step,
   such as a consulted Job, ends with its last message as `result`), and the agent's tools through a `ToolCaller` (none until
   agents get tools); every other tool call asks a `permission` question, unless its spec says
-  `ask: false` (read at every call). "Always allow", offered for a tool the agent chose, is
-  handed to the tool's caller (`allowAlways`), which takes the action off the agent's asking
-  ones (`agents/tool-ask.ts`): nothing about it is kept in the session. Tool calls of a turn run one after another, and a
+  `ask: false` (read at every call). Tool questions carry a server-resolved memory offer.
+  `Engine.answer` writes run-only decisions or per-agent permissions in the same transaction
+  as the answer. The installed tool caller reads those permissions; it never grants them
+  independently. Tool calls of a turn run one after another, and a
   turn makes at most 50 model calls. Each session is a `cloud_sessions` row: its history
   (append-only, the provider's raw assistant content replayed), what it waits on, the tool call
   in flight, its event seq and last event. Every state change is written with the seq of the
@@ -675,12 +676,11 @@
   the agent already had, and changed by `agents.setToolPermission` only (`agents.toolAsk` reads it;
   changing permissions is a proposal-only platform grant). A Job's session start names those actions (`unasked`, their
   exposed names, at most 500; protocol 7), and the runner lets `mcp__job_tools__<name>` run
-  without a question for them (`isJobTool` on Claude Code, the elicitation on Codex): the CLI
-  prompts for the others, and for all of them on a start that names none. "Always allow" on such a
-  prompt: `Engine.answer` takes the action off the agent's asking ones (`stopAsking`,
-  `platform/exposed.ts`) and marks the answer consumed, or brings the answer down to "allow"
-  when the name stands for nothing the agent chose; the runner adds the name to the session's
-  unasked ones. Workflow runs' CLI sessions have no Job token, so
+  without a question for them (the Claude permission hook or Codex elicitation): the CLI
+  prompts for the others. A scoped owner answer carries `remember` (protocol 20), after the
+  engine validates the offer and writes its decision. An allow adds that exact MCP action to
+  the session's cache; a deny blocks it. The engine marks remembered allows consumed so a later
+  revocation cannot revive a leftover approval. Workflow runs' CLI sessions have no Job token, so
   no such tools.
 - **Memory** (`memory/`): the workspace, each Data table and each agent have a memory, one
   `memories` row per entry (scope, its table or agent, `path`, `name`, a one-line
@@ -1331,13 +1331,12 @@ re-read availability for cached calls, and poll validation reports disabled acti
 calling them. Availability changes increment the permission revision used by frozen setup
 proposals. Re-enabling preserves per-agent settings; native sessions remain monotonic.
 
-Remembered tool-approval storage is staged independently from answer delivery. A question's
+Remembered tool-approval storage and answer delivery share one transaction. A question's
 nullable `remember` offer binds scopes to a server-resolved tool action and target revision;
 `runs.remembered` holds disjoint allow/deny lists, initially empty. `agents/remember.ts` checks
 the pending question, owner, run and current tooling inside the answer transaction before
 storing a run decision or changing the Job agent's saved permission. Tool subjects include the agent id and a
-target fingerprint so a remembered decision cannot cross agents or follow a retargeted tool. No answer or UI
-path calls this storage layer yet. CLI rule subjects and delivery are separate integrations.
+target fingerprint so a remembered decision cannot cross agents or follow a retargeted tool. The owner-facing controls use the server offer; CLI rule subjects remain a separate integration.
 
 Effective tooling combines a run's matching decisions with the agent's current permissions,
 after restricting the tool set to current access and the Job snapshot. Denies take precedence;
@@ -1345,5 +1344,7 @@ a remembered allow applies only to a currently listed action. The tools endpoint
 caller use these permissions at each call; runner starts, updates and resumes receive the same
 restrictions. Live permission updates only narrow the current grant ceiling; a newly approved
 allow must be delivered through the owner-answer path. Workflow runner sessions receive run-only allows, while their per-agent Run
-settings retain their existing Job-only behavior. No answer path populates run memory yet;
-the owner-facing scope controls and delivery are connected separately.
+settings retain their existing Job-only behavior. New owner answers populate run memory;
+legacy MCP Always is refused in favor of an explicit scope. A cloud offer is resolved through
+its persisted pending tool key, and a native offer through the session's server binding.
+Claude normalization is shared with the runner; ambiguous aliases offer no remembered grant.

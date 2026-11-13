@@ -1,4 +1,4 @@
-import type { Answer, ServerToRunner, SessionStart } from "@dispand/runner-protocol";
+import { mcpActionName, type Answer, type ServerToRunner, type SessionStart } from "@dispand/runner-protocol";
 import { and, eq, inArray } from "drizzle-orm";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
@@ -22,7 +22,6 @@ import { RoutingAdapter } from "./routing-adapter.ts";
 /** The frame a start message fits in, and what is left spare in it. */
 const MAX_FRAME_BYTES = 1024 * 1024;
 const FRAME_MARGIN_BYTES = 32 * 1024;
-const RUNNER_ACTION = /^[a-zA-Z0-9_-]{1,64}$/;
 
 /** CLI harnesses: sessions run on a runner, reached through the hub. */
 export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
@@ -49,8 +48,9 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
    * like the token: a resume carries them as they are then. HTTP tools never travel: their
    * address and headers stay on the server. Only a tool of the harness's own runner is sent.
    */
-  private async tooling(sessionId: string, runnerId: string, db: Db = this.db): Promise<Pick<SessionStart, "skills" | "mcpServers"> & { unasked: string[] }> {
+  private async tooling(sessionId: string, runnerId: string, db: Db = this.db, kind?: string): Promise<Pick<SessionStart, "skills" | "mcpServers"> & { unasked: string[] }> {
     const tooling = await sessionTooling(db, sessionId);
+    kind ??= (await db.select({ harness: stepRuns.harness }).from(stepRuns).where(eq(stepRuns.sessionId, sessionId)))[0]?.harness?.kind;
     // Only the packages this runner is served (`usedOnRunner`): one it would be refused, as when
     // the agent moved to a harness elsewhere since the Job was created, would fail the start.
     const skills: typeof tooling.skills = [];
@@ -63,7 +63,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
       // (per-agent grants only in Jobs; run-only grants also in workflow sessions).
       mcpServers: runnerServers(tooling, runnerId).map((t) => {
         const grants = tooling.jobId ? t.unasked : (t.runUnasked ?? []);
-        const unasked = t.actions.filter((a) => grants.includes(a.name) && RUNNER_ACTION.test(a.name)).map((a) => a.name).slice(0, 500);
+        const unasked = t.actions.filter((a) => grants.includes(a.name) && a.name.length <= 200 && t.actions.filter((other) => mcpActionName(other.name, kind) === mcpActionName(a.name, kind)).every((other) => grants.includes(other.name))).map((a) => a.name).slice(0, 500);
         return { name: t.server, type: "runner" as const, tool: t.tool, ...(t.denied.length ? { denied: t.denied } : {}), ...(unasked.length ? { unasked } : {}) };
       }),
       // The actions the agent lets run unasked, under the names the tools endpoint lists them:
@@ -79,7 +79,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
   async start(harness: CliHarness, params: StartParams): Promise<boolean> {
     const { runKey, jobMemory, ...start } = params;
     const jobToken = await this.jobToken(params.sessionId);
-    const { unasked, ...tooling } = await this.tooling(params.sessionId, harness.runnerId);
+    const { unasked, ...tooling } = await this.tooling(params.sessionId, harness.runnerId, this.db, harness.kind);
     const msg: ServerToRunner = {
       type: "session.start",
       start: {

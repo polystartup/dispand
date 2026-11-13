@@ -41,12 +41,15 @@ async function setup(withTool = true, extraTools: (context: Awaited<ReturnType<t
   const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
   let seq = 0;
   /** The session asks permission for a call, as the runner does before an MCP tool, and the owner answers. */
-  const approve = async (toolName: string, input: Record<string, unknown>, decision: "allow" | "allow-always" | "deny" = "allow") => {
+  const ask = async (toolName: string, input: Record<string, unknown>, canAlwaysAllow = false) => {
     const n = ++seq;
-    await context.engine.onHarnessEvent(step!.sessionId!, { type: "question", questionId: `rq_${n}`, payload: { kind: "permission", toolName, input, canAlwaysAllow: decision === "allow-always" } }, { runnerId, seq: n });
-    const [q] = await context.db.select().from(questions).where(eq(questions.runnerQuestionId, `rq_${n}`));
-    await call(router.questions.answer, { questionId: q!.id, answer: { kind: "permission", decision } }, { context });
-    return q!.id;
+    await context.engine.onHarnessEvent(step!.sessionId!, { type: "question", questionId: `rq_${n}`, payload: { kind: "permission", toolName, input, canAlwaysAllow } }, { runnerId, seq: n });
+    return (await context.db.select().from(questions).where(eq(questions.runnerQuestionId, `rq_${n}`)))[0]!.id;
+  };
+  const approve = async (toolName: string, input: Record<string, unknown>, decision: "allow" | "allow-always" | "deny" = "allow", scope?: "run" | "always") => {
+    const id = await ask(toolName, input, decision === "allow-always");
+    await call(router.questions.answer, { questionId: id, answer: { kind: "permission", decision, ...(scope ? { remember: scope } : {}) } }, { context });
+    return id;
   };
   const client = new Client({ name: "test", version: "1.0.0" });
   await client.connect(
@@ -56,7 +59,7 @@ async function setup(withTool = true, extraTools: (context: Awaited<ReturnType<t
     }),
   );
   onTestFinished(() => client.close());
-  return { context, server, calls, tool, agent, fields, runId, token, approve, client };
+  return { context, server, calls, tool, agent, fields, runId, token, approve, ask, client };
 }
 
 /** The exposed name of an action: its readable part, then a mark of the tool and action it stands for. */
@@ -235,10 +238,10 @@ test("the owner is told which tool and action a call is for, whatever the name i
   const create = await named(s.client, "github_create_issue");
   await s.approve(`mcp__job_tools__${create}`, { title: "Bug" }, "deny");
   const [item] = await call(router.questions.list, { status: "all" }, { context: s.context });
-  expect(item!.about).toEqual({ tool: "GitHub", action: "create_issue", description: "Create an issue" });
+  expect(item!.about).toEqual({ tool: "GitHub", action: "create_issue", description: "Create an issue", toolId: s.tool.id });
   // The run's own view of the question (a chat shows it from there) says it too.
   const { questions: asked } = await call(router.runs.get, { runId: s.runId }, { context: s.context });
-  expect(asked[0]!.about).toEqual({ tool: "GitHub", action: "create_issue", description: "Create an issue" });
+  expect(asked[0]!.about).toEqual({ tool: "GitHub", action: "create_issue", description: "Create an issue", toolId: s.tool.id });
   // Any other permission has nothing to add; a name that stands for nothing either.
   await s.approve("Bash", { command: "ls" }, "deny");
   await s.approve("mcp__job_tools__nothing_0000000000000000", {}, "deny");
@@ -300,11 +303,11 @@ test("always allow on a CLI session's approval takes the action off the asking o
   const create = await named(s.client, "github_create_issue");
   const asks = async () => Object.fromEntries((await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.map((a) => [a.name, a.permission === "ask"]));
   expect(await asks()).toEqual({ create_issue: true, list_issues: true });
-  const id = await s.approve(`mcp__job_tools__${create}`, { title: "Bug" }, "allow-always");
+  const id = await s.approve(`mcp__job_tools__${create}`, { title: "Bug" }, "allow", "always");
   expect(await asks()).toEqual({ create_issue: false, list_issues: true });
   // The runner is told "always": it stops prompting for that action in the session that asked.
   const [answered] = await s.context.db.select().from(questions).where(eq(questions.id, id));
-  expect(answered!.answer).toMatchObject({ decision: "allow-always" });
+  expect(answered!.answer).toMatchObject({ decision: "allow", remember: "always" });
   // This call and the next ones run with no approval.
   expect(textOf(await s.client.callTool({ name: create, arguments: { title: "Bug" } }))).toBe("created #1");
   expect(textOf(await s.client.callTool({ name: create, arguments: { title: "Other" } }))).toBe("created #1");
@@ -319,10 +322,13 @@ test("always allow changes no flag when the question isn't about one of the agen
   const flags = async () => (await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.map((a) => a.permission === "ask");
   // A command, Dispand's own server, a name that stands for nothing: the answer stays what the runner makes of it.
   for (const toolName of ["Bash", "mcp__job__rows_create", "mcp__job_tools__github_create_issue_0000000000000000", `mcp__other__${create}`]) {
-    const id = await s.approve(toolName, {}, "allow-always");
-    const [q] = await s.context.db.select().from(questions).where(eq(questions.id, id));
-    // Only a name of the Job's tools server that stands for nothing is brought down to a single allowance.
-    expect(q!.answer).toMatchObject({ decision: toolName.startsWith("mcp__") ? "allow" : "allow-always" });
+    if (toolName.startsWith("mcp__")) {
+      await expect(s.approve(toolName, {}, "allow-always")).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    } else {
+      const id = await s.approve(toolName, {}, "allow-always");
+      const [q] = await s.context.db.select().from(questions).where(eq(questions.id, id));
+      expect(q!.answer).toMatchObject({ decision: "allow-always" });
+    }
   }
   await s.approve(`mcp__job_tools__${create}`, { title: "Bug" }, "deny");
   expect(await flags()).toEqual([true, true]);
@@ -341,7 +347,7 @@ test("always allow on a runner tool records its identity and grants only its act
   const [harness] = await s.context.db.select().from(harnesses).where(eq(harnesses.id, s.agent.harnessId));
   // The tool must have been in this Job's snapshot; use its existing tool id as a runner tool.
   await s.context.db.update(toolsTable).set({ kind: "runner", url: null, transport: null, headersSealed: {}, runnerId: harness!.runnerId, runnerTool: "gmail", actions: ["draft_email", "send_email"].map((name) => ({ name, description: name, inputSchema: { type: "object" } })) }).where(eq(toolsTable.id, s.tool.id));
-  const id = await s.approve(`mcp__${runnerServerName({ id: s.tool.id, runnerId: harness!.runnerId!, tool: "gmail" })}__draft_email`, {}, "allow-always");
+  const id = await s.approve(`mcp__${runnerServerName({ id: s.tool.id, runnerId: harness!.runnerId!, tool: "gmail" })}__draft_email`, {}, "allow", "always");
   const [question] = await s.context.db.select().from(questions).where(eq(questions.id, id));
   expect(question!.about).toMatchObject({ toolId: s.tool.id, action: "draft_email" });
   const [grant] = await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, s.agent.id));
@@ -400,4 +406,37 @@ test.each(["allow", "deny"] as const)("a stored run %s governs the Job endpoint 
   const another = await call(router.jobs.start, { triggerId: original!.triggerId! }, { context: s.context });
   expect((await exposedTools(s.context.db, { runId: another.runId, ownerId: s.context.ownerId, agentId: s.agent.id })).find((t) => t.name === name)).toMatchObject({ ask: true });
   expect((await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, s.agent.id)))[0]).toMatchObject({ unasked: [], denied: [] });
+});
+
+
+test.each([
+  ["allow", "run"], ["deny", "run"], ["allow", "always"], ["deny", "always"],
+] as const)("owner %s plus %s is recorded from the server offer and controls the next call", async (decision, scope) => {
+  const s = await setup();
+  const name = await named(s.client, "github_list_issues");
+  const qid = await s.approve(`mcp__job_tools__${name}`, {}, decision, scope);
+  const [q] = await s.context.db.select().from(questions).where(eq(questions.id, qid));
+  expect(q!.remember).toMatchObject({ scopes: ["run", "always"], subject: { agentId: s.agent.id, toolId: s.tool.id, action: "list_issues" } });
+  expect(q!.answer).toMatchObject({ decision, remember: scope });
+  expect(q!.answeredBy).toEqual({ type: "user", userId: s.context.ownerId });
+  const [agent] = await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, s.agent.id));
+  expect(agent).toMatchObject({ unasked: scope === "always" && decision === "allow" ? ["list_issues"] : [], denied: scope === "always" && decision === "deny" ? ["list_issues"] : [] });
+  for (let n = 0; n < 2; n++) expect((await s.client.callTool({ name, arguments: {} })).isError === true).toBe(decision === "deny");
+  expect(s.calls).toHaveLength(decision === "allow" ? 2 : 0);
+  const [original] = await s.context.db.select().from(runs).where(eq(runs.id, s.runId));
+  const other = await call(router.jobs.start, { triggerId: original!.triggerId! }, { context: s.context });
+  const next = (await exposedTools(s.context.db, { runId: other.runId, ownerId: s.context.ownerId, agentId: s.agent.id })).find((t) => t.name === name);
+  if (scope === "run") expect(next).toMatchObject({ ask: true });
+  else if (decision === "allow") expect(next).toMatchObject({ ask: false });
+  else expect(next).toBeUndefined();
+});
+
+test("agents cannot remember an offered permission and legacy Always cannot bypass scoped answers", async () => {
+  const s = await setup();
+  const name = await named(s.client, "github_list_issues");
+  const id = await s.ask(`mcp__job_tools__${name}`, {});
+  await expect(s.context.engine.answer(id, { kind: "permission", decision: "allow", remember: "run" }, { type: "agent", agentId: s.agent.id, runId: s.runId, name: "Clerk" })).rejects.toMatchObject({ code: "INVALID" });
+  await expect(call(router.questions.answer, { questionId: id, answer: { kind: "permission", decision: "allow-always" } }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  expect((await s.context.db.select().from(questions).where(eq(questions.id, id)))[0]!.status).toBe("pending");
+  expect((await s.context.db.select().from(runs).where(eq(runs.id, s.runId)))[0]!.remembered).toEqual({ allow: [], deny: [] });
 });

@@ -1,4 +1,3 @@
-import { remember } from "../agents/remember.ts";
 import { toolPermissionTarget } from "../agents/tool-ask.ts";
 import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
@@ -67,7 +66,7 @@ test("a cloud Job calls its agent's HTTP tool after the owner allows it; the hea
   const s = await setup([use("GitHub_create_repository", { name: "acme" }), say("Done.")]);
   const runId = await s.start();
   const q = await s.pending(runId);
-  expect(q.payload).toMatchObject({ kind: "permission", toolName: "GitHub create_repository", input: { name: "acme" }, canAlwaysAllow: true });
+  expect(q.payload).toMatchObject({ kind: "permission", toolName: "GitHub create_repository", input: { name: "acme" }, canAlwaysAllow: false });
   expect(s.calls).toEqual([]);
   await s.engine.answer(q.id, { kind: "permission", decision: "allow" });
   await s.until(runId, "succeeded");
@@ -194,7 +193,8 @@ test("an approval is for the tool it was asked about: it never moves to another 
   expect(q.payload).toMatchObject({ toolName: "GitHub list_repos" });
   // The tool asked about is taken back: "GitHub_list_repos" now names the other tool's action.
   await call(router.agents.update, { ...s.fields, id: s.agent.id, toolIds: [second.id] }, { context: s.context });
-  await s.engine.answer(q.id, { kind: "permission", decision: "allow-always" });
+  await expect(s.engine.answer(q.id, { kind: "permission", decision: "allow", remember: "always" }, { type: "user", userId: s.context.ownerId })).rejects.toMatchObject({ code: "INVALID" });
+  await s.engine.answer(q.id, { kind: "permission", decision: "allow" });
   await s.until(runId, "succeeded");
   expect(s.calls).toEqual([]);
   expect(other).toEqual([]);
@@ -227,8 +227,8 @@ test("always allow takes the action off the asking ones on the agent; put back, 
   const asks = async () => (await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.find((a) => a.name === "list_repos")!.permission === "ask";
   const runId = await s.start();
   const first = await s.pending(runId);
-  expect(first.payload).toMatchObject({ canAlwaysAllow: true });
-  await s.engine.answer(first.id, { kind: "permission", decision: "allow-always" });
+  expect(first.payload).toMatchObject({ canAlwaysAllow: false });
+  await s.engine.answer(first.id, { kind: "permission", decision: "allow", remember: "always" }, { type: "user", userId: s.context.ownerId });
   // The second call ran unasked, the third asks again.
   const third = await s.pending(runId);
   expect(third.id).not.toBe(first.id);
@@ -242,7 +242,8 @@ test("off refuses a pending cloud call and a late persistent answer cannot re-en
   const runId = await s.start();
   const q = await s.pending(runId);
   await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: s.tool.id, action: "list_repos", permission: "off" }, { context: s.context });
-  await s.engine.answer(q.id, { kind: "permission", decision: "allow-always" });
+  await expect(s.engine.answer(q.id, { kind: "permission", decision: "allow", remember: "always" }, { type: "user", userId: s.context.ownerId })).rejects.toMatchObject({ code: "INVALID" });
+  await s.engine.answer(q.id, { kind: "permission", decision: "allow" });
   await s.until(runId, "succeeded");
   expect(s.calls).toEqual([]);
   expect(lastTool(s.model.inputs[1]!.items)).toMatchObject({ isError: true });
@@ -259,10 +260,8 @@ test.each(["allow", "deny"] as const)("a stored run %s controls repeat cloud cal
   const q = await s.pending(runId);
   const [tool] = await s.context.db.select().from(toolsTable).where(eq(toolsTable.id, s.tool.id));
   const subject = { kind: "tool" as const, agentId: s.agent.id, toolId: tool!.id, action: "create_repository", target: toolPermissionTarget(tool!) };
-  // The owner-facing scope choices are connected separately; seed the server's offer here.
-  await s.context.db.update(questions).set({ remember: { scopes: ["run"], subject } }).where(eq(questions.id, q.id));
-  expect(await remember(s.context.db, { questionId: q.id, decision, scope: "run", by: { type: "user", userId: s.context.ownerId } })).toBe(true);
-  await s.engine.answer(q.id, { kind: "permission", decision });
+  expect(q.remember).toMatchObject({ scopes: ["run", "always"], subject });
+  await s.engine.answer(q.id, { kind: "permission", decision, remember: "run" }, { type: "user", userId: s.context.ownerId });
   await s.until(runId, "succeeded");
   expect(s.calls).toHaveLength(decision === "allow" ? 2 : 0);
   expect(await s.context.db.select().from(questions).where(eq(questions.runId, runId))).toHaveLength(1);

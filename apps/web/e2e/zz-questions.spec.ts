@@ -10,7 +10,8 @@ async function signIn(page: Page) {
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/$/);
+  // Home redirects to Assistant until first-launch setup is complete.
+  await expect(page).toHaveURL(/\/(assistant)?$/);
 }
 
 /** Calls an API procedure as the signed-in owner (setup that has no screen worth driving). */
@@ -111,4 +112,46 @@ test("questions of three kinds reach the Inbox and the answers reach their sessi
   await expect(done.getByRole("article").filter({ hasText: "Not confirmed: Name the day" })).toHaveCount(1);
   await expect(done.getByText("Denied", { exact: true }).first()).toBeVisible();
   await expect(page.getByTestId("pending-badge")).toHaveCount(0);
+});
+
+
+test("tool approvals offer run-only and future-run memory and deliver the selected scope", async ({ page }) => {
+  await signIn(page);
+  const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Mail test" });
+  const local = await FakeRunner.pair(SERVER, created.pairingCode, { claude: "2.1.0" }, ["mail"]);
+  try {
+    const pending = rpc<{ id: string }>(page, "tools/create", { kind: "runner", name: "Mail", runnerId: created.runnerId, runnerTool: "mail" });
+    const discovery = await local.waitFor("tool.discover");
+    local.reply({ type: "tool.discovered", requestId: discovery.requestId, actions: [{ name: "draft_email", description: "Prepare a draft", inputSchema: { type: "object" } }] });
+    const tool = await pending;
+    const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Mail harness", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
+    const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Mail helper", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] });
+    const trigger = await rpc<{ id: string }>(page, "triggers/create", { agentId: agent.id, name: "Draft", instructions: "Prepare a draft.", config: { kind: "manual", placement: "button" } });
+    for (const [index, scope] of (["run", "always"] as const).entries()) {
+      await rpc(page, "jobs/start", { triggerId: trigger.id });
+      const { start } = await local.waitFor("session.start");
+      const server = start.mcpServers.find((s) => s.type === "runner")!;
+      local.emit(start.sessionId, { type: "question", questionId: `rq_scope_${index}`, payload: { kind: "permission", toolName: `mcp__${server.name}__draft_email`, input: { subject: "Draft example" }, canAlwaysAllow: false } });
+      await page.goto("/inbox");
+      const card = page.getByRole("region", { name: "Waiting for you" }).getByRole("article").filter({ hasText: "Prepare a draft" });
+      await expect(card.getByLabel("Remember this for this run only")).toBeVisible();
+      await expect(card.getByLabel("Remember this for this and all future runs")).toBeVisible();
+      await card.getByLabel(scope === "run" ? "Remember this for this run only" : "Remember this for this and all future runs").click();
+      if (scope === "run") {
+        await page.setViewportSize({ width: 1440, height: 1100 });
+        await page.screenshot({ path: test.info().outputPath("approval-memory-desktop.png"), animations: "disabled" });
+        await page.setViewportSize({ width: 360, height: 900 });
+        await card.getByLabel("Remember this for this run only").scrollIntoViewIfNeeded();
+        await page.screenshot({ path: test.info().outputPath("approval-memory-phone.png"), animations: "disabled" });
+        await page.setViewportSize({ width: 1280, height: 900 });
+      }
+      await card.getByRole("button", { name: scope === "run" ? "Allow" : "Deny", exact: true }).click();
+      expect((await local.waitFor("session.answer")).answer).toEqual({ kind: "permission", decision: scope === "run" ? "allow" : "deny", remember: scope });
+      const permissions = await rpc<{ actions: { permission: string }[] }[]>(page, "agents/toolAsk", { id: agent.id });
+      expect(permissions[0]!.actions[0]!.permission).toBe(scope === "run" ? "ask" : "off");
+      local.emit(start.sessionId, { type: "result", text: "Done." });
+    }
+  } finally {
+    local.close();
+  }
 });

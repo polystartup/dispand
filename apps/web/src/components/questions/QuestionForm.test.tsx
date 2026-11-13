@@ -128,3 +128,26 @@ test("a consult's Approval names the agent consulted, shows the question whole a
   render(<QuestionForm question={{ payload }} onAnswer={onAnswer} />);
   expect(screen.queryByText(/wants to consult/)).toBeNull();
 });
+
+
+test.each(["allow", "deny"] as const)("a scoped %s sends the selected owner choice, and Just this call sends none", async (decision) => {
+  const onAnswer = vi.fn();
+  render(<QuestionForm question={{ payload: { kind: "permission", toolName: "mcp__mail__draft", input: {}, canAlwaysAllow: true }, remember: { scopes: ["run", "always"], label: "Mail: draft" } }} onAnswer={onAnswer} />);
+  const user = userEvent.setup();
+  expect(screen.queryByRole("button", { name: "Always allow" })).toBeNull();
+  await user.click(screen.getByLabelText("Remember this for this run only"));
+  await user.click(screen.getByRole("button", { name: decision === "allow" ? "Allow" : "Deny" }));
+  expect(onAnswer).toHaveBeenLastCalledWith({ kind: "permission", decision, remember: "run" });
+  await user.click(screen.getByLabelText("Remember this for this and all future runs"));
+  await user.click(screen.getByRole("button", { name: decision === "allow" ? "Allow" : "Deny" }));
+  expect(onAnswer).toHaveBeenLastCalledWith({ kind: "permission", decision, remember: "always" });
+  await user.click(screen.getByLabelText("Just this call"));
+  await user.click(screen.getByRole("button", { name: decision === "allow" ? "Allow" : "Deny" }));
+  expect(onAnswer).toHaveBeenLastCalledWith({ kind: "permission", decision });
+});
+
+test("a run-only offer has no future-run option", () => {
+  render(<QuestionForm question={{ payload: { kind: "permission", toolName: "mcp__mail__draft", input: {}, canAlwaysAllow: false }, remember: { scopes: ["run"], label: "Mail: draft" } }} onAnswer={() => {}} />);
+  expect(screen.getByLabelText("Remember this for this run only")).toBeTruthy();
+  expect(screen.queryByLabelText("Remember this for this and all future runs")).toBeNull();
+});
