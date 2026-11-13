@@ -11,7 +11,13 @@ import { MAX_CLI_RULE_LENGTH } from "./rules.ts";
  */
 export const HarnessModels = z.array(z.object({ id: string(100).min(1), label: short().min(1) })).max(500);
 
-export const PROTOCOL_VERSION = 24;
+export const HarnessCommands = z.array(z.object({
+  name: string(256).min(1).regex(/^[^\s/]+$/), description: short(),
+  aliases: z.array(string(256).min(1).regex(/^[^\s/]+$/)).max(50).optional(), builtin: z.boolean().optional(),
+})).max(1000);
+export type HarnessCommand = z.infer<typeof HarnessCommands>[number];
+
+export const PROTOCOL_VERSION = 25;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -176,6 +182,7 @@ export const SessionToolPermissions = z.object({
 export type SessionToolPermissions = z.infer<typeof SessionToolPermissions>;
 
 export const ServerToRunner = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("commands.request"), requestId: id().min(1), harness: z.enum(["claude-code", "codex"]), sessionId: id().optional() }),
   z.object({ type: z.literal("models.request"), requestId: id().min(1), harness: z.enum(["claude-code", "codex"]) }),
   z.object({ type: z.literal("plugin.request"), requestId: id().min(1), operation: PluginOperation }),
   z.object({ type: z.literal("session.start"), start: SessionStart }),
@@ -197,6 +204,7 @@ export const ServerToRunner = z.discriminatedUnion("type", [
 export type ServerToRunner = z.infer<typeof ServerToRunner>;
 
 export const RunnerToServer = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("commands.replied"), requestId: id().min(1), commands: HarnessCommands.optional(), error: short().optional() }),
   z.object({ type: z.literal("models.replied"), requestId: id().min(1), models: HarnessModels.optional(), error: short().optional() }),
   z.object({ type: z.literal("plugin.replied"), requestId: id().min(1), report: PluginReport }),
   z.object({

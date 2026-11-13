@@ -12,7 +12,7 @@
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with
-  `Authorization: Bearer <token>` and `Dispand-Protocol: 15` (`PROTOCOL_VERSION`, bumped by
+  `Authorization: Bearer <token>` and `Dispand-Protocol: 25` (`PROTOCOL_VERSION`, bumped by
   every change an older runner can't parse or honor). An older runner is refused with 426 "update
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
@@ -1444,3 +1444,24 @@ model batch are settled as interrupted before the new message is consumed; they 
 as part of that follow-up. The former token stays invalid.
 The browser keeps watching resumable chats after success, within its normal connection cap,
 so the same composer can send and receive a new turn without starting another Job.
+
+## Assistant slash picker
+
+The Assistant composer requests `assistantCommands` while typing a leading `/` token. The
+owner-scoped procedure reads the existing conversation's stored harness, or the Assistant's
+current harness for a new chat. Protocol 25 adds correlated `commands.request`/`commands.replied`
+messages. Live sessions use Claude SDK `supportedCommands()` or Codex `skills/list` in their
+own context; new chats discover without a model turn. No local paths enter the browser catalog.
+Codex exposes skills, not its built-in command menu. Discovery errors leave Dispand skills
+available with an explicit warning. Names and aliases deduplicate native invocations; qualified
+plugin skills remain distinct.
+
+A selected Dispand entry carries its owner-scoped skill id. `jobs.start` loads it before the
+new conversation starts; `runs.sendChat` resolves it again on submission. Explicit choices are
+recorded in `snapshot.invokedSkills`, extending only this conversation's packages and their
+required tools. They do not edit agent settings or automatically approve tools. An idle live
+session resumes with refreshed packages; choosing a new package during a running turn is
+refused until the turn finishes. Removing the installed package revokes server-side skill reads.
+Claude receives its qualified slash invocation; Codex resolves an enabled skill locally and
+sends a native skill input, preserving arguments. Cloud conversations use the existing
+`read_skill` loader. Keyboard selection edits the draft; it never submits it.

@@ -17,6 +17,7 @@ export type ParamsOf<M extends Method> = Extract<ClientRequest, { method: M }>["
 
 /** The result type of each request the runner sends (the generated protocol has no such map). */
 interface Results {
+  "skills/list": import("./protocol/v2/SkillsListResponse.ts").SkillsListResponse;
   "model/list": import("./protocol/v2/ModelListResponse.ts").ModelListResponse;
   initialize: InitializeResponse;
   "account/read": GetAccountResponse;

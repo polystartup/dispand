@@ -1,3 +1,4 @@
+import { AssistantInput } from "../assistant/AssistantInput.tsx";
 import { nodesOf, type WorkflowDef } from "@dispand/domain/workflows/model";
 import { SHORT } from "@dispand/runner-protocol";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -15,7 +16,7 @@ type Props = {
   /** The workflow whose Chat field this is; absent for an agent's chat trigger, whose Job has its own definition. */
   workflowId?: string;
   /** Starts the conversation's run (default: a run of `workflowId`). */
-  start?: () => Promise<{ runId: string }>;
+  start?: (skillId?: string) => Promise<{ runId: string }>;
   /** The conversation shown; null: a new one starts with the first message. */
   runId: string | null;
   onRunStarted: (runId: string) => void;
@@ -23,10 +24,11 @@ type Props = {
   /** What an empty conversation invites the owner to say (default: a plain hello). */
   welcome?: string;
   composerTools?: ReactNode;
+  assistantAgentId?: string;
 };
 
 /** A workflow's Chat field or an agent's chat trigger: the conversation with the agent, then the progress of the steps after it. */
-export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools }: Props) {
+export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId }: Props) {
   const run = useRun(runId);
   // Names and nodes as the run's version had them: the workflow may have changed since.
   const version = run?.run.version;
@@ -44,6 +46,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
   const runDef = workflowId ? versionDef : jobDef;
   const queryClient = useQueryClient();
   const [text, setText] = useState("");
+  const [chosenSkill, setChosenSkill] = useState<{ name: string; skillId?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   // The chat step, or, while it waits for a slot of its harness, the step of the run's chat field.
@@ -67,6 +70,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
       return;
     }
     setText("");
+    setChosenSkill(null);
     setError(null);
   }, [runId]);
 
@@ -100,6 +104,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
   async function send() {
     const message = text.trim();
     if (!message || sending || !canSend) return;
+    const skillId = chosenSkill && message.split(/\s/, 1)[0] === `/${chosenSkill.name}` ? chosenSkill.skillId : undefined;
     const submitted = text;
     setSending(true);
     setError(null);
@@ -112,12 +117,12 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
       }
       let id = runId;
       if (!id) {
-        id = (await (start ? start() : api.runs.start({ workflowId: workflowId ?? "" }))).runId;
+        id = (await (start ? start(skillId) : api.runs.start({ workflowId: workflowId ?? "" }))).runId;
         started.current = id;
         onRunStarted(id);
         void queryClient.invalidateQueries({ queryKey: orpc.runs.list.key() });
       }
-      await api.runs.sendChat({ runId: id, text: message });
+      await api.runs.sendChat({ runId: id, text: message, ...(skillId ? { skillId } : {}) });
       // The conversation's list now has its title.
       void queryClient.invalidateQueries({ queryKey: orpc.runs.list.key() });
       // Only the draft that was sent: what was typed meanwhile (or a new conversation) stays.
@@ -128,6 +133,33 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
       setSending(false);
     }
   }
+
+  const composerInput = (
+    <ChatInput
+      aria-label="Message"
+      minRows={1}
+      value={text}
+      disabled={!canSend}
+      placeholder={!open ? "This conversation is over" : approval ? "What should change? Sending declines the proposal" : "Message"}
+      onChange={(e) => {
+        e.preventDefault(); // This controlled draft stays here until delivery succeeds.
+        setText(e.target.value);
+      }}
+      onKeyDown={(e) => {
+        // The Approve shortcut, on an empty draft only: what was typed is never sent as a yes.
+        if (approval && e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing && !text.trim()) {
+          e.preventDefault();
+          void approve();
+          return;
+        }
+        if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+          e.preventDefault();
+          void send();
+        }
+      }}
+      className={`${composerTools ? "w-full basis-full" : "flex-1"} min-h-9 min-w-0 resize-none bg-transparent px-2 py-[7px] text-[15px] leading-5 outline-none placeholder:text-faint disabled:opacity-60`}
+    />
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -181,30 +213,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
                   <MessageSquarePlus aria-hidden />
                 </Button>
               )}
-              <ChatInput
-                aria-label="Message"
-                minRows={1}
-                value={text}
-                disabled={!canSend}
-                placeholder={!open ? "This conversation is over" : approval ? "What should change? Sending declines the proposal" : "Message"}
-                onChange={(e) => {
-                  e.preventDefault(); // This controlled draft stays here until delivery succeeds.
-                  setText(e.target.value);
-                }}
-                onKeyDown={(e) => {
-                  // The Approve shortcut, on an empty draft only: what was typed is never sent as a yes.
-                  if (approval && e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing && !text.trim()) {
-                    e.preventDefault();
-                    void approve();
-                    return;
-                  }
-                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault();
-                    void send();
-                  }
-                }}
-                className={`${composerTools ? "w-full basis-full" : "flex-1"} min-h-9 min-w-0 resize-none bg-transparent px-2 py-[7px] text-[15px] leading-5 outline-none placeholder:text-faint disabled:opacity-60`}
-              />
+              {assistantAgentId ? <AssistantInput agentId={assistantAgentId} runId={runId} onTextChange={setText} onSkillChange={setChosenSkill} inputProps={composerInput.props} /> : composerInput}
               {composerTools && <div className="min-w-0 flex-1">{composerTools}</div>}
               <Button type="submit" size="icon-sm" aria-label="Send" disabled={!canSend || sending || !text.trim()} className="rounded-full">
                 <ArrowUp aria-hidden />

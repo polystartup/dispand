@@ -57,6 +57,7 @@ function SettingsForm({ agent, onSaved }: { agent: Agent; onSaved: () => void })
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: orpc.agents.key() });
+      await queryClient.invalidateQueries({ queryKey: orpc.assistantCommands.key() });
       onSaved();
     },
   });

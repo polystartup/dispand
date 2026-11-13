@@ -1,3 +1,4 @@
+import { discoverCommands } from "./commands.ts";
 import { discoverModels } from "./models.ts";
 // The runner's command line: `pair` once (install.sh runs it), then `run` (the systemd user unit).
 import { startUpdates } from "./updates.ts";
@@ -181,6 +182,14 @@ async function run(args: string[]) {
       return { type: "hello", runnerVersion: pkg.version, clis, tools: Object.keys(local), liveSessions: sessions.ids() };
     },
     onMessage: (msg) => {
+      if (msg.type === "commands.request") {
+        const catalog = msg.sessionId ? sessions.commands(msg.sessionId) : discoverCommands(msg.harness, msg.harness === "codex" ? codexPath : claudePath, env, config.roots[0]!);
+        void catalog.then(
+          (commands) => conn.reply({ type: "commands.replied", requestId: msg.requestId, commands }),
+          () => conn.reply({ type: "commands.replied", requestId: msg.requestId, error: "Could not discover commands from the CLI" }),
+        );
+        return;
+      }
       if (msg.type === "models.request") {
         void discoverModels(msg.harness, msg.harness === "codex" ? codexPath : claudePath, env).then(
           (models) => conn.reply({ type: "models.replied", requestId: msg.requestId, models }),

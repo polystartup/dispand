@@ -178,4 +178,14 @@ The Assistant uses a compact chat header, a conversation-history drawer and a ce
 
 The Assistant model picker groups searchable cloud-provider models by harness. CLI harnesses offer their default and a model-alias field; unlisted cloud model IDs can also be entered. The composer floats over the scrolling conversation using assistant-ui’s viewport footer.
 
-Model selection uses the same grouped harness-and-model picker in the Assistant and agent editor. Cloud catalogs come from the provider API; CLI catalogs come from the connected runner’s Codex app-server or Claude SDK, without sending a user prompt. CLI harness settings also discover models before saving. Defaults and custom IDs remain available when discovery fails. Runners must be updated for protocol 23.
+Model selection uses the same grouped harness-and-model picker in the Assistant and agent editor. Cloud catalogs come from the provider API; CLI catalogs come from the connected runner’s Codex app-server or Claude SDK, without sending a user prompt. CLI harness settings also discover models before saving. Defaults and custom IDs remain available when discovery fails. Runners must be updated for protocol 25.
+
+
+In the Assistant, type `/` to find commands and skills from its harness, supplemented with
+skills installed in Dispand. Search by name or description, use arrows and Enter/Tab to select,
+or click an entry. Add arguments and send when ready; Escape closes the picker. Dispand-only
+skills load for that conversation without changing the Assistant's permanent settings. Their
+required tools retain normal approvals. Wait for a running turn to finish before adding a new
+skill package. Harness discovery failures are shown explicitly; Codex currently exposes its
+skills through this integration, but not its built-in command menu. Built-in Claude commands
+retain Dispand's existing execution restrictions.

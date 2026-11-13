@@ -1,3 +1,4 @@
+import { invokedSnapshot } from "../assistant/invoke.ts";
 import { offerForQuestion, remember, toolAnswerPermission } from "../agents/remember.ts";
 import { EventPublisher } from "@orpc/server";
 import {
@@ -252,6 +253,10 @@ export function resumePrompt(
   unsent: MessageRow[],
   waiting: QuestionRow[],
 ): { prompt: string; answers: QuestionRow[]; messages: MessageRow[]; laterAnswers: QuestionRow[]; laterMessages: MessageRow[] } {
+  // A native command must be the first text the harness sees, not quoted transcript prose.
+  if (original === null && !answered.length && !waiting.length && unsent[0]?.text.startsWith("/")) {
+    return { prompt: unsent[0].text, answers: [], messages: [unsent[0]], laterAnswers: [], laterMessages: unsent.slice(1) };
+  }
   // An empty original (a chat whose trigger has no instructions) adds nothing.
   const parts = original === "" ? [] : [original ?? RESUME_PROMPT];
   let length = parts[0]?.length ?? 0;
@@ -451,14 +456,21 @@ export class Engine {
   }
 
   /** Starts a Job of the owner's trigger (a manual start) and returns its id. */
-  async startJob(triggerId: string, ownerId: string, timezone?: string): Promise<string> {
+  async startJob(triggerId: string, ownerId: string, timezone?: string, skillId?: string): Promise<string> {
     const runId = await this.db.transaction(async (tx) => {
       const [trigger] = await tx
         .select({ agentId: triggers.agentId })
         .from(triggers)
         .where(and(eq(triggers.id, triggerId), eq(triggers.ownerId, ownerId)));
       if (!trigger) throw new EngineError("NOT_FOUND", "Trigger not found");
-      return this.createJob(tx, { ownerId, agentId: trigger.agentId, triggerId, cause: { kind: "user", depth: 0 }, firing: { type: "manual", ...(timezone ? { timezone } : {}) } });
+      const id = await this.createJob(tx, { ownerId, agentId: trigger.agentId, triggerId, cause: { kind: "user", depth: 0 }, firing: { type: "manual", ...(timezone ? { timezone } : {}) } });
+      if (skillId) {
+        const [run] = await tx.select().from(runs).where(eq(runs.id, id));
+        if (!run?.snapshot || run.def?.trigger.field.type !== "chat") throw new EngineError("INVALID", "Skills can be invoked in Assistant chats only");
+        const selected = await invokedSnapshot(tx, ownerId, run.snapshot, skillId);
+        await tx.update(runs).set({ snapshot: selected.snapshot }).where(eq(runs.id, id));
+      }
+      return id;
     });
     await this.announceCheckpoints();
     await this.continueRun(runId);
@@ -649,7 +661,7 @@ export class Engine {
   }
 
   /** The owner's next chat message to the run's chat session. */
-  async sendChat(runId: string, text: string): Promise<void> {
+  async sendChat(runId: string, text: string, skillId?: string): Promise<void> {
     const steps = await this.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
     const candidate = steps.find((s) => s.start?.interactive && s.sessionId) ?? (await this.queuedChat(runId, steps));
     if (!candidate) throw new EngineError("CLOSED", "The chat is over");
@@ -660,11 +672,28 @@ export class Engine {
       let going = await this.rootGoingLocked(tx, runId);
       let [chat] = await tx.select().from(stepRuns).where(eq(stepRuns.id, candidate.id)).for("update");
       if (!chat) throw new EngineError("CLOSED", "The chat is over");
+      let refresh = false;
+      if (skillId) {
+        const [run] = await tx.select().from(runs).where(eq(runs.id, runId)).for("update");
+        if (!run?.snapshot || run.def?.trigger.field.type !== "chat") throw new EngineError("INVALID", "Skills can be invoked in Assistant chats only");
+        const selected = await invokedSnapshot(tx, run.ownerId, run.snapshot, skillId, chat.runnerId === CLOUD_SOURCE ? null : chat.runnerId ?? undefined);
+        refresh = !run.snapshot.skills.some((s) => s.packageId === selected.packageId) || selected.snapshot.tools.some((t) => !run.snapshot!.tools.some((old) => old.toolId === t.toolId));
+        if (refresh && OPEN_STEP.includes(chat.status) && chat.sessionId && (chat.working || !chat.cliSessionId)) throw new EngineError("INVALID", "Wait for the Assistant to finish its turn before loading another skill.");
+        await tx.update(runs).set({ snapshot: selected.snapshot }).where(eq(runs.id, runId));
+        // Keep the owner's arguments; the server resolves the skill's invocation identity.
+        const args = text.replace(/^\/\S+/, "");
+        text = chat.runnerId === CLOUD_SOURCE ? `Use the ${selected.invocation} skill.${args}` : `/${selected.invocation}${args}`;
+      }
       if (!OPEN_STEP.includes(chat.status)) {
         chat = await this.reopen(tx, chat, out);
         going = true;
       } else if (going) {
         await tx.update(runs).set({ rootId: await newRoot(tx, chat.ownerId, "chat", runId) }).where(eq(runs.id, runId));
+      }
+      if (refresh && chat.sessionId && !chat.resumeAfterSession && chat.cliSessionId && chat.start) {
+        const sessionId = newId("ses");
+        const [updated] = await tx.update(stepRuns).set({ sessionId, start: { ...chat.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: chat.sessionId, ended: false } }).where(eq(stepRuns.id, chat.id)).returning();
+        chat = updated!;
       }
       const [row] = await tx.insert(messages).values({ id: newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text }).returning();
       out.push({ type: "message", message: messageView(row!) });

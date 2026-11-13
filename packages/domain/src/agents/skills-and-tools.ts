@@ -1,6 +1,6 @@
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
-import { agentSkills, agentTools, skillPackages, tools as toolsTable } from "../db/schema.ts";
+import { agents, agentSkills, agentTools, skillPackages, tools as toolsTable } from "../db/schema.ts";
 import { effectiveTools } from "./tools.ts";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -9,13 +9,20 @@ type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
  * An agent's skill packages and the tools it gets: explicit ones, and the ones its packages
  * require (locked). Apart from the procedures so the engine reads it too, for a Job's snapshot.
  */
-export async function skillsAndTools(db: Db | Tx, agentId: string) {
+export async function skillsAndTools(db: Db | Tx, agentId: string, invokedSkills: string[] = []) {
   const pkgs = await db
     .select({ packageId: skillPackages.id, name: skillPackages.name, requiredToolIds: skillPackages.requiredToolIds })
     .from(agentSkills)
     .innerJoin(skillPackages, eq(skillPackages.id, agentSkills.packageId))
     .where(eq(agentSkills.agentId, agentId))
     .orderBy(asc(skillPackages.name));
+  if (invokedSkills.length) {
+    const [agent] = await db.select({ ownerId: agents.ownerId, builtIn: agents.builtIn }).from(agents).where(eq(agents.id, agentId));
+    if (agent?.builtIn === "assistant") {
+      const selected = await db.select({ packageId: skillPackages.id, name: skillPackages.name, requiredToolIds: skillPackages.requiredToolIds }).from(skillPackages).where(and(eq(skillPackages.ownerId, agent.ownerId), inArray(skillPackages.id, invokedSkills)));
+      pkgs.push(...selected.filter((s) => !pkgs.some((p) => p.packageId === s.packageId)));
+    }
+  }
   const explicit = await db.select({ toolId: agentTools.toolId }).from(agentTools).where(eq(agentTools.agentId, agentId));
   const effective = effectiveTools(
     explicit.map((t) => t.toolId),

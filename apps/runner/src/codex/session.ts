@@ -1,3 +1,4 @@
+import { skillCommands, skillInputs } from "./skills.ts";
 // One Codex session: a `codex app-server` of its own, confined by Dispand's permission profile.
 import { join } from "node:path";
 import type { CliRuleCall, HarnessEvent, QuestionPayload, SessionStart } from "@dispand/runner-protocol";
@@ -130,7 +131,8 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     lastText = "";
     const started = ++turnsStarted;
     try {
-      const { turn } = await rpc.request("turn/start", { threadId, input: [{ type: "text", text, text_elements: [] }] });
+      const skills = text.startsWith("/") ? (await rpc.request("skills/list", { cwds: [cwd], forceReload: true })).data.flatMap((entry) => entry.skills) : [];
+      const { turn } = await rpc.request("turn/start", { threadId, input: skillInputs(text, skills) });
       if (running && started === turnsStarted) learnTurn(turn.id);
     } catch (err) {
       finish({ type: "error", message: err instanceof Error ? err.message : String(err) });
@@ -420,6 +422,11 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   })();
 
   return {
+    commands: async () => {
+      if (!rpc) throw new Error("Session starting");
+      const list = await rpc.request("skills/list", { cwds: [cwd], forceReload: true });
+      return skillCommands(list.data.flatMap((entry) => entry.skills));
+    },
     send(text) {
       // Every error is terminal for the engine, so the session ends with it.
       const bytes = waiting.reduce((sum, t) => sum + Buffer.byteLength(t), 0);
