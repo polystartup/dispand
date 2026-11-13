@@ -203,6 +203,11 @@ test("uninstall removes the plugin's skill package when no agent uses it, else k
   expect(kept).toMatchObject({ packageId: pkg!.packageId, name: "document-skills", plugin: null });
   expect((await call(router.skills.list, undefined, { context: ctx }))[0]!.skills.map((s) => s.name).sort()).toEqual(["docx", "pdf"]);
   expect(await call(router.agents.get, { id: agent.id }, { context: ctx })).toMatchObject({ skills: [{ name: "document-skills" }] });
+  const again = await call(router.plugins.install, ref, { context: ctx });
+  const reinstalled = await call(router.skills.list, undefined, { context: ctx });
+  expect(reinstalled.find((p) => p.plugin?.id === again.pluginId)).toMatchObject({ name: "document-skills-2" });
+  expect(await call(router.agents.get, { id: agent.id }, { context: ctx })).toMatchObject({ skills: [{ name: "document-skills" }] });
+  await call(router.plugins.uninstall, { id: again.pluginId }, { context: ctx });
   // Editing it adds the skill named like it and keeps the plugin's, files included.
   const edit = { packageId: pkg!.packageId, description: "Mine now.", instructions: "Use them.", requiredToolIds: [] };
   await expect(call(router.skills.update, { ...edit, name: "pdf" }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
@@ -217,16 +222,17 @@ test("uninstall removes the plugin's skill package when no agent uses it, else k
   repo.remove();
 });
 
-test("a plugin's package clashing with a skill's name is a CONFLICT", async () => {
+test("plugin imports use a free package name without changing existing skills", async () => {
   const ctx = await context();
   const plugin = superpowers();
   const repo = marketplace(plugin);
   const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
-  await call(router.skills.create, { name: "document-skills", description: "Mine.", instructions: "x", requiredToolIds: [] }, { context: ctx });
-  await expect(
-    call(router.plugins.install, { marketplaceId: market.id, entryName: "document-skills", skills: ["pdf"] }, { context: ctx }),
-  ).rejects.toMatchObject({ code: "CONFLICT", message: "A skill is already called “document-skills”" });
-  expect(await call(router.plugins.list, undefined, { context: ctx })).toEqual([]);
+  const mine = await call(router.skills.create, { name: "document-skills", description: "Mine.", instructions: "Keep these edits.", requiredToolIds: [] }, { context: ctx });
+  await call(router.skills.create, { name: "document-skills-2", description: "Also mine.", instructions: "x", requiredToolIds: [] }, { context: ctx });
+  const result = await call(router.plugins.install, { marketplaceId: market.id, entryName: "document-skills", skills: ["pdf"] }, { context: ctx });
+  const packages = await call(router.skills.list, undefined, { context: ctx });
+  expect(packages.find((p) => p.plugin?.id === result.pluginId)).toMatchObject({ name: "document-skills-3" });
+  expect((await call(router.skills.get, { packageId: mine.packageId }, { context: ctx })).instructions).toContain("Keep these edits.");
   plugin.remove();
   repo.remove();
 });

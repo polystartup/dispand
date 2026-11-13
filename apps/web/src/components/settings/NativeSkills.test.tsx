@@ -9,7 +9,7 @@ vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
-const { NativePluginAction, NativeTargetPicker, NativeWorkspaceSkills } = await import("./NativeSkills.tsx");
+const { NativePluginAction, NativeTargetPicker, NativeWorkspaceSkills, useNativeTargets } = await import("./NativeSkills.tsx");
 const { PluginInstallSheet } = await import("./PluginInstallSheet.tsx");
 
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
@@ -27,7 +27,11 @@ function mount(node: React.ReactNode) {
 test("target checkboxes deduplicate shared native accounts and disable unavailable pairs", async () => {
   fake.runners.plugins.mockResolvedValue({ targets: [target] });
   const onChange = vi.fn();
-  mount(<NativeTargetPicker harnesses={[harness, { ...harness, id: "h2", name: "Other agent" }, { ...harness, id: "h3", kind: "claude-code" }]} runners={[runner]} selected={new Set()} onChange={onChange} />);
+  function Picker() {
+    const targets = useNativeTargets([harness, { ...harness, id: "h2", name: "Other agent" }, { ...harness, id: "h3", kind: "claude-code" }], [runner]);
+    return <NativeTargetPicker targets={targets} selected={new Set()} onChange={onChange} />;
+  }
+  mount(<Picker />);
   await waitFor(() => expect((screen.getByRole("checkbox", { name: /Workstation \/ Codex/ }) as HTMLInputElement).disabled).toBe(false));
   expect(screen.getAllByRole("checkbox")).toHaveLength(2);
   expect((screen.getByRole("checkbox", { name: /Workstation \/ Claude Code/ }) as HTMLInputElement).disabled).toBe(true);
@@ -70,7 +74,7 @@ test("harness inventory offers whole-plugin uninstall and standalone workspace i
 
 const claudeHarness = { ...harness, id: "h2", name: "Claude", kind: "claude-code" as const };
 
-async function installSheet(harnessRows = [harness, claudeHarness], runnerRows = [runner]) {
+async function openInstallSheet(harnessRows = [harness, claudeHarness], runnerRows = [runner]) {
   fake.plugins.preview.mockResolvedValue({ reviewed: "workspace-preview", skills: [{ name: "review", description: "Review changes" }], agents: [], mcpServers: [], notImported: [], definitions: { agents: [], primitives: [], triggers: [] } });
   fake.harnesses.list.mockResolvedValue(harnessRows);
   fake.runners.list.mockResolvedValue(runnerRows);
@@ -78,11 +82,16 @@ async function installSheet(harnessRows = [harness, claudeHarness], runnerRows =
   fake.plugins.install.mockResolvedValue({ pluginId: "plugin_1", agentIds: [], toolIds: [] });
   const close = vi.fn();
   mount(<PluginInstallSheet marketplaceId="m1" entryName="reviews" onClose={close} />);
-  await userEvent.click(await screen.findByRole("checkbox", { name: /Install the complete native plugin/ }));
+  expect(await screen.findByRole("checkbox", { name: /Install the complete native plugin/ })).toHaveProperty("checked", true);
   for (const pair of screen.getByRole("group", { name: "Install on runner / harness pairs" }).querySelectorAll("input")) {
     await waitFor(() => expect((pair as HTMLInputElement).disabled).toBe(false));
-    await userEvent.click(pair);
+    expect(pair).toHaveProperty("checked", true);
   }
+  return close;
+}
+
+async function installSheet(harnessRows = [harness, claudeHarness], runnerRows = [runner]) {
+  const close = await openInstallSheet(harnessRows, runnerRows);
   await userEvent.click(screen.getByRole("button", { name: "Install" }));
   return close;
 }
@@ -155,4 +164,19 @@ test("collapsed harness skills do not start runner requests; opening loads inven
   await userEvent.click(screen.getByText("Workspace skills on Review"));
   await waitFor(() => expect(fake.runners.plugins).toHaveBeenCalledTimes(1));
   expect(fake.runners.workspaceSkills).toHaveBeenCalledTimes(1);
+});
+
+
+test("explicitly excluded harnesses stay excluded when native installation is toggled", async () => {
+  await openInstallSheet();
+  const claude = screen.getByRole("checkbox", { name: /Workstation \/ Claude Code/ });
+  await userEvent.click(claude);
+  const native = screen.getByRole("checkbox", { name: /Install the complete native plugin/ });
+  await userEvent.click(native);
+  await userEvent.click(native);
+  expect(screen.getByRole("checkbox", { name: /Workstation \/ Claude Code/ })).toHaveProperty("checked", false);
+  expect(screen.getByRole("checkbox", { name: /Workstation \/ Codex/ })).toHaveProperty("checked", true);
+  fake.runners.workspacePlugin.mockResolvedValue({ revision: "preview", blocked: true });
+  await userEvent.click(screen.getByRole("button", { name: "Install" }));
+  await waitFor(() => expect(fake.runners.workspacePlugin).toHaveBeenCalledWith(expect.objectContaining({ harnessIds: ["h1"] })));
 });

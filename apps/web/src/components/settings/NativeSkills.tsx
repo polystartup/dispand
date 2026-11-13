@@ -18,29 +18,33 @@ const inventoryOptions = (runnerId: string, enabled: boolean) => ({
 
 export const nativeWarning = "Complete native installation can run plugin hooks, commands, programs and MCP servers with the runner account's access. It affects the whole plugin, including skills you did not import. Review and trust its source first.";
 
-/** One checkbox per runner/harness kind: several named harnesses share the same native account. */
-export function NativeTargetPicker({ harnesses, runners, selected, onChange }: { harnesses: Harness[]; runners: Runner[]; selected: Set<string>; onChange: (id: string) => void }) {
+/** One target per runner/harness kind: named harnesses can share the same native account. */
+export function useNativeTargets(harnesses: Harness[], runners: Runner[]) {
   const cli = harnesses.filter((h): h is CliHarness => h.type === "cli");
   const pairs = cli.filter((h, i) => cli.findIndex((other) => other.runnerId === h.runnerId && other.kind === h.kind) === i);
   const reports = useQueries({ queries: runners.map((r) => inventoryOptions(r.id, r.status === "online" && pairs.some((h) => h.runnerId === r.id))) });
+  return pairs.map((harness) => {
+    const index = runners.findIndex((r) => r.id === harness.runnerId);
+    const runner = runners[index];
+    const report = reports[index];
+    const target = report?.data?.targets?.find((t) => t.harness === harness.kind);
+    const enabled = !!(runner?.status === "online" && !report?.data?.error && target?.available && target.add);
+    const reason = runner?.status !== "online" ? "Runner offline" : report?.isPending ? "Reading native capabilities…" : enabled ? "Whole native plugin" : "Native installation unavailable; enable native plugin support on this runner and check that the CLI account is available";
+    return { harness, runner, enabled, reason };
+  });
+}
+
+export function NativeTargetPicker({ targets, selected, onChange }: { targets: ReturnType<typeof useNativeTargets>; selected: Set<string>; onChange: (id: string) => void }) {
   return (
     <fieldset className="space-y-2">
       <legend className="text-[13px] font-medium">Install on runner / harness pairs</legend>
-      {pairs.length === 0 && <p className="text-[13px] text-muted">Add a CLI harness and enable native plugin support on its runner first.</p>}
-      {pairs.map((h) => {
-        const index = runners.findIndex((r) => r.id === h.runnerId);
-        const runner = runners[index];
-        const report = reports[index];
-        const target = report?.data?.targets?.find((t) => t.harness === h.kind);
-        const enabled = runner?.status === "online" && !report?.data?.error && target?.available && target.add;
-        const reason = runner?.status !== "online" ? "Runner offline" : report?.isPending ? "Reading native capabilities…" : enabled ? "Whole native plugin" : "Native installation unavailable; enable native plugin support on this runner and check that the CLI account is available";
-        return (
-          <label key={`${h.runnerId}/${h.kind}`} className="flex items-start gap-2 text-[13px]">
-            <input type="checkbox" className="mt-1" checked={selected.has(h.id)} disabled={!enabled} onChange={() => onChange(h.id)} />
-            <span>{runner?.name ?? "Removed runner"} / {cliLabels[h.kind]}<span className="block text-muted">{reason}</span></span>
-          </label>
-        );
-      })}
+      {targets.length === 0 && <p className="text-[13px] text-muted">Add a CLI harness and enable native plugin support on its runner first.</p>}
+      {targets.map(({ harness: h, runner, enabled, reason }) => (
+        <label key={`${h.runnerId}/${h.kind}`} className="flex items-start gap-2 text-[13px]">
+          <input type="checkbox" className="mt-1" checked={selected.has(h.id)} disabled={!enabled} onChange={() => onChange(h.id)} />
+          <span>{runner?.name ?? "Removed runner"} / {cliLabels[h.kind]}<span className="block text-muted">{reason}</span></span>
+        </label>
+      ))}
     </fieldset>
   );
 }

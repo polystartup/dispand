@@ -1249,7 +1249,10 @@
   `tools.plugin_id` and `skill_packages.plugin_id` are `on delete set null` (migration 0058), so
   its agents (with their Jobs) and tools (with their headers) stay, unlinked, and a reinstall names
   its copies apart (`agentName`, `toolName`). Its skill package is deleted unless an agent uses
-  it; then it stays as the owner's own, editable. `db/cascades.test.ts` walks every cascading
+  it; then it stays as the owner's own, editable. Reinstalling imports a separate skill package
+  under the first free numbered name (`-2`, `-3`, …), preserving retained files and agent links.
+  The install sheet defaults to complete native installation on every eligible runner/harness
+  pair; explicit exclusions persist while the sheet is open. `db/cascades.test.ts` walks every cascading
   foreign key from `plugins` and fails on one reaching the owner's data. A marketplace with
   installed plugins can't be removed.
 - **Skill sources:** a marketplace row has a `kind`. `marketplace` is the format above. A Git

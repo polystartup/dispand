@@ -25,7 +25,7 @@ import { authed, base } from "../rpc/context.ts";
 import { MAX_DESCRIPTION, PackageError, SKILL_NAME, validatePackage } from "../skills/package.ts";
 import { store, type Tx } from "../skills/procedures.ts";
 import { HeaderValue, insertTool, refreshActions, retarget } from "../tools/procedures.ts";
-import { agentName, hasPlaceholder, httpTool, toolName } from "./components.ts";
+import { agentName, hasPlaceholder, httpTool, skillPackageName, toolName } from "./components.ts";
 import { fetchGit, GitError } from "./git.ts";
 import { BUILT_IN_MARKETPLACES, MarketplaceError, type MarketplaceEntry, type MarketplaceKind, parseMarketplace } from "./marketplace.ts";
 import { readWellKnownIndex, readWellKnownSkills, WellKnownError, wellKnownIndexUrl } from "./well-known.ts";
@@ -380,7 +380,7 @@ const install = owner
         });
         const packageId = chosen ? newId("skillpkg") : null;
         if (chosen && packageId) {
-          await tx.insert(skillPackages).values({ id: packageId, ownerId: context.ownerId, name, description, pluginId });
+          await tx.insert(skillPackages).values({ id: packageId, ownerId: context.ownerId, name: await skillPackageName(tx, context.ownerId, name), description, pluginId });
           await store(tx, packageId, chosen.files, chosen.skills);
         }
         const tools = [];
