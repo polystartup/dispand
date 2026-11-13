@@ -21,7 +21,7 @@ async function pluginFixture(context: Awaited<ReturnType<typeof ownerContext>>) 
   await context.db.insert(skillPackages).values({ id: "skillpkg_plugin", ownerId: context.ownerId, name: "review-tools", description: "Reviews", pluginId: "plugin_1" });
 }
 
-const base = { harnessId: "harness_1", resource: { kind: "plugin" as const, id: "plugin_1" }, action: "add" as const, dryRun: true };
+const base = { harnessIds: ["harness_1"], resource: { kind: "plugin" as const, id: "plugin_1" }, action: "add" as const, dryRun: true };
 
 test("workspace native installation derives pinned source and stable identity from owned records", async () => {
   const { context, request } = await setup();
@@ -64,7 +64,7 @@ test("native workspace APIs reject foreign records, unreviewed apply, jobs and u
   await context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.com" });
   await context.db.insert(skillPackages).values({ id: "foreign", ownerId: "other", name: "writing", description: "Private" });
   await expect(call(router.runners.workspacePlugin, { ...base, resource: { kind: "skill", id: "foreign" } }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect(call(router.runners.workspacePlugin, { ...base, harnessId: "unknown" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.runners.workspacePlugin, { ...base, harnessIds: ["unknown"] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.runners.workspacePlugin, { ...base, dryRun: false }, { context })).rejects.toThrow();
   const jobContext = { ...context, job: { runId: "run_1", ownerId: context.ownerId, agentId: "agent_1" } };
   await expect(call(router.runners.workspacePlugin, base, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -106,5 +106,69 @@ test("unverified and subdirectory imports cannot select a different native root 
     const inventory = await call(router.runners.workspaceSkills, undefined, { context });
     expect(inventory[0]!.sourceKey).toBeUndefined();
   }
+  expect(request).not.toHaveBeenCalled();
+});
+
+
+async function secondHarness(context: Awaited<ReturnType<typeof ownerContext>>, runnerId = "runner_1") {
+  await context.db.insert(harnesses).values({ id: "harness_2", ownerId: context.ownerId, name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" });
+}
+
+test("selected harnesses on one runner share one native operation and preserve per-target outcomes", async () => {
+  const { context, request } = await setup();
+  await pluginFixture(context);
+  await secondHarness(context);
+  request.mockImplementation(async (_id, req) => ({ type: "plugin.replied", requestId: req.requestId, report: req.operation.action === "list" ? {} : {
+    error: "One target failed", results: [{ name: "dispand-plugin_1", harness: "codex", status: "installed" }, { name: "dispand-plugin_1", harness: "claude-code", status: "failed" }],
+  } }));
+  const report = await call(router.runners.workspacePlugin, { ...base, harnessIds: ["harness_2", "harness_1"], dryRun: false, revision: "preview123" }, { context });
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(request.mock.calls[1]![1].operation).toMatchObject({ action: "add", targets: ["codex", "claude-code"], revision: "preview123", sourceRef: "a".repeat(40) });
+  expect(report).toEqual({ error: "One target failed", results: [{ name: "dispand-plugin_1", harness: "codex", status: "installed" }, { name: "dispand-plugin_1", harness: "claude-code", status: "failed" }] });
+});
+
+test("a grouped install skips verified native bindings while installing the remaining target", async () => {
+  const { context, request } = await setup();
+  await pluginFixture(context);
+  await secondHarness(context);
+  const [item] = await call(router.runners.workspaceSkills, undefined, { context });
+  const installed = { name: "existing", sourceKey: item!.sourceKey, harness: "codex" as const, installed: true, enabled: true, pending: false };
+  request.mockImplementation(async (_id, req) => ({ type: "plugin.replied", requestId: req.requestId, report: req.operation.action === "list" ? { packages: [installed] }
+    : { results: [{ name: "dispand-plugin_1", harness: "claude-code", status: "installed" }] } }));
+  const report = await call(router.runners.workspacePlugin, { ...base, harnessIds: ["harness_1", "harness_2"], dryRun: false, revision: "preview123" }, { context });
+  expect(request.mock.calls[1]![1].operation).toMatchObject({ targets: ["claude-code"] });
+  expect(report.results).toEqual([{ name: "existing", harness: "codex", status: "already_installed" }, { name: "dispand-plugin_1", harness: "claude-code", status: "installed" }]);
+  request.mockClear().mockImplementation(async (_id, req) => ({ type: "plugin.replied", requestId: req.requestId, report: { packages: [installed, { ...installed, harness: "claude-code" }] } }));
+  const existing = await call(router.runners.workspacePlugin, { ...base, harnessIds: ["harness_1", "harness_2"] }, { context });
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(existing.results?.map((r) => r.status)).toEqual(["already_installed", "already_installed"]);
+});
+
+test("a conflicting target blocks mutation without hiding an already installed target", async () => {
+  const { context, request } = await setup();
+  await pluginFixture(context);
+  await secondHarness(context);
+  const [item] = await call(router.runners.workspaceSkills, undefined, { context });
+  request.mockImplementation(async (_id, req) => ({ type: "plugin.replied", requestId: req.requestId, report: { packages: [
+    { name: "dispand-plugin_1", sourceKey: item!.sourceKey, harness: "codex", installed: true, enabled: false, pending: false },
+    { name: "existing", sourceKey: item!.sourceKey, harness: "claude-code", installed: true, enabled: true, pending: false },
+  ] } }));
+  const report = await call(router.runners.workspacePlugin, { ...base, harnessIds: ["harness_1", "harness_2"] }, { context });
+  expect(report).toMatchObject({ blocked: true, results: [{ name: "existing", harness: "claude-code", status: "already_installed" }] });
+  expect(request).toHaveBeenCalledTimes(1);
+});
+
+test("every grouped target must be owned, valid and on the same runner", async () => {
+  const { context, request } = await setup();
+  await pluginFixture(context);
+  await context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.com" });
+  await context.db.insert(runners).values({ id: "foreign_runner", ownerId: "other", name: "Other" });
+  await context.db.insert(harnesses).values({ id: "foreign_harness", ownerId: "other", name: "Other", runnerId: "foreign_runner", kind: "claude-code", permissionMode: "default" });
+  await expect(call(router.runners.workspacePlugin, { ...base, harnessIds: ["harness_1", "foreign_harness"] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await context.db.insert(runners).values({ id: "runner_2", ownerId: context.ownerId, name: "Second" });
+  await secondHarness(context, "runner_2");
+  await expect(call(router.runners.workspacePlugin, { ...base, harnessIds: ["harness_1", "harness_2"] }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(call(router.runners.workspacePlugin, { ...base, harnessIds: ["harness_1", "harness_1"] }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(call(router.runners.workspacePlugin, { ...base, harnessIds: ["harness_1", "harness_2"], action: "remove" }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   expect(request).not.toHaveBeenCalled();
 });

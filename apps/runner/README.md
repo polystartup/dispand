@@ -249,7 +249,7 @@ Re-pairing preserves explicit target choices. A runner started from source needs
 
 The owner-authenticated `runners.plugins` API accepts `list`, `discover`, `add`,
 `add-workspace` and `remove`. These operations are not management tools and reject
-Job contexts. The workspace-bound `runners.workspacePlugin` API resolves the owner's resource and CLI harness, so browsers supply stable ids rather than source URLs. Discovery accepts credential-free HTTPS Git sources, optionally with
+Job contexts. The workspace-bound `runners.workspacePlugin` API resolves the owner's resource and `harnessIds` (one or two on the same runner), so browsers supply stable ids rather than source URLs. Uninstall remains scoped to one harness. Discovery accepts credential-free HTTPS Git sources, optionally with
 `sourceRef`. Add selects one explicit marketplace `plugin`, a logical `name`, and
 one or both CLI harness kinds on that runner. Every mutation first uses
 `dryRun: true`; application repeats the same operation with `dryRun: false` and its
@@ -268,8 +268,11 @@ inventory and an explicit new decision; Dispand does not retry or fall back afte
 execution. One operation runs at a time per runner, capped at two minutes.
 
 The plugin install sheet optionally selects locally enabled runner / harness pairs.
-It imports workspace components once, then previews each complete native installation
-for explicit approval. A failed native step leaves the workspace import intact; use
+The initial Install click approves those targets and imports workspace components once.
+The sheet then previews and applies one combined native operation per runner using its
+revision, without another confirmation. Each selected harness shows Installing, Installed
+or a failure; known existing installations are kept. A failed native step leaves the
+workspace import intact; use
 the Harness page's inventory to refresh, remove or retry, without reinstalling the
 workspace plugin. Multiple named harnesses of one kind on a runner share its native
 account. Native-only installation can register a source without importing components.

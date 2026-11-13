@@ -58,12 +58,14 @@
   the session CLI homes in a runner-private Skillshare config; explicit target maps retain
   operator-configured accounts. The owner-only
   `runners.workspacePlugin` resolves a workspace plugin or
-  standalone skill package and one CLI harness, previews through Skillshare, then applies only
-  the reviewed revision. Complete plugins use their stored repository/commit/entry; standalone
+  standalone skill package and one or two CLI harness ids on the same runner, previews through
+  Skillshare, then applies only the reviewed revision. Uninstall selects one harness. Complete plugins use their stored repository/commit/entry; standalone
   packages use a persistent content-addressed skills-only plugin written by the session writer.
   `runners.workspaceSkills` groups plugin skills together in the Harness inventory. Neither
-  procedure is exposed to agents. Install sheets import workspace components once before
-  reviewing selected native targets; native failures never repeat that import. At session start
+  procedure is exposed to agents. The install sheet’s initial Install click approves its selected
+  native targets, imports workspace components once, then automatically previews and applies a
+  combined operation per runner. Status is shown beside each harness; failures never repeat the
+  workspace import or successful native installations. At session start
   and resume, `packageForRunner` supplies the stable native name and source key, and fresh native
   inventory decides whether to omit the stripped copy. Only an installed, known-enabled matching
   binding on the chosen harness, without pending or changed context, qualifies. Other states keep

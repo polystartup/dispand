@@ -46,7 +46,7 @@ test("native apply uses the reviewed revision, preserves partial outcomes and ca
   await userEvent.click(screen.getByRole("button", { name: "Apply native install" }));
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "One native target failed");
   expect(screen.getByLabelText("Native results").textContent).toContain("codex: failed");
-  expect(fake.runners.workspacePlugin.mock.calls[1]![0]).toEqual({ harnessId: "h1", resource: { kind: "plugin", id: "plugin_1" }, action: "add", dryRun: false, revision: "reviewed123" });
+  expect(fake.runners.workspacePlugin.mock.calls[1]![0]).toEqual({ harnessIds: ["h1"], resource: { kind: "plugin", id: "plugin_1" }, action: "add", dryRun: false, revision: "reviewed123" });
   expect(screen.queryByRole("button", { name: "Apply native install" })).toBeNull();
   expect(fake.runners.workspacePlugin).toHaveBeenCalledTimes(2);
 });
@@ -65,31 +65,85 @@ test("harness inventory offers whole-plugin uninstall and standalone workspace i
   const own = (await screen.findByText("Writing")).closest("li")!;
   await userEvent.click(within(own).getByRole("button", { name: "Install natively" }));
   expect(await screen.findByText(/skills-only native plugin through Skillshare/)).toBeTruthy();
-  await waitFor(() => expect(fake.runners.workspacePlugin).toHaveBeenCalledWith({ harnessId: "h1", resource: { kind: "skill", id: "skillpkg_1" }, action: "add", dryRun: true }));
+  await waitFor(() => expect(fake.runners.workspacePlugin).toHaveBeenCalledWith({ harnessIds: ["h1"], resource: { kind: "skill", id: "skillpkg_1" }, action: "add", dryRun: true }));
 });
 
-test("install sheet imports once, then previews the selected pair and keeps a failed native install recoverable", async () => {
+const claudeHarness = { ...harness, id: "h2", name: "Claude", kind: "claude-code" as const };
+
+async function installSheet(harnessRows = [harness, claudeHarness], runnerRows = [runner]) {
   fake.plugins.preview.mockResolvedValue({ reviewed: "workspace-preview", skills: [{ name: "review", description: "Review changes" }], agents: [], mcpServers: [], notImported: [], definitions: { agents: [], primitives: [], triggers: [] } });
-  fake.harnesses.list.mockResolvedValue([harness]);
-  fake.runners.list.mockResolvedValue([runner]);
-  fake.runners.plugins.mockResolvedValue({ targets: [target] });
+  fake.harnesses.list.mockResolvedValue(harnessRows);
+  fake.runners.list.mockResolvedValue(runnerRows);
+  fake.runners.plugins.mockResolvedValue({ targets: [target, { ...target, harness: "claude-code" }] });
   fake.plugins.install.mockResolvedValue({ pluginId: "plugin_1", agentIds: [], toolIds: [] });
-  fake.runners.workspacePlugin.mockResolvedValueOnce({ revision: "native-preview", blocked: false, changes: [] }).mockRejectedValueOnce({ code: "CONFLICT", message: "Native preview changed; refresh inventory" });
   const close = vi.fn();
   mount(<PluginInstallSheet marketplaceId="m1" entryName="reviews" onClose={close} />);
   await userEvent.click(await screen.findByRole("checkbox", { name: /Install the complete native plugin/ }));
-  const pair = await screen.findByRole("checkbox", { name: /Workstation \/ Codex/ });
-  await waitFor(() => expect((pair as HTMLInputElement).disabled).toBe(false));
-  await userEvent.click(pair);
+  for (const pair of screen.getByRole("group", { name: "Install on runner / harness pairs" }).querySelectorAll("input")) {
+    await waitFor(() => expect((pair as HTMLInputElement).disabled).toBe(false));
+    await userEvent.click(pair);
+  }
   await userEvent.click(screen.getByRole("button", { name: "Install" }));
-  expect(await screen.findByRole("status")).toHaveProperty("textContent", expect.stringContaining("Installed in the workspace"));
-  await waitFor(() => expect((screen.getByRole("button", { name: "Apply native install" }) as HTMLButtonElement).disabled).toBe(false));
-  await userEvent.click(screen.getByRole("button", { name: "Apply native install" }));
-  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Native preview changed; refresh inventory");
+  return close;
+}
+
+test("one Install click batches the runner's targets and shows individual progress and partial success", async () => {
+  let finish!: (report: unknown) => void;
+  fake.runners.workspacePlugin.mockResolvedValueOnce({ revision: "native-preview", blocked: false, changes: [] })
+    .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  const close = await installSheet();
+  const list = await screen.findByRole("list", { name: "Native installations" });
+  await waitFor(() => expect(fake.runners.workspacePlugin).toHaveBeenCalledTimes(2));
+  expect(within(list).getAllByRole("status").map((node) => node.textContent)).toEqual(["Installing…", "Installing…"]);
+  expect(screen.queryByRole("button", { name: "Apply native install" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Next target" })).toBeNull();
+  expect((screen.getByRole("button", { name: "Done" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(fake.runners.workspacePlugin.mock.calls.map(([input]) => input)).toEqual([
+    { harnessIds: ["h1", "h2"], resource: { kind: "plugin", id: "plugin_1" }, action: "add", dryRun: true },
+    { harnessIds: ["h1", "h2"], resource: { kind: "plugin", id: "plugin_1" }, action: "add", dryRun: false, revision: "native-preview" },
+  ]);
+  finish({ error: "One native target failed", results: [{ harness: "codex", name: "dispand-plugin_1", status: "installed" }, { harness: "claude-code", name: "dispand-plugin_1", status: "failed" }] });
+  await waitFor(() => expect(within(list).getAllByRole("status").map((node) => node.textContent)).toEqual(["Installed", "Failed"]));
+  expect(within(list).getByText("Review")).toBeTruthy();
+  expect(within(list).getByText("Claude")).toBeTruthy();
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "One native target failed");
   expect(fake.plugins.install).toHaveBeenCalledTimes(1);
+  expect(fake.runners.workspacePlugin).toHaveBeenCalledTimes(2);
   expect(close).not.toHaveBeenCalled();
   await userEvent.click(screen.getByRole("button", { name: "Done" }));
   expect(close).toHaveBeenCalledTimes(1);
+});
+
+test("selected runners install independently without retrying a failed runner or importing twice", async () => {
+  const second = { ...claudeHarness, runnerId: "r2" };
+  fake.runners.workspacePlugin.mockImplementation(async (input) => {
+    if (input.harnessIds.includes("h1")) throw { code: "CONFLICT", message: "Runner unavailable" };
+    return input.dryRun ? { revision: "runner-two", blocked: false } : { results: [{ harness: "claude-code", name: "dispand-plugin_1", status: "installed" }] };
+  });
+  await installSheet([harness, second], [runner, { ...runner, id: "r2", name: "Second" }]);
+  const list = await screen.findByRole("list", { name: "Native installations" });
+  await waitFor(() => expect(within(list).getAllByRole("status").map((node) => node.textContent)).toEqual(["Failed", "Installed"]));
+  expect(fake.plugins.install).toHaveBeenCalledTimes(1);
+  expect(fake.runners.workspacePlugin.mock.calls.map(([input]) => input.harnessIds)).toEqual([["h1"], ["h2"], ["h2"]]);
+});
+
+test("a failed apply preserves a known existing installation and never retries", async () => {
+  fake.runners.workspacePlugin.mockResolvedValueOnce({ revision: "native-preview", results: [{ harness: "codex", name: "existing", status: "already_installed" }] })
+    .mockRejectedValueOnce({ code: "CONFLICT", message: "Native source changed; check inventory" });
+  await installSheet();
+  const list = await screen.findByRole("list", { name: "Native installations" });
+  await waitFor(() => expect(within(list).getAllByRole("status").map((node) => node.textContent)).toEqual(["Installed", "Failed"]));
+  expect(fake.runners.workspacePlugin).toHaveBeenCalledTimes(2);
+  expect(fake.plugins.install).toHaveBeenCalledTimes(1);
+});
+
+test("blocked native setup stops before applying while keeping the workspace import", async () => {
+  fake.runners.workspacePlugin.mockResolvedValue({ revision: "blocked-preview", blocked: true, error: "Native installation blocked" });
+  await installSheet([harness]);
+  const list = await screen.findByRole("list", { name: "Native installations" });
+  await waitFor(() => expect(within(list).getByRole("status").textContent).toBe("Failed"));
+  expect(fake.runners.workspacePlugin).toHaveBeenCalledTimes(1);
+  expect(fake.plugins.install).toHaveBeenCalledTimes(1);
 });
 
 test("collapsed harness skills do not start runner requests; opening loads inventory", async () => {

@@ -609,7 +609,9 @@ changes it updates this file.
   persists for Skillshare's reinstall lifecycle; it stays outside roots and cannot change CLI
   settings. Mutations select explicit targets and require a preview revision. Complete native
   plugins may execute their native hooks, commands and MCP integrations: the owner approves that
-  native lifecycle through its reviewed preview, separately from sanitized workspace imports.
+  native lifecycle by selecting its targets and clicking Install after the whole-plugin warning.
+  The sheet then previews and applies that selected scope without reconfirmation; Skillshare’s
+  revision check still rejects changed state. Workspace imports and native execution remain separate.
   Skillshare config, data and state directories join the machine paths excluded from roots and session access. Custom
   account config directories must be outside roots and protected locally like CLI homes. Native
   replies expose a bounded projection, never raw paths, identifiers or error text. One operation
