@@ -4,10 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import type { api } from "../../lib/api.ts";
-import { orpc } from "../../lib/api.ts";
+import { api, orpc } from "../../lib/api.ts";
 import { FormField } from "./parts.tsx";
-import { NativePluginAction, NativeTargetPicker, nativeWarning } from "./NativeSkills.tsx";
+import { NativeTargetPicker, nativeWarning } from "./NativeSkills.tsx";
 
 export const pluginTabs = [
   { to: "/settings/plugins", label: "Discover" },
@@ -139,7 +138,7 @@ function InstallForm({
   const [native, setNative] = useState(false);
   const [nativeTargets, setNativeTargets] = useState(() => new Set<string>());
   // Workspace installation is committed once; failed native operations never resubmit it.
-  const [nativeStep, setNativeStep] = useState<{ pluginId: string; targets: string[]; index: number } | null>(null);
+  const [nativeProgress, setNativeProgress] = useState<{ id: string; name: string; status: "Installing…" | "Installed" | "Failed"; error?: string }[] | null>(null);
   // Server name → `${VAR}` → value. Sent only for the ticked servers, never shown again.
   const [settings, setSettings] = useState<Record<string, Record<string, string>>>({});
   const [error, setError] = useState<string | null>(null);
@@ -160,8 +159,29 @@ function InstallForm({
         ...(agents.size > 0 ? { harnessId } : {}),
         settings: Object.fromEntries(mcpServers.flatMap((n) => (settings[n] ? [[n, settings[n]]] : []))),
       });
-      if (native && nativeTargets.size) setNativeStep({ pluginId: result.pluginId, targets: [...nativeTargets], index: 0 });
-      else onClose();
+      if (!native || !nativeTargets.size) { onClose(); return; }
+      const selected = (harnesses.data ?? []).flatMap((h) => h.type === "cli" && nativeTargets.has(h.id) ? [h] : []);
+      setNativeProgress(selected.map((h) => ({ id: h.id, name: h.name, status: "Installing…" })));
+      const groups = new Map<string, typeof selected>();
+      for (const h of selected) groups.set(h.runnerId, [...(groups.get(h.runnerId) ?? []), h]);
+      await Promise.all([...groups.values()].map(async (group) => {
+        const request = { harnessIds: group.map((h) => h.id), resource: { kind: "plugin" as const, id: result.pluginId }, action: "add" as const };
+        let report: Awaited<ReturnType<typeof api.runners.workspacePlugin>> = {};
+        try {
+          report = await api.runners.workspacePlugin({ ...request, dryRun: true });
+          if (report.revision && !report.blocked && !report.error) report = await api.runners.workspacePlugin({ ...request, dryRun: false, revision: report.revision });
+        } catch (e) {
+          report = { ...report, error: refusal(e, "Native installation failed. Check Harness inventory before retrying; some changes may have completed.") };
+        }
+        setNativeProgress((progress) => progress!.map((row) => {
+          const h = group.find((h) => h.id === row.id);
+          if (!h) return row;
+          const outcome = report.results?.find((r) => r.harness === h.kind);
+          const installed = outcome?.status === "installed" || outcome?.status === "already_installed";
+          return { ...row, status: installed ? "Installed" : "Failed", error: installed ? undefined : report.error ?? "Native installation did not complete. Check Harness inventory before retrying." };
+        }));
+        await queryClient.invalidateQueries({ queryKey: ["native-plugins", group[0]!.runnerId] });
+      }));
     } catch (e) {
       const message = refusal(e, "Could not install the plugin.");
       if (typeof e === "object" && e !== null && "code" in e && e.code === "CONFLICT") onChanged(message);
@@ -172,20 +192,17 @@ function InstallForm({
   const { definitions } = preview;
   const defined = definitions.primitives.length + definitions.agents.length + definitions.triggers.length;
   const picked = skills.size + servers.size + agents.size;
-  if (nativeStep) {
-    const target = nativeStep.targets[nativeStep.index]!;
+  if (nativeProgress) {
     return (
       <div className="space-y-4">
-        <p role="status" className="text-[13px]">Installed in the workspace. Review native target {nativeStep.index + 1} of {nativeStep.targets.length}: {harnesses.data?.find((h) => h.id === target)?.name ?? "CLI harness"}.</p>
-        <NativePluginAction
-          key={target}
-          harnessId={target}
-          resource={{ kind: "plugin", id: nativeStep.pluginId }}
-          name={entryName}
-          action="add"
-          doneLabel={nativeStep.index + 1 < nativeStep.targets.length ? "Next target" : "Done"}
-          onDone={() => nativeStep.index + 1 < nativeStep.targets.length ? setNativeStep({ ...nativeStep, index: nativeStep.index + 1 }) : onClose()}
-        />
+        <p className="text-[13px]">Installed in the workspace.</p>
+        <ul aria-label="Native installations" className="space-y-2 text-[13px]">
+          {nativeProgress.map((row) => <li key={row.id} className="rounded-lg border border-line p-3">
+            <div className="flex items-center justify-between gap-3"><span>{row.name}</span><span role="status" aria-label={`${row.name}: ${row.status}`}>{row.status}</span></div>
+            {row.error && <p role="alert" className="mt-1 text-danger">{row.error}</p>}
+          </li>)}
+        </ul>
+        <Button type="button" disabled={nativeProgress.some((row) => row.status === "Installing…")} onClick={onClose}>Done</Button>
       </div>
     );
   }
@@ -212,7 +229,7 @@ function InstallForm({
       </Section>
 
       <Section id="install-native" title="Native installation (optional)">
-        <Check checked={native} onChange={() => setNative((value) => !value)} label="Install the complete native plugin" detail="Keep workspace copies for fallback. After import, review and apply each native installation separately." />
+        <Check checked={native} onChange={() => setNative((value) => !value)} label="Install the complete native plugin" detail="Install on the selected harnesses and keep workspace copies for fallback." />
         {native && <>
           <p className="text-[13px] text-muted">{nativeWarning}</p>
           <NativeTargetPicker harnesses={harnesses.data ?? []} runners={runners.data ?? []} selected={nativeTargets} onChange={(id) => setNativeTargets((prev) => toggled(prev, id))} />

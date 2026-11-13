@@ -83,6 +83,24 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await page.mouse.move(0, 0);
   await shots(page, "slice-4-task-8-discover");
 
+  // Native clients are simulated here; the domain and pinned CLI tests cover their actual contract.
+  const nativeTargets = [
+    { id: "native-claude", ownerId: "owner", type: "cli", name: "Claude Code", runnerId: "native-runner", kind: "claude-code", permissionMode: "default" },
+    { id: "native-codex", ownerId: "owner", type: "cli", name: "Codex", runnerId: "native-runner", kind: "codex", permissionMode: "default" },
+  ];
+  const nativeRequests: { harnessIds: string[]; dryRun: boolean; revision?: string }[] = [];
+  let finishNative!: () => void;
+  const installing = new Promise<void>((resolve) => { finishNative = resolve; });
+  await page.route("**/api/rpc/harnesses/list", (route) => route.fulfill({ json: { json: nativeTargets } }));
+  await page.route("**/api/rpc/runners/list", (route) => route.fulfill({ json: { json: [{ id: "native-runner", name: "Workstation", status: "online", runnerUpdate: "current", clis: {}, tools: [], lastSeenAt: null }] } }));
+  await page.route("**/api/rpc/runners/plugins", (route) => route.fulfill({ json: { json: { targets: nativeTargets.map((h) => ({ harness: h.kind, available: true, add: true, remove: true })) } } }));
+  await page.route("**/api/rpc/runners/workspacePlugin", async (route) => {
+    const input = route.request().postDataJSON().json;
+    nativeRequests.push(input);
+    if (!input.dryRun) await installing;
+    await route.fulfill({ json: { json: input.dryRun ? { revision: "native-preview", blocked: false } : { results: nativeTargets.map((h) => ({ name: "writing-kit", harness: h.kind, status: "installed" })) } } });
+  });
+
   await page.getByRole("button", { name: "Install writing-kit" }).click();
   const sheet = page.getByRole("dialog");
   await expect(sheet.getByRole("checkbox", { name: /plain-words/ })).toBeChecked();
@@ -94,15 +112,30 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await expect(sheet.getByRole("checkbox", { name: /fetch/ })).toBeDisabled();
   await expect(sheet.getByText("Runs a command on a machine: not yet supported")).toBeVisible();
   await expect(sheet.getByRole("checkbox", { name: /editor/ })).toBeChecked();
-  await expect(sheet.getByLabel("Harness")).toBeVisible();
+  await expect(sheet.getByLabel("Harness", { exact: true })).toBeVisible();
   await expect(sheet.getByText("Hooks run commands on the machine")).toBeVisible();
   await sheet.getByLabel("DOCS_KEY").fill("docs-key-value");
   await shots(page, "slice-4-task-13-install");
   // No harness to run the agent on in this test: leave it out.
   await sheet.getByRole("checkbox", { name: /editor/ }).uncheck();
-  await expect(sheet.getByLabel("Harness")).toBeHidden();
+  await expect(sheet.getByLabel("Harness", { exact: true })).toBeHidden();
   await sheet.getByRole("checkbox", { name: /review-notes/ }).uncheck();
+  await sheet.getByRole("checkbox", { name: /Install the complete native plugin/ }).check();
+  await sheet.getByRole("checkbox", { name: /Workstation \/ Claude Code/ }).check();
+  await sheet.getByRole("checkbox", { name: /Workstation \/ Codex/ }).check();
   await sheet.getByRole("button", { name: "Install" }).click();
+  const progress = sheet.getByRole("list", { name: "Native installations" });
+  await expect(progress.getByRole("status")).toHaveText(["Installing…", "Installing…"]);
+  await expect(sheet.getByRole("button", { name: "Apply native install" })).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath("native-installing.png"), animations: "disabled" });
+  finishNative();
+  await expect(progress.getByRole("status")).toHaveText(["Installed", "Installed"]);
+  expect(nativeRequests.map((input) => ({ harnessIds: input.harnessIds, dryRun: input.dryRun, revision: input.revision }))).toEqual([
+    { harnessIds: ["native-claude", "native-codex"], dryRun: true, revision: undefined },
+    { harnessIds: ["native-claude", "native-codex"], dryRun: false, revision: "native-preview" },
+  ]);
+  await shots(page, "native-installed");
+  await sheet.getByRole("button", { name: "Done" }).click();
   await expect(sheet).toBeHidden();
   await expect(page.getByText("Installed", { exact: true }).last()).toBeVisible();
 

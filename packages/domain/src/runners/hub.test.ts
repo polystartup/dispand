@@ -959,7 +959,7 @@ test("an owner can preview and apply an unused workspace skill through the runne
   runner.send(hello);
   await vi.waitFor(() => expect(context.hub.isOnline(runnerId)).toBe(true));
   for (const dryRun of [true, false]) {
-    const pending = call(router.runners.workspacePlugin, { harnessId: "h_native", resource: { kind: "skill", id: packageId }, action: "add", dryRun, ...(!dryRun ? { revision: "reviewed-native" } : {}) }, { context });
+    const pending = call(router.runners.workspacePlugin, { harnessIds: ["h_native"], resource: { kind: "skill", id: packageId }, action: "add", dryRun, ...(!dryRun ? { revision: "reviewed-native" } : {}) }, { context });
     const inventory = await runner.next();
     if (inventory.type !== "plugin.request" || inventory.operation.action !== "list") throw new Error("Expected native inventory request");
     runner.send({ type: "plugin.replied", requestId: inventory.requestId, report: { packages: [] } });

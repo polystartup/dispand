@@ -113,7 +113,7 @@ fs.writeFileSync(stateFile, JSON.stringify(state));
   return { base, prepared, native: new NativePlugins(prepared.targets, prepared.env, skillshareExec(binary)) };
 }
 
-test.each([false, true])("pinned Skillshare inventories and manages plugins (default homes: %s)", async (defaultHomes) => {
+test.each([false, true])("pinned Skillshare installs both targets with one preview and apply (default homes: %s)", async (defaultHomes) => {
   const { base, native } = await clientMachine(defaultHomes);
   const inventory = await native.request({ action: "list" });
   expect(inventory.error).toBeUndefined();
@@ -121,24 +121,26 @@ test.each([false, true])("pinned Skillshare inventories and manages plugins (def
     { harness: "claude-code", available: true, add: true, remove: true },
     { harness: "codex", available: true, add: true, remove: true },
   ]);
-  for (const harness of ["claude-code", "codex"] as const) {
-    const operation = { action: "add-workspace" as const, name: `dispand-${harness}`, targets: [harness], files: [{ path: "writing/SKILL.md", base64: Buffer.from("---\nname: writing\ndescription: Write clearly\n---\nText\n").toString("base64") }] };
-    const preview = await native.request({ ...operation, dryRun: true });
-    expect(preview.error).toBeUndefined();
-    expect(preview.blocked).toBe(false);
-    expect(preview.revision).toBeTruthy();
-    expect((await native.request({ ...operation, dryRun: false, revision: "stale" })).error).toBeTruthy();
-    const applied = await native.request({ ...operation, dryRun: false, revision: preview.revision! });
-    expect(applied.error).toBeUndefined();
+  const targets = ["claude-code", "codex"] as const;
+  const operation = { action: "add-workspace" as const, name: "dispand-batched", targets: [...targets], files: [{ path: "writing/SKILL.md", base64: Buffer.from("---\nname: writing\ndescription: Write clearly\n---\nText\n").toString("base64") }] };
+  const preview = await native.request({ ...operation, dryRun: true });
+  expect(preview.error).toBeUndefined();
+  expect(preview.blocked).toBe(false);
+  expect(preview.revision).toBeTruthy();
+  expect((await native.request({ ...operation, dryRun: false, revision: "stale" })).error).toBeTruthy();
+  const applied = await native.request({ ...operation, dryRun: false, revision: preview.revision! });
+  expect(applied.error).toBeUndefined();
+  expect(applied.results).toHaveLength(2);
+  const installed = await native.request({ action: "list" });
+  for (const harness of targets) {
     expect(applied.results).toContainEqual({ name: operation.name, harness, status: "installed" });
-    const installed = await native.request({ action: "list" });
     expect(installed.packages).toContainEqual(expect.objectContaining({ name: operation.name, harness, installed: true, enabled: true, pending: false }));
-    const removal = { action: "remove" as const, name: operation.name, targets: [harness] };
-    const removePlan = await native.request({ ...removal, dryRun: true });
-    expect(removePlan.error).toBeUndefined();
-    expect((await native.request({ ...removal, dryRun: false, revision: removePlan.revision! })).error).toBeUndefined();
-    expect((await native.request({ action: "list" })).packages).not.toContainEqual(expect.objectContaining({ name: operation.name }));
   }
+  const removal = { action: "remove" as const, name: operation.name, targets: [...targets] };
+  const removePlan = await native.request({ ...removal, dryRun: true });
+  expect(removePlan.error).toBeUndefined();
+  expect((await native.request({ ...removal, dryRun: false, revision: removePlan.revision! })).error).toBeUndefined();
+  expect((await native.request({ action: "list" })).packages).not.toContainEqual(expect.objectContaining({ name: operation.name }));
   expect(JSON.stringify(inventory)).not.toContain(base);
 });
 

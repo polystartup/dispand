@@ -37,18 +37,23 @@ export const workspaceSkills = base.use(authed).handler(async ({ context }) => {
 
 /** Whole plugin references keep its individual workspace skills from becoming duplicate installs. */
 export const workspacePlugin = base.use(authed).input(z.object({
-  harnessId: z.string().max(64),
+  harnessIds: z.array(z.string().min(1).max(64)).min(1).max(2).refine((ids) => new Set(ids).size === ids.length, "Duplicate harness"),
   resource: z.discriminatedUnion("kind", [z.object({ kind: z.literal("plugin"), id: z.string().max(64) }), z.object({ kind: z.literal("skill"), id: z.string().max(64) })]),
   action: z.enum(["add", "remove"]),
   dryRun: z.boolean(),
   revision: z.string().min(1).max(200).optional(),
-}).refine((input) => input.dryRun || input.revision !== undefined, "Apply requires a native preview revision")).handler(async ({ input, context }) => {
+}).refine((input) => input.dryRun || input.revision !== undefined, "Apply requires a native preview revision")
+  .refine((input) => input.action === "add" || input.harnessIds.length === 1, "Uninstall one harness at a time")).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", { message: "Native installation requires an owner session" });
-  const [harness] = await context.db.select({ runnerId: runners.id, kind: harnesses.kind }).from(harnesses)
+  const selected = await context.db.select({ runnerId: runners.id, kind: harnesses.kind }).from(harnesses)
     .innerJoin(runners, eq(runners.id, harnesses.runnerId))
-    .where(and(eq(harnesses.id, input.harnessId), eq(harnesses.ownerId, context.ownerId), eq(runners.ownerId, context.ownerId), isNull(runners.revokedAt)));
-  if (!harness || (harness.kind !== "claude-code" && harness.kind !== "codex")) throw new ORPCError("NOT_FOUND", { message: "CLI harness not found" });
-  const common = { name: `dispand-${input.resource.id}`, targets: [harness.kind], dryRun: input.dryRun, revision: input.revision };
+    .where(and(inArray(harnesses.id, input.harnessIds), eq(harnesses.ownerId, context.ownerId), eq(runners.ownerId, context.ownerId), isNull(runners.revokedAt)))
+    .orderBy(asc(harnesses.id));
+  if (selected.length !== input.harnessIds.length || selected.some((h) => h.kind !== "claude-code" && h.kind !== "codex")) throw new ORPCError("NOT_FOUND", { message: "CLI harness not found" });
+  const runnerId = selected[0]!.runnerId;
+  if (selected.some((h) => h.runnerId !== runnerId)) throw new ORPCError("BAD_REQUEST", { message: "Group native installation targets by runner" });
+  const targets = [...new Set(selected.map((h) => h.kind))];
+  const common = { name: `dispand-${input.resource.id}`, targets, dryRun: input.dryRun, revision: input.revision };
   let operation: PluginOperation;
   let sourceKey: string | undefined;
   if (input.resource.kind === "plugin") {
@@ -70,24 +75,31 @@ export const workspacePlugin = base.use(authed).input(z.object({
       : { action: "remove", ...common });
   }
   try {
-    const inventory = (await context.hub.plugins(harness.runnerId, { type: "plugin.request", requestId: newId("req"), operation: { action: "list" } })).report;
+    const inventory = (await context.hub.plugins(runnerId, { type: "plugin.request", requestId: newId("req"), operation: { action: "list" } })).report;
     if (inventory.error) throw new ORPCError("CONFLICT", { message: "Refresh native inventory before changing plugins; the runner could not verify its managed bindings" });
-    const bindings = inventory.packages?.filter((p) => p.harness === harness.kind) ?? [];
-    const active = bindings.find((p) => !!sourceKey && p.sourceKey === sourceKey && p.installed && p.enabled === true && !p.pending);
-    if (input.action === "add" && active) {
-      return PluginReport.parse({ changes: [{ name: active.name, harness: harness.kind, action: "already_installed" }], results: [{ name: active.name, harness: harness.kind, status: "already_installed" }] });
+    const already: NonNullable<PluginReport["results"]> = [];
+    let blocked = false;
+    for (const kind of targets) {
+      const bindings = inventory.packages?.filter((p) => p.harness === kind) ?? [];
+      const active = bindings.find((p) => !!sourceKey && p.sourceKey === sourceKey && p.installed && p.enabled === true && !p.pending);
+      if (input.action === "add" && active) {
+        already.push({ name: active.name, harness: active.harness, status: "already_installed" });
+        continue;
+      }
+      if (input.action === "add" && bindings.some((p) => p.name === common.name || (!!sourceKey && p.sourceKey === sourceKey))) {
+        blocked = true;
+      }
+      if (input.action === "remove") {
+        const matching = active ?? bindings.find((p) => p.name === common.name) ?? bindings.find((p) => !!sourceKey && p.sourceKey === sourceKey);
+        if (matching) operation = PluginOperation.parse({ ...operation, name: matching.name });
+      }
     }
-    if (input.action === "add" && bindings.some((p) => p.name === common.name || (!!sourceKey && p.sourceKey === sourceKey))) {
-      return PluginReport.parse({ blocked: true, error: "A native binding already exists but is disabled, pending, missing or uses another source. Inspect it in the native client, or explicitly uninstall it before reinstalling." });
-    }
-    if (input.action === "remove") {
-      // Reuse an existing Skillshare binding by verified source, even when its logical name differs.
-      const matching = active
-        ?? bindings.find((p) => p.name === common.name)
-        ?? bindings.find((p) => !!sourceKey && p.sourceKey === sourceKey);
-      if (matching) operation = PluginOperation.parse({ ...operation, name: matching.name });
-    }
-    return (await context.hub.plugins(harness.runnerId, { type: "plugin.request", requestId: newId("req"), operation })).report;
+    if (blocked) return PluginReport.parse({ blocked: true, results: already, error: "A native binding already exists but is disabled, pending, missing or uses another source. Inspect it in the native client, or explicitly uninstall it before reinstalling." });
+    const pending = targets.filter((kind) => !already.some((p) => p.harness === kind));
+    if (!pending.length) return PluginReport.parse({ changes: already.map(({ name, harness }) => ({ name, harness, action: "already_installed" })), results: already });
+    operation = PluginOperation.parse({ ...operation, targets: pending });
+    const report = (await context.hub.plugins(runnerId, { type: "plugin.request", requestId: newId("req"), operation })).report;
+    return already.length ? PluginReport.parse({ ...report, results: [...already, ...(report.results ?? [])] }) : report;
   } catch (error) {
     if (!(error instanceof RunnerRequestFailed)) throw error;
     throw new ORPCError("CONFLICT", { message: "Runner unavailable or operation timed out. Refresh inventory before retrying; native changes may have completed." });

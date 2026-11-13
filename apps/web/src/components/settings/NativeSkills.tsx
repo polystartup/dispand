@@ -46,13 +46,13 @@ export function NativeTargetPicker({ harnesses, runners, selected, onChange }: {
 }
 
 /** A reviewed mutation is never automatically retried; per-target results remain visible. */
-export function NativePluginAction({ harnessId, resource, name, action, onDone, doneLabel = "Close" }: {
-  harnessId: string; resource: Resource; name: string; action: "add" | "remove"; onDone: () => void; doneLabel?: string;
+export function NativePluginAction({ harnessId, resource, name, action, onDone }: {
+  harnessId: string; resource: Resource; name: string; action: "add" | "remove"; onDone: () => void;
 }) {
   const queryClient = useQueryClient();
   const preview = useQuery({
     queryKey: ["native-plugin-preview", harnessId, resource.kind, resource.id, action],
-    queryFn: () => api.runners.workspacePlugin({ harnessId, resource, action, dryRun: true }),
+    queryFn: () => api.runners.workspacePlugin({ harnessIds: [harnessId], resource, action, dryRun: true }),
     retry: false,
     staleTime: 0,
     gcTime: 0,
@@ -60,7 +60,7 @@ export function NativePluginAction({ harnessId, resource, name, action, onDone, 
     refetchOnReconnect: false,
   });
   const apply = useMutation({
-    mutationFn: (revision: string) => api.runners.workspacePlugin({ harnessId, resource, action, dryRun: false, revision }),
+    mutationFn: (revision: string) => api.runners.workspacePlugin({ harnessIds: [harnessId], resource, action, dryRun: false, revision }),
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ["native-plugins"] });
     },
@@ -81,7 +81,7 @@ export function NativePluginAction({ harnessId, resource, name, action, onDone, 
       {apply.isSuccess && !result?.error && <p role="status" className="text-[13px]">Native operation completed. Reload the harness and complete any native authentication or trust prompts.</p>}
       <div className="flex gap-2">
         {!apply.isSuccess && !apply.isError && <Button type="button" disabled={!preview.data?.revision || preview.data.blocked || !!preview.data.error || apply.isPending} onClick={() => apply.mutate(preview.data!.revision!)}>{apply.isPending ? "Applying…" : action === "add" ? "Apply native install" : "Apply native uninstall"}</Button>}
-        <Button type="button" variant="ghost" disabled={apply.isPending} onClick={onDone}>{doneLabel}</Button>
+        <Button type="button" variant="ghost" disabled={apply.isPending} onClick={onDone}>Close</Button>
       </div>
     </div>
   );
