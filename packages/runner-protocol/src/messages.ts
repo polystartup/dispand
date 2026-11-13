@@ -13,6 +13,7 @@ export const HarnessModels = z.array(z.object({ id: string(100).min(1), label: s
 
 export const HarnessCommands = z.array(z.object({
   name: string(256).min(1).regex(/^[^\s/]+$/), description: short(),
+  sourceKey: string(128).optional(), nativeNamespace: string(256).regex(/^[^\s/:]+$/).optional(),
   aliases: z.array(string(256).min(1).regex(/^[^\s/]+$/)).max(50).optional(), builtin: z.boolean().optional(),
 })).max(1000);
 export type HarnessCommand = z.infer<typeof HarnessCommands>[number];

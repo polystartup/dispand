@@ -24,3 +24,12 @@ test("discovery closes on failure", async () => {
   await expect(discoverCommands("codex", "/cli", {}, "/work")).rejects.toThrow("offline");
   expect(fake.close).toHaveBeenCalledOnce();
 });
+
+test("native command bindings require an unambiguous verified installation", async () => {
+  const { commandSources } = await import("./commands.ts");
+  const command = { name: "review@catalog:tidy", description: "Tidy", nativeNamespace: "review@catalog" };
+  const binding = { name: "workspace", namespace: "review@catalog", sourceKey: "key", harness: "codex" as const, installed: true, enabled: true, pending: false };
+  expect(commandSources([command], "codex", { packages: [binding] })).toEqual([{ ...command, sourceKey: "key" }]);
+  expect(commandSources([{ name: "review@catalog:tidy", description: "User scope" }], "codex", { packages: [binding] })[0]).not.toHaveProperty("sourceKey");
+  for (const report of [{ packages: [{ ...binding, pending: true }] }, { packages: [binding, { ...binding, sourceKey: "other" }] }]) expect(commandSources([command], "codex", report)).toEqual([command]);
+});

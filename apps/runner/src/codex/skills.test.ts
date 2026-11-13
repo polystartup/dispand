@@ -13,7 +13,7 @@ test("unknown, disabled or ambiguous skills stay ordinary text", () => {
 test("plugin catalogs preserve namespaces so skills sharing a leaf name remain invokable", async () => {
   const { skillCommands } = await import("./skills.ts");
   const skills = [{ ...skill, pluginId: "office", description: "Office" }, { ...skill, pluginId: "other", description: "Other", path: "/plugins/other/skills/tidy/SKILL.md" }];
-  expect(skillCommands(skills)).toEqual([{ name: "office:tidy", description: "Office" }, { name: "other:tidy", description: "Other" }]);
+  expect(skillCommands(skills)).toEqual([{ name: "office:tidy", description: "Office", nativeNamespace: "office" }, { name: "other:tidy", description: "Other", nativeNamespace: "other" }]);
   expect(skillInputs("/other:tidy rows", skills)[0]).toMatchObject({ type: "skill", path: skills[1]!.path });
 });
 
@@ -33,4 +33,11 @@ test("same-scope collisions have stable distinct invocations without exposing lo
     expect(command.name).not.toContain("/");
     expect(skillInputs(`/${command.name}`, skills)[0]).toMatchObject({ type: "skill", path: skills[i]!.path });
   }
+});
+
+test("an exact user-scope identity wins over a plugin's shorthand alias", async () => {
+  const { skillCommands } = await import("./skills.ts");
+  const skills = [{ ...skill, pluginId: "user@catalog", path: "/plugins/user/skills/tidy/SKILL.md" }, { ...skill, path: "/user/.agents/skills/tidy/SKILL.md", scope: "user" }];
+  expect(skillCommands(skills).map((s) => s.name)).toEqual(["user@catalog:tidy", "user:tidy"]);
+  expect(skillInputs("/user:tidy", skills)[0]).toMatchObject({ type: "skill", path: skills[1]!.path });
 });

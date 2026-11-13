@@ -16,7 +16,8 @@ function commandName(s: Skill, skills: Skill[]): string {
 export function skillInputs(text: string, skills: Skill[]): UserInput[] {
   const enabled = skills.filter((s) => s.enabled);
   const match = /^\/([^\s]+)(?:\s+([\s\S]*))?$/.exec(text);
-  const found = match ? enabled.filter((s) => s.name === match[1] || commandName(s, enabled) === match[1] || qualified(s) === match[1] || (s.pluginId?.includes("@") && `${s.pluginId.split("@")[0]}:${s.name}` === match[1])) : [];
+  const exact = match ? enabled.filter((s) => commandName(s, enabled) === match[1]) : [];
+  const found = exact.length ? exact : match ? enabled.filter((s) => s.name === match[1] || qualified(s) === match[1] || (s.pluginId?.includes("@") && `${s.pluginId.split("@")[0]}:${s.name}` === match[1])) : [];
   if (found.length !== 1) return [{ type: "text", text, text_elements: [] }];
   const selected = found[0]!;
   return [{ type: "skill", name: selected.name, path: selected.path }, ...(match?.[2] ? [{ type: "text" as const, text: match[2], text_elements: [] }] : [])];
@@ -25,5 +26,5 @@ export function skillInputs(text: string, skills: Skill[]): UserInput[] {
 /** Catalog and invocation use the same identity, including scope collisions. */
 export function skillCommands(skills: (Skill & { description: string })[]) {
   const enabled = skills.filter((s) => s.enabled);
-  return enabled.map((s) => ({ name: commandName(s, enabled), description: s.description }));
+  return enabled.map((s) => ({ name: commandName(s, enabled), description: s.description, ...(s.pluginId ? { nativeNamespace: s.pluginId } : {}) }));
 }

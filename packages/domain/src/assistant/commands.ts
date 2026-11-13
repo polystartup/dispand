@@ -1,8 +1,9 @@
+import { pluginNativeKey, workspaceNativeKey } from "../skills/native.ts";
 import { ORPCError } from "@orpc/server";
 import type { HarnessCommand } from "@dispand/runner-protocol";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { agents, harnesses, runs, skillPackages, skills, stepRuns } from "../db/schema.ts";
+import { agents, harnesses, runs, skillPackages, skills, skillFiles, plugins, stepRuns } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 
@@ -36,13 +37,23 @@ export const assistantCommands = base.use(authed).input(z.object({ agentId: z.st
     } catch { nativeUnavailable = true; }
   }
   const entries: CommandEntry[] = native.map((c) => ({ name: c.name, description: c.description, source: "harness" }));
-  const installed = await context.db.select({ skillId: skills.id, name: skills.name, description: skills.description, package: skillPackages.name, packageId: skillPackages.id, pluginId: skillPackages.pluginId }).from(skills).innerJoin(skillPackages, eq(skillPackages.id, skills.packageId)).where(eq(skillPackages.ownerId, context.ownerId)).orderBy(asc(skillPackages.name), asc(skills.name));
+  const installed = await context.db.select({ skillId: skills.id, name: skills.name, description: skills.description, package: skillPackages.name, packageId: skillPackages.id, plugin: plugins }).from(skills).innerJoin(skillPackages, eq(skillPackages.id, skills.packageId)).leftJoin(plugins, eq(plugins.id, skillPackages.pluginId)).where(eq(skillPackages.ownerId, context.ownerId)).orderBy(asc(skillPackages.name), asc(skills.name));
+  const keys = new Map<string, string | undefined>();
   for (const skill of installed) {
     const name = `${skill.package}:${skill.name}`;
-    const nativeNamespace = `dispand-${skill.pluginId ?? skill.packageId}`.toLowerCase().replace(/[._]/g, "-");
-    const nativeIndex = native.findIndex((c) => [c.name, ...(c.aliases ?? [])].some((n) => n === name || n === `${nativeNamespace}:${skill.name}` || (n.startsWith(`${nativeNamespace}@`) && n.endsWith(`:${skill.name}`))));
+    const sameSkill = (c: HarnessCommand) => c.name.replace(/~[a-f0-9]{12}$/, "").split(":").at(-1) === skill.name;
+    if (!keys.has(skill.packageId)) {
+      let key = skill.plugin ? pluginNativeKey(skill.plugin) : undefined;
+      if (!skill.plugin && native.some((c) => c.sourceKey?.startsWith("workspace:") && sameSkill(c))) {
+        const files = await context.db.select().from(skillFiles).where(eq(skillFiles.packageId, skill.packageId));
+        key = workspaceNativeKey(files.map((f) => ({ path: f.path, base64: Buffer.from(f.content).toString("base64") })));
+      }
+      if (key) keys.set(skill.packageId, key);
+    }
+    const key = keys.get(skill.packageId);
+    const nativeIndex = key ? native.findIndex((c) => c.sourceKey === key && sameSkill(c)) : -1;
     if (nativeIndex >= 0) entries[nativeIndex]!.skillId ??= skill.skillId;
-    else entries.push({ name, description: skill.description, source: "dispand", skillId: skill.skillId });
+    else if (!native.some((c) => c.name === name || c.aliases?.includes(name))) entries.push({ name, description: skill.description, source: "dispand", skillId: skill.skillId });
   }
   return { entries, nativeUnavailable, skillsOnly: target?.kind === "codex" };
 });

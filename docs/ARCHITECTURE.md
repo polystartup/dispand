@@ -1472,3 +1472,11 @@ resolves a fallback package namespace through its verified native installation b
 Codex scope collisions share one identity mapping between catalog and input conversion. Global
 action disables, tool retargeting, and skill/package removal narrow live sessions even when a
 tool came only from an explicit conversation selection.
+
+Native command bindings use verified installation source keys, never a matching command name
+alone. The runner annotates catalog entries from its native inventory; the server compares
+those keys with the stored plugin revision or workspace package digest before attaching a
+Dispand skill id. An unrelated native command with the same invocation keeps precedence without
+granting access to the unrelated Dispand package or its tools. Exact Codex catalog identities
+also take precedence over compatibility aliases. Protocol 25 covers command discovery and all
+of these identity fields together; the intermediate commits were not distributed as releases.
