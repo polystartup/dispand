@@ -1,8 +1,8 @@
-import { mcpActionName, type Answer, type ServerToRunner, type SessionStart } from "@dispand/runner-protocol";
+import { mcpActionName, parseRule, type Answer, type ServerToRunner, type SessionStart } from "@dispand/runner-protocol";
 import { and, eq, inArray } from "drizzle-orm";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
-import { runs, stepRuns } from "../db/schema.ts";
+import { agents, runs, stepRuns } from "../db/schema.ts";
 import { usedOnRunner } from "../skills/runner-access.ts";
 import { runnerServers, sessionTooling } from "./tooling.ts";
 import { exposedName } from "../platform/exposed.ts";
@@ -79,6 +79,9 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
   async start(harness: CliHarness, params: StartParams): Promise<boolean> {
     const { runKey, jobMemory, ...start } = params;
     const jobToken = await this.jobToken(params.sessionId);
+    const [stored] = jobToken ? await this.db.select({ rules: agents.cliRules }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId)).innerJoin(agents, and(eq(agents.id, runs.agentId), eq(agents.ownerId, runs.ownerId))).where(eq(stepRuns.sessionId, params.sessionId)) : [];
+    const nativeRules = (stored?.rules ?? []).filter((rule) => rule.cli === harness.kind && parseRule(harness.kind, rule.rule) !== null);
+    const rules = { allow: nativeRules.filter((rule) => rule.decision === "allow").map((rule) => rule.rule).slice(0, 200), deny: nativeRules.filter((rule) => rule.decision === "deny").map((rule) => rule.rule).slice(0, 200) };
     const { unasked, ...tooling } = await this.tooling(params.sessionId, harness.runnerId, this.db, harness.kind);
     const msg: ServerToRunner = {
       type: "session.start",
@@ -89,7 +92,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
         permissionMode: harness.permissionMode,
         ...(harness.model ? { model: harness.model } : {}),
         ...tooling,
-        ...(jobToken ? { jobToken, ...(unasked.length ? { unasked } : {}) } : {}),
+        ...(jobToken ? { jobToken, ...(unasked.length ? { unasked } : {}), ...(rules.allow.length || rules.deny.length ? { rules } : {}) } : {}),
         // The harness's kind and permission mode go together: the procedures only store matching ones.
       } as SessionStart,
     };

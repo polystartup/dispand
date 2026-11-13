@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import { type HarnessEvent, ID, PERMISSION_INPUT, type QuestionPayload, SHORT, TEXT } from "@dispand/runner-protocol";
+import { type HarnessEvent, ID, MAX_CLI_RULE_LENGTH, PERMISSION_INPUT, type QuestionPayload, SHORT, TEXT } from "@dispand/runner-protocol";
 
 /** The hub refuses frames over 1 MiB: an event leaves room for its envelope (seq, session id). */
 export const FRAME_BUDGET = 1024 * 1024 - 4096;
@@ -55,7 +55,7 @@ function payload(p: QuestionPayload, maxBytes: number): QuestionPayload {
   if (p.kind === "confirm-outputs") return { kind: "confirm-outputs", values: values(p.values, maxBytes) };
   if (p.kind === "consult") return { kind: "consult", agentId: protocolString(p.agentId, ID), question: protocolString(p.question, TEXT, maxBytes) };
   const input = cleanJson(p.input, maxBytes);
-  return { kind: "permission", toolName: protocolString(p.toolName, ID), input, canAlwaysAllow: p.canAlwaysAllow };
+  return { kind: "permission", toolName: protocolString(p.toolName, ID), input, canAlwaysAllow: p.canAlwaysAllow, ...(p.remembers === undefined ? {} : { remembers: protocolString(p.remembers, MAX_CLI_RULE_LENGTH, maxBytes) }) };
 }
 
 function clean(e: HarnessEvent, maxBytes: number): HarnessEvent {

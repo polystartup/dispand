@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { id, json, PERMISSION_INPUT, record, short, text } from "./bounds.ts";
+import { id, json, PERMISSION_INPUT, record, short, string, text } from "./bounds.ts";
+import { MAX_CLI_RULE_LENGTH } from "./rules.ts";
 
 /** A value the agent must hand back with `submit_outputs`. */
 export const OutputField = z.object({
@@ -32,6 +33,8 @@ export const QuestionPayload = z.discriminatedUnion("kind", [
     toolName: id(),
     input: json(PERMISSION_INPUT),
     canAlwaysAllow: z.boolean(),
+    /** A runner-checked native rule matching this call, for a server-resolved approval offer. */
+    remembers: string(MAX_CLI_RULE_LENGTH).optional(),
   }),
   z.object({
     kind: z.literal("confirm-outputs"),

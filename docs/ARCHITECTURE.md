@@ -1355,8 +1355,8 @@ its persisted pending tool key, and a native offer through the session's server 
 Claude normalization is shared with the runner; ambiguous aliases offer no remembered grant.
 
 `runner-protocol/rules.ts` defines a pure parser and matcher for Dispand's native CLI rule
-subset. It is a foundation for saved native permissions; no consumer or wire field uses it
-yet. Claude rules cover selected tool names, exact Bash commands, literal-word Bash prefixes
+subset. Both CLI brokers use it for native permission snapshots. Claude rules cover selected
+tool names, exact Bash commands, literal-word Bash prefixes
 and exact WebFetch hostnames. Codex rules cover FileChange, exact shell commands and a proposed
 execpolicy prefix. A Codex prefix additionally requires the identical proposed amendment and
 exactly one command action. Prefixes accept only ASCII literal words separated by spaces or
@@ -1365,7 +1365,7 @@ entire string, including any shell syntax. Rules never become native CLI setting
 expressions, and matching never substitutes for runner roots and denied-file checks. This
 application-specific subset needs no shell parser: it deliberately does not interpret shell
 syntax. The pure helpers emit no telemetry or rule text; operational consumers remain responsible
-for bounded permission outcomes when integrated. This addition changes no session protocol.
+for bounded permission outcomes through the existing session and question events.
 
 Migration 0069 adds `agents.cli_rules`, initially an empty list of CLI, rule and Allow/Deny
 decisions. The owner-only `agents.cliRules` and `agents.removeCliRule` procedures list and
@@ -1374,5 +1374,22 @@ catalog. General agent get/list responses omit the rules. Removal locks the agen
 updates only its rules, so concurrent removals and general agent edits cannot restore a removed
 entry. The agent editor manages this list independently from its Save button and says removal
 takes effect at the next session start. RPC middleware traces outcomes without rule content.
-This storage and management stage does not yet produce rules from approvals or send them to
-sessions; that integration follows separately.
+Approval producers do not yet write native rules; that integration follows separately.
+
+Protocol 21 carries native `rules.allow` and `rules.deny` snapshots (at most 200 each, bounded
+rule strings), only with a Job token. The CLI adapter reads the agent's current entries for the
+session's CLI at each start and resume, dropping unsupported shapes. The brokers parse them
+again into session-local policy; denials win, and boundary checks precede any native allow.
+Claude enforces these through PreToolUse as well as canUseTool, including calls otherwise
+auto-approved by the SDK. Codex checks extra permissions, repeat sandbox requests and edit
+paths before accepting a matching grant. Neither broker installs native wildcard rules or
+execpolicy amendments. Wrapped shell commands, quotes and expansions use exact command rules.
+
+Permission questions can carry a bounded `remembers` candidate checked against their call.
+Only supported addRules suggestions are considered; otherwise a bounded exact command or
+native tool/domain rule is offered as candidate data. The sanitizer preserves it whole or
+refuses the question. An explicit scoped answer can cache that matching rule in this session,
+without writing CLI settings. The server's binding of these candidates to owner approval
+scopes and saved agent rules follows separately. Existing server authorization and telemetry
+for managed MCP approvals are unchanged. `native-permissions.ts` is pure policy code with no
+I/O or content telemetry; the operational paths retain their existing session/question events.

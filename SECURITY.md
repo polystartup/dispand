@@ -746,12 +746,22 @@ win. A scoped answer can add only its question's MCP action to the current sessi
 live permission updates remain intersection-only, and a revocation during an outstanding
 question prevents a late positive answer from repopulating that cache.
 
-The shared native CLI rule matcher is currently unused by sessions. It parses only Dispand's
+The shared native CLI rule matcher parses only Dispand's
 bounded rule subset; prefix matching rejects shell syntax, and exact commands match the entire
 string. A match never overrides runner roots or denied settings files. Parsed rules must not be
 passed to a native CLI's wildcard permission parser or written into its settings.
 
 Saved native CLI rules live on the agent and are exposed only through owner-session list and
 removal procedures, never through general agent responses or Job tools. Removing an entry is
-serialized on the agent row. Once session consumers are integrated, removal affects the next
-session start; running sessions retain their permission snapshot. Rule content is never telemetry.
+serialized on the agent row. Removal affects the next session start or resume; running sessions
+retain their permission snapshot. Rule content is never telemetry.
+
+Protocol 21 accepts native allow/deny snapshots only on starts with a Job token. The server
+and runner drop rules outside the supported CLI-specific subset, and denials win. Claude's
+PreToolUse and canUseTool brokers enforce the boundary before a saved native grant; Codex
+rejects extra sandbox permissions, repeated command requests and denied file paths before
+accepting one. Native rules do not enter CLI settings, execpolicy or network amendments.
+Permission questions carry only matching rule candidates; they grant no server authority by
+themselves. Their metadata is shown whole or rejected, and an explicit scoped answer can
+cache only that matching candidate in the current session. Candidate-to-owner scope binding
+is a separate server integration; the existing managed-tool approval path remains unchanged.

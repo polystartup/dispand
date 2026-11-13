@@ -1,6 +1,7 @@
 // One Codex session: a `codex app-server` of its own, confined by Dispand's permission profile.
 import { join } from "node:path";
-import type { HarnessEvent, QuestionPayload, SessionStart } from "@dispand/runner-protocol";
+import type { CliRuleCall, HarnessEvent, QuestionPayload, SessionStart } from "@dispand/runner-protocol";
+import { nativePermissions, nativeRuleForCall } from "../native-permissions.ts";
 import { codexDenied, codexDeniedEdit, sandboxDenied } from "../boundary.ts";
 import { askChoices, BypassRefused, consult, CONSULT, consultDescription, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "../outcome.ts";
 import { deniedTools, runnerArgumentsAllowed, narrowUnasked, unaskedTools } from "../mcp.ts";
@@ -196,11 +197,15 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   const { names: unasked, servers: agentServers } = unaskedTools(start.mcpServers, deps.jobServer === undefined ? undefined : (deps.unasked ?? []));
 
   const deniedToolsState = deniedTools(start.mcpServers, "codex");
+  const native = nativePermissions("codex", start.jobToken ? start.rules : undefined);
   let permissionsVersion = 0;
 
-  async function approve(payload: Extract<QuestionPayload, { kind: "permission" }>, signal: AbortSignal) {
+  async function approve(payload: Extract<QuestionPayload, { kind: "permission" }>, signal: AbortSignal, call: CliRuleCall) {
+    const remembers = start.jobToken ? nativeRuleForCall(call) : null;
+    if (remembers) payload.remembers = remembers;
     if (!fitsWhole({ type: "question", questionId: "", payload })) return null;
     const answer = await ask(payload, signal);
+    if (remembers) native.remember(remembers, call, answer);
     return answer?.kind === "permission" && answer.decision !== "deny" ? answer.decision : null;
   }
 
@@ -213,13 +218,17 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         // ("retry without sandbox?"); additional permissions widen the profile: neither is asked.
         const extra = p.additionalPermissions && (p.additionalPermissions.network || p.additionalPermissions.fileSystem);
         if (extra) return { decision: "decline" };
+        const call = { cli: "codex" as const, tool: "Shell", command: p.command ?? undefined, proposedExecpolicyAmendment: p.proposedExecpolicyAmendment ?? undefined, commandActions: p.commandActions ?? undefined };
+        const saved = native.decision(call);
+        if (saved === "deny") return { decision: "decline" };
         if (bypass) return { decision: "accept" };
         if (askedCommands.has(key)) return { decision: "decline" };
         // The owner approves only what they see: input for a running terminal (`writeStdin`) or a command Codex doesn't name.
         if (p.kind !== "command" || !p.command) return { decision: "decline" };
         askedCommands.add(key);
+        if (saved === "allow") return { decision: "accept" };
         const input = { command: p.command, cwd: p.cwd ?? "", reason: p.reason ?? "" };
-        const decision = await approve({ kind: "permission", toolName: "Shell", input, canAlwaysAllow: true }, signal);
+        const decision = await approve({ kind: "permission", toolName: "Shell", input, canAlwaysAllow: true }, signal, call);
         // Never an execpolicy or network amendment: they persist rules beyond the session.
         return { decision: decision === "allow-always" ? "acceptForSession" : decision === "allow" ? "accept" : "decline" };
       }
@@ -227,10 +236,14 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         const changes = fileChanges.get(r.params.itemId) ?? [];
         const paths = changes.flatMap((c) => [c.path, ...(c.kind.type === "update" && c.kind.move_path ? [c.kind.move_path] : [])]);
         if (paths.length === 0 || paths.some((path) => codexDeniedEdit(cwd, path, denied))) return { decision: "decline" };
+        const call = { cli: "codex" as const, tool: "FileChange" };
+        const saved = native.decision(call);
+        if (saved === "deny") return { decision: "decline" };
         if (bypass) return { decision: "accept" };
+        if (saved === "allow") return { decision: "accept" };
         const input = { changes: changes.map((c) => ({ path: c.path, kind: c.kind, diff: c.diff })), reason: r.params.reason ?? "" };
         // Each change asks: "for the session" could let later changes skip this check.
-        const decision = await approve({ kind: "permission", toolName: "FileChange", input, canAlwaysAllow: false }, signal);
+        const decision = await approve({ kind: "permission", toolName: "FileChange", input, canAlwaysAllow: false }, signal, call);
         return { decision: decision ? "accept" : "decline" };
       }
       case "item/permissions/requestApproval":

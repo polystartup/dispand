@@ -4,7 +4,7 @@ import { call } from "@orpc/server";
 import { type Answer, parseServerMessage, type ServerToRunner, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING, TEXT } from "@dispand/runner-protocol";
 import { and, eq, or } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { agentTools, agentConsults, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools } from "../db/schema.ts";
+import { agents as agentsTable, agentTools, agentConsults, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { ArgValue } from "../tools/arguments.ts";
@@ -1208,6 +1208,33 @@ async function jobSetup(placement: "chat" | "button" = "button", instructions = 
   );
   return { ...s, trigger };
 }
+
+test("native rules are filtered per CLI on Job starts and re-read after removal on resume", async () => {
+  const { context, harness, agent, trigger } = await jobSetup();
+  await context.db.update(agentsTable).set({ cliRules: [
+    { cli: "claude-code", rule: "Bash(npm test:*)", decision: "allow" },
+    { cli: "claude-code", rule: "Edit", decision: "deny" },
+    { cli: "codex", rule: "FileChange", decision: "deny" },
+    { cli: "claude-code", rule: "Read(//etc/**)", decision: "allow" },
+  ] }).where(eq(agentsTable.id, agent.id));
+  const sent: ServerToRunner[] = [];
+  const adapter = new CliHarnessAdapter(context.db, { send: (_: string, msg: ServerToRunner) => (sent.push(msg), true) } as unknown as RunnerHub, context.secrets);
+  const engine = new Engine(context.db, adapter, undefined, undefined, undefined, context.secrets);
+  onTestFinished(() => engine.stop());
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(() => expect(sent).toHaveLength(1));
+  const first = sent[0] as Extract<ServerToRunner, { type: "session.start" }>;
+  expect(first.start.rules).toEqual({ allow: ["Bash(npm test:*)"], deny: ["Edit"] });
+  await call(router.agents.removeCliRule, { id: agent.id, cli: "claude-code", rule: "Bash(npm test:*)" }, { context });
+  const params = { sessionId: first.start.sessionId, runKey: runId, systemPrompt: "S", prompt: "P", expectedOutputs: [], interactive: false, resumeCliSessionId: "cli-1" };
+  await adapter.start(harness, params);
+  expect(sent[1]).toMatchObject({ start: { rules: { allow: [], deny: ["Edit"] }, resumeCliSessionId: "cli-1" } });
+  await adapter.start({ ...harness, kind: "codex", permissionMode: "default" }, params);
+  expect(sent[2]).toMatchObject({ start: { rules: { allow: [], deny: ["FileChange"] } } });
+  await adapter.start(harness, { ...params, sessionId: "not-a-job" });
+  expect(sent[3]).not.toHaveProperty("start.rules");
+  expect(first.start.rules).toEqual({ allow: ["Bash(npm test:*)"], deny: ["Edit"] });
+});
 
 test("a manual button Job runs the agent and finishes", async () => {
   const { context, adapter, engine, emit, agent, trigger } = await jobSetup();

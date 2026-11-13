@@ -3,12 +3,13 @@ import { id, jsonObject, record, short, string, text } from "./bounds.ts";
 import { Answer, HarnessEvent, OutputField } from "./harness.ts";
 import { PluginOperation, PluginReport } from "./plugins.ts";
 import { isMemoryPath } from "./paths.ts";
+import { MAX_CLI_RULE_LENGTH } from "./rules.ts";
 
 /**
  * Sent by the runner as the `Dispand-Protocol` header when it connects. Bumped by every
  * change a runner of the previous version can't parse or honor; the hub turns older runners away.
  */
-export const PROTOCOL_VERSION = 20;
+export const PROTOCOL_VERSION = 21;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -122,6 +123,8 @@ const StartFields = {
   jobToken: id()
     .regex(/^[A-Za-z0-9_-]+$/)
     .optional(),
+  /** Native CLI rules are session snapshots, only for an authenticated Job. */
+  rules: z.object({ allow: z.array(string(MAX_CLI_RULE_LENGTH)).max(200), deny: z.array(string(MAX_CLI_RULE_LENGTH)).max(200) }).optional(),
   /**
    * With a Job token: the tools of the Job's tools server (`job_tools`) that run without a
    * question, by their name there. The runner makes the CLI's names itself
@@ -158,7 +161,7 @@ export const CodexPermissionMode = z.enum(["default", "bypassPermissions"]);
 export const SessionStart = z.discriminatedUnion("harness", [
   z.object({ ...StartFields, harness: z.literal("claude-code"), permissionMode: ClaudePermissionMode }),
   z.object({ ...StartFields, harness: z.literal("codex"), permissionMode: CodexPermissionMode }),
-]);
+]).refine((start) => !start.rules || !!start.jobToken, "native rules require a Job token");
 export type SessionStart = z.infer<typeof SessionStart>;
 export type ClaudeSessionStart = Extract<SessionStart, { harness: "claude-code" }>;
 
