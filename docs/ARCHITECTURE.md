@@ -1238,7 +1238,14 @@
   definition (prompt, description, bundles, self-learning) with no `plugin_id`, so
   `plugins.update` never rewrites it. Its tables resolve as above, else wait; its skills give it
   the plugin's skill package when one is installed in it; its tools are those already added for
-  the servers and catalog entries it names; its consults name the agents this setup makes before
+  the servers and catalog entries it names, else added by an item placed before the agents: a
+  `tools_add_from_catalog` for an HTTP catalog entry, a `plugins_add_server` for one of the
+  plugin's HTTP servers (also for the servers picked alone). `plugins.addServer` (`plugins/servers.ts`)
+  adds that server through `createTool` with no credentials, only at the URL and transport the
+  owner reviewed (the stored components', else `CONFLICT`), records it in `created` under
+  `server:<name>`, and refuses a stdio server or one whose URL needs a setting (the install sheet
+  adds those). Such a tool reads "needs sign-in" while its listing is refused with a 401 or 403
+  (`signInOf`), until the owner enters its headers or signs in on its page; its consults name the agents this setup makes before
   it (`$item`, ordered so a consulted agent comes first) or those the plugin made earlier. A
   missing skill, tool or consult is listed in `waiting` and the agent is made without it.
   `plugins.update` syncs the marketplace, then replaces the imported skills' files with the

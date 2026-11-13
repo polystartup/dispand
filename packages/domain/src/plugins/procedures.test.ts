@@ -354,8 +354,8 @@ test("plugin-root server not imported; an HTTP server is installed with its sett
   const preview = await call(router.plugins.preview, ref, { context: ctx });
   // Where each HTTP server's settings would go is shown.
   expect(preview.mcpServers).toEqual([
-    { name: "github", type: "http", settings: ["GITHUB_TOKEN"], url: fx.server.url },
-    { name: "tenant", type: "http", settings: ["TENANT"], url: fx.server.url.replace(/\/mcp$/, "/${TENANT}/mcp") },
+    { name: "github", type: "http", settings: ["GITHUB_TOKEN"], url: fx.server.url, transport: "streamable-http" },
+    { name: "tenant", type: "http", settings: ["TENANT"], url: fx.server.url.replace(/\/mcp$/, "/${TENANT}/mcp"), transport: "streamable-http" },
     { name: "fetch", type: "stdio", settings: ["KEY"] },
   ]);
   expect(preview.reviewed).toMatch(/^[0-9a-f]{64}$/);
@@ -378,6 +378,10 @@ test("plugin-root server not imported; an HTTP server is installed with its sett
   expect(JSON.stringify(await call(router.plugins.list, undefined, { context: ctx }))).not.toContain("s3cret");
   const [installed] = await call(router.plugins.list, undefined, { context: ctx });
   expect(installed).toMatchObject({ tools: [{ id: tool!.id, name: "github" }], available: { mcpServers: [{ name: "tenant" }, { name: "fetch" }] } });
+  // A server that needs a setting, or runs on a machine, is added from the plugin's page only.
+  const server = (name: string) => ({ pluginId, server: name, url: fx.server.url, transport: "streamable-http" as const });
+  await expect(call(router.plugins.addServer, server("tenant"), { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "tenant's URL needs a setting: add it from the plugin's page" });
+  await expect(call(router.plugins.addServer, server("fetch"), { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "fetch runs on a runner: add it from the plugin's page" });
 
   // The owner may edit or delete it, the plugin installed: its server is then available again.
   await call(router.tools.update, { id: tool!.id, name: "GitHub" }, { context: ctx });

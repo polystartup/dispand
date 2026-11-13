@@ -159,7 +159,7 @@ export const REAUTHORIZE = "The sign-in to this tool stopped working: re-authori
 export function connectionTarget(db: Db, secrets: SecretBox, row: Row): ToolTarget {
   const target = toolTarget(row, secrets);
   // A catalog tool added before its key: never called without it (some servers answer keyless).
-  if (row.auth !== "oauth" && signInOf(row) === "needed") throw new ToolError(NEEDS_SIGN_IN(row.name));
+  if (row.auth !== "oauth" && row.pluginId === null && signInOf(row) === "needed") throw new ToolError(NEEDS_SIGN_IN(row.name));
   if (row.auth !== "oauth") return target;
   if (row.oauthStatus === "reauthorize") throw new ToolError(REAUTHORIZE);
   if (row.oauthStatus !== "connected") throw new ToolError(`${row.name} isn't connected yet: connect it on its page in Settings → Tools`);
@@ -318,7 +318,7 @@ export async function retarget(db: Db | Tx, row: Row, url: string, transport: To
   return updated;
 }
 
-async function createTool(context: Pick<InitialContext, "db" | "secrets" | "tools"> & { ownerId: string }, input: ToolFields) {
+export async function createTool(context: Pick<InitialContext, "db" | "secrets" | "tools"> & { ownerId: string }, input: ToolFields) {
   const row = await insertTool(context.db, context.secrets, context.ownerId, input);
   // A tool waiting for its sign-in (an OAuth tool, a catalog tool without its key) lists its actions once signed in.
   return view(context.db, row.auth === "oauth" || signInOf(row) === "needed" ? row : await refreshActions(context.db, context.secrets, context.tools, row));

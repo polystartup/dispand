@@ -98,8 +98,10 @@ Status: Prototype
     that stops keeps what it made, and the next one goes on from there: it reuses the tables and
     fields that plugin made before, even renamed, and never takes another table for one by its name.
     Its agents are set up the same way, each on a harness the owner picks: each is a copy, the
-    owner's to change, which an update of the plugin leaves as it is. A tool or skill the plugin's
-    agent names that isn't in the workspace yet is listed, and the agent is made without it.
+    owner's to change, which an update of the plugin leaves as it is. A server of the plugin, or a
+    catalog entry, that an agent names and isn't a tool yet is added first, with no credentials:
+    the owner enters them, or signs in, on the tool's page. A skill it names that isn't installed,
+    or a server that runs on a machine or needs a setting, is listed, and the agent is made without it.
     Nothing else an agent says approves anything. In a chat, the composer then offers
     Approve (or Ctrl/⌘+Enter on an empty message); whatever you type and send instead declines
     the proposal, and the agent is told your words to make a new one.

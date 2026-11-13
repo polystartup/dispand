@@ -169,7 +169,7 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
         const entry = catalogEntry((source.input as { catalogId: string }).catalogId);
         defaults = [...(entry?.unasked ?? [])];
         if (entry?.kind === "http") target = toolPermissionTarget({ kind: "http", url: entry.url, transport: entry.transport });
-      } else if (source?.tool === "tools_add") {
+      } else if (source?.tool === "tools_add" || source?.tool === "plugins_add_server") {
         const fields = source.input as { url: string; transport?: string };
         target = toolPermissionTarget({ kind: "http", url: fields.url, transport: fields.transport ?? "streamable-http" });
       }
@@ -420,7 +420,7 @@ export async function settleProposal(db: Db | Tx, questionId: string, approved: 
     .where(and(eq(proposals.questionId, questionId), eq(proposals.status, "asked")));
 }
 
-export type ProposalName = { kind: "agent" | "harness" | "tool" | "skill" | "table" | "field" | "trigger" | "catalog"; name: string; detail?: string };
+export type ProposalName = { kind: "agent" | "harness" | "tool" | "skill" | "table" | "field" | "trigger" | "catalog" | "plugin"; name: string; detail?: string };
 
 /**
  * For each tool that can be proposed: the keys of its input that hold ids, and of what. Only
@@ -443,6 +443,7 @@ const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
   triggers_delete: { id: "trigger" },
   tools_delete: { id: "tool" },
   tools_add_from_catalog: { catalogId: "catalog" },
+  plugins_add_server: { pluginId: "plugin" },
 };
 
 /** What each creating tool creates (its output's `id`): what `{ "$item": n }` may name, and how a reference reads: "the table item 2 creates". */
@@ -453,6 +454,7 @@ export const CREATES: Record<string, (typeof CREATED_KINDS)[number]> = {
   triggers_create: "trigger",
   tools_add: "tool",
   tools_add_from_catalog: "tool",
+  plugins_add_server: "tool",
 };
 const createsOf = (tool: string): (typeof CREATED_KINDS)[number] | undefined => CREATES[tool];
 
@@ -534,6 +536,11 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
     "tool",
     (w) => db.select({ id: toolsTable.id, name: toolsTable.name, kind: toolsTable.kind, url: toolsTable.url }).from(toolsTable).where(and(inArray(toolsTable.id, w), eq(toolsTable.ownerId, ownerId))),
     (r) => ({ name: r.name, detail: r.kind === "http" ? (r.url ?? "") : "on a runner" }),
+  );
+  await found(
+    "plugin",
+    (w) => db.select({ id: plugins.id, name: plugins.name }).from(plugins).where(and(inArray(plugins.id, w), eq(plugins.ownerId, ownerId))),
+    (r) => ({ name: r.name }),
   );
   await found(
     "skill",

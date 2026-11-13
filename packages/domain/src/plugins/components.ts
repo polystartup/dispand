@@ -1,6 +1,6 @@
 import { ORPCError } from "@orpc/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import type { Tx } from "../db/client.ts";
+import type { Db, Tx } from "../db/client.ts";
 import { agents, skillPackages, tools } from "../db/schema.ts";
 import { Headers, Url, type ToolFields } from "../tools/procedures.ts";
 import type { PluginMcpServer } from "./read-plugin.ts";
@@ -87,7 +87,7 @@ export function httpTool(server: Extract<PluginMcpServer, { type: "http" }>, val
 }
 
 /** The server's name for its tool, or `<plugin>-<server>` when the owner already has a tool called so. */
-export async function toolName(tx: Tx, ownerId: string, server: string, plugin: string): Promise<string> {
+export async function toolName(tx: Db | Tx, ownerId: string, server: string, plugin: string): Promise<string> {
   const base = server.trim() || "server";
   const candidates = [cut(base, 100), cut(`${plugin}-${base}`, 100)];
   const taken = await tx
