@@ -65,7 +65,7 @@ function SettingsForm({ agent, onSaved }: { agent: Agent; onSaved: () => void })
     },
   });
   return (
-    <form className="min-h-0 space-y-4 overflow-y-auto px-6 pb-6" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+    <form className="min-h-0 space-y-4 overflow-y-auto px-6 pb-6" onSubmit={(e) => { e.preventDefault(); e.stopPropagation(); save.mutate(); }}>
       <Input aria-label="Find a model" placeholder="Find a model…" value={search} onChange={(e) => setSearch(e.target.value)} />
       <div className="space-y-4">
         {harnesses.data?.map((h) => <HarnessModels key={h.id} harness={h} search={search} selected={harnessId === h.id ? model : undefined} disabled={save.isPending} onSelect={(next) => { setHarnessId(h.id); setModel(next); }} />)}

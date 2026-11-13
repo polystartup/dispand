@@ -113,6 +113,7 @@ test("Assistant settings changes the harness and model, preserves other edits, a
   fake.agents.get.mockImplementation(async () => ({ ...agent }));
   fake.agents.update.mockImplementation(async (fields) => { Object.assign(agent, fields, { model: fields.model }); return agent; });
   const { user } = mount();
+  await user.type(await screen.findByRole("textbox", { name: "Message", exact: true }), "Keep this draft");
   await user.click(await screen.findByRole("button", { name: "Assistant settings" }));
   let sheet = await screen.findByRole("dialog");
   expect((await within(sheet).findByLabelText("Model") as HTMLInputElement).value).toBe("sonnet");
@@ -124,6 +125,8 @@ test("Assistant settings changes the harness and model, preserves other edits, a
   agent.systemPrompt = "Updated elsewhere";
   await user.click(within(sheet).getByRole("button", { name: "Save settings" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(fake.jobs.start).not.toHaveBeenCalled();
+  expect((screen.getByRole("textbox", { name: "Message", exact: true }) as HTMLTextAreaElement).value).toBe("Keep this draft");
   expect(fake.agents.update.mock.calls[0]![0]).toEqual({ id: "agent_a", name: "Assistant", harnessId: "h2", model: "codex-model", systemPrompt: "Updated elsewhere", skillPackageIds: ["platform"], toolIds: ["explicit"] });
 
   await user.click(screen.getByRole("button", { name: "Assistant settings" }));
@@ -283,7 +286,8 @@ test("model search groups provider choices, saves the chosen harness and support
   fake.agents.get.mockResolvedValue({ id: "agent_a", name: "Assistant", harnessId: "h2", systemPrompt: "", skills: [], tools: [] });
   fake.agents.update.mockResolvedValue({});
   const { user } = mount();
-  await user.click(await screen.findByRole("button", { name: "Assistant settings" }));
+  await user.click(await screen.findByRole("button", { name: "Full page", exact: true }));
+  await user.click(screen.getByRole("button", { name: "Assistant settings" }));
   const search = await screen.findByRole("textbox", { name: "Find a model" });
   await user.type(search, "fast");
   await user.click(await screen.findByRole("button", { name: "Fast model" }));
@@ -291,5 +295,9 @@ test("model search groups provider choices, saves the chosen harness and support
   expect(screen.getByRole("button", { name: "Fast model" }).getAttribute("aria-pressed")).toBe("true");
   await user.click(screen.getByRole("button", { name: "Save settings" }));
   await waitFor(() => expect(fake.agents.update).toHaveBeenCalledWith(expect.objectContaining({ harnessId: "h1", model: "fast" })));
+  await user.click(screen.getByRole("button", { name: "Assistant settings" }));
+  await screen.findByRole("dialog");
+  await user.keyboard("{Escape}");
+  expect(screen.getByRole("button", { name: "Exit full page" })).toBeDefined();
   expect(fake.harnesses.models.mock.calls.every(([input]) => input.harnessId === "h1")).toBe(true);
 });

@@ -319,20 +319,20 @@ test("Assistant settings selects the next conversation's harness and model; chat
     settingsRunner.emit(start.sessionId, { type: "text", delta: "Using your selected settings." });
     await expect(chat.getByText("Using your selected settings.")).toBeVisible();
 
-    await page.getByRole("button", { name: "Full page", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Exit full page" })).toBeVisible();
-    for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
-      await page.setViewportSize(viewport);
-      await expect(chat.getByRole("textbox", { name: "Message", exact: true })).toBeInViewport();
-      const bounds = (await chat.boundingBox())!;
-      expect(bounds.x + bounds.width).toBeGreaterThan(viewport.width - 30);
-      expect(bounds.y + bounds.height).toBeGreaterThan(viewport.height - 30);
-      expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
-      expect(bounds.height).toBeGreaterThan(viewport.height * 0.5);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
-      await page.screenshot({ path: testInfo.outputPath(`assistant-${viewport.width}.png`) });
+    for (const expanded of [false, true]) {
+      if (expanded) await page.getByRole("button", { name: "Full page", exact: true }).click();
+      for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+        await page.setViewportSize(viewport);
+        await expect(chat.getByRole("textbox", { name: "Message", exact: true })).toBeInViewport();
+        const bounds = (await chat.boundingBox())!;
+        expect(bounds.x + bounds.width).toBeGreaterThan(viewport.width - 30);
+        expect(bounds.y + bounds.height).toBeGreaterThan(viewport.height - 30);
+        expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
+        expect(bounds.height).toBeGreaterThan(viewport.height * 0.5);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
+        await page.screenshot({ path: testInfo.outputPath(`assistant-${expanded ? "full" : "normal"}-${viewport.width}.png`) });
+      }
     }
-
     await page.getByRole("button", { name: "Exit full page" }).click();
     await page.reload();
     await page.getByRole("button", { name: "Assistant settings" }).click();

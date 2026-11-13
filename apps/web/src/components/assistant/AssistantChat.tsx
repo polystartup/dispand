@@ -42,7 +42,7 @@ function Conversation({ triggerId, agentId, reviewTriggerId, run, onOpen }: { tr
   const [expanded, setExpanded] = useState(false);
   useEffect(() => {
     if (!expanded) return;
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setExpanded(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.defaultPrevented) setExpanded(false); };
     window.addEventListener("keydown", escape);
     return () => window.removeEventListener("keydown", escape);
   }, [expanded]);
