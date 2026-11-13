@@ -286,7 +286,7 @@ test.each(["run", "ask", "off"] as const)("workspace availability masks and rest
   await call(router.tools.setActionEnabled, { toolId: tool.id, action: "echo", enabled: false }, { context });
   await expect(call(router.agents.setToolPermission, { agentId: agent.id, toolId: tool.id, action: "echo", permission: "run" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   // Missing actions stay disabled through discovery changes and changes to another checkbox.
-  const next = { name: "new_read", description: "", inputSchema: {}, readOnly: true };
+  const next = { name: "new_read", description: "", inputSchema: {}, readOnly: true as const };
   await context.db.update(tools).set({ actions: [next] }).where(eq(tools.id, tool.id));
   await call(router.tools.setActionEnabled, { toolId: tool.id, action: next.name, enabled: false }, { context });
   await call(router.tools.setActionEnabled, { toolId: tool.id, action: next.name, enabled: true }, { context });

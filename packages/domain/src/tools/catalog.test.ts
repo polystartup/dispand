@@ -110,7 +110,7 @@ test("catalog disabled defaults combine entry and action declarations and exclud
     const { context } = await setup();
     const result = await call(router.tools.addFromCatalog, { catalogId: "github" }, { context });
     expect(result).toMatchObject({ disabled: ["get_me"] });
-    expect(defaultUnasked({ ...result, actions: [{ name: "get_me", description: "", inputSchema: {}, readOnly: true }] })).not.toContain("get_me");
+    expect(defaultUnasked({ ...result, actions: [{ name: "get_me", readOnly: true }] })).not.toContain("get_me");
   } finally {
     entry.disabled = before;
   }

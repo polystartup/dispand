@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Locator } from "@playwright/test";
 import { startFakeMcp, type FakeMcp } from "../../../packages/domain/src/tools/test-server.ts";
 import { FakeRunner } from "./fake-runner.ts";
 
@@ -12,13 +12,14 @@ async function signIn(page: Page) {
   await expect(page).toHaveURL(/\/$/);
 }
 
-async function shots(page: Page, name: string) {
+async function shots(page: Page, name: string, focus?: Locator) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.screenshot({ path: test.info().outputPath(`${name}-light.png`), animations: "disabled" });
   await page.emulateMedia({ colorScheme: "dark" });
   await page.waitForTimeout(500);
   await page.screenshot({ path: test.info().outputPath(`${name}-dark.png`), animations: "disabled" });
   await page.setViewportSize({ width: 360, height: 780 });
+  await focus?.scrollIntoViewIfNeeded();
   await page.screenshot({ path: test.info().outputPath(`${name}-phone-dark.png`), animations: "disabled" });
   await page.emulateMedia({ colorScheme: "light" });
   await page.waitForTimeout(500);
@@ -189,29 +190,6 @@ test("an agent gets a skill with its tool locked, and another tool; neither tool
   await expect(ask).toBeChecked();
   await shots(page, "agent-action-ask");
 
-  // Workspace availability hides the action everywhere while preserving this agent's Ask.
-  await page.goto("/settings/tools");
-  await page.getByRole("button", { name: /^Search/ }).click();
-  const globalEnable = page.getByRole("checkbox", { name: /^Enable Search .* workspace-wide$/ });
-  await globalEnable.click();
-  await expect(globalEnable).not.toBeChecked();
-  await page.reload();
-  await page.getByRole("button", { name: /^Search/ }).click();
-  await expect(globalEnable).not.toBeChecked();
-  await shots(page, "workspace-action-off");
-  await page.goto("/settings/agents");
-  await page.getByRole("link", { name: /Writer/ }).click();
-  await expect(chosen).toContainText("No actions listed.");
-  await expect(chosen.getByRole("checkbox", { name: /^Enable Search / })).toHaveCount(0);
-  await page.goto("/settings/tools");
-  await page.getByRole("button", { name: /^Search/ }).click();
-  await globalEnable.click();
-  await expect(globalEnable).toBeChecked();
-  await page.goto("/settings/agents");
-  await page.getByRole("link", { name: /Writer/ }).click();
-  await chosen.getByText("1 action, 1 asks before use").click();
-  await expect(ask).toBeChecked();
-
   await page.goto("/settings/tools");
   await page.getByRole("button", { name: /^Notes/ }).click();
   await page.getByRole("button", { name: "Delete" }).click();
@@ -269,4 +247,39 @@ test("a catalog runner entry becomes a runner tool once a runner reports it; its
     for (const t of tools.filter((t) => t.kind === "runner")) await rpc(page, "tools/delete", { id: t.id });
     await rpc(page, "runners/revoke", { runnerId });
   }
+});
+
+test("workspace action availability survives reload and preserves an agent's saved Ask", async ({ page }) => {
+  server ??= await startFakeMcp([{ name: "append_note" }]);
+  await signIn(page);
+  const search = await rpc<{ id: string }>(page, "tools/create", { name: "Search", url: server.url, transport: "streamable-http", headers: {} });
+  const agents = await rpc<{ name: string; harnessId: string }[]>(page, "agents/list");
+  const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Workspace checker", harnessId: agents.find((a) => a.name === "Writer")!.harnessId, systemPrompt: "", toolIds: [search.id], toolPermissions: [{ toolId: search.id, unasked: [] }] });
+  const chosen = page.getByRole("region", { name: "Tools" }).getByRole("listitem").filter({ hasText: "Search" });
+  const ask = chosen.getByRole("switch", { name: /^Ask before Search / });
+  // The global checkbox persists and hides the action from the agent.
+  await page.goto("/settings/tools");
+  await page.getByRole("button", { name: /^Search/ }).click();
+  const globalEnable = page.getByRole("checkbox", { name: /^Enable Search .* workspace-wide$/ });
+  await globalEnable.click();
+  await expect(globalEnable).not.toBeChecked();
+  await page.reload();
+  await page.getByRole("button", { name: /^Search/ }).click();
+  await expect(globalEnable).not.toBeChecked();
+  await shots(page, "workspace-action-off", globalEnable);
+  await page.goto("/settings/agents");
+  await page.getByRole("link", { name: /Workspace checker/ }).click();
+  await expect(chosen).toContainText("No actions listed.");
+  await expect(chosen.getByRole("checkbox", { name: /^Enable Search / })).toHaveCount(0);
+  await page.goto("/settings/tools");
+  await page.getByRole("button", { name: /^Search/ }).click();
+  await globalEnable.click();
+  await expect(globalEnable).toBeChecked();
+  await page.goto("/settings/agents");
+  await page.getByRole("link", { name: /Workspace checker/ }).click();
+  await chosen.getByText("1 action, 1 asks before use").click();
+  await expect(ask).toBeChecked();
+
+  await rpc(page, "agents/delete", { id: agent.id });
+  await rpc(page, "tools/delete", { id: search.id });
 });

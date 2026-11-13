@@ -247,12 +247,6 @@ export const CATALOG: readonly CatalogEntry[] = [
 /** The catalog entry a tool was installed from, if it is still in the catalog. */
 export const catalogEntry = (catalogId: string | null | undefined) => (catalogId ? CATALOG.find((e) => e.id === catalogId) : undefined);
 
-/**
- * The actions that run unasked when a person gives the tool to an agent: for a tool from the
- * catalog, its entry's choice alone (an action the entry doesn't name asks, whatever its server
- * says); for any other tool, the ones its server calls read-only. Read only then: later, neither
- * changes anything by itself.
- */
 /** Workspace-wide defaults declared by a catalog entry, including its action flags. */
 export function defaultDisabled(entry: { disabled?: string[]; actions?: { name: string; disabled?: true }[] }): string[] {
   return [...new Set([...(entry.disabled ?? []), ...(entry.actions ?? []).flatMap((a) => a.disabled ? [a.name] : [])])];
@@ -263,6 +257,12 @@ export function enabledActions<T extends { name: string }>(tool: { actions: T[];
   return tool.actions.filter((a) => !tool.disabled?.includes(a.name));
 }
 
+/**
+ * The actions that run unasked when a person gives the tool to an agent: for a tool from the
+ * catalog, its entry's choice alone (an action the entry doesn't name asks, whatever its server
+ * says); for any other tool, the ones its server calls read-only. Read only then: later, neither
+ * changes anything by itself.
+ */
 export function defaultUnasked(tool: { catalogId: string | null; actions: { name: string; readOnly?: boolean }[]; disabled?: string[] }): string[] {
   const entry = catalogEntry(tool.catalogId);
   if (entry?.kind === "runner") return [...(entry.unasked ?? [])].filter((name) => !tool.disabled?.includes(name));
