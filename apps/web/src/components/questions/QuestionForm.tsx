@@ -330,8 +330,7 @@ function Confirm({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { ki
   const entries = Object.entries(payload.values);
   return (
     <div className="flex flex-col gap-3">
-      {/* A chat that hands nothing back ends with this: there is no list to show, so it asks to end. */}
-      <p className="text-[15px]">{entries.length === 0 ? "The agent says it is done and has nothing to hand back. End this chat?" : "The agent has what it needs. Go ahead with these?"}</p>
+      <p className="text-[15px]">The agent has what it needs. Go ahead with these?</p>
       {entries.length > 0 && (
         <dl className="divide-y divide-line overflow-hidden rounded-xl bg-hover text-[14px]">
           {entries.map(([k, v]) => (

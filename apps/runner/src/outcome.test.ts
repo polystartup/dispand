@@ -1,6 +1,27 @@
-import type { Answer, QuestionPayload } from "@dispand/runner-protocol";
-import { expect, test } from "vitest";
-import { requestApproval } from "./outcome.ts";
+import type { Answer, HarnessEvent, QuestionPayload } from "@dispand/runner-protocol";
+import { expect, test, vi } from "vitest";
+import { requestApproval, sessionOutcome } from "./outcome.ts";
+
+test("a chat with no expected outputs accepts completion without asking the owner", async () => {
+  const events: HarnessEvent[] = [];
+  const ask = vi.fn();
+  const finish = vi.fn();
+  const outcome = sessionOutcome({ interactive: true, expectedOutputs: [] }, { emit: (event) => events.push(event), ask, finish, say: vi.fn() });
+  expect(await outcome.submit({}, new AbortController().signal)).toBe("confirmed");
+  expect(ask).not.toHaveBeenCalled();
+  expect(events).toEqual([{ type: "outputs-accepted", values: {} }]);
+  outcome.turnEnded({ text: "Done.", interrupted: false, queued: false });
+  expect(finish).toHaveBeenCalledWith({ type: "result", text: "Done." });
+});
+
+test("a workflow chat with outputs still asks for confirmation", async () => {
+  const ask = vi.fn().mockResolvedValue({ kind: "confirm-outputs", confirmed: true });
+  const emit = vi.fn();
+  const outcome = sessionOutcome({ interactive: true, expectedOutputs: [{ name: "summary", type: "string" }] }, { emit, ask, finish: vi.fn(), say: vi.fn() });
+  await outcome.submit({ summary: "Ready." }, new AbortController().signal);
+  expect(ask).toHaveBeenCalledWith({ kind: "confirm-outputs", values: { summary: "Ready." } }, expect.any(AbortSignal));
+  expect(emit).toHaveBeenCalledWith({ type: "outputs-accepted", values: { summary: "Ready." } });
+});
 
 const asking = () => {
   const asked: QuestionPayload[] = [];
