@@ -4,8 +4,9 @@
 #   curl -fsSL https://<server>/runner/install.sh | DISPAND_PAIRING_CODE=<code> sh -s -- --server https://<server>
 # Update an installed runner in place (Settings shows it for outdated runners):
 #   curl -fsSL https://<server>/runner/install.sh | sh -s -- --update
-# It replaces the code and the unit, keeps config.json (server, roots, token) untouched, and restarts the unit.
-# Options: --root <dir> (default ~/dispand): where sessions may work. The pairing code comes
+# It replaces the code and unit, preserves config.json unless --native-plugins is selected, and restarts the unit.
+# Options: --native-plugins enables approved native plugin installations on this machine.
+# --root <dir> (default ~/dispand): where sessions may work. The pairing code comes
 # from the environment, never the command line (which other local users can read). Everything
 # that can fail on this machine is done before the single-use code is spent; running it again
 # after a failure resumes without pairing again if this server's token is already saved (to
@@ -19,11 +20,13 @@ unset DISPAND_PAIRING_CODE
 server=""
 root="$HOME/dispand"
 update=""
+native_plugins=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --server) server="${2:-}"; shift 2 ;;
     --root) root="${2:-}"; shift 2 ;;
     --update) update=1; shift ;;
+    --native-plugins) native_plugins=1; shift ;;
     *) echo "install.sh: unknown option $1" >&2; exit 2 ;;
   esac
 done
@@ -169,6 +172,11 @@ else
   DISPAND_PAIRING_CODE="$code" "$node_bin" "$dest/main.mjs" pair --config "$config_dir" --server "$server" --root "$root"
 fi
 code=""
+
+# Local authorization only: ordinary web-triggered updates never turn this capability on.
+if [ -n "$native_plugins" ]; then
+  "$node_bin" "$dest/main.mjs" native-plugins --config "$config_dir"
+fi
 
 systemctl --user daemon-reload
 systemctl --user enable dispand-runner.service

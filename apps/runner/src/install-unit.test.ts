@@ -29,8 +29,14 @@ async function machine(managerConfig: string | null, opts: { failEnable?: boolea
   await mkdir(bundle, { recursive: true });
   await writeFile(
     join(bundle, "main.mjs"),
-    `import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+    `import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
+if (args[0] === "native-plugins") {
+ const dir = args[args.indexOf("--config") + 1];
+ const path = dir + "/config.json";
+ writeFileSync(path, JSON.stringify({ ...JSON.parse(readFileSync(path, "utf8")), pluginTargets: "managed" }));
+ process.exit(0);
+}
 appendFileSync(${JSON.stringify(join(base, "pairs"))}, JSON.stringify({ args, code: process.env.DISPAND_PAIRING_CODE }) + "\\n");
 const at = (flag) => args[args.indexOf(flag) + 1];
 mkdirSync(at("--config"), { recursive: true });
@@ -200,4 +206,18 @@ test("install --update keeps the unit's CLAUDE_CONFIG_DIR and CODEX_HOME when it
   expect(unit).toContain(`Environment="CLAUDE_CONFIG_DIR=${join(base, "claude")}"`);
   expect(unit).toContain(`Environment="CODEX_HOME=${join(base, "codex")}"`);
   expect(unit.match(/CODEX_HOME/g)).toHaveLength(1);
+});
+
+
+test("native plugins require the local installer option and stay enabled through ordinary updates", async () => {
+  const m = await machine(null);
+  await m.run();
+  const path = join(m.shellConfig, "dispand-runner", "config.json");
+  expect(JSON.parse(await readFile(path, "utf8")).pluginTargets).toBeUndefined();
+  await m.run({}, ["--update", "--native-plugins"]);
+  const enabled = await readFile(path, "utf8");
+  expect(JSON.parse(enabled).pluginTargets).toBe("managed");
+  await m.run({ DISPAND_PAIRING_CODE: undefined }, ["--update"]);
+  expect(await readFile(path, "utf8")).toBe(enabled);
+  expect(await m.pairs()).toHaveLength(1);
 });

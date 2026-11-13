@@ -26,14 +26,14 @@ export function NativeTargetPicker({ harnesses, runners, selected, onChange }: {
   return (
     <fieldset className="space-y-2">
       <legend className="text-[13px] font-medium">Install on runner / harness pairs</legend>
-      {pairs.length === 0 && <p className="text-[13px] text-muted">Add a CLI harness and enable native management on its runner first.</p>}
+      {pairs.length === 0 && <p className="text-[13px] text-muted">Add a CLI harness and enable native plugin support on its runner first.</p>}
       {pairs.map((h) => {
         const index = runners.findIndex((r) => r.id === h.runnerId);
         const runner = runners[index];
         const report = reports[index];
         const target = report?.data?.targets?.find((t) => t.harness === h.kind);
         const enabled = runner?.status === "online" && !report?.data?.error && target?.available && target.add;
-        const reason = runner?.status !== "online" ? "Runner offline" : report?.isPending ? "Reading native capabilities…" : enabled ? "Whole native plugin" : "Native installation unavailable; check the runner's local Skillshare configuration";
+        const reason = runner?.status !== "online" ? "Runner offline" : report?.isPending ? "Reading native capabilities…" : enabled ? "Whole native plugin" : "Native installation unavailable; enable native plugin support on this runner and check that the CLI account is available";
         return (
           <label key={`${h.runnerId}/${h.kind}`} className="flex items-start gap-2 text-[13px]">
             <input type="checkbox" className="mt-1" checked={selected.has(h.id)} disabled={!enabled} onChange={() => onChange(h.id)} />
@@ -75,7 +75,7 @@ export function NativePluginAction({ harnessId, resource, name, action, onDone, 
       {action === "remove" && <p className="text-[13px] text-muted">Uninstall removes the whole native plugin from this runner / harness pair. Its workspace skills, tools and agents stay available.</p>}
       {preview.isPending && <p className="text-[13px] text-muted">Preparing native preview…</p>}
       {preview.data?.changes && !apply.isSuccess && <ul className="text-[13px]">{preview.data.changes.map((c, i) => <li key={i}>{c.harness ?? "Plugin"}: {c.action.replaceAll("_", " ")}</li>)}</ul>}
-      {preview.data?.blocked && <p role="alert" className="text-[13px] text-danger">Skillshare blocked this change. Refresh inventory and inspect its local configuration before trying again.</p>}
+      {preview.data?.blocked && <p role="alert" className="text-[13px] text-danger">Skillshare blocked this change. Refresh inventory and check the runner’s native account configuration before trying again.</p>}
       {(preview.data?.error || result?.error || error) && <p role="alert" className="text-[13px] text-danger">{result?.error ?? preview.data?.error ?? refusal(error, "Native operation failed. Refresh inventory before retrying; some changes may have completed.")}</p>}
       {result?.results && <ul aria-label="Native results" className="text-[13px]">{result.results.map((r, i) => <li key={i}>{r.harness ?? "Plugin"}: {r.status.replaceAll("_", " ")}</li>)}</ul>}
       {apply.isSuccess && !result?.error && <p role="status" className="text-[13px]">Native operation completed. Reload the harness and complete any native authentication or trust prompts.</p>}

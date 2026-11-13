@@ -235,3 +235,12 @@ test("Skillshare config, receipts and sources stay outside every runner root", a
     expect(() => loadConfig(path, env, dir)).toThrow(/skillshare/);
   }
 });
+
+
+test("runner executables including bundled Skillshare stay outside session roots", async () => {
+  const path = await configWith("https://dispand.test");
+  const packaged = machineConfigPaths("/cfg", {}, "/users/test").find((p) => p.endsWith("/dist/dispand-runner/"))!;
+  expect(packaged).toBeTruthy();
+  await writeFile(path, JSON.stringify({ server: "https://dispand.test", roots: [join(packaged, "bin")] }));
+  expect(() => loadConfig(path)).toThrow(/dispand-runner/);
+});

@@ -8,6 +8,7 @@
   "include": [
     "src",
     "build.ts",
+    "skillshare-release.ts",
     "vitest.config.ts"
   ]
 }

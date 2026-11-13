@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { build } from "esbuild";
+import { bundleSkillshare, SKILLSHARE_RELEASES, SKILLSHARE_VERSION, type SkillshareArch } from "./skillshare-release.ts";
 
 rmSync("dist", { recursive: true, force: true });
 await build({
@@ -18,12 +19,14 @@ await build({
   banner: { js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' },
   logLevel: "warning",
 });
+// The Linux runner supports x86-64 and ARM64. Keep both in its platform-independent package.
+await Promise.all((Object.keys(SKILLSHARE_RELEASES) as SkillshareArch[]).map((arch) => bundleSkillshare(`dist/dispand-runner/bin/linux-${arch}`, arch)));
 // Identity of the actual code and installer, including dependency changes between releases.
 const files = ["dist/dispand-runner/main.mjs", "install/install.sh", "install/dispand-runner.service"];
-const hash = createHash("sha256");
+const hash = createHash("sha256").update(JSON.stringify(SKILLSHARE_RELEASES));
 for (const file of files) hash.update(readFileSync(file));
 const buildId = hash.digest("hex");
-writeFileSync("dist/dispand-runner/build.json", JSON.stringify({ buildId }));
+writeFileSync("dist/dispand-runner/build.json", JSON.stringify({ buildId, skillshareVersion: SKILLSHARE_VERSION }));
 copyFileSync("install/dispand-runner.service", "dist/dispand-runner/dispand-runner.service");
 execFileSync("tar", ["-czf", "dist/dispand-runner.tgz", "-C", "dist", "dispand-runner"]);
 

@@ -16,11 +16,14 @@ import { protocolString } from "./sanitize.ts";
 import { atLeast, MIN_CLAUDE, Sessions } from "./sessions.ts";
 import { codexRequired, codexStatus } from "./codex/version.ts";
 import { NativePlugins } from "./plugins.ts";
+import { prepareSkillshare } from "./skillshare.ts";
 import { shutdown } from "./shutdown.ts";
+import { writeDurable } from "./durable.ts";
 
 const USAGE = `Usage:
   DISPAND_PAIRING_CODE=<code> dispand-runner pair [--config <dir>] --server <url> --root <dir> [--root <dir>...]
-  dispand-runner run [--config <dir>]`;
+  dispand-runner run [--config <dir>]
+  dispand-runner native-plugins [--config <dir>]`;
 
 function fail(message: string): never {
   console.error(`dispand-runner: ${message}`);
@@ -164,7 +167,8 @@ async function run(args: string[]) {
     ).finally(() => calling.delete(tool));
   };
 
-  const plugins = new NativePlugins(config.pluginTargets ?? {}, env);
+  const native = prepareSkillshare(dir, config.pluginTargets, env);
+  const plugins = new NativePlugins(native.targets, native.env);
   const conn: Connection = new Connection({
     server: config.server,
     token,
@@ -217,4 +221,12 @@ async function run(args: string[]) {
 const [command, ...rest] = process.argv.slice(2);
 if (command === "pair") await pair(rest);
 else if (command === "run") await run(rest);
+else if (command === "native-plugins") {
+  const { values } = parseArgs({ args: rest, options: { config: { type: "string" } } });
+  const dir = values.config ? resolve(values.config) : configDir();
+  const path = join(dir, "config.json");
+  const config = loadConfig(path, codexEnv(claudeEnv()));
+  writeDurable(path, `${JSON.stringify({ ...config, pluginTargets: "managed" }, null, 2)}\n`);
+  console.log("Native plugin support enabled; restart the runner to use it. Each installation requires approval in Dispand.");
+}
 else fail(USAGE);
