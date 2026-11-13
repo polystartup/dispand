@@ -1321,3 +1321,12 @@ an agent update cannot use a frozen grant to restore an action that is currently
 The permission write is `agents_set_tool_permission` with `permission: run | ask | off`, replacing
 the earlier `agents_set_tool_ask` boolean input. Pending proposals using the earlier tool name
 must be proposed again; their grants are not translated implicitly.
+
+Workspace-wide tool availability lives in `tools.disabled`, separate from each agent's
+Run/Ask/Off lists. Catalog defaults seed it at installation; discovery never replaces it.
+`tools.setActionEnabled` is owner-only and excluded from Job tools. Tooling filters disabled
+names before producing cloud specs, the Job endpoint, and runner permissions. Disabling
+fans out to live Job and workflow sessions, including skill-only holders. Tool executors
+re-read availability for cached calls, and poll validation reports disabled actions without
+calling them. Availability changes increment the permission revision used by frozen setup
+proposals. Re-enabling preserves per-agent settings; native sessions remain monotonic.

@@ -8,7 +8,7 @@ import { BUNDLES, type TableScope } from "../platform/bundles.ts";
 import { ModelName } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
-import { defaultUnasked } from "../tools/catalog.ts";
+import { enabledActions, defaultUnasked } from "../tools/catalog.ts";
 import { StorableText } from "../workflows/model.ts";
 import { agentInUse } from "../workflows/procedures.ts";
 import { assistantGuard, ensureAssistant, findAssistant } from "./builtin.ts";
@@ -138,7 +138,7 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
   if (pkgs.length !== packageIds.length) throw new ORPCError("NOT_FOUND", { message: "Skill not found" });
   const found = toolIds.length
     ? await tx
-        .select({ id: toolsTable.id, actions: toolsTable.actions, catalogId: toolsTable.catalogId, kind: toolsTable.kind, url: toolsTable.url, urlSealed: toolsTable.urlSealed, transport: toolsTable.transport, runnerId: toolsTable.runnerId, runnerTool: toolsTable.runnerTool, permissionRevision: toolsTable.permissionRevision })
+        .select({ id: toolsTable.id, actions: toolsTable.actions, catalogId: toolsTable.catalogId, kind: toolsTable.kind, url: toolsTable.url, urlSealed: toolsTable.urlSealed, transport: toolsTable.transport, runnerId: toolsTable.runnerId, runnerTool: toolsTable.runnerTool, permissionRevision: toolsTable.permissionRevision, disabled: toolsTable.disabled })
         .from(toolsTable)
         .where(and(inArray(toolsTable.id, toolIds), eq(toolsTable.ownerId, ownerId)))
         .for("share")
@@ -166,7 +166,11 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
     await tx.insert(agentTools).values(
       toolIds.map((toolId) => {
         const denied = kept.get(toolId)?.denied ?? [];
-        const unasked = permissions.find((p) => p.toolId === toolId)?.unasked ?? kept.get(toolId)?.unasked ?? defaultUnasked(found.find((t) => t.id === toolId)!);
+        const tool = found.find((t) => t.id === toolId)!;
+        const requested = permissions.find((p) => p.toolId === toolId)?.unasked;
+        if (requested?.some((action) => tool.disabled.includes(action))) throw new ORPCError("BAD_REQUEST", { message: "An action is disabled workspace-wide" });
+        const latent = (kept.get(toolId)?.unasked ?? []).filter((action) => tool.disabled.includes(action));
+        const unasked = requested ? [...new Set([...requested, ...latent])] : kept.get(toolId)?.unasked ?? defaultUnasked(tool);
         if (unasked.some((action) => denied.includes(action))) throw new ORPCError("CONFLICT", { message: "An action is disabled: change its permission explicitly before granting it" });
         return { agentId, toolId, unasked, denied };
       }),
@@ -268,15 +272,15 @@ const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, co
 const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const agent = await find(context.db, context.ownerId, input.id);
   const rows = await context.db
-    .select({ toolId: toolsTable.id, name: toolsTable.name, actions: toolsTable.actions, unasked: agentTools.unasked, denied: agentTools.denied })
+    .select({ toolId: toolsTable.id, name: toolsTable.name, actions: toolsTable.actions, unasked: agentTools.unasked, denied: agentTools.denied, disabled: toolsTable.disabled })
     .from(agentTools)
     .innerJoin(toolsTable, eq(toolsTable.id, agentTools.toolId))
     .where(and(eq(agentTools.agentId, agent.id), eq(toolsTable.ownerId, context.ownerId), inArray(toolsTable.kind, ["http", "runner"])))
     .orderBy(asc(toolsTable.name));
-  return rows.map(({ toolId, name, actions, unasked, denied }) => ({
+  return rows.map(({ toolId, name, actions, unasked, denied, disabled }) => ({
     toolId,
     name,
-    actions: actions.map((a) => ({ name: a.name, description: a.description, readOnly: a.readOnly === true, permission: (denied.includes(a.name) ? "off" : unasked.includes(a.name) ? "run" : "ask") as Permission })),
+    actions: enabledActions({ actions, disabled }).map((a) => ({ name: a.name, description: a.description, readOnly: a.readOnly === true, permission: (denied.includes(a.name) ? "off" : unasked.includes(a.name) ? "run" : "ask") as Permission })),
   }));
 });
 

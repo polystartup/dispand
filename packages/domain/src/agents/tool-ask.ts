@@ -17,15 +17,15 @@ type Change = { agentId: string; toolId: string; action: string; permission: Per
 async function writePermission(db: Db, ownerId: string, to: Change, remembering: boolean): Promise<boolean> {
   return db.transaction(async (tx) => {
     const [row] = await tx
-      .select({ actions: tools.actions, unasked: agentTools.unasked, denied: agentTools.denied })
+      .select({ actions: tools.actions, unasked: agentTools.unasked, denied: agentTools.denied, disabled: tools.disabled })
       .from(agentTools)
       .innerJoin(agents, eq(agents.id, agentTools.agentId))
       .innerJoin(tools, eq(tools.id, agentTools.toolId))
       .where(and(eq(agentTools.agentId, to.agentId), eq(agentTools.toolId, to.toolId), eq(agents.ownerId, ownerId), eq(tools.ownerId, ownerId), inArray(tools.kind, ["http", "runner"])))
       .for("update", { of: agentTools });
-    if (!row?.actions.some((a) => a.name === to.action) || (remembering && row.denied.includes(to.action))) return false;
+    if (!row?.actions.some((a) => a.name === to.action) || row.disabled.includes(to.action) || (remembering && row.denied.includes(to.action))) return false;
     // Forget stale positive grants, but keep Off until it is explicitly changed.
-    const names = row.actions.map((a) => a.name);
+    const names = [...new Set([...row.actions.map((a) => a.name), ...row.unasked.filter((name) => row.disabled.includes(name))])];
     const unasked = names.filter((name) => name === to.action ? to.permission === "run" : row.unasked.includes(name));
     const denied = row.denied.filter((name) => name !== to.action);
     if (to.permission === "off") denied.push(to.action);

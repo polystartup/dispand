@@ -291,6 +291,16 @@ changes it updates this file.
   naming a proposal that isn't attached (another run's, one already asked, none) is words only,
   and says so. A `proposal` argument that isn't an id is refused as a bad call by the runner
   and by cloud sessions, so it never becomes a request in words in its place.
+- **Workspace-wide availability is the owner's choice.** `tools.disabled` masks action names
+  before agent permissions are listed or exposed to a session. Only the owner's tool-settings
+  API can change it; it is unavailable to Jobs and setup proposals. Disabled actions are
+  refused by current tool calls and workflow steps; polls skip them with a reason. Disabling
+  narrows live runner sessions, including tools inherited through skills. Re-enabling restores
+  saved per-agent Run/Ask/Off settings; a running native session only narrows, so it needs a new
+  session to regain an action. New discovery actions remain enabled and Ask for existing agents.
+  Disabled names survive temporary discovery omissions. Catalog entries may supply initial
+  disabled names. Availability changes invalidate previously frozen setup grants through the
+  tool's permission revision, so an old approval cannot override the new availability.
 - **Which actions of a tool run without asking is the owner's choice, per agent, and only a
   person changes it.** Each agent keeps, for each tool it chose, the actions that run unasked
   (`agent_tools.unasked`) and those that are off (`agent_tools.denied`). An Off action is

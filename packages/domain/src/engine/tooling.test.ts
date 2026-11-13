@@ -92,3 +92,13 @@ test("runner bindings survive alias collisions, removals and renames, but not re
   expect(after[0]!.server).not.toBe(before[0]!.server);
   expect(runnerServers({ runnerTools: [{ ...second, tool: "replacement" }] }, "runner_1")[0]!.server).not.toBe(before[1]!.server);
 });
+
+
+test("workspace-disabled names are absent from effective grants as well as action schemas", async () => {
+  const { context, agent } = await setup();
+  await context.db.update(tools).set({ actions: [{ name: "read", description: "", inputSchema: {}, readOnly: true }] }).where(eq(tools.id, "tool_fetch"));
+  await call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_fetch", action: "read", permission: "run" }, { context });
+  await call(router.tools.setActionEnabled, { toolId: "tool_fetch", action: "read", enabled: false }, { context });
+  const current = await toolingOf(context.db, { ownerId: context.ownerId, snapshot: null }, agent.id);
+  expect(current.runnerTools[0]).toMatchObject({ actions: [], unasked: [], denied: ["read"] });
+});

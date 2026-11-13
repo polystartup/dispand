@@ -463,6 +463,13 @@
       "when": 1794526575022,
       "tag": "0065_agent_action_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1794530010004,
+      "tag": "0066_tools_disabled",
+      "breakpoints": true
     }
   ]
 }

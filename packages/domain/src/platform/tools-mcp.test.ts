@@ -8,7 +8,7 @@ import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp, type FakeMcp } from "../tools/test-server.ts";
 import { jobTokenOf } from "./token.ts";
-import { runnerGrantCurrent, stopAsking, exposedName } from "./exposed.ts";
+import { runnerGrantCurrent, stopAsking, exposedName, exposedTools } from "./exposed.ts";
 import { handleJobToolsMcp } from "./tools-mcp.ts";
 
 const servers: FakeMcp[] = [];
@@ -365,5 +365,21 @@ test("off actions disappear from the Job tools list and refuse even a saved appr
   expect(denied.isError).toBe(true);
   expect(s.calls).toEqual([]);
   await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: s.tool.id, action: "list_issues", permission: "ask" }, { context: s.context });
+  expect((await s.client.listTools()).tools.map((t) => t.name)).toContain(list);
+});
+
+
+test("workspace-disabled actions disappear from cloud specs and the Job endpoint and refuse a saved approval", async () => {
+  const s = await setup();
+  const list = await named(s.client, "github_list_issues");
+  await s.approve(`mcp__job_tools__${list}`, {});
+  await call(router.tools.setActionEnabled, { toolId: s.tool.id, action: "list_issues", enabled: false }, { context: s.context });
+  expect((await s.client.listTools()).tools.map((t) => t.name)).not.toContain(list);
+  expect((await exposedTools(s.context.db, { runId: s.runId, ownerId: s.context.ownerId, agentId: s.agent.id })).map((t) => t.name)).not.toContain(list);
+  const denied = await s.client.callTool({ name: list, arguments: {} });
+  expect(denied.isError).toBe(true);
+  expect(s.calls).toEqual([]);
+  expect(await stopAsking(s.context.db, s.runId, `mcp__job_tools__${list}`, null)).toBe(false);
+  await call(router.tools.setActionEnabled, { toolId: s.tool.id, action: "list_issues", enabled: true }, { context: s.context });
   expect((await s.client.listTools()).tools.map((t) => t.name)).toContain(list);
 });

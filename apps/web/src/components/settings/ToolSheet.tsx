@@ -57,7 +57,17 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
   const refresh = useMutation(orpc.tools.refresh.mutationOptions({ onSuccess: invalidate }));
   const del = useMutation(orpc.tools.delete.mutationOptions({ onSuccess: invalidate }));
   const authorize = useMutation(orpc.tools.authorize.mutationOptions({ onSuccess: invalidate }));
-  const busy = create.isPending || update.isPending || del.isPending || refresh.isPending || authorize.isPending;
+  const actionEnabled = useMutation(orpc.tools.setActionEnabled.mutationOptions({
+    onSuccess: async (saved) => {
+      setCurrent(saved);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: orpc.tools.key() }),
+        queryClient.invalidateQueries({ queryKey: orpc.agents.key() }),
+      ]);
+    },
+    onError: (e) => setError(errorMessage(e, "Could not change the action. Refresh and try again.")),
+  }));
+  const busy = actionEnabled.isPending || create.isPending || update.isPending || del.isPending || refresh.isPending || authorize.isPending;
 
   // Saved headers are for the server they were entered for: another origin or transport starts without them.
   const origin = (value: string) => {
@@ -307,9 +317,10 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
                   {current.actionsError}
                 </p>
               )}
+              <p className="text-[13px] text-muted">Disabling stops an action for agents, polls and workflows. Re-enabling keeps each agent's permissions; CLI sessions need a new session.</p>
               <ul className="divide-y divide-line rounded-xl border border-line">
                 {current.actions.map((a) => (
-                  <ActionItem key={a.name} action={a} />
+                  <ActionItem key={a.name} action={a} tool={current.name} enabled={!current.disabled.includes(a.name)} busy={busy} onChange={(enabled) => actionEnabled.mutate({ toolId: current.id, action: a.name, enabled })} />
                 ))}
                 {current.actions.length === 0 && <li className="px-4 py-3 text-[13px] text-muted">No action listed.</li>}
               </ul>
@@ -323,12 +334,16 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
 }
 
 /** One action: its name, description and parameters (the top-level properties of its input schema). */
-export function ActionItem({ action }: { action: Action }) {
+export function ActionItem({ action, tool, enabled, onChange, busy = false }: { action: Action; tool: string; enabled: boolean; onChange: (enabled: boolean) => void; busy?: boolean }) {
   const properties = (action.inputSchema.properties ?? {}) as Record<string, { type?: unknown; description?: unknown }>;
   const required = new Set(Array.isArray(action.inputSchema.required) ? (action.inputSchema.required as string[]) : []);
   return (
     <li className="space-y-1.5 px-4 py-3">
-      <p className="break-all font-mono text-[13px] font-medium">{action.name}</p>
+      <label className="flex items-start gap-2">
+        <input type="checkbox" aria-label={`Enable ${tool} ${action.name} workspace-wide`} checked={enabled} disabled={busy} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-[var(--color-accent)]" />
+        <span className="break-all font-mono text-[13px] font-medium">{action.name}</span>
+      </label>
+      {!enabled && <p className="text-[12px] text-muted">Disabled workspace-wide</p>}
       {action.description && <p className="whitespace-pre-line text-[13px] text-muted">{action.description}</p>}
       {Object.keys(properties).length > 0 && (
         <ul className="space-y-0.5 text-[12.5px]">

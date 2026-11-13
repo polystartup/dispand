@@ -1,17 +1,18 @@
 import { ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import { toolHolder } from "../agents/usage.ts";
 import type { Db, Tx } from "../db/client.ts";
 import { McpServerName } from "@dispand/runner-protocol";
-import { agentTools, plugins, runners, tools as toolsTable } from "../db/schema.ts";
+import { agents, agentTools, plugins, runners, tools as toolsTable } from "../db/schema.ts";
 import { isLoopback } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
 import { logError } from "../log.ts";
 import { authed, base } from "../rpc/context.ts";
 import { type RunnerHub, RunnerRequestFailed } from "../runners/hub.ts";
 import { secretAad, type SecretBox } from "../secrets.ts";
-import { CATALOG, catalogEntry, declaredActions, fillHeaders, MissingSetting, runnerSnippet, searchCatalog, signInOf } from "./catalog.ts";
+import { CATALOG, catalogEntry, declaredActions, defaultDisabled, fillHeaders, MissingSetting, runnerSnippet, searchCatalog, signInOf } from "./catalog.ts";
 import { AUTHS, ToolError, TRANSPORTS, type ToolAction, type ToolAuth, type ToolConnector, type ToolTarget, type ToolTransport } from "./mcp.ts";
 import { oauthStep, oauthStore } from "./oauth-store.ts";
 import { pollableActions } from "./pollable.ts";
@@ -76,6 +77,7 @@ function toView(row: Row, plugin: PluginRef | null) {
     signIn: signInOf(row),
     signInPath: `/settings/tools?tool=${encodeURIComponent(row.id)}`,
     actions: row.actions,
+    disabled: row.disabled,
     actionsError: row.actionsError,
     refreshedAt: row.refreshedAt,
     catalogId: row.catalogId,
@@ -242,6 +244,7 @@ export type ToolFields = {
   catalogId?: string;
   /** The actions a poll may read (a catalog entry's); absent: the ones the server calls read-only. */
   pollable?: string[];
+  disabled?: string[];
   /** The actions it starts with (a catalog entry's), until its first listing. */
   actions?: ToolAction[];
   /** The URL to call when it holds secrets (named in `secrets`); `url` is then its template, shown in its place. */
@@ -284,6 +287,7 @@ export async function insertTool(db: Db | Tx, secrets: SecretBox, ownerId: strin
       oauthStatus: input.oauth ? "authorize" : null,
       catalogId: input.catalogId ?? null,
       pollable: input.pollable ?? null,
+      disabled: input.disabled ?? [],
       actions: input.actions ?? [],
       pluginId: input.plugin?.id ?? null,
       pluginComponent: input.plugin?.component ?? null,
@@ -349,6 +353,7 @@ async function createRunnerTool(context: Pick<InitialContext, "db" | "hub"> & { 
       runnerTool: input.runnerTool,
       catalogId: entry?.id ?? null,
       pollable: entry?.pollable ?? null,
+      disabled: defaultDisabled(entry ?? {}),
     })
     .returning()
     .catch((e: unknown) => nameTaken(e, input.name));
@@ -396,6 +401,7 @@ const fromEntry = (entry: HttpEntry, name: string | undefined) => ({
   headers: {},
   catalogId: entry.id,
   pollable: entry.pollable,
+  disabled: defaultDisabled(entry),
   actions: declaredActions(entry),
 });
 
@@ -697,4 +703,24 @@ const setPollable = owner.input(z.object({ id: z.string(), actions: z.array(z.st
   return (await pollableActions(context.db, context.ownerId, row.id))!;
 });
 
-export const tools = { create, add, update, delete: remove, list, get, refresh, authorize, catalog, installFromCatalog, addFromCatalog, fillSettings, pollable, setPollable };
+/** Global availability is an owner's choice, independent of each agent's saved permissions. */
+const setActionEnabled = owner.input(z.object({ toolId: z.string(), action: z.string(), enabled: z.boolean() })).handler(async ({ input, context }) => {
+  const row = await context.db.transaction(async (tx) => {
+    const [tool] = await tx.select().from(toolsTable).where(and(eq(toolsTable.id, input.toolId), eq(toolsTable.ownerId, context.ownerId))).for("update");
+    if (!tool?.actions.some((a) => a.name === input.action)) throw new ORPCError("NOT_FOUND");
+    if (tool.disabled.includes(input.action) === !input.enabled) return tool;
+    const disabled = tool.disabled.filter((name) => name !== input.action);
+    if (!input.enabled) disabled.push(input.action);
+    const [updated] = await tx.update(toolsTable).set({ disabled, permissionRevision: sql`${toolsTable.permissionRevision} + 1` }).where(eq(toolsTable.id, tool.id)).returning();
+    return updated!;
+  });
+  if (!input.enabled) {
+    const owned = await context.db.select({ id: agents.id }).from(agents).where(eq(agents.ownerId, context.ownerId));
+    for (const agent of owned) {
+      if ((await skillsAndTools(context.db, agent.id)).tools.some((t) => t.toolId === row.id)) await context.engine.narrowSessions(agent.id, context.db);
+    }
+  }
+  return view(context.db, row);
+});
+
+export const tools = { create, add, update, delete: remove, list, get, refresh, authorize, catalog, installFromCatalog, addFromCatalog, fillSettings, pollable, setPollable, setActionEnabled };

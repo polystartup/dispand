@@ -189,6 +189,29 @@ test("an agent gets a skill with its tool locked, and another tool; neither tool
   await expect(ask).toBeChecked();
   await shots(page, "agent-action-ask");
 
+  // Workspace availability hides the action everywhere while preserving this agent's Ask.
+  await page.goto("/settings/tools");
+  await page.getByRole("button", { name: /^Search/ }).click();
+  const globalEnable = page.getByRole("checkbox", { name: /^Enable Search .* workspace-wide$/ });
+  await globalEnable.click();
+  await expect(globalEnable).not.toBeChecked();
+  await page.reload();
+  await page.getByRole("button", { name: /^Search/ }).click();
+  await expect(globalEnable).not.toBeChecked();
+  await shots(page, "workspace-action-off");
+  await page.goto("/settings/agents");
+  await page.getByRole("link", { name: /Writer/ }).click();
+  await expect(chosen).toContainText("No actions listed.");
+  await expect(chosen.getByRole("checkbox", { name: /^Enable Search / })).toHaveCount(0);
+  await page.goto("/settings/tools");
+  await page.getByRole("button", { name: /^Search/ }).click();
+  await globalEnable.click();
+  await expect(globalEnable).toBeChecked();
+  await page.goto("/settings/agents");
+  await page.getByRole("link", { name: /Writer/ }).click();
+  await chosen.getByText("1 action, 1 asks before use").click();
+  await expect(ask).toBeChecked();
+
   await page.goto("/settings/tools");
   await page.getByRole("button", { name: /^Notes/ }).click();
   await page.getByRole("button", { name: "Delete" }).click();

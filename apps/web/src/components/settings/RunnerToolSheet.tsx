@@ -37,7 +37,17 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
   const update = useMutation(orpc.tools.update.mutationOptions({ onSuccess: invalidate }));
   const refresh = useMutation(orpc.tools.refresh.mutationOptions({ onSuccess: invalidate }));
   const del = useMutation(orpc.tools.delete.mutationOptions({ onSuccess: invalidate }));
-  const busy = create.isPending || update.isPending || del.isPending || refresh.isPending;
+  const actionEnabled = useMutation(orpc.tools.setActionEnabled.mutationOptions({
+    onSuccess: async (saved) => {
+      setCurrent(saved);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: orpc.tools.key() }),
+        queryClient.invalidateQueries({ queryKey: orpc.agents.key() }),
+      ]);
+    },
+    onError: (e) => setError(errorMessage(e, "Could not change the action. Refresh and try again.")),
+  }));
+  const busy = actionEnabled.isPending || create.isPending || update.isPending || del.isPending || refresh.isPending;
 
   const runner = runners.data?.find((r) => r.id === runnerId);
   // The servers the picked runner reports, and the saved one even if it no longer does.
@@ -176,9 +186,10 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
                   {current.actionsError}
                 </p>
               )}
+              <p className="text-[13px] text-muted">Disabling stops an action for agents, polls and workflows. Re-enabling keeps each agent's permissions; CLI sessions need a new session.</p>
               <ul className="divide-y divide-line rounded-xl border border-line">
                 {current.actions.map((a) => (
-                  <ActionItem key={a.name} action={a} />
+                  <ActionItem key={a.name} action={a} tool={current.name} enabled={!current.disabled.includes(a.name)} busy={busy} onChange={(enabled) => actionEnabled.mutate({ toolId: current.id, action: a.name, enabled })} />
                 ))}
                 {current.actions.length === 0 && <li className="px-4 py-3 text-[13px] text-muted">No action listed.</li>}
               </ul>

@@ -51,18 +51,17 @@ export async function toolingOf(db: Db, run: { ownerId: string; snapshot: AgentS
     : [];
   rows.sort((a, b) => a.name.localeCompare(b.name));
   const chosen = await db.select({ toolId: agentTools.toolId, unasked: agentTools.unasked, denied: agentTools.denied }).from(agentTools).where(eq(agentTools.agentId, agentId));
+  const permitted = rows.map((tool) => {
+    const mine = chosen.find((c) => c.toolId === tool.id);
+    const denied = [...new Set([...tool.disabled, ...(mine?.denied ?? [])])];
+    return { ...tool, actions: tool.actions.filter((a) => !denied.includes(a.name)), unasked: (mine?.unasked ?? []).filter((name) => !denied.includes(name)), denied, chosen: mine !== undefined };
+  });
   return {
     skills,
-    runnerTools: rows.flatMap((t) =>
-      t.kind === "runner" && t.runnerId && t.runnerTool
-        ? [{ id: t.id, name: t.name, tool: t.runnerTool, runnerId: t.runnerId, actions: t.actions.filter((a) => !chosen.find((c) => c.toolId === t.id)?.denied.includes(a.name)), unasked: chosen.find((c) => c.toolId === t.id)?.unasked ?? [], denied: chosen.find((c) => c.toolId === t.id)?.denied ?? [] }]
-        : [],
-    ),
-    // `chosen`: the agent's own choice, which carries the unasked actions; a tool that only comes with a skill has none.
-    httpTools: rows.filter((t) => t.kind === "http").map((t) => {
-      const mine = chosen.find((c) => c.toolId === t.id);
-      return { ...t, actions: t.actions.filter((a) => !mine?.denied.includes(a.name)), unasked: mine?.unasked ?? [], chosen: mine !== undefined };
-    }),
+    runnerTools: permitted.flatMap((t) => t.kind === "runner" && t.runnerId && t.runnerTool
+      ? [{ id: t.id, name: t.name, tool: t.runnerTool, runnerId: t.runnerId, actions: t.actions, unasked: t.unasked, denied: t.denied }]
+      : []),
+    httpTools: permitted.filter((t) => t.kind === "http"),
     agentId,
   };
 }
