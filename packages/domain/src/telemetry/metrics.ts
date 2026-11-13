@@ -1,6 +1,7 @@
 // Every metric instrument, with the only attributes it may carry. An instrument is created with
 // `meter(...)` under one of these names; any attribute not listed here is dropped by its view.
 export const METRICS = {
+  "dispand.permissions.remembered": ["dispand.permission.scope", "dispand.answer.decision", "dispand.result"],
   "dispand.runner.plugin_operations": ["dispand.result"],
   "dispand.rpc.duration": ["rpc.method", "dispand.result"],
   "dispand.scheduler.ticks": [],

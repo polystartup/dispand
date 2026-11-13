@@ -1330,3 +1330,11 @@ fans out to live Job and workflow sessions, including skill-only holders. Tool e
 re-read availability for cached calls, and poll validation reports disabled actions without
 calling them. Availability changes increment the permission revision used by frozen setup
 proposals. Re-enabling preserves per-agent settings; native sessions remain monotonic.
+
+Remembered tool-approval storage is staged independently from answer delivery. A question's
+nullable `remember` offer binds scopes to a server-resolved tool action and target revision;
+`runs.remembered` holds disjoint allow/deny lists, initially empty. `agents/remember.ts` checks
+the pending question, owner, run and current tooling inside the answer transaction before
+storing a run decision or changing the Job agent's saved permission. Tool subjects include a
+target fingerprint so a remembered decision cannot follow a retargeted tool. No answer or UI
+path calls this storage layer yet. CLI rule subjects and delivery are separate integrations.
