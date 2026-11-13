@@ -205,7 +205,7 @@ test("add a Git repository of skills: one entry, installed like a plugin, then r
   await page.getByRole("button", { name: "Install skill-repo" }).click();
   const sheet = page.getByRole("dialog");
   await expect(sheet.getByRole("checkbox", { name: /tidy-notes/ })).toBeChecked();
-  await sheet.getByRole("checkbox", { name: /Install the complete native plugin/ }).uncheck();
+  await expect(sheet.getByRole("checkbox", { name: /Install the complete native plugin/ })).not.toBeChecked();
   await sheet.getByRole("button", { name: "Install" }).click();
   await expect(sheet).toBeHidden();
   await page.getByRole("link", { name: "Installed", exact: true }).click();

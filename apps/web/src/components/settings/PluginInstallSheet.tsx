@@ -95,10 +95,10 @@ export function toggled(set: Set<string>, name: string): Set<string> {
   return next;
 }
 
-export function Check({ checked, onChange, label, detail, mono }: { checked: boolean; onChange: () => void; label: string; detail: string; mono?: boolean }) {
+export function Check({ checked, onChange, label, detail, mono, disabled }: { checked: boolean; onChange: () => void; label: string; detail: string; mono?: boolean; disabled?: boolean }) {
   return (
     <label className="flex cursor-pointer items-start gap-2.5 rounded-lg px-2 py-1.5 transition hover:bg-hover">
-      <input type="checkbox" checked={checked} onChange={onChange} className={box} />
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={onChange} className={box} />
       <span className="min-w-0">
         <span className={`block text-[13px] font-medium ${mono ? "font-mono" : ""}`}>{label}</span>
         <span className="line-clamp-2 block text-[13px] text-muted [overflow-wrap:anywhere]">{detail}</span>
@@ -135,7 +135,7 @@ function InstallForm({
   const [servers, setServers] = useState(() => new Set<string>());
   const [agents, setAgents] = useState(() => new Set(preview.agents.map((a) => a.name)));
   const [harnessId, setHarnessId] = useState("");
-  const [native, setNative] = useState(true);
+  const [native, setNative] = useState(preview.nativeAvailable);
   const targets = useNativeTargets(harnesses.data ?? [], runners.data ?? []);
   const [excludedTargets, setExcludedTargets] = useState(() => new Set<string>());
   const nativeTargets = new Set(targets.filter((t) => t.enabled && !excludedTargets.has(t.harness.id)).map((t) => t.harness.id));
@@ -231,7 +231,7 @@ function InstallForm({
       </Section>
 
       <Section id="install-native" title="Native installation (optional)">
-        <Check checked={native} onChange={() => setNative((value) => !value)} label="Install the complete native plugin" detail="Install on the selected harnesses and keep workspace copies for fallback." />
+        <Check checked={native} disabled={!preview.nativeAvailable} onChange={() => setNative((value) => !value)} label="Install the complete native plugin" detail={preview.nativeAvailable ? "Install on the selected harnesses and keep workspace copies for fallback." : "This source provides workspace skills, without a complete native plugin."} />
         {native && <>
           <p className="text-[13px] text-muted">{nativeWarning}</p>
           <NativeTargetPicker targets={targets} selected={nativeTargets} onChange={(id) => setExcludedTargets((prev) => toggled(prev, id))} />

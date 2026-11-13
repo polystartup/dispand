@@ -763,3 +763,17 @@ test("mixed native and workspace installs require the displayed source review", 
     expect(row!.nativeRoot).toBe(".");
   } finally { fx.remove(); repo.remove(); }
 });
+
+
+test("install preview defaults native plugins on, but leaves skill repositories workspace-only", async () => {
+  const ctx = await context();
+  const plugin = superpowers();
+  const repo = marketplace(plugin);
+  const skills = fixtureRepo({ "skills/writing/SKILL.md": skillMd("writing") });
+  try {
+    const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
+    expect(await call(router.plugins.preview, { marketplaceId: market.id, entryName: "superpowers" }, { context: ctx })).toMatchObject({ nativeAvailable: true });
+    const skillMarket = await call(router.marketplaces.add, { url: skills.url }, { context: ctx });
+    expect(await call(router.plugins.preview, { marketplaceId: skillMarket.id, entryName: skillMarket.name }, { context: ctx })).toMatchObject({ nativeAvailable: false });
+  } finally { plugin.remove(); repo.remove(); skills.remove(); }
+});

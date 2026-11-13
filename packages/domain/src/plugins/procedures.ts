@@ -265,8 +265,8 @@ function reviewToken(sha: string, contents: PluginContents): string {
 
 const preview = owner.input(EntryRef).handler(async ({ input, context }) => {
   const market = await findMarketplace(context.db, context.ownerId, input.marketplaceId);
-  const { contents, sha } = await readEntry(market, findEntry(market, input.entryName), !!context.gitFileUrls).catch(asBadRequest);
-  return { ...componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, reviewed: reviewToken(sha, contents) };
+  const { contents, sha, nativeRoot } = await readEntry(market, findEntry(market, input.entryName), !!context.gitFileUrls).catch(asBadRequest);
+  return { ...componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, reviewed: reviewToken(sha, contents), nativeAvailable: nativeRoot !== undefined && market.kind !== "skill-repo" };
 });
 
 /** The chosen skills' files, checked as one package (its caps); BAD_REQUEST for a name the plugin doesn't have. */
