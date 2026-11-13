@@ -1379,17 +1379,25 @@ Approval producers do not yet write native rules; that integration follows separ
 Protocol 21 carries native `rules.allow` and `rules.deny` snapshots (at most 200 each, bounded
 rule strings), only with a Job token. The CLI adapter reads the agent's current entries for the
 session's CLI at each start and resume, dropping unsupported shapes. The brokers parse them
-again into session-local policy; denials win, and boundary checks precede any native allow.
+again into session-local policy; Claude denials win, and boundary checks precede any native allow.
 Claude enforces these through PreToolUse as well as canUseTool, including calls otherwise
 auto-approved by the SDK. Codex checks extra permissions, repeat sandbox requests and edit
 paths before accepting a matching grant. Neither broker installs native wildcard rules or
 execpolicy amendments. Wrapped shell commands, quotes and expansions use exact command rules.
 
+Codex can run known-safe commands without an approval callback. It therefore cannot enforce
+these denial rules across every execution path. A Codex snapshot with a supported denial is
+refused before its binary starts; a scoped native denial ends the session. No denial is silently
+treated as enforced. Native Codex Allow memory remains supported. The product's approval-scope
+behavior for this provider limitation needs a decision before enabling native approval writers.
+PreToolUse hooks can reject supported calls but fail open on errors and timeouts, so they are
+not used as a denial boundary (see the [OpenAI Hooks documentation](https://learn.chatgpt.com/docs/hooks)).
+
 Permission questions can carry a bounded `remembers` candidate checked against their call.
 Only supported addRules suggestions are considered; otherwise a bounded exact command or
 native tool/domain rule is offered as candidate data. The sanitizer preserves it whole or
 refuses the question. An explicit scoped answer can cache that matching rule in this session,
-without writing CLI settings. The server's binding of these candidates to owner approval
+without writing CLI settings (Codex accepts remembered allows only). The server's binding of these candidates to owner approval
 scopes and saved agent rules follows separately. Existing server authorization and telemetry
 for managed MCP approvals are unchanged. `native-permissions.ts` is pure policy code with no
 I/O or content telemetry; the operational paths retain their existing session/question events.

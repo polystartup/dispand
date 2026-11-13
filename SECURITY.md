@@ -757,10 +757,13 @@ serialized on the agent row. Removal affects the next session start or resume; r
 retain their permission snapshot. Rule content is never telemetry.
 
 Protocol 21 accepts native allow/deny snapshots only on starts with a Job token. The server
-and runner drop rules outside the supported CLI-specific subset, and denials win. Claude's
+and runner drop rules outside the supported CLI-specific subset. Claude denials win. Claude's
 PreToolUse and canUseTool brokers enforce the boundary before a saved native grant; Codex
 rejects extra sandbox permissions, repeated command requests and denied file paths before
 accepting one. Native rules do not enter CLI settings, execpolicy or network amendments.
+Codex can execute known-safe commands without calling the approval broker; native Codex deny
+snapshots are therefore refused before execution. A scoped native denial stops its Codex
+session. PreToolUse hooks fail open on errors/timeouts and cannot substitute for this refusal.
 Permission questions carry only matching rule candidates; they grant no server authority by
 themselves. Their metadata is shown whole or rejected, and an explicit scoped answer can
 cache only that matching candidate in the current session. Candidate-to-owner scope binding

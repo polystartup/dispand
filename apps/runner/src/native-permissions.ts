@@ -1,10 +1,13 @@
 import { type Answer, type CliRule, type CliRuleCall, matchesRule, parseRule } from "@dispand/runner-protocol";
 
+export const CODEX_DENIAL_UNSUPPORTED = "Codex cannot enforce remembered native denials on every execution path. This session is refused.";
+
 /** Pure session-local policy. The caller enforces the runner boundary before using a grant. */
 export function nativePermissions(cli: CliRuleCall["cli"], rules?: { allow: string[]; deny: string[] }) {
   const parsed = (sources: string[]) => sources.flatMap((source) => { const rule = parseRule(cli, source); return rule ? [rule] : []; });
   let allow = parsed(rules?.allow ?? []);
   let deny = parsed(rules?.deny ?? []);
+  if (cli === "codex" && deny.length > 0) throw new Error(CODEX_DENIAL_UNSUPPORTED);
   return {
     decision(call: CliRuleCall): "allow" | "deny" | null {
       if (deny.some((rule) => matchesRule(rule, call))) return "deny";
@@ -14,6 +17,7 @@ export function nativePermissions(cli: CliRuleCall["cli"], rules?: { allow: stri
       if (answer?.kind !== "permission" || !answer.remember || answer.decision === "allow-always") return;
       const rule = parseRule(cli, source);
       if (!rule || !matchesRule(rule, call)) return;
+      if (cli === "codex" && answer.decision === "deny") throw new Error(CODEX_DENIAL_UNSUPPORTED);
       const same = (other: CliRule) => JSON.stringify(other) === JSON.stringify(rule);
       allow = allow.filter((other) => !same(other));
       deny = deny.filter((other) => !same(other));

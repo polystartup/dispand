@@ -1,7 +1,7 @@
 // One Codex session: a `codex app-server` of its own, confined by Dispand's permission profile.
 import { join } from "node:path";
 import type { CliRuleCall, HarnessEvent, QuestionPayload, SessionStart } from "@dispand/runner-protocol";
-import { nativePermissions, nativeRuleForCall } from "../native-permissions.ts";
+import { CODEX_DENIAL_UNSUPPORTED, nativePermissions, nativeRuleForCall } from "../native-permissions.ts";
 import { codexDenied, codexDeniedEdit, sandboxDenied } from "../boundary.ts";
 import { askChoices, BypassRefused, consult, CONSULT, consultDescription, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "../outcome.ts";
 import { deniedTools, runnerArgumentsAllowed, narrowUnasked, unaskedTools } from "../mcp.ts";
@@ -205,6 +205,10 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     if (remembers) payload.remembers = remembers;
     if (!fitsWhole({ type: "question", questionId: "", payload })) return null;
     const answer = await ask(payload, signal);
+    if (answer?.kind === "permission" && answer.remember && answer.decision === "deny") {
+      finish({ type: "error", message: CODEX_DENIAL_UNSUPPORTED });
+      return null;
+    }
     if (remembers) native.remember(remembers, call, answer);
     return answer?.kind === "permission" && answer.decision !== "deny" ? answer.decision : null;
   }

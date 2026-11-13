@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import type { Answer, HarnessEvent } from "@dispand/runner-protocol";
 import { afterEach, expect, test, vi } from "vitest";
 import { machineConfigPaths } from "../config.ts";
+import { CODEX_DENIAL_UNSUPPORTED } from "../native-permissions.ts";
 import { fakeCodex } from "../fixtures/fake-codex-bin.ts";
 import { BypassRefused, type HarnessSession } from "../outcome.ts";
 import { type CodexDeps, type CodexSessionStart, PROFILE_REFUSED, startCodexSession } from "./session.ts";
@@ -83,7 +84,7 @@ test("scoped native answers cache locally without sending persistent execpolicy 
   expect(await s.replyTo("r1")).toEqual({ decision: "accept" });
 });
 
-test("native FileChange grants cannot override protected paths and saved denials beat bypass", async () => {
+test("native FileChange grants cannot override protected paths", async () => {
   const change = (itemId: string, path: string): Step[] => [
     { notify: "item/started", params: { threadId: "$THREAD", turnId: "$TURN", item: { type: "fileChange", id: itemId, status: "inProgress", changes: [{ path, kind: { type: "add" }, diff: "hi\n" }] } } },
     request("item/fileChange/requestApproval", { itemId }),
@@ -97,9 +98,18 @@ test("native FileChange grants cannot override protected paths and saved denials
   expect((await s.replyTo("r0")).decision).toBe("decline");
   expect((await s.replyTo("r1")).decision).toBe("decline");
   expect((await s.replyTo("r2")).decision).toBe("accept");
-  const denied = await run({ start: { permissionMode: "bypassPermissions", jobToken: "dj_test", rules: { allow: [], deny: ["Shell=rm x"] } }, deps: { allowBypass: true }, env: { FAKE_CODEX_PROFILE: ":danger-full-access" }, turns: [[request("item/commandExecution/requestApproval", { itemId: "d", kind: "command", command: "rm x" })]] });
-  await denied.ended();
-  expect((await denied.replyTo("r0")).decision).toBe("decline");
+});
+
+test("Codex sessions with saved native denials are refused before the binary starts", () => {
+  for (const permissionMode of ["default", "bypassPermissions"] as const) {
+    expect(() => startCodexSession({ ...base, permissionMode, jobToken: "dj_test", rules: { allow: [], deny: ["Shell=ls"] } }, "/work", () => {}, { codexPath: "/nonexistent", secrets: [], allowBypass: true })).toThrow(CODEX_DENIAL_UNSUPPORTED);
+  }
+});
+
+test("a scoped Codex denial stops the session instead of pretending later automatic commands are blocked", async () => {
+  const s = await run({ start: { jobToken: "dj_test" }, turns: [[request("item/commandExecution/requestApproval", { itemId: "a", kind: "command", command: "npm test" })]], answer: () => ({ kind: "permission", decision: "deny", remember: "run" }) });
+  await s.session.done;
+  expect(s.events).toContainEqual({ type: "error", message: CODEX_DENIAL_UNSUPPORTED });
 });
 
 test("a session starts a thread with Dispand's profile and instructions, streams its turn and ends with its last message", async () => {
