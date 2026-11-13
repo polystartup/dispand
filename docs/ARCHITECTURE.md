@@ -1361,3 +1361,13 @@ expressions, and matching never substitutes for runner roots and denied-file che
 application-specific subset needs no shell parser: it deliberately does not interpret shell
 syntax. The pure helpers emit no telemetry or rule text; operational consumers remain responsible
 for bounded permission outcomes when integrated. This addition changes no session protocol.
+
+Migration 0069 adds `agents.cli_rules`, initially an empty list of CLI, rule and Allow/Deny
+decisions. The owner-only `agents.cliRules` and `agents.removeCliRule` procedures list and
+remove these entries; they explicitly reject Job contexts and are absent from the Job tool
+catalog. General agent get/list responses omit the rules. Removal locks the agent row and
+updates only its rules, so concurrent removals and general agent edits cannot restore a removed
+entry. The agent editor manages this list independently from its Save button and says removal
+takes effect at the next session start. RPC middleware traces outcomes without rule content.
+This storage and management stage does not yet produce rules from approvals or send them to
+sessions; that integration follows separately.

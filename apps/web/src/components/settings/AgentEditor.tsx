@@ -11,6 +11,7 @@ import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
 import { ConsultList, type ConsultEntry } from "./ConsultList.tsx";
 import { ToolAsk } from "./ToolAsk.tsx";
+import { CliRules } from "./CliRules.tsx";
 import { JobRights, type Rights } from "./JobRights.tsx";
 import { SelfLearning } from "./SelfLearning.tsx";
 import { BannerSlot, Empty, FormField, NextStep } from "./parts.tsx";
@@ -42,6 +43,8 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
   const toolAsk = useQuery({ ...orpc.agents.toolAsk.queryOptions({ input: { id: agent?.id ?? "" } }), enabled: agent !== undefined });
   const asks = new Map((toolAsk.data ?? []).map((t) => [t.toolId, t.actions]));
   const setPermission = useMutation(orpc.agents.setToolPermission.mutationOptions({ onSuccess: invalidate }));
+  const cliRules = useQuery({ ...orpc.agents.cliRules.queryOptions({ input: { id: agent?.id ?? "" } }), enabled: agent !== undefined });
+  const removeCliRule = useMutation(orpc.agents.removeCliRule.mutationOptions({ onSuccess: invalidate }));
   const [name, setName] = useState(agent?.name ?? "");
   const [harnessId, setHarnessId] = useState(agent?.harnessId ?? defaultHarnessId ?? "");
   const [systemPrompt, setSystemPrompt] = useState(agent?.systemPrompt ?? "");
@@ -273,6 +276,11 @@ export function AgentEditor({ agent, defaultHarnessId }: { agent?: Agent; defaul
             </p>
           )}
         </section>
+        {agent && <>
+          {cliRules.data && <CliRules rules={cliRules.data} busy={removeCliRule.isPending} onRemove={(rule) => removeCliRule.mutate({ id: agent.id, cli: rule.cli, rule: rule.rule })} />}
+          {cliRules.error && <p role="alert" className="text-[13px] text-danger">Could not load remembered CLI permissions. Reload the page to try again.</p>}
+          {removeCliRule.error && <p role="alert" className="text-[13px] text-danger">Could not remove the CLI permission. Try again.</p>}
+        </>}
         <JobRights
           rights={rights}
           tables={tables.data ?? []}

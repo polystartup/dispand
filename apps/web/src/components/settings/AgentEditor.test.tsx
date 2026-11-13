@@ -9,7 +9,7 @@ const fake = vi.hoisted(() => ({
   skills: { list: vi.fn() },
   tools: { list: vi.fn() },
   tables: { list: vi.fn() },
-  agents: { create: vi.fn(), update: vi.fn(), list: vi.fn(), toolAsk: vi.fn(), setToolPermission: vi.fn() },
+  agents: { create: vi.fn(), update: vi.fn(), list: vi.fn(), toolAsk: vi.fn(), setToolPermission: vi.fn(), cliRules: vi.fn(), removeCliRule: vi.fn() },
 }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
@@ -42,13 +42,14 @@ const agent = {
   plugin: null,
 } as unknown as Agent;
 
-function mount(shown: Agent) {
+function mount(shown: Agent, rules: unknown[] = []) {
   fake.harnesses.list.mockResolvedValue([{ id: "harness_1", name: "Claude Code" }]);
   fake.skills.list.mockResolvedValue([platform, writing]);
   fake.tools.list.mockResolvedValue([]);
   fake.tables.list.mockResolvedValue([]);
   fake.agents.list.mockResolvedValue([]);
   fake.agents.toolAsk.mockResolvedValue([]);
+  fake.agents.cliRules.mockResolvedValue(rules);
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <AgentEditor agent={shown} />
@@ -58,6 +59,30 @@ function mount(shown: Agent) {
 }
 
 const refused = (code: string, message: string) => Object.assign(new Error(message), { code });
+
+test("remembered CLI rules are removed independently from the agent form and refreshed", async () => {
+  const rules = [{ cli: "claude-code", rule: "Bash(npm test:*)", decision: "allow" }, { cli: "codex", rule: "FileChange", decision: "deny" }];
+  const user = mount(agent, rules);
+  fake.agents.removeCliRule.mockImplementation(async () => {
+    fake.agents.cliRules.mockResolvedValue([rules[1]]);
+    return { ok: true };
+  });
+  await user.click(await screen.findByRole("button", { name: "Remove Claude Code Allow Bash(npm test:*)" }));
+  expect(fake.agents.removeCliRule).toHaveBeenCalledWith({ id: agent.id, cli: "claude-code", rule: "Bash(npm test:*)" }, expect.anything());
+  expect(fake.agents.update).not.toHaveBeenCalled();
+  expect(await screen.findByRole("button", { name: "Remove Codex Deny FileChange" })).toBeTruthy();
+  expect(screen.queryByText("Bash(npm test:*)")).toBeNull();
+  expect(screen.getByText("Removing a rule takes effect when this agent starts its next session.")).toBeTruthy();
+});
+
+test("a failed CLI removal keeps the rule visible and gives a retry message", async () => {
+  fake.agents.removeCliRule.mockRejectedValue(new Error("private failure"));
+  const user = mount(agent, [{ cli: "claude-code", rule: "Bash", decision: "deny" }]);
+  await user.click(await screen.findByRole("button", { name: "Remove Claude Code Deny Bash" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("Could not remove the CLI permission. Try again.");
+  expect(screen.getByRole("button", { name: "Remove Claude Code Deny Bash" })).toBeTruthy();
+  expect(fake.agents.update).not.toHaveBeenCalled();
+});
 
 test("the Assistant's page locks its platform skill, with the reason", async () => {
   mount(agent);

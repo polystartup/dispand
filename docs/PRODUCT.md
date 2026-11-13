@@ -68,7 +68,9 @@ Status: Prototype
     A tool approval offers Just this call, Remember this for this run only, and, for a chosen
     tool in a Job, Remember this for this and all future runs. A run-only choice leaves the
     agent's settings unchanged; a future-run Allow sets Run and a future-run Deny sets Off.
-    Workflow sessions offer run-only memory. An action
+    Workflow sessions offer run-only memory. The agent page also lists saved native CLI rules,
+    showing the CLI, Allow/Deny decision and rule. Each can be removed there; removal takes
+    effect when the agent starts its next session. An action
     that reaches outside can carry what the agent read, so it is worth keeping it asking on
     an agent that reads confidential data.
   - An agent that may configure the workspace can create or change agents, delete a table or

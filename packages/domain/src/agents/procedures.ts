@@ -1,4 +1,5 @@
 import { ORPCError } from "@orpc/server";
+import { MAX_CLI_RULE_LENGTH } from "@dispand/runner-protocol";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
@@ -294,6 +295,23 @@ const setToolPermission = owner.input(z.object({ agentId: z.string(), toolId: z.
   return { ok: true as const };
 });
 
+/** Native CLI permissions are managed by the owner, outside the agent's general edit form. */
+const cliRules = owner.input(z.object({ id: z.string().max(64) })).handler(async ({ input, context }) => {
+  if (context.job) throw new ORPCError("FORBIDDEN");
+  return (await find(context.db, context.ownerId, input.id)).cliRules;
+});
+
+const removeCliRule = owner.input(z.object({ id: z.string().max(64), cli: z.enum(["claude-code", "codex"]), rule: StorableText(MAX_CLI_RULE_LENGTH).min(1) })).handler(async ({ input, context }) => {
+  if (context.job) throw new ORPCError("FORBIDDEN");
+  await context.db.transaction(async (tx) => {
+    const [agent] = await tx.select({ cliRules: agentsTable.cliRules }).from(agentsTable).where(and(eq(agentsTable.id, input.id), eq(agentsTable.ownerId, context.ownerId))).for("update");
+    if (!agent) throw new ORPCError("NOT_FOUND");
+    const cliRules = agent.cliRules.filter((entry) => entry.cli !== input.cli || entry.rule !== input.rule);
+    await tx.update(agentsTable).set({ cliRules }).where(and(eq(agentsTable.id, input.id), eq(agentsTable.ownerId, context.ownerId)));
+  });
+  return { ok: true as const };
+});
+
 /** The workspace's Assistant and its chat trigger, or null when the owner has none yet. */
 const assistant = owner.handler(({ context }) => findAssistant(context.db, context.ownerId));
 
@@ -303,4 +321,4 @@ const ensure = owner.input(z.object({ harnessId: z.string() })).handler(async ({
   return ensureAssistant(context.db, context.ownerId, input.harnessId);
 });
 
-export const agents = { create, update, delete: remove, list, get, toolAsk, setToolPermission, assistant, ensureAssistant: ensure };
+export const agents = { create, update, delete: remove, list, get, toolAsk, setToolPermission, cliRules, removeCliRule, assistant, ensureAssistant: ensure };

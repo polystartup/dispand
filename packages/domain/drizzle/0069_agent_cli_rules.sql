@@ -1,0 +1,1 @@
+ALTER TABLE "agents" ADD COLUMN "cli_rules" jsonb DEFAULT '[]'::jsonb NOT NULL;
