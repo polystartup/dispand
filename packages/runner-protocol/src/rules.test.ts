@@ -58,3 +58,15 @@ test("decoded rule words and exact commands remain bounded storable data", () =>
   expect(matchesRule(exact, { cli: "claude-code", tool: "Bash", command: "echo *" })).toBe(true);
   expect(matchesRule(exact, { cli: "claude-code", tool: "Edit", command: "echo *" })).toBe(false);
 });
+
+test("prefix matching handles long interior and edge whitespace runs", () => {
+  const whitespace = " \t".repeat(100_000);
+  for (const [cli, source, tool] of [["claude-code", "Bash(npm test:*)", "Bash"], ["codex", 'Shell:["npm","test"]', "Shell"]] as const) {
+    const rule = parseRule(cli, source)!;
+    const call = { cli, tool, proposedExecpolicyAmendment: ["npm", "test"], commandActions: [{}] };
+    expect(matchesRule(rule, { ...call, command: `npm test${whitespace}--watch` })).toBe(true);
+    expect(matchesRule(rule, { ...call, command: `${whitespace}npm test${whitespace}` })).toBe(true);
+    expect(matchesRule(rule, { ...call, command: `npm test${whitespace}!` })).toBe(false);
+    expect(matchesRule(rule, { ...call, command: whitespace })).toBe(false);
+  }
+});

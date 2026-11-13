@@ -20,7 +20,13 @@ export interface CliRuleCall {
 // A deliberately small literal shell subset. Quotes, expansions, redirects, comments,
 // operators and non-ASCII whitespace require an exact-command rule instead.
 function literalWords(command: string): string[] | null {
-  const words = command.replace(/^[ \t]+|[ \t]+$/g, "").split(/[ \t]+/);
+  // Scan the edges explicitly: an unanchored trailing-whitespace regexp retries
+  // every suffix of a long interior whitespace run when the final word is nonblank.
+  let start = 0;
+  let end = command.length;
+  while (start < end && (command[start] === " " || command[start] === "\t")) start++;
+  while (end > start && (command[end - 1] === " " || command[end - 1] === "\t")) end--;
+  const words = command.slice(start, end).split(/[ \t]+/);
   return words.every((word) => /^[a-zA-Z0-9_./:@%+=,-]+$/.test(word)) ? words : null;
 }
 
