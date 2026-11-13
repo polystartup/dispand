@@ -53,12 +53,13 @@ function Url({ initial, seen }: { initial?: string; seen: (run: string | undefin
 
 function mount(initial?: string) {
   const opened: (string | undefined)[] = [];
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={queryClient}>
       <Url initial={initial} seen={(run) => opened.push(run)} />
     </QueryClientProvider>,
   );
-  return { user: userEvent.setup(), opened };
+  return { user: userEvent.setup(), opened, queryClient };
 }
 
 const at = new Date(0);
@@ -133,6 +134,29 @@ test("Assistant settings changes the harness and model, preserves other edits, a
   await user.click(within(sheet).getByRole("button", { name: "Save settings" }));
   await waitFor(() => expect(fake.agents.update).toHaveBeenCalledTimes(2));
   expect(fake.agents.update.mock.calls[1]![0]).not.toHaveProperty("model");
+});
+
+test("reopening settings waits for fresh selections, and background refreshes keep a draft", async () => {
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.runs.list.mockResolvedValue([]);
+  fake.harnesses.list.mockResolvedValue([{ id: "h1", name: "Claude" }, { id: "h2", name: "Codex" }]);
+  const agent = { id: "agent_a", name: "Assistant", harnessId: "h1", model: "sonnet", systemPrompt: "", skills: [], tools: [] };
+  fake.agents.get.mockResolvedValue(agent);
+  const { user, queryClient } = mount();
+  await user.click(await screen.findByRole("button", { name: "Assistant settings" }));
+  expect((await screen.findByLabelText("Model") as HTMLInputElement).value).toBe("sonnet");
+  await user.click(screen.getByRole("button", { name: "Close" }));
+  let fetched!: (value: typeof agent) => void;
+  fake.agents.get.mockImplementationOnce(() => new Promise((resolve) => { fetched = resolve; }));
+  await user.click(screen.getByRole("button", { name: "Assistant settings" }));
+  expect(screen.queryByLabelText("Model")).toBeNull();
+  await waitFor(() => expect(fetched).toBeDefined());
+  fetched({ ...agent, harnessId: "h2", model: "new-model" });
+  expect((await screen.findByLabelText("Model") as HTMLInputElement).value).toBe("new-model");
+  expect(screen.getByLabelText("Harness").textContent).toBe("Codex");
+  await user.type(screen.getByLabelText("Model"), "-draft");
+  await queryClient.invalidateQueries();
+  expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe("new-model-draft");
 });
 
 test("a refused harness change keeps the settings open and shows the reason", async () => {

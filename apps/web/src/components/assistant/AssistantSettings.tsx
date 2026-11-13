@@ -11,27 +11,31 @@ import { FormField } from "../settings/parts.tsx";
 
 export function AssistantSettings({ agentId }: { agentId: string }) {
   const [open, setOpen] = useState(false);
-  const agent = useQuery({ ...orpc.agents.get.queryOptions({ input: { id: agentId } }), enabled: open });
   return (
     <>
       <Button variant="outline" className="ml-auto gap-2" onClick={() => setOpen(true)}>
         <Settings aria-hidden className="size-4" />
         Assistant settings
       </Button>
-      {open && (
-        <Sheet open onOpenChange={setOpen}>
-          <SheetContent className="w-full overflow-y-auto bg-surface sm:max-w-md">
-            <SheetHeader>
-              <SheetTitle>Assistant settings</SheetTitle>
-              <SheetDescription>Choose the harness and model for new conversations and Jobs. Existing conversations keep their settings.</SheetDescription>
-            </SheetHeader>
-            <div className="px-4 pb-4">
-              {agent.error ? <p role="alert">Could not load the Assistant settings.</p> : agent.data ? <SettingsForm agent={agent.data} onSaved={() => setOpen(false)} /> : <p>Loading…</p>}
-            </div>
-          </SheetContent>
-        </Sheet>
-      )}
+      {open && <SettingsSheet agentId={agentId} onClose={() => setOpen(false)} />}
     </>
+  );
+}
+
+function SettingsSheet({ agentId, onClose }: { agentId: string; onClose: () => void }) {
+  const agent = useQuery({ ...orpc.agents.get.queryOptions({ input: { id: agentId } }), refetchOnMount: "always" });
+  return (
+    <Sheet open onOpenChange={(open) => !open && onClose()}>
+      <SheetContent className="w-full overflow-y-auto bg-surface sm:max-w-md">
+        <SheetHeader>
+          <SheetTitle>Assistant settings</SheetTitle>
+          <SheetDescription>Choose the harness and model for new conversations and Jobs. Existing conversations keep their settings.</SheetDescription>
+        </SheetHeader>
+        <div className="px-4 pb-4">
+          {!agent.isFetchedAfterMount ? <p>Loading…</p> : agent.error ? <p role="alert">Could not load the Assistant settings.</p> : agent.data && <SettingsForm agent={agent.data} onSaved={onClose} />}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
