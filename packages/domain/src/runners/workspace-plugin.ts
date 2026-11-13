@@ -24,7 +24,7 @@ export const workspaceSkills = base.use(authed).handler(async ({ context }) => {
       return {
         resource: { kind: "plugin" as const, id: plugin.id }, name: plugin.name, nativeName: `dispand-${plugin.id}`, sourceKey,
         skills: names.filter((s) => packageIds.includes(s.packageId)).map((s) => s.name),
-        unavailable: sourceKey ? null : "Native installation requires a verified root plugin. Update older imports; subdirectory plugins currently use workspace skills.",
+        unavailable: sourceKey ? null : "Native installation requires a verified Git plugin. Update older imports before installing.",
       };
     }),
     ...standalone.map((pkg) => ({
@@ -62,7 +62,7 @@ export const workspacePlugin = base.use(authed).input(z.object({
     sourceKey = pluginNativeKey(plugin);
     if (input.action === "add") {
       if (!sourceKey || !PluginSource.safeParse(plugin.url).success || !plugin.sha || !plugin.entryName) throw new ORPCError("BAD_REQUEST", { message: "This plugin has no supported HTTPS Git source for native installation" });
-      operation = PluginOperation.parse({ action: "add", ...common, source: plugin.url, sourceRef: plugin.sha, plugin: plugin.entryName });
+      operation = PluginOperation.parse({ action: "add", ...common, source: plugin.url, sourceRef: plugin.sha, plugin: plugin.entryName, ...(plugin.nativeRoot !== "." ? { sourcePath: plugin.nativeRoot } : {}) });
     } else operation = PluginOperation.parse({ action: "remove", ...common });
   } else {
     const [pkg] = await context.db.select().from(skillPackages).where(and(eq(skillPackages.id, input.resource.id), eq(skillPackages.ownerId, context.ownerId)));

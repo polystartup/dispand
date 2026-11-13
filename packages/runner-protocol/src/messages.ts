@@ -11,7 +11,7 @@ import { MAX_CLI_RULE_LENGTH } from "./rules.ts";
  */
 export const HarnessModels = z.array(z.object({ id: string(100).min(1), label: short().min(1) })).max(500);
 
-export const PROTOCOL_VERSION = 23;
+export const PROTOCOL_VERSION = 24;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {

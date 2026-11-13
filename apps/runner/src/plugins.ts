@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { nativeSourceKey, PluginOperation, PluginReport, workspacePluginContent, type PluginHarness } from "@dispand/runner-protocol";
+import { nativeSourceKey, PluginSource, PluginOperation, PluginReport, workspacePluginContent, type PluginHarness } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { moveDurable } from "./durable.ts";
 import { runnerStateDir } from "./config.ts";
@@ -19,15 +19,16 @@ const Inventory = z.object({
   packages: z.record(name, z.object({ bindings: z.record(name, z.object({ id: name, source: name.optional(), sourceRef: name.optional(), commit: name.optional(), plugin: name.optional(), pending: name.optional(), contextChanged: z.boolean().optional(), cleanup: z.boolean().optional(), refChanged: z.boolean().optional() })).nullish() })),
   hosts: rows(z.object({ target: name, status: name, error: name.optional(), installed: rows(z.object({ id: name.optional(), installed: z.boolean().optional(), filtered: z.boolean().optional(), enabledKnown: z.boolean(), enabled: z.boolean() })) })),
 });
-const Discovery = z.object({ candidates: rows(z.object({ name, targets: rows(name), problem: name.optional() })) });
+const Discovery = z.object({ candidates: rows(z.object({ name, targets: rows(name), problem: name.optional(), path: name.optional(), targetInfo: z.record(name, z.object({ path: name.optional(), problem: name.optional() })).optional() })) });
 const Plan = z.object({ revision: name, blocked: z.boolean(), changes: rows(z.object({ name, target: name, action: name })) });
 const Result = z.object({ results: rows(z.object({ name, target: name, status: name })) });
 type Harness = z.infer<typeof PluginHarness>;
 // Native manifests use kebab-case; Skillshare's logical binding retains the workspace id.
 const workspacePluginName = (name: string) => name.toLowerCase().replace(/[._]/g, "-");
-export type PluginExec = (args: string[], env: NodeJS.ProcessEnv) => Promise<{ stdout: string; failed: boolean }>;
+export type PluginExec = (args: string[], env: NodeJS.ProcessEnv, signal?: AbortSignal) => Promise<{ stdout: string; failed: boolean }>;
 
-export const skillshareExec = (binary: string): PluginExec => (args, env) => new Promise((resolve) => {
+export const skillshareExec = (binary: string): PluginExec => (args, env, signal) => new Promise((resolve) => {
+  if (signal?.aborted) return resolve({ stdout: "", failed: true });
   const child = spawn(binary, args, { cwd: homedir(), env, detached: true, stdio: ["ignore", "pipe", "ignore"] });
   const chunks: Buffer[] = [];
   let bytes = 0;
@@ -39,6 +40,7 @@ export const skillshareExec = (binary: string): PluginExec => (args, env) => new
     }
   };
   const timer = setTimeout(stop, 120_000);
+  signal?.addEventListener("abort", stop, { once: true });
   child.stdout.on("data", (chunk: Buffer) => {
     bytes += chunk.length;
     if (bytes > 8 * 1024 * 1024) stop();
@@ -46,10 +48,12 @@ export const skillshareExec = (binary: string): PluginExec => (args, env) => new
   });
   child.on("error", () => {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", stop);
     resolve({ stdout: "", failed: true });
   });
   child.on("close", (code) => {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", stop);
     if (code !== 0) stop();
     resolve({ stdout: Buffer.concat(chunks).toString("utf8"), failed: stopped || code !== 0 });
   });
@@ -58,6 +62,8 @@ export const skillshareExec = (binary: string): PluginExec => (args, env) => new
 /** One operation at a time; native failures never trigger retry, sync or fallback. */
 export class NativePlugins {
   private busy = false;
+  // Only immutable commits are cached, so inventory polling does not repeatedly clone sources.
+  private readonly discoveries = new Map<string, z.infer<typeof Discovery>>();
   private readonly targets: Partial<Record<Harness, string>>;
   private readonly env: NodeJS.ProcessEnv;
   private readonly exec: PluginExec;
@@ -123,11 +129,51 @@ export class NativePlugins {
         if (op.dryRun) args.push("--dry-run");
         else args.push("--revision", op.revision!);
       }
+      const discoverySignal = AbortSignal.timeout(10_000);
+      const attempts = new Map<string, Promise<z.infer<typeof Discovery>>>();
+      const discover = (source: string, commit: string) => {
+        const key = JSON.stringify([source, commit]);
+        const cached = this.discoveries.get(key);
+        if (cached) return Promise.resolve(cached);
+        let pending = attempts.get(key);
+        if (!pending) {
+          if (discoverySignal.aborted) return Promise.reject(new Error("source discovery timed out"));
+          pending = this.exec(["plugin", "discover", "--global", "--json", "--no-tui", source, "--source-ref", commit], this.env, discoverySignal).then(({ stdout, failed }) => {
+            if (failed) throw new Error("source discovery failed");
+            const discovery = Discovery.parse(JSON.parse(stdout));
+            if (this.discoveries.size >= 200) this.discoveries.delete(this.discoveries.keys().next().value!);
+            this.discoveries.set(key, discovery);
+            return discovery;
+          });
+          attempts.set(key, pending);
+        }
+        return pending;
+      };
+      const selectedPath = (discovery: z.infer<typeof Discovery>, plugin: string, target: string) => {
+        const candidate = discovery.candidates.find((c) => c.name === plugin);
+        if (!candidate || candidate.problem || !candidate.targets.includes(target) || candidate.targetInfo?.[target]?.problem) return undefined;
+        return candidate.targetInfo?.[target]?.path || candidate.path;
+      };
+      if (op.action === "add" && op.sourcePath !== undefined) {
+        const discovery = await discover(op.source, op.sourceRef!);
+        if (op.targets.some((h) => selectedPath(discovery, op.plugin, h === "claude-code" ? "claude" : "codex") !== op.sourcePath)) {
+          return { error: "Skillshare selected a different or unavailable plugin folder; refresh the workspace plugin before installing" };
+        }
+      }
       const { stdout, failed } = await this.exec(args, this.env);
       const data: unknown = JSON.parse(stdout);
       let report: PluginReport;
       if (op.action === "list") {
         const inventory = Inventory.parse(data);
+        const sourcePaths = new Map<object, string | undefined>();
+        for (const pkg of Object.values(inventory.packages)) {
+          for (const [h, target] of entries) {
+            const binding = pkg.bindings?.[target];
+            if (!binding?.source || !PluginSource.safeParse(binding.source).success || !binding.commit || !/^[a-f0-9]{40}$/.test(binding.commit) || !binding.plugin) continue;
+            const discovery = await discover(binding.source, binding.commit).catch(() => undefined);
+            sourcePaths.set(binding, discovery ? selectedPath(discovery, binding.plugin, h === "claude-code" ? "claude" : "codex") : undefined);
+          }
+        }
         report = {
           targets: entries.map(([harness, target]) => {
             const host = inventory.hosts.find((h) => h.target === target);
@@ -140,7 +186,8 @@ export class NativePlugins {
             const host = inventory.hosts.find((h) => h.target === target);
             const native = host?.installed.find((i) => i.id === binding.id);
             const digest = binding.source && dirname(dirname(dirname(binding.source))) === workspaceRoot && basename(dirname(dirname(binding.source))) === name && basename(binding.source) === workspacePluginName(name) && binding.plugin === workspacePluginName(name) ? basename(dirname(binding.source)) : undefined;
-            const identity = nativeSourceKey(binding.source ?? "", binding.commit || binding.sourceRef || "", binding.plugin ?? "");
+            const sourcePath = sourcePaths.get(binding);
+            const identity = sourcePath ? nativeSourceKey(binding.source ?? "", binding.commit ?? "", binding.plugin ?? "", sourcePath) : undefined;
             const sourceKey = native?.filtered ? undefined : digest && /^[a-f0-9]{64}$/.test(digest) ? `workspace:${digest}` : identity ? createHash("sha256").update(identity).digest("hex") : undefined;
             return [{ name, ...(sourceKey ? { sourceKey } : {}), harness, installed: host?.status === "ready" && !host.error && !!native && (harness === "claude-code" || native.installed === true), enabled: native?.enabledKnown ? native.enabled : null, pending: !!binding.pending || !!binding.contextChanged || !!binding.cleanup || !!binding.refChanged }];
           })),

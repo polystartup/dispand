@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { PluginOperation, PluginSource, workspacePluginContent } from "@dispand/runner-protocol";
-import { NativePlugins } from "./plugins.ts";
+import { NativePlugins, skillshareExec } from "./plugins.ts";
 import { fallbackPackages } from "./native-skills.ts";
 import { unlock } from "./skills.ts";
 
@@ -129,6 +129,7 @@ test("native source matching uses pinned binding metadata and refuses changed ac
   const native = new NativePlugins({ codex: "codex" }, {}, exec);
   for (const contextChanged of [false, true]) {
     exec.mockResolvedValueOnce({ failed: false, stdout: JSON.stringify({ packages: { "dispand-plugin_1": { bindings: { codex: { ...binding, contextChanged } } } }, hosts: [{ target: "codex", status: "ready", installed: [{ id: binding.id, installed: true, enabledKnown: true, enabled: true }] }] }) });
+    if (!contextChanged) exec.mockResolvedValueOnce({ failed: false, stdout: JSON.stringify({ candidates: [{ name: "review", path: ".", targets: ["codex"] }] }) });
     const report = await native.request({ action: "list" });
     expect(report.packages?.[0]).toMatchObject({ name: "dispand-plugin_1", sourceKey: createHash("sha256").update(JSON.stringify(["https://example.com/review", "a".repeat(40), "review"])).digest("hex"), installed: true, enabled: true, pending: contextChanged });
     const packages = [{ name: "review", nativePlugin: "dispand-plugin_1", nativeKey: createHash("sha256").update(JSON.stringify(["https://example.com/review", "a".repeat(40), "review"])).digest("hex"), files: [] }];
@@ -148,11 +149,103 @@ test("Claude registrations are installed without the Codex installed flag", asyn
 });
 
 test("filtered native registrations cannot replace an entire workspace package", async () => {
-  const exec = vi.fn().mockResolvedValue({ failed: false, stdout: JSON.stringify({
-    targetDefinitions: [],
-    packages: { review: { bindings: { codex: { id: "review@market", source: "https://example.com/review.git", commit: "a".repeat(40), plugin: "review" } } } },
-    hosts: [{ target: "codex", status: "ready", installed: [{ id: "review@market", installed: true, enabledKnown: true, enabled: true, filtered: true }] }],
-  }) });
+  for (const filtered of [false, true]) {
+    const exec = vi.fn().mockImplementation(async (args: string[]) => ({ failed: false, stdout: JSON.stringify(args[1] === "discover" ? { candidates: [{ name: "review", path: ".", targets: ["codex"] }] } : {
+      targetDefinitions: [],
+      packages: { review: { bindings: { codex: { id: "review@market", source: "https://example.com/review.git", commit: "a".repeat(40), plugin: "review" } } } },
+      hosts: [{ target: "codex", status: "ready", installed: [{ id: "review@market", installed: true, enabledKnown: true, enabled: true, filtered }] }],
+    }) }));
+    const report = await new NativePlugins({ codex: "codex" }, {}, exec).request({ action: "list" });
+    if (filtered) expect(report.packages![0]!.sourceKey).toBeUndefined();
+    else expect(report.packages![0]!.sourceKey).toBe(createHash("sha256").update(JSON.stringify(["https://example.com/review", "a".repeat(40), "review"])).digest("hex"));
+  }
+});
+
+
+test("subfolder installs verify the pinned Skillshare selection for every target", async () => {
+  const operation = { ...add, sourceRef: "a".repeat(40), sourcePath: "plugin" };
+  const discovery: { candidates: { name: string; path: string; targets: string[]; targetInfo: Record<string, { path: string }>; problem?: string }[] } = { candidates: [{ name: "demo", path: "plugin", targets: ["claude", "codex"], targetInfo: {} }] };
+  const exec = vi.fn().mockImplementation(async (args: string[]) => ({ failed: false, stdout: JSON.stringify(args[1] === "discover" ? discovery : { results: [] }) }));
+  const targets = { "claude-code": "claude", codex: "codex" };
+  expect(await new NativePlugins(targets, {}, exec).request(PluginOperation.parse(operation))).toEqual({ results: [] });
+  expect(exec.mock.calls[0]![0]).toEqual(["plugin", "discover", "--global", "--json", "--no-tui", add.source, "--source-ref", operation.sourceRef]);
+  expect(exec.mock.calls[1]![0]).toContain("--plugin");
+  expect(exec.mock.calls[1]![0]).not.toContain("--source-path");
+  for (const candidate of [
+    { ...discovery.candidates[0]!, path: "." },
+    { ...discovery.candidates[0]!, targetInfo: { codex: { path: "other" } } },
+    { ...discovery.candidates[0]!, problem: "private native error" },
+    { ...discovery.candidates[0]!, targets: ["claude"] },
+  ]) {
+    exec.mockClear();
+    discovery.candidates = [candidate];
+    const report = await new NativePlugins(targets, {}, exec).request(PluginOperation.parse(operation));
+    expect(report.error).toContain("folder");
+    expect(JSON.stringify(report)).not.toContain("private native error");
+    expect(exec).toHaveBeenCalledTimes(1);
+  }
+});
+
+test("subfolder identities match only the folder selected for the installed harness", async () => {
+  const source = add.source;
+  const commit = "a".repeat(40);
+  const discovery = { candidates: [{ name: "demo", path: "plugin", targets: ["claude", "codex"], targetInfo: { codex: { path: "codex-plugin" } } }] };
+  const inventory = { packages: { demo: { bindings: { claude: { id: "demo@native", source, commit, plugin: "demo" }, codex: { id: "demo@native", source, commit, plugin: "demo" } } } }, hosts: ["claude", "codex"].map((target) => ({ target, status: "ready", installed: [{ id: "demo@native", installed: true, enabledKnown: true, enabled: true }] })) };
+  const exec = vi.fn().mockImplementation(async (args: string[]) => ({ failed: false, stdout: JSON.stringify(args[1] === "discover" ? discovery : inventory) }));
+  const report = await new NativePlugins({ "claude-code": "claude", codex: "codex" }, {}, exec).request({ action: "list" });
+  for (const [index, path] of ["plugin", "codex-plugin"].entries()) {
+    expect(report.packages?.[index]?.sourceKey).toBe(createHash("sha256").update(JSON.stringify([source.replace(/\.git$/, ""), commit, "demo", path])).digest("hex"));
+  }
+  expect(exec).toHaveBeenCalledTimes(2);
+});
+
+test("subfolder requests require a safe relative folder and an immutable commit", () => {
+  for (const sourcePath of ["/private", "../other", "plugin/../other", "plugin\\other", ""]) {
+    expect(PluginOperation.safeParse({ ...add, sourceRef: "a".repeat(40), sourcePath }).success).toBe(false);
+  }
+  expect(PluginOperation.safeParse({ ...add, sourcePath: "plugin" }).success).toBe(false);
+});
+
+
+test("failed source discovery leaves native inventory readable without claiming a source match", async () => {
+  const exec = vi.fn().mockResolvedValueOnce({ failed: false, stdout: JSON.stringify({ packages: { demo: { bindings: { codex: { id: "demo@native", source: add.source, commit: "a".repeat(40), plugin: "demo" } } } }, hosts: [{ target: "codex", status: "ready", installed: [{ id: "demo@native", installed: true, enabledKnown: true, enabled: true }] }] }) }).mockResolvedValueOnce({ failed: true, stdout: "private failure" });
   const report = await new NativePlugins({ codex: "codex" }, {}, exec).request({ action: "list" });
-  expect(report.packages![0]!.sourceKey).toBeUndefined();
+  expect(report.packages?.[0]).toMatchObject({ installed: true, enabled: true });
+  expect(report.packages?.[0]?.sourceKey).toBeUndefined();
+  expect(JSON.stringify(report)).not.toContain("private failure");
+});
+
+
+test("inventory shares a discovery deadline and deduplicates failures across harnesses", async () => {
+  const controller = new AbortController();
+  const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
+  const inventory = { packages: { demo: { bindings: Object.fromEntries(["claude", "codex"].map((target) => [target, { id: "demo@native", source: add.source, commit: "a".repeat(40), plugin: "demo" }])) } }, hosts: [] };
+  let started!: () => void;
+  const ready = new Promise<void>((resolve) => { started = resolve; });
+  const exec = vi.fn().mockImplementation(async (args: string[], _env, signal?: AbortSignal) => {
+    if (args[1] === "list") return { failed: false, stdout: JSON.stringify(inventory) };
+    started();
+    if (!signal) return { failed: true, stdout: "" };
+    return new Promise((resolve) => signal.addEventListener("abort", () => resolve({ failed: true, stdout: "" }), { once: true }));
+  });
+  try {
+    const pending = new NativePlugins({ "claude-code": "claude", codex: "codex" }, {}, exec).request({ action: "list" });
+    await ready;
+    controller.abort();
+    const report = await pending;
+    expect(report.error).toBeUndefined();
+    expect(report.packages).toHaveLength(2);
+    expect(report.packages!.every((pkg) => pkg.sourceKey === undefined)).toBe(true);
+    expect(exec).toHaveBeenCalledTimes(2);
+  } finally { timeout.mockRestore(); }
+});
+
+
+test("discovery cancellation stops its native process group", async () => {
+  const controller = new AbortController();
+  const exec = skillshareExec("/bin/sh");
+  const pending = exec(["-c", "sleep 60"], process.env, controller.signal);
+  controller.abort();
+  expect(await pending).toEqual({ failed: true, stdout: "" });
+  expect(await exec(["-c", "sleep 60"], process.env, controller.signal)).toEqual({ failed: true, stdout: "" });
 });

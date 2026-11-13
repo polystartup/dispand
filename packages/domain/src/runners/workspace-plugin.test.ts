@@ -97,10 +97,10 @@ test("uninstall reuses a differently named Skillshare binding only by the verifi
   expect(request.mock.calls.at(-1)![1].operation).toEqual({ action: "remove", name: "already-managed", targets: ["codex"], dryRun: true });
 });
 
-test("unverified and subdirectory imports cannot select a different native root plugin", async () => {
+test("unverified imports cannot select a native plugin", async () => {
   const { context, request } = await setup();
   await pluginFixture(context);
-  for (const nativeRoot of [null, "plugins/review"]) {
+  for (const nativeRoot of [null, "", "../review", "/private"]) {
     await context.db.update(plugins).set({ nativeRoot }).where(eq(plugins.id, "plugin_1"));
     await expect(call(router.runners.workspacePlugin, base, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     const inventory = await call(router.runners.workspaceSkills, undefined, { context });
@@ -171,4 +171,14 @@ test("every grouped target must be owned, valid and on the same runner", async (
   await expect(call(router.runners.workspacePlugin, { ...base, harnessIds: ["harness_1", "harness_1"] }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   await expect(call(router.runners.workspacePlugin, { ...base, harnessIds: ["harness_1", "harness_2"], action: "remove" }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   expect(request).not.toHaveBeenCalled();
+});
+
+test("subfolder workspace plugins send their imported folder and retain distinct source identity", async () => {
+  const { context, request } = await setup();
+  await pluginFixture(context);
+  await context.db.update(plugins).set({ nativeRoot: "plugin" }).where(eq(plugins.id, "plugin_1"));
+  await call(router.runners.workspacePlugin, base, { context });
+  expect(request.mock.calls[1]![1].operation).toMatchObject({ action: "add", sourcePath: "plugin", sourceRef: "a".repeat(40), plugin: "review-tools" });
+  const inventory = await call(router.runners.workspaceSkills, undefined, { context });
+  expect(inventory[0]).toMatchObject({ unavailable: null, sourceKey: createHash("sha256").update(JSON.stringify(["https://example.com/review", "a".repeat(40), "review-tools", "plugin"])).digest("hex") });
 });
