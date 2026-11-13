@@ -273,7 +273,7 @@ test("a finished Job with a recorded transcript sends to the same conversation",
   const input = await screen.findByLabelText("Message");
   await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false));
   await user.type(input, "One more thing.");
-  await user.click(screen.getByRole("button", { name: "Send", exact: true }));
+  await user.click(screen.getByRole("button", { name: /^Send$/ }));
   await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledWith({ runId: "run_1", text: "One more thing." }));
   expect(fake.jobs.start).not.toHaveBeenCalled();
 });
