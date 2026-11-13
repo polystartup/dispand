@@ -87,6 +87,8 @@ export const HarnessEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("tool"), name: id(), status: z.enum(["started", "done"]) }),
   z.object({ type: z.literal("question"), questionId: id(), payload: QuestionPayload }),
   z.object({ type: z.literal("turn-end") }),
+  // The process exited (or is absent): its transcript is safe to resume in a new session.
+  z.object({ type: z.literal("session-ended") }),
   z.object({ type: z.literal("outputs-accepted"), values: record(text(), 100) }),
   z.object({ type: z.literal("result"), text: text() }),
   z.object({ type: z.literal("error"), message: short() }),

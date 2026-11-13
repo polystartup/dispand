@@ -4,7 +4,7 @@ import { call } from "@orpc/server";
 import { type Answer, parseServerMessage, type ServerToRunner, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING, TEXT } from "@dispand/runner-protocol";
 import { and, eq, or } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { agents as agentsTable, agentTools, agentConsults, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools } from "../db/schema.ts";
+import { audit, agents as agentsTable, agentTools, agentConsults, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { ArgValue } from "../tools/arguments.ts";
@@ -15,7 +15,7 @@ import { CloudRunner, noTools } from "../cloud/runner.ts";
 import { CliHarnessAdapter } from "./cli-harness.ts";
 import { RoutingAdapter } from "./routing-adapter.ts";
 import { exposedName } from "../platform/exposed.ts";
-import { jobTokenOf } from "../platform/token.ts";
+import { jobTokenOf, jobOfToken } from "../platform/token.ts";
 import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
@@ -1785,4 +1785,175 @@ test.each([[["send.email"]], [["send_email"]], [["send.email", "send_email"]]])(
   const ref = starts()[0]!.mcpServers[0]!;
   if (names.length === 2) expect(ref).toMatchObject({ unasked: ["send.email", "send_email"] });
   else expect(ref).not.toHaveProperty("unasked");
+});
+
+test("a finished Job chat reopens with a new token and waits for the old process to exit", async () => {
+  const { context, adapter, trigger, runnerId } = await jobSetup("chat");
+  const engine = new Engine(context.db, adapter, undefined, undefined, undefined, context.secrets);
+  onTestFinished(() => engine.stop());
+  let seq = 0;
+  const emit = (id: string, event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(id, event, { runnerId, seq: ++seq });
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const old = adapter.starts[0]!.start;
+  await emit(old.sessionId, { type: "cli-session", cliSessionId: "cli_history" });
+  await emit(old.sessionId, { type: "text", delta: "First answer." });
+  await emit(old.sessionId, { type: "outputs-accepted", values: {} });
+  const before = await runOf(engine, runId);
+  const token = jobTokenOf(context.secrets, before.run)!;
+  await engine.sendChat(runId, "One more thing.");
+  const reopened = await runOf(engine, runId);
+  expect(reopened.run).toMatchObject({ status: "running", finishedAt: null });
+  expect(reopened.run.rootId).not.toBe(before.run.rootId);
+  expect(jobTokenOf(context.secrets, reopened.run)).not.toBe(token);
+  expect(await jobOfToken(context.db, token)).toBeNull();
+  expect(reopened.steps[trigger.id]).toMatchObject({ id: before.steps[trigger.id]!.id, cliSessionId: "cli_history", status: "running", finishedAt: null });
+  expect(reopened.steps[trigger.id]!.sessionId).not.toBe(old.sessionId);
+  expect(adapter.stops).toContain(old.sessionId);
+  expect(adapter.starts).toHaveLength(1);
+  await emit(old.sessionId, { type: "result", text: "Late old result." });
+  expect((await runOf(engine, runId)).run.status).toBe("running");
+  await emit(old.sessionId, { type: "session-ended" });
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(2));
+  const resumed = adapter.starts[1]!.start;
+  expect(resumed).toMatchObject({ sessionId: reopened.steps[trigger.id]!.sessionId, resumeCliSessionId: "cli_history", runKey: old.runKey });
+  expect(resumed.prompt).toContain("One more thing.");
+  expect(adapter.sent).toEqual([]);
+  await emit(resumed.sessionId, { type: "text", delta: "Second answer." });
+  await emit(resumed.sessionId, { type: "outputs-accepted", values: {} });
+  expect((await runOf(engine, runId)).run.status).toBe("succeeded");
+  const transcript = await context.db.select().from(messages).where(eq(messages.runId, runId)).orderBy(messages.position);
+  expect(transcript.map((m) => m.text)).toEqual(["First answer.", "One more thing.", "Second answer."]);
+  const [entry] = await context.db.select().from(audit).where(and(eq(audit.jobId, runId), eq(audit.action, "job.reopened")));
+  expect(entry!.actor).toEqual({ type: "user", userId: context.ownerId });
+});
+
+test("a reopened chat survives restart and waits for a live old process before resuming once", async () => {
+  const { context, adapter, engine, emit, trigger, runnerId } = await jobSetup("chat");
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const old = adapter.starts[0]!.start;
+  await emit(old.sessionId, { type: "cli-session", cliSessionId: "cli_history" });
+  await emit(old.sessionId, { type: "outputs-accepted", values: {} });
+  await Promise.all([engine.sendChat(runId, "Continue."), engine.sendChat(runId, "And this.")]);
+  await engine.stop();
+  const after = new FakeAdapter();
+  const recovered = new Engine(context.db, after);
+  onTestFinished(() => recovered.stop());
+  await recovered.recover();
+  await recovered.reconcile(runnerId, [old.sessionId]);
+  expect(after.starts).toEqual([]);
+  await recovered.onHarnessEvent(old.sessionId, { type: "session-ended" }, { runnerId: "other-runner", seq: 9 });
+  expect(after.starts).toEqual([]);
+  await recovered.reconcile(runnerId, []);
+  await vi.waitFor(() => expect(after.starts).toHaveLength(1));
+  expect(after.starts[0]!.start).toMatchObject({ resumeCliSessionId: "cli_history" });
+  expect(after.starts[0]!.start.prompt).toContain("Continue.");
+  expect(after.starts[0]!.start.prompt).toContain("And this.");
+  expect(after.sent).toEqual([]);
+});
+
+test.each(["failed", "stopped", "no-history", "button"])("a %s Job cannot reopen a chat", async (kind) => {
+  const { context, adapter, engine, emit, trigger } = await jobSetup(kind === "button" ? "button" : "chat");
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const id = adapter.starts[0]!.start.sessionId;
+  if (kind !== "no-history") await emit(id, { type: "cli-session", cliSessionId: "cli_history" });
+  if (kind === "stopped") await engine.stopRun(runId);
+  else await emit(id, kind === "failed" ? { type: "error", message: "Failed" } : { type: "result", text: "Done" });
+  await expect(engine.sendChat(runId, "Continue?")).rejects.toMatchObject({ code: "CLOSED" });
+  expect(adapter.starts).toHaveLength(1);
+});
+
+test("a reopened CLI Job carries a fresh endpoint token and only its remaining tools", async () => {
+  const { context, engine, agent, runnerId, starts, withTooling } = await toolingSetup();
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } }, { context });
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(() => expect(starts()).toHaveLength(1));
+  const old = starts()[0]!;
+  expect(old.jobToken).toBeTruthy();
+  expect(old.mcpServers).not.toEqual([]);
+  await engine.onHarnessEvent(old.sessionId, { type: "cli-session", cliSessionId: "cli_history" }, { runnerId, seq: 1 });
+  await engine.onHarnessEvent(old.sessionId, { type: "outputs-accepted", values: {} }, { runnerId, seq: 2 });
+  await call(router.agents.update, { ...withTooling, skillPackageIds: [], toolIds: [] }, { context });
+  await engine.sendChat(runId, "Continue.");
+  expect(starts()).toHaveLength(1);
+  await engine.onHarnessEvent(old.sessionId, { type: "session-ended" }, { runnerId, seq: 3 });
+  await vi.waitFor(() => expect(starts()).toHaveLength(2));
+  const resumed = starts()[1]!;
+  expect(resumed).toMatchObject({ resumeCliSessionId: "cli_history", skills: [], mcpServers: [] });
+  expect(resumed.jobToken).toBeTruthy();
+  expect(resumed.jobToken).not.toBe(old.jobToken);
+  expect(await jobOfToken(context.db, old.jobToken!)).toBeNull();
+  expect(await jobOfToken(context.db, resumed.jobToken!)).toMatchObject({ runId, agentId: agent.id });
+});
+
+test("an offline reopened chat retries its new turn without replaying the old conversation", async () => {
+  const { context, adapter, engine, emit, trigger, runnerId } = await jobSetup("chat");
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const old = adapter.starts[0]!.start;
+  await engine.sendChat(runId, "Old turn.");
+  await vi.waitFor(async () => expect((await context.db.select().from(messages).where(eq(messages.runId, runId)))[0]!.deliveredAt).toBeInstanceOf(Date));
+  await emit(old.sessionId, { type: "cli-session", cliSessionId: "cli_history" });
+  await emit(old.sessionId, { type: "outputs-accepted", values: {} });
+  adapter.online = false;
+  await engine.sendChat(runId, "New turn.");
+  const reopened = Object.values((await runOf(engine, runId)).steps)[0]!;
+  // A permission update sent before this new process starts can report it absent.
+  await emit(reopened.sessionId!, { type: "error", message: SESSION_NOT_RUNNING });
+  await emit(old.sessionId, { type: "session-ended" });
+  await engine.stop();
+  const after = new FakeAdapter();
+  const recovered = new Engine(context.db, after);
+  onTestFinished(() => recovered.stop());
+  await recovered.recover();
+  await recovered.reconcile(runnerId, []);
+  await vi.waitFor(() => expect(after.starts).toHaveLength(1));
+  expect(after.starts[0]!.start.prompt).toContain("New turn.");
+  expect(after.starts[0]!.start.prompt).not.toContain("Old turn.");
+  expect(after.sent).toEqual([]);
+});
+
+test("stopping a reopened chat while it waits prevents a later exit acknowledgement from resuming it", async () => {
+  const { context, adapter, engine, emit, trigger } = await jobSetup("chat");
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const old = adapter.starts[0]!.start.sessionId;
+  await emit(old, { type: "cli-session", cliSessionId: "cli_history" });
+  await emit(old, { type: "outputs-accepted", values: {} });
+  await engine.sendChat(runId, "Continue.");
+  await engine.stopRun(runId);
+  await emit(old, { type: "session-ended" });
+  expect(adapter.starts).toHaveLength(1);
+  expect((await runOf(engine, runId)).run.status).toBe("failed");
+});
+
+test("a reopened chat sends prompt overflow only after its resumed start is written", async () => {
+  const { context, adapter, engine, emit, trigger } = await jobSetup("chat");
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const old = adapter.starts[0]!.start.sessionId;
+  await emit(old, { type: "cli-session", cliSessionId: "cli_history" });
+  await emit(old, { type: "outputs-accepted", values: {} });
+  await engine.sendChat(runId, "a".repeat(100_000));
+  await engine.sendChat(runId, "b".repeat(100_000));
+  let write!: () => void;
+  adapter.hold = new Promise<void>((resolve) => (write = resolve));
+  try {
+    await emit(old, { type: "session-ended" });
+    expect(adapter.starts).toHaveLength(2);
+    expect(adapter.starts[1]!.start.prompt).toContain("a".repeat(100_000));
+    expect(adapter.sent).toEqual([]);
+    write();
+    await engine.stop();
+    expect(adapter.sent).toEqual([[adapter.starts[1]!.start.sessionId, "b".repeat(100_000)]]);
+  } finally {
+    write();
+  }
+});
+
+test("a successful chat cannot reopen on its revoked historical runner", async () => {
+  const { context, adapter, engine, emit, trigger, runnerId } = await jobSetup("chat");
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const old = adapter.starts[0]!.start.sessionId;
+  await emit(old, { type: "cli-session", cliSessionId: "cli_history" });
+  await emit(old, { type: "outputs-accepted", values: {} });
+  await context.db.update(runners).set({ revokedAt: new Date() }).where(eq(runners.id, runnerId));
+  await expect(engine.sendChat(runId, "Continue?")).rejects.toMatchObject({ code: "CLOSED" });
+  expect((await runOf(engine, runId)).run.status).toBe("succeeded");
 });

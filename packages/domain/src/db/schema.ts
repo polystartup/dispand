@@ -463,6 +463,8 @@ export const stepRuns = pgTable(
     // When the session last reported something (any event but an error): proof its start arrived.
     lastActivityAt: timestamp("last_activity_at"),
     cliSessionId: text("cli_session_id"),
+    // A reopened chat waits for the former process; kept until the new start is written.
+    resumeAfterSession: jsonb("resume_after_session").$type<{ sessionId: string; ended: boolean }>(),
     // Highest runner seq handled for this session: replays (at-least-once delivery) are dropped.
     eventSeq: bigint("event_seq", { mode: "number" }).notNull().default(0),
     outputs: jsonb("outputs").$type<Record<string, string>>(),

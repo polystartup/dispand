@@ -260,3 +260,20 @@ test("with two proposals waiting, the composer answers neither: each is answered
   expect(screen.getAllByRole("button", { name: "Approve" })).toHaveLength(2);
   expect(screen.getByLabelText<HTMLTextAreaElement>("Message").disabled).toBe(true);
 });
+
+test("a finished Job with a recorded transcript sends to the same conversation", async () => {
+  const snap = snapshot();
+  snap.run = { ...snap.run, source: "agent", workflowId: null, agentId: "agent_1", status: "succeeded", finishedAt: at };
+  snap.steps = snap.steps.map((s) => ({ ...s, status: "succeeded", finishedAt: at, resumable: true }));
+  fake.runs.stream.mockImplementation(streamOf(snap));
+  fake.jobs.def.mockResolvedValue({ trigger: { type: "manual", field: { id: "n_chat", type: "chat" } }, steps: [], edges: [] });
+  fake.runs.sendChat.mockResolvedValue(undefined);
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatPanel runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></QueryClientProvider>);
+  const user = userEvent.setup();
+  const input = await screen.findByLabelText("Message");
+  await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false));
+  await user.type(input, "One more thing.");
+  await user.click(screen.getByRole("button", { name: /^Send$/ }));
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledWith({ runId: "run_1", text: "One more thing." }));
+  expect(fake.jobs.start).not.toHaveBeenCalled();
+});

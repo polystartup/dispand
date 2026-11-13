@@ -5,7 +5,7 @@ import { ArrowUp, Check, CircleAlert, Loader2, MessageSquarePlus, ShieldCheck } 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api, orpc } from "../../lib/api.ts";
-import type { RunSnapshot } from "../../lib/run-state.ts";
+import { canReopen, type RunSnapshot } from "../../lib/run-state.ts";
 import { useRun } from "../../lib/run-watch.ts";
 import { ChatInput, ChatThread, composerApproval } from "../chat/Thread.tsx";
 
@@ -49,7 +49,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
   const chatField = runDef?.trigger.field.type === "chat" ? runDef.trigger.field.id : undefined;
   const chatStep = run?.steps.find((s) => s.interactive) ?? run?.steps.find((s) => s.nodeId === chatField && s.status === "pending");
   // Until its stream answers, a run just started counts as open: the first message may still be on its way.
-  const open = !runId || !run || (!!chatStep && (chatStep.status === "running" || chatStep.status === "waiting" || chatStep.status === "pending"));
+  const open = !runId || !run || canReopen(run) || (!!chatStep && (chatStep.status === "running" || chatStep.status === "waiting" || chatStep.status === "pending"));
   // A proposal's Approval shown whole in the thread, alone in waiting: the composer answers it,
   // Approve or the words typed, which decline it. Any other question is answered where it is
   // shown, and sending waits for it.

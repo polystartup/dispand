@@ -1406,3 +1406,33 @@ allows are merged, and denial overflow refuses the start rather than omitting a 
 An undelivered answer is checked again: a removed grant loses its cache scope. Existing server authorization and telemetry
 for managed MCP approvals are unchanged. `native-permissions.ts` is pure policy code with no
 I/O or content telemetry; the operational paths retain their existing session/question events.
+
+
+### Continuing a finished Job chat
+
+A successful Job chat with a recorded CLI or cloud transcript accepts another owner message
+in the same Job. The existing chat step and its messages remain in that thread; the new turn
+gets a fresh session id, Job token and chat root cause, with completion timestamps cleared.
+The message and the `job.reopened` owner Audit row commit with that transition. Failed or
+stopped Jobs, workflow runs, deleted agents and chats without recorded history remain closed.
+A revoked historical runner is refused without reopening the Job. A new conversation still
+starts a separate Job.
+
+Migration 0070 adds nullable `step_runs.resume_after_session`. It records the former session
+and whether its process has ended, until the resumed start is written. Protocol 22 adds
+`session-ended`: a requested stop acknowledges only after the CLI process exits and its
+session files are cleaned up, or immediately when the process is absent. A logical `result`
+can arrive earlier and proves no process exit. Events of the old session cannot affect the
+new one. A reconnect that omits the former session also releases the resume; a reconnect
+that finds the new session already live recovers that start. Recovery retains the pending
+message and never launches two CLI processes against the same transcript. Before the new
+session has started, a missing-session report never queues the previous conversation again.
+
+The resume retains the run folder and CLI transcript id and carries undelivered new messages
+through the existing resume prompt. Its start reads the fresh token and current permissions,
+so tools removed since completion are absent. Cloud sessions inherit the previous model
+items under their new id after the former loop has ended. Unanswered calls from the old
+model batch are settled as interrupted before the new message is consumed; they never run
+as part of that follow-up. The former token stays invalid.
+The browser keeps watching resumable chats after success, within its normal connection cap,
+so the same composer can send and receive a new turn without starting another Job.

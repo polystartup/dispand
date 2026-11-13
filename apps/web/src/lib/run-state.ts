@@ -31,7 +31,13 @@ export function applyRunEvent(state: RunSnapshot | null, event: RunStreamEvent):
  * Whether nothing in the run changes any more. A failed run may still have steps at work (parallel
  * branches go on after one fails): their results and questions still come.
  */
+/** A successful Job chat can continue from its recorded transcript in this same Job. */
+export function canReopen(state: RunSnapshot | null): boolean {
+  return state?.run.source === "agent" && !!state.run.agentId && state.run.status === "succeeded" && state.steps.some((s) => s.interactive && s.status === "succeeded" && s.resumable);
+}
+
 export function runOver(state: RunSnapshot | null): boolean {
+  if (canReopen(state)) return false;
   if (state?.run.status === "succeeded") return true;
   return state?.run.status === "failed" && !state.steps.some((s) => s.status === "running" || s.status === "waiting");
 }

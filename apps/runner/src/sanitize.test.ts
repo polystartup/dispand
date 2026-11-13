@@ -35,6 +35,7 @@ const cases: Record<HarnessEvent["type"], unknown> = {
   tool: { type: "tool", name: bad(300), status: "started" },
   question: { type: "question", questionId: bad(300), payload: choice },
   "turn-end": { type: "turn-end" },
+  "session-ended": { type: "session-ended" },
   "outputs-accepted": { type: "outputs-accepted", values: { summary: huge } },
   result: { type: "result", text: huge },
   error: { type: "error", message: huge },

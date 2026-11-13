@@ -71,7 +71,7 @@ const same = (m: ThreadMessageLike) => m;
 export const textOf = (message: AppendMessage) => message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
 
 /**
- * The library's runtime over a run's chat. `canSend`: false while the conversation is over or a question waits; `onSend` sends the
+ * The library's runtime over a run's chat. `canSend`: false while the conversation cannot continue or a question waits; `onSend` sends the
  * owner's words through Dispand's own procedures.
  */
 export function useRunThread(options: { run: RunSnapshot | null; chatStepId: string | undefined; canSend: boolean; onSend: (text: string) => Promise<void> }) {

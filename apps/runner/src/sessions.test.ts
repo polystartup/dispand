@@ -451,11 +451,13 @@ test.each([
   await expect(stat(join(base, "root", "runs", "run_a"))).rejects.toThrow();
 });
 
-test("session.stop ends that session alone, with one error, and stops its CLI; a session that isn't running is left quiet", async () => {
+test("session.stop acknowledges exit only after the process finishes, including an absent session", async () => {
   const base = await realpath(await mkdtemp(join(tmpdir(), "sessions-")));
   made.push(base);
   const events: [string, HarnessEvent][] = [];
   const calls: Options[] = [];
+  let exit!: () => void;
+  const exiting = new Promise<void>((resolve) => (exit = resolve));
   // A CLI that keeps running until it is aborted.
   const hanging = (({ prompt, options }: { prompt: AsyncIterable<SDKUserMessage>; options?: Options }) => {
     calls.push(options!);
@@ -463,6 +465,7 @@ test("session.stop ends that session alone, with one error, and stops its CLI; a
       await prompt[Symbol.asyncIterator]().next();
       yield { type: "system", subtype: "init", session_id: "cli-h" } as SDKMessage;
       await new Promise((resolve) => options!.abortController!.signal.addEventListener("abort", resolve));
+      if (options!.cwd!.endsWith("run_a")) await exiting;
     }
     return Object.assign(script(), { interrupt: vi.fn(async () => undefined) });
   }) as unknown as typeof query;
@@ -476,15 +479,19 @@ test("session.stop ends that session alone, with one error, and stops its CLI; a
   await vi.waitFor(() => expect(events.filter(([, e]) => e.type === "cli-session")).toHaveLength(2));
 
   await sessions.handle({ type: "session.stop", sessionId: "ses_1" });
+  expect(events.filter(([, e]) => e.type === "session-ended")).toEqual([]);
+  expect(sessions.ids()).toContain("ses_1");
+  exit();
   await vi.waitFor(() => expect(sessions.ids()).toEqual(["ses_2"]));
+  expect(events.filter(([id, e]) => id === "ses_1" && e.type === "session-ended")).toHaveLength(1);
   expect(events.filter(([id, e]) => id === "ses_1" && e.type === "error")).toEqual([["ses_1", { type: "error", message: "Stopped" }]]);
   expect(calls.map((o) => o.abortController!.signal.aborted)).toEqual([true, false]);
 
-  // Stopped already, or never here: nothing to say (Dispand closed it on its side).
+  // Stopped already, or never here: acknowledge absence without another error.
   const before = events.length;
   await sessions.handle({ type: "session.stop", sessionId: "ses_1" });
   await sessions.handle({ type: "session.stop", sessionId: "ses_never" });
-  expect(events).toHaveLength(before);
+  expect(events.slice(before)).toEqual([["ses_1", { type: "session-ended" }], ["ses_never", { type: "session-ended" }]]);
   await sessions.shutdown();
 });
 

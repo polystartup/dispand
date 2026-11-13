@@ -102,6 +102,7 @@ export const STOPPED = "Stopped";
 
 export class Sessions {
   private readonly live = new Map<string, HarnessSession>();
+  private readonly stopping = new Set<string>();
   // No parameter properties: `node src/main.ts` runs this file with type stripping only.
   private readonly config: RunnerConfig;
   private readonly emit: Emit;
@@ -215,8 +216,8 @@ export class Sessions {
     // Not running (ended, stopped, never started here): said once per session per connection,
     // which is what lets Dispand resume a lost session; nothing while the backlog is full.
     // A stop for a session that isn't here has nothing to end, and nothing for Dispand to resume.
-    if (!session) return msg.type === "session.stop" ? undefined : this.notRunning(msg.sessionId);
-    if (msg.type === "session.stop") return session.stop(STOPPED);
+    if (!session) return msg.type === "session.stop" ? this.emit(msg.sessionId, { type: "session-ended" }) : this.notRunning(msg.sessionId);
+    if (msg.type === "session.stop") { this.stopping.add(msg.sessionId); return session.stop(STOPPED); }
     if (msg.type === "session.permissions") session.narrowPermissions?.(msg.servers);
     else if (msg.type === "session.send") session.send(msg.text);
     else if (msg.type === "session.answer") session.answer(msg.questionId, msg.answer);
@@ -346,11 +347,14 @@ export class Sessions {
       // Shutdown waits for it: memory files must not outlive their session.
       const ended = session.done
         .finally(() => {
-          this.live.delete(start.sessionId);
           return cleanUp();
         })
         .catch(() => undefined)
-        .finally(() => this.ending.delete(ended));
+        .finally(() => {
+          this.live.delete(start.sessionId);
+          this.ending.delete(ended);
+          if (this.stopping.delete(start.sessionId) && !this.shuttingDown) emit({ type: "session-ended" });
+        });
       this.ending.add(ended);
     } catch (err) {
       cleanUp();
