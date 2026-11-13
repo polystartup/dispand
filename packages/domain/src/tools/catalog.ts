@@ -22,19 +22,19 @@ export type PollPreset = {
 /**
  * What every entry may add to a tool. `unasked`: the actions that run without asking when a
  * person gives the tool to an agent (design 6.4); every other action asks, whatever the server
- * says of it. `pollable`: the actions a poll may read, in place of the
+ * says of it. `disabled`: actions initially unavailable workspace-wide. `pollable`: the actions a poll may read, in place of the
  * read-only ones. `poll`: its poll preset. `docs`: the set-up steps, a file of Dispand's repository.
  */
-type Shared = { id: string; name: string; description: string; unasked?: string[]; pollable?: string[]; poll?: PollPreset; docs?: string };
+type Shared = { id: string; name: string; description: string; unasked?: string[]; disabled?: string[]; pollable?: string[]; poll?: PollPreset; docs?: string };
 
 /**
  * An action an HTTP entry's server offers, as its documentation describes it: whether it only
  * reads, whether a poll may read it, and whether an agent given the tool asks before using it
- * (`ask`, the default for an action that doesn't only read). The tool starts with these, so its
+ * (`ask`, the default for an action that doesn't only read), or is initially disabled workspace-wide. The tool starts with these, so its
  * flags and poll triggers can be set before its owner signs in; the first listing that succeeds
  * replaces them, as any listing does.
  */
-export type CatalogAction = { name: string; description: string; readOnly?: true; pollable?: true; ask?: boolean };
+export type CatalogAction = { name: string; description: string; readOnly?: true; pollable?: true; ask?: boolean; disabled?: true };
 
 /**
  * A tool Dispand knows how to set up. `http` entries become HTTP tools, their headers filled
@@ -247,16 +247,26 @@ export const CATALOG: readonly CatalogEntry[] = [
 /** The catalog entry a tool was installed from, if it is still in the catalog. */
 export const catalogEntry = (catalogId: string | null | undefined) => (catalogId ? CATALOG.find((e) => e.id === catalogId) : undefined);
 
+/** Workspace-wide defaults declared by a catalog entry, including its action flags. */
+export function defaultDisabled(entry: { disabled?: string[]; actions?: { name: string; disabled?: true }[] }): string[] {
+  return [...new Set([...(entry.disabled ?? []), ...(entry.actions ?? []).flatMap((a) => a.disabled ? [a.name] : [])])];
+}
+
+/** The enabled catalog/discovered actions of a tool, before any caller offers them. */
+export function enabledActions<T extends { name: string }>(tool: { actions: T[]; disabled?: string[] }): T[] {
+  return tool.actions.filter((a) => !tool.disabled?.includes(a.name));
+}
+
 /**
  * The actions that run unasked when a person gives the tool to an agent: for a tool from the
  * catalog, its entry's choice alone (an action the entry doesn't name asks, whatever its server
  * says); for any other tool, the ones its server calls read-only. Read only then: later, neither
  * changes anything by itself.
  */
-export function defaultUnasked(tool: { catalogId: string | null; actions: { name: string; readOnly?: boolean }[] }): string[] {
+export function defaultUnasked(tool: { catalogId: string | null; actions: { name: string; readOnly?: boolean }[]; disabled?: string[] }): string[] {
   const entry = catalogEntry(tool.catalogId);
-  if (entry?.kind === "runner") return [...(entry.unasked ?? [])];
-  return tool.actions.flatMap((a) => ((entry ? (entry.unasked ?? []).includes(a.name) : a.readOnly === true) ? [a.name] : []));
+  if (entry?.kind === "runner") return [...(entry.unasked ?? [])].filter((name) => !tool.disabled?.includes(name));
+  return enabledActions(tool).flatMap((a) => ((entry ? (entry.unasked ?? []).includes(a.name) : a.readOnly === true) ? [a.name] : []));
 }
 
 /** Entries whose name or description contains `query`, ignoring case; all of them without one. */

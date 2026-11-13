@@ -9,7 +9,7 @@ export { actionParams, typeHint, type ActionParam } from "../tools/arguments.ts"
 // Pure: imported by the web editor too (`@dispand/domain/workflows/tool-steps`).
 
 /** An installed tool as the workflow model sees it (from `tools.list`, or `loadToolSchemas`). `kind` is read as text. */
-export type ToolSchema = { id: string; name: string; kind: string; actions: ToolAction[] };
+export type ToolSchema = { id: string; name: string; kind: string; actions: ToolAction[]; disabled?: string[] };
 
 function toolStepOf(def: WorkflowDef, stepId: string): ToolStep | undefined {
   return def.steps.find((s): s is ToolStep => s.id === stepId && s.type === "tool");
@@ -27,7 +27,7 @@ export function toolIdsOf(def: WorkflowDef): string[] {
 /** The tool step's tool and action as they are now, when both still exist. */
 export function actionOf(step: ToolStep, tools: ToolSchema[]): { tool: ToolSchema; action: ToolAction } | null {
   const tool = tools.find((t) => t.id === step.toolId);
-  const action = tool?.actions.find((a) => a.name === step.action);
+  const action = tool?.disabled?.includes(step.action) ? undefined : tool?.actions.find((a) => a.name === step.action);
   return tool && action ? { tool, action } : null;
 }
 
@@ -97,6 +97,10 @@ export function validateToolSteps(def: WorkflowDef, tools: ToolSchema[]): Workfl
     }
     if (step.action === "") {
       add("Choose an action");
+      continue;
+    }
+    if (tool.disabled?.includes(step.action)) {
+      add(`${tool.name}'s action “${step.action}” is disabled workspace-wide`);
       continue;
     }
     const action = tool.actions.find((a) => a.name === step.action);

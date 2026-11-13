@@ -1,0 +1,1 @@
+ALTER TABLE "tools" ADD COLUMN "disabled" jsonb DEFAULT '[]'::jsonb NOT NULL;

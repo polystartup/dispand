@@ -67,3 +67,14 @@ test("an agent that gets the tool only through a skill asks before every action,
   await call(router.agents.create, { name: "Triager", harnessId: harness.id, systemPrompt: "", skillPackageIds: [packageId] }, { context });
   expect((await call(router.tools.pollable, { id: "tool_mail" }, { context })).find((a) => a.name === "search")).toMatchObject({ askedBy: ["Triager"], pollable: false });
 });
+
+
+test("a workspace-disabled action cannot be polled and enabling it restores poll settings", async () => {
+  const context = await setup();
+  await call(router.tools.setActionEnabled, { toolId: "tool_mail", action: "search", enabled: false }, { context });
+  expect(await isPollable(context.db, context.ownerId, "tool_mail", "search")).toBe(false);
+  await call(router.tools.setPollable, { id: "tool_mail", actions: ["search"] }, { context });
+  expect(await isPollable(context.db, context.ownerId, "tool_mail", "search")).toBe(false);
+  await call(router.tools.setActionEnabled, { toolId: "tool_mail", action: "search", enabled: true }, { context });
+  expect(await isPollable(context.db, context.ownerId, "tool_mail", "search")).toBe(true);
+});

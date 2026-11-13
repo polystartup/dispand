@@ -607,3 +607,17 @@ test("Jobs started by a walk's earlier pages go on when a later page throws", as
   expect(await s.scheduler(throwing).tick()).toHaveLength(10);
   expect((await s.pollsOf(trigger.id)).at(-1)).toMatchObject({ status: "failed" });
 });
+
+
+test("a workspace-disabled poll action is skipped and reported without a call", async () => {
+  const s = await setup();
+  const scheduler = s.scheduler();
+  const trigger = await s.watch();
+  await scheduler.tick();
+  const before = s.calls.length;
+  await call(router.tools.setActionEnabled, { toolId: s.tool.id, action: "list_mail", enabled: false }, { context: s.context });
+  s.time.add(5 * MINUTE);
+  await scheduler.tick();
+  expect(s.calls).toHaveLength(before);
+  expect((await s.pollsOf(trigger.id)).at(-1)).toMatchObject({ status: "skipped", message: expect.stringMatching(/disabled/) });
+});

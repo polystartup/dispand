@@ -24,14 +24,15 @@ export function PollableActions({ toolId }: { toolId: string }) {
               <input
                 type="checkbox"
                 checked={a.allowed}
-                disabled={save.isPending}
+                disabled={save.isPending || a.disabled}
                 onChange={(e) => save.mutate({ id: toolId, actions: e.target.checked ? [...allowed, a.name] : allowed.filter((n) => n !== a.name) })}
                 className="size-4 accent-[var(--color-accent)]"
               />
               <span className="font-mono">{a.name}</span>
               {a.readOnly && <span className="text-[12px] text-faint">read-only, says the server</span>}
             </label>
-            {a.allowed && a.askedBy.length > 0 && (
+            {a.disabled && <p className="mt-1 pl-6 text-[12px] text-muted">Not polled: disabled workspace-wide.</p>}
+            {!a.disabled && a.allowed && a.askedBy.length > 0 && (
               <p className="mt-1 pl-6 text-[12px] text-danger">Not polled: {a.askedBy.join(", ")} must ask before using it.</p>
             )}
           </li>

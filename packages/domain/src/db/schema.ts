@@ -1019,6 +1019,7 @@ export const tools = pgTable(
     headersSealed: jsonb("headers_sealed").$type<Record<string, string>>().notNull().default({}),
     // From the last listing that succeeded; `actionsError` says why the last one failed.
     actions: jsonb("actions").$type<ToolAction[]>().notNull().default([]),
+    disabled: jsonb("disabled").$type<string[]>().notNull().default([]),
     actionsError: text("actions_error"),
     // The actions a poll may read, set by the owner; null: the ones the server marks read-only.
     // An action some agent must ask before using is never polled, whatever this says (`tools/pollable.ts`).

@@ -928,3 +928,19 @@ test("an earlier permission change keeps Off for an action missing from discover
     { tool: "agents_update", input: { ...input, toolPermissions: [{ toolId: "tool_mail", unasked: ["send"] }] } },
   ])).toMatchObject({ ok: false, error: expect.stringContaining("disabled") });
 });
+
+
+test("workspace availability filters proposals and invalidates previously reviewed grants", async () => {
+  const s = await setup();
+  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, name: "Mail", kind: "http", url: "https://mail.example.test/mcp", transport: "streamable-http", actions: [{ name: "send", description: "Send", inputSchema: {} }] });
+  const input = { ...s.newAgent, toolIds: ["tool_mail"], toolPermissions: [{ toolId: "tool_mail", unasked: ["send"] }] };
+  const id = s.idOf(await s.propose([{ tool: "agents_create", input }]));
+  await s.settle(id, "approved");
+  await call(router.tools.setActionEnabled, { toolId: "tool_mail", action: "send", enabled: false }, { context: s.context });
+  expect(await s.tool("agents_create", input)).toMatchObject({ ok: false });
+  expect(await s.propose([{ tool: "agents_create", input }])).toMatchObject({ ok: false, error: expect.stringContaining("disabled workspace-wide") });
+  expect(await s.propose([{ tool: "agents_set_tool_permission", input: { agentId: s.agent.id, toolId: "tool_mail", action: "send", permission: "run" } }])).toMatchObject({ ok: false, error: expect.stringContaining("disabled workspace-wide") });
+  const masked = s.idOf(await s.propose([{ tool: "agents_create", input: { ...s.newAgent, toolIds: ["tool_mail"] } }]));
+  expect((await proposalView(s.context.db, s.context.ownerId, masked))!.items[0]!.tools![0]!.runs).toEqual([]);
+  expect(PLATFORM_TOOLS.some((t) => t.name === "tools_set_action_enabled")).toBe(false);
+});

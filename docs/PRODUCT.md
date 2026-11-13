@@ -50,6 +50,11 @@ Status: Prototype
     session, tools reached by URL on a cloud session and on a Job's CLI session. A call of such a tool asks first, and on a CLI session an
     approval allows exactly the call that was shown, once. Managed tools keep these permissions
     even when the harness bypasses native command and file approvals.
+  - Each tool's action has a workspace-wide enable checkbox on the tool's settings page.
+    Disabled actions disappear from agents' permission lists and cannot run in Jobs, workflows,
+    or polls. Enabling one restores each agent's saved Run/Ask/Off choice. Running CLI sessions
+    need a new session to regain an action they lost. Newly discovered actions start enabled
+    and Ask for existing agents.
   - Each action of a tool that an agent chose is **Run**, **Ask**, or **Off**. Its checkbox
     enables or disables it; when enabled, its Ask before use switch chooses Ask or Run. Enabling
     an Off action starts with Ask. Off actions are unavailable and cannot be called. An unrelated

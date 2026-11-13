@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 import { agentTools, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
-import { CATALOG, searchCatalog } from "./catalog.ts";
+import { CATALOG, catalogEntry, defaultDisabled, defaultUnasked, searchCatalog } from "./catalog.ts";
 import type { ToolConnector, ToolTarget } from "./mcp.ts";
 import { toolTarget } from "./procedures.ts";
 
@@ -98,4 +98,20 @@ test("a catalog tool given to an agent asks for every action its entry doesn't d
   const [chosen] = await context.db.select({ unasked: agentTools.unasked }).from(agentTools).where(eq(agentTools.agentId, agent.id));
   // `get_me` is declared read-only, `issue_write` declared asking: both keep the entry's setting. `list_gists` isn't declared: it asks.
   expect(chosen!.unasked).toEqual(["get_me"]);
+});
+
+
+test("catalog disabled defaults combine entry and action declarations and exclude Run grants", async () => {
+  expect(defaultDisabled({ disabled: ["read"], actions: [{ name: "send", disabled: true }, { name: "read", disabled: true }] })).toEqual(["read", "send"]);
+  const entry = catalogEntry("github")!;
+  const before = entry.disabled;
+  entry.disabled = ["get_me"];
+  try {
+    const { context } = await setup();
+    const result = await call(router.tools.addFromCatalog, { catalogId: "github" }, { context });
+    expect(result).toMatchObject({ disabled: ["get_me"] });
+    expect(defaultUnasked({ ...result, actions: [{ name: "get_me", readOnly: true }] })).not.toContain("get_me");
+  } finally {
+    entry.disabled = before;
+  }
 });

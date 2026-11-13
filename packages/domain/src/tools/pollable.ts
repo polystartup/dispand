@@ -8,7 +8,7 @@ import { agents, agentTools, tools } from "../db/schema.ts";
 
 /** Each of the tool's actions, whether a poll may read it now, and the agents that must ask before using it. */
 export async function pollableActions(db: Db | Tx, ownerId: string, toolId: string) {
-  const [tool] = await db.select({ actions: tools.actions, pollable: tools.pollable }).from(tools).where(and(eq(tools.id, toolId), eq(tools.ownerId, ownerId)));
+  const [tool] = await db.select({ actions: tools.actions, pollable: tools.pollable, disabled: tools.disabled }).from(tools).where(and(eq(tools.id, toolId), eq(tools.ownerId, ownerId)));
   if (!tool) return null;
   // Every agent that holds the tool, chosen or through a skill that requires it; one without a
   // choice of its own asks before every action.
@@ -23,7 +23,7 @@ export async function pollableActions(db: Db | Tx, ownerId: string, toolId: stri
   const allowed = new Set(tool.pollable ?? tool.actions.flatMap((a) => (a.readOnly ? [a.name] : [])));
   return tool.actions.map((a) => {
     const askedBy = holders.filter((h) => !h.unasked.includes(a.name)).map((h) => h.name);
-    return { name: a.name, readOnly: a.readOnly === true, allowed: allowed.has(a.name), askedBy, pollable: allowed.has(a.name) && askedBy.length === 0 };
+    return { name: a.name, readOnly: a.readOnly === true, allowed: allowed.has(a.name), askedBy, pollable: !tool.disabled.includes(a.name) && allowed.has(a.name) && askedBy.length === 0, ...(tool.disabled.includes(a.name) ? { disabled: true as const } : {}) };
   });
 }
 
@@ -38,8 +38,9 @@ export async function isPollable(db: Db | Tx, ownerId: string, toolId: string, a
  * made or changed, before each call, before each Job, and before each start of a poll Job's session.
  */
 export async function pollProblem(db: Db | Tx, ownerId: string, agentId: string, toolId: string, action: string): Promise<string | null> {
-  const [tool] = await db.select({ id: tools.id }).from(tools).where(and(eq(tools.id, toolId), eq(tools.ownerId, ownerId)));
+  const [tool] = await db.select({ id: tools.id, disabled: tools.disabled }).from(tools).where(and(eq(tools.id, toolId), eq(tools.ownerId, ownerId)));
   if (!tool) return "The tool no longer exists";
+  if (tool.disabled.includes(action)) return "This action is disabled workspace-wide";
   if (!(await skillsAndTools(db, agentId)).tools.some((t) => t.toolId === toolId)) return "The agent doesn't have this tool";
   if (!(await isPollable(db, ownerId, toolId, action))) return "A poll may not read this action: the tool doesn't let polls read it, or an agent must ask before using it";
   return null;

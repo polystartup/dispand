@@ -112,3 +112,16 @@ test("a tool call is a span with the tool and the action and how it ended, never
   const all = await t.all();
   for (const sentinel of ["sentinel-tool-argument", "sentinel-tool-answer", SECRET]) expect(all).not.toContain(sentinel);
 });
+
+
+test("workspace-disabled actions refuse workflow steps and calls using cached tool rows", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const s = await setup(github(calls));
+  const installed = new InstalledTools(s.context.db, s.context.secrets, s.context.tools);
+  const cached = (await installed.find(s.context.ownerId, s.tool.id))!;
+  await call(router.tools.setActionEnabled, { toolId: s.tool.id, action: "create_repository", enabled: false }, { context: s.context });
+  expect(await s.run({ name: "acme" })).toMatchObject({ ok: false, error: expect.stringMatching(/disabled/) });
+  expect(await installed.call(cached, "create_repository", { name: "acme" }, new AbortController().signal)).toMatchObject({ ok: false, error: expect.stringMatching(/disabled/) });
+  expect((await installed.find(s.context.ownerId, s.tool.id))!.actions).toEqual([]);
+  expect(calls).toEqual([]);
+});

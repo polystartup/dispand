@@ -1658,3 +1658,25 @@ test("runner grants start on Jobs and narrowing reaches Job and workflow session
   expect(starts()[2]!.mcpServers).toMatchObject([{ denied: [action.name] }]);
   expect(starts()[2]!.mcpServers[0]).not.toHaveProperty("unasked");
 });
+
+
+test.each([false, true])("workspace disabling narrows live Job and workflow sessions (skill-only: %s)", async (implicit) => {
+  const { context, engine, agent, workflow, withTooling, starts, sent, runnerId } = await toolingSetup();
+  const action = { name: "draft_email", description: "", inputSchema: {} };
+  await context.db.update(tools).set({ actions: [action] }).where(eq(tools.id, "tool_fetch"));
+  if (implicit) {
+    const { packageId } = await call(router.skills.create, { name: "mail", description: "Mail", instructions: "Draft", requiredToolIds: ["tool_fetch"] }, { context });
+    await call(router.agents.update, { ...withTooling, toolIds: ["tool_gh"], skillPackageIds: [packageId] }, { context });
+  }
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  await engine.startJob(trigger.id, context.ownerId);
+  await engine.startRun(workflow.id);
+  await vi.waitFor(() => expect(starts()).toHaveLength(2));
+  await call(router.tools.setActionEnabled, { toolId: "tool_fetch", action: action.name, enabled: false }, { context: { ...context, engine } });
+  const updates = sent.filter((m) => m.type === "session.permissions");
+  expect(updates).toHaveLength(2);
+  expect(updates.map((m) => m.sessionId).sort()).toEqual(starts().map((m) => m.sessionId).sort());
+  for (const update of updates) expect(update.servers).toEqual([{ name: runnerServerName({ id: "tool_fetch", runnerId, tool: "fetch" }), unasked: [], denied: [action.name] }]);
+  await call(router.tools.setActionEnabled, { toolId: "tool_fetch", action: action.name, enabled: true }, { context: { ...context, engine } });
+  expect(sent.filter((m) => m.type === "session.permissions")).toHaveLength(2);
+});

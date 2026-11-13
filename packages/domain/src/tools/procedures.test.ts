@@ -254,3 +254,48 @@ test("runner tools expose asking flags and the owner can change them", async () 
   await call(router.agents.setToolPermission, { agentId: agent.id, toolId: tool.id, action: "get", permission: "run" }, { context });
   expect(await call(router.agents.toolAsk, { id: agent.id }, { context })).toMatchObject([{ toolId: tool.id, actions: [{ name: "get", permission: "run" }] }]);
 });
+
+
+test("workspace disabling hides an action and preserves the agent's saved Run setting", async () => {
+  const context = await ownerContext();
+  const server = await fake();
+  const tool = await call(router.tools.create, { name: "Echo", url: server.url, transport: "streamable-http", headers: {} }, { context });
+  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const harness = await call(router.harnesses.create, { name: "CLI", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
+  const fields = { name: "Clerk", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] };
+  const agent = await call(router.agents.create, { ...fields, toolPermissions: [{ toolId: tool.id, unasked: ["echo"] }] }, { context });
+  const toggle = (enabled: boolean) => call(router.tools.setActionEnabled, { toolId: tool.id, action: "echo", enabled }, { context });
+  await toggle(false);
+  expect((await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions).toEqual([]);
+  await call(router.agents.update, { ...fields, id: agent.id, name: "Renamed", toolPermissions: [{ toolId: tool.id, unasked: [] }] }, { context });
+  await toggle(true);
+  expect((await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions[0]!.permission).toBe("run");
+  await expect(call(router.tools.setActionEnabled, { toolId: "other", action: "echo", enabled: false }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.tools.setActionEnabled, { toolId: tool.id, action: "missing", enabled: false }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+
+test.each(["run", "ask", "off"] as const)("workspace availability masks and restores saved %s without granting newly discovered actions", async (permission) => {
+  const context = await ownerContext();
+  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const harness = await call(router.harnesses.create, { name: "CLI", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
+  const server = await fake();
+  const tool = await call(router.tools.create, { name: "Echo", url: server.url, transport: "streamable-http", headers: {} }, { context });
+  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] }, { context });
+  await call(router.agents.setToolPermission, { agentId: agent.id, toolId: tool.id, action: "echo", permission }, { context });
+  await call(router.tools.setActionEnabled, { toolId: tool.id, action: "echo", enabled: false }, { context });
+  await expect(call(router.agents.setToolPermission, { agentId: agent.id, toolId: tool.id, action: "echo", permission: "run" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  // Missing actions stay disabled through discovery changes and changes to another checkbox.
+  const next = { name: "new_read", description: "", inputSchema: {}, readOnly: true as const };
+  await context.db.update(tools).set({ actions: [next] }).where(eq(tools.id, tool.id));
+  await call(router.tools.setActionEnabled, { toolId: tool.id, action: next.name, enabled: false }, { context });
+  await call(router.tools.setActionEnabled, { toolId: tool.id, action: next.name, enabled: true }, { context });
+  await call(router.agents.setToolPermission, { agentId: agent.id, toolId: tool.id, action: next.name, permission: "ask" }, { context });
+  await context.db.update(tools).set({ actions: [...tool.actions, next] }).where(eq(tools.id, tool.id));
+  expect((await call(router.tools.get, { id: tool.id }, { context })).disabled).toEqual(["echo"]);
+  await call(router.tools.setActionEnabled, { toolId: tool.id, action: "echo", enabled: true }, { context });
+  expect((await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions).toMatchObject([{ name: "echo", permission }, { name: next.name, permission: "ask" }]);
+  await context.db.insert(user).values({ id: "user_other", name: "Other", email: "other@example.test" });
+  await context.db.update(tools).set({ ownerId: "user_other" }).where(eq(tools.id, tool.id));
+  await expect(call(router.tools.setActionEnabled, { toolId: tool.id, action: "echo", enabled: false }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});

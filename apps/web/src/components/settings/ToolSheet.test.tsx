@@ -4,7 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ tools: { authorize: vi.fn(), pollable: vi.fn(), setPollable: vi.fn(), create: vi.fn(), update: vi.fn(), refresh: vi.fn(), delete: vi.fn(), catalog: vi.fn(), fillSettings: vi.fn() } }));
+const fake = vi.hoisted(() => ({ tools: { authorize: vi.fn(), pollable: vi.fn(), setPollable: vi.fn(), setActionEnabled: vi.fn(), create: vi.fn(), update: vi.fn(), refresh: vi.fn(), delete: vi.fn(), catalog: vi.fn(), fillSettings: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -29,6 +29,7 @@ const tool = {
   oauthStatus: "authorize",
   enteredClientId: null,
   actions: [],
+  disabled: [],
   actionsError: null,
   refreshedAt: null,
   catalogId: null,
@@ -89,4 +90,20 @@ test("a catalog tool added without its key asks for its entry's settings, and sa
   expect(fake.tools.fillSettings.mock.calls[0]![0]).toEqual({ id: "tool_mail", settings: { apiKey: "fc-1" } });
   expect(saved).toHaveBeenCalledWith(expect.objectContaining({ signIn: "connected" }));
   expect(await screen.findByText(/Connected\. Enter new settings/)).toBeTruthy();
+});
+
+
+test("workspace action controls save immediately without discarding unsaved tool fields", async () => {
+  const shown = { ...tool, actions: [{ name: "send", description: "Send mail", inputSchema: {} }], disabled: [] };
+  fake.tools.setActionEnabled.mockResolvedValue({ ...shown, disabled: ["send"] });
+  const saved = vi.fn();
+  sheet(shown, saved);
+  const user = userEvent.setup();
+  await user.clear(screen.getByLabelText("Name"));
+  await user.type(screen.getByLabelText("Name"), "Edited mail");
+  await user.click(screen.getByRole("checkbox", { name: "Enable Mail send workspace-wide" }));
+  expect(fake.tools.setActionEnabled.mock.calls[0]![0]).toEqual({ toolId: tool.id, action: "send", enabled: false });
+  expect((screen.getByRole("checkbox", { name: "Enable Mail send workspace-wide" }) as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Edited mail");
+  expect(saved).not.toHaveBeenCalled();
 });

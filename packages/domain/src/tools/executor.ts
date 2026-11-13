@@ -11,6 +11,7 @@ import type { ToolStep } from "../workflows/model.ts";
 import type { ToolSchema } from "../workflows/tool-steps.ts";
 import { coerceArguments, toolErrorText, toolOutputs, type ArgValue } from "./arguments.ts";
 import { ToolError, type ToolConnector, type ToolResult } from "./mcp.ts";
+import { enabledActions } from "./catalog.ts";
 import { connectionTarget } from "./procedures.ts";
 
 type Row = typeof toolsTable.$inferSelect;
@@ -22,11 +23,12 @@ type Row = typeof toolsTable.$inferSelect;
  */
 export async function loadToolSchemas(db: Db | Tx, ownerId: string, ids: string[]): Promise<ToolSchema[]> {
   if (ids.length === 0) return [];
-  return db
-    .select({ id: toolsTable.id, name: toolsTable.name, kind: toolsTable.kind, actions: toolsTable.actions })
+  const rows = await db
+    .select({ id: toolsTable.id, name: toolsTable.name, kind: toolsTable.kind, actions: toolsTable.actions, disabled: toolsTable.disabled })
     .from(toolsTable)
     .where(and(eq(toolsTable.ownerId, ownerId), inArray(toolsTable.id, ids)))
     .for("share");
+  return rows.map(({ disabled, ...row }) => ({ ...row, actions: enabledActions({ ...row, disabled }), ...(disabled.length ? { disabled } : {}) }));
 }
 
 /**
@@ -49,7 +51,7 @@ export class InstalledTools {
       .select()
       .from(toolsTable)
       .where(and(eq(toolsTable.id, toolId), eq(toolsTable.ownerId, ownerId)));
-    return row ?? null;
+    return row ? { ...row, actions: enabledActions(row) } : null;
   }
 
   /** Calls `action` of `tool` with `args` (the connector's deadline applies; `signal` cancels it). */
@@ -69,8 +71,12 @@ export class InstalledTools {
   }
 
   private async callTool(tool: Row, action: string, args: Record<string, unknown>, signal: AbortSignal): Promise<{ ok: true; result: ToolResult } | { ok: false; error: string }> {
-    if (tool.kind !== "http") return { ok: false, error: `${tool.name} runs on a runner: only an agent can use it` };
     try {
+      const current = await this.find(tool.ownerId, tool.id);
+      if (!current) return { ok: false, error: "The tool no longer exists" };
+      if (current.disabled.includes(action)) return { ok: false, error: `${tool.name}'s action “${action}” is disabled workspace-wide` };
+      if (!current.actions.some((a) => a.name === action)) return { ok: false, error: `${tool.name} no longer has the action “${action}”` };
+      if (tool.kind !== "http") return { ok: false, error: `${tool.name} runs on a runner: only an agent can use it` };
       return { ok: true, result: await this.connector.callAction(connectionTarget(this.db, this.secrets, tool), action, args, signal) };
     } catch (error) {
       if (error instanceof ToolError) return { ok: false, error: error.message };
@@ -101,6 +107,7 @@ export function connectorToolExecutor(tools: InstalledTools): ToolExecutor {
     async run(ownerId, step, values, signal) {
       const tool = await tools.find(ownerId, step.toolId);
       if (!tool) return { ok: false, error: "The step's tool no longer exists" };
+      if (tool.disabled.includes(step.action)) return { ok: false, error: `${tool.name}'s action “${step.action}” is disabled workspace-wide` };
       const action = tool.actions.find((a) => a.name === step.action);
       if (!action) return { ok: false, error: `${tool.name} no longer has the action “${step.action}”` };
       const coerced = coerceArguments(action, values);

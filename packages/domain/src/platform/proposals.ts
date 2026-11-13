@@ -7,7 +7,7 @@ import { agents, agentTools, type CREATED_KINDS, fields, harnesses, plugins, pro
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
 import { canonical } from "./approvals.ts";
-import { catalogEntry, defaultUnasked } from "../tools/catalog.ts";
+import { catalogEntry, defaultDisabled, defaultUnasked } from "../tools/catalog.ts";
 import { toolPermissionTarget } from "../agents/tool-ask.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
@@ -103,7 +103,18 @@ export function parseWithRefs(schema: z.ZodType, input: unknown): { data: unknow
 
 /** Freeze an agent item's effective permissions when it is prepared, on the caller's proposal/setup span. */
 export async function snapshotToolPermissions(db: Db, ownerId: string, prior: ProposalItem[], item: ProposalItem): Promise<ProposalItem | string> {
-  if (item.tool === "agents_set_tool_permission" && typeof (item.input as { action: unknown }).action !== "string") return "An action permission must name a literal action";
+  if (item.tool === "agents_set_tool_permission") {
+    const fields = item.input as { toolId: string | ItemRef; action: unknown };
+    if (typeof fields.action !== "string") return "An action permission must name a literal action";
+    if (typeof fields.toolId === "string") {
+      const [tool] = await db.select({ disabled: toolsTable.disabled }).from(toolsTable).where(and(eq(toolsTable.id, fields.toolId), eq(toolsTable.ownerId, ownerId)));
+      if (tool?.disabled.includes(fields.action)) return "This action is disabled workspace-wide";
+    } else if (isRef(fields.toolId)) {
+      const source = prior[fields.toolId.$item];
+      if (source?.tool === "tools_add_from_catalog" && defaultDisabled(catalogEntry((source.input as { catalogId: string }).catalogId) ?? {}).includes(fields.action)) return "This action is disabled workspace-wide";
+    }
+    return item;
+  }
   if (item.tool !== "agents_create" && item.tool !== "agents_update") return item;
   type Ref = string | ItemRef;
   const input = item.input as { id?: Ref; toolIds: Ref[]; toolPermissions?: { toolId: Ref; unasked: string[] }[] };
@@ -115,6 +126,12 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
   if (new Set(given.map((p) => key(p.toolId))).size !== given.length) return "List each tool's permissions once";
   const direct = ids.filter((id): id is string => typeof id === "string");
   const found = direct.length ? await db.select().from(toolsTable).where(and(inArray(toolsTable.id, direct), eq(toolsTable.ownerId, ownerId))) : [];
+  const disabledFor = (id: Ref): string[] => {
+    if (typeof id === "string") return found.find((t) => t.id === id)?.disabled ?? [];
+    const source = prior[id.$item];
+    return source?.tool === "tools_add_from_catalog" ? defaultDisabled(catalogEntry((source.input as { catalogId: string }).catalogId) ?? {}) : [];
+  };
+  if (given.some((p) => p.unasked.some((name) => disabledFor(p.toolId).includes(name)))) return "An action is disabled workspace-wide";
   // Replay earlier permission writes as well as agent updates: an unrelated update must not
   // freeze an old Run grant over a preceding Off/Ask item in the same setup.
   let kept = new Map<string, { unasked: string[]; denied: string[] }>();
@@ -157,7 +174,7 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
         target = toolPermissionTarget({ kind: "http", url: fields.url, transport: fields.transport ?? "streamable-http" });
       }
     }
-    return { toolId, unasked: given.find((p) => key(p.toolId) === key(toolId))?.unasked ?? kept.get(key(toolId))?.unasked ?? defaults, target };
+    return { toolId, unasked: (given.find((p) => key(p.toolId) === key(toolId))?.unasked ?? kept.get(key(toolId))?.unasked ?? defaults).filter((name) => !disabledFor(toolId).includes(name)), target };
   });
   if (toolPermissions.some((p) => p.unasked.some((action) => kept.get(key(p.toolId))?.denied.includes(action)))) return "An action is disabled: change its permission explicitly before granting it";
   return { ...item, toolPermissions };
