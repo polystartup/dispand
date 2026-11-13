@@ -37,7 +37,7 @@ export function exposedName(tool: { id: string; name: string }, action: string):
 /** The actions of the HTTP tools a Job's agent gives it now, each under its name. Should two names ever be equal, neither is offered. */
 export async function exposedTools(db: Db, job: { runId: string; ownerId: string; agentId: string }): Promise<Exposed[]> {
   const [run] = await db
-    .select({ ownerId: runs.ownerId, snapshot: runs.snapshot })
+    .select({ ownerId: runs.ownerId, snapshot: runs.snapshot, remembered: runs.remembered })
     .from(runs)
     // A Job still going: one that ended is offered nothing, and an action that needs no approval doesn't outlive it.
     .where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId), eq(runs.agentId, job.agentId), inArray(runs.status, ["running", "waiting"])));
@@ -78,7 +78,7 @@ export async function aboutExposed(db: Db, job: { runId: string; ownerId: string
 /** The runner tools a Job still going gets on its runner, under their session server names. */
 async function runnerToolsOf(db: Db, job: { runId: string; ownerId: string; agentId: string }, runnerId: string) {
   const [run] = await db
-    .select({ ownerId: runs.ownerId, snapshot: runs.snapshot })
+    .select({ ownerId: runs.ownerId, snapshot: runs.snapshot, remembered: runs.remembered })
     .from(runs)
     .where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId), eq(runs.agentId, job.agentId), inArray(runs.status, ["running", "waiting"])));
   return run ? runnerServers(await toolingOf(db, run, job.agentId), runnerId) : [];

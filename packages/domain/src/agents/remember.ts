@@ -6,13 +6,13 @@ import { meter, tracer } from "../telemetry/index.ts";
 import { rememberAllowedAction, setPermission, toolPermissionTarget } from "./tool-ask.ts";
 
 /** A server-resolved tool action, bound to the target for which permission was requested. */
-export type Subject = { kind: "tool"; toolId: string; action: string; target: string };
+export type Subject = { kind: "tool"; agentId: string; toolId: string; action: string; target: string };
 export type RememberScope = "run" | "always";
 export type RememberOffer = { scopes: RememberScope[]; subject: Subject };
 export type RememberedPermissions = { allow: Subject[]; deny: Subject[] };
 type Decision = "allow" | "deny";
 
-const same = (a: Subject, b: Subject) => a.kind === b.kind && a.toolId === b.toolId && a.action === b.action && a.target === b.target;
+const same = (a: Subject, b: Subject) => a.kind === b.kind && a.agentId === b.agentId && a.toolId === b.toolId && a.action === b.action && a.target === b.target;
 
 /** A remembered decision never follows a tool to a different target or permission revision. */
 export function rememberedDecision(state: RememberedPermissions, subject: Subject): Decision | null {
@@ -59,6 +59,7 @@ async function write(db: Db | Tx, input: Input): Promise<boolean> {
     const [tool] = await tx.select().from(tools).where(and(eq(tools.id, subject.toolId), eq(tools.ownerId, ownerId))).for("share");
     if (!tool || toolPermissionTarget(tool) !== subject.target) return false;
     const tooling = await sessionTooling(tx, q.sessionId);
+    if (subject.agentId !== tooling.agentId) return false;
     const current = [...tooling.runnerTools, ...tooling.httpTools].find((t) => t.id === subject.toolId);
     if (!current?.actions.some((a) => a.name === subject.action)) return false;
     if (input.scope === "always") {

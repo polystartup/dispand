@@ -19,7 +19,7 @@ async function setup() {
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
   const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
   const [tool] = await context.db.select().from(tools).where(eq(tools.id, "tool_mail"));
-  const subject: Subject = { kind: "tool", toolId: tool!.id, action, target: toolPermissionTarget(tool!) };
+  const subject: Subject = { kind: "tool", agentId: agent.id, toolId: tool!.id, action, target: toolPermissionTarget(tool!) };
   const by = { type: "user" as const, userId: context.ownerId };
   await context.db.insert(questions).values({ id: "q_tool", ownerId: context.ownerId, runId, stepRunId: step!.id, sessionId: step!.sessionId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: "mcp__mail__draft", input: {}, canAlwaysAllow: true }, status: "pending", remember: { scopes: ["run", "always"], subject } });
   const state = async () => (await context.db.select().from(runs).where(eq(runs.id, runId)))[0]!.remembered;
@@ -41,6 +41,7 @@ test("run memory is isolated, survives a reload, and keeps allow and deny disjoi
   expect(await s.state()).toEqual({ allow: [], deny: [s.subject] });
   expect(rememberedDecision(await s.state(), s.subject)).toBe("deny");
   expect(rememberedDecision(await s.state(), { ...s.subject, target: "another-target" })).toBeNull();
+  expect(rememberedDecision(await s.state(), { ...s.subject, agentId: "another-agent" })).toBeNull();
 });
 
 test.each(["allow", "deny"] as const)("future-run %s changes the agent's action permission only", async (decision) => {
@@ -122,4 +123,12 @@ test.each(["run", "always"] as const)("%s memory rolls back with the enclosing a
   expect(await s.state()).toEqual({ allow: [], deny: [] });
   expect(await s.saved()).toMatchObject({ unasked: [], denied: [] });
   expect((await s.context.db.select().from(questions).where(eq(questions.id, "q_tool")))[0]!.status).toBe("pending");
+});
+
+
+test("an offer for another agent cannot write run memory", async () => {
+  const s = await setup();
+  await s.context.db.update(questions).set({ remember: { scopes: ["run"], subject: { ...s.subject, agentId: "another-agent" } } }).where(eq(questions.id, "q_tool"));
+  expect(await remember(s.context.db, { questionId: "q_tool", decision: "allow", scope: "run", by: s.by })).toBe(false);
+  expect(await s.state()).toEqual({ allow: [], deny: [] });
 });

@@ -304,9 +304,12 @@ changes it updates this file.
 - **Remembered tool decisions have a server-owned subject and scope.** The storage helper
   `agents/remember.ts` accepts a pending question id and the owner's decision, never a subject
   supplied by a client. It requires the question's explicit server offer, an owner answer, a
-  live run, current action access, and an unchanged tool target/permission revision. It refuses
+  live run, the same agent, current action access, and an unchanged tool target/permission revision. It refuses
   proposal, checkpoint, consult and general approval questions. Run decisions are isolated in
   `runs.remembered`; future-run choices update the Job agent's existing action permission.
+  Effective tooling applies run memory only to that agent and target: an allow never adds a
+  tool outside current access or a Job snapshot; current Off/workspace restrictions and a
+  run-level deny override allows. Run memory does not affect another agent in a workflow.
   Workflow questions cannot persist a future-run choice. Writes can share the answer's
   transaction. This storage foundation has no question-answer or UI caller yet; current
   approval behavior is unchanged until that integration is enabled.

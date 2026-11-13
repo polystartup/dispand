@@ -1,7 +1,8 @@
+import { toolPermissionTarget } from "../agents/tool-ask.ts";
 import { runnerServerName } from "./tooling.ts";
 import { call } from "@orpc/server";
 import { type Answer, parseServerMessage, type ServerToRunner, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING, TEXT } from "@dispand/runner-protocol";
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { agentTools, agentConsults, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
@@ -1679,4 +1680,29 @@ test.each([false, true])("workspace disabling narrows live Job and workflow sess
   for (const update of updates) expect(update.servers).toEqual([{ name: runnerServerName({ id: "tool_fetch", runnerId, tool: "fetch" }), unasked: [], denied: [action.name] }]);
   await call(router.tools.setActionEnabled, { toolId: "tool_fetch", action: action.name, enabled: true }, { context: { ...context, engine } });
   expect(sent.filter((m) => m.type === "session.permissions")).toHaveLength(2);
+});
+
+
+test("run-only runner grants and denials reach Job and workflow permission updates and resumes", async () => {
+  const { context, engine, agent, workflow, starts, sent, runnerId } = await toolingSetup();
+  const actions = ["read", "send"].map((name) => ({ name, description: name, inputSchema: {} }));
+  await context.db.update(tools).set({ actions }).where(eq(tools.id, "tool_fetch"));
+  const [tool] = await context.db.select().from(tools).where(eq(tools.id, "tool_fetch"));
+  const subject = { kind: "tool" as const, agentId: agent.id, toolId: tool!.id, action: "read", target: toolPermissionTarget(tool!) };
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const job = await engine.startJob(trigger.id, context.ownerId);
+  const run = await engine.startRun(workflow.id);
+  await vi.waitFor(() => expect(starts()).toHaveLength(2));
+  await context.db.update(runs).set({ remembered: { allow: [subject], deny: [{ ...subject, action: "send" }] } }).where(or(eq(runs.id, job), eq(runs.id, run)));
+  await engine.narrowSessions(agent.id, context.db);
+  const updates = sent.filter((m) => m.type === "session.permissions");
+  expect(updates).toHaveLength(2);
+  for (const update of updates) expect(update.servers).toEqual([{ name: runnerServerName({ id: tool!.id, runnerId, tool: "fetch" }), unasked: ["read"], denied: ["send"] }]);
+  await vi.waitFor(async () => {
+    const steps = await context.db.select().from(stepRuns).where(or(eq(stepRuns.runId, job), eq(stepRuns.runId, run)));
+    expect(steps.filter((s) => s.sessionId && s.startDeliveredAt)).toHaveLength(2);
+  });
+  await engine.reconcile(runnerId, []);
+  await vi.waitFor(() => expect(starts()).toHaveLength(4));
+  for (const start of starts().slice(2)) expect(start.mcpServers).toMatchObject([{ unasked: ["read"], denied: ["send"] }]);
 });
