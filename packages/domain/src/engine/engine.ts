@@ -423,6 +423,12 @@ export class Engine {
     spanEvent("session.permissions.narrowed", { "agent.id": agentId });
   }
 
+  /** Workspace changes revoke grants for explicit and conversation-only tool holders alike. */
+  async narrowOwnerSessions(ownerId: string, db: Db = this.db): Promise<void> {
+    const owned = await db.select({ id: agents.id }).from(agents).where(eq(agents.ownerId, ownerId));
+    for (const agent of owned) await this.narrowSessions(agent.id, db);
+  }
+
   /** Starts a run of the workflow's current version and returns its id. */
   async startRun(workflowId: string): Promise<string> {
     const runId = await this.db.transaction((tx) => this.createRun(tx, workflowId, { type: "manual" }));
@@ -680,9 +686,9 @@ export class Engine {
         refresh = !run.snapshot.skills.some((s) => s.packageId === selected.packageId) || selected.snapshot.tools.some((t) => !run.snapshot!.tools.some((old) => old.toolId === t.toolId));
         if (refresh && OPEN_STEP.includes(chat.status) && chat.sessionId && (chat.working || !chat.cliSessionId)) throw new EngineError("INVALID", "Wait for the Assistant to finish its turn before loading another skill.");
         await tx.update(runs).set({ snapshot: selected.snapshot }).where(eq(runs.id, runId));
-        // Keep the owner's arguments; the server resolves the skill's invocation identity.
+        // CLI invocations retain their native name; cloud sessions use the skill loader.
         const args = text.replace(/^\/\S+/, "");
-        text = chat.runnerId === CLOUD_SOURCE ? `Use the ${selected.invocation} skill.${args}` : `/${selected.invocation}${args}`;
+        if (chat.runnerId === CLOUD_SOURCE) text = `Use the ${selected.invocation} skill.${args}`;
       }
       if (!OPEN_STEP.includes(chat.status)) {
         chat = await this.reopen(tx, chat, out);

@@ -112,3 +112,33 @@ test("a cloud conversation invokes an installed skill and reads its supporting f
   expect(model.inputs[0]!.system).toContain("- tidy:");
   expect(model.inputs[1]!.items.findLast((i) => i.role === "tool")).toMatchObject({ result: "Trim cells", isError: false });
 });
+
+test("a finished conversation discovers native entries without querying its closed session", async () => {
+  const s = await setup();
+  const runId = await s.engine.startJob(s.assistant.triggerId, s.context.ownerId);
+  await vi.waitFor(() => expect(s.sent.some((m) => m.type === "session.start")).toBe(true));
+  const start = s.sent.flatMap((m) => m.type === "session.start" ? [m.start] : [])[0]!;
+  await s.engine.onHarnessEvent(start.sessionId, { type: "cli-session", cliSessionId: "cli_done" }, { runnerId: s.runnerId, seq: 1 });
+  await s.engine.onHarnessEvent(start.sessionId, { type: "result", text: "Done" }, { runnerId: s.runnerId, seq: 2 });
+  const discover = vi.spyOn(s.context.hub, "commands").mockResolvedValue({ type: "commands.replied", requestId: "r", commands: [{ name: "native:skill", description: "Native skill" }] });
+  const catalog = await call(router.assistantCommands, { agentId: s.assistant.agentId, runId }, { context: s.context });
+  expect(catalog.entries).toContainEqual({ name: "native:skill", description: "Native skill", source: "harness" });
+  expect(discover.mock.calls[0]![1]).not.toHaveProperty("sessionId");
+});
+
+test.each(["disable", "update", "delete"] as const)("%s revokes live runner tools supplied only by an invoked skill", async (change) => {
+  const s = await setup();
+  await s.context.db.insert(tools).values({ id: "runner_tool", ownerId: s.context.ownerId, name: "Local", kind: "runner", runnerId: s.runnerId, runnerTool: "local", actions: [{ name: "write", description: "Write", inputSchema: {} }] });
+  const fields = { name: "local-skill", description: "Local", instructions: "Use local", requiredToolIds: ["runner_tool"] };
+  const pkg = await call(router.skills.create, fields, { context: s.context });
+  const [skill] = await s.context.db.select().from(skills).where(eq(skills.packageId, pkg.packageId));
+  await call(router.jobs.start, { triggerId: s.assistant.triggerId, skillId: skill!.id }, { context: s.context });
+  await vi.waitFor(() => expect(s.sent.some((m) => m.type === "session.start")).toBe(true));
+  if (change === "disable") await call(router.tools.setActionEnabled, { toolId: "runner_tool", action: "write", enabled: false }, { context: s.context });
+  else if (change === "update") await call(router.skills.update, { ...fields, packageId: pkg.packageId, requiredToolIds: [] }, { context: s.context });
+  else await call(router.skills.delete, { packageId: pkg.packageId }, { context: s.context });
+  const narrowed = s.sent.flatMap((m) => m.type === "session.permissions" ? [m] : []);
+  expect(narrowed).toHaveLength(1);
+  if (change === "disable") expect(narrowed[0]!.servers[0]?.denied).toContain("write");
+  else expect(narrowed[0]!.servers).toEqual([]);
+});

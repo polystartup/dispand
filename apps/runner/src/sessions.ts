@@ -18,7 +18,7 @@ import type { HarnessSession } from "./outcome.ts";
 import { codexMcpServers, mcpConfigFor, withJobServer } from "./mcp.ts";
 import { fetchPackages, removeSkills, sessionPluginsDir, writeSkills } from "./skills.ts";
 import { resolveWorkdir } from "./workdir.ts";
-import { fallbackPackages } from "./native-skills.ts";
+import { fallbackPackages, nativeSkillAliases, resolveSkillAlias } from "./native-skills.ts";
 import type { NativePlugins } from "./plugins.ts";
 import { removeMemoryFiles, writeMemoryFiles } from "./memory.ts";
 
@@ -318,6 +318,8 @@ export class Sessions {
       const native = packages.some((pkg) => pkg.nativePlugin) && this.options.nativePlugins
         ? await this.options.nativePlugins.request({ action: "list" }) : {};
       const fallback = fallbackPackages(packages, start.harness, native);
+      const aliases = nativeSkillAliases(packages, start.harness, native);
+      start.prompt = resolveSkillAlias(start.prompt, aliases);
       const pluginRoots = pluginsDir ? await writeSkills(pluginsDir, fallback) : [];
       // Writing them took time: check again that the runner may still launch.
       if (this.shuttingDown) return cleanUp();
@@ -348,6 +350,8 @@ export class Sessions {
               mcpServers: claudeMcp,
               ...jobServer,
             });
+      const send = session.send.bind(session);
+      session.send = (text) => send(resolveSkillAlias(text, aliases));
       this.live.set(start.sessionId, session);
       this.toldNotRunning.delete(start.sessionId);
       // Shutdown waits for it: memory files must not outlive their session.

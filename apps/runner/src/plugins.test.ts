@@ -100,6 +100,7 @@ test("workspace skills use a persistent content-addressed Skillshare source and 
     expect(exec.mock.calls[1]![0]).toEqual(["plugin", "add", "--global", "--json", "--no-tui", root, "--name", "dispand-skillpkg_1", "--plugin", "dispand-skillpkg-1", "--target", "codex", "--revision", "preview"]);
     const report = await native.request({ action: "list" });
     expect(report.packages?.[0]?.sourceKey).toBe(`workspace:${digest}`);
+    expect(report.packages?.[0]?.namespace).toBe("dispand-skillpkg-1");
     expect(JSON.stringify(report)).not.toContain(state);
     const pkg = { name: "writing", nativePlugin: "dispand-skillpkg_1", nativeKey: `workspace:${digest}`, files: [] };
     expect(fallbackPackages([pkg], "codex", report)).toEqual([]);

@@ -16,3 +16,21 @@ test("plugin catalogs preserve namespaces so skills sharing a leaf name remain i
   expect(skillCommands(skills)).toEqual([{ name: "office:tidy", description: "Office" }, { name: "other:tidy", description: "Other" }]);
   expect(skillInputs("/other:tidy rows", skills)[0]).toMatchObject({ type: "skill", path: skills[1]!.path });
 });
+
+test("user and repository skills sharing an .agents parent retain distinct identities", async () => {
+  const { skillCommands } = await import("./skills.ts");
+  const skills = [{ ...skill, path: "/user/.agents/skills/tidy/SKILL.md", scope: "user" }, { ...skill, path: "/project/.agents/skills/tidy/SKILL.md", scope: "repo" }];
+  expect(skillCommands(skills).map((s) => s.name)).toEqual(["user:tidy", "repo:tidy"]);
+  expect(skillInputs("/repo:tidy rows", skills)[0]).toMatchObject({ type: "skill", path: skills[1]!.path });
+});
+
+test("same-scope collisions have stable distinct invocations without exposing local paths", async () => {
+  const { skillCommands } = await import("./skills.ts");
+  const skills = [{ ...skill, path: "/one/.agents/skills/tidy/SKILL.md", scope: "user" }, { ...skill, path: "/two/.agents/skills/tidy/SKILL.md", scope: "user" }];
+  const commands = skillCommands(skills);
+  expect(commands[0]!.name).not.toBe(commands[1]!.name);
+  for (const [i, command] of commands.entries()) {
+    expect(command.name).not.toContain("/");
+    expect(skillInputs(`/${command.name}`, skills)[0]).toMatchObject({ type: "skill", path: skills[i]!.path });
+  }
+});

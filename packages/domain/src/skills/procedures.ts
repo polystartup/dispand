@@ -154,6 +154,7 @@ const update = owner.input(Fields.extend(PackageId.shape)).handler(async ({ inpu
       await store(tx, packageId, files, skills);
     })
     .catch(nameTaken(fields.name));
+  await context.engine.narrowOwnerSessions(context.ownerId, context.db);
   return { packageId };
 });
 
@@ -164,6 +165,7 @@ const remove = owner.input(PackageId).handler(async ({ input, context }) => {
     if (agent) throw new ORPCError("CONFLICT", { message: `The agent “${agent}” uses this skill` });
     await tx.delete(skillPackages).where(eq(skillPackages.id, input.packageId));
   });
+  await context.engine.narrowOwnerSessions(context.ownerId, context.db);
 });
 
 type PackageRow = typeof skillPackages.$inferSelect;

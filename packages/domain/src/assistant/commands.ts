@@ -24,7 +24,7 @@ export const assistantCommands = base.use(authed).input(z.object({ agentId: z.st
     const historical = run.snapshot ? (await context.db.select().from(harnesses).where(and(eq(harnesses.id, run.snapshot.harnessId), eq(harnesses.ownerId, context.ownerId))))[0] : undefined;
     const h = step?.harness ?? (historical?.type === "cli" ? { runnerId: historical.runnerId!, kind: historical.kind as "codex" | "claude-code" } : undefined);
     target = h && !("type" in h && h.type === "cloud") && "runnerId" in h ? { runnerId: h.runnerId, kind: h.kind } : null;
-    sessionId = step?.sessionId ?? undefined;
+    sessionId = run.status === "running" || run.status === "waiting" ? step?.sessionId ?? undefined : undefined;
   }
   let native: HarnessCommand[] = [];
   let nativeUnavailable = false;
@@ -36,13 +36,13 @@ export const assistantCommands = base.use(authed).input(z.object({ agentId: z.st
     } catch { nativeUnavailable = true; }
   }
   const entries: CommandEntry[] = native.map((c) => ({ name: c.name, description: c.description, source: "harness" }));
-  const names = new Set(native.flatMap((c) => [c.name, ...(c.aliases ?? [])]));
   const installed = await context.db.select({ skillId: skills.id, name: skills.name, description: skills.description, package: skillPackages.name, packageId: skillPackages.id, pluginId: skillPackages.pluginId }).from(skills).innerJoin(skillPackages, eq(skillPackages.id, skills.packageId)).where(eq(skillPackages.ownerId, context.ownerId)).orderBy(asc(skillPackages.name), asc(skills.name));
   for (const skill of installed) {
     const name = `${skill.package}:${skill.name}`;
     const nativeNamespace = `dispand-${skill.pluginId ?? skill.packageId}`.toLowerCase().replace(/[._]/g, "-");
-    const installedNatively = [...names].some((n) => n === `${nativeNamespace}:${skill.name}` || (n.startsWith(`${nativeNamespace}@`) && n.endsWith(`:${skill.name}`)));
-    if (!names.has(name) && !installedNatively) entries.push({ name, description: skill.description, source: "dispand", skillId: skill.skillId });
+    const nativeIndex = native.findIndex((c) => [c.name, ...(c.aliases ?? [])].some((n) => n === name || n === `${nativeNamespace}:${skill.name}` || (n.startsWith(`${nativeNamespace}@`) && n.endsWith(`:${skill.name}`))));
+    if (nativeIndex >= 0) entries[nativeIndex]!.skillId ??= skill.skillId;
+    else entries.push({ name, description: skill.description, source: "dispand", skillId: skill.skillId });
   }
   return { entries, nativeUnavailable, skillsOnly: target?.kind === "codex" };
 });

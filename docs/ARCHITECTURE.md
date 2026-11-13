@@ -1465,3 +1465,10 @@ refused until the turn finishes. Removing the installed package revokes server-s
 Claude receives its qualified slash invocation; Codex resolves an enabled skill locally and
 sends a native skill input, preserving arguments. Cloud conversations use the existing
 `read_skill` loader. Keyboard selection edits the draft; it never submits it.
+
+Native catalog entries retain their Dispand skill binding when matched, so selecting a native
+workspace skill still loads its required Dispand tools. If discovery was unavailable, the runner
+resolves a fallback package namespace through its verified native installation before dispatch.
+Codex scope collisions share one identity mapping between catalog and input conversion. Global
+action disables, tool retargeting, and skill/package removal narrow live sessions even when a
+tool came only from an explicit conversation selection.

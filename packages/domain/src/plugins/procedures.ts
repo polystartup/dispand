@@ -598,6 +598,7 @@ const uninstall = owner.input(Id).handler(async ({ input, context }) => {
         .where(and(eq(skillPackages.id, pkg.id), sql`not exists (select 1 from ${agentSkills} where ${agentSkills.packageId} = ${pkg.id})`));
     }
   });
+  await context.engine.narrowOwnerSessions(context.ownerId, context.db);
 });
 
 const update = owner.input(Id).handler(async ({ input, context }) => {
