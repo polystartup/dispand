@@ -19,7 +19,7 @@ const inventoryOptions = (runnerId: string, enabled: boolean) => ({
 export const nativeWarning = "Complete native installation can run plugin hooks, commands, programs and MCP servers with the runner account's access. It affects the whole plugin, including skills you did not import. Review and trust its source first.";
 
 /** One target per runner/harness kind: named harnesses can share the same native account. */
-export function useNativeTargets(harnesses: Harness[], runners: Runner[]) {
+export function useNativeTargets(harnesses: Harness[], runners: Runner[], action: "add" | "remove" = "add") {
   const cli = harnesses.filter((h): h is CliHarness => h.type === "cli");
   const pairs = cli.filter((h, i) => cli.findIndex((other) => other.runnerId === h.runnerId && other.kind === h.kind) === i);
   const reports = useQueries({ queries: runners.map((r) => inventoryOptions(r.id, r.status === "online" && pairs.some((h) => h.runnerId === r.id))) });
@@ -28,9 +28,9 @@ export function useNativeTargets(harnesses: Harness[], runners: Runner[]) {
     const runner = runners[index];
     const report = reports[index];
     const target = report?.data?.targets?.find((t) => t.harness === harness.kind);
-    const enabled = !!(runner?.status === "online" && !report?.data?.error && target?.available && target.add);
+    const enabled = !!(runner?.status === "online" && !report?.data?.error && target?.available && target[action]);
     const reason = runner?.status !== "online" ? "Runner offline" : report?.isPending ? "Reading native capabilities…" : enabled ? "Whole native plugin" : "Native installation unavailable; enable native plugin support on this runner and check that the CLI account is available";
-    return { harness, runner, enabled, reason };
+    return { harness, runner, enabled, reason, loading: runner?.status === "online" && !!report?.isPending, error: !!(report?.error || report?.data?.error), bindings: report?.data?.packages?.filter((p) => p.harness === harness.kind) ?? [] };
   });
 }
 

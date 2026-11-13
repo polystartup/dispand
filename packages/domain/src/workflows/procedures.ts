@@ -101,7 +101,7 @@ async function requireTools(db: Db, ownerId: string, def: WorkflowDef) {
 }
 
 /** Whether a workflow's current version, or the version of a run still going, puts the agent to work. */
-export async function agentInUse(db: Db, ownerId: string, agentId: string): Promise<boolean> {
+export async function agentInUse(db: Db | Tx, ownerId: string, agentId: string): Promise<boolean> {
   const current = await db
     .select({ def: workflowVersions.def })
     .from(workflowsTable)
