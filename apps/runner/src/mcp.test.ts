@@ -206,10 +206,10 @@ test("a credential's value is redacted from a result however the server reached 
   }
 });
 
-test("runner grants are namespaced, require a Job, and can only shrink live", () => {
+test.each([undefined, []])("runner grants are namespaced and only shrink live (Job context: %j)", (jobTools) => {
   const refs = [{ name: "mail", type: "runner" as const, tool: "gmail", unasked: ["draft_email"] }];
-  expect([...unaskedTools(refs, undefined).names]).toEqual([]);
-  const { names, servers } = unaskedTools(refs, []);
+  const { names, servers } = unaskedTools(refs, jobTools);
+  expect(servers.includes("job_tools")).toBe(jobTools !== undefined);
   expect([...names]).toEqual(["mcp__mail__draft_email"]);
   expect(names.has("mcp__other__draft_email")).toBe(false);
   narrowUnasked(names, servers, [{ name: "mail", unasked: ["draft_email", "send_email"] }]);

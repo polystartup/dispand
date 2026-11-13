@@ -609,7 +609,7 @@ test("without agents to consult, a Codex session has no consult tool and a call 
   expect(await s.replyTo("r0")).toEqual({ contentItems: [{ type: "inputText", text: "unknown tool consult" }], success: false });
 });
 
-test("on Codex, runner grants run only the named action and revocations take effect", async () => {
+test.each([true, false])("Codex runner grants and revocations work (Job context: %s)", async (withJob) => {
   const approval = (serverName: string, tool: string) => ({
     request: "mcpServer/elicitation/request",
     params: {
@@ -625,12 +625,13 @@ test("on Codex, runner grants run only the named action and revocations take eff
   const s = await run({
     start: { mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["draft_email"] }] },
     turns: [[approval("mail", "draft_email"), approval("mail", "send_email"), approval("mail", "draft_email"), approval("other", "draft_email"), message("Done")]],
-    deps: { jobServer: "job", unasked: [] },
+    deps: withJob ? { jobServer: "job", unasked: [] } : {},
     answer: () => { active.narrowPermissions!([{ name: "mail", unasked: [] }]); return { kind: "permission", decision: "deny" }; },
   });
   const active = s.session;
   await s.ended();
   expect(questions(s.events).map((q) => (q.payload as { toolName: string }).toolName)).toEqual(["mcp__mail__send_email", "mcp__mail__draft_email", "mcp__other__draft_email"]);
+  expect(questions(s.events).map((q) => (q.payload as { canAlwaysAllow: boolean }).canAlwaysAllow)).toEqual([withJob, withJob, false]);
   expect(await s.replyTo("r0")).toEqual({ action: "accept", content: {}, _meta: null });
   expect(await s.replyTo("r1")).toEqual({ action: "decline", content: null, _meta: null });
 });
@@ -658,10 +659,10 @@ test("on Codex an old always answer cannot restore a revoked runner grant", asyn
   expect(await s.replyTo("r1")).toMatchObject({ action: "decline" });
 });
 
-test("on Codex unasked runner tools cannot read protected configuration paths", async () => {
+test.each([true, false])("Codex runner grants protect configuration (Job context: %s)", async (withJob) => {
   const s = await run({
     start: { mcpServers: [{ name: "mail", type: "runner", tool: "files", unasked: ["read_file"] }] },
-    deps: { jobServer: "job", secrets: ["/guarded/config.json"] },
+    deps: { ...(withJob ? { jobServer: "job" } : {}), secrets: ["/guarded/config.json"] },
     turns: [[localApproval("read_file", { path: "/guarded/config.json" }), localApproval("read_file", { path: "/allowed/note.txt" }), message("Done")]],
   });
   await s.ended();

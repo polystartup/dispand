@@ -1683,7 +1683,7 @@ test.each([false, true])("workspace disabling narrows live Job and workflow sess
 });
 
 
-test("run-only runner grants and denials reach Job and workflow permission updates and resumes", async () => {
+test("run ceilings and denials are sent on Job and workflow permission updates and resumes", async () => {
   const { context, engine, agent, workflow, starts, sent, runnerId } = await toolingSetup();
   const actions = ["read", "send"].map((name) => ({ name, description: name, inputSchema: {} }));
   await context.db.update(tools).set({ actions }).where(eq(tools.id, "tool_fetch"));

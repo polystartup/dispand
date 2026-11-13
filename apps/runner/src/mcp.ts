@@ -34,19 +34,16 @@ export function withJobServer(refs: McpServerRef[], server: string, jobToken: st
 }
 
 /**
- * In a Job's session (`jobTools`, the Job's unasked tools of its tools server): the MCP tools
- * that run without a question, by the name the CLI gives them (`mcp__<server>__<tool>`), and the
- * servers whose tools "always allow" adds to them (the Job's tools server and the runner tools,
- * which are the Job's agent's own). The runner makes every name itself from a server the session
- * starts and an action Dispand named: nothing here can name a command, a file tool or another
- * server's tool. Nothing for a session without a Job.
+ * Initial per-action MCP grants and their managed servers, in the CLI's naming. Runner refs
+ * may carry Job or workflow grants; the Job tools server is present only with Job context.
+ * The runner derives every name from a server it starts and an action Dispand named: nothing
+ * here can name a command, a file tool or another server's tool. Live updates only narrow.
  */
 export function unaskedTools(refs: McpServerRef[], jobTools: string[] | undefined): { names: Set<string>; servers: string[] } {
-  if (jobTools === undefined) return { names: new Set(), servers: [] };
   const runner = refs.flatMap((ref) => (ref.type === "runner" ? [ref] : []));
   return {
-    names: new Set([...jobTools.map((name) => `mcp__${JOB_TOOLS_SERVER}__${name}`), ...runner.flatMap((ref) => (ref.unasked ?? []).map((action) => `mcp__${ref.name}__${action}`))]),
-    servers: [JOB_TOOLS_SERVER, ...runner.map((ref) => ref.name)],
+    names: new Set([...(jobTools ?? []).map((name) => `mcp__${JOB_TOOLS_SERVER}__${name}`), ...runner.flatMap((ref) => (ref.unasked ?? []).map((action) => `mcp__${ref.name}__${action}`))]),
+    servers: [...(jobTools === undefined ? [] : [JOB_TOOLS_SERVER]), ...runner.map((ref) => ref.name)],
   };
 }
 

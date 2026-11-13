@@ -1343,6 +1343,7 @@ Effective tooling combines a run's matching decisions with the agent's current p
 after restricting the tool set to current access and the Job snapshot. Denies take precedence;
 a remembered allow applies only to a currently listed action. The tools endpoint and cloud
 caller use these permissions at each call; runner starts, updates and resumes receive the same
-restrictions. Workflow runner sessions receive run-only allows, while their per-agent Run
+restrictions. Live permission updates only narrow the current grant ceiling; a newly approved
+allow must be delivered through the owner-answer path. Workflow runner sessions receive run-only allows, while their per-agent Run
 settings retain their existing Job-only behavior. No answer path populates run memory yet;
 the owner-facing scope controls and delivery are connected separately.

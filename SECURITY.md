@@ -350,7 +350,7 @@ changes it updates this file.
   A Job's session start may carry `unasked`: names of the tools endpoint's tools (at most 500,
   each at most 48 characters of `a-z0-9_-` with no `__`). The runner makes the CLI's tool names
   itself, `mcp__job_tools__<name>`, and lets those run without a question, on a session that
-  has a Job token only. Runner refs may separately name unasked actions on their own locally configured MCP server. Neither list can name commands, file tools or another server's tools. Whether
+  has a Job token only. Runner refs may separately name unasked actions on their own locally configured MCP server: agent or run grants for Jobs, and explicit run grants for workflows (protocol 19). Neither list can name commands, file tools or another server's tools. Whether
   a call runs is still the endpoint's decision alone, from the agent's list at that moment: a
   name the runner was told but the owner put back since is refused there for lack of an
   approval, and asks again from the session's next start.
@@ -702,7 +702,7 @@ changes it updates this file.
   each call), and a call cut by a restart is never made again: its step fails.
   An operator with the database and the key can read them (see below).
 
-Runner tools in a Job may run only the actions its agent marks unasked. The runner derives fully qualified MCP names from its own configured servers; these grants never name shell or file tools. Live permission updates only intersect existing grants, including on reconnect and during startup. Server aliases bind a tool id and its runner target, so removing or renaming another tool cannot reassign a grant. A persistent approval must still name that target and its current permission when delivered; a revocation invalidates pending local permission caching. Automatic runner calls use the same protected-path argument guard as polls. Server-side changes reach workflow sessions as well. Catalog runner tools with empty action permissions receive their catalog defaults once during the approved upgrade; non-empty lists and HTTP tools keep their permissions.
+Runner tools in a Job may run only the actions its agent or the owner's run decision marks unasked; workflow runner refs carry explicit run grants only. The runner derives fully qualified MCP names from its own configured servers; these grants never name shell or file tools. Live permission updates only intersect existing grants, including on reconnect and during startup. Server aliases bind a tool id and its runner target, so removing or renaming another tool cannot reassign a grant. A persistent approval must still name that target and its current permission when delivered; a revocation invalidates pending local permission caching. Automatic runner calls use the same protected-path argument guard as polls. Server-side changes reach workflow sessions as well. Catalog runner tools with empty action permissions receive their catalog defaults once during the approved upgrade; non-empty lists and HTTP tools keep their permissions.
 
 **Who it defends against:** anyone on the internet calling the API or loading the app, and a
 signed-in user trying to reach rows that aren't the session owner's. **Not defended against:** an operator with

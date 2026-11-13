@@ -8,7 +8,7 @@ import { isMemoryPath } from "./paths.ts";
  * Sent by the runner as the `Dispand-Protocol` header when it connects. Bumped by every
  * change a runner of the previous version can't parse or honor; the hub turns older runners away.
  */
-export const PROTOCOL_VERSION = 18;
+export const PROTOCOL_VERSION = 19;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -53,9 +53,10 @@ export const McpServerRef = z.discriminatedUnion("type", [
     type: z.literal("runner"),
     tool: McpServerName,
     /**
-     * With a Job token: the actions of this server that run without a question, by their name
+     * Actions of this server that run without a question, by their name
      * there. The runner makes the CLI's names itself (`mcp__<name>__<action>`), so nothing here
      * can name a command, a file tool or a server the runner didn't start from its own config.
+     * Jobs may use agent or run grants; workflow sessions use explicit run grants only.
      */
     unasked: z
       .array(id().regex(/^[a-zA-Z0-9_-]{1,64}$/))
