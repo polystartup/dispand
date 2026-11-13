@@ -26,14 +26,14 @@ export function NativeTargetPicker({ harnesses, runners, selected, onChange }: {
   return (
     <fieldset className="space-y-2">
       <legend className="text-[13px] font-medium">Install on runner / harness pairs</legend>
-      {pairs.length === 0 && <p className="text-[13px] text-muted">Add a CLI harness on an updated runner first.</p>}
+      {pairs.length === 0 && <p className="text-[13px] text-muted">Add a CLI harness and enable native plugin support on its runner first.</p>}
       {pairs.map((h) => {
         const index = runners.findIndex((r) => r.id === h.runnerId);
         const runner = runners[index];
         const report = reports[index];
         const target = report?.data?.targets?.find((t) => t.harness === h.kind);
         const enabled = runner?.status === "online" && !report?.data?.error && target?.available && target.add;
-        const reason = runner?.status !== "online" ? "Runner offline" : report?.isPending ? "Reading native capabilities…" : enabled ? "Whole native plugin" : "Native installation unavailable; update the runner and check that this CLI account is available";
+        const reason = runner?.status !== "online" ? "Runner offline" : report?.isPending ? "Reading native capabilities…" : enabled ? "Whole native plugin" : "Native installation unavailable; enable native plugin support on this runner and check that the CLI account is available";
         return (
           <label key={`${h.runnerId}/${h.kind}`} className="flex items-start gap-2 text-[13px]">
             <input type="checkbox" className="mt-1" checked={selected.has(h.id)} disabled={!enabled} onChange={() => onChange(h.id)} />

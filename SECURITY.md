@@ -587,15 +587,17 @@ changes it updates this file.
   directory); reads are allowed. The SDK loads them with `skipMcpDiscovery`. They are written
   again at every start or resume and removed when the session ends and when the runner starts,
   so a changed copy never outlives its session.
-- **Native plugin installation requires explicit owner approval.** The owner-authenticated `runners.plugins`
+- **Native plugins are an explicit runner-local opt-in.** The owner-authenticated `runners.plugins`
   and `runners.workspacePlugin` procedures check runner ownership and CLI harness membership. They
   reject Job contexts and are absent from management tools. Protocol 15's native requests run only
   the runner's bundled Skillshare executable by absolute path, from its home directory, with
   explicit global scope. Runner builds pin the upstream version and SHA-256 of each Linux release
   archive and ship its MIT license; dependency changes alter the runner build identity. Runtime
-  never downloads or upgrades a dependency independently. The default targets are managed accounts
-  in the runner's own protected config directory, bound to the same local CLI homes as sessions.
-  Explicit local `pluginTargets` override those accounts, and `{}` disables native management.
+  never downloads or upgrades a dependency independently. The local installer’s `--native-plugins`
+  option saves `pluginTargets: "managed"`; ordinary updates never enable native management.
+  Absent targets or `{}` disable it, and explicit maps retain operator-configured accounts.
+  The server and agents cannot change this local authorization. Once opted in, targets are managed
+  accounts in the runner's own protected config directory, bound to the same local CLI homes as sessions.
   Personal Skillshare configuration is not edited. The server cannot set commands or account
   config paths. The runner installation directory, including bundled executables, is excluded
   from session roots. Complete plugin sources are credential-free HTTPS Git URLs, pinned to the
@@ -608,8 +610,7 @@ changes it updates this file.
   settings. Mutations select explicit targets and require a preview revision. Complete native
   plugins may execute their native hooks, commands and MCP integrations: the owner approves that
   native lifecycle through its reviewed preview, separately from sanitized workspace imports.
-  Skillshare config,
-  data and state directories join the machine paths excluded from roots and session access. Custom
+  Skillshare config, data and state directories join the machine paths excluded from roots and session access. Custom
   account config directories must be outside roots and protected locally like CLI homes. Native
   replies expose a bounded projection, never raw paths, identifiers or error text. One operation
   runs at a time, with bounded output and time; failures and partial outcomes are reported, never

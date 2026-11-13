@@ -140,3 +140,18 @@ test("run says hello with the current protocol, Claude Code's version and Codex'
     await rm(base, { recursive: true, force: true });
   }
 });
+
+
+test("native-plugins opts in locally while preserving pairing and machine restrictions", async () => {
+  const base = await mkdtemp(join(tmpdir(), "native-opt-in-"));
+  try {
+    const dir = join(base, "config");
+    await mkdir(dir);
+    const path = join(dir, "config.json");
+    const config = { server: "http://127.0.0.1:9", roots: [join(base, "work")], token: "kept-token", runnerId: "kept-runner", allowBypass: false, mcpServers: { echo: { command: "echo-mcp" } } };
+    await writeFile(path, JSON.stringify(config));
+    await promisify(execFile)(process.execPath, ["src/main.ts", "native-plugins", "--config", dir]);
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ ...config, pluginTargets: "managed" });
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
+  } finally { await rm(base, { recursive: true, force: true }); }
+});

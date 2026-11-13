@@ -37,8 +37,8 @@ const RunnerConfig = z.object({
   server: z.string().refine(isAllowedServer, HTTPS_ONLY),
   roots: z.array(z.string().refine(isAbsolute, "must be an absolute path")).min(1),
   allowBypass: z.boolean().default(false),
-  /** Local override: Skillshare target/account names; absent uses runner-managed accounts, {} disables native management. */
-  pluginTargets: z.object({ "claude-code": z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/).optional(), codex: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/).optional() }).optional(),
+  /** Local opt-in: "managed" uses bundled Skillshare and session accounts; an explicit map uses operator-configured targets. Absent or {} disables native management. */
+  pluginTargets: z.union([z.literal("managed"), z.object({ "claude-code": z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/).optional(), codex: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/).optional() })]).optional(),
   /** The runner's token, in the same file so pairing writes both at once (mode 0600). */
   token: z.string().min(1).optional(),
   /** Which runner this machine is paired as: its state lives in `state/<runnerId>/`. One path segment. */

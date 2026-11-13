@@ -44,14 +44,14 @@ test("managed setup follows session accounts, preserves plugins on restart and l
   const personal = join(base, "personal.yaml");
   await writeFile(personal, "personal config");
   const env = { CLAUDE_CONFIG_DIR: join(base, "claude"), CODEX_HOME: join(base, "codex"), SKILLSHARE_CONFIG: personal };
-  const first = prepareSkillshare(base, undefined, env);
+  const first = prepareSkillshare(base, "managed", env);
   const path = first.env.SKILLSHARE_CONFIG!;
   expect(first.targets).toEqual({ "claude-code": "dispand-claude", codex: "dispand-codex" });
   const config = parse(await readFile(path, "utf8"));
   expect(config.targets).toEqual({ "dispand-claude": { agent: "claude", config_dir: env.CLAUDE_CONFIG_DIR }, "dispand-codex": { agent: "codex", config_dir: env.CODEX_HOME } });
   config.plugins = { version: 2, packages: { kept: { source: "https://example.com/plugins", bindings: {} } } };
   await writeFile(path, JSON.stringify(config));
-  prepareSkillshare(base, undefined, { ...env, CODEX_HOME: join(base, "codex-other") });
+  prepareSkillshare(base, "managed", { ...env, CODEX_HOME: join(base, "codex-other") });
   const restarted = parse(await readFile(path, "utf8"));
   expect(restarted.plugins).toEqual(config.plugins);
   expect(restarted.targets["dispand-codex"].config_dir).toBe(join(base, "codex-other"));
@@ -61,9 +61,9 @@ test("managed setup follows session accounts, preserves plugins on restart and l
 
 test("explicit local overrides, including disabling native management, are preserved", async () => {
   const base = await scratch();
-  for (const targets of [{}, { codex: "custom" }]) {
+  for (const targets of [undefined, {}, { codex: "custom" }]) {
     const env = { SKILLSHARE_CONFIG: join(base, "custom.yaml") };
-    expect(prepareSkillshare(base, targets, env)).toEqual({ targets, env });
+    expect(prepareSkillshare(base, targets, env)).toEqual({ targets: targets ?? {}, env });
   }
   await expect(stat(join(base, "skillshare"))).rejects.toThrow();
 });
@@ -109,7 +109,7 @@ fs.writeFileSync(stateFile, JSON.stringify(state));
   await writeFile(join(bin, "skillshare"), "#!/bin/sh\nexit 99\n");
   await chmod(join(bin, "skillshare"), 0o755);
   const env = { ...process.env, HOME: base, PATH: `${bin}:/usr/bin:/bin`, XDG_CONFIG_HOME: join(base, "config"), XDG_STATE_HOME: join(base, "state"), XDG_DATA_HOME: join(base, "data"), CLAUDE_CONFIG_DIR: join(base, defaultHomes ? ".claude" : "claude"), CODEX_HOME: join(base, defaultHomes ? ".codex" : "codex"), SKILLSHARE_CODEX_CLI: join(bin, "codex") };
-  const prepared = prepareSkillshare(join(base, "runner-config"), undefined, env);
+  const prepared = prepareSkillshare(join(base, "runner-config"), "managed", env);
   return { base, prepared, native: new NativePlugins(prepared.targets, prepared.env, skillshareExec(binary)) };
 }
 
@@ -171,7 +171,7 @@ test("moving from a custom home to the default keeps former binding declarations
   const operation = { action: "add-workspace" as const, name: "retained", targets: ["codex" as const], files: [{ path: "writing/SKILL.md", base64: Buffer.from("---\nname: writing\ndescription: Write clearly\n---\nText\n").toString("base64") }] };
   const preview = await native.request({ ...operation, dryRun: true });
   expect((await native.request({ ...operation, dryRun: false, revision: preview.revision! })).error).toBeUndefined();
-  const next = prepareSkillshare(join(base, "runner-config"), undefined, { ...prepared.env, CODEX_HOME: join(base, ".codex") });
+  const next = prepareSkillshare(join(base, "runner-config"), "managed", { ...prepared.env, CODEX_HOME: join(base, ".codex") });
   expect(next.targets.codex).toBe("codex");
   const inventory = await new NativePlugins(next.targets, next.env, skillshareExec(binary)).request({ action: "list" });
   expect(inventory.error).toBeUndefined();

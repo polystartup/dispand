@@ -16,9 +16,11 @@ export function skillshareBinary(): string {
   return join(runnerPackageDir(), "bin", `${process.platform}-${process.arch}`, "skillshare");
 }
 
-/** Default native accounts follow the session's CLI homes. Explicit local overrides stay intact. */
-export function prepareSkillshare(dir: string, targets: RunnerConfig["pluginTargets"], env: NodeJS.ProcessEnv): { targets: NonNullable<RunnerConfig["pluginTargets"]>; env: NodeJS.ProcessEnv } {
-  if (targets !== undefined) return { targets, env };
+type NativeTargets = Exclude<NonNullable<RunnerConfig["pluginTargets"]>, "managed">;
+
+/** Locally enabled managed accounts follow session CLI homes. Explicit overrides stay intact. */
+export function prepareSkillshare(dir: string, targets: RunnerConfig["pluginTargets"], env: NodeJS.ProcessEnv): { targets: NativeTargets; env: NodeJS.ProcessEnv } {
+  if (targets !== "managed") return { targets: targets ?? {}, env };
   const configDir = join(dir, "skillshare");
   const configPath = join(configDir, "config.yaml");
   mkdirSync(configDir, { recursive: true, mode: 0o700 });
@@ -32,7 +34,7 @@ export function prepareSkillshare(dir: string, targets: RunnerConfig["pluginTarg
   // Keep previous account definitions so declarations for a former home remain readable.
   const accounts = document.toJS()?.targets ?? {};
   const home = env.HOME || homedir();
-  const configured: NonNullable<RunnerConfig["pluginTargets"]> = {};
+  const configured: NativeTargets = {};
   for (const [harness, agent, variable, defaultDir] of [
     ["claude-code", "claude", "CLAUDE_CONFIG_DIR", ".claude"],
     ["codex", "codex", "CODEX_HOME", ".codex"],

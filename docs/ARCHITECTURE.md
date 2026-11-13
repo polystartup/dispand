@@ -52,9 +52,11 @@
   of them ends the session; a duplicate name doesn't.
 - **Native skill selection (protocol 16):** the runner bundles checksum-pinned Skillshare
   executables for Linux x86-64 and ARM64. Runner updates carry the tested dependency version
-  (`build.json` records it), with no runtime dependency downloads or system PATH lookup. Default
-  managed accounts follow the session CLI homes in a runner-private Skillshare config; explicit
-  local `pluginTargets` override them, with `{}` disabling native management. The owner-only
+  (`build.json` records it), with no runtime dependency downloads or system PATH lookup. The local
+  installer’s `--native-plugins` option sets `pluginTargets: "managed"`; ordinary updates preserve
+  this choice, with absence or `{}` keeping native management disabled. Managed accounts follow
+  the session CLI homes in a runner-private Skillshare config; explicit target maps retain
+  operator-configured accounts. The owner-only
   `runners.workspacePlugin` resolves a workspace plugin or
   standalone skill package and one CLI harness, previews through Skillshare, then applies only
   the reviewed revision. Complete plugins use their stored repository/commit/entry; standalone

@@ -223,7 +223,14 @@ used. Updating the runner replaces Skillshare with the version tested for that b
 The runner tests exercise the real pinned executable's inventory, preview, stale-revision
 refusal, install and removal contracts against isolated native client fixtures.
 
-By default, the runner maintains `skillshare/config.yaml` under its own config directory.
+Native plugin management remains a local opt-in. Select **Enable native plugin installation**
+when adding a runner, then run the displayed installer command. For an existing runner, run
+its installer once on the machine with `--update --native-plugins`. Source installs can use
+`node main.mjs native-plugins --config <dir>` and restart the runner. Ordinary updates preserve
+the choice and never enable native management on their own. The installer saves
+`"pluginTargets": "managed"` locally; the server and agents cannot set it.
+
+Once enabled, the runner maintains `skillshare/config.yaml` under its own config directory.
 It uses the built-in `claude` / `codex` targets for default CLI homes, and named
 `dispand-claude` / `dispand-codex` accounts for custom `CLAUDE_CONFIG_DIR` / `CODEX_HOME`
 paths, matching the accounts sessions use. Its plugin
@@ -232,8 +239,8 @@ is not changed. Native installation still requires an owner-only preview and exp
 approval of the whole plugin in Dispand; importing workspace skills alone installs nothing
 natively. A missing or unsupported native CLI remains unavailable.
 
-To disable native management on a runner, set `"pluginTargets": {}` in its local
-`config.json`. An explicit nonempty `pluginTargets` retains the advanced configuration:
+To disable native management on a runner, remove `pluginTargets` or set it to `{}` in its local
+`config.json`. An explicit nonempty target map retains the advanced configuration:
 its values name accounts in the operator's own Skillshare configuration (or
 `SKILLSHARE_CONFIG`), as before. Those accounts must use the same config directories as
 sessions, outside every runner root. The runner still uses its bundled executable.

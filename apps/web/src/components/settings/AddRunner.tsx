@@ -74,7 +74,7 @@ export function AddRunner({ onConnected, onCancel }: { onConnected: (runnerId: s
       command={created.installCommand}
       copied={copied}
       error={error}
-      onCopy={() => void copy(created.installCommand)}
+      onCopy={(command) => void copy(command)}
       onConnected={onConnected}
       onCancel={onCancel}
     />
@@ -86,10 +86,12 @@ function Waiting(props: {
   command: string;
   copied: boolean;
   error: string | null;
-  onCopy: () => void;
+  onCopy: (command: string) => void;
   onConnected: (runnerId: string) => void;
   onCancel: () => void;
 }) {
+  const [nativePlugins, setNativePlugins] = useState(false);
+  const command = props.command + (nativePlugins ? " --native-plugins" : "");
   const { data } = useQuery(orpc.runners.list.queryOptions({ refetchInterval: 2000 }));
   const online = data?.some((r) => r.id === props.runnerId && r.status === "online") ?? false;
   const { onConnected, runnerId } = props;
@@ -100,14 +102,18 @@ function Waiting(props: {
   return (
     <div className="space-y-4">
       <p className="text-[14px] text-muted">Run this on the machine. The code works once and expires in 15 minutes.</p>
+      <label className="flex items-start gap-2 text-[14px]">
+        <input type="checkbox" className="mt-1" checked={nativePlugins} onChange={(e) => setNativePlugins(e.target.checked)} />
+        <span>Enable native plugin installation<span className="block text-[13px] text-muted">Approved plugins may run hooks, commands and MCP servers with this machine account’s access.</span></span>
+      </label>
       <div className="relative">
         <pre
           aria-label="Install command"
           className="overflow-x-auto whitespace-pre-wrap break-all rounded-xl border border-line bg-bg p-3.5 pr-12 font-mono text-[12.5px] leading-relaxed"
         >
-          {props.command}
+          {command}
         </pre>
-        <Button type="button" variant="ghost" size="icon-sm" aria-label="Copy command" className="absolute right-2 top-2" onClick={props.onCopy}>
+        <Button type="button" variant="ghost" size="icon-sm" aria-label="Copy command" className="absolute right-2 top-2" onClick={() => props.onCopy(command)}>
           {props.copied ? <Check /> : <Copy />}
         </Button>
       </div>

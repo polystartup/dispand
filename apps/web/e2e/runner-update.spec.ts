@@ -19,6 +19,12 @@ test("an incompatible runner can update from Settings using its separate authent
   await page.getByRole("button", { name: "Add runner" }).click();
   await page.getByLabel("Runner name").fill("Update test machine");
   await page.getByRole("button", { name: "Get the install command" }).click();
+  const nativePlugins = page.getByRole("checkbox", { name: /Enable native plugin installation/ });
+  await expect(nativePlugins).not.toBeChecked();
+  await expect(page.getByLabel("Install command")).not.toContainText("--native-plugins");
+  await nativePlugins.check();
+  await expect(page.getByLabel("Install command")).toContainText("--native-plugins");
+  await page.screenshot({ path: "/tmp/dispand-runner-native-plugins.png" });
   const command = await page.getByLabel("Install command").innerText();
   const code = /DISPAND_PAIRING_CODE=([A-Z0-9]{8})/.exec(command)![1];
   const paired = await request.post("/runner/pair", { data: { code } });
