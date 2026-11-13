@@ -15,7 +15,7 @@ export function ReviewSwitch({ triggerId }: { triggerId: string }) {
   if (config?.kind !== "schedule") return null;
   const toggle = (enabled: boolean) => save.mutate({ id: triggerId, enabled, ...(enabled ? { config: { ...config, timezone: localTimezone() } } : {}) });
   return (
-    <div className="mb-4">
+    <div>
       <label className="flex items-start gap-2 text-[14px]">
         <input type="checkbox" checked={trigger.data!.enabled} disabled={save.isPending} onChange={(e) => toggle(e.target.checked)} className="mt-1 size-4 accent-[var(--accent)]" />
         <span>

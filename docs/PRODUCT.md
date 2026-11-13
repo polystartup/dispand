@@ -113,7 +113,10 @@ Status: Prototype
     its harness. Until then, Home opens the Assistant's page, a fresh install's first page,
     which adds a harness when there is none and then starts the Assistant on the one picked.
     Its conversations are listed beside the chat, newest first, each named by its first
-    message; "New conversation" starts another, and the page's address reopens one.
+    message; "New conversation" starts another, and the page's address reopens one. The chat fills
+    the page beside the sidebar. "Assistant settings" changes its harness and model for new
+    conversations and Jobs; existing conversations keep theirs. Leaving the model empty uses
+    the harness default, and picking another harness clears the model override.
   - The Assistant's **weekly review** is off until the owner turns it on, on the Assistant's
     page (Mondays at 09:00 in their time zone; the schedule stays editable on the Assistant's
     agent page, and the review can be turned off but not deleted). It looks for agents with no

@@ -8,7 +8,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 
 const fake = vi.hoisted(() => ({
-  agents: { assistant: vi.fn(), ensureAssistant: vi.fn() },
+  agents: { assistant: vi.fn(), ensureAssistant: vi.fn(), get: vi.fn(), update: vi.fn() },
   harnesses: { list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), models: vi.fn() },
   runners: { list: vi.fn() },
   runs: { sendChat: vi.fn(), stream: vi.fn(), list: vi.fn(), get: vi.fn() },
@@ -102,6 +102,50 @@ test("the Assistant's chat starts a Job of its chat trigger with the first messa
   expect(fake.runs.list.mock.calls[0]![0]).toEqual({ triggerId: "trigger_chat", kind: "chat" });
   // The URL takes the conversation it started.
   expect(opened).toEqual(["run_1"]);
+});
+
+test("Assistant settings changes the harness and model, preserves other edits, and can restore the harness default", async () => {
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.runs.list.mockResolvedValue([]);
+  fake.harnesses.list.mockResolvedValue([{ id: "h1", name: "Claude", model: "opus" }, { id: "h2", name: "Codex", model: "codex-default" }]);
+  const agent = { id: "agent_a", name: "Assistant", harnessId: "h1", systemPrompt: "Original instructions", model: "sonnet", skills: [{ packageId: "platform" }], tools: [{ toolId: "explicit", explicit: true }, { toolId: "from-skill", explicit: false }] };
+  fake.agents.get.mockImplementation(async () => ({ ...agent }));
+  fake.agents.update.mockImplementation(async (fields) => { Object.assign(agent, fields, { model: fields.model }); return agent; });
+  const { user } = mount();
+  await user.click(await screen.findByRole("button", { name: "Assistant settings" }));
+  let sheet = await screen.findByRole("dialog");
+  expect((await within(sheet).findByLabelText("Model") as HTMLInputElement).value).toBe("sonnet");
+  await user.click(within(sheet).getByLabelText("Harness"));
+  await user.click(await screen.findByRole("option", { name: "Codex" }));
+  expect((within(sheet).getByLabelText("Model") as HTMLInputElement).value).toBe("");
+  await user.type(within(sheet).getByLabelText("Model"), " codex-model ");
+  // Another editor changed the instructions while this sheet was open.
+  agent.systemPrompt = "Updated elsewhere";
+  await user.click(within(sheet).getByRole("button", { name: "Save settings" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(fake.agents.update.mock.calls[0]![0]).toEqual({ id: "agent_a", name: "Assistant", harnessId: "h2", model: "codex-model", systemPrompt: "Updated elsewhere", skillPackageIds: ["platform"], toolIds: ["explicit"] });
+
+  await user.click(screen.getByRole("button", { name: "Assistant settings" }));
+  sheet = await screen.findByRole("dialog");
+  const model = await within(sheet).findByLabelText("Model");
+  expect((model as HTMLInputElement).value).toBe("codex-model");
+  await user.clear(model);
+  await user.click(within(sheet).getByRole("button", { name: "Save settings" }));
+  await waitFor(() => expect(fake.agents.update).toHaveBeenCalledTimes(2));
+  expect(fake.agents.update.mock.calls[1]![0]).not.toHaveProperty("model");
+});
+
+test("a refused harness change keeps the settings open and shows the reason", async () => {
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.runs.list.mockResolvedValue([]);
+  fake.harnesses.list.mockResolvedValue([{ id: "h1", name: "Cloud" }]);
+  fake.agents.get.mockResolvedValue({ id: "agent_a", name: "Assistant", harnessId: "h1", systemPrompt: "", skills: [], tools: [] });
+  fake.agents.update.mockRejectedValue(Object.assign(new Error("Runner tools only work with CLI harnesses"), { code: "BAD_REQUEST" }));
+  const { user } = mount();
+  await user.click(await screen.findByRole("button", { name: "Assistant settings" }));
+  const sheet = await screen.findByRole("dialog");
+  await user.click(await within(sheet).findByRole("button", { name: "Save settings" }));
+  expect((await within(sheet).findByRole("alert")).textContent).toBe("Runner tools only work with CLI harnesses");
 });
 
 test("the conversations are listed newest first with their titles; opening one shows its messages, a new one starts empty", async () => {
