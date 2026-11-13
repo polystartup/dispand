@@ -390,6 +390,9 @@ export const NOT_TOOLS: string[] = [
   // What grants authority or can't be undone: a person does it (later, through a proposal).
   "fields.retype",
   "agents.delete",
+  // Saved native CLI permissions belong to the owner, never to Job tools.
+  "agents.cliRules",
+  "agents.removeCliRule",
   // The Assistant: made by the owner's action, never by an agent.
   "agents.assistant",
   "agents.ensureAssistant",

@@ -750,3 +750,8 @@ The shared native CLI rule matcher is currently unused by sessions. It parses on
 bounded rule subset; prefix matching rejects shell syntax, and exact commands match the entire
 string. A match never overrides runner roots or denied settings files. Parsed rules must not be
 passed to a native CLI's wildcard permission parser or written into its settings.
+
+Saved native CLI rules live on the agent and are exposed only through owner-session list and
+removal procedures, never through general agent responses or Job tools. Removing an entry is
+serialized on the agent row. Once session consumers are integrated, removal affects the next
+session start; running sessions retain their permission snapshot. Rule content is never telemetry.

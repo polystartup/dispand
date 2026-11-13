@@ -151,6 +151,7 @@ export const agents = pgTable("agents", {
   dataTables: jsonb("data_tables").$type<TableScope>().notNull().default(sql`'"all"'::jsonb`),
   // Where its Jobs may write memory (`memory/model.ts`); empty, they learn nothing.
   selfLearning: jsonb("self_learning").$type<MemoryTarget[]>().notNull().default([]),
+  cliRules: jsonb("cli_rules").$type<{ cli: "claude-code" | "codex"; rule: string; decision: "allow" | "deny" }[]>().notNull().default([]),
   // The plugin it came from, and its name there (`plugins/`); it stays when the plugin goes.
   pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
   pluginComponent: text("plugin_component"),
