@@ -1,6 +1,18 @@
 import { HarnessEvent, type QuestionPayload } from "@dispand/runner-protocol";
 import { expect, test } from "vitest";
-import { FRAME_BUDGET, protocolEvents, protocolString } from "./sanitize.ts";
+import { fitsWhole, FRAME_BUDGET, protocolEvents, protocolString } from "./sanitize.ts";
+
+test("native rule metadata is preserved whole or the permission question is refused", () => {
+  const event: HarnessEvent = { type: "question", questionId: "q", payload: { kind: "permission", toolName: "Bash", input: { command: "npm test" }, canAlwaysAllow: false, remembers: "Bash(npm test:*)" } };
+  expect(fitsWhole(event)).toBe(true);
+  expect(protocolEvents(event)).toEqual([event]);
+  if (event.payload.kind !== "permission") throw new Error("permission fixture");
+  for (const remembers of ["x".repeat(1001), "Bash\u0000", "Bash\ud800"]) {
+    const invalid = { ...event, payload: { ...event.payload, remembers } };
+    expect(fitsWhole(invalid)).toBe(false);
+    expect(protocolEvents(invalid)).toEqual([{ type: "error", message: "a permission prompt too large to show for approval was dropped" }]);
+  }
+});
 
 // Lone surrogates, NUL, and lengths past every maximum: what a CLI could hand the runner.
 const bad = (n: number) => `\u0000\ud800${"é".repeat(n)}\udc00`;

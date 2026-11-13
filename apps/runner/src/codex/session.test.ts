@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import type { Answer, HarnessEvent } from "@dispand/runner-protocol";
 import { afterEach, expect, test, vi } from "vitest";
 import { machineConfigPaths } from "../config.ts";
+import { CODEX_DENIAL_UNSUPPORTED } from "../native-permissions.ts";
 import { fakeCodex } from "../fixtures/fake-codex-bin.ts";
 import { BypassRefused, type HarnessSession } from "../outcome.ts";
 import { type CodexDeps, type CodexSessionStart, PROFILE_REFUSED, startCodexSession } from "./session.ts";
@@ -58,6 +59,58 @@ async function run(o: {
 }
 
 const questions = (events: HarnessEvent[]) => events.filter((e): e is Extract<HarnessEvent, { type: "question" }> => e.type === "question");
+
+test("saved shell prefixes need one matching action; compound and multi-action requests still ask", async () => {
+  const command = (itemId: string, text: string, count = 1) => request("item/commandExecution/requestApproval", { itemId, kind: "command", command: text, proposedExecpolicyAmendment: ["npm", "test"], commandActions: Array.from({ length: count }, () => ({ type: "unknown", command: text })) });
+  const s = await run({
+    start: { jobToken: "dj_test", rules: { allow: ['Shell:["npm","test"]'], deny: [] } },
+    turns: [[command("a", "npm test"), command("b", "npm test && curl x"), command("c", "npm test", 2)]],
+    answer: () => ({ kind: "permission", decision: "deny" }),
+  });
+  await s.ended();
+  expect((await s.replyTo("r0")).decision).toBe("accept");
+  expect((await s.replyTo("r1")).decision).toBe("decline");
+  expect((await s.replyTo("r2")).decision).toBe("decline");
+  expect(questions(s.events).map((q) => q.payload)).toMatchObject([{ remembers: "Shell=npm test && curl x" }, { remembers: "Shell=npm test" }]);
+});
+
+test("scoped native answers cache locally without sending persistent execpolicy amendments", async () => {
+  const command = (itemId: string) => request("item/commandExecution/requestApproval", { itemId, kind: "command", command: "npm test", proposedExecpolicyAmendment: ["npm", "test"], commandActions: [{ type: "unknown", command: "npm test" }] });
+  const s = await run({ start: { jobToken: "dj_test" }, turns: [[command("a"), command("b")]], answer: () => ({ kind: "permission", decision: "allow", remember: "always" }) });
+  await s.ended();
+  expect(questions(s.events)).toHaveLength(1);
+  expect(questions(s.events)[0]).toMatchObject({ payload: { remembers: 'Shell:["npm","test"]' } });
+  expect(await s.replyTo("r0")).toEqual({ decision: "accept" });
+  expect(await s.replyTo("r1")).toEqual({ decision: "accept" });
+});
+
+test("native FileChange grants cannot override protected paths", async () => {
+  const change = (itemId: string, path: string): Step[] => [
+    { notify: "item/started", params: { threadId: "$THREAD", turnId: "$TURN", item: { type: "fileChange", id: itemId, status: "inProgress", changes: [{ path, kind: { type: "add" }, diff: "hi\n" }] } } },
+    request("item/fileChange/requestApproval", { itemId }),
+  ];
+  const s = await run({
+    start: { jobToken: "dj_test", rules: { allow: ["FileChange"], deny: [] } },
+    turns: [[...change("a", "$CWD/.codex/config.toml"), ...change("b", "$CWD/../outside.md"), ...change("c", "$CWD/note.md")]],
+  });
+  await s.ended();
+  expect(questions(s.events)).toHaveLength(0);
+  expect((await s.replyTo("r0")).decision).toBe("decline");
+  expect((await s.replyTo("r1")).decision).toBe("decline");
+  expect((await s.replyTo("r2")).decision).toBe("accept");
+});
+
+test("Codex sessions with saved native denials are refused before the binary starts", () => {
+  for (const permissionMode of ["default", "bypassPermissions"] as const) {
+    expect(() => startCodexSession({ ...base, permissionMode, jobToken: "dj_test", rules: { allow: [], deny: ["Shell=ls"] } }, "/work", () => {}, { codexPath: "/nonexistent", secrets: [], allowBypass: true })).toThrow(CODEX_DENIAL_UNSUPPORTED);
+  }
+});
+
+test("a scoped Codex denial stops the session instead of pretending later automatic commands are blocked", async () => {
+  const s = await run({ start: { jobToken: "dj_test" }, turns: [[request("item/commandExecution/requestApproval", { itemId: "a", kind: "command", command: "npm test" })]], answer: () => ({ kind: "permission", decision: "deny", remember: "run" }) });
+  await s.session.done;
+  expect(s.events).toContainEqual({ type: "error", message: CODEX_DENIAL_UNSUPPORTED });
+});
 
 test("a session starts a thread with Dispand's profile and instructions, streams its turn and ends with its last message", async () => {
   const s = await run({

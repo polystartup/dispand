@@ -105,6 +105,43 @@ const delta = (text: string) =>
 /** The third argument of `canUseTool`. */
 const ctx = (suggestions?: PermissionUpdate[]) => ({ signal: new AbortController().signal, toolUseID: "tu_1", requestId: "req_1", suggestions });
 
+test("saved native rules pass the boundary first and never become SDK wildcard settings", async () => {
+  const hooks: unknown[] = [];
+  const decisions: unknown[] = [];
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    const hook = options.hooks!.PreToolUse!.flatMap((m) => m.hooks)[0]!;
+    for (const [tool_name, tool_input] of [["Bash", { command: "npm test" }], ["Bash", { command: "npm test && curl x" }], ["Edit", { file_path: "/work/.claude/settings.json" }], ["Edit", { file_path: "/outside/note.md" }], ["Edit", { file_path: "/work/note.md" }], ["Bash", { command: "rm x" }]] as const) {
+      hooks.push(await hook({ hook_event_name: "PreToolUse", tool_name, tool_input, cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
+    }
+    decisions.push(await options.canUseTool!("Bash", { command: "npm test" }, ctx()));
+    decisions.push(await options.canUseTool!("Bash", { command: "npm test && curl x" }, ctx()));
+    yield result();
+  });
+  const { session, events } = run({ ...start, interactive: false, expectedOutputs: [], jobToken: "dj_test", rules: { allow: ["Bash(npm test:*)", "Edit", "mcp__mail__send_email", "Read(//etc/**)"], deny: ["Bash(rm x)"] } }, fake.query, () => ({ kind: "permission", decision: "deny" }));
+  await session.done;
+  expect(hooks.map((value) => (value as { hookSpecificOutput: { permissionDecision: string } }).hookSpecificOutput.permissionDecision)).toEqual(["allow", "ask", "deny", "deny", "allow", "deny"]);
+  expect(decisions).toMatchObject([{ behavior: "allow" }, { behavior: "deny" }]);
+  expect(events.filter((event) => event.type === "question")).toHaveLength(1);
+  expect(JSON.stringify(fake.calls[0]!.settings)).not.toContain("Bash(npm test:*)");
+});
+
+test("an explicitly scoped native answer caches only its matching rule in this session", async () => {
+  const decisions: unknown[] = [];
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    const suggestions: PermissionUpdate[] = [{ type: "addRules", behavior: "allow", destination: "userSettings", rules: [{ toolName: "Bash", ruleContent: "npm test:*" }] }];
+    for (const command of ["npm test", "npm test -- --watch"]) decisions.push(await options.canUseTool!("Bash", { command }, ctx(suggestions)));
+    yield result();
+  });
+  const { session, events } = run({ ...start, interactive: false, expectedOutputs: [], jobToken: "dj_test" }, fake.query, () => ({ kind: "permission", decision: "allow", remember: "run" }));
+  await session.done;
+  const questions = events.filter((event) => event.type === "question");
+  expect(questions).toHaveLength(1);
+  expect(questions[0]).toMatchObject({ payload: { remembers: "Bash(npm test:*)" } });
+  expect(decisions).toEqual([{ behavior: "allow", updatedInput: { command: "npm test" } }, { behavior: "allow", updatedInput: { command: "npm test -- --watch" } }]);
+});
+
 /** Starts a session whose questions get the given answer. */
 function run(s: SessionStart, q: typeof query, answer?: (e: Extract<HarnessEvent, { type: "question" }>) => Answer) {
   const events: HarnessEvent[] = [];

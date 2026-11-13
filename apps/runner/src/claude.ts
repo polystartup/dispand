@@ -19,6 +19,7 @@ import { codexDenied, permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIA
 import { askChoices, MAX_WAITING, MAX_WAITING_BYTES, BypassRefused, type ChoiceQuestion, consult, CONSULT, consultDescription, type HarnessSession, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome, TURN_DENIED } from "./outcome.ts";
 import { fitsWhole } from "./sanitize.ts";
 import { PLANS_DIR } from "./workdir.ts";
+import { nativePermissions, nativeRuleForCall } from "./native-permissions.ts";
 
 export { BypassRefused };
 export type ClaudeSession = HarnessSession;
@@ -224,6 +225,8 @@ export function startClaudeSession(
    */
   const { names: unasked, servers: agentServers } = unaskedTools(start.mcpServers, deps.jobServer === undefined ? undefined : (deps.unasked ?? []), "claude-code");
   const denied = deniedTools(start.mcpServers, "claude-code");
+  const native = nativePermissions("claude-code", start.jobToken ? start.rules : undefined);
+  const nativeCall = (tool: string, input: Record<string, unknown>) => ({ cli: "claude-code" as const, tool, ...(typeof input.command === "string" ? { command: input.command } : {}), ...(typeof input.url === "string" ? { url: input.url } : {}) });
   let permissionsVersion = 0;
   const runnerTool = (name: string) => agentServers.some((server) => server !== "job_tools" && name.startsWith(`mcp__${server}__`));
   const mcpDenied = codexDenied([...(deps.secrets ?? []), join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...pluginRoots]);
@@ -327,6 +330,10 @@ export function startClaudeSession(
       });
       return { behavior: "allow", updatedInput: { ...toolInput, answers } };
     }
+    const call = nativeCall(toolName, toolInput);
+    const nativeDecision = native.decision(call);
+    if (nativeDecision === "deny") return { behavior: "deny", message: "This native CLI rule is denied for this session." };
+    if (nativeDecision === "allow" && edit !== "ask" && read !== "ask") return { behavior: "allow", updatedInput: toolInput };
     // Bypass skips ordinary approvals, never questions needed to resolve the file boundary.
     if (start.permissionMode === "bypassPermissions" && !isAgentTool(toolName) && edit !== "ask" && read !== "ask") return { behavior: "allow", updatedInput: toolInput };
     // An MCP call is approved one at a time: no rule may let the next ones through.
@@ -338,11 +345,15 @@ export function startClaudeSession(
     const canAlwaysAllow = updates.length > 0 || (jobTool && deps.jobServer !== undefined);
     const version = permissionsVersion;
     const payload: QuestionPayload = { kind: "permission", toolName, input: toolInput, canAlwaysAllow };
+    const suggestionsForCall = updates.flatMap((update) => update.type === "addRules" && update.behavior === "allow" ? update.rules.map((rule) => rule.ruleContent === undefined ? rule.toolName : `${rule.toolName}(${rule.ruleContent})`) : []);
+    const remembers = start.jobToken && edit !== "ask" && read !== "ask" ? nativeRuleForCall(call, suggestionsForCall) : null;
+    if (remembers) payload.remembers = remembers;
     // The owner approves exactly what they see: an input that can't be shown whole isn't asked about.
     if (!fitsWhole({ type: "question", questionId: "", payload })) {
       return { behavior: "deny", message: "The tool input is too large to show for approval (or holds characters that can't be shown): split it up." };
     }
     const answer = await ask(payload, signal);
+    if (remembers) native.remember(remembers, call, answer);
     if (denied.blocks(toolName)) return { behavior: "deny", message: "This tool action is disabled for this session." };
     if (answer?.kind === "permission" && answer.remember && jobTool) {
       if (answer.decision === "deny") denied.names.add(toolName);
@@ -419,6 +430,8 @@ export function startClaudeSession(
                 }
                 // Inside the allowlist (a skill's own files under plugins/ included): read without a prompt.
                 if (read === "allow") return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } };
+                const nativeDecision = native.decision(nativeCall(call.tool_name, toolInput));
+                if (nativeDecision) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: nativeDecision, ...(nativeDecision === "deny" ? { permissionDecisionReason: "This native CLI rule is denied for this session." } : {}) } };
                 // The CLI auto-approves some commands (cp, mv, sed in acceptEdits): every one goes to the owner instead.
                 if (SHELL_TOOLS.has(call.tool_name) && start.permissionMode !== "bypassPermissions") {
                   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: SHELL_ASK } };

@@ -32,6 +32,14 @@ const start: SessionStart = {
 
 const codexStart: SessionStart = { ...start, harness: "codex", permissionMode: "bypassPermissions", skills: [], mcpServers: [] };
 
+test("native rule snapshots are bounded and require a Job token", () => {
+  const rules = { allow: ["Bash(npm test:*)"], deny: ["Edit"] };
+  const message = (extra: object) => JSON.stringify({ type: "session.start", start: { ...start, ...extra } });
+  expect(() => parseServerMessage(message({ rules }))).toThrow(ProtocolError);
+  expect(parseServerMessage(message({ jobToken: "dj_abc", rules }))).toMatchObject({ start: { rules } });
+  for (const bad of [{ allow: ["x".repeat(1001)], deny: [] }, { allow: Array(201).fill("Bash"), deny: [] }, { allow: [], deny: Array(201).fill("Edit") }, { allow: ["Bash\u0000"], deny: [] }]) expect(() => parseServerMessage(message({ jobToken: "dj_abc", rules: bad }))).toThrow(ProtocolError);
+});
+
 const serverMessages: ServerToRunner[] = [
   { type: "plugin.request", requestId: "req_native", operation: { action: "list" } },
   { type: "plugin.request", requestId: "req_preview", operation: { action: "remove", name: "demo", targets: ["codex"], dryRun: true } },
