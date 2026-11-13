@@ -745,3 +745,8 @@ allowed and the server offers no scoped answer for an ambiguous alias. Explicit 
 win. A scoped answer can add only its question's MCP action to the current session's cache;
 live permission updates remain intersection-only, and a revocation during an outstanding
 question prevents a late positive answer from repopulating that cache.
+
+The shared native CLI rule matcher is currently unused by sessions. It parses only Dispand's
+bounded rule subset; prefix matching rejects shell syntax, and exact commands match the entire
+string. A match never overrides runner roots or denied settings files. Parsed rules must not be
+passed to a native CLI's wildcard permission parser or written into its settings.
