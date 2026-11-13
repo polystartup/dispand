@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { createHash } from "node:crypto";
-import type { Db } from "../db/client.ts";
+import type { Db, Tx } from "../db/client.ts";
 import { agents, agentTools, tools } from "../db/schema.ts";
 
 /** Server-owned binding of a reviewed grant; discovery, renames and credential headers do not retarget a tool. */
@@ -14,7 +14,7 @@ export type Permission = z.infer<typeof Permission>;
 type Change = { agentId: string; toolId: string; action: string; permission: Permission };
 
 /** Owner changes may enable an action; remembering a pending approval must not re-enable it. */
-async function writePermission(db: Db, ownerId: string, to: Change, remembering: boolean): Promise<boolean> {
+async function writePermission(db: Db | Tx, ownerId: string, to: Change, remembering: boolean): Promise<boolean> {
   return db.transaction(async (tx) => {
     const [row] = await tx
       .select({ actions: tools.actions, unasked: agentTools.unasked, denied: agentTools.denied, disabled: tools.disabled })
@@ -34,11 +34,11 @@ async function writePermission(db: Db, ownerId: string, to: Change, remembering:
   });
 }
 
-export function setPermission(db: Db, ownerId: string, to: Change): Promise<boolean> {
+export function setPermission(db: Db | Tx, ownerId: string, to: Change): Promise<boolean> {
   return writePermission(db, ownerId, to, false);
 }
 
 /** The late Always answer is checked under the same row lock as the owner's Off change. */
-export function rememberAllowedAction(db: Db, ownerId: string, to: Omit<Change, "permission">): Promise<boolean> {
+export function rememberAllowedAction(db: Db | Tx, ownerId: string, to: Omit<Change, "permission">): Promise<boolean> {
   return writePermission(db, ownerId, { ...to, permission: "run" }, true);
 }

@@ -301,6 +301,15 @@ changes it updates this file.
   Disabled names survive temporary discovery omissions. Catalog entries may supply initial
   disabled names. Availability changes invalidate previously frozen setup grants through the
   tool's permission revision, so an old approval cannot override the new availability.
+- **Remembered tool decisions have a server-owned subject and scope.** The storage helper
+  `agents/remember.ts` accepts a pending question id and the owner's decision, never a subject
+  supplied by a client. It requires the question's explicit server offer, an owner answer, a
+  live run, current action access, and an unchanged tool target/permission revision. It refuses
+  proposal, checkpoint, consult and general approval questions. Run decisions are isolated in
+  `runs.remembered`; future-run choices update the Job agent's existing action permission.
+  Workflow questions cannot persist a future-run choice. Writes can share the answer's
+  transaction. This storage foundation has no question-answer or UI caller yet; current
+  approval behavior is unchanged until that integration is enabled.
 - **Which actions of a tool run without asking is the owner's choice, per agent, and only a
   person changes it.** Each agent keeps, for each tool it chose, the actions that run unasked
   (`agent_tools.unasked`) and those that are off (`agent_tools.denied`). An Off action is

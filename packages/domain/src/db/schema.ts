@@ -1,3 +1,4 @@
+import type { RememberedPermissions, RememberOffer } from "../agents/remember.ts";
 import type { Answer, HarnessEvent, QuestionPayload } from "@dispand/runner-protocol";
 import type { ChatItem } from "../cloud/model-client.ts";
 import { sql } from "drizzle-orm";
@@ -303,6 +304,7 @@ export const runs = pgTable(
     triggerId: text("trigger_id").references((): AnyPgColumn => triggers.id, { onDelete: "set null" }),
     def: jsonb("def").$type<WorkflowDef>(),
     snapshot: jsonb("snapshot").$type<AgentSnapshot>(),
+    remembered: jsonb("remembered").$type<RememberedPermissions>().notNull().default({ allow: [], deny: [] }),
     cause: jsonb("cause").$type<JobCause>(),
     // A Job's root cause (`roots`); a chat's moves to each message of the owner. Null for a workflow run.
     rootId: text("root_id").references(() => roots.id),
@@ -618,6 +620,8 @@ export const questions = pgTable(
     // An approval authorizes an action (a permission); a question asks for words or a choice.
     kind: text("kind").$type<QuestionKind>().notNull().default("question"),
     payload: jsonb("payload").$type<QuestionPayload>().notNull(),
+    // Only the server offers what an owner may remember for a tool approval.
+    remember: jsonb("remember").$type<RememberOffer>(),
     status: text("status").$type<QuestionStatus>().notNull(),
     answer: jsonb("answer").$type<Answer>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
