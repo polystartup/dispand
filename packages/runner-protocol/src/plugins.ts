@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isSafeRelativePath } from "./paths.ts";
 import { id, short, string } from "./bounds.ts";
 
 export const PluginHarness = z.enum(["claude-code", "codex"]);
@@ -13,9 +14,9 @@ export const PluginSource = string(2048).url().refine((s) => {
   }
 });
 /** Stable source identity; a logical/display name alone never proves a matching install. */
-export function nativeSourceKey(source: string, sourceRef: string, plugin: string): string | undefined {
-  if (!PluginSource.safeParse(source).success) return undefined;
-  return JSON.stringify([source.replace(/\/$/, "").replace(/\.git$/, ""), sourceRef, plugin]);
+export function nativeSourceKey(source: string, sourceRef: string, plugin: string, sourcePath = "."): string | undefined {
+  if ((sourcePath !== "." && !isSafeRelativePath(sourcePath)) || !PluginSource.safeParse(source).success) return undefined;
+  return JSON.stringify([source.replace(/\/$/, "").replace(/\.git$/, ""), sourceRef, plugin, ...(sourcePath === "." ? [] : [sourcePath])]);
 }
 export const WorkspacePluginFiles = z.array(z.object({ path: string(255), base64: string(2_796_204).base64() })).min(1).max(500)
   .refine((files) => files.reduce((sum, file) => sum + file.base64.length * 3 / 4 - (file.base64.endsWith("==") ? 2 : file.base64.endsWith("=") ? 1 : 0), 0) <= 8_388_608, "workspace package exceeds 8 MiB");
@@ -28,11 +29,12 @@ const mutation = { name: PluginName, targets, dryRun: z.boolean(), revision: id(
 export const PluginOperation = z.discriminatedUnion("action", [
   z.object({ action: z.literal("list") }),
   z.object({ action: z.literal("discover"), source: PluginSource, sourceRef: id().min(1).optional() }),
-  z.object({ action: z.literal("add"), ...mutation, source: PluginSource, sourceRef: id().min(1).optional(), plugin: PluginName }),
+  z.object({ action: z.literal("add"), ...mutation, source: PluginSource, sourceRef: id().min(1).optional(), plugin: PluginName, sourcePath: string(255).refine((p) => p === "." || isSafeRelativePath(p)).optional() }),
   // Paths are package-relative files, never a server-selected local source directory.
   z.object({ action: z.literal("add-workspace"), ...mutation, files: WorkspacePluginFiles }),
   z.object({ action: z.literal("remove"), ...mutation }),
-]).refine((v) => !("dryRun" in v) || v.dryRun || v.revision !== undefined, "apply requires a preview revision");
+]).refine((v) => v.action !== "add" || v.sourcePath === undefined || /^[a-f0-9]{40}$/.test(v.sourceRef ?? ""), "folder selection requires an immutable commit")
+  .refine((v) => !("dryRun" in v) || v.dryRun || v.revision !== undefined, "apply requires a preview revision");
 export type PluginOperation = z.infer<typeof PluginOperation>;
 
 export const PluginReport = z.object({

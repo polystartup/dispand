@@ -602,6 +602,10 @@ changes it updates this file.
   config paths. The runner installation directory, including bundled executables, is excluded
   from session roots. Complete plugin sources are credential-free HTTPS Git URLs, pinned to the
   workspace source commit and entry identity; no server-selected local paths or other transports.
+  Protocol 24 carries the imported repository-relative folder for subdirectory plugins. The
+  runner verifies Skillshare selects that folder for every requested harness before preview
+  or apply. Source matching includes subdirectories and uses Skillshare discovery of the
+  binding's immutable commit; failed discovery cannot suppress workspace skill fallback.
   Standalone workspace packages use `add-workspace`: bounded package-relative files, staged
   atomically under the runner state directory at
   `native-skills/<native-name>/<digest>/<native-name>/`. The session writer checks paths and

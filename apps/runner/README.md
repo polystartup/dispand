@@ -211,7 +211,7 @@ starts.
 `apps/web/public/runner/` (gitignored), which the web app serves. From the source:
 `node apps/runner/src/main.ts run`.
 
-### Native plugins and workspace skills (protocol 16)
+### Native plugins and workspace skills (protocol 24)
 
 The runner package includes [Skillshare](https://github.com/runkids/skillshare) v0.30.6
 for Linux x86-64 and ARM64. No separate installation, initialization or updates are
@@ -300,6 +300,15 @@ selection conflicts are reported by the native preview; they keep workspace skil
 available. Existing Skillshare-managed bindings also match by their verified pinned
 source, irrespective of logical name. Unmanaged native installations with no
 verifiable source identity are not guessed or adopted.
+
+Native workspace imports may live at the repository root or in a marketplace subdirectory.
+For subdirectories, the runner checks Skillshare's selection at the imported commit for each
+requested harness before preview and apply. A Git subdirectory that is not selectable by the
+same plugin name in that repository's marketplace is refused. Update older workspace imports
+with no recorded folder before installing them natively. Source matching includes the selected
+folder; discovery failures keep workspace skill fallback enabled. Immutable source discoveries
+are cached in memory (up to 200 sources) to avoid repeated Git fetches during inventory polling.
+Protocol 24 requires updating runners along with the server.
 
 ## Updating from Settings
 
