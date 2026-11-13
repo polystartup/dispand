@@ -672,8 +672,8 @@
   for that tool needs no approval, there and in a cloud session (`ask: false` on its spec):
   the list is filled from the actions' `readOnly` (the server's `readOnlyHint`, kept at
   listing), or for a catalog tool from its entry's `unasked` alone (`defaultUnasked`), when `agents.create` or `agents.update` adds the tool, kept as it is for a tool
-  the agent already had, and changed by `agents.setToolAsk` only (`agents.toolAsk` reads it;
-  neither is a platform tool). A Job's session start names those actions (`unasked`, their
+  the agent already had, and changed by `agents.setToolPermission` only (`agents.toolAsk` reads it;
+  changing permissions is a proposal-only platform grant). A Job's session start names those actions (`unasked`, their
   exposed names, at most 500; protocol 7), and the runner lets `mcp__job_tools__<name>` run
   without a question for them (`isJobTool` on Claude Code, the elicitation on Codex): the CLI
   prompts for the others, and for all of them on a start that names none. "Always allow" on such a
@@ -761,7 +761,7 @@
   Plugin setup uses the same preparation and execution, with a preview digest checked before
   writing. Old pending agent grants lacking a permissions snapshot must be proposed again.
   A tool of the
-  registry marked `grant` (`agents.create`, `agents.update`, `agents.setToolAsk`,
+  registry marked `grant` (`agents.create`, `agents.update`, `agents.setToolPermission`,
   `tables.delete`, `fields.delete`, `triggers.create`, `triggers.update`, `triggers.delete`, `tools.add` (an address and no
   headers; `tools.create` stays the owner's) and `tools.delete`;
   a tool's name is its path in lower case with `_`) is refused by `callPlatformTool`
@@ -1311,4 +1311,13 @@ harnesses check the same state before automatic approvals and again after a pend
 initial denials also configure native tool filters. Updates received during asynchronous startup
 narrow its refs before native MCP configuration is rebuilt. Later messages cannot re-enable an
 action or server in that session; a new session uses the current configuration. This protocol
-support prepares the per-agent Off control; the existing agent UI still offers Run / Ask.
+support enforces the agent page's Run / Ask / Off controls. `agent_tools.denied` is retained
+alongside `unasked`; HTTP tooling filters denied actions before listing or calling them. The
+owner's `agents.setToolPermission` chooses the mode and fans narrowing out to sessions;
+remembering an approval checks under the same row lock that the action is still enabled.
+Agent setup proposals replay earlier permission items when freezing their unasked lists, and
+an agent update cannot use a frozen grant to restore an action that is currently Off.
+
+The permission write is `agents_set_tool_permission` with `permission: run | ask | off`, replacing
+the earlier `agents_set_tool_ask` boolean input. Pending proposals using the earlier tool name
+must be proposed again; their grants are not translated implicitly.

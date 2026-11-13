@@ -15,7 +15,7 @@ import { assistantGuard, ensureAssistant, findAssistant } from "./builtin.ts";
 import { consultsOf, pairProblem, setConsults, type ConsultEntry } from "./consults.ts";
 import { lockConsults } from "../engine/consults.ts";
 import { skillsAndTools } from "./skills-and-tools.ts";
-import { setAsk, toolPermissionTarget } from "./tool-ask.ts";
+import { Permission, setPermission, toolPermissionTarget } from "./tool-ask.ts";
 import { effectiveTools } from "./tools.ts";
 
 const owner = base.use(authed);
@@ -158,17 +158,18 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
     if (tool.runnerId !== harnessRunnerId) throw new ORPCError("BAD_REQUEST", { message: `The tool “${tool.name}” runs on another runner than the agent's harness` });
   }
   await tx.delete(agentSkills).where(eq(agentSkills.agentId, agentId));
-  // A tool the agent keeps keeps its unasked actions; one added now starts with its catalog
+  // Retained tools keep both permissions lists; one added now starts with its catalog
   // entry's, or the actions its server calls read-only. Only here are those read: later, they change nothing by themselves.
-  const kept = new Map((await tx.delete(agentTools).where(eq(agentTools.agentId, agentId)).returning()).map((t) => [t.toolId, t.unasked]));
+  const kept = new Map((await tx.delete(agentTools).where(eq(agentTools.agentId, agentId)).returning()).map((t) => [t.toolId, t]));
   if (packageIds.length) await tx.insert(agentSkills).values(packageIds.map((packageId) => ({ agentId, packageId })));
   if (toolIds.length) {
     await tx.insert(agentTools).values(
-      toolIds.map((toolId) => ({
-        agentId,
-        toolId,
-        unasked: permissions.find((p) => p.toolId === toolId)?.unasked ?? kept.get(toolId) ?? defaultUnasked(found.find((t) => t.id === toolId)!),
-      })),
+      toolIds.map((toolId) => {
+        const denied = kept.get(toolId)?.denied ?? [];
+        const unasked = permissions.find((p) => p.toolId === toolId)?.unasked ?? kept.get(toolId)?.unasked ?? defaultUnasked(found.find((t) => t.id === toolId)!);
+        if (unasked.some((action) => denied.includes(action))) throw new ORPCError("CONFLICT", { message: "An action is disabled: change its permission explicitly before granting it" });
+        return { agentId, toolId, unasked, denied };
+      }),
     );
   }
 }
@@ -262,30 +263,30 @@ const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, co
 
 /**
  * The actions of each tool the agent chose (reached by URL or on a runner), with whether each
- * asks the owner before use. A tool that only comes with a skill isn't here (all its actions ask).
+ * is Run, Ask or Off. A tool that only comes with a skill isn't here (all its actions ask).
  */
 const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const agent = await find(context.db, context.ownerId, input.id);
   const rows = await context.db
-    .select({ toolId: toolsTable.id, name: toolsTable.name, actions: toolsTable.actions, unasked: agentTools.unasked })
+    .select({ toolId: toolsTable.id, name: toolsTable.name, actions: toolsTable.actions, unasked: agentTools.unasked, denied: agentTools.denied })
     .from(agentTools)
     .innerJoin(toolsTable, eq(toolsTable.id, agentTools.toolId))
     .where(and(eq(agentTools.agentId, agent.id), eq(toolsTable.ownerId, context.ownerId), inArray(toolsTable.kind, ["http", "runner"])))
     .orderBy(asc(toolsTable.name));
-  return rows.map(({ toolId, name, actions, unasked }) => ({
+  return rows.map(({ toolId, name, actions, unasked, denied }) => ({
     toolId,
     name,
-    actions: actions.map((a) => ({ name: a.name, description: a.description, readOnly: a.readOnly === true, ask: !unasked.includes(a.name) })),
+    actions: actions.map((a) => ({ name: a.name, description: a.description, readOnly: a.readOnly === true, permission: (denied.includes(a.name) ? "off" : unasked.includes(a.name) ? "run" : "ask") as Permission })),
   }));
 });
 
 /**
- * Makes one action of an agent's tool ask before use, or run without asking. Taking the question
- * away is a grant: a person does it, here. No Job reaches this procedure (it is not a platform tool).
+ * Sets one action to Run, Ask or Off. A Job reaches this write only through an approved proposal;
+ * the owner changes it directly on the agent page.
  */
-const setToolAsk = owner.input(z.object({ agentId: z.string(), toolId: z.string(), action: z.string(), ask: z.boolean() })).handler(async ({ input, context }) => {
-  if (!(await setAsk(context.db, context.ownerId, input))) throw new ORPCError("NOT_FOUND");
-  if (input.ask) await context.engine.narrowSessions(input.agentId, context.db);
+const setToolPermission = owner.input(z.object({ agentId: z.string(), toolId: z.string(), action: z.string(), permission: Permission })).handler(async ({ input, context }) => {
+  if (!(await setPermission(context.db, context.ownerId, input))) throw new ORPCError("NOT_FOUND");
+  if (input.permission !== "run") await context.engine.narrowSessions(input.agentId, context.db);
   return { ok: true as const };
 });
 
@@ -298,4 +299,4 @@ const ensure = owner.input(z.object({ harnessId: z.string() })).handler(async ({
   return ensureAssistant(context.db, context.ownerId, input.harnessId);
 });
 
-export const agents = { create, update, delete: remove, list, get, toolAsk, setToolAsk, assistant, ensureAssistant: ensure };
+export const agents = { create, update, delete: remove, list, get, toolAsk, setToolPermission, assistant, ensureAssistant: ensure };

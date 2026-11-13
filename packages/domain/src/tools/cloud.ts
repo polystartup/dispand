@@ -1,4 +1,4 @@
-import { setAsk } from "../agents/tool-ask.ts";
+import { rememberAllowedAction } from "../agents/tool-ask.ts";
 import { recordToolCall } from "../audit/tool-call.ts";
 import type { ToolCaller } from "../cloud/runner.ts";
 import { keepJobFiles } from "../data/files.ts";
@@ -62,7 +62,7 @@ export function installedToolCaller(db: Db, installed: InstalledTools, filesDir?
       const { httpTools, agentId } = await sessionTooling(db, sessionId);
       const { toolId, action } = ofKey(key);
       const tool = httpTools.find((t) => t.id === toolId);
-      if (tool?.chosen && agentId) await setAsk(db, tool.ownerId, { agentId, toolId, action, ask: false });
+      if (tool?.chosen && agentId) await rememberAllowedAction(db, tool.ownerId, { agentId, toolId, action });
     },
   };
 }

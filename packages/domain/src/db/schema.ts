@@ -1146,10 +1146,11 @@ export const agentTools = pgTable(
     toolId: text("tool_id")
       .notNull()
       .references(() => tools.id),
-    // The tool's actions that run without asking the owner, for this agent; every other one
-    // asks before use. Filled from the actions' read-only hints when a person adds the tool,
+    // The tool's actions that run without asking the owner, for this agent; other enabled
+    // actions ask before use. Filled from the actions' read-only hints when a person adds the tool,
     // then changed by a person only: taking an action off the asking ones is a grant.
     unasked: jsonb("unasked").$type<string[]>().notNull().default([]),
+    denied: jsonb("denied").$type<string[]>().notNull().default([]),
   },
   (t) => [primaryKey({ columns: [t.agentId, t.toolId] }), index("agent_tools_tool_idx").on(t.toolId)],
 );

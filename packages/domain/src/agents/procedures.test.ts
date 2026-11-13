@@ -272,14 +272,14 @@ test("the owner takes an action off the asking ones and puts it back; nothing el
   const agent = await call(router.agents.create, { name: "Reviewer", harnessId: harness.id, systemPrompt: "", skillPackageIds: [review], toolIds: ["tool_gh"] }, { context });
   const asks = async () => (await call(router.agents.toolAsk, { id: agent.id }, { context })).find((t) => t.toolId === "tool_gh")!.actions;
   expect(await asks()).toEqual([
-    { name: "search", description: "Does search", readOnly: true, ask: false },
-    { name: "send", description: "Does send", readOnly: false, ask: true },
+    { name: "search", description: "Does search", readOnly: true, permission: "run" },
+    { name: "send", description: "Does send", readOnly: false, permission: "ask" },
   ]);
 
-  await call(router.agents.setToolAsk, { agentId: agent.id, toolId: "tool_gh", action: "send", ask: false }, { context });
-  expect((await asks()).map((a) => a.ask)).toEqual([false, false]);
-  await call(router.agents.setToolAsk, { agentId: agent.id, toolId: "tool_gh", action: "search", ask: true }, { context });
-  expect((await asks()).map((a) => a.ask)).toEqual([true, false]);
+  await call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_gh", action: "send", permission: "run" }, { context });
+  expect((await asks()).map((a) => a.permission)).toEqual(["run", "run"]);
+  await call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_gh", action: "search", permission: "ask" }, { context });
+  expect((await asks()).map((a) => a.permission)).toEqual(["ask", "run"]);
 
   // An action the tool doesn't list, a tool that only comes with a skill, a tool the agent doesn't have, another owner's agent.
   for (const input of [
@@ -287,24 +287,24 @@ test("the owner takes an action off the asking ones and puts it back; nothing el
     { agentId: agent.id, toolId: "tool_fc", action: "search" },
     { agentId: agent.id, toolId: "tool_missing", action: "search" },
   ]) {
-    await expect(call(router.agents.setToolAsk, { ...input, ask: false }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(call(router.agents.setToolPermission, { ...input, permission: "run" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   }
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(agentsTable).values({ id: "agent_eve", ownerId: "user_other", name: "Eve's", harnessId: harness.id, systemPrompt: "" });
   await context.db.insert(agentTools).values({ agentId: "agent_eve", toolId: "tool_gh" });
-  await expect(call(router.agents.setToolAsk, { agentId: "agent_eve", toolId: "tool_gh", action: "search", ask: false }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.agents.setToolPermission, { agentId: "agent_eve", toolId: "tool_gh", action: "search", permission: "run" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.agents.toolAsk, { id: "agent_eve" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
   // An action the tool no longer lists grants nothing, and leaves the list at the next change.
   await context.db.update(tools).set({ actions: [action("search", true)] }).where(eq(tools.id, "tool_gh"));
-  expect(await asks()).toEqual([{ name: "search", description: "Does search", readOnly: true, ask: true }]);
-  await call(router.agents.setToolAsk, { agentId: agent.id, toolId: "tool_gh", action: "search", ask: false }, { context });
+  expect(await asks()).toEqual([{ name: "search", description: "Does search", readOnly: true, permission: "ask" }]);
+  await call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_gh", action: "search", permission: "run" }, { context });
   const [row] = await context.db.select({ unasked: agentTools.unasked }).from(agentTools).where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, "tool_gh")));
   expect(row!.unasked).toEqual(["search"]);
 });
 
 test("a Job changes the asking flags only on a proposal a person approved: the write is marked as a grant", () => {
-  expect(PLATFORM_TOOLS.find((t) => t.path === "agents.setToolAsk")).toMatchObject({ bundle: "configure", grant: true });
+  expect(PLATFORM_TOOLS.find((t) => t.path === "agents.setToolPermission")).toMatchObject({ bundle: "configure", grant: true });
   expect(PLATFORM_TOOLS.find((t) => t.path === "agents.toolAsk")?.grant).toBeUndefined();
 });
 
@@ -329,5 +329,56 @@ test("runner catalog defaults survive late discovery and the approved backfill p
   expect(rows.find((t) => t.toolId === "mail_http")!.unasked).toEqual([]);
   await context.db.update(tools).set({ actions: ["draft_email", "send_email"].map((name) => ({ name, description: "", inputSchema: { type: "object" } })) }).where(eq(tools.id, "mail_empty"));
   const listed = await call(router.agents.toolAsk, { id: agent.id }, { context });
-  expect(listed.find((t) => t.toolId === "mail_empty")!.actions.map((a) => a.ask)).toEqual([false, true]);
+  expect(listed.find((t) => t.toolId === "mail_empty")!.actions.map((a) => a.permission)).toEqual(["run", "ask"]);
+});
+
+
+test("an action can be off, ask, or run; re-enabling an off read-only action asks", async () => {
+  const { context, harness } = await setup();
+  await withTools(context);
+  await context.db.update(tools).set({ actions: [{ name: "read", description: "Read", inputSchema: {}, readOnly: true }] }).where(eq(tools.id, "tool_gh"));
+  const agent = await call(router.agents.create, { name: "Reader", harnessId: harness.id, systemPrompt: "", toolIds: ["tool_gh"] }, { context });
+  const change = (permission: "run" | "ask" | "off") => call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_gh", action: "read", permission }, { context });
+  const read = async () => (await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions[0]!.permission;
+  expect(await read()).toBe("run");
+  await change("off");
+  expect(await read()).toBe("off");
+  const { rememberAllowedAction } = await import("./tool-ask.ts");
+  expect(await rememberAllowedAction(context.db, context.ownerId, { agentId: agent.id, toolId: "tool_gh", action: "read" })).toBe(false);
+  expect(await read()).toBe("off");
+  await change("ask");
+  expect(await read()).toBe("ask");
+  await change("run");
+  expect(await read()).toBe("run");
+});
+
+test("unrelated agent updates preserve off actions and cannot restore them through unasked lists", async () => {
+  const { context, harness } = await setup();
+  await withTools(context);
+  await context.db.update(tools).set({ actions: ["read", "send"].map((name) => ({ name, description: name, inputSchema: {} })) }).where(eq(tools.id, "tool_gh"));
+  const fields = { name: "Mail", harnessId: harness.id, systemPrompt: "", toolIds: ["tool_gh"] };
+  const agent = await call(router.agents.create, { ...fields, toolPermissions: [{ toolId: "tool_gh", unasked: ["read"] }] }, { context });
+  await call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_gh", action: "send", permission: "off" }, { context });
+  await call(router.agents.update, { ...fields, id: agent.id, name: "Renamed", systemPrompt: "Updated" }, { context });
+  const saved = async () => (await context.db.select().from(agentTools).where(eq(agentTools.agentId, agent.id)))[0]!;
+  expect(await saved()).toMatchObject({ unasked: ["read"], denied: ["send"] });
+  await expect(call(router.agents.update, { ...fields, id: agent.id, toolPermissions: [{ toolId: "tool_gh", unasked: ["send"] }] }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
+  expect(await saved()).toMatchObject({ unasked: ["read"], denied: ["send"] });
+});
+
+
+test("Off survives a missing discovery action while another permission changes", async () => {
+  const { context, harness } = await setup();
+  await withTools(context);
+  const listed = ["read", "send"].map((name) => ({ name, description: name, inputSchema: {} }));
+  await context.db.update(tools).set({ actions: listed }).where(eq(tools.id, "tool_gh"));
+  const fields = { name: "Mail", harnessId: harness.id, systemPrompt: "", toolIds: ["tool_gh"] };
+  const agent = await call(router.agents.create, fields, { context });
+  const change = (action: string, permission: "run" | "ask" | "off") => call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_gh", action, permission }, { context });
+  await change("send", "off");
+  await context.db.update(tools).set({ actions: listed.slice(0, 1) }).where(eq(tools.id, "tool_gh"));
+  await change("read", "run");
+  await call(router.agents.update, { ...fields, id: agent.id, name: "Renamed" }, { context });
+  await context.db.update(tools).set({ actions: listed }).where(eq(tools.id, "tool_gh"));
+  expect((await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions.find((a) => a.name === "send")!.permission).toBe("off");
 });

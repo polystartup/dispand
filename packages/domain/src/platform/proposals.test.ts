@@ -232,13 +232,13 @@ test("an approval doesn't bring back a right taken since, nor skip the procedure
 test("every tool marked as a grant is refused without a proposal", async () => {
   const s = await setup(["data", "configure"]);
   const grants = PLATFORM_TOOLS.filter((t) => t.grant);
-  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_ask", "agents_update", "fields_delete", "harnesses_set_limit", "tables_delete", "tools_add", "tools_add_from_catalog", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
+  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_permission", "agents_update", "fields_delete", "harnesses_set_limit", "tables_delete", "tools_add", "tools_add_from_catalog", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
   const table = await call(router.tables.create, { name: "Clients" }, { context: s.context });
   const field = (await call(router.tables.get, { id: table.id }, { context: s.context })).fields[0]!;
   const inputs: Record<string, unknown> = {
     agents_create: s.newAgent,
     agents_update: { ...s.base, id: s.agent.id },
-    agents_set_tool_ask: { agentId: s.agent.id, toolId: "tool_x", action: "send", ask: false },
+    agents_set_tool_permission: { agentId: s.agent.id, toolId: "tool_x", action: "send", permission: "run" },
     tables_delete: { id: table.id },
     fields_delete: { id: field.id },
     triggers_create: { agentId: s.agent.id, name: "Daily", instructions: "Work.", config: { kind: "manual", placement: "button" } },
@@ -355,20 +355,20 @@ test("deleting a table or a field, and changing what asks before use, run once o
   const doomed = await call(router.tables.create, { name: "Old" }, { context });
   await context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: context.ownerId, name: "Mail", kind: "http", url: "https://example.com/mcp", transport: "streamable-http", actions: [{ name: "send", description: "", inputSchema: { type: "object" } }] });
   await call(router.agents.update, { ...s.base, id: s.agent.id, toolIds: ["tool_mail"] }, { context });
-  const flag = { agentId: s.agent.id, toolId: "tool_mail", action: "send", ask: false };
+  const flag = { agentId: s.agent.id, toolId: "tool_mail", action: "send", permission: "run" };
   // The asking flags are read without a proposal.
-  expect(await s.tool("agents_tool_ask", { id: s.agent.id })).toMatchObject({ ok: true, output: [{ toolId: "tool_mail", actions: [{ name: "send", ask: true }] }] });
+  expect(await s.tool("agents_tool_ask", { id: s.agent.id })).toMatchObject({ ok: true, output: [{ toolId: "tool_mail", actions: [{ name: "send", permission: "ask" }] }] });
   const results = await approved(s, [
     { tool: "fields_delete", input: { id: extra.id } },
     { tool: "tables_delete", input: { id: doomed.id } },
-    { tool: "agents_set_tool_ask", input: flag },
+    { tool: "agents_set_tool_permission", input: flag },
   ]);
   expect(results.map((r) => r.ok)).toEqual([true, true, true]);
   expect((await call(router.tables.get, { id: table.id }, { context })).fields.map((f) => f.name)).not.toContain("Phone");
   await expect(call(router.tables.get, { id: doomed.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect((await context.db.select().from(agentTools))[0]!.unasked).toEqual(["send"]);
   // Once each.
-  expect(((await s.tool("agents_set_tool_ask", flag)) as { error: string }).error).toMatch(NEEDS);
+  expect(((await s.tool("agents_set_tool_permission", flag)) as { error: string }).error).toMatch(NEEDS);
 });
 
 test("a Job limited to some tables can't propose deleting another table, or a field of one", async () => {
@@ -420,8 +420,8 @@ test("the owner reads a name for the table, the field, the agent and the tool an
     await s.propose([
       { tool: "tables_delete", input: { id: table.id } },
       { tool: "fields_delete", input: { id: field.id } },
-      { tool: "agents_set_tool_ask", input: { agentId: s.agent.id, toolId: "tool_mail", action: "send", ask: false } },
-      { tool: "agents_set_tool_ask", input: { agentId: s.agent.id, toolId: "tool_eve", action: "send", ask: false } },
+      { tool: "agents_set_tool_permission", input: { agentId: s.agent.id, toolId: "tool_mail", action: "send", permission: "run" } },
+      { tool: "agents_set_tool_permission", input: { agentId: s.agent.id, toolId: "tool_eve", action: "send", permission: "run" } },
     ]),
   );
   const q = await s.ask({ message: "May I?", proposal: id });
@@ -877,4 +877,54 @@ test("a generated plugin that can't be recorded never turns a write that was mad
   ]);
   expect(outcomes(await s.tool("proposal_apply", { proposalId: id }))).toEqual(["made", "made"]);
   expect(outcomes(await s.tool("proposal_apply", { proposalId: id }))).toEqual(["made before", "made before"]);
+});
+
+
+test.each(["run", "ask", "off"] as const)("an agent update after a %s permission item snapshots that change", async (permission) => {
+  const s = await setup();
+  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", actions: [{ name: "send", description: "Send", inputSchema: {} }] });
+  const input = { ...s.base, id: s.agent.id, toolIds: ["tool_mail"] };
+  await call(router.agents.update, { ...input, toolPermissions: [{ toolId: "tool_mail", unasked: ["send"] }] }, { context: s.context });
+  const flag = { agentId: s.agent.id, toolId: "tool_mail", action: "send", permission };
+  expect(await s.tool("agents_set_tool_permission", flag)).toMatchObject({ ok: false, error: expect.stringMatching(NEEDS) });
+  const id = s.idOf(await s.propose([{ tool: "agents_set_tool_permission", input: flag }, { tool: "agents_update", input }]));
+  const view = await proposalView(s.context.db, s.context.ownerId, id);
+  expect(view!.items[1]!.tools![0]!.runs).toEqual(permission === "run" ? ["send"] : []);
+  await s.settle(id, "approved");
+  expect(await s.tool("agents_set_tool_permission", flag)).toMatchObject({ ok: true });
+  expect(await s.tool("agents_update", input)).toMatchObject({ ok: true });
+  const [saved] = await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, s.agent.id));
+  expect(saved).toMatchObject({ unasked: permission === "run" ? ["send"] : [], denied: permission === "off" ? ["send"] : [] });
+});
+
+test("a frozen agent update cannot revive an action disabled after its review", async () => {
+  const s = await setup();
+  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", actions: [{ name: "send", description: "Send", inputSchema: {} }] });
+  const input = { ...s.base, id: s.agent.id, toolIds: ["tool_mail"] };
+  await call(router.agents.update, { ...input, toolPermissions: [{ toolId: "tool_mail", unasked: ["send"] }] }, { context: s.context });
+  const id = s.idOf(await s.propose([{ tool: "agents_update", input }]));
+  await s.settle(id, "approved");
+  await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: "tool_mail", action: "send", permission: "off" }, { context: s.context });
+  expect(await s.tool("agents_update", input)).toMatchObject({ ok: false, error: expect.stringContaining("disabled") });
+  expect((await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, s.agent.id)))[0]).toMatchObject({ denied: ["send"], unasked: [] });
+});
+
+test("a permission proposal requires a literal action name", async () => {
+  const s = await setup();
+  expect(await s.propose([{ tool: "tables_create", input: { name: "Example" } }, { tool: "agents_set_tool_permission", input: { agentId: s.agent.id, toolId: "tool_mail", action: { $item: 0 }, permission: "run" } }])).toMatchObject({ ok: false, error: expect.stringContaining("literal action") });
+});
+
+
+test("an earlier permission change keeps Off for an action missing from discovery", async () => {
+  const s = await setup();
+  const listed = ["read", "send"].map((name) => ({ name, description: name, inputSchema: {} }));
+  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", actions: listed });
+  const input = { ...s.base, id: s.agent.id, toolIds: ["tool_mail"] };
+  await call(router.agents.update, input, { context: s.context });
+  await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: "tool_mail", action: "send", permission: "off" }, { context: s.context });
+  await s.context.db.update(toolsTable).set({ actions: listed.slice(0, 1) }).where(eq(toolsTable.id, "tool_mail"));
+  expect(await s.propose([
+    { tool: "agents_set_tool_permission", input: { agentId: s.agent.id, toolId: "tool_mail", action: "read", permission: "run" } },
+    { tool: "agents_update", input: { ...input, toolPermissions: [{ toolId: "tool_mail", unasked: ["send"] }] } },
+  ])).toMatchObject({ ok: false, error: expect.stringContaining("disabled") });
 });

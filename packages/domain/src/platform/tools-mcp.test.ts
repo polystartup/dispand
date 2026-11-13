@@ -263,7 +263,7 @@ test("an action the owner took off the asking ones runs with no approval, until 
   const s = await setup();
   const list = await named(s.client, "github_list_issues");
   const create = await named(s.client, "github_create_issue");
-  const ask = (action: string, value: boolean) => call(router.agents.setToolAsk, { agentId: s.agent.id, toolId: s.tool.id, action, ask: value }, { context: s.context });
+  const ask = (action: string, value: boolean) => call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: s.tool.id, action, permission: value ? "ask" : "run" }, { context: s.context });
   // An approval given earlier isn't used up by a call that needs none.
   await s.approve(`mcp__job_tools__${list}`, {});
   await ask("list_issues", false);
@@ -284,7 +284,7 @@ test("an action the owner took off the asking ones runs with no approval, until 
 test("an action that runs unasked doesn't outlive its Job", async () => {
   const s = await setup();
   const list = await named(s.client, "github_list_issues");
-  await call(router.agents.setToolAsk, { agentId: s.agent.id, toolId: s.tool.id, action: "list_issues", ask: false }, { context: s.context });
+  await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: s.tool.id, action: "list_issues", permission: "run" }, { context: s.context });
   const { exposedTools } = await import("./exposed.ts");
   const job = { runId: s.runId, ownerId: s.context.ownerId, agentId: s.agent.id };
   expect((await exposedTools(s.context.db, job)).map((t) => t.name)).toContain(list);
@@ -297,7 +297,7 @@ test("an action that runs unasked doesn't outlive its Job", async () => {
 test("always allow on a CLI session's approval takes the action off the asking ones, and is used up by that answer", async () => {
   const s = await setup();
   const create = await named(s.client, "github_create_issue");
-  const asks = async () => Object.fromEntries((await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.map((a) => [a.name, a.ask]));
+  const asks = async () => Object.fromEntries((await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.map((a) => [a.name, a.permission === "ask"]));
   expect(await asks()).toEqual({ create_issue: true, list_issues: true });
   const id = await s.approve(`mcp__job_tools__${create}`, { title: "Bug" }, "allow-always");
   expect(await asks()).toEqual({ create_issue: false, list_issues: true });
@@ -308,14 +308,14 @@ test("always allow on a CLI session's approval takes the action off the asking o
   expect(textOf(await s.client.callTool({ name: create, arguments: { title: "Bug" } }))).toBe("created #1");
   expect(textOf(await s.client.callTool({ name: create, arguments: { title: "Other" } }))).toBe("created #1");
   // Put back: the answer doesn't linger as an approval for one more identical call.
-  await call(router.agents.setToolAsk, { agentId: s.agent.id, toolId: s.tool.id, action: "create_issue", ask: true }, { context: s.context });
+  await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: s.tool.id, action: "create_issue", permission: "ask" }, { context: s.context });
   expect(textOf(await s.client.callTool({ name: create, arguments: { title: "Bug" } }))).toMatch(NEEDS);
 });
 
 test("always allow changes no flag when the question isn't about one of the agent's own tools, or when it is denied", async () => {
   const s = await setup();
   const create = await named(s.client, "github_create_issue");
-  const flags = async () => (await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.map((a) => a.ask);
+  const flags = async () => (await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.map((a) => a.permission === "ask");
   // A command, Dispand's own server, a name that stands for nothing: the answer stays what the runner makes of it.
   for (const toolName of ["Bash", "mcp__job__rows_create", "mcp__job_tools__github_create_issue_0000000000000000", `mcp__other__${create}`]) {
     const id = await s.approve(toolName, {}, "allow-always");
@@ -332,7 +332,7 @@ test("an always allow that comes after another answer grants nothing", async () 
   const create = await named(s.client, "github_create_issue");
   const id = await s.approve(`mcp__job_tools__${create}`, { title: "Bug" }, "deny");
   await expect(s.context.engine.answer(id, { kind: "permission", decision: "allow-always" }, { type: "user", userId: s.context.ownerId })).rejects.toMatchObject({ code: "NOT_PENDING" });
-  expect((await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.map((a) => a.ask)).toEqual([true, true]);
+  expect((await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.map((a) => a.permission === "ask")).toEqual([true, true]);
 });
 
 test("always allow on a runner tool records its identity and grants only its action", async () => {
@@ -352,4 +352,18 @@ test("always allow on a runner tool records its identity and grants only its act
   await s.context.db.update(toolsTable).set({ runnerTool: "replacement" }).where(eq(toolsTable.id, s.tool.id));
   expect(await stopAsking(s.context.db, s.runId, name, question!.about)).toBe(false);
 
+});
+
+
+test("off actions disappear from the Job tools list and refuse even a saved approval", async () => {
+  const s = await setup();
+  const list = await named(s.client, "github_list_issues");
+  await s.approve(`mcp__job_tools__${list}`, {});
+  await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: s.tool.id, action: "list_issues", permission: "off" }, { context: s.context });
+  expect((await s.client.listTools()).tools.map((t) => t.name)).not.toContain(list);
+  const denied = await s.client.callTool({ name: list, arguments: {} });
+  expect(denied.isError).toBe(true);
+  expect(s.calls).toEqual([]);
+  await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: s.tool.id, action: "list_issues", permission: "ask" }, { context: s.context });
+  expect((await s.client.listTools()).tools.map((t) => t.name)).toContain(list);
 });

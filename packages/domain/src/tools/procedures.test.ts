@@ -229,8 +229,8 @@ test("a tool pointed at another server asks again for everything: the unasked ac
   const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] }, { context });
-  await call(router.agents.setToolAsk, { agentId: agent.id, toolId: tool.id, action: "echo", ask: false }, { context });
-  const asks = async () => (await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions.map((a) => [a.name, a.ask]);
+  await call(router.agents.setToolPermission, { agentId: agent.id, toolId: tool.id, action: "echo", permission: "run" }, { context });
+  const asks = async () => (await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions.map((a) => [a.name, a.permission === "ask"]);
   expect(await asks()).toEqual([["echo", false]]);
   // Renaming it moves nothing.
   await call(router.tools.update, { id: tool.id, name: "Echo 2" }, { context });
@@ -250,7 +250,7 @@ test("runner tools expose asking flags and the owner can change them", async () 
   await context.db.update(tools).set({ actions: [{ name: "get", description: "", inputSchema: { type: "object" } }] }).where(eq(tools.id, tool.id));
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const agent = await call(router.agents.create, { name: "Searcher", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] }, { context });
-  expect(await call(router.agents.toolAsk, { id: agent.id }, { context })).toMatchObject([{ toolId: tool.id, actions: [{ name: "get", ask: true }] }]);
-  await call(router.agents.setToolAsk, { agentId: agent.id, toolId: tool.id, action: "get", ask: false }, { context });
-  expect(await call(router.agents.toolAsk, { id: agent.id }, { context })).toMatchObject([{ toolId: tool.id, actions: [{ name: "get", ask: false }] }]);
+  expect(await call(router.agents.toolAsk, { id: agent.id }, { context })).toMatchObject([{ toolId: tool.id, actions: [{ name: "get", permission: "ask" }] }]);
+  await call(router.agents.setToolPermission, { agentId: agent.id, toolId: tool.id, action: "get", permission: "run" }, { context });
+  expect(await call(router.agents.toolAsk, { id: agent.id }, { context })).toMatchObject([{ toolId: tool.id, actions: [{ name: "get", permission: "run" }] }]);
 });

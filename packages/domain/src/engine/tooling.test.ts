@@ -39,7 +39,7 @@ test("a workflow run's session gets the agent's skills and tools as they are", a
   const tooling = await toolingOf(context.db, run, agent.id);
   expect(summary(tooling)).toEqual({ skills: ["review"], runner: ["Fetch:fetch"], http: ["Firecrawl", "GitHub"] });
   expect(tooling.skills).toEqual([{ packageId: review, name: "review" }]);
-  expect(tooling.runnerTools[0]).toEqual({ id: "tool_fetch", name: "Fetch", tool: "fetch", runnerId, actions: [], unasked: [] });
+  expect(tooling.runnerTools[0]).toEqual({ id: "tool_fetch", name: "Fetch", tool: "fetch", runnerId, actions: [], unasked: [], denied: [] });
   const lint = await skill("lint");
   await setAgent({ skillPackageIds: [lint], toolIds: [] });
   expect(summary(await toolingOf(context.db, run, agent.id))).toEqual({ skills: ["lint"], runner: [], http: [] });
@@ -84,7 +84,7 @@ test("a tool is never named like the Job's tools server", () => {
 });
 
 test("runner bindings survive alias collisions, removals and renames, but not retargeting", () => {
-  const first = { id: "tool_a", name: "Mail!", runnerId: "runner_1", tool: "mail_a", actions: [], unasked: ["draft_email"] };
+  const first = { id: "tool_a", name: "Mail!", runnerId: "runner_1", tool: "mail_a", actions: [], unasked: ["draft_email"], denied: [] };
   const second = { ...first, id: "tool_b", name: "Mail?", tool: "mail_b" };
   const before = runnerServers({ runnerTools: [first, second] }, "runner_1");
   const after = runnerServers({ runnerTools: [{ ...second, name: "New name" }] }, "runner_1");

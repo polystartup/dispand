@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import type { ChatItem } from "../cloud/model-client.ts";
 import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
-import { attachments, audit, questions, runs, tools as toolsTable } from "../db/schema.ts";
+import { agentTools, attachments, audit, questions, runs, tools as toolsTable } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
@@ -201,7 +201,7 @@ test("an approval is for the tool it was asked about: it never moves to another 
 
 test("an action the owner took off the asking ones runs unasked; the others still ask", async () => {
   const s = await setup([use("GitHub_list_repos", {}), use("GitHub_create_repository", { name: "acme" }, "c2"), say("Done.")]);
-  await call(router.agents.setToolAsk, { agentId: s.agent.id, toolId: s.tool.id, action: "list_repos", ask: false }, { context: s.context });
+  await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: s.tool.id, action: "list_repos", permission: "run" }, { context: s.context });
   const runId = await s.start();
   const q = await s.pending(runId);
   // Only the flagged action asked: the other already ran.
@@ -221,8 +221,8 @@ test("always allow takes the action off the asking ones on the agent; put back, 
     return use("GitHub_list_repos", {}, "c3")(input);
   };
   const s = await setup([use("GitHub_list_repos", {}), use("GitHub_list_repos", {}, "c2"), back, say("Done.")]);
-  ask = (value) => call(router.agents.setToolAsk, { agentId: s.agent.id, toolId: s.tool.id, action: "list_repos", ask: value }, { context: s.context });
-  const asks = async () => (await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.find((a) => a.name === "list_repos")!.ask;
+  ask = (value) => call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: s.tool.id, action: "list_repos", permission: value ? "ask" : "run" }, { context: s.context });
+  const asks = async () => (await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.find((a) => a.name === "list_repos")!.permission === "ask";
   const runId = await s.start();
   const first = await s.pending(runId);
   expect(first.payload).toMatchObject({ canAlwaysAllow: true });
@@ -232,4 +232,20 @@ test("always allow takes the action off the asking ones on the agent; put back, 
   expect(third.id).not.toBe(first.id);
   expect(s.calls).toEqual([["list_repos", {}], ["list_repos", {}]]);
   expect(await asks()).toBe(true);
+});
+
+
+test("off refuses a pending cloud call and a late persistent answer cannot re-enable it", async () => {
+  const s = await setup([use("GitHub_list_repos", {}), say("Done.")]);
+  const runId = await s.start();
+  const q = await s.pending(runId);
+  await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: s.tool.id, action: "list_repos", permission: "off" }, { context: s.context });
+  await s.engine.answer(q.id, { kind: "permission", decision: "allow-always" });
+  await s.until(runId, "succeeded");
+  expect(s.calls).toEqual([]);
+  expect(lastTool(s.model.inputs[1]!.items)).toMatchObject({ isError: true });
+  expect(s.model.inputs[1]!.tools.map((t) => t.name)).not.toContain("GitHub_list_repos");
+  const [row] = await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, s.agent.id));
+  expect(row!.denied).toContain("list_repos");
+  expect(row!.unasked).not.toContain("list_repos");
 });

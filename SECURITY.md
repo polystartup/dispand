@@ -293,8 +293,9 @@ changes it updates this file.
   and by cloud sessions, so it never becomes a request in words in its place.
 - **Which actions of a tool run without asking is the owner's choice, per agent, and only a
   person changes it.** Each agent keeps, for each tool it chose, the actions that run unasked
-  (`agent_tools.unasked`); every other action asks as above, in a cloud session and at the
-  tools endpoint, which read the list at each call (an action put back asks from its next
+  (`agent_tools.unasked`) and those that are off (`agent_tools.denied`). An Off action is
+  excluded from cloud specs and the Job tools endpoint, and refused at call time; every other
+  enabled action asks as above. Both callers read current permissions at each call (an action put back asks from its next
   call on, in Jobs already running). The list starts with the actions the tool's server calls
   read-only (`readOnlyHint`) when a person adds the tool to the agent, or, for a tool installed
   from the catalog, with the actions its entry names that the server lists then (runner entries retain their declared names before discovery; `defaultUnasked`
@@ -305,7 +306,7 @@ changes it updates this file.
   server's claim and is read only then: a server that later calls another action read-only
   gains nothing, an action that appears later asks, and a tool that only comes with a skill
   asks for everything. A tool pointed at another address or transport asks for everything
-  again on every agent: the list named the old server's actions. Tools reached by URL and runner tools
+  again on every agent for enabled actions: the unasked list named the old server's actions. Tools reached by URL and runner tools
   have this list; runner tools use it in Job sessions only. The list changes in three ways, each a person's: the owner on the
   agent's page; an item of a proposal the owner approved (the write is a grant: an agent
   can list it, never make it on its own); and the answer "always allow" to an approval of
@@ -316,7 +317,13 @@ changes it updates this file.
   name of the Job's tools server in the session that asked. So no agent removes its own questions. Accepted: an unasked action that reaches outside (a search,
   a fetch) can carry in its arguments what the Job read; the owner keeps such actions asking
   on agents that read confidential tables. An unasked action also runs for a session in
-  `bypassPermissions` mode.
+  `bypassPermissions` mode. Run/Ask/Off changes keep the two lists disjoint under a row lock;
+  a late Always answer cannot re-enable an Off action. Off names remain saved if discovery
+  temporarily omits them, even when another permission changes. Unrelated agent updates preserve both
+  lists, and an explicit unasked list that would restore an Off action is refused. Enabling an
+  action selects Ask; changing it to Run is a separate grant. Runner denials are sent to live
+  Job and workflow sessions, including after reconnect; re-enabling applies in a new CLI
+  session because a running one only narrows its permissions.
 - **The runner is told which of the Job's tools run unasked, and that only spares prompts.**
   A Job's session start may carry `unasked`: names of the tools endpoint's tools (at most 500,
   each at most 48 characters of `a-z0-9_-` with no `__`). The runner makes the CLI's tool names

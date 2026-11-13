@@ -8,7 +8,7 @@ afterEach(cleanup);
 test("an agent's tools show the actions approved to run without asking", () => {
   render(<ProposalItems proposal={{ id: "prop_mail", status: "asked", names: { tool_mail: { kind: "tool", name: "Gmail" } }, items: [{ tool: "agents_create", input: { toolIds: ["tool_mail"] }, refs: ["toolIds"], used: false, tools: [{ toolId: "tool_mail", runs: ["search_emails", "read_email", "draft_email"] }] }] }} />);
   expect(screen.getByText("Runs without asking: search_emails, read_email, draft_email")).toBeTruthy();
-  expect(screen.getByText("Every other action asks")).toBeTruthy();
+  expect(screen.getByText("Other enabled actions ask")).toBeTruthy();
 });
 
 const long = `Line one.\n${"Work carefully. ".repeat(400)}THE END`;
@@ -60,7 +60,7 @@ test("deletions and asking flags read as what they do, with names; a value that 
     items: [
       { tool: "tables_delete", used: false, refs: ["id"], input: { id: "table_1" } },
       { tool: "fields_delete", used: false, refs: ["id"], input: { id: "field_1" } },
-      { tool: "agents_set_tool_ask", used: false, refs: ["agentId", "toolId"], input: { agentId: "agent_1", toolId: "tool_x", action: "table_1", ask: false } },
+      { tool: "agents_set_tool_permission", used: false, refs: ["agentId", "toolId"], input: { agentId: "agent_1", toolId: "tool_x", action: "table_1", permission: "run" } },
     ],
     names: { table_1: { kind: "table", name: "Clients" }, field_1: { kind: "field", name: "Phone", detail: "of the table Clients" }, agent_1: { kind: "agent", name: "Builder" } },
   };
@@ -69,11 +69,11 @@ test("deletions and asking flags read as what they do, with names; a value that 
   expect(within(table!).getByText("Delete a table, with its rows")).toBeTruthy();
   expect(table!.textContent).toContain("Clients");
   expect(field!.textContent).toContain("Phone (of the table Clients)");
-  expect(within(flag!).getByText("Change whether an action asks before use")).toBeTruthy();
+  expect(within(flag!).getByText("Set an action to Run, Ask, or Off")).toBeTruthy();
   expect(within(flag!).getByText(/tool_x: not one of yours/)).toBeTruthy();
   // The action happens to read like a table's id: it is shown as the text it is.
   expect(within(flag!).getByText("table_1")).toBeTruthy();
-  expect(within(flag!).getByText("no")).toBeTruthy();
+  expect(within(flag!).getByText("run")).toBeTruthy();
 });
 
 test("a trigger reads as what starts Jobs: its agent by name, its instructions and its schedule whole", () => {

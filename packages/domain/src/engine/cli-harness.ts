@@ -63,7 +63,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
       // (only in a Job's session, as for the tools endpoint's).
       mcpServers: runnerServers(tooling, runnerId).map((t) => {
         const unasked = tooling.jobId ? t.actions.filter((a) => t.unasked.includes(a.name) && RUNNER_ACTION.test(a.name)).map((a) => a.name).slice(0, 500) : [];
-        return { name: t.server, type: "runner" as const, tool: t.tool, ...(unasked.length ? { unasked } : {}) };
+        return { name: t.server, type: "runner" as const, tool: t.tool, ...(t.denied.length ? { denied: t.denied } : {}), ...(unasked.length ? { unasked } : {}) };
       }),
       // The actions the agent lets run unasked, under the names the tools endpoint lists them:
       // the CLI doesn't prompt for these. As many as the protocol carries; it prompts for the
@@ -103,7 +103,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
   async narrowPermissions(sessionId: string, db: Db = this.db): Promise<boolean> {
     const runnerId = await this.runnerOf(sessionId);
     const { mcpServers } = await this.tooling(sessionId, runnerId, db);
-    return this.deliver(runnerId, { type: "session.permissions", sessionId, servers: mcpServers.flatMap((ref) => ref.type === "runner" ? [{ name: ref.name, unasked: ref.unasked ?? [] }] : []) });
+    return this.deliver(runnerId, { type: "session.permissions", sessionId, servers: mcpServers.flatMap((ref) => ref.type === "runner" ? [{ name: ref.name, unasked: ref.unasked ?? [], ...(ref.denied?.length ? { denied: ref.denied } : {}) }] : []) });
   }
 
   async send(sessionId: string, text: string): Promise<boolean> {

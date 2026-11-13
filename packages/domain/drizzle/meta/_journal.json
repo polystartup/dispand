@@ -456,6 +456,13 @@
       "when": 1794518028225,
       "tag": "0064_conscious_karnak",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1794526575022,
+      "tag": "0065_agent_action_permissions",
+      "breakpoints": true
     }
   ]
 }

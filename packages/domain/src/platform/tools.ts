@@ -168,7 +168,7 @@ const idOf = (output: unknown): string | null => {
 };
 
 function tool(path: string, bundle: Bundle, description: string, rest: Pick<PlatformTool, "tables" | "filter" | "grant" | "write">): PlatformTool {
-  // `agents.setToolAsk` is `agents_set_tool_ask`: lower case with `_`, like every tool's name.
+  // `agents.setToolPermission` is `agents_set_tool_permission`: lower case with `_`, like every tool's name.
   const name = path.replace(".", "_").replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
   const kind = CREATES[name];
   return { path, name, bundle, description, input: procedureOf(router, path)["~orpc"].inputSchema ?? z.object({}), ...rest, ...(kind ? { creates: { kind, id: idOf } } : {}) };
@@ -209,12 +209,12 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("agents.list", "configure", "Lists the agents, with their ids, harness, instructions and what their Jobs may do.", { tables: none }),
   tool("agents.get", "configure", "Gives one agent by its id, with its skills and tools.", { tables: none }),
   tool("agents.create", "configure", `Creates an agent. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
-  tool("agents.toolAsk", "configure", "Lists the actions of each tool an agent chose, with whether each asks the owner before use.", { tables: none }),
+  tool("agents.toolAsk", "configure", "Lists the actions of each tool an agent chose, with their Run, Ask or Off permissions.", { tables: none }),
   tool("harnesses.limits", "configure", "Lists every harness: whether it is a CLI on a runner (with the runner's name and whether it is connected now) or a cloud provider, its kind and model, how many of its sessions may work at once, and how many work and wait now.", { tables: none }),
   tool("harnesses.setLimit", "configure", `Sets how many sessions of a harness may work at once: raising it lets agents spend more, lowering it holds back others' work. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("workspace.checkpoint", "configure", "Gives the workspace's checkpoint: how many Jobs of one root cause go before a person is asked to let them go on.", { tables: none }),
   tool("workspace.setCheckpoint", "configure", `Sets the workspace's checkpoint: raising it lets agents spend more before a person is asked, lowering it holds back others' work. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
-  tool("agents.setToolAsk", "configure", `Makes one action of an agent's tool ask before use, or run without asking. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool("agents.setToolPermission", "configure", `Sets one action of an agent's tool to run without asking, ask before use, or be off. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("tables.delete", "configure", `Deletes a table with its rows: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: named("id"), grant: true }),
   tool("fields.delete", "configure", `Deletes a field with its values in every row: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: tableOfField, grant: true }),
   tool("triggers.list", "configure", "Lists an agent's triggers: what starts its Jobs (a button, a chat, a schedule), with their instructions.", { tables: none }),

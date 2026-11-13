@@ -1,7 +1,7 @@
 import { JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
 import { createHash } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
-import { setAsk } from "../agents/tool-ask.ts";
+import { rememberAllowedAction } from "../agents/tool-ask.ts";
 import type { Db } from "../db/client.ts";
 import { runs } from "../db/schema.ts";
 import { runnerServers, toolingOf } from "../engine/tooling.ts";
@@ -99,14 +99,14 @@ export async function stopAsking(db: Db, runId: string, toolName: string, about:
   const job = { runId, ownerId: run.ownerId, agentId: run.agentId };
   if (isExposedName(toolName)) {
     const item = (await exposedTools(db, job)).find((t) => askedName(t.name) === toolName);
-    return item ? setAsk(db, run.ownerId, { agentId: run.agentId, toolId: item.toolId, action: item.action, ask: false }) : false;
+    return item ? rememberAllowedAction(db, run.ownerId, { agentId: run.agentId, toolId: item.toolId, action: item.action }) : false;
   }
   // A Job that ended grants nothing, as `exposedTools` gives it nothing.
   if (!about?.toolId || (run.status !== "running" && run.status !== "waiting")) return false;
   const tooling = await toolingOf(db, run, run.agentId);
   const tool = tooling.runnerTools.find((t) => t.id === about.toolId);
   if (!tool || !runnerServers(tooling, tool.runnerId).some((t) => t.id === tool.id && toolName === `mcp__${t.server}__${about.action}`)) return false;
-  return tool.actions.some((a) => a.name === about.action) ? setAsk(db, run.ownerId, { agentId: run.agentId, toolId: tool.id, action: about.action, ask: false }) : false;
+  return tool.actions.some((a) => a.name === about.action) ? rememberAllowedAction(db, run.ownerId, { agentId: run.agentId, toolId: tool.id, action: about.action }) : false;
 }
 
 /** A delayed persistent answer may not undo a permission or target changed since it was given. */

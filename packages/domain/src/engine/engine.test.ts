@@ -1556,7 +1556,7 @@ test("a Job's CLI session start names the actions that run unasked, at most 500;
   }
   const fields = { id: agent.id, name: agent.name, harnessId: agent.harnessId, systemPrompt: agent.systemPrompt };
   await call(router.agents.update, { ...fields, toolIds: ["tool_a"] }, { context });
-  await call(router.agents.setToolAsk, { agentId: agent.id, toolId: "tool_a", action: "read_7", ask: true }, { context });
+  await call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_a", action: "read_7", permission: "ask" }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
   await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(sent).toHaveLength(1));
@@ -1644,9 +1644,17 @@ test("runner grants start on Jobs and narrowing reaches Job and workflow session
   await vi.waitFor(() => expect(starts()).toHaveLength(2));
   expect(starts()[0]!.mcpServers).toMatchObject([{ unasked: [action.name] }]);
   expect(starts()[1]!.mcpServers[0]).not.toHaveProperty("unasked");
-  await call(router.agents.setToolAsk, { agentId: agent.id, toolId: "tool_fetch", action: action.name, ask: true }, { context: { ...context, engine } });
+  await call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_fetch", action: action.name, permission: "ask" }, { context: { ...context, engine } });
   const updates = sent.filter((m) => m.type === "session.permissions");
   expect(updates).toHaveLength(2);
   expect(updates.map((m) => m.sessionId).sort()).toEqual(starts().map((m) => m.sessionId).sort());
   for (const update of updates) expect(update.servers).toEqual([{ name: runnerServerName({ id: "tool_fetch", runnerId, tool: "fetch" }), unasked: [] }]);
+  await call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_fetch", action: action.name, permission: "off" }, { context: { ...context, engine } });
+  const denied = sent.filter((m) => m.type === "session.permissions").slice(2);
+  expect(denied).toHaveLength(2);
+  for (const update of denied) expect(update.servers).toEqual([{ name: runnerServerName({ id: "tool_fetch", runnerId, tool: "fetch" }), unasked: [], denied: [action.name] }]);
+  await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(() => expect(starts()).toHaveLength(3));
+  expect(starts()[2]!.mcpServers).toMatchObject([{ denied: [action.name] }]);
+  expect(starts()[2]!.mcpServers[0]).not.toHaveProperty("unasked");
 });

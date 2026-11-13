@@ -93,7 +93,7 @@ test("one approved proposal adds a catalog tool, sets a flag and makes a poll be
   const applied = await w.approveAndApply([
     { tool: "tools_add_from_catalog", input: { catalogId: "fake-mail" } },
     { tool: "agents_create", input: { name: "Clerk", harnessId: w.harness.id, systemPrompt: "", toolIds: [{ $item: 0 }] } },
-    { tool: "agents_set_tool_ask", input: { agentId: { $item: 1 }, toolId: { $item: 0 }, action: "read_mail", ask: true } },
+    { tool: "agents_set_tool_permission", input: { agentId: { $item: 1 }, toolId: { $item: 0 }, action: "read_mail", permission: "ask" } },
     {
       tool: "triggers_create",
       input: { agentId: { $item: 1 }, name: "New mail", instructions: "Read it.", config: { kind: "poll", toolId: { $item: 0 }, action: "list_mail", arguments: {}, itemsPath: "items", idPath: "id", interval: 300 } },
