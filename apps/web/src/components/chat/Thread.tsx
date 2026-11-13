@@ -32,7 +32,7 @@ const bubble = "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-
 
 const OwnerText: TextMessagePartComponent = ({ text }) => (
   <div className="flex justify-end">
-    <p className={`${bubble} rounded-br-md bg-accent text-accent-fg`}>{text}</p>
+    <p className={`${bubble} bg-hover text-fg`}>{text}</p>
   </div>
 );
 
@@ -168,10 +168,11 @@ type Props = {
   composer?: ReactNode;
   /** The invitation an empty conversation shows in place of the plain hello. */
   welcome?: string;
+  centeredWelcome?: boolean;
 };
 
 /** The conversation of a run's chat step, on assistant-ui's thread: the owner's and the agent's words, the tools it used, its questions. */
-export function ChatThread({ run, chatStepId, canSend, onSend, children, composer, welcome }: Props) {
+export function ChatThread({ run, chatStepId, canSend, onSend, children, composer, welcome, centeredWelcome }: Props) {
   const runtime = useRunThread({ run, chatStepId, canSend, onSend });
   // Nothing said yet, and nothing went wrong: the invitation to start.
   const empty = threadMessages(run, chatStepId).length === 0 && run?.steps.find((s) => s.id === chatStepId)?.status !== "failed";
@@ -181,12 +182,12 @@ export function ChatThread({ run, chatStepId, canSend, onSend, children, compose
     <AssistantRuntimeProvider runtime={runtime}>
       <Questions.Provider value={questions}>
         <ComposerApproval.Provider value={approval}>
-          <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">
-            <ThreadPrimitive.Viewport className="min-h-0 flex-1 overflow-y-auto px-4 py-6" aria-live="polite">
+          <ThreadPrimitive.Root className={`relative flex min-h-0 flex-1 flex-col ${centeredWelcome && empty ? "justify-center overflow-y-auto" : ""}`}>
+            <ThreadPrimitive.Viewport className={centeredWelcome ? `flex min-h-0 flex-1 flex-col overflow-y-auto pt-6 ${empty ? "justify-center" : ""}` : "min-h-0 flex-1 overflow-y-auto px-4 py-6"} aria-live="polite">
               {empty && <div className="flex min-h-36 flex-col items-center justify-center gap-3 text-center text-muted">
-                <MessageSquare size={28} className="text-accent" aria-hidden />
+                {!centeredWelcome && <MessageSquare size={28} className="text-accent" aria-hidden />}
                 {welcome ? (
-                  <p className="max-w-md text-[16px] font-medium text-fg">{welcome}</p>
+                  <><p className="text-2xl font-semibold tracking-tight text-fg md:text-3xl">How can I help you today?</p><p className="max-w-md text-sm">{welcome}</p></>
                 ) : (
                   <>
                     <p className="text-[16px] font-medium text-fg">Say hello to start.</p>
@@ -194,19 +195,22 @@ export function ChatThread({ run, chatStepId, canSend, onSend, children, compose
                   </>
                 )}
               </div>}
-              <div role="list" className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+              <div role="list" className={`mx-auto flex w-full max-w-3xl flex-col gap-5 ${centeredWelcome ? "px-4" : ""}`}>
                 <ThreadPrimitive.Messages components={{ UserMessage: OwnerMessage, AssistantMessage: AgentMessage }} />
               </div>
-              <div className="mx-auto w-full max-w-3xl">
+              <div className={`mx-auto w-full max-w-3xl ${centeredWelcome ? "px-4" : ""}`}>
                 {children}
               </div>
-              <div className="sticky bottom-0 flex h-0 justify-center">
-                <ThreadPrimitive.ScrollToBottom aria-label="Jump to latest message" title="Jump to latest message" className="absolute bottom-0 rounded-full border border-line bg-surface p-2 text-fg shadow-md disabled:invisible">
-                  <ArrowDown size={18} aria-hidden />
-                </ThreadPrimitive.ScrollToBottom>
-              </div>
+              {centeredWelcome ? <ThreadPrimitive.ViewportFooter className={`sticky bottom-0 z-10 shrink-0 pt-4 ${empty ? "" : "mt-auto"}`}>
+                <div className="relative flex justify-center">
+                  <ThreadPrimitive.ScrollToBottom aria-label="Jump to latest message" title="Jump to latest message" className="absolute bottom-2 rounded-full border border-line bg-surface p-2 text-fg shadow-md disabled:invisible"><ArrowDown size={18} aria-hidden /></ThreadPrimitive.ScrollToBottom>
+                </div>
+                {composer}
+              </ThreadPrimitive.ViewportFooter> : <div className="sticky bottom-0 flex h-0 justify-center">
+                <ThreadPrimitive.ScrollToBottom aria-label="Jump to latest message" title="Jump to latest message" className="absolute bottom-0 rounded-full border border-line bg-surface p-2 text-fg shadow-md disabled:invisible"><ArrowDown size={18} aria-hidden /></ThreadPrimitive.ScrollToBottom>
+              </div>}
             </ThreadPrimitive.Viewport>
-            {composer}
+            {!centeredWelcome && composer}
           </ThreadPrimitive.Root>
         </ComposerApproval.Provider>
       </Questions.Provider>

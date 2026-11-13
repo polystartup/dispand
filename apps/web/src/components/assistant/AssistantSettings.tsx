@@ -1,45 +1,45 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Settings } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
+import type { Harness } from "../settings/HarnessSheet.tsx";
 import { api, orpc } from "../../lib/api.ts";
 import type { Agent } from "../settings/AgentEditor.tsx";
 import { FormField } from "../settings/parts.tsx";
 
 export function AssistantSettings({ agentId }: { agentId: string }) {
   const [open, setOpen] = useState(false);
+  const agent = useQuery(orpc.agents.get.queryOptions({ input: { id: agentId } }));
+  const harnesses = useQuery(orpc.harnesses.list.queryOptions());
+  const harness = harnesses.data?.find((h) => h.id === agent.data?.harnessId);
   return (
-    <>
-      <Button variant="outline" className="ml-auto gap-2" onClick={() => setOpen(true)}>
-        <Settings aria-hidden className="size-4" />
-        Assistant settings
-      </Button>
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild><Button type="button" variant="ghost" aria-label="Assistant settings" className="max-w-full gap-2 text-muted" onClick={() => setOpen(true)}>
+        <span className="truncate">{agent.data?.model ?? harness?.model ?? harness?.name ?? "Choose model"}</span><ChevronDown aria-hidden className="size-4" />
+      </Button></SheetTrigger>
       {open && <SettingsSheet agentId={agentId} onClose={() => setOpen(false)} />}
-    </>
+    </Sheet>
   );
 }
 
 function SettingsSheet({ agentId, onClose }: { agentId: string; onClose: () => void }) {
   const agent = useQuery({ ...orpc.agents.get.queryOptions({ input: { id: agentId } }), refetchOnMount: "always" });
   return (
-    <Sheet open onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="w-full overflow-y-auto bg-surface sm:max-w-md">
-        <SheetHeader>
-          <SheetTitle>Assistant settings</SheetTitle>
-          <SheetDescription>Choose the harness and model for new conversations and Jobs. Existing conversations keep their settings.</SheetDescription>
-        </SheetHeader>
-        <div className="px-4 pb-4">
-          {!agent.isFetchedAfterMount ? <p>Loading…</p> : agent.error ? <p role="alert">Could not load the Assistant settings.</p> : agent.data && <SettingsForm agent={agent.data} onSaved={onClose} />}
-        </div>
-      </SheetContent>
-    </Sheet>
+    <SheetContent side="bottom" className="mx-auto max-h-[90dvh] max-w-lg rounded-t-3xl bg-surface">
+      <SheetHeader className="px-6 pr-12">
+        <SheetTitle>Harness and model</SheetTitle>
+        <SheetDescription>Applies to new conversations. Existing conversations keep their settings.</SheetDescription>
+      </SheetHeader>
+      {!agent.isFetchedAfterMount ? <p>Loading…</p> : agent.error ? <p role="alert">Could not load the Assistant settings.</p> : agent.data && <SettingsForm agent={agent.data} onSaved={onClose} />}
+    </SheetContent>
   );
 }
 
 function SettingsForm({ agent, onSaved }: { agent: Agent; onSaved: () => void }) {
+  const [search, setSearch] = useState("");
   const [harnessId, setHarnessId] = useState(agent.harnessId);
   const [model, setModel] = useState(agent.model ?? "");
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
@@ -65,7 +65,11 @@ function SettingsForm({ agent, onSaved }: { agent: Agent; onSaved: () => void })
     },
   });
   return (
-    <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+    <form className="min-h-0 space-y-4 overflow-y-auto px-6 pb-6" onSubmit={(e) => { e.preventDefault(); e.stopPropagation(); save.mutate(); }}>
+      <Input aria-label="Find a model" placeholder="Find a model…" value={search} onChange={(e) => setSearch(e.target.value)} />
+      <div className="space-y-4">
+        {harnesses.data?.map((h) => <HarnessModels key={h.id} harness={h} search={search} selected={harnessId === h.id ? model : undefined} disabled={save.isPending} onSelect={(next) => { setHarnessId(h.id); setModel(next); }} />)}
+      </div>
       <FormField label="Harness" htmlFor="assistant-harness">
         <Select value={harnessId} onValueChange={(id) => { setHarnessId(id); setModel(""); }} disabled={save.isPending}>
           <SelectTrigger id="assistant-harness" className="w-full"><SelectValue placeholder="Pick a harness" /></SelectTrigger>
@@ -82,4 +86,23 @@ function SettingsForm({ agent, onSaved }: { agent: Agent; onSaved: () => void })
       <Button type="submit" disabled={save.isPending || !harness}>Save settings</Button>
     </form>
   );
+}
+
+/** Provider catalogs stay on the server; CLI aliases and unlisted models remain editable below. */
+function HarnessModels({ harness, search, selected, disabled, onSelect }: { harness: Harness; search: string; selected: string | undefined; disabled: boolean; onSelect: (model: string) => void }) {
+  const models = useQuery({ ...orpc.harnesses.models.queryOptions({ input: { harnessId: harness.id } }), enabled: harness.type === "cloud", retry: false, staleTime: 60_000 });
+  const choices = [{ id: "", label: harness.model ?? "CLI default" }, ...(models.data ?? []).filter((m) => m.id !== harness.model)];
+  const shown = choices.filter((m) => `${harness.name} ${m.label} ${m.id}`.toLowerCase().includes(search.toLowerCase()));
+  if (!shown.length) return null;
+  return <fieldset disabled={disabled} className="space-y-2">
+    <legend className="mb-2 text-sm text-muted">{harness.name}</legend>
+    <div className="overflow-hidden rounded-2xl bg-hover">
+      {shown.map((m) => <button key={m.id} type="button" aria-pressed={selected === m.id} onClick={() => onSelect(m.id)} className="flex w-full items-center gap-2 border-b border-line px-4 py-3 text-left last:border-0 hover:bg-line focus-visible:outline-2 focus-visible:outline-accent">
+        <span className="min-w-0 flex-1 break-words">{m.label}</span>
+        {!m.id && <span className="text-xs text-muted">Default</span>}
+        {selected === m.id && <Check aria-hidden className="size-4 shrink-0" />}
+      </button>)}
+    </div>
+    {models.isError && <p className="text-xs text-muted">Could not list models. You can enter a model below.</p>}
+  </fieldset>;
 }

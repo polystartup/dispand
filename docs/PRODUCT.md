@@ -173,3 +173,7 @@ Status: Prototype
     table, a page of at most 500 rows, 20 filters and 3 sorts per query, 50 pages.
 
 An agent’s runner-tool action permissions appear with its other tool permissions. Approved reads and drafts run without repeated questions; actions that require approval still ask. Taking a permission back also restricts sessions already running.
+
+The Assistant uses a compact chat header, a conversation-history drawer and a centered welcome composer that moves below the messages once the conversation starts. Its composer opens the harness/model picker; weekly review lives under Assistant options. Full page expands the chat over the application navigation, and the restore button or Escape returns to the normal layout.
+
+The Assistant model picker groups searchable cloud-provider models by harness. CLI harnesses offer their default and a model-alias field; unlisted cloud model IDs can also be entered. The composer floats over the scrolling conversation using assistant-ui’s viewport footer.

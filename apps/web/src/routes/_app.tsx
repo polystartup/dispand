@@ -66,7 +66,7 @@ function AppShell() {
             <Sidebar user={user} onNavigate={() => setOpen(false)} />
           </SheetContent>
 
-        <main className={assistant ? "flex h-[calc(100dvh-3rem)] min-h-0 flex-col overflow-hidden p-3 md:h-dvh md:p-6" : "mx-auto max-w-4xl px-5 py-8 md:px-12 md:py-14"}>
+        <main className={assistant ? "flex h-[calc(100dvh-3rem)] min-h-0 flex-col overflow-hidden md:h-dvh" : "mx-auto max-w-4xl px-5 py-8 md:px-12 md:py-14"}>
           <Outlet />
         </main>
       </div>

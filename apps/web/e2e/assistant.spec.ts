@@ -98,7 +98,7 @@ test("the lawyer: a fresh install's Assistant sets up the whole workspace from o
   await page.getByRole("option", { name: "OpenAI-compatible" }).click();
   await sheet.getByLabel("Base URL").fill(model.baseUrl);
   await sheet.getByLabel("Name").click();
-  await sheet.getByLabel("Model").click();
+  await sheet.getByRole("combobox", { name: "Model", exact: true }).click();
   await page.getByRole("option", { name: "scripted-model" }).click();
   await sheet.getByRole("button", { name: "Create harness" }).click();
   await expect(sheet).toHaveCount(0);
@@ -319,25 +319,28 @@ test("Assistant settings selects the next conversation's harness and model; chat
     settingsRunner.emit(start.sessionId, { type: "text", delta: "Using your selected settings." });
     await expect(chat.getByText("Using your selected settings.")).toBeVisible();
 
-    for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
-      await page.setViewportSize(viewport);
-      await expect(chat.getByRole("textbox", { name: "Message", exact: true })).toBeInViewport();
-      const bounds = (await chat.boundingBox())!;
-      expect(bounds.x + bounds.width).toBeGreaterThan(viewport.width - 30);
-      expect(bounds.y + bounds.height).toBeGreaterThan(viewport.height - 30);
-      expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
-      expect(bounds.height).toBeGreaterThan(viewport.height * 0.5);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
-      await page.screenshot({ path: testInfo.outputPath(`assistant-${viewport.width}.png`) });
+    for (const expanded of [false, true]) {
+      if (expanded) await page.getByRole("button", { name: "Full page", exact: true }).click();
+      for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+        await page.setViewportSize(viewport);
+        await expect(chat.getByRole("textbox", { name: "Message", exact: true })).toBeInViewport();
+        const bounds = (await chat.boundingBox())!;
+        expect(bounds.x + bounds.width).toBeGreaterThan(viewport.width - 30);
+        expect(bounds.y + bounds.height).toBeGreaterThan(viewport.height - 30);
+        expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
+        expect(bounds.height).toBeGreaterThan(viewport.height * 0.5);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
+        await page.screenshot({ path: testInfo.outputPath(`assistant-${expanded ? "full" : "normal"}-${viewport.width}.png`) });
+      }
     }
-
+    await page.getByRole("button", { name: "Exit full page" }).click();
     await page.reload();
     await page.getByRole("button", { name: "Assistant settings" }).click();
     await expect(sheet.getByLabel("Model", { exact: true })).toHaveValue("sonnet");
     await sheet.getByLabel("Model", { exact: true }).fill("");
     await sheet.getByRole("button", { name: "Save settings" }).click();
     await expect(sheet).toHaveCount(0);
-    await page.getByRole("navigation", { name: "Conversations" }).getByRole("button", { name: "New conversation" }).click();
+    await page.getByRole("button", { name: "New conversation", exact: true }).click();
     await chat.getByRole("textbox", { name: "Message", exact: true }).fill("Use the default model.");
     await chat.getByRole("button", { name: "Send", exact: true }).click();
     expect((await settingsRunner.waitFor("session.start", WAIT_MS)).start.model).toBeUndefined();
