@@ -419,6 +419,7 @@ export const NOT_TOOLS: string[] = [
   "skills.setFile",
   "skills.removeFile",
   "skills.readFile",
+  "plugins.addServer",
   // Files and streams.
   "files.upload",
   "rows.editFiles",

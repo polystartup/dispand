@@ -114,6 +114,20 @@ test("a tool to add shows its address whole and the host calls will go to", () =
   expect(within(item!).getByText("mail.example.com:8443")).toBeTruthy();
 });
 
+test("a plugin's server to add names its plugin and shows the address calls will go to", () => {
+  const tool: ProposalView = {
+    id: "prop_5",
+    status: "asked",
+    items: [{ tool: "plugins_add_server", used: false, refs: ["pluginId"], creates: "tool", input: { pluginId: "plugin_1", server: "case-law", url: "https://case-law.example.com/mcp", transport: "streamable-http" } }],
+    names: { plugin_1: { kind: "plugin", name: "law-firm" } },
+  };
+  render(<ProposalItems proposal={tool} />);
+  const [item] = screen.getAllByRole("listitem");
+  expect(within(item!).getByText("Add a plugin's server as a tool: a server Dispand will call")).toBeTruthy();
+  expect(within(item!).getByText("law-firm")).toBeTruthy();
+  expect(within(item!).getByText("case-law.example.com")).toBeTruthy();
+});
+
 test("a table-change trigger's config is read in words, its table and fields by name", () => {
   render(
     <ProposalItems

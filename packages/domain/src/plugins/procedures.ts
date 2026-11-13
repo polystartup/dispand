@@ -43,6 +43,7 @@ import { readWellKnownIndex, readWellKnownSkills, WellKnownError, wellKnownIndex
 import { itemsView } from "../platform/proposals.ts";
 import { canonical } from "../platform/approvals.ts";
 import { runItemsAsOwner, SetupPick, setupItems } from "./setup.ts";
+import { addServer } from "./servers.ts";
 import { componentsOf, PluginError, type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
 
 const owner = base.use(authed);
@@ -816,4 +817,4 @@ const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool", "ski
 });
 
 export const marketplaces = { list: listMarketplaces, add: addMarketplace, remove: removeMarketplace, sync };
-export const plugins = { discover, preview, install, list, uninstallPreview, uninstall, update, setupPreview, setUp, resetOverride };
+export const plugins = { discover, preview, install, list, uninstallPreview, uninstall, update, setupPreview, setUp, resetOverride, addServer };

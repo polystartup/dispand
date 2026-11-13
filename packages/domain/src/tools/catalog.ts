@@ -1,5 +1,5 @@
 import type { PollContinuation } from "../triggers/model.ts";
-import type { ToolAction, ToolTransport } from "./mcp.ts";
+import { refusedListing, type ToolAction, type ToolTransport } from "./mcp.ts";
 import type { OAuthRequest } from "./oauth-provider.ts";
 
 /** A setting the owner fills in when installing an HTTP entry (`{key}` in its header templates). */
@@ -312,10 +312,12 @@ export const declaredActions = (entry: HttpEntry): ToolAction[] =>
  * headers aren't filled, or an OAuth tool not connected (or to re-authorize). `none` for a tool
  * that needs no sign-in of Dispand's (an open server, a runner's own).
  */
-export function signInOf(row: { kind: string; catalogId: string | null; auth: string | null; oauthStatus: string | null; headersSealed: Record<string, unknown> }): "needed" | "connected" | "none" {
+export function signInOf(row: { kind: string; catalogId: string | null; auth: string | null; oauthStatus: string | null; headersSealed: Record<string, unknown>; pluginId?: string | null; actionsError?: string | null }): "needed" | "connected" | "none" {
   if (row.kind !== "http") return "none";
   if (row.auth === "oauth") return row.oauthStatus === "connected" ? "connected" : "needed";
   const entry = catalogEntry(row.catalogId);
   if (entry?.kind === "http" && entry.settings.length > 0) return Object.keys(row.headersSealed).length > 0 ? "connected" : "needed";
-  return row.auth === "headers" ? "connected" : "none";
+  if (row.auth === "headers") return "connected";
+  // A plugin's server starts without credentials: one that refuses to list without them needs its headers.
+  return row.pluginId && refusedListing(row.actionsError ?? null) ? "needed" : "none";
 }

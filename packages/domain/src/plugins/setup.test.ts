@@ -7,16 +7,29 @@ import { ownerContext } from "../runners/test-support.ts";
 import type { SetupPick } from "./setup.ts";
 import { fixtureRepo, lawFirmMarket } from "./test-support.ts";
 import { catalogEntry } from "../tools/catalog.ts";
+import { type FakeAction, startFakeMcp } from "../tools/test-server.ts";
+
+const lookup: FakeAction = { name: "lookup", description: "Finds case law", inputSchema: { type: "object" }, call: () => ({ content: [] }) };
 
 const ALL = { primitives: ["Clients", "Matters", "Research"] };
 
 /** The owner's context with the law-firm plugin installed (definitions, and the skills given). */
-async function installed(skills: string[] = []) {
+async function installed(skills: string[] = [], caseLaw: { apiKey?: string } = {}) {
   const ctx = { ...(await ownerContext()), gitFileUrls: true };
-  const fx = lawFirmMarket();
+  // The fixture's case-law server, which a setup adds as a tool when an agent names it.
+  const server = await startFakeMcp([lookup], "streamable-http", caseLaw);
+  const fx = lawFirmMarket(server.url);
   const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
   const { pluginId } = await call(router.plugins.install, { marketplaceId: market.id, entryName: "law-firm", skills }, { context: ctx });
-  return { ctx, pluginId, remove: fx.remove };
+  return {
+    ctx,
+    pluginId,
+    server,
+    remove: () => {
+      fx.remove();
+      void server.close();
+    },
+  };
 }
 
 type Ctx = Awaited<ReturnType<typeof installed>>["ctx"];
@@ -195,13 +208,17 @@ test("the fixture's agents are set up as copies with their tables, skill package
 
   const preview = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
   const agentItems = preview.items.slice(10);
-  expect(agentItems.map((i) => i.tool)).toEqual(["agents_create", "agents_create", "agents_create"]);
+  // The plugin's server Intake and research names is added first, with the URL the owner reads.
+  expect(agentItems.map((i) => i.tool)).toEqual(["plugins_add_server", "agents_create", "agents_create", "agents_create"]);
+  expect(agentItems[0]).toMatchObject({ input: { pluginId, server: "case-law", url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/), transport: "streamable-http" }, creates: "tool" });
+  expect(preview.names[pluginId]).toEqual({ kind: "plugin", name: "law-firm" });
+  expect(agentItems[1]).toMatchObject({ input: { name: "Intake and research", toolIds: ["tool_gmail", { $item: 10 }] } });
   // Drafting consults Intake and research, which comes first; tables are those this setup makes.
-  expect(agentItems[1]).toMatchObject({
-    input: { name: "Drafting", harnessId, bundles: ["data"], dataTables: [{ $item: 1 }, { $item: 2 }], toolIds: ["tool_gmail"], skillPackageIds: [], consults: [{ agentId: { $item: 10 }, ask: false }] },
+  expect(agentItems[2]).toMatchObject({
+    input: { name: "Drafting", harnessId, bundles: ["data"], dataTables: [{ $item: 1 }, { $item: 2 }], toolIds: ["tool_gmail"], skillPackageIds: [], consults: [{ agentId: { $item: 11 }, ask: false }] },
     creates: "agent",
   });
-  expect(preview.waiting).toEqual([{ definition: "agent:Intake and research", reason: "“case-law” isn't added as a tool yet: the agent is made without it" }]);
+  expect(preview.waiting).toEqual([]);
 
   const { outcomes } = await setUp(ctx, pluginId, pick);
   expect(outcomes.every((o) => o.outcome === "made")).toBe(true);
@@ -214,6 +231,9 @@ test("the fixture's agents are set up as copies with their tables, skill package
   expect(JSON.stringify(intake)).toContain("law-firm");
   expect(drafting.consults).toEqual([{ agentId: intake.id, ask: false, inactive: null }]);
   expect(JSON.stringify(drafting)).toContain("tool_gmail");
+  const caseLaw = (await ctx.db.select().from(toolsTable).where(eq(toolsTable.pluginComponent, "case-law")))[0]!;
+  expect(JSON.stringify(intake)).toContain(caseLaw.id);
+  expect(caseLaw).toMatchObject({ pluginId, actions: [expect.objectContaining({ name: "lookup" })], actionsError: null });
   expect(upkeep.dataTables).toEqual([matters]);
   // Copies: no link to the plugin, so its updates never rewrite them; listed as what it made.
   const rows = await ctx.db.select({ pluginId: agentsTable.pluginId }).from(agentsTable);
@@ -281,4 +301,42 @@ test("a consult between an agent that changes the workspace and one that doesn't
   expect((await call(router.agents.list, undefined, { context: ctx })).map((a) => a.name)).toEqual(["Helper"]);
   plugin.remove();
   repo.remove();
+});
+
+test("a picked server is added as a tool without credentials, reads “needs sign-in” until its header is entered, and stays after uninstall", async () => {
+  const { ctx, pluginId, remove } = await installed([], { apiKey: "case-key" });
+  try {
+    const pick = { servers: [{ name: "case-law" }] };
+    const preview = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
+    expect(preview.items).toMatchObject([{ tool: "plugins_add_server", input: { pluginId, server: "case-law" } }]);
+    const { outcomes } = await setUp(ctx, pluginId, pick);
+    const toolId = outcomes[0]!.id!;
+    const tool = await call(router.tools.get, { id: toolId }, { context: ctx });
+    expect(tool).toMatchObject({ signIn: "needed", actionsError: expect.stringContaining("refused the request (401)") });
+    expect((await createdOf(ctx, pluginId)).from).toMatchObject({ "server:case-law": toolId });
+    // Set up again: the tool is reused, not added twice.
+    expect((await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx })).items).toEqual([]);
+
+    await call(router.tools.update, { id: toolId, headers: { authorization: "Bearer case-key" } }, { context: ctx });
+    expect(await call(router.tools.get, { id: toolId }, { context: ctx })).toMatchObject({ signIn: "connected", actions: [expect.objectContaining({ name: "lookup" })] });
+
+    await call(router.plugins.uninstall, { id: pluginId }, { context: ctx });
+    expect(await call(router.tools.get, { id: toolId }, { context: ctx })).toMatchObject({ id: toolId, plugin: null });
+  } finally {
+    remove();
+  }
+});
+
+test("adding a server checks the URL and transport the owner reviewed, and names only the plugin's servers", async () => {
+  const { ctx, pluginId, server, remove } = await installed();
+  try {
+    const input = { pluginId, server: "case-law", url: server.url, transport: "streamable-http" as const };
+    await expect(call(router.plugins.addServer, { ...input, url: "https://elsewhere.example.com/mcp" }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(call(router.plugins.addServer, { ...input, transport: "sse" }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(call(router.plugins.addServer, { ...input, server: "nope" }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(call(router.plugins.setupPreview, { id: pluginId, pick: { servers: [{ name: "nope" }] } }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(await call(router.plugins.addServer, input, { context: ctx })).toMatchObject({ name: "case-law", plugin: { id: pluginId } });
+  } finally {
+    remove();
+  }
 });
