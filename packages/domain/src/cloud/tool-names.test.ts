@@ -60,4 +60,16 @@ describe("toolNames", () => {
   it("throws for a key it wasn't given", () => {
     expect(() => toolNames([]).toName("nope")).toThrow();
   });
+
+  it("trims long edge runs without retrying interior underscore suffixes", () => {
+    const underscores = "_".repeat(200_000);
+    const names = toolNames([
+      { key: "interior", label: `x${underscores}y` },
+      { key: "edges", label: `${underscores}tool${underscores}` },
+      { key: "blank", label: underscores },
+    ]);
+    expect(names.toName("interior")).toBe(`x${"_".repeat(63)}`);
+    expect(names.toName("edges")).toBe("tool");
+    expect(names.toName("blank")).toBe("tool_2");
+  });
 });

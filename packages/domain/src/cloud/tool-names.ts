@@ -4,11 +4,14 @@ const RESERVED = new Set(["ask_user", "submit_outputs", "request_approval", "con
 const MAX = 64;
 
 function slug(label: string): string {
-  const s = label
+  const normalized = label
     .normalize("NFKD")
-    .replace(/[^a-zA-Z0-9_-]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, MAX);
+    .replace(/[^a-zA-Z0-9_-]+/g, "_");
+  let start = 0;
+  let end = normalized.length;
+  while (start < end && normalized[start] === "_") start++;
+  while (end > start && normalized[end - 1] === "_") end--;
+  const s = normalized.slice(start, Math.min(end, start + MAX));
   return s === "" ? "tool" : s;
 }
 

@@ -1348,3 +1348,16 @@ settings retain their existing Job-only behavior. New owner answers populate run
 legacy MCP Always is refused in favor of an explicit scope. A cloud offer is resolved through
 its persisted pending tool key, and a native offer through the session's server binding.
 Claude normalization is shared with the runner; ambiguous aliases offer no remembered grant.
+
+`runner-protocol/rules.ts` defines a pure parser and matcher for Dispand's native CLI rule
+subset. It is a foundation for saved native permissions; no consumer or wire field uses it
+yet. Claude rules cover selected tool names, exact Bash commands, literal-word Bash prefixes
+and exact WebFetch hostnames. Codex rules cover FileChange, exact shell commands and a proposed
+execpolicy prefix. A Codex prefix additionally requires the identical proposed amendment and
+exactly one command action. Prefixes accept only ASCII literal words separated by spaces or
+tabs; shell syntax, expansion and quoting require an exact rule. Exact commands compare the
+entire string, including any shell syntax. Rules never become native CLI settings or executable
+expressions, and matching never substitutes for runner roots and denied-file checks. This
+application-specific subset needs no shell parser: it deliberately does not interpret shell
+syntax. The pure helpers emit no telemetry or rule text; operational consumers remain responsible
+for bounded permission outcomes when integrated. This addition changes no session protocol.
