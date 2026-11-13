@@ -125,7 +125,7 @@ export function messageView(m: MessageRow) {
 export function questionView(q: QuestionRow) {
   // `rootId`: a checkpoint's Approval (`roots.ts`), and `consultId` a consult's, each told apart by it and never by its tool name.
   const { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId, rootId, consultId } = q;
-  return { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId, rootId, consultId, ...(q.remember ? { remember: { scopes: q.remember.scopes, label: about ? `${about.tool}: ${about.action}` : payload.kind === "permission" ? payload.toolName : "" } } : {}) };
+  return { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId, rootId, consultId, ...(q.remember ? { remember: { scopes: q.remember.scopes, ...(q.remember.decisions ? { decisions: q.remember.decisions } : {}), label: q.remember.subject.kind === "cli" ? q.remember.subject.rule : about ? `${about.tool}: ${about.action}` : payload.kind === "permission" ? payload.toolName : "" } } : {}) };
 }
 
 /** What `runs.stream` forwards: each carries the whole row as it is now (upserts by id). */
@@ -839,7 +839,7 @@ export class Engine {
     const decision = q.answer?.kind === "permission" ? q.answer.decision : q.answer?.kind ?? "none";
     counts.counter("dispand.questions.answered").add(1, { "dispand.question.kind": q.kind, "dispand.answer.decision": decision, "dispand.answer.by": q.answeredBy?.type ?? "user" });
     counts.histogram("dispand.question.wait", { unit: "ms", description: "From a question to its answer" }).record(q.answeredAt!.getTime() - q.createdAt.getTime(), { "dispand.question.kind": q.kind });
-    if (q.remember && q.answer?.kind === "permission" && q.answer.remember && q.answer.decision === "deny") await this.narrowSessions(q.remember.subject.agentId, this.db, q.answer.remember === "run" ? q.runId : undefined);
+    if (q.remember?.subject.kind === "tool" && q.answer?.kind === "permission" && q.answer.remember && q.answer.decision === "deny") await this.narrowSessions(q.remember.subject.agentId, this.db, q.answer.remember === "run" ? q.runId : undefined);
     this.publish(out);
     if (step) await this.flush(step.id, step.sessionId!);
     if (root?.stopped) {

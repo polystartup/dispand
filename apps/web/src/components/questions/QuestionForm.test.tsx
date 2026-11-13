@@ -151,3 +151,16 @@ test("a run-only offer has no future-run option", () => {
   expect(screen.getByLabelText("Remember this for this run only")).toBeTruthy();
   expect(screen.queryByLabelText("Remember this for this and all future runs")).toBeNull();
 });
+
+
+test("Codex remembers Allow while Deny applies only to the current call", async () => {
+  const onAnswer = vi.fn();
+  render(<QuestionForm question={{ payload: { kind: "permission", toolName: "Shell", input: { command: "npm test" }, canAlwaysAllow: true }, remember: { scopes: ["run", "always"], label: 'Shell:["npm","test"]', decisions: ["allow"] } }} onAnswer={onAnswer} />);
+  const user = userEvent.setup();
+  expect(screen.getByText("Deny applies only to this call.")).toBeTruthy();
+  await user.click(screen.getByLabelText("Remember this for this and all future runs"));
+  await user.click(screen.getByRole("button", { name: "Allow" }));
+  expect(onAnswer).toHaveBeenLastCalledWith({ kind: "permission", decision: "allow", remember: "always" });
+  await user.click(screen.getByRole("button", { name: "Deny" }));
+  expect(onAnswer).toHaveBeenLastCalledWith({ kind: "permission", decision: "deny" });
+});

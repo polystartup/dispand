@@ -1236,6 +1236,46 @@ test("native rules are filtered per CLI on Job starts and re-read after removal 
   expect(first.start.rules).toEqual({ allow: ["Bash(npm test:*)"], deny: ["Edit"] });
 });
 
+test.each(["claude-code", "codex"] as const)("%s native approval is offered, saved and sent only to that agent's next Jobs", async (cli) => {
+  const { context, engine, agent, starts, harness, runnerId } = await toolingSetup();
+  await context.db.update(harnessesTable).set({ kind: cli, permissionMode: "default" }).where(eq(harnessesTable.id, harness.id));
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Work.", config: { kind: "manual", placement: "chat" } }, { context });
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(() => expect(starts()).toHaveLength(1));
+  const remembers = cli === "codex" ? "Shell=npm test" : "Bash(npm test:*)";
+  await engine.onHarnessEvent(starts()[0]!.sessionId, { type: "question", questionId: "native_1", payload: { kind: "permission", toolName: cli === "codex" ? "Shell" : "Bash", input: { command: "npm test" }, canAlwaysAllow: true, remembers } }, { runnerId, seq: 1 });
+  const [q] = await context.db.select().from(questions).where(eq(questions.runId, runId));
+  expect(q!.remember).toMatchObject({ subject: { kind: "cli", agentId: agent.id, cli, rule: remembers }, scopes: ["run", "always"] });
+  await engine.answer(q!.id, { kind: "permission", decision: "allow", remember: "always" }, { type: "user", userId: context.ownerId });
+  await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(() => expect(starts()).toHaveLength(2));
+  expect(starts()[1]!.rules).toEqual({ allow: [remembers], deny: [] });
+  await call(router.agents.removeCliRule, { id: agent.id, cli, rule: remembers }, { context });
+  await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(() => expect(starts()).toHaveLength(3));
+  expect(starts()[2]).not.toHaveProperty("rules");
+});
+
+test("a resumed Job merges its run's native rules and refuses denial overflow", async () => {
+  const { context, harness, agent, trigger } = await jobSetup();
+  const sent: ServerToRunner[] = [];
+  const adapter = new CliHarnessAdapter(context.db, { send: (_: string, msg: ServerToRunner) => (sent.push(msg), true) } as unknown as RunnerHub, context.secrets);
+  const engine = new Engine(context.db, adapter, undefined, undefined, undefined, context.secrets);
+  onTestFinished(() => engine.stop());
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(() => expect(sent).toHaveLength(1));
+  const first = sent[0] as Extract<ServerToRunner, { type: "session.start" }>;
+  const subject = { kind: "cli" as const, agentId: agent.id, cli: "claude-code" as const, rule: "Bash(npm test:*)" };
+  await context.db.update(runs).set({ remembered: { allow: [subject, { ...subject, agentId: "another-agent", rule: "Bash" }], deny: [{ ...subject, rule: "Edit" }] } }).where(eq(runs.id, runId));
+  await context.db.update(agentsTable).set({ cliRules: [{ cli: "claude-code", rule: subject.rule, decision: "allow" }] }).where(eq(agentsTable.id, agent.id));
+  const params = { sessionId: first.start.sessionId, runKey: runId, systemPrompt: "S", prompt: "P", expectedOutputs: [], interactive: false, resumeCliSessionId: "cli-1" };
+  await adapter.start(harness, params);
+  expect(sent[1]).toMatchObject({ start: { rules: { allow: [subject.rule], deny: ["Edit"] } } });
+  await context.db.update(agentsTable).set({ cliRules: Array.from({ length: 200 }, (_, i) => ({ cli: "claude-code" as const, rule: `Bash(command${i})`, decision: "deny" as const })) }).where(eq(agentsTable.id, agent.id));
+  await expect(adapter.start(harness, params)).rejects.toThrow("Too many native denial rules");
+  expect(sent).toHaveLength(2);
+});
+
 test("a manual button Job runs the agent and finishes", async () => {
   const { context, adapter, engine, emit, agent, trigger } = await jobSetup();
   const runId = await engine.startJob(trigger.id, context.ownerId);

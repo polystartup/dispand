@@ -16,7 +16,7 @@ export type QuestionFormProps = {
   question: {
     payload: QuestionPayload;
     orphaned?: boolean;
-    remember?: { scopes: ("run" | "always")[]; label: string };
+    remember?: { scopes: ("run" | "always")[]; label: string; decisions?: ("allow" | "deny")[] };
     about?: About | null;
     proposalId?: string | null;
     proposal?: ProposalView | null;
@@ -233,11 +233,11 @@ function Permission({
   proposal,
   onAnswer,
   busy,
-}: Part<Extract<QuestionPayload, { kind: "permission" }>> & { about: About | null; proposalId: string | null; proposal: ProposalView | null; offer?: { scopes: ("run" | "always")[]; label: string } }) {
+}: Part<Extract<QuestionPayload, { kind: "permission" }>> & { about: About | null; proposalId: string | null; proposal: ProposalView | null; offer?: { scopes: ("run" | "always")[]; label: string; decisions?: ("allow" | "deny")[] } }) {
   const [scope, setScope] = useState<"run" | "always" | "">("");
   const radio = useId();
   const [message, setMessage] = useState("");
-  const send = (decision: "allow" | "allow-always" | "deny") => onAnswer({ kind: "permission", decision, ...(message.trim() ? { message: message.trim() } : {}), ...(scope && offer?.scopes.includes(scope) ? { remember: scope } : {}) });
+  const send = (decision: "allow" | "allow-always" | "deny") => onAnswer({ kind: "permission", decision, ...(message.trim() ? { message: message.trim() } : {}), ...(scope && offer?.scopes.includes(scope) && (!offer.decisions || offer.decisions.includes(decision as "allow" | "deny")) ? { remember: scope } : {}) });
   const input = readable(payload.input);
   // An approval the agent asked for in its own words (`request_approval`): the words, not a tool call.
   const asked = approvalWords(payload);
@@ -297,7 +297,8 @@ function Permission({
       )}
       {offer && asked === null && !proposalId && (
         <fieldset className="space-y-2 text-[13px]" disabled={busy}>
-          <legend className="mb-2 font-medium">Remember this decision</legend>
+          <legend className="mb-2 font-medium">{offer.decisions?.length === 1 && offer.decisions[0] === "allow" ? "Remember Allow" : "Remember this decision"}</legend>
+          {offer.decisions?.length === 1 && offer.decisions[0] === "allow" && <p className="text-muted">Deny applies only to this call.</p>}
           <p className="break-words text-muted">{offer.label}</p>
           {[["", "Just this call"], ...offer.scopes.map((s) => [s, s === "run" ? "Remember this for this run only" : "Remember this for this and all future runs"])].map(([value, label]) => (
             <label key={value} className="flex items-start gap-2">

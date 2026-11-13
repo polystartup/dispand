@@ -56,7 +56,7 @@ export async function toolingOf(db: Db, run: { ownerId: string; snapshot: AgentS
   const permitted = rows.map((tool) => {
     const mine = chosen.find((c) => c.toolId === tool.id);
     const target = toolPermissionTarget(tool);
-    const matches = (s: RememberedPermissions["allow"][number]) => s.kind === "tool" && s.agentId === agentId && s.toolId === tool.id && s.target === target;
+    const matches = (s: RememberedPermissions["allow"][number]): s is Extract<RememberedPermissions["allow"][number], { kind: "tool" }> => s.kind === "tool" && s.agentId === agentId && s.toolId === tool.id && s.target === target;
     const allowed = (run.remembered?.allow ?? []).filter(matches).map((s) => s.action).filter((name) => tool.actions.some((a) => a.name === name));
     const refused = (run.remembered?.deny ?? []).filter(matches).map((s) => s.action);
     const denied = [...new Set([...tool.disabled, ...(mine?.denied ?? []), ...refused])];

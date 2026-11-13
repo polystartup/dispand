@@ -761,10 +761,17 @@ and runner drop rules outside the supported CLI-specific subset. Claude denials 
 PreToolUse and canUseTool brokers enforce the boundary before a saved native grant; Codex
 rejects extra sandbox permissions, repeated command requests and denied file paths before
 accepting one. Native rules do not enter CLI settings, execpolicy or network amendments.
-Codex can execute known-safe commands without calling the approval broker; native Codex deny
+The current Codex integration can execute known-safe commands without calling the approval broker; native Codex deny
 snapshots are therefore refused before execution. A scoped native denial stops its Codex
 session. PreToolUse hooks fail open on errors/timeouts and cannot substitute for this refusal.
 Permission questions carry only matching rule candidates; they grant no server authority by
 themselves. Their metadata is shown whole or rejected, and an explicit scoped answer can
-cache only that matching candidate in the current session. Candidate-to-owner scope binding
-is a separate server integration; the existing managed-tool approval path remains unchanged.
+cache only that matching candidate in the current session. The server binds native candidates to the active Job
+and its stored agent/CLI; workflow and cloud questions receive no native CLI scopes. Only
+the owner can remember a decision, in the answer transaction. Codex exposes remembered Allow
+only; Deny is single-call, enforced server-side as well as in the UI. This restriction reflects
+the current integration and can be lifted once a reliable enforcement path exists. Run rules
+remain isolated to that Job; future-run writes/removal lock the agent row. Starts/resumes merge
+run and current agent rules, refusing excess denials instead of silently dropping them.
+Pending allows are rechecked before caching; a removed saved grant becomes single-call.
+The existing managed-tool approval path remains unchanged.
