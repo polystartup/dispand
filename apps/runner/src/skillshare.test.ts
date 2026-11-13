@@ -83,6 +83,7 @@ fs.mkdirSync(dir, { recursive: true });
 const stateFile = path.join(dir, "fixture.json");
 let state = { plugins: [], markets: {} };
 try { state = JSON.parse(fs.readFileSync(stateFile, "utf8")); } catch {}
+let changed = false;
 const out = data => console.log(typeof data === "string" ? data : JSON.stringify(data));
 if (args.includes("--help")) out("--json --scope --force");
 else if (args[0] === "--version") out("2.1.300");
@@ -95,11 +96,13 @@ else if (args[1] === "marketplace" && args[2] === "add") {
  const root = args[3];
  const market = JSON.parse(fs.readFileSync(path.join(root, ".claude-plugin/marketplace.json"), "utf8"));
  state.markets[market.name] = root;
-} else if (args[1] === "marketplace" && args[2] === "remove") delete state.markets[args[3]];
-else if (args[1] === "install" || args[1] === "add") { state.plugins.push({ id: args[2], scope: "user", installed: true, enabled: true }); out({}); }
-else if (args[1] === "uninstall" || args[1] === "remove") state.plugins = state.plugins.filter(p => p.id !== args[2]);
+ changed = true;
+} else if (args[1] === "marketplace" && args[2] === "remove") { delete state.markets[args[3]]; changed = true; }
+else if (args[1] === "install" || args[1] === "add") { state.plugins.push({ id: args[2], scope: "user", installed: true, enabled: true }); changed = true; out({}); }
+else if (args[1] === "uninstall" || args[1] === "remove") { state.plugins = state.plugins.filter(p => p.id !== args[2]); changed = true; }
 else process.exit(1);
-fs.writeFileSync(stateFile, JSON.stringify(state));
+// Concurrent inventory probes must not overwrite a completed installation.
+if (changed) fs.writeFileSync(stateFile, JSON.stringify(state));
 `;
   for (const client of ["claude", "codex"]) {
     await writeFile(join(bin, client), script);
@@ -131,7 +134,10 @@ test.each([false, true])("pinned Skillshare installs both targets with one previ
   const applied = await native.request({ ...operation, dryRun: false, revision: preview.revision! });
   expect(applied.error).toBeUndefined();
   expect(applied.results).toHaveLength(2);
+  const stateFiles = ["claude", "codex"].map((client) => join(base, defaultHomes ? `.${client}` : client, "fixture.json"));
+  const modified = await Promise.all(stateFiles.map(async (file) => (await stat(file, { bigint: true })).mtimeNs));
   const installed = await native.request({ action: "list" });
+  expect(await Promise.all(stateFiles.map(async (file) => (await stat(file, { bigint: true })).mtimeNs))).toEqual(modified);
   for (const harness of targets) {
     expect(applied.results).toContainEqual({ name: operation.name, harness, status: "installed" });
     expect(installed.packages).toContainEqual(expect.objectContaining({ name: operation.name, harness, installed: true, enabled: true, pending: false }));
