@@ -295,3 +295,53 @@ test("the studio: a second conversation's setup stops at a name taken, goes on, 
   await chat.getByRole("button", { name: "GitHub", exact: true }).click();
   await expect(page.getByRole("dialog").getByText(/^Needs sign-in: enter its Personal access token/)).toBeVisible();
 });
+
+test("Assistant settings selects the next conversation's harness and model; chat fills desktop and mobile", async ({ page }, testInfo) => {
+  await signIn(page);
+  await page.goto("/assistant?run=new");
+  const created = await rpc<{ pairingCode: string; runnerId: string }>(page, "runners/create", { name: "Assistant settings runner" });
+  const settingsRunner = await FakeRunner.pair(SERVER, created.pairingCode);
+  try {
+    await rpc(page, "harnesses/create", { name: "Assistant settings CLI", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
+    await page.getByRole("button", { name: "Assistant settings" }).click();
+    const sheet = page.getByRole("dialog");
+    await sheet.getByLabel("Harness", { exact: true }).click();
+    await page.getByRole("option", { name: "Assistant settings CLI", exact: true }).click();
+    await sheet.getByLabel("Model", { exact: true }).fill("sonnet");
+    await sheet.getByRole("button", { name: "Save settings" }).click();
+    await expect(sheet).toHaveCount(0);
+    const chat = page.getByRole("region", { name: "Assistant", exact: true });
+    await chat.getByRole("textbox", { name: "Message", exact: true }).fill("Use the selected harness and model.");
+    await chat.getByRole("button", { name: "Send", exact: true }).click();
+    const { start } = await settingsRunner.waitFor("session.start", WAIT_MS);
+    expect(start.harness).toBe("claude-code");
+    expect(start.model).toBe("sonnet");
+    settingsRunner.emit(start.sessionId, { type: "text", delta: "Using your selected settings." });
+    await expect(chat.getByText("Using your selected settings.")).toBeVisible();
+
+    for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(viewport);
+      await expect(chat.getByRole("textbox", { name: "Message", exact: true })).toBeInViewport();
+      const bounds = (await chat.boundingBox())!;
+      expect(bounds.x + bounds.width).toBeGreaterThan(viewport.width - 30);
+      expect(bounds.y + bounds.height).toBeGreaterThan(viewport.height - 30);
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
+      expect(bounds.height).toBeGreaterThan(viewport.height * 0.5);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`assistant-${viewport.width}.png`) });
+    }
+
+    await page.reload();
+    await page.getByRole("button", { name: "Assistant settings" }).click();
+    await expect(sheet.getByLabel("Model", { exact: true })).toHaveValue("sonnet");
+    await sheet.getByLabel("Model", { exact: true }).fill("");
+    await sheet.getByRole("button", { name: "Save settings" }).click();
+    await expect(sheet).toHaveCount(0);
+    await page.getByRole("navigation", { name: "Conversations" }).getByRole("button", { name: "New conversation" }).click();
+    await chat.getByRole("textbox", { name: "Message", exact: true }).fill("Use the default model.");
+    await chat.getByRole("button", { name: "Send", exact: true }).click();
+    expect((await settingsRunner.waitFor("session.start", WAIT_MS)).start.model).toBeUndefined();
+  } finally {
+    settingsRunner.close();
+  }
+});

@@ -10,6 +10,7 @@ import { Empty } from "../settings/parts.tsx";
 import { when } from "../workflow/Runs.tsx";
 import { ChatPanel } from "../widgets/ChatPanel.tsx";
 import { ReviewSwitch } from "./ReviewSwitch.tsx";
+import { AssistantSettings } from "./AssistantSettings.tsx";
 
 /** What the Assistant's empty conversation asks first: the day-one conversation's opening. */
 export const WELCOME = "Describe your business or use case and how you'd like to automate it.";
@@ -29,12 +30,15 @@ export function AssistantChat({ run, onOpen }: Props) {
   const assistant = useQuery(orpc.agents.assistant.queryOptions());
   if (assistant.error) return <p role="alert" className="text-[14px] text-danger">Could not load the Assistant.</p>;
   if (assistant.data === undefined) return <p className="text-[14px] text-faint">Loading…</p>;
-  if (assistant.data === null) return <PickHarness />;
+  if (assistant.data === null) return <div className="min-h-0 overflow-y-auto"><PickHarness /></div>;
   return (
-    <>
-      {assistant.data.reviewTriggerId && <ReviewSwitch triggerId={assistant.data.reviewTriggerId} />}
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
+        {assistant.data.reviewTriggerId && <ReviewSwitch triggerId={assistant.data.reviewTriggerId} />}
+        <AssistantSettings agentId={assistant.data.agentId} />
+      </div>
       <Conversation key={assistant.data.triggerId} triggerId={assistant.data.triggerId} run={run} onOpen={onOpen} />
-    </>
+    </div>
   );
 }
 
@@ -45,8 +49,8 @@ function Conversation({ triggerId, run, onOpen }: { triggerId: string } & Props)
   if (!jobs.data) return <p className="text-[14px] text-faint">Loading…</p>;
   const runId = run === NEW_CONVERSATION ? null : (run ?? jobs.data[0]?.id ?? null);
   return (
-    <div className="flex h-[calc(100dvh-19rem)] min-h-96 flex-col gap-4 md:flex-row">
-      <nav aria-label="Conversations" className="flex max-h-40 shrink-0 flex-col gap-1 overflow-y-auto rounded-2xl bg-surface p-2 shadow-card md:max-h-none md:w-64">
+    <div className="flex min-h-0 flex-1 flex-col gap-3 md:flex-row">
+      <nav aria-label="Conversations" className="flex max-h-28 shrink-0 flex-col gap-1 overflow-y-auto rounded-2xl bg-surface p-2 shadow-card md:max-h-none md:w-64">
         <Button type="button" variant="ghost" className="justify-start gap-2" onClick={() => onOpen(NEW_CONVERSATION)}>
           <MessageSquarePlus aria-hidden />
           New conversation
@@ -110,7 +114,7 @@ function PickHarness() {
             if (harnessId) ensure.mutate({ harnessId });
           }}
         >
-          <p className="text-[14px] text-muted">Pick the harness the Assistant runs on. You can change it later on its agent page.</p>
+          <p className="text-[14px] text-muted">Pick the harness the Assistant runs on. You can change its harness and model later in Assistant settings.</p>
           <div className="flex flex-wrap items-center gap-3">
             <select aria-label="Harness" value={harnessId} onChange={(e) => setHarnessId(e.target.value)} className={selectClass}>
               <option value="">Pick a harness</option>

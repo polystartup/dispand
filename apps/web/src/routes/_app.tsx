@@ -1,4 +1,4 @@
-import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import { createFileRoute, Outlet, redirect, useRouterState } from "@tanstack/react-router";
 import { Menu } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -19,6 +19,7 @@ export const Route = createFileRoute("/_app")({
 
 function AppShell() {
   const { user } = Route.useRouteContext();
+  const assistant = useRouterState({ select: (state) => state.location.pathname === "/assistant" });
   const [open, setOpen] = useState(false);
   usePendingQuestionsStream();
 
@@ -65,7 +66,7 @@ function AppShell() {
             <Sidebar user={user} onNavigate={() => setOpen(false)} />
           </SheetContent>
 
-        <main className="mx-auto max-w-4xl px-5 py-8 md:px-12 md:py-14">
+        <main className={assistant ? "flex h-[calc(100dvh-3rem)] min-h-0 flex-col overflow-hidden p-3 md:h-dvh md:p-6" : "mx-auto max-w-4xl px-5 py-8 md:px-12 md:py-14"}>
           <Outlet />
         </main>
       </div>
