@@ -529,3 +529,25 @@ test("a cloud session holds its harness's slot only while it works: not between 
   expect(await working(noteRun, "n_note")).toBe(false);
   expect(model.inputs).toHaveLength(3);
 });
+
+test("a finished cloud Job reopens in the same Job with its complete model transcript", async () => {
+  const model = fakeModel(() => ({ text: "First answer.", toolCalls: [{ id: "end1", name: "submit_outputs", args: {} }] }), () => ({ text: "Second answer.", toolCalls: [{ id: "end2", name: "submit_outputs", args: {} }] }));
+  const { context, engine, agent } = await setup(buttonStep, { client: model.client });
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } }, { context });
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(async () => expect((await stepOf(engine, runId, trigger.id)).cliSessionId).toBeTruthy());
+  await engine.sendChat(runId, "First request.");
+  await until(engine, runId, "succeeded");
+  const before = await stepOf(engine, runId, trigger.id);
+  await engine.sendChat(runId, "One more thing.");
+  await until(engine, runId, "succeeded");
+  const after = await stepOf(engine, runId, trigger.id);
+  expect(after.id).toBe(before.id);
+  expect(after.sessionId).not.toBe(before.sessionId);
+  expect(after.cliSessionId).toBe(after.sessionId);
+  const continued = model.inputs.find((input) => input.items.some((item) => item.role === "user" && item.text.includes("One more thing.")))!;
+  expect(continued.items.some((item) => item.role === "assistant" && item.text === "First answer.")).toBe(true);
+  expect(continued.items.some((item) => item.role === "user" && item.text.includes("First request."))).toBe(true);
+  const transcript = await context.db.select().from(messages).where(eq(messages.runId, runId)).orderBy(messages.position);
+  expect(transcript.filter((m) => m.role !== "tool").map((m) => m.text)).toEqual(["First request.", "First answer.", "One more thing.", "Second answer."]);
+});

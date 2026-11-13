@@ -36,7 +36,7 @@ async function watch(runId: string, entry: Entry) {
           set(applyRunEvent(entry.state, event));
           // Something came through: the next end of the stream starts the backoff over.
           attempt = -1;
-          // Nothing changes in a finished run: let the connection go.
+          // A final run lets the connection go; resumable Job chats keep listening.
           if (runOver(entry.state)) break;
         }
       } catch {

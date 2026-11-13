@@ -6,7 +6,7 @@ import { secretAad, SecretError, type SecretBox } from "../secrets.ts";
 import type { JobIdentity } from "./call.ts";
 
 // A Job's token: what its session presents to the Job endpoint. Random, per Job, dead with the
-// Job. The database keeps its hash (to find the Job) and its sealed form (to hand it to the
+// Job, and rotated when a finished chat reopens. The database keeps its hash (to find the Job) and its sealed form (to hand it to the
 // Job's sessions, at each start), never the token itself.
 
 const hashOf = (token: string) => createHash("sha256").update(token).digest("hex");

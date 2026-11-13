@@ -9,7 +9,7 @@ import { MAX_CLI_RULE_LENGTH } from "./rules.ts";
  * Sent by the runner as the `Dispand-Protocol` header when it connects. Bumped by every
  * change a runner of the previous version can't parse or honor; the hub turns older runners away.
  */
-export const PROTOCOL_VERSION = 21;
+export const PROTOCOL_VERSION = 22;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {

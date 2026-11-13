@@ -1,5 +1,5 @@
 import { type Answer, type HarnessEvent, ID, type QuestionPayload, SHORT, TEXT } from "@dispand/runner-protocol";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { cloudSessions, stepRuns } from "../db/schema.ts";
 import { answerText } from "../engine/engine.ts";
@@ -144,7 +144,7 @@ const offersSubmit = (start: { interactive: boolean; expectedOutputs: unknown[] 
 export class CloudRunner implements HarnessAdapter<CloudHarness> {
   private handler: Handler = async () => {};
   private readonly locks = new Map<string, Promise<void>>();
-  private readonly driving = new Set<string>();
+  private readonly driving = new Map<string, Promise<void>>();
   /** The tool call under way of each session, so a stop can cut it. */
   private readonly calls = new Map<string, AbortController>();
   private readonly again = new Set<string>();
@@ -176,6 +176,12 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       if (!row) {
         const [step] = await this.db.select({ id: stepRuns.id, ownerId: stepRuns.ownerId }).from(stepRuns).where(eq(stepRuns.sessionId, id));
         if (!step) throw new Error("unknown session");
+        const [previous] = start.resumeCliSessionId
+          ? await this.db.select().from(cloudSessions).where(and(eq(cloudSessions.id, start.resumeCliSessionId), eq(cloudSessions.ownerId, step.ownerId), eq(cloudSessions.stepRunId, step.id)))
+          : [];
+        if (start.resumeCliSessionId && !previous) throw new Error("unknown cloud transcript");
+        const call = previous?.pending ? nextCall(previous.items) : undefined;
+        const history: ChatItem[] = previous ? (call ? [...previous.items, { role: "tool", callId: call.id, name: call.name, result: TEXTS.notAnswered, isError: true }] : previous.items) : [];
         await this.db.insert(cloudSessions).values({
           id,
           ownerId: step.ownerId,
@@ -185,7 +191,8 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
           start,
           // An empty prompt (a chat whose trigger has no instructions) is no turn: the owner's first
           // message is. Until it comes, the chat waits between turns (`send` wakes it).
-          items: idle ? [] : [{ role: "user", text: start.prompt }],
+          items: previous ? history : idle ? [] : [{ role: "user", text: start.prompt }],
+          ...(previous ? { queued: [...previous.queued, start.prompt] } : {}),
           status: idle ? "idle" : "running",
         });
         await this.emit(id, {}, { type: "cli-session", cliSessionId: id });
@@ -208,6 +215,9 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     await this.locked(sessionId, () => this.db.update(cloudSessions).set({ status: "done" }).where(eq(cloudSessions.id, sessionId)));
     // Its tool call under way is cut; one not dispatched yet finds the session done.
     this.calls.get(sessionId)?.abort();
+    // A reopened session must not race the former model/tool loop on the same transcript.
+    await this.driving.get(sessionId);
+    await this.locked(sessionId, () => this.emit(sessionId, {}, { type: "session-ended" }));
     return true;
   }
 
@@ -314,8 +324,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       this.again.add(id);
       return;
     }
-    this.driving.add(id);
-    void this.drive(id)
+    const driving = this.drive(id)
       .catch(async (err: unknown) => {
         logError("cloud session failed", err, { ref: id });
         await this.locked(id, () => this.emit(id, { status: "done" }, { type: "error", message: "The cloud session stopped on an internal error" })).catch(
@@ -326,6 +335,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         this.driving.delete(id);
         if (this.again.delete(id)) this.kick(id);
       });
+    this.driving.set(id, driving);
   }
 
   private async drive(id: string) {

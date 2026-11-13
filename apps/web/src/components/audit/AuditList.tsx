@@ -15,6 +15,7 @@ export const ACTION_WORDS: Record<AuditAction, string> = {
   "job.created": "Job created",
   "job.queued": "Job queued for its harness",
   "job.started": "Job started",
+  "job.reopened": "Job reopened",
   "job.waiting": "Job waiting for an answer",
   "job.finished": "Job finished",
   "job.failed": "Job failed",

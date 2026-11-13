@@ -237,3 +237,57 @@ test("a chat widget on Home: inline question, confirmation, then the next step's
   await workflowTabs.getByRole("link", { name: "Editor" }).click();
   await expect(page.getByLabel("Workflow name")).toHaveValue("Plan an idea");
 });
+
+test("a finished Job chat continues in the same conversation after the former process exits", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await signIn(page);
+  const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Continuation box" });
+  const local = await FakeRunner.pair(SERVER, created.pairingCode);
+  const ownPage = await rpc<{ id: string }>(page, "pages/create", { title: "Continue a conversation" });
+  try {
+    const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Continuation harness", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
+    const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Conversation partner", harnessId: harness.id, systemPrompt: "" });
+    const trigger = await rpc<{ id: string }>(page, "triggers/create", { agentId: agent.id, name: "Continue a chat", instructions: "", config: { kind: "manual", placement: "chat" } });
+    await rpc(page, "widgets/create", { pageId: ownPage.id, type: "trigger-form", triggerId: trigger.id, title: "Our conversation" });
+    await page.goto(`/p/${ownPage.id}`);
+    const chat = page.getByRole("region", { name: "Our conversation" });
+    const input = chat.getByRole("textbox", { name: "Message", exact: true });
+    await input.fill("First request.");
+    await chat.getByRole("button", { name: "Send", exact: true }).click();
+    const old = (await local.waitFor("session.start", WAIT_MS)).start;
+    expect((await local.waitFor("session.send", WAIT_MS)).text).toBe("First request.");
+    const jobs = await rpc<{ id: string }[]>(page, "runs/list", { triggerId: trigger.id });
+    expect(jobs).toHaveLength(1);
+    const runId = jobs[0]!.id;
+    local.emit(old.sessionId, { type: "cli-session", cliSessionId: "cli_conversation" });
+    local.emit(old.sessionId, { type: "text", delta: "First answer." });
+    local.emit(old.sessionId, { type: "outputs-accepted", values: {} });
+    await expect.poll(async () => (await rpc<{ status: string }>(page, "jobs/get", { id: runId })).status).toBe("succeeded");
+    await expect(chat.getByText("First answer.", { exact: true })).toBeVisible();
+    await expect(input).toBeEnabled();
+    await input.fill("One more thing.");
+    await chat.getByRole("button", { name: "Send", exact: true }).click();
+    expect((await local.waitFor("session.stop", WAIT_MS)).sessionId).toBe(old.sessionId);
+    expect(local.received.filter((m) => m.type === "session.start")).toHaveLength(1);
+    // Logical completion can arrive late, but cannot close this new turn.
+    local.emit(old.sessionId, { type: "result", text: "Old final result." });
+    await expect.poll(async () => (await rpc<{ status: string }>(page, "jobs/get", { id: runId })).status).toBe("running");
+    local.emit(old.sessionId, { type: "session-ended" });
+    const resumed = (await local.waitFor("session.start", WAIT_MS)).start;
+    expect(resumed.sessionId).not.toBe(old.sessionId);
+    expect(resumed.cwd).toEqual(old.cwd);
+    expect(resumed.resumeCliSessionId).toBe("cli_conversation");
+    expect(resumed.prompt).toContain("One more thing.");
+    expect(resumed.prompt).not.toContain("First request.");
+    local.emit(resumed.sessionId, { type: "text", delta: "Second answer." });
+    local.emit(resumed.sessionId, { type: "outputs-accepted", values: {} });
+    await expect.poll(async () => (await rpc<{ status: string }>(page, "jobs/get", { id: runId })).status).toBe("succeeded");
+    for (const text of ["First request.", "First answer.", "One more thing.", "Second answer."]) await expect(chat.getByRole("listitem").getByText(text, { exact: true })).toBeVisible();
+    expect(await rpc(page, "runs/list", { triggerId: trigger.id })).toHaveLength(1);
+    await expect(input).toBeEnabled();
+    await chat.screenshot({ path: test.info().outputPath("chat-reopened.png"), animations: "disabled" });
+  } finally {
+    local.close();
+    await rpc(page, "pages/delete", { id: ownPage.id });
+  }
+});

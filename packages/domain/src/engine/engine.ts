@@ -116,7 +116,7 @@ export function runView(r: RunRow) {
 export function stepView(s: StepRow) {
   const { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt } = s;
   // prompt: as the step got it, values filled in (for the owner to debug a run); null until started.
-  return { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, interactive: s.start?.interactive ?? false, prompt: s.start?.prompt ?? null };
+  return { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, interactive: s.start?.interactive ?? false, prompt: s.start?.prompt ?? null, ...(s.cliSessionId ? { resumable: true as const } : {}) };
 }
 export function messageView(m: MessageRow) {
   const { id, runId, stepRunId, role, text, createdAt } = m;
@@ -650,37 +650,37 @@ export class Engine {
 
   /** The owner's next chat message to the run's chat session. */
   async sendChat(runId: string, text: string): Promise<void> {
-    const steps = await this.db
-      .select()
-      .from(stepRuns)
-      .where(and(eq(stepRuns.runId, runId), inArray(stepRuns.status, OPEN_STEP)));
-    // A chat whose session waits for a slot (`slots.ts`) keeps the message: its start sends it.
-    const chat = steps.find((s) => s.start?.interactive && s.sessionId && ACTIVE_STEP.includes(s.status)) ?? (await this.queuedChat(runId, steps));
-    if (!chat) throw new EngineError("CLOSED", "The chat is over");
+    const steps = await this.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+    const candidate = steps.find((s) => s.start?.interactive && s.sessionId) ?? (await this.queuedChat(runId, steps));
+    if (!candidate) throw new EngineError("CLOSED", "The chat is over");
     const out: Out[] = [];
-    const { row, working } = await this.db.transaction(async (tx) => {
-      // Each message of the owner is a root cause of its own, unless the chat's is paused at a
-      // checkpoint: the message then waits, undelivered, for that one to go on.
-      const going = await this.rootGoingLocked(tx, runId);
-      if (going) await tx.update(runs).set({ rootId: await newRoot(tx, chat.ownerId, "chat", runId) }).where(eq(runs.id, runId));
-      const [row] = await tx
-        .insert(messages)
-        .values({ id: newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text })
-        .returning();
+    const { row, working, chat } = await this.db.transaction(async (tx) => {
+      // Lock the root before the chat step, as checkpoint answers do. Completion and this
+      // message serialize on the step: a message racing completion either sends or reopens.
+      let going = await this.rootGoingLocked(tx, runId);
+      let [chat] = await tx.select().from(stepRuns).where(eq(stepRuns.id, candidate.id)).for("update");
+      if (!chat) throw new EngineError("CLOSED", "The chat is over");
+      if (!OPEN_STEP.includes(chat.status)) {
+        chat = await this.reopen(tx, chat, out);
+        going = true;
+      } else if (going) {
+        await tx.update(runs).set({ rootId: await newRoot(tx, chat.ownerId, "chat", runId) }).where(eq(runs.id, runId));
+      }
+      const [row] = await tx.insert(messages).values({ id: newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text }).returning();
       out.push({ type: "message", message: messageView(row!) });
-      // Not started yet: its start sends what is stored by then (and waits for the root too).
-      if (!chat.sessionId) return { row: row!, working: true };
+      if (chat.resumeAfterSession) return { row: row!, working: false, chat };
+      if (!chat.sessionId) return { row: row!, working: true, chat };
       if (!going) {
         await this.hold(tx, chat.id, { kind: "deliver" }, out);
-        return { row: row!, working: false };
+        return { row: row!, working: false, chat };
       }
-      // A session between turns takes a slot first, a person waiting on it, or queues with the message.
-      if (!chat.harnessId) return { row: row!, working: true };
+      if (!chat.harnessId) return { row: row!, working: true, chat };
       const got = await take(tx, { id: chat.id, harnessId: chat.harnessId }, "person", { kind: "deliver" });
       if (got === "queued") await this.pushStep(tx, chat.id, out);
-      return { row: row!, working: got === "working" };
+      return { row: row!, working: got === "working", chat };
     });
     this.publish(out);
+    if (chat.resumeAfterSession) return this.resume(chat);
     if (chat.sessionId) {
       if (working) this.deliverMessage(chat.sessionId, row);
       return;
@@ -701,6 +701,27 @@ export class Engine {
     });
     this.publish(late);
     if (going) await this.redeliverMessage(row.id);
+  }
+
+  /** A new turn in the same Job, keeping its transcript but replacing its session and token. */
+  private async reopen(tx: Tx, step: StepRow, out: Out[]): Promise<StepRow> {
+    const [run] = await tx.select().from(runs).where(eq(runs.id, step.runId));
+    if (!run || run.source !== "agent" || !run.agentId || run.status !== "succeeded" || run.def?.trigger.field.type !== "chat" || step.status !== "succeeded" || !step.cliSessionId || !step.sessionId || !step.start?.interactive || !step.harness || (run.tokenSealed && !this.secrets)) throw new EngineError("CLOSED", "The chat is over");
+    const token = this.secrets ? issueJobToken(this.secrets, run.id) : null;
+    const [reopened] = await tx.update(runs).set({ status: "running", finishedAt: null, rootId: await newRoot(tx, run.ownerId, "chat", run.id), ...(token ? { tokenHash: token.hash, tokenSealed: token.sealed } : {}) }).where(and(eq(runs.id, run.id), eq(runs.status, "succeeded"))).returning();
+    if (!reopened) throw new EngineError("CLOSED", "The chat is over");
+    const sessionId = newId("ses");
+    const [chat] = await tx.update(stepRuns).set({ status: "running", finishedAt: null, sessionId, start: { ...step.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: step.sessionId, ended: false } }).where(eq(stepRuns.id, step.id)).returning();
+    await recordAudit(tx, { ownerId: run.ownerId, actor: { type: "user", userId: run.ownerId }, agentId: run.agentId, jobId: run.id, action: "job.reopened", resource: { type: "job", id: run.id } });
+    spanEvent("engine.reopen", { "dispand.job.id": run.id, "dispand.step.id": step.id, "dispand.session.id": sessionId });
+    out.push({ type: "run", run: runView(reopened) }, { type: "step", step: stepView(chat!) });
+    return chat!;
+  }
+
+  /** A process-ended acknowledgement, or a hello without that process, releases its resume. */
+  private async retired(sessionId: string, runnerId: string) {
+    const rows = await this.db.update(stepRuns).set({ resumeAfterSession: { sessionId, ended: true } }).where(and(eq(stepRuns.runnerId, runnerId), inArray(stepRuns.status, ACTIVE_STEP), sql`${stepRuns.resumeAfterSession}->>'sessionId' = ${sessionId}`, sql`${stepRuns.resumeAfterSession}->>'ended' = 'false'`)).returning();
+    for (const step of rows) await this.resume(step);
   }
 
   /** Sends the answers and chat messages that wait for the step's session (it holds a slot). */
@@ -724,6 +745,7 @@ export class Engine {
   private async handOver(stepId: string) {
     const [step] = await this.db.select().from(stepRuns).where(eq(stepRuns.id, stepId));
     if (!step?.working || !step.pendingAction) return;
+    if (step.resumeAfterSession) return this.resume(step);
     // Its root paused at a checkpoint meanwhile: the slot goes back, what it waited to do waits on.
     if (!(await rootGoing(this.db, step.runId))) {
       const out: Out[] = [];
@@ -1237,6 +1259,7 @@ export class Engine {
 
   /** A held step takes a slot for what it waits to do, and does it once it holds one (`handOver`). */
   private async wake(step: StepRow) {
+    if (step.resumeAfterSession) return this.resume(step);
     const undelivered = async () => (await this.undeliveredAnswers(step.sessionId!)).length > 0 || (await this.undeliveredMessages(step.id)).length > 0;
     const action: PendingAction | null = !step.startDeliveredAt
       ? { kind: "start" }
@@ -1305,6 +1328,7 @@ export class Engine {
   }
 
   private async applyEvent(sessionId: string, event: HarnessEvent, from: { runnerId: string; seq: number }): Promise<void> {
+    if (event.type === "session-ended") await this.retired(sessionId, from.runnerId);
     const out: Out[] = [];
     const result = await this.db.transaction(async (tx) => {
       // A consult makes a Job in the asking Job's root: that root is locked first, as a
@@ -1460,6 +1484,17 @@ export class Engine {
         let step = row;
         const sessionId = step.sessionId!;
         if (this.inFlight.has(`start:${sessionId}`)) continue;
+        if (step.resumeAfterSession) {
+          if (liveSessions.includes(sessionId)) {
+            await this.db.update(stepRuns).set({ resumeAfterSession: null, pendingAction: null, startDeliveredAt: new Date() }).where(eq(stepRuns.id, step.id));
+            await this.adapter.narrowPermissions?.(sessionId);
+            if (holdsSlot(step)) await this.flush(step.id, sessionId);
+          } else if (!liveSessions.includes(step.resumeAfterSession.sessionId)) {
+            if (step.resumeAfterSession.ended) await this.resume(step);
+            else await this.retired(step.resumeAfterSession.sessionId, runnerId);
+          } else this.stopSession(step.resumeAfterSession.sessionId, runnerId);
+          continue;
+        }
         if (liveSessions.includes(sessionId)) await this.adapter.narrowPermissions?.(sessionId);
         // Its events came (its CLI session id among them): the start reached the runner, though the
         // server stopped before recording its write. Resending it would hit the folder it made.
@@ -1522,6 +1557,11 @@ export class Engine {
    */
   private async resume(step: StepRow) {
     const sessionId = step.sessionId!;
+    if (step.resumeAfterSession && !step.resumeAfterSession.ended) {
+      this.stopSession(step.resumeAfterSession.sessionId, step.runnerId!);
+      return;
+    }
+    if (this.inFlight.has(`start:${sessionId}`)) return;
     const out: Out[] = [];
     // Its root paused at a checkpoint: it resumes once the root goes on (`goOn`).
     if (!(await rootGoing(this.db, step.runId))) {
@@ -1575,6 +1615,10 @@ export class Engine {
       const now = new Date();
       if (answers.length) await this.db.update(questions).set({ deliveredAt: now }).where(inArray(questions.id, answers.map((q) => q.id)));
       if (carried.length) await this.db.update(messages).set({ deliveredAt: now }).where(inArray(messages.id, carried.map((m) => m.id)));
+      if (step.resumeAfterSession) {
+        await this.db.update(stepRuns).set({ resumeAfterSession: null, pendingAction: null }).where(and(eq(stepRuns.id, step.id), eq(stepRuns.sessionId, sessionId)));
+        await this.flush(step.id, sessionId);
+      }
     });
     // What didn't fit follows as messages, after the start on the same connection. The resumed
     // session doesn't know the old question ids: those answers go as words too (orphaned).
@@ -1625,6 +1669,8 @@ export class Engine {
   private async unconfirm(tx: Tx | Db, step: StepRow) {
     // A write under way went to the lost session: it won't mark its row delivered.
     this.losses.set(step.sessionId!, (this.losses.get(step.sessionId!) ?? 0) + 1);
+    // The new session of a reopened chat has not received any old transcript messages.
+    if (step.resumeAfterSession && !step.startDeliveredAt) return;
     const since = step.startDeliveredAt ?? new Date(0);
     await tx
       .update(messages)
@@ -1685,6 +1731,8 @@ export class Engine {
     // A closed step keeps its transcript and questions as they were.
     if (!OPEN_STEP.includes(step.status)) return null;
     switch (event.type) {
+      case "session-ended":
+        return null;
       case "cli-session":
         await tx.update(stepRuns).set({ cliSessionId: event.cliSessionId }).where(eq(stepRuns.id, step.id));
         return null;

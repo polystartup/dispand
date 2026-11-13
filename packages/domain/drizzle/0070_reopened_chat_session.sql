@@ -1,0 +1,1 @@
+ALTER TABLE "step_runs" ADD COLUMN "resume_after_session" jsonb;

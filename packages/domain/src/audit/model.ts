@@ -10,6 +10,7 @@ export const AUDIT_ACTIONS = [
   "job.created",
   "job.queued",
   "job.started",
+  "job.reopened",
   "job.waiting",
   "job.finished",
   "job.failed",
