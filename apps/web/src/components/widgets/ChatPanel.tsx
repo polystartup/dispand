@@ -2,7 +2,7 @@ import { nodesOf, type WorkflowDef } from "@dispand/domain/workflows/model";
 import { SHORT } from "@dispand/runner-protocol";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, Check, CircleAlert, Loader2, MessageSquarePlus, ShieldCheck } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { api, orpc } from "../../lib/api.ts";
 import { canReopen, type RunSnapshot } from "../../lib/run-state.ts";
@@ -22,10 +22,11 @@ type Props = {
   onNewConversation: () => void;
   /** What an empty conversation invites the owner to say (default: a plain hello). */
   welcome?: string;
+  composerTools?: ReactNode;
 };
 
 /** A workflow's Chat field or an agent's chat trigger: the conversation with the agent, then the progress of the steps after it. */
-export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConversation, welcome }: Props) {
+export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools }: Props) {
   const run = useRun(runId);
   // Names and nodes as the run's version had them: the workflow may have changed since.
   const version = run?.run.version;
@@ -136,8 +137,9 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
         canSend={canSend}
         onSend={sendText}
         welcome={welcome}
+        centeredWelcome={!!composerTools}
         composer={
-          <div className="border-t border-line bg-surface px-3 py-3">
+          <div className={`shrink-0 px-4 pb-4 pt-2 ${composerTools ? "" : "bg-surface"}`}>
             {error && (
               <p role="alert" className="mb-2 px-1 text-[13px] text-danger">
                 {error}
@@ -154,13 +156,13 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
               </div>
             )}
             <form
-              className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-line bg-bg p-2 shadow-sm focus-within:border-accent"
+              className={`mx-auto flex w-full max-w-3xl flex-wrap items-end gap-2 rounded-2xl border border-line p-3 focus-within:border-accent ${composerTools ? "bg-surface/85 shadow-sm backdrop-blur-xl" : "bg-surface"}`}
               onSubmit={(e) => {
                 e.preventDefault();
                 void send();
               }}
             >
-              {runId && (
+              {runId && !composerTools && (
                 <Button
                   type="button"
                   variant="ghost"
@@ -201,13 +203,14 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
                     void send();
                   }
                 }}
-                className="min-h-9 min-w-0 flex-1 resize-none bg-transparent px-2 py-[7px] text-[15px] leading-5 outline-none placeholder:text-faint disabled:opacity-60"
+                className={`${composerTools ? "w-full basis-full" : "flex-1"} min-h-9 min-w-0 resize-none bg-transparent px-2 py-[7px] text-[15px] leading-5 outline-none placeholder:text-faint disabled:opacity-60`}
               />
+              {composerTools && <div className="min-w-0 flex-1">{composerTools}</div>}
               <Button type="submit" size="icon-sm" aria-label="Send" disabled={!canSend || sending || !text.trim()} className="rounded-full">
                 <ArrowUp aria-hidden />
               </Button>
             </form>
-            <p className="mx-auto mt-2 max-w-3xl px-1 text-[11px] text-faint">
+            <p className="mx-auto mt-2 hidden max-w-3xl px-1 text-[11px] text-faint md:block">
               {approval ? `${MOD}+Enter to approve · Enter to send what should change · Shift+Enter for a new line` : "Enter to send · Shift+Enter for a new line"}
             </p>
           </div>

@@ -72,13 +72,14 @@ test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ pa
 
   // The URL holds the conversation: a reload reopens it.
   await expect(page).toHaveURL(/\/assistant\?run=run_/);
+  await page.getByRole("button", { name: "Conversation history" }).click();
   const conversations = page.getByRole("navigation", { name: "Conversations" });
   await expect(conversations.getByRole("button", { name: /What fires a Job\?/ })).toBeVisible();
   await page.reload();
   await expect(chat.getByText("A trigger does.")).toBeVisible();
 
   // A new conversation starts empty, and is listed above the first.
-  await conversations.getByRole("button", { name: "New conversation" }).click();
+  await page.getByRole("button", { name: "New conversation", exact: true }).click();
   await expect(page).toHaveURL(/\/assistant\?run=new$/);
   await expect(chat.getByText("Describe your business or use case and how you'd like to automate it.")).toBeVisible();
   await expect(chat.getByText("A trigger does.")).toBeHidden();
@@ -88,6 +89,7 @@ test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ pa
   expect((await runner.waitFor("session.send", WAIT_MS)).text).toBe("And what stops one?");
   runner.emit(second.start.sessionId, { type: "text", delta: "Stopping it does." });
   await expect(chat.getByText("Stopping it does.")).toBeVisible();
+  await page.getByRole("button", { name: "Conversation history" }).click();
   await expect(conversations.getByRole("listitem").getByRole("button")).toHaveText([/And what stops one\?/, /What fires a Job\?/]);
 
   // Opening the first shows its messages, not the second's.

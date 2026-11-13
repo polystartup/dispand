@@ -178,6 +178,7 @@ test("the conversations are listed newest first with their titles; opening one s
   fake.jobs.def.mockResolvedValue(chatDef);
   fake.runs.stream.mockImplementation(streams({ run_new: conversation("run_new", "Which agents touch Matters?", "The Clerk does."), run_old: conversation("run_old", "Set up my practice", "Here is a plan.") }));
   const { user, opened } = mount();
+  await user.click(await screen.findByRole("button", { name: "Conversation history" }));
   const list = await screen.findByRole("navigation", { name: "Conversations" });
   const entries = within(list).getAllByRole("listitem");
   expect(entries.map((li) => within(li).getByText(/\?$|practice$/).textContent)).toEqual(["Which agents touch Matters?", "Set up my practice"]);
@@ -190,7 +191,7 @@ test("the conversations are listed newest first with their titles; opening one s
   expect(screen.queryByText("The Clerk does.")).toBeNull();
   expect(opened).toEqual(["run_old"]);
 
-  await user.click(within(list).getByRole("button", { name: "New conversation" }));
+  await user.click(screen.getByRole("button", { name: "New conversation" }));
   expect(await screen.findByText("Describe your business or use case and how you'd like to automate it.")).toBeTruthy();
   expect(screen.queryByText("Here is a plan.")).toBeNull();
   expect(opened).toEqual(["run_old", "new"]);
@@ -204,10 +205,11 @@ test("the conversation the URL names opens on load, and a draft stays with the c
   const { user } = mount("run_old");
   expect(await screen.findByText("Here is a plan.")).toBeTruthy();
   expect(screen.queryByText("The Clerk does.")).toBeNull();
+  await user.type(screen.getByLabelText("Message"), "half a thought");
+  await user.click(screen.getByRole("button", { name: "Conversation history" }));
   // A conversation with no message yet is still listed.
   expect(screen.getByText("No message yet")).toBeTruthy();
 
-  await user.type(screen.getByLabelText("Message"), "half a thought");
   await user.click(within(screen.getByRole("navigation", { name: "Conversations" })).getByText("Which agents touch Matters?"));
   expect(await screen.findByText("The Clerk does.")).toBeTruthy();
   expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("");
@@ -220,6 +222,7 @@ test("the weekly review is off until the owner turns it on, in their time zone",
   fake.triggers.get.mockResolvedValue(review);
   fake.triggers.update.mockImplementation(async ({ enabled }: { enabled: boolean }) => (review.enabled = enabled, review));
   const { user } = mount();
+  await user.click(await screen.findByRole("button", { name: "Assistant options" }));
   const box = (await screen.findByRole("checkbox", { name: /Weekly review/ })) as HTMLInputElement;
   expect(box.checked).toBe(false);
   await user.click(box);
@@ -256,4 +259,37 @@ test("without an Assistant or a harness, it offers to add one, and the Assistant
   expect(within(sheet).getByRole("button", { name: /^Cloud/ })).toBeTruthy();
   expect(within(sheet).getByRole("button", { name: /^CLI/ })).toBeTruthy();
   expect(fake.agents.ensureAssistant).not.toHaveBeenCalled();
+});
+
+test("full page expands and restores the chat without losing the draft", async () => {
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.runs.list.mockResolvedValue([]);
+  const { user } = mount();
+  await user.type(await screen.findByLabelText("Message"), "Keep this draft");
+  await user.click(screen.getByRole("button", { name: "Full page" }));
+  expect(screen.getByRole("button", { name: "Exit full page" }).getAttribute("aria-pressed")).toBe("true");
+  expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Keep this draft");
+  await user.keyboard("{Escape}");
+  expect(screen.getByRole("button", { name: "Full page" }).getAttribute("aria-pressed")).toBe("false");
+  expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Keep this draft");
+});
+
+
+test("model search groups provider choices, saves the chosen harness and supports defaults", async () => {
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.runs.list.mockResolvedValue([]);
+  fake.harnesses.list.mockResolvedValue([{ id: "h1", type: "cloud", name: "Cloud", model: "default-model" }, { id: "h2", type: "cli", name: "Workstation" }]);
+  fake.harnesses.models.mockResolvedValue([{ id: "fast", label: "Fast model" }, { id: "deep", label: "Deep model" }]);
+  fake.agents.get.mockResolvedValue({ id: "agent_a", name: "Assistant", harnessId: "h2", systemPrompt: "", skills: [], tools: [] });
+  fake.agents.update.mockResolvedValue({});
+  const { user } = mount();
+  await user.click(await screen.findByRole("button", { name: "Assistant settings" }));
+  const search = await screen.findByRole("textbox", { name: "Find a model" });
+  await user.type(search, "fast");
+  await user.click(await screen.findByRole("button", { name: "Fast model" }));
+  expect(screen.queryByRole("button", { name: "Deep model" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Fast model" }).getAttribute("aria-pressed")).toBe("true");
+  await user.click(screen.getByRole("button", { name: "Save settings" }));
+  await waitFor(() => expect(fake.agents.update).toHaveBeenCalledWith(expect.objectContaining({ harnessId: "h1", model: "fast" })));
+  expect(fake.harnesses.models.mock.calls.every(([input]) => input.harnessId === "h1")).toBe(true);
 });

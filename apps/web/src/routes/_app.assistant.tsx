@@ -9,7 +9,6 @@ function Assistant() {
   const navigate = useNavigate({ from: Route.fullPath });
   return (
     <>
-      <h1 className="mb-3 shrink-0 text-[22px] font-semibold tracking-tight">Assistant</h1>
       <AssistantChat run={run} onOpen={(next, options) => void navigate({ search: { run: next }, replace: options?.replace })} />
     </>
   );

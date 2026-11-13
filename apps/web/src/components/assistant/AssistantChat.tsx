@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageSquarePlus } from "lucide-react";
-import { useState } from "react";
+import { Maximize2, Minimize2, PanelLeft, MoreHorizontal, MessageSquarePlus } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { api, orpc } from "../../lib/api.ts";
 import { localTimezone } from "../agents/TriggerSheet.tsx";
 import { selectClass } from "../data/NewFieldPopover.tsx";
@@ -31,54 +32,43 @@ export function AssistantChat({ run, onOpen }: Props) {
   if (assistant.error) return <p role="alert" className="text-[14px] text-danger">Could not load the Assistant.</p>;
   if (assistant.data === undefined) return <p className="text-[14px] text-faint">Loading…</p>;
   if (assistant.data === null) return <div className="min-h-0 overflow-y-auto"><PickHarness /></div>;
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
-        {assistant.data.reviewTriggerId && <ReviewSwitch triggerId={assistant.data.reviewTriggerId} />}
-        <AssistantSettings agentId={assistant.data.agentId} />
-      </div>
-      <Conversation key={assistant.data.triggerId} triggerId={assistant.data.triggerId} run={run} onOpen={onOpen} />
-    </div>
-  );
+  return <Conversation key={assistant.data.triggerId} triggerId={assistant.data.triggerId} agentId={assistant.data.agentId} reviewTriggerId={assistant.data.reviewTriggerId} run={run} onOpen={onOpen} />;
 }
 
-/** The Assistant's chat trigger: its conversations, newest first, and the one the URL opens. */
-function Conversation({ triggerId, run, onOpen }: { triggerId: string } & Props) {
+function Conversation({ triggerId, agentId, reviewTriggerId, run, onOpen }: { triggerId: string; agentId: string; reviewTriggerId?: string | null } & Props) {
   const jobs = useQuery(orpc.runs.list.queryOptions({ input: { triggerId, kind: "chat" } }));
-  if (jobs.error && !jobs.data) return <p role="alert" className="text-[14px] text-danger">Could not load the Assistant's conversations.</p>;
-  if (!jobs.data) return <p className="text-[14px] text-faint">Loading…</p>;
+  const [history, setHistory] = useState(false);
+  const [settings, setSettings] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (!expanded) return;
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setExpanded(false); };
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, [expanded]);
+  if (jobs.error && !jobs.data) return <p role="alert">Could not load the Assistant's conversations.</p>;
+  if (!jobs.data) return <p>Loading…</p>;
   const runId = run === NEW_CONVERSATION ? null : (run ?? jobs.data[0]?.id ?? null);
+  const title = jobs.data.find((job) => job.id === runId)?.title ?? "New chat";
+  const open = (id: string) => { onOpen(id); setHistory(false); };
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 md:flex-row">
-      <nav aria-label="Conversations" className="flex max-h-28 shrink-0 flex-col gap-1 overflow-y-auto rounded-2xl bg-surface p-2 shadow-card md:max-h-none md:w-64">
-        <Button type="button" variant="ghost" className="justify-start gap-2" onClick={() => onOpen(NEW_CONVERSATION)}>
-          <MessageSquarePlus aria-hidden />
-          New conversation
-        </Button>
-        <ul className="flex flex-col gap-0.5">
-          {jobs.data.map((job) => (
-            <li key={job.id}>
-              <button
-                type="button"
-                aria-current={job.id === runId ? "true" : undefined}
-                onClick={() => onOpen(job.id)}
-                className={`flex w-full flex-col items-start rounded-xl px-3 py-2 text-left transition hover:bg-hover ${job.id === runId ? "bg-hover" : ""}`}
-              >
-                <span className="w-full truncate text-[14px] font-medium">{job.title ?? "No message yet"}</span>
-                <span className="text-[12px] text-muted">{when.format(job.createdAt)}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </nav>
-      <section aria-label="Assistant" className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-surface shadow-card">
-        <ChatPanel
-          start={() => api.jobs.start({ triggerId, timezone: localTimezone() })}
-          runId={runId}
-          onRunStarted={(id) => onOpen(id, { replace: true })}
-          onNewConversation={() => onOpen(NEW_CONVERSATION)}
-          welcome={WELCOME}
-        />
+    <div className={expanded ? "fixed inset-0 z-40 flex h-dvh flex-col bg-surface" : "flex min-h-0 flex-1 flex-col bg-surface"}>
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3">
+        <Button variant="ghost" size="icon" aria-label="Conversation history" onClick={() => setHistory(true)}><PanelLeft aria-hidden /></Button>
+        <h1 className="min-w-0 flex-1 truncate text-[15px] font-medium">{title}</h1>
+        <Button variant="ghost" size="icon" aria-label="New conversation" onClick={() => open(NEW_CONVERSATION)}><MessageSquarePlus aria-hidden /></Button>
+        <Button variant="ghost" size="icon" aria-label="Assistant options" onClick={() => setSettings(true)}><MoreHorizontal aria-hidden /></Button>
+        <Button variant="ghost" size="icon" aria-label={expanded ? "Exit full page" : "Full page"} aria-pressed={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? <Minimize2 aria-hidden /> : <Maximize2 aria-hidden />}</Button>
+      </header>
+      {history && <Sheet open onOpenChange={setHistory}><SheetContent side="left" className="bg-surface"><SheetHeader><SheetTitle>Conversations</SheetTitle><SheetDescription>Your Assistant chats.</SheetDescription></SheetHeader>
+        <nav aria-label="Conversations" className="min-h-0 flex-1 overflow-y-auto p-3">
+          <Button variant="ghost" onClick={() => open(NEW_CONVERSATION)}><MessageSquarePlus aria-hidden />New conversation</Button>
+          <ul className="space-y-1">{jobs.data.map((job) => <li key={job.id}><button type="button" aria-current={job.id === runId ? "true" : undefined} onClick={() => open(job.id)} className="w-full rounded-lg px-3 py-2 text-left hover:bg-hover"><span className="block truncate text-sm">{job.title ?? "No message yet"}</span><span className="text-xs text-muted">{when.format(job.createdAt)}</span></button></li>)}</ul>
+        </nav>
+      </SheetContent></Sheet>}
+      {settings && <Sheet open onOpenChange={setSettings}><SheetContent className="bg-surface"><SheetHeader><SheetTitle>Assistant options</SheetTitle><SheetDescription>Settings for the workspace Assistant.</SheetDescription></SheetHeader><div className="p-4">{reviewTriggerId && <ReviewSwitch triggerId={reviewTriggerId} />}</div></SheetContent></Sheet>}
+      <section aria-label="Assistant" className="flex min-h-0 flex-1 flex-col">
+        <ChatPanel start={() => api.jobs.start({ triggerId, timezone: localTimezone() })} runId={runId} onRunStarted={(id) => onOpen(id, { replace: true })} onNewConversation={() => onOpen(NEW_CONVERSATION)} welcome={WELCOME} composerTools={<AssistantSettings agentId={agentId} />} />
       </section>
     </div>
   );
