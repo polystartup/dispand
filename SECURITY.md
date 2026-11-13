@@ -664,9 +664,15 @@ changes it updates this file.
   same rules as the form (`insertTool`). Hooks, commands, `bin/`, MCP servers that run the
   plugin's own files (`${CLAUDE_PLUGIN_ROOT}`) and, until runner tools exist, MCP servers that
   run a command are never stored or run; all but the last are listed as not imported. A
-  plugin owns only its record and its skill package: removing it keeps its tools (with their
-  saved headers) and agents (with their Jobs) as the owner's, and deletes its package unless an
-  agent uses it, which then stays as the owner's own. No foreign key to `plugins` cascades to
+  plugin's foreign keys never cascade into the owner's data. The owner's explicit removal
+  checklist can delete only packages, tools and agents currently owned by that plugin. Selected
+  skills and tools are unlinked from kept agents and skill requirements; workflow tool references
+  still block deletion. Assistant and workflow agent guards remain enforced, and selected agents
+  go through `Engine.deleteAgents` so their Jobs and history remain. Unticked components are
+  detached and kept. Native removals use the runner's reviewed, account-scoped lifecycle before
+  workspace removal; partial native success is shown and never retried automatically. Generated
+  plugins do not own their listed business data, which removal keeps. Older calls without a
+  checklist keep agents/tools and delete only unused packages. No foreign key to `plugins` cascades to
   the owner's data (`db/cascades.test.ts`). Updating a plugin moves its tools to a new
   URL only within the same origin, so saved headers never go
   to a host the owner didn't pick. Reading a plugin has one budget that every listing, read, MCP server and not-imported note

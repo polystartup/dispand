@@ -35,8 +35,11 @@ Status: Prototype
   - Deleting an agent keeps its Jobs, with their transcripts, Questions and Approvals: a Job
     still going is stopped first, as from its page. Everywhere they show, those Jobs name the
     agent as "<name> (Deleted)" (the name it had when deleted), and they never run again. Its
-    triggers, consult entries, rights and memory go with it. A plugin can't be uninstalled while a Job
-    of one of its agents is still going. A conversation started from a chat trigger stays open
+    triggers, consult entries, rights and memory go with it. Removing a plugin opens a checklist. Imported skills, tools and native installations start
+    selected; agents in use start unticked. Checked skills and tools are removed and unlinked even
+    from kept agents; unchecked items stay. Selecting an agent for removal stops its active Jobs
+    and keeps their history. Workflow references must be removed before deleting their agent or tool.
+    Setup-created business data is kept. A conversation started from a chat trigger stays open
     until it is stopped.
   - A run or a Job still going can be **stopped** from its page: its open steps fail with
     "Stopped", its questions expire and its sessions end at once, whatever they were doing. A

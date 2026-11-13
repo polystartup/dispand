@@ -777,3 +777,106 @@ test("install preview defaults native plugins on, but leaves skill repositories 
     expect(await call(router.plugins.preview, { marketplaceId: skillMarket.id, entryName: skillMarket.name }, { context: ctx })).toMatchObject({ nativeAvailable: false });
   } finally { plugin.remove(); repo.remove(); skills.remove(); }
 });
+
+
+async function removablePlugin() {
+  const ctx = await context();
+  const fx = await toolPlugin();
+  const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
+  const h = await harness(ctx);
+  const installed = await call(router.plugins.install, { marketplaceId: market.id, entryName: "github", reviewed: await reviewed(ctx, market.id, "github"), skills: ["review"], mcpServers: ["github"], agents: ["reviewer"], harnessId: h.id, settings: { github: { GITHUB_TOKEN: TOKEN } } }, { context: ctx });
+  const [pkg] = await ctx.db.select().from(skillPackages).where(eq(skillPackages.pluginId, installed.pluginId));
+  return { ctx, fx, h, ...installed, packageId: pkg!.id };
+}
+
+test("selective plugin removal deletes only the selected imported resources", async () => {
+  const { ctx, fx, pluginId, packageId, toolIds, agentIds } = await removablePlugin();
+  try {
+    const preview = await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx });
+    expect(preview.skills).toMatchObject([{ id: packageId }]);
+    expect(preview.agents).toMatchObject([{ id: agentIds[0], inUse: null }]);
+    await call(router.plugins.uninstall, { id: pluginId, remove: { skills: [packageId], tools: toolIds, agents: agentIds } }, { context: ctx });
+    expect(await call(router.plugins.list, undefined, { context: ctx })).toEqual([]);
+    expect(await call(router.skills.list, undefined, { context: ctx })).toEqual([]);
+    await expect(call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(call(router.agents.get, { id: agentIds[0]! }, { context: ctx })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  } finally { await fx.remove(); }
+});
+
+test("checked skills and tools are removed and unlinked even when their agents are kept", async () => {
+  const { ctx, fx, h, pluginId, packageId, toolIds, agentIds } = await removablePlugin();
+  try {
+    const other = await call(router.agents.create, { name: "Mine", harnessId: h.id, systemPrompt: "", skillPackageIds: [packageId], toolIds }, { context: ctx });
+    const ownSkill = await call(router.skills.create, { name: "mine", description: "My skill", instructions: "Keep this", requiredToolIds: toolIds }, { context: ctx });
+    await call(router.plugins.uninstall, { id: pluginId, remove: { skills: [packageId], tools: toolIds, agents: [] } }, { context: ctx });
+    const [keptSkill] = await ctx.db.select().from(skillPackages).where(eq(skillPackages.id, ownSkill.packageId));
+    expect(keptSkill).toMatchObject({ name: "mine", requiredToolIds: [] });
+    for (const id of [...agentIds, other.id]) expect(await call(router.agents.get, { id }, { context: ctx })).toMatchObject({ plugin: null, skills: [], tools: [] });
+    await expect(call(router.skills.get, { packageId }, { context: ctx })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  } finally { await fx.remove(); }
+});
+
+test("explicitly kept unused skills survive removal", async () => {
+  const { ctx, fx, pluginId, packageId, toolIds, agentIds } = await removablePlugin();
+  try {
+    await call(router.plugins.uninstall, { id: pluginId, remove: { skills: [], tools: toolIds, agents: agentIds } }, { context: ctx });
+    expect(await call(router.skills.get, { packageId }, { context: ctx })).toMatchObject({ name: "github", plugin: null });
+  } finally { await fx.remove(); }
+});
+
+test("plugin removal previews active use and refuses workflow agents and unrelated ids", async () => {
+  const { ctx, fx, pluginId, toolIds, agentIds } = await removablePlugin();
+  try {
+    const wf = await call(router.workflows.create, { name: "Review" }, { context: ctx });
+    const def = addStep(wf.def, { after: wf.def.trigger.field.id }, "n_remove_review", "agent");
+    Object.assign(def.steps[0]!, { agentId: agentIds[0], prompt: "Review." });
+    await call(router.workflows.update, { id: wf.id, name: "Review", def }, { context: ctx });
+    const preview = await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx });
+    expect(preview.agents[0]!.inUse).toContain("workflow");
+    await expect(call(router.plugins.uninstall, { id: pluginId, remove: { skills: [], tools: [], agents: agentIds } }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(call(router.plugins.uninstall, { id: pluginId, remove: { skills: [], tools: [...toolIds, "unrelated"], agents: [] } }, { context: ctx })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).toMatchObject({ plugin: { id: pluginId } });
+  } finally { await fx.remove(); }
+});
+
+
+test("a workflow tool prevents removal without partially unlinking kept agents", async () => {
+  const { ctx, fx, pluginId, toolIds, agentIds } = await removablePlugin();
+  try {
+    const wf = await call(router.workflows.create, { name: "Search" }, { context: ctx });
+    const def = addStep(wf.def, { after: wf.def.trigger.field.id }, "n_search", "tool");
+    Object.assign(def.steps[0]!, { toolId: toolIds[0], action: "echo" });
+    await call(router.workflows.update, { id: wf.id, name: "Search", def }, { context: ctx });
+    await expect(call(router.plugins.uninstall, { id: pluginId, remove: { skills: [], tools: toolIds, agents: [] } }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("workflow") });
+    expect(await call(router.agents.get, { id: agentIds[0]! }, { context: ctx })).toMatchObject({ tools: [{ toolId: toolIds[0] }], plugin: { id: pluginId } });
+  } finally { await fx.remove(); }
+});
+
+
+test("destructive plugin checklists and previews require an owner session", async () => {
+  const { ctx, fx, pluginId, packageId, toolIds, agentIds } = await removablePlugin();
+  try {
+    const job = { ...ctx, job: { ownerId: ctx.ownerId, runId: "run_1", agentId: "agent_1" } };
+    await expect(call(router.plugins.uninstallPreview, { id: pluginId }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(call(router.plugins.uninstall, { id: pluginId, remove: { skills: [packageId], tools: toolIds, agents: agentIds } }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await call(router.agents.get, { id: agentIds[0]! }, { context: ctx })).toMatchObject({ plugin: { id: pluginId } });
+  } finally { await fx.remove(); }
+});
+
+
+test("removal leaves active agents unticked in preview and preserves Jobs when explicitly deleted", async () => {
+  const { ctx, fx, pluginId, agentIds } = await removablePlugin();
+  try {
+    const trigger = await call(router.triggers.create, { agentId: agentIds[0]!, name: "Review", instructions: "Review", config: { kind: "manual", placement: "button" } }, { context: ctx });
+    const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context: ctx });
+    const [step] = await ctx.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+    const messageId = newId("msg");
+    await ctx.db.insert(messages).values({ id: messageId, ownerId: ctx.ownerId, runId, stepRunId: step!.id, role: "assistant", text: "Work already done" });
+    expect((await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx })).agents[0]!.inUse).toContain("active Jobs");
+    await call(router.plugins.uninstall, { id: pluginId, remove: { skills: [], tools: [], agents: agentIds } }, { context: ctx });
+    const [job] = await ctx.db.select().from(runsTable).where(eq(runsTable.id, runId));
+    expect(job).toMatchObject({ agentId: null, agentName: "reviewer", status: "failed" });
+    expect(await ctx.db.select({ id: messages.id }).from(messages).where(eq(messages.id, messageId))).toEqual([{ id: messageId }]);
+  } finally { await fx.remove(); }
+});

@@ -160,15 +160,18 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   // owner's own: deleted here, since skills.spec.ts and tools.spec.ts start from empty lists.
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Plugins" }).click();
   await page.getByRole("link", { name: "Installed", exact: true }).click();
-  await expect(row).toContainText("Removing it: its agents, tools and what it set up stay in your workspace");
+  await expect(row).toContainText("Choose what to remove; items you keep stay in your workspace");
   await page.getByRole("button", { name: "Remove writing-kit" }).click();
+  const removal = page.getByRole("dialog");
+  await expect(removal.getByRole("checkbox", { name: /writing-kit/ })).toBeChecked();
+  await expect(removal.getByRole("checkbox", { name: /docs/ })).toBeChecked();
+  await shots(page, "plugin-removal-checklist");
+  await removal.getByRole("button", { name: "Remove plugin" }).click();
   await expect(page.getByText("No plugin installed")).toBeVisible();
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Skills" }).click();
   await expect(page.getByRole("button", { name: /^writing-kit/ })).toBeHidden();
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Tools" }).click();
-  await expect(page.getByRole("button", { name: /^docs/ })).not.toContainText("from plugin");
-  await page.getByRole("button", { name: /^docs/ }).click();
-  await page.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByRole("button", { name: /^docs/ })).toBeHidden();
   await expect(page.getByText("No tool yet")).toBeVisible();
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Plugins" }).click();
   await page.getByRole("link", { name: "Discover", exact: true }).click();
@@ -211,6 +214,7 @@ test("add a Git repository of skills: one entry, installed like a plugin, then r
   await page.getByRole("link", { name: "Installed", exact: true }).click();
   await expect(page.getByRole("listitem", { name: "skill-repo" })).toContainText("tidy-notes");
   await page.getByRole("button", { name: "Remove skill-repo" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Remove plugin" }).click();
   await expect(page.getByText("No plugin installed")).toBeVisible();
   await page.getByRole("link", { name: "Discover", exact: true }).click();
   await page.getByRole("button", { name: "Remove skill-repo" }).click();

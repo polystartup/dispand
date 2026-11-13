@@ -4,7 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ plugins: { update: vi.fn(), uninstall: vi.fn() }, skills: {}, tools: {}, agents: {} }));
+const fake = vi.hoisted(() => ({ plugins: { update: vi.fn(), uninstall: vi.fn(), uninstallPreview: vi.fn() }, runners: { list: vi.fn(), plugins: vi.fn(), workspacePlugin: vi.fn() }, harnesses: { list: vi.fn() }, triggers: {}, jobs: {}, skills: {}, tools: {}, agents: {} }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -43,6 +43,9 @@ function mount(plugin: Parameters<typeof PluginRow>[0]["plugin"]) {
 
 test("a generated plugin lists what was created, by kind, has nothing to update, and says removing it keeps them", async () => {
   fake.plugins.uninstall.mockResolvedValue(undefined);
+  fake.plugins.uninstallPreview.mockResolvedValue({ skills: [], tools: [], agents: [], nativeName: "dispand-plugin_1", sourceKey: null });
+  fake.harnesses.list.mockResolvedValue([]);
+  fake.runners.list.mockResolvedValue([]);
   mount({
     ...base,
     id: "plugin_1",
@@ -63,14 +66,18 @@ test("a generated plugin lists what was created, by kind, has nothing to update,
   expect(row.textContent).not.toMatch(/Skills:/);
   expect(screen.queryByRole("button", { name: "Update Generated: Acme Law" })).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "Remove Generated: Acme Law" }));
-  expect(fake.plugins.uninstall.mock.calls[0]![0]).toEqual({ id: "plugin_1" });
+  expect(fake.plugins.uninstall).not.toHaveBeenCalled();
+  const dialog = await screen.findByRole("dialog");
+  expect(dialog.textContent).toContain("Choose what to remove");
+  await userEvent.click(screen.getByRole("button", { name: "Remove plugin" }));
+  expect(fake.plugins.uninstall.mock.calls[0]![0]).toEqual({ id: "plugin_1", remove: { skills: [], tools: [], agents: [] } });
 });
 
 test("a marketplace plugin reads as before: where it came from, its commit, Update", () => {
   mount({ ...base, id: "plugin_2", name: "superpowers", source: "marketplace", marketplace: "acme", url: "https://example.com/p.git", sha: "0123456789abcdef", skills: [{ name: "tdd", description: "" }] });
   const row = screen.getByRole("listitem", { name: "superpowers" });
   expect(row.textContent).toContain("From acme · 0123456");
-  expect(row.textContent).toContain("Removing it: its agents, tools and what it set up stay in your workspace");
+  expect(row.textContent).toContain("Choose what to remove; items you keep stay in your workspace");
   expect(row.textContent).toContain("tdd");
   expect(screen.getByRole("button", { name: "Update superpowers" })).toBeTruthy();
 });

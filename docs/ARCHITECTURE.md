@@ -266,7 +266,7 @@
   so only a Job on every table reads one (its tool names the table `*`, which no list holds); a
   poll item's id stays out of `cause`; `runs.*` stay the owner's.
   `runs.list` takes an `agentId`, a `triggerId` and `kind: "chat"` (the Jobs whose own definition opens with a chat), and gives each run a `title`: its first message's first 80 characters, whitespace folded, null before one. Deleting an agent keeps its Jobs (`Engine.deleteAgents`, the one
-  path for `agents.delete`; `plugins.uninstall` deletes no agent): in the deleting transaction it takes the consult
+  path for `agents.delete` and agents selected in `plugins.uninstall`): in the deleting transaction it takes the consult
   lock, then locks the agent's triggers and the agent (`createJob` and the scheduler take them in
   the same order, so a Job being created at that moment is seen or then finds no agent), stops
   each of its Jobs still going as `runs.stop` does, copies the agent's name as it is then into
@@ -280,8 +280,7 @@
   gone never starts a session (`openSession` fails its step) and has no tooling; its Job token is
   refused (`jobOfToken`). Its views name the agent with `jobs/agent-name.ts`: `jobs.list` and
   `jobs.get` (`agentName`), `runs.*` (`deletedAgentName`), the Inbox (`agent.name`, `agent.id`
-  null), consult lines and the checkpoint's agents, all as "<name> (Deleted)". `plugins.uninstall`
-  deletes no agent: its agents and their Jobs, going or not, stay. The scheduler's tick makes a second claim in the same
+  null), consult lines and the checkpoint's agents, all as "<name> (Deleted)". `plugins.uninstall` uses the same deletion path for selected agents; unticked agents and their Jobs stay. The scheduler's tick makes a second claim in the same
   transaction, for due enabled schedule triggers, with the rules of workflow schedules: one
   fire per due time in `trigger_fires` (unique on `(trigger_id, scheduled_for)`),
   `skipped-overlap` when the trigger is one at a time and one of its Jobs is going, `refused`
@@ -1245,11 +1244,19 @@
   `plugins.update` syncs the marketplace, then replaces the imported skills' files with the
   entry's current commit and the definitions with its current ones, leaving what was set up from
   them as it is;
-  `plugins.uninstall` removes the plugin's record and keeps the owner's data: `agents.plugin_id`,
-  `tools.plugin_id` and `skill_packages.plugin_id` are `on delete set null` (migration 0058), so
-  its agents (with their Jobs) and tools (with their headers) stay, unlinked, and a reinstall names
-  its copies apart (`agentName`, `toolName`). Its skill package is deleted unless an agent uses
-  it; then it stays as the owner's own, editable. Reinstalling imports a separate skill package
+  `plugins.uninstallPreview` lists the plugin-owned packages, tools and agents. Agents used by
+  workflows, active Jobs, triggers or consult entries start unticked; workflow and Assistant
+  protections also apply at deletion. The removal sheet defaults other imported components and
+  matching native bindings to selected. Native removals use reviewed revisions, one harness at
+  a time, before the atomic workspace removal; a failed native operation leaves the workspace
+  plugin present and shows partial native progress without repeating completed removals.
+  `plugins.uninstall` accepts an explicit checklist scoped to that plugin's owned rows. Checked
+  skills and tools are unlinked from kept agents and skill requirements, then deleted; a current
+  or active workflow's tool still blocks deletion. Selected agents use `Engine.deleteAgents`,
+  preserving Job history. Unticked components become the owner's own (`plugin_id` set null),
+  including unused skill packages; setup-created business data stays. Calls without a checklist
+  retain the previous behavior: keep agents and tools, and delete only unused skill packages.
+  Reinstalls name copies apart (`agentName`, `toolName`, `skillPackageName`). Reinstalling imports a separate skill package
   under the first free numbered name (`-2`, `-3`, …), preserving retained files and agent links.
   The install sheet defaults to complete native installation on every eligible runner/harness
   pair; explicit exclusions persist while the sheet is open. `db/cascades.test.ts` walks every cascading

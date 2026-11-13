@@ -8,6 +8,8 @@ import type { Db } from "../db/client.ts";
 import {
   agents as agentsTable,
   agentSkills,
+  agentConsults,
+  runs as runsTable,
   agentTools,
   fields as fieldsTable,
   harnesses,
@@ -20,6 +22,10 @@ import {
   triggers as triggersTable,
   CREATED_KINDS,
 } from "../db/schema.ts";
+import { assistantGuard } from "../agents/builtin.ts";
+import { toolHolder } from "../agents/usage.ts";
+import { agentInUse } from "../workflows/procedures.ts";
+import { pluginNativeKey } from "../skills/native.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { MAX_DESCRIPTION, PackageError, SKILL_NAME, validatePackage } from "../skills/package.ts";
@@ -584,20 +590,73 @@ const list = owner.handler(async ({ context }) => {
   });
 });
 
-const uninstall = owner.input(Id).handler(async ({ input, context }) => {
-  // The plugin owns its record and its skill package, nothing else: its agents (with their Jobs)
-  // and tools (with their headers) stay the owner's, unlinked (`plugin_id` is set null).
-  await context.db.transaction(async (tx) => {
+async function removalComponents(db: Db | Tx, ownerId: string, pluginId: string) {
+  const skills = await db.select({ id: skillPackages.id, name: skillPackages.name }).from(skillPackages).where(and(eq(skillPackages.pluginId, pluginId), eq(skillPackages.ownerId, ownerId)));
+  const tools = await db.select({ id: toolsTable.id, name: toolsTable.name }).from(toolsTable).where(and(eq(toolsTable.pluginId, pluginId), eq(toolsTable.ownerId, ownerId)));
+  const agents = await db.select({ id: agentsTable.id, name: agentsTable.name }).from(agentsTable).where(and(eq(agentsTable.pluginId, pluginId), eq(agentsTable.ownerId, ownerId)));
+  return { skills, tools, agents };
+}
+
+const uninstallPreview = owner.input(Id).handler(async ({ input, context }) => {
+  if (context.job) throw new ORPCError("FORBIDDEN", { message: "Plugin removal requires an owner session" });
+  const row = await findPlugin(context.db, context.ownerId, input.id);
+  const parts = await removalComponents(context.db, context.ownerId, row.id);
+  const agents = await Promise.all(parts.agents.map(async (agent) => {
+    const protectedReason = await assistantGuard(context.db, context.ownerId, agent.id, { kind: "delete" }) ?? (await agentInUse(context.db, context.ownerId, agent.id) ? "A workflow uses this agent" : null);
+    const [job] = await context.db.select({ id: runsTable.id }).from(runsTable).where(and(eq(runsTable.agentId, agent.id), inArray(runsTable.status, ["running", "waiting"]))).limit(1);
+    const [trigger] = await context.db.select({ id: triggersTable.id }).from(triggersTable).where(eq(triggersTable.agentId, agent.id)).limit(1);
+    const [consult] = await context.db.select({ id: agentConsults.agentId }).from(agentConsults).where(eq(agentConsults.consultedId, agent.id)).limit(1);
+    return { ...agent, blocked: !!protectedReason, inUse: protectedReason ?? (job ? "Has active Jobs; removing this agent stops them" : trigger ? "Has triggers; removing this agent removes them" : consult ? "Another agent consults this agent" : null) };
+  }));
+  return {
+    skills: parts.skills,
+    tools: parts.tools,
+    agents,
+    nativeName: `dispand-${row.id}`, sourceKey: pluginNativeKey(row) ?? null,
+  };
+});
+
+const RemovalIds = z.array(z.string().min(1).max(64)).max(200).transform(unique);
+const uninstall = owner.input(Id.extend({ remove: z.object({ skills: RemovalIds, tools: RemovalIds, agents: RemovalIds }).optional() })).handler(async ({ input, context }) => {
+  if (context.job && input.remove) throw new ORPCError("FORBIDDEN", { message: "Plugin removal requires an owner session" });
+  const out = await context.db.transaction(async (tx) => {
     const row = await findPlugin(tx, context.ownerId, input.id, true);
-    const packages = await tx.select({ id: skillPackages.id }).from(skillPackages).where(eq(skillPackages.pluginId, row.id)).for("update");
-    await tx.delete(pluginsTable).where(eq(pluginsTable.id, row.id));
-    // Its package goes unless an agent uses it: then it stays as the owner's own, editable.
-    for (const pkg of packages) {
-      await tx
-        .delete(skillPackages)
-        .where(and(eq(skillPackages.id, pkg.id), sql`not exists (select 1 from ${agentSkills} where ${agentSkills.packageId} = ${pkg.id})`));
+    const parts = await removalComponents(tx, context.ownerId, row.id);
+    let out: Awaited<ReturnType<typeof context.engine.deleteAgents>> = [];
+    if (input.remove) {
+      const picked = input.remove;
+      for (const kind of ["skills", "tools", "agents"] as const) {
+        if (picked[kind].some((id) => !parts[kind].some((p) => p.id === id))) throw new ORPCError("NOT_FOUND", { message: "The selected item does not belong to this plugin" });
+      }
+      for (const id of picked.agents) {
+        const refused = await assistantGuard(tx, context.ownerId, id, { kind: "delete" });
+        if (refused) throw new ORPCError("FORBIDDEN", { message: refused });
+        if (await agentInUse(tx, context.ownerId, id)) throw new ORPCError("CONFLICT", { message: "A workflow uses this agent; keep it or remove it from the workflow first" });
+      }
+      out = await context.engine.deleteAgents(tx, context.ownerId, picked.agents);
+      for (const id of picked.skills) {
+        await tx.select({ id: skillPackages.id }).from(skillPackages).where(eq(skillPackages.id, id)).for("update");
+        await tx.delete(agentSkills).where(eq(agentSkills.packageId, id));
+        await tx.delete(skillPackages).where(eq(skillPackages.id, id));
+      }
+      for (const id of picked.tools) {
+        await tx.select({ id: toolsTable.id }).from(toolsTable).where(eq(toolsTable.id, id)).for("update");
+        await tx.delete(agentTools).where(eq(agentTools.toolId, id));
+        const required = await tx.select({ id: skillPackages.id, tools: skillPackages.requiredToolIds }).from(skillPackages).where(and(eq(skillPackages.ownerId, context.ownerId), sql`${skillPackages.requiredToolIds} @> ${JSON.stringify([id])}::jsonb`)).for("update");
+        for (const pkg of required) await tx.update(skillPackages).set({ requiredToolIds: pkg.tools.filter((toolId) => toolId !== id), updatedAt: sql`now()` }).where(eq(skillPackages.id, pkg.id));
+        const holder = await toolHolder(tx, context.ownerId, id);
+        if (holder) throw new ORPCError("CONFLICT", { message: `${holder}; keep it when removing the plugin` });
+        await tx.delete(toolsTable).where(eq(toolsTable.id, id));
+      }
     }
+    await tx.delete(pluginsTable).where(eq(pluginsTable.id, row.id));
+    // Older callers keep the previous behavior; an explicit checklist preserves every unticked item.
+    if (!input.remove) for (const pkg of parts.skills) {
+      await tx.delete(skillPackages).where(and(eq(skillPackages.id, pkg.id), sql`not exists (select 1 from ${agentSkills} where ${agentSkills.packageId} = ${pkg.id})`));
+    }
+    return out;
   });
+  context.engine.settled(out);
   await context.engine.narrowOwnerSessions(context.ownerId, context.db);
 });
 
@@ -674,4 +733,4 @@ const setUp = owner.input(SetupInput.extend({ reviewed: z.string().length(64) })
 });
 
 export const marketplaces = { list: listMarketplaces, add: addMarketplace, remove: removeMarketplace, sync };
-export const plugins = { discover, preview, install, list, uninstall, update, setupPreview, setUp };
+export const plugins = { discover, preview, install, list, uninstallPreview, uninstall, update, setupPreview, setUp };

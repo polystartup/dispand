@@ -2,17 +2,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { refusal } from "./PluginInstallSheet.tsx";
+import { PluginRemoveSheet } from "./PluginRemoveSheet.tsx";
 import { PluginSetupSheet } from "./PluginSetupSheet.tsx";
 import { type api, orpc } from "../../lib/api.ts";
 
 type Plugin = Awaited<ReturnType<typeof api.plugins.list>>[number];
 
-/**
- * An installed plugin: where it came from and what it added, with Update and Remove. Removing
- * one keeps its agents and tools; a generated one lists what approved proposals created, which
- * removing it keeps too. Its definitions are listed, each marked once something was set up from
- * it, and its table definitions are set up from here.
- */
+/** Installed components are removed only through the explicit checklist; generated items stay. */
 export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   const queryClient = useQueryClient();
   const refresh = () =>
@@ -20,11 +16,11 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
       [orpc.plugins, orpc.skills, orpc.tools, orpc.agents].map((procedures) => queryClient.invalidateQueries({ queryKey: procedures.key() })),
     );
   const update = useMutation(orpc.plugins.update.mutationOptions({ onSuccess: refresh }));
-  const uninstall = useMutation(orpc.plugins.uninstall.mutationOptions({ onSuccess: refresh }));
+  const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [settingUp, setSettingUp] = useState(false);
-  const busy = update.isPending || uninstall.isPending;
+  const busy = update.isPending;
   const available = [
     ...p.available.skills.map((s) => `${s.name} (skill)`),
     ...p.available.mcpServers.map((s) => `${s.name} (MCP server)`),
@@ -51,8 +47,7 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
               "Generated in this workspace: it lists what approved proposals created, and removing it keeps them"
             ) : (
               <>
-                From {p.marketplace} · <span className="font-mono">{p.sha.slice(0, 7)}</span>. Removing it: its agents, tools and what it set up stay in your
-                workspace
+                From {p.marketplace} · <span className="font-mono">{p.sha.slice(0, 7)}</span>. Choose what to remove; items you keep stay in your workspace
               </>
             )}
           </p>
@@ -85,7 +80,7 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
             className="text-danger"
             aria-label={`Remove ${p.name}`}
             disabled={busy}
-            onClick={() => void run(() => uninstall.mutateAsync({ id: p.id }), "Could not remove the plugin.")}
+            onClick={() => setRemoving(true)}
           >
             Remove
           </Button>
@@ -164,6 +159,7 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
           {error}
         </p>
       )}
+      {removing && <PluginRemoveSheet id={p.id} name={p.name} onClose={() => setRemoving(false)} />}
       {settingUp && <PluginSetupSheet plugin={p} onClose={() => setSettingUp(false)} />}
     </li>
   );
