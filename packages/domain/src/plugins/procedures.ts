@@ -437,7 +437,7 @@ const install = owner
           agentIds.push(id);
         }
         // What the setup would make, checked before anything is kept: a pick it can't make refuses the install.
-        const setup = setupPicked ? await setupItems(tx, context.ownerId, pluginId, input.setup!) : null;
+        const setup = setupPicked ? await setupItems(tx, context.ownerId, pluginId, input.setup!, true) : null;
         if (setup && "error" in setup) throw new ORPCError("BAD_REQUEST", { message: setup.error });
         return { tools, agentIds };
       });
@@ -451,7 +451,7 @@ const install = owner
     const made = { pluginId, toolIds: created.tools.map((t) => t.id), agentIds: created.agentIds };
     if (!setupPicked) return { ...made, setup: undefined };
     // Set up as `setUp` does, from the definitions the token covers: an item refused leaves the plugin installed, and Set up goes on from there.
-    const items = await setupItems(context.db, context.ownerId, pluginId, input.setup!);
+    const items = await setupItems(context.db, context.ownerId, pluginId, input.setup!, true);
     if ("error" in items) throw new ORPCError("BAD_REQUEST", { message: items.error });
     const { outcomes } = await runItemsAsOwner(context, pluginId, items.items);
     return { ...made, setup: { outcomes, waiting: items.waiting } };

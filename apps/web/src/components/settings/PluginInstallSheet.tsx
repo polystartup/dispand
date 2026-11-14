@@ -145,6 +145,7 @@ function InstallForm({
   // Server name → `${VAR}` → value. Sent only for the ticked servers, never shown again.
   const [settings, setSettings] = useState<Record<string, Record<string, string>>>({});
   const [error, setError] = useState<string | null>(null);
+  const [setupNotes, setSetupNotes] = useState<string[]>([]);
   // The definitions to set up with the install: their rights shown here, as no proposal shows them.
   const definitionPicks = useDefinitionPicks(preview.definitions, harnesses.data, true);
   const setSetting = (server: string, name: string, value: string) => setSettings((prev) => ({ ...prev, [server]: { ...prev[server], [name]: value } }));
@@ -165,13 +166,16 @@ function InstallForm({
         settings: Object.fromEntries(mcpServers.flatMap((n) => (settings[n] ? [[n, settings[n]]] : []))),
         ...(definitionPicks.any ? { setup: definitionPicks.pick } : {}),
       });
-      // A setup item refused: the plugin is installed, and Set up goes on from there.
-      const refused = result.setup?.outcomes.find((o) => o.outcome === "refused");
-      if (refused) {
-        setError(`Installed, but setting it up stopped: ${refused.error ?? "an item was refused"}. Open Set up on the plugin to go on.`);
+      // What the setup didn't make: an item refused, or a definition left waiting. The plugin is installed, and Set up goes on from there.
+      const notes = [
+        ...(result.setup?.outcomes ?? []).filter((o) => o.outcome === "refused").map((o) => `Setting it up stopped: ${o.error ?? "an item was refused"}`),
+        ...(result.setup?.waiting ?? []).map((w) => `${w.definition}: ${w.reason}`),
+      ];
+      setSetupNotes(notes);
+      if (!native || !nativeTargets.size) {
+        if (!notes.length) onClose();
         return;
       }
-      if (!native || !nativeTargets.size) { onClose(); return; }
       const selected = (harnesses.data ?? []).flatMap((h) => h.type === "cli" && nativeTargets.has(h.id) ? [h] : []);
       setNativeProgress(selected.map((h) => ({ id: h.id, name: h.name, status: "Installing…" })));
       const groups = new Map<string, typeof selected>();
@@ -204,17 +208,27 @@ function InstallForm({
   const { definitions } = preview;
   const defined = definitions.primitives.length + definitions.agents.length + definitions.triggers.length;
   const picked = skills.size + servers.size + agents.size;
-  if (nativeProgress) {
+  if (nativeProgress || setupNotes.length) {
     return (
       <div className="space-y-4">
         <p className="text-[13px]">Installed in the workspace.</p>
+        {setupNotes.length > 0 && (
+          <div className="space-y-1 text-[13px]">
+            <p>Not made yet: open Set up on the plugin to go on.</p>
+            <ul aria-label="Not made yet" className="space-y-1 text-muted">
+              {setupNotes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         <ul aria-label="Native installations" className="space-y-2 text-[13px]">
-          {nativeProgress.map((row) => <li key={row.id} className="rounded-lg border border-line p-3">
+          {(nativeProgress ?? []).map((row) => <li key={row.id} className="rounded-lg border border-line p-3">
             <div className="flex items-center justify-between gap-3"><span>{row.name}</span><span role="status" aria-label={`${row.name}: ${row.status}`}>{row.status}</span></div>
             {row.error && <p role="alert" className="mt-1 text-danger">{row.error}</p>}
           </li>)}
         </ul>
-        <Button type="button" disabled={nativeProgress.some((row) => row.status === "Installing…")} onClick={onClose}>Done</Button>
+        <Button type="button" disabled={!!nativeProgress?.some((row) => row.status === "Installing…")} onClick={onClose}>Done</Button>
       </div>
     );
   }

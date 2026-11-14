@@ -46,3 +46,21 @@ test("the plugin's definitions are set up with the install: each agent's rights 
   await waitFor(() => expect(onClose).toHaveBeenCalled());
   expect(fake.plugins.install.mock.calls[0]![0]).toMatchObject({ reviewed: "r".repeat(64), setup: { primitives: ["Matters"], agents: [{ name: "Drafting", harnessId: "h_1" }], triggers: ["Matter changed"] } });
 });
+
+test("what the setup didn't make is listed after the install, which stays open on it", async () => {
+  fake.harnesses.list.mockResolvedValue([{ id: "h_1", name: "Claude API", type: "cloud" }]);
+  fake.runners.list.mockResolvedValue([]);
+  fake.plugins.preview.mockResolvedValue({ skills: [], mcpServers: [], agents: [], definitions: { primitives: [], agents: [drafting], triggers: [] }, notImported: [], reviewed: "r".repeat(64), nativeAvailable: false });
+  fake.plugins.install.mockResolvedValue({ pluginId: "plugin_1", toolIds: [], agentIds: [], setup: { outcomes: [], waiting: [{ definition: "tool:case-law", reason: "It wasn't ticked with the install" }] } });
+  const onClose = vi.fn();
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <PluginInstallSheet marketplaceId="mkt_1" entryName="law-firm" onClose={onClose} />
+    </QueryClientProvider>,
+  );
+  await screen.findByRole("list", { name: "What Drafting may do" });
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "Harness of Drafting" }).textContent).toContain("Claude API"));
+  await userEvent.click(screen.getByRole("button", { name: /Install/ }));
+  expect((await screen.findByRole("list", { name: "Not made yet" })).textContent).toContain("tool:case-law: It wasn't ticked with the install");
+  expect(onClose).not.toHaveBeenCalled();
+});

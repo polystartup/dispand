@@ -71,7 +71,7 @@ type Ref = string | { $item: number };
  * its definition: it has no link to the plugin, so an update of the plugin never rewrites it. Each
  * item is parsed with its procedure's input, as a proposal's is.
  */
-export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string, pick: SetupPick): Promise<{ items: ProposalItem[]; waiting: Waiting[] } | { error: string }> {
+export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string, pick: SetupPick, fromInstall = false): Promise<{ items: ProposalItem[]; waiting: Waiting[] } | { error: string }> {
   const [plugin] = await db
     .select({ definitions: plugins.definitions, created: plugins.created, components: plugins.components })
     .from(plugins)
@@ -174,7 +174,7 @@ export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string,
     items.push({ tool: "tables_set_primitive", input: { id: tableOf.get(p.name.toLowerCase())!, primitive: p.primitive, ...(parent ? { parent } : {}) } });
   }
 
-  const agentItems = await agentSetup(db, ownerId, pluginId, plugin.definitions, plugin.components.mcpServers, from, pick, tableOf, items);
+  const agentItems = await agentSetup(db, ownerId, pluginId, plugin.definitions, plugin.components.mcpServers, from, pick, tableOf, items, fromInstall);
   if ("error" in agentItems) return agentItems;
   items.push(...agentItems.items);
   waiting.push(...agentItems.waiting);
@@ -212,6 +212,8 @@ async function agentSetup(
   pick: SetupPick,
   tableOf: Map<string, Ref>,
   prior: ProposalItem[],
+  // Run from the install, which shows no items: no server it didn't tick is added, and every tool given starts on Ask.
+  fromInstall: boolean,
 ): Promise<{ items: ProposalItem[]; waiting: Waiting[] } | { error: string }> {
   const first = prior.length;
   const picked: { definition: AgentDefinition; harnessId: string }[] = [];
@@ -308,8 +310,9 @@ async function agentSetup(
     }
     const server = servers.find((s) => s.name === name);
     if (!server) continue;
-    const reason =
-      server.type !== "http" ? "It runs on a runner: add it from the plugin's page" : server.settings.length ? "Its URL needs a setting: add it from the plugin's page" : !server.transport ? "Update the plugin to add it" : null;
+    const reason = fromInstall
+      ? "It wasn't ticked with the install: add it from Set up, where its address is shown"
+      : server.type !== "http" ? "It runs on a runner: add it from the plugin's page" : server.settings.length ? "Its URL needs a setting: add it from the plugin's page" : !server.transport ? "Update the plugin to add it" : null;
     if (reason) {
       waiting.push({ definition, reason });
       continue;
@@ -354,6 +357,7 @@ async function agentSetup(
       dataTables,
       skillPackageIds: pkg && d.skills.some((s) => installed.includes(s)) ? [pkg.id] : [],
       toolIds,
+      ...(fromInstall && toolIds.length ? { toolPermissions: toolIds.map((toolId) => ({ toolId, unasked: [] })) } : {}),
       ...(consults.length ? { consults } : {}),
     };
     items.push({ tool: "agents_create", input, from: key });

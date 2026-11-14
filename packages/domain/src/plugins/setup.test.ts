@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agents as agentsTable, fields as fieldsTable, plugins as pluginsTable, tables as tablesTable, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
+import { agents as agentsTable, agentTools as agentToolsTable, fields as fieldsTable, plugins as pluginsTable, tables as tablesTable, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import type { SetupPick } from "./setup.ts";
@@ -477,6 +477,29 @@ test("one install with a pick sets the definitions up as Set up does; a stale re
     expect(result.setup?.outcomes.every((o) => o.outcome === "made")).toBe(true);
     expect((await call(router.tables.list, undefined, { context: ctx })).map((t) => [t.name, t.primitive])).toEqual([["Clients", true], ["Matters", true], ["Research", true]]);
     expect((await createdOf(ctx, result.pluginId)).table).toHaveLength(3);
+  } finally {
+    fx.remove();
+    void server.close();
+  }
+});
+
+test("a setup run from the install gives every tool on Ask and adds no server the install left unticked", async () => {
+  const ctx = { ...(await ownerContext()), gitFileUrls: true };
+  const server = await startFakeMcp([lookup], "streamable-http");
+  const fx = lawFirmMarket(server.url);
+  try {
+    const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
+    const harnessId = await cloudHarness(ctx);
+    // Gmail, whose reading actions run unasked by default: given by the install, they ask.
+    await ctx.db.insert(toolsTable).values({ id: "tool_gmail", ownerId: ctx.ownerId, name: "Gmail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", catalogId: "gmail", actions: [{ name: "search_threads", description: "", inputSchema: {} }] });
+    const entry = { marketplaceId: market.id, entryName: "law-firm" };
+    const { reviewed } = await call(router.plugins.preview, entry, { context: ctx });
+    const result = await call(router.plugins.install, { ...entry, reviewed, setup: { ...ALL, agents: AGENTS.map((name) => ({ name, harnessId })) } }, { context: ctx });
+    expect(result.setup?.waiting).toContainEqual({ definition: "tool:case-law", reason: expect.stringContaining("wasn't ticked with the install") });
+    expect(await ctx.db.select().from(toolsTable).where(eq(toolsTable.pluginComponent, "case-law"))).toEqual([]);
+    const grants = await ctx.db.select({ unasked: agentToolsTable.unasked }).from(agentToolsTable).where(eq(agentToolsTable.toolId, "tool_gmail"));
+    expect(grants.length).toBeGreaterThan(0);
+    expect(grants.every((g) => g.unasked.length === 0)).toBe(true);
   } finally {
     fx.remove();
     void server.close();
