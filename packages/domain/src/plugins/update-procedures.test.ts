@@ -11,6 +11,8 @@ const AGENTS = ["Intake and research", "Drafting", "Matter upkeep"];
 const DRAFTING = "com.dispand/agents/drafting.md";
 const UPKEEP = "com.dispand/agents/matter-upkeep.md";
 const CHANGED = "com.dispand/triggers/matter-changed.json";
+const INTAKE = "com.dispand/agents/intake-and-research.md";
+const RESEARCH_TABLE = "com.dispand/primitives/research.json";
 
 /** The law-firm plugin installed and set up, with the way to publish a new version of some of its files. */
 async function setUp() {
@@ -30,7 +32,7 @@ async function setUp() {
     return call(router.agents.get, { id: row!.id }, { context: ctx });
   };
   const preview = () => call(router.plugins.updatePreview, { id: pluginId }, { context: ctx });
-  return { ctx, pluginId, harness, files, agent, preview, publish: (changed: Record<string, string>) => fx.plugin.commit(changed), remove: () => { fx.remove(); void server.close(); } };
+  return { ctx, pluginId, harness, files, agent, preview, publish: (changed: Record<string, string>, removed: string[] = []) => fx.plugin.commit(changed, removed), remove: () => { fx.remove(); void server.close(); } };
 }
 
 const edited = (file: string, from: string, to: string) => {
@@ -196,6 +198,63 @@ test("what a new version adds is named on the update's screen, made by none of i
     const [billing] = await ctx.db.select().from(schema.agents).where(eq(schema.agents.pluginComponent, "Billing"));
     expect(billing).toMatchObject({ pluginId, harnessId: harness.id });
     expect(await ctx.db.select().from(schema.triggers).where(eq(schema.triggers.pluginComponent, "Invoice due"))).toMatchObject([{ agentId: billing!.id, pluginId }]);
+  } finally {
+    remove();
+  }
+});
+
+test("what a new version drops goes with the update when nothing uses it, and is asked about when the owner has something to lose", async () => {
+  const { ctx, pluginId, harness, agent, preview, publish, remove } = await setUp();
+  try {
+    // Research holds a row; Matter upkeep is untouched; its trigger goes with it.
+    const [research] = await ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Research"));
+    await call(router.rows.create, { tableId: research!.id, values: {} } as never, { context: ctx });
+    const upkeep = await agent("Matter upkeep");
+    // The new version has neither the Research table, nor Matter upkeep and its trigger, and Drafting no longer names Research.
+    publish(
+      {
+        [DRAFTING]: edited(lawFirm()[DRAFTING]!, "tables: [Matters, Research]", "tables: [Matters]"),
+        [INTAKE]: edited(lawFirm()[INTAKE]!, "tables: [Clients, Matters, Research]", "tables: [Clients, Matters]"),
+      },
+      [RESEARCH_TABLE, UPKEEP, CHANGED, "com.dispand/triggers/research-recorded.json"],
+    );
+    const shown = await preview();
+    expect(shown.removals.map((r) => [r.kind, r.name, r.reasons]).sort()).toEqual([
+      ["agent", "Matter upkeep", []],
+      ["table", "Research", ["It has 1 row"]],
+      ["trigger", "Research recorded", []],
+    ]);
+    // The table has a row: without a choice for it, nothing is applied.
+    await expect(call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(await ctx.db.select().from(schema.agents).where(eq(schema.agents.id, upkeep.id))).toHaveLength(1);
+    const table = shown.removals.find((r) => r.kind === "table")!;
+    await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, choices: { [table.key]: "keep" } }, { context: ctx });
+    // Kept, the table is the owner's own; the agent nothing used is gone with its trigger, and so is the dropped trigger of an agent that stays.
+    expect((await ctx.db.select().from(schema.tables).where(eq(schema.tables.id, research!.id)))[0]).toMatchObject({ pluginId: null, name: "Research" });
+    expect(await ctx.db.select().from(schema.agents).where(eq(schema.agents.id, upkeep.id))).toEqual([]);
+    expect((await ctx.db.select({ name: schema.triggers.name }).from(schema.triggers)).map((t) => t.name)).toEqual([]);
+    expect((await preview()).removals).toEqual([]);
+    void harness;
+  } finally {
+    remove();
+  }
+});
+
+test("a trigger a new version drops while its agent stays is asked about when the owner changed it, and kept, becomes theirs", async () => {
+  const { ctx, pluginId, preview, publish, remove } = await setUp();
+  try {
+    const [trigger] = await ctx.db.select().from(schema.triggers).where(eq(schema.triggers.pluginComponent, "Matter changed"));
+    await call(router.triggers.update, { id: trigger!.id, instructions: "Mine." }, { context: ctx });
+    publish({}, [CHANGED]);
+    const shown = await preview();
+    expect(shown.removals).toMatchObject([{ kind: "trigger", name: "Matter changed", reasons: ["You changed it"] }]);
+    await expect(call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, choices: { [shown.removals[0]!.key]: "keep" } }, { context: ctx });
+    expect((await ctx.db.select().from(schema.triggers).where(eq(schema.triggers.id, trigger!.id)))[0]).toMatchObject({ pluginId: null, instructions: "Mine.", overridden: [] });
+    expect(await call(router.triggers.get, { id: trigger!.id }, { context: ctx })).toMatchObject({ plugin: null });
+    // No longer the plugin's: its setup record forgets it, so a definition of that name could be set up again.
+    const [plugin] = await ctx.db.select({ created: schema.plugins.created }).from(schema.plugins).where(eq(schema.plugins.id, pluginId));
+    expect(JSON.stringify(plugin!.created)).not.toContain(trigger!.id);
   } finally {
     remove();
   }
