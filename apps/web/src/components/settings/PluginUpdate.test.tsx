@@ -87,7 +87,7 @@ test("a table's changes are boxes with their starting ticks; one that can't appl
       name: "Matters",
       changes: [
         { key: "add:Fee", kind: "add" as const, field: "Fee", ticked: true },
-        { key: "remove:Conclusions", kind: "remove" as const, field: "Conclusions", ticked: false, loses: 42 },
+        { key: "remove:Conclusions", kind: "remove" as const, field: "Conclusions", ticked: false, loses: 42, stops: ["Close matter"] },
         { key: "retype:Stage", kind: "retype" as const, field: "Stage", ticked: false, stale: "You changed this field" },
         { key: "add:Invoice", kind: "add" as const, field: "Invoice", ticked: false, waiting: "Invoices" },
       ],
@@ -99,6 +99,7 @@ test("a table's changes are boxes with their starting ticks; one that can't appl
   render(<TableChanges tables={tables} ticked={{ tbl_1: ["add:Fee"] }} busy={false} onTick={tick} />);
   const table = screen.getByRole("group", { name: "Matters" });
   expect((within(table).getByRole("checkbox", { name: /Add the field Fee/ }) as HTMLInputElement).checked).toBe(true);
+  expect(within(table).getByText(/it stops the workflow Close matter/)).toBeTruthy();
   const removal = within(table).getByRole("checkbox", { name: /Remove the field Conclusions/ }) as HTMLInputElement;
   expect(removal.checked).toBe(false);
   expect(removal.closest("label")!.textContent).toContain("removes the values of 42 rows");

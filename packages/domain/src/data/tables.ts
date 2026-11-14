@@ -6,6 +6,7 @@ import { attachments, fields as fieldsTable, rows as rowsTable, runs, tables as 
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { tableIdsOf, type TableSchema } from "../workflows/data-steps.ts";
+import type { WorkflowDef } from "../workflows/model.ts";
 import { StorableText } from "../workflows/model.ts";
 import type { DataEvent } from "./events.ts";
 import { refuseOwnDelete } from "../plugins/overrides.ts";
@@ -113,6 +114,26 @@ export async function tableInUse(db: Db | Tx, ownerId: string, tableId: string):
     .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, runs.workflowId), eq(workflowVersions.version, runs.version)))
     .where(and(eq(runs.ownerId, ownerId), inArray(runs.status, ["running", "waiting"])));
   return [...current, ...running].some(({ def }) => tableIdsOf(def).includes(tableId));
+}
+
+/**
+ * The workflows a field's removal stops: those whose current version, or the version of a run
+ * still going, has a data step on its table naming the field. By name, each once.
+ */
+export async function workflowsUsingField(db: Db | Tx, ownerId: string, tableId: string, fieldId: string): Promise<string[]> {
+  const current = await db
+    .select({ name: workflows.name, def: workflowVersions.def })
+    .from(workflows)
+    .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, workflows.id), eq(workflowVersions.version, workflows.currentVersion)))
+    .where(eq(workflows.ownerId, ownerId));
+  const running = await db
+    .select({ name: workflows.name, def: workflowVersions.def })
+    .from(runs)
+    .innerJoin(workflows, eq(workflows.id, runs.workflowId))
+    .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, runs.workflowId), eq(workflowVersions.version, runs.version)))
+    .where(and(eq(runs.ownerId, ownerId), inArray(runs.status, ["running", "waiting"])));
+  const uses = (def: WorkflowDef) => def.steps.some((step) => (step as { tableId?: string }).tableId === tableId && JSON.stringify(step).includes(`"${fieldId}"`));
+  return [...new Set([...current, ...running].filter((w) => uses(w.def)).map((w) => w.name))].sort();
 }
 
 function publish(events: { publish(event: DataEvent): void }, tableId: string, rowIds: string[] = []) {

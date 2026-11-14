@@ -36,7 +36,7 @@ import { type After, checkChoices, type Element, inUse } from "./closure.ts";
 import { changelogSection, readChangelog } from "./release-notes.ts";
 import { type ActualTable, type TableChange, tableChanges } from "./table-merge.ts";
 import type { PrimitiveDefinition } from "./definitions.ts";
-import { fields, tables } from "../data/tables.ts";
+import { fields, tables, workflowsUsingField } from "../data/tables.ts";
 import { agentValues, type ChangeClass, elementPlans, type UpdatableKind } from "./update.ts";
 import { ELEMENT_FIELDS, sameValue } from "./overrides.ts";
 import { agents as agentProcedures } from "../agents/procedures.ts";
@@ -913,6 +913,12 @@ async function tablePlans(db: Db | Tx, ownerId: string, row: PluginRow, contents
     const parentField = fields.find((f) => f.id === t.parentFieldId)?.name ?? null;
     const [counted] = await db.select({ n: sql<number>`count(*)::int` }).from(rowsTable).where(eq(rowsTable.tableId, t.id));
     const changes = tableChanges(t.definition, next, { primitive: t.primitive, parentField, parentRequired: t.parentRequired, fields }, counted?.n ?? 0, tableExists);
+    // A field a workflow's data step names: removing it, or changing its type, stops that workflow, said beside the change.
+    for (const c of changes.filter((c) => (c.kind === "remove" || c.kind === "retype") && c.field)) {
+      const field = fields.find((f) => lower(f.pluginField) === lower(c.field!));
+      const stops = field ? await workflowsUsingField(db, ownerId, t.id, field.id) : [];
+      if (stops.length) c.stops = stops;
+    }
     // What a change that takes values away would take, as it is now: a value written after the screen was read changes the token, and the update is shown again.
     const losing = changes.filter((c) => c.loses !== undefined && c.field);
     const rows = losing.length ? await db.select({ id: rowsTable.id, values: rowsTable.values }).from(rowsTable).where(eq(rowsTable.tableId, t.id)).orderBy(asc(rowsTable.id)) : [];
