@@ -38,10 +38,15 @@ export async function isPollable(db: Db | Tx, ownerId: string, toolId: string, a
  * made or changed, before each call, before each Job, and before each start of a poll Job's session.
  */
 export async function pollProblem(db: Db | Tx, ownerId: string, agentId: string, toolId: string, action: string): Promise<string | null> {
+  return toolPollProblem(db, ownerId, toolId, action, async () => (await skillsAndTools(db, agentId)).tools.some((t) => t.toolId === toolId));
+}
+
+/** `pollProblem` for an agent that isn't made yet: `holds` says whether it will have the tool. */
+export async function toolPollProblem(db: Db | Tx, ownerId: string, toolId: string, action: string, holds: () => boolean | Promise<boolean>): Promise<string | null> {
   const [tool] = await db.select({ id: tools.id, disabled: tools.disabled }).from(tools).where(and(eq(tools.id, toolId), eq(tools.ownerId, ownerId)));
   if (!tool) return "The tool no longer exists";
   if (tool.disabled.includes(action)) return "This action is disabled workspace-wide";
-  if (!(await skillsAndTools(db, agentId)).tools.some((t) => t.toolId === toolId)) return "The agent doesn't have this tool";
+  if (!(await holds())) return "The agent doesn't have this tool";
   if (!(await isPollable(db, ownerId, toolId, action))) return "A poll may not read this action: the tool doesn't let polls read it, or an agent must ask before using it";
   return null;
 }

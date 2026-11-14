@@ -11,7 +11,7 @@ import type { InitialContext } from "../rpc/context.ts";
 import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
 import { catalogEntry } from "../tools/catalog.ts";
 import { tools } from "../tools/procedures.ts";
-import { pollProblem } from "../tools/pollable.ts";
+import { pollProblem, toolPollProblem } from "../tools/pollable.ts";
 import { INTERACTION } from "../triggers/model.ts";
 import { triggers as triggerProcedures } from "../triggers/procedures.ts";
 import type { AgentDefinition, PluginDefinitions, PrimitiveDefinition, TriggerDefinition } from "./definitions.ts";
@@ -416,8 +416,12 @@ async function agentSetup(
         continue;
       }
       // What `triggers.create` would refuse, said now: the setup doesn't stop on it.
-      if (typeof toolId === "string" && typeof agentId === "string") {
-        const problem = await pollProblem(db, ownerId, agentId, toolId, t.config.action);
+      if (typeof toolId === "string") {
+        // An agent this setup makes will hold the tools its definition names.
+        const problem =
+          typeof agentId === "string"
+            ? await pollProblem(db, ownerId, agentId, toolId, t.config.action)
+            : await toolPollProblem(db, ownerId, toolId, t.config.action, () => definitions.some((d) => same(d.name, t.agent) && d.tools.includes(name)));
         if (problem) {
           wait(problem);
           continue;

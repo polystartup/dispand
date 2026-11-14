@@ -41,7 +41,8 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
   });
   // A trigger goes with its agent: ticked while its agent is ticked or made, unless the owner unticks it.
   const [unticked, setUnticked] = useState(() => new Set<string>());
-  const offered = triggers.filter((t) => !t.setUp && agents.some((d) => d.name === t.agent && (d.setUp || pickedAgents.has(d.name))));
+  // Names match as the server matches them: whatever their case.
+  const offered = triggers.filter((t) => !t.setUp && agents.some((d) => d.name.toLowerCase() === t.agent.toLowerCase() && (d.setUp || pickedAgents.has(d.name))));
   const triggerPicks = offered.filter((t) => !unticked.has(t.name)).map((t) => t.name);
   const pick = { primitives: primitives.map((d) => d.name).filter((n) => picked.has(n)), ...(agentPicks.length ? { agents: agentPicks } : {}), ...(triggerPicks.length ? { triggers: triggerPicks } : {}) };
   const any = pick.primitives.length > 0 || agentPicks.length > 0 || triggerPicks.length > 0;

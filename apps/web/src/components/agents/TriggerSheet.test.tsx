@@ -318,3 +318,14 @@ test("TriggerSheet fills a poll from the catalog preset of the tool picked, cont
   await user.click(screen.getByRole("button", { name: "Create trigger" }));
   expect(fake.triggers.create.mock.calls[0]![0]).toMatchObject({ config: { kind: "poll", toolId: "tool_outlook", interval: 300, ...preset } });
 });
+
+test("a plugin's trigger has no Delete, and a reset that fails says so", async () => {
+  fake.plugins.resetOverride.mockRejectedValue(new Error("refused"));
+  const trigger = { id: "trigger_1", agentId: "agent_1", name: "Go", kind: "manual", enabled: true, instructions: "Mine.", concurrency: "parallel", rateCap: 60, config: { kind: "manual", placement: "button" }, lastFires: [], lastEvents: [], lastPolls: [], plugin: { id: "plugin_1", name: "law-firm" }, overridden: ["instructions"] };
+  const { user } = mount(trigger as never);
+  expect(screen.getByText(/It is law-firm's/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Delete trigger" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Reset What the agent is told to the plugin's" }));
+  expect(fake.plugins.resetOverride.mock.calls[0]![0]).toEqual({ kind: "trigger", id: "trigger_1", field: "instructions" });
+  expect((await screen.findByRole("alert")).textContent).toContain("Could not reset the field");
+});

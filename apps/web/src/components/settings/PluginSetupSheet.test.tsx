@@ -114,7 +114,7 @@ test("a trigger is offered with its agent, ticked, and leaves the pick when unti
         { name: "Drafting", description: "", harness: "cloud", selfLearning: [], setUp: false },
       ],
       triggers: [
-        { name: "New email", agent: "Intake", setUp: false },
+        { name: "New email", agent: "intake", setUp: false },
         { name: "Research recorded", agent: "Drafting", setUp: false },
         { name: "Already there", agent: "Intake", setUp: true },
       ],

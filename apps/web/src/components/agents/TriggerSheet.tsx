@@ -131,6 +131,11 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
               busy={reset.isPending}
               onReset={(field) => reset.mutate({ kind: "trigger", id: trigger.id, field })}
             />
+            {reset.error && (
+              <p role="alert" className="mt-2 text-[13px] text-danger">
+                Could not reset the field: the plugin's value may no longer be allowed. Change it by hand instead.
+              </p>
+            )}
           </div>
         )}
         <form

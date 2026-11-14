@@ -441,3 +441,21 @@ test("a trigger waits for its agent, and for a table its agent may not work on",
     remove();
   }
 });
+
+test("a poll its tool wouldn't let run is listed as waiting, even when its agent is made by the same setup, and the other triggers are made", async () => {
+  const { ctx, pluginId, remove } = await installed();
+  try {
+    const harnessId = await cloudHarness(ctx);
+    // The owner's Gmail, with the action the poll reads turned off workspace-wide.
+    const gmail = await call(router.tools.addFromCatalog, { catalogId: "gmail" }, { context: ctx });
+    await call(router.tools.setActionEnabled, { toolId: gmail.id, action: "search_threads", enabled: false }, { context: ctx });
+    const pick = { ...ALL, agents: AGENTS.map((name) => ({ name, harnessId })), triggers: TRIGGERS };
+    const preview = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
+    expect(preview.waiting).toContainEqual({ definition: "trigger:New client email", reason: "This action is disabled workspace-wide" });
+    const { outcomes } = await setUp(ctx, pluginId, pick);
+    expect(outcomes.filter((o) => o.outcome !== "made")).toEqual([]);
+    expect((await ctx.db.select({ name: triggersTable.name }).from(triggersTable)).map((t) => t.name).sort()).toEqual(["Matter changed", "Research recorded"]);
+  } finally {
+    remove();
+  }
+});
