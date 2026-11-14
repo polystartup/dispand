@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { orpc } from "../../lib/api.ts";
 import { FIELD_TYPE_UI } from "./field-types.ts";
+import { qualifiedName } from "@dispand/domain/plugins/names";
 
 /** One choice per line, with an id made here (the server keeps the ids it is given). */
 export function choicesFromLines(text: string) {
@@ -84,7 +85,7 @@ export function NewFieldPopover({ tableId, onCreated }: { tableId: string; onCre
                 <option value="">Choose a table</option>
                 {(tables.data ?? []).map((t) => (
                   <option key={t.id} value={t.id}>
-                    {t.name}
+                    {qualifiedName(t.plugin?.name ?? null, t.name)}
                   </option>
                 ))}
               </select>

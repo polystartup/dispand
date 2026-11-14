@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { orpc } from "../../lib/api.ts";
 import { selectClass } from "./NewFieldPopover.tsx";
+import { qualifiedName } from "@dispand/domain/plugins/names";
 
 type Table = { id: string; name: string; primitive: boolean; parent: { tableId: string; required: boolean } | null };
 
@@ -48,7 +49,7 @@ export function PrimitiveDialog({ table, open, onOpenChange, onSaved }: { table:
                   .filter((t) => t.id !== table.id)
                   .map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.name}
+                      {qualifiedName(t.plugin?.name ?? null, t.name)}
                     </option>
                   ))}
               </select>

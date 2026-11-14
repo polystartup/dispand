@@ -368,3 +368,13 @@ test("adding a server checks the URL and transport the owner reviewed, and names
     remove();
   }
 });
+
+test("a kept table takes the next free name when the first one is taken too", async () => {
+  const { ctx, pluginId, remove } = await installed();
+  await call(router.tables.create, { name: "Clients" }, { context: ctx });
+  await call(router.tables.create, { name: "Clients (law-firm)" }, { context: ctx });
+  await setUp(ctx, pluginId);
+  await call(router.plugins.uninstall, { id: pluginId }, { context: ctx });
+  expect((await ctx.db.select().from(tablesTable).orderBy(tablesTable.name)).map((t) => t.name)).toEqual(["Clients", "Clients (law-firm)", "Clients (law-firm) 2", "Matters", "Research"]);
+  remove();
+});
