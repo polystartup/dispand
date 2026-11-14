@@ -432,3 +432,16 @@ test("a native install its owner disabled isn't moved: it is named as staying, a
     remove();
   }
 });
+
+test("a skill's file the plugin rewords names, on the update's screen, every agent its text reaches", async () => {
+  const { pluginId, files, preview, publish, remove } = await setUp();
+  try {
+    const SKILL = "skills/legal-research/SKILL.md";
+    publish({ [SKILL]: `${files[SKILL]!}\nCite the court and the year.\n` });
+    const shown = await preview();
+    expect(shown.changes).toContainEqual(expect.objectContaining({ kind: "skill", field: "file:legal-research/SKILL.md", class: "wording", reaches: ["Intake and research"] }));
+    expect(pluginId).toBeDefined();
+  } finally {
+    remove();
+  }
+});

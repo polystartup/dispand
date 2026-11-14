@@ -1449,7 +1449,10 @@ decision is an Audit row (`plugin.decided`: the element, the field's name and th
 kind, never a value). An update reopens the pending conflicts of the fields whose plugin value
 it changes (`reopenChanged`), and an element that leaves the plugin drops its conflicts
 (`forgetConflicts`). Writes go through the element's own update (`plugins/write-field.ts`, which
-`resetOverride` uses too). The update's screen offers "Let Stem deal with it" on a field of an
+`resetOverride` uses too). On the update's screen, a skill's file (a wording change or a
+conflict) names every agent whose sessions get the package (`reaches`, under the screen's token),
+and a tool's new address or transport says what it clears (its sign-in, and its saved headers
+when the origin or the transport changes). The update's screen offers "Let Stem deal with it" on a field of an
 agent, tool or trigger: `plugins.update` takes those keys (`stem`), keeps them as conflicts and
 starts one Job of the Assistant (`handToStem`, a `stem` firing with no trigger, its conflicts as
 the trigger node's data). Its snapshot is limited (`only: ["plugin_decide"]`, and no skill, tool,

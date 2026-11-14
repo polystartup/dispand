@@ -1,6 +1,6 @@
 type At = { key: string; kind: "agent" | "tool" | "trigger" | "skill"; id: string; name: string; field: string };
-export type UpdateChange = At & { class: "widening" | "wording" | "silent"; before: unknown; after: unknown };
-export type UpdateConflict = At & { old: unknown; mine: unknown; next: unknown };
+export type UpdateChange = At & { class: "widening" | "wording" | "silent"; before: unknown; after: unknown; reaches?: string[] };
+export type UpdateConflict = At & { old: unknown; mine: unknown; next: unknown; reaches?: string[] };
 export type UpdateAddition = { key: string; kind: "primitive" | "agent" | "trigger" | "server"; name: string; detail: string };
 type Names = Record<string, string>;
 
@@ -109,6 +109,7 @@ export function UpdatePlan({
               <p>
                 <span className="font-medium text-fg">{c.name}</span> <span className="text-faint">· {label(c.field)}</span>
               </p>
+              {c.reaches && <p className="text-muted">{c.reaches.length ? `Reaches ${c.reaches.join(", ")}` : "No agent uses this skill yet"}</p>}
               <Text title="The plugin's, before" value={c.old} names={names} />
               <Text title="Yours" value={c.mine} names={names} />
               <Text title="The plugin's, now" value={c.next} names={names} />
@@ -143,6 +144,7 @@ export function UpdatePlan({
             {widening.map((c) => (
               <li key={c.key}>
                 <span className="font-medium text-fg">{c.name}</span> · {label(c.field)}: {shown(c.before, names)} → {shown(c.after, names)}
+                {c.kind === "tool" && (c.field === "url" || c.field === "transport") && <span className="block text-muted">Clears its sign-in, and its saved headers when the origin or the transport changes: enter them again on the tool's page.</span>}
               </li>
             ))}
           </ul>
@@ -175,6 +177,7 @@ export function UpdatePlan({
                 <p>
                   <span className="font-medium text-fg">{c.name}</span> <span className="text-faint">· {label(c.field)}</span>
                 </p>
+                {c.reaches && <p className="text-muted">{c.reaches.length ? `Reaches ${c.reaches.join(", ")}` : "No agent uses this skill yet"}</p>}
                 <Text title="Before" value={c.before} names={names} />
                 <Text title="After" value={c.after} names={names} />
               </div>
