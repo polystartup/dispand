@@ -1134,6 +1134,39 @@ export const skillFiles = pgTable(
  * files in effect: a path whose content differs is its owner's change, one only there is a file
  * they added, one only here a file they removed. Empty for a package that is its owner's own.
  */
+/**
+ * An update's conflict the owner handed to Stem (`plugins/resolve.ts`): one field of one of the
+ * plugin's agents, tools or triggers that both the owner and the update changed. `mine` and
+ * `next` are the two values it was handed off against: a decision applies only while the field
+ * is still `mine` and the plugin's value still `next`, else it reopens. `merged` holds a value
+ * Stem proposed that waits for the owner's Approval. Gone with its plugin; deleted when its
+ * element becomes the owner's own.
+ */
+export const pluginConflicts = pgTable(
+  "plugin_conflicts",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    pluginId: text("plugin_id")
+      .notNull()
+      .references(() => plugins.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"agent" | "tool" | "trigger">().notNull(),
+    elementId: text("element_id").notNull(),
+    field: text("field").notNull(),
+    old: jsonb("old"),
+    mine: jsonb("mine"),
+    next: jsonb("next"),
+    /** `stem` while Stem decides, `approval` while its merged value waits for the owner, `open` when it is the owner's to decide again. */
+    status: text("status").$type<"stem" | "approval" | "open">().notNull(),
+    merged: jsonb("merged"),
+    runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("plugin_conflicts_field_idx").on(t.kind, t.elementId, t.field), index("plugin_conflicts_run_idx").on(t.runId)],
+);
+
 export const skillFileUpstream = pgTable(
   "skill_file_upstream",
   {

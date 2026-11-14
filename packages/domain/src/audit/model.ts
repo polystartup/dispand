@@ -27,6 +27,7 @@ export const AUDIT_ACTIONS = [
   "poll.run",
   "event.recorded",
   "memory.written",
+  "plugin.decided",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -84,12 +85,16 @@ export const AuditDetails = z.strictObject({
   rowId: id,
   eventId: id,
   memoryId: id,
+  /** A plugin's agent, tool or trigger a decision is about. */
+  elementId: id,
   agentName: name,
   harnessName: name,
   runnerName: name,
   triggerName: name,
   toolName: name,
   tableName: name,
+  /** The element's field a decision is about: its name, never its value. */
+  field: name,
   causeKind: kind,
   firing: kind,
   questionKind: kind,
@@ -100,6 +105,7 @@ export const AuditDetails = z.strictObject({
   operation: kind,
   scope: kind,
   status: kind,
+  elementKind: kind,
   item: n,
   items: n,
   jobs: n,

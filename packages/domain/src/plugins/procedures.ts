@@ -37,7 +37,7 @@ import { type ActualTable, type TableChange, tableChanges } from "./table-merge.
 import type { PrimitiveDefinition } from "./definitions.ts";
 import { fields, tables } from "../data/tables.ts";
 import { agentValues, type ChangeClass, elementPlans, type UpdatableKind } from "./update.ts";
-import { ELEMENT_FIELDS } from "./overrides.ts";
+import { ELEMENT_FIELDS, sameValue } from "./overrides.ts";
 import { agents as agentProcedures } from "../agents/procedures.ts";
 import { tools as toolProcedures } from "../tools/procedures.ts";
 import { triggers as triggerProcedures } from "../triggers/procedures.ts";
@@ -48,6 +48,8 @@ import { itemsView, recordCreated } from "../platform/proposals.ts";
 import { canonical } from "../platform/approvals.ts";
 import { runItemsAsOwner, SetupPick, setupItems } from "./setup.ts";
 import { addServer } from "./servers.ts";
+import { writeFields } from "./write-field.ts";
+import { forgetConflicts, reopenChanged } from "./resolve.ts";
 import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, PluginError, type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
 
@@ -682,6 +684,10 @@ function freeName(own: Set<string>, name: string, plugin: string): string {
 async function removeElements(tx: Tx, ownerId: string, engine: InitialContext["engine"], row: PluginRow, elements: Element[], choices: Record<string, "keep" | "delete">) {
   const of = (kind: Element["kind"], keep: boolean) => elements.filter((e) => e.kind === kind && (choices[e.key] === "keep") === keep).map((e) => e.id);
 
+  // What leaves the plugin, kept or gone, has no conflict left: its own, and its agents' triggers'.
+  const agentIds = elements.filter((e) => e.kind === "agent").map((e) => e.id);
+  const agentTriggers = agentIds.length ? await tx.select({ id: triggersTable.id }).from(triggersTable).where(inArray(triggersTable.agentId, agentIds)) : [];
+  await forgetConflicts(tx, [...elements.map((e) => e.id), ...agentTriggers.map((t) => t.id)]);
   // Agents first, so what still uses a skill or a tool afterwards is what stays.
   const out = await engine.deleteAgents(tx, ownerId, of("agent", false));
   for (const id of of("agent", true)) {
@@ -1082,6 +1088,8 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
       await store(tx, skill.packageId, skill.files, skills);
       await storeUpstream(tx, skill.packageId, skill.next);
     }
+    // A field whose plugin value changes: a decision Stem was asked for on it no longer stands.
+    for (const e of elements) await reopenChanged(tx, e.kind, e.id, Object.keys(e.plan.upstream).filter((f) => !sameValue(e.kind, f, e.previous?.[f], e.plan.upstream[f])));
     // An element with nothing to write (its owner's values stay) only gets the plugin's new values underneath.
     for (const e of elements.filter((e) => Object.keys(e.plan.set).length === 0)) await tx.update(tableOf(e.kind)).set({ upstream: e.plan.upstream }).where(eq(tableOf(e.kind).id, e.id));
     await tx
@@ -1170,24 +1178,7 @@ const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool", "tri
   if (kind === "tool" && field === "url" && hasPlaceholder(String(value.url))) {
     throw new ORPCError("BAD_REQUEST", { message: "The plugin's address needs a setting: update the plugin, or uninstall and install it again, to enter it" });
   }
-  if (kind === "tool") return { overridden: (await call(toolProcedures.update, { id, ...value } as never, { context: context as never })).overridden };
-  if (kind === "trigger") return { overridden: (await call(triggerProcedures.update, { id, ...value } as never, { context: context as never })).overridden };
-  const a = await call(agentProcedures.get, { id }, { context: context as never });
-  const whole = {
-    id,
-    name: a.name,
-    description: a.description,
-    harnessId: a.harnessId,
-    systemPrompt: a.systemPrompt,
-    ...(a.model === undefined ? {} : { model: a.model }),
-    bundles: a.bundles,
-    selfLearning: a.selfLearning,
-    dataTables: a.dataTables,
-    skillPackageIds: a.skills.map((s) => s.packageId),
-    toolIds: a.tools.filter((t) => t.explicit).map((t) => t.toolId),
-    consults: a.consults.map(({ agentId, ask }) => ({ agentId, ask })),
-  };
-  return { overridden: (await call(agentProcedures.update, { ...whole, ...value } as never, { context: context as never })).overridden };
+  return writeFields(context, kind, id, value);
 });
 
 export const marketplaces = { list: listMarketplaces, add: addMarketplace, remove: removeMarketplace, sync };
