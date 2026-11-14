@@ -20,7 +20,8 @@ type Props = {
   /** The conversation shown; null: a new one starts with the first message. */
   runId: string | null;
   onRunStarted: (runId: string) => void;
-  onNewConversation: () => void;
+  /** Absent: no new conversation can start (a disabled trigger's). */
+  onNewConversation?: () => void;
   /** What an empty conversation invites the owner to say (default: a plain hello). */
   welcome?: string;
   composerTools?: ReactNode;
@@ -194,7 +195,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
                 void send();
               }}
             >
-              {runId && !composerTools && (
+              {runId && !composerTools && onNewConversation && (
                 <Button
                   type="button"
                   variant="ghost"

@@ -102,6 +102,7 @@ test("a disabled trigger still shows the Job it ran, without a Start", async () 
   fake.runs.stream.mockImplementation(idle);
   mount();
   expect(await screen.findByLabelText("Message")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "New conversation" })).toBeNull();
   cleanup();
   fake.triggers.get.mockResolvedValue(trigger("button", false));
   fake.jobs.def.mockResolvedValue({ trigger: { type: "manual", field: { id: "trigger_1", key: "trigger", type: "button", label: "Mail" } }, steps: [], edges: [] });

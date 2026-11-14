@@ -40,7 +40,7 @@ export function TriggerWidget({ widget, editing }: Props) {
       ) : !trigger.data.enabled && !runId ? (
         <p className="px-5 pb-5 text-[14px] text-muted">This trigger is disabled.</p>
       ) : shown === "chat" ? (
-        <ChatPanel start={start} runId={runId} onRunStarted={setChosen} onNewConversation={() => setChosen(null)} />
+        <ChatPanel start={start} runId={runId} onRunStarted={setChosen} onNewConversation={trigger.data.enabled ? () => setChosen(null) : undefined} />
       ) : (
         <StartButton label={trigger.data.name} runId={runId} start={start} onRunStarted={setChosen} disabled={!trigger.data.enabled} />
       )}
