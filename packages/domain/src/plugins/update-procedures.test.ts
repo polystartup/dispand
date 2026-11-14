@@ -259,3 +259,18 @@ test("a trigger a new version drops while its agent stays is asked about when th
     remove();
   }
 });
+
+test("the update's screen gives the new version's changelog section when it has one, and the two commits either way", async () => {
+  const { files, preview, publish, remove } = await setUp();
+  try {
+    const before = await preview();
+    expect(before.releaseNotes).toMatchObject({ version: "1.0.0", text: null });
+    const sha = publish({
+      "plugin.json": files["plugin.json"]!.replace('"version": "1.0.0"', '"version": "1.1.0"'),
+      "CHANGELOG.md": "# Changelog\n\n## 1.1.0\n\n- Drafting writes shorter replies.\n\n## 1.0.0\n\n- First.\n",
+    });
+    expect((await preview()).releaseNotes).toEqual({ from: before.sha, to: sha, version: "1.1.0", text: "## 1.1.0\n\n- Drafting writes shorter replies." });
+  } finally {
+    remove();
+  }
+});

@@ -30,6 +30,7 @@ import { rebaseFiles, resetFile, store, storeUpstream, type Tx } from "../skills
 import { HeaderValue, insertTool, refreshActions } from "../tools/procedures.ts";
 import { hasPlaceholder, httpTool, skillPackageName, toolName } from "./components.ts";
 import { type After, checkChoices, type Element, inUse } from "./closure.ts";
+import { changelogSection, readChangelog } from "./release-notes.ts";
 import { agentValues, type ChangeClass, elementPlans, type UpdatableKind } from "./update.ts";
 import { ELEMENT_FIELDS } from "./overrides.ts";
 import { agents as agentProcedures } from "../agents/procedures.ts";
@@ -112,7 +113,7 @@ function lstatOrNull(path: string) {
 }
 
 /** Fetches an entry's plugin (from its own repository, or its marketplace's for a relative path) and reads it. */
-async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry, allowFile: boolean): Promise<{ contents: PluginContents; url: string; sha: string; nativeRoot?: string }> {
+async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry, allowFile: boolean): Promise<{ contents: PluginContents; url: string; sha: string; nativeRoot?: string; changelog?: string | null }> {
   const { source } = entry;
   if (source.type === "unsupported") throw new ORPCError("BAD_REQUEST", { message: source.reason });
   if (source.type === "well-known") return { ...(await readWellKnownSkills(source.url)), url: source.url };
@@ -123,7 +124,7 @@ async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry, allowF
     // The repository's links under the plugin, as paths from its root.
     const prefix = relative(realpathSync(checkout.dir), root);
     const links = checkout.links.flatMap((l) => (prefix === "" ? [l] : l.startsWith(`${prefix}/`) ? [l.slice(prefix.length + 1)] : []));
-    return { contents: readPlugin(root, entry, links), url, sha: checkout.sha, nativeRoot: prefix || "." };
+    return { contents: readPlugin(root, entry, links), url, sha: checkout.sha, nativeRoot: prefix || ".", changelog: readChangelog(root) };
   } finally {
     await checkout.cleanup();
   }
@@ -846,7 +847,10 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
   const after = afterOf(elements);
   const removals = leaving.size ? await inUse(context.db, context.ownerId, row.id, leaving, after) : [];
   const reviewed = createHash("sha256").update(canonical({ sha: read.sha, conflicts, changes, additions, removals })).digest("hex");
-  return { ...read, conflicts, changes, additions, leaving, after, removals, reviewed };
+  // The plugin's own words for the version it goes to, when its changelog names it; the two commits either way.
+  const { version } = read.contents;
+  const releaseNotes = { from: row.sha, to: read.sha, version, text: version && read.changelog ? changelogSection(read.changelog, version) : null };
+  return { ...read, conflicts, changes, additions, leaving, after, removals, reviewed, releaseNotes };
 }
 
 /**
@@ -858,8 +862,8 @@ const tableOf = (kind: UpdatableKind) => (kind === "agent" ? agentsTable : kind 
 
 const updatePreview = owner.input(Id).handler(async ({ input, context }) => {
   const row = await findPlugin(context.db, context.ownerId, input.id);
-  const { sha, conflicts, changes, additions, removals, reviewed } = await updatePlan(context, row);
-  return { sha, conflicts, changes, additions, removals, reviewed, names: await namesIn(context.db, context.ownerId, [conflicts, changes]) };
+  const { sha, conflicts, changes, additions, removals, reviewed, releaseNotes } = await updatePlan(context, row);
+  return { sha, conflicts, changes, additions, removals, reviewed, releaseNotes, names: await namesIn(context.db, context.ownerId, [conflicts, changes]) };
 });
 
 /** A name for each id of the owner's agents, tools, tables, fields and skill packages found in `values`, so the screen reads names. */

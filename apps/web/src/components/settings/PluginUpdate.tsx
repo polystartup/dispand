@@ -159,3 +159,22 @@ export function UpdatePlan({
     </div>
   );
 }
+
+export type UpdateReleaseNotes = { from: string | null; to: string; version: string | null; text: string | null };
+
+/** What the plugin says of the version it goes to, from its changelog, as plain text; the two commits when it says nothing. */
+export function ReleaseNotes({ notes }: { notes: UpdateReleaseNotes }) {
+  if (!notes.text) {
+    return (
+      <p className="text-[13px] text-muted">
+        No release notes: from {notes.from?.slice(0, 7) ?? "the installed version"} to {notes.to.slice(0, 7)}.
+      </p>
+    );
+  }
+  return (
+    <details className="text-[13px]">
+      <summary className="cursor-pointer font-medium text-muted">Release notes for {notes.version}</summary>
+      <p className="mt-2 max-h-60 overflow-y-auto whitespace-pre-wrap rounded-lg bg-hover px-2 py-1">{notes.text}</p>
+    </details>
+  );
+}

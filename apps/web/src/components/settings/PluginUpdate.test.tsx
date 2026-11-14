@@ -64,3 +64,16 @@ test("what a version adds is named, with where it gets made: the update has no b
   expect(screen.queryByRole("checkbox")).toBeNull();
   expect(screen.getByText(/Set up opens afterwards/)).toBeTruthy();
 });
+
+test("release notes are the plugin's own words for its new version, as plain text, or the two commits when it has none", async () => {
+  const { ReleaseNotes } = await import("./PluginUpdate.tsx");
+  const { rerender } = render(<ReleaseNotes notes={{ from: "a".repeat(40), to: "b".repeat(40), version: "1.1.0", text: "## 1.1.0\n\n- <b>Shorter</b> replies." }} />);
+  const notes = screen.getByText("Release notes for 1.1.0");
+  await userEvent.click(notes);
+  const body = notes.closest("details")!;
+  // Shown as written: no markup reaches the page.
+  expect(body.textContent).toContain("<b>Shorter</b> replies.");
+  expect(body.querySelector("b")).toBeNull();
+  rerender(<ReleaseNotes notes={{ from: "a".repeat(40), to: "b".repeat(40), version: null, text: null }} />);
+  expect(screen.getByText("No release notes: from aaaaaaa to bbbbbbb.")).toBeTruthy();
+});
