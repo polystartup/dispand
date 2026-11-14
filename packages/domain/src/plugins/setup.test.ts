@@ -494,8 +494,12 @@ test("a setup run from the install gives every tool on Ask and adds no server th
     await ctx.db.insert(toolsTable).values({ id: "tool_gmail", ownerId: ctx.ownerId, name: "Gmail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", catalogId: "gmail", actions: [{ name: "search_threads", description: "", inputSchema: {} }] });
     const entry = { marketplaceId: market.id, entryName: "law-firm" };
     const { reviewed } = await call(router.plugins.preview, entry, { context: ctx });
-    const result = await call(router.plugins.install, { ...entry, reviewed, setup: { ...ALL, agents: AGENTS.map((name) => ({ name, harnessId })) } }, { context: ctx });
+    const result = await call(router.plugins.install, { ...entry, reviewed, setup: { ...ALL, agents: AGENTS.map((name) => ({ name, harnessId })), triggers: ["New client email", "Matter changed"] } }, { context: ctx });
     expect(result.setup?.waiting).toContainEqual({ definition: "tool:case-law", reason: expect.stringContaining("wasn't ticked with the install") });
+    // A poll runs its action unasked, which the install doesn't grant: it waits, and the setup goes on past it.
+    expect(result.setup?.waiting).toContainEqual({ definition: "trigger:New client email", reason: expect.stringContaining("doesn't grant") });
+    expect(result.setup?.outcomes.every((o) => o.outcome === "made")).toBe(true);
+    expect((await ctx.db.select({ name: triggersTable.name }).from(triggersTable)).map((t) => t.name)).toEqual(["Matter changed"]);
     expect(await ctx.db.select().from(toolsTable).where(eq(toolsTable.pluginComponent, "case-law"))).toEqual([]);
     const grants = await ctx.db.select({ unasked: agentToolsTable.unasked }).from(agentToolsTable).where(eq(agentToolsTable.toolId, "tool_gmail"));
     expect(grants.length).toBeGreaterThan(0);

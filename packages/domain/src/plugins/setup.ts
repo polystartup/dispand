@@ -335,9 +335,9 @@ async function agentSetup(
     }
     for (const s of d.skills.filter((s) => !installed.includes(s))) waiting.push({ definition: key, reason: `Its skill “${s}” wasn't installed with the plugin: the agent is made without it` });
     const toolIds: Ref[] = [];
-    for (const t of d.tools) {
+    for (const t of new Set(d.tools)) {
       const tool = toolOf.get(t);
-      if (tool) toolIds.push(tool);
+      if (tool && !toolIds.some((id) => canonicalRef(id) === canonicalRef(tool))) toolIds.push(tool);
       else waiting.push({ definition: key, reason: `“${t}” isn't added as a tool yet: the agent is made without it` });
     }
     const consults: { agentId: Ref; ask: boolean }[] = [];
@@ -418,6 +418,11 @@ async function agentSetup(
       // A server added by this setup lists its actions only once it is added (and signed in): its poll comes afterwards.
       if (typeof toolId !== "string" && server !== undefined) {
         wait(`“${name}” is added by this setup: set the trigger up once it lists its actions`);
+        continue;
+      }
+      // An agent the install makes asks before every action: a poll, which runs its action unasked, would be refused.
+      if (fromInstall && typeof agentId !== "string") {
+        wait(`Its poll runs “${t.config.action}” unasked, which the install doesn't grant: let ${t.agent} run it, then set the trigger up`);
         continue;
       }
       // What `triggers.create` would refuse, said now: the setup doesn't stop on it.

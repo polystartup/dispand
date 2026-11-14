@@ -1262,7 +1262,8 @@
   the commit, and one refused leaves the plugin installed, with Set up going on from there.
   Since no items are shown, a setup run from the install (`setupItems(…, fromInstall)`) gives
   every tool on Ask and adds no plugin server the install left unticked (it waits for Set up,
-  which shows its address); the sheet lists what was refused or left waiting.
+  which shows its address), and a poll of an agent it makes waits (a poll runs its action
+  unasked); the sheet lists what was refused or left waiting.
   What a setup makes is the plugin's from its insert: `runItemsAsOwner` passes
   `context.pluginElement` (a value no input sets) and `tables.create`, `fields.create` and
   `agents.create` write it on the row (`tables.plugin_id`, `plugin_component` and the
