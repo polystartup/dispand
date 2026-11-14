@@ -272,11 +272,12 @@ const discover = owner.input(z.object({ query: z.string().max(200).optional() })
 });
 
 /**
- * What the owner reviewed of a plugin's MCP servers: their definitions as read (the marketplace's
- * manifest merged in) at that commit. An install of servers must match it.
+ * What the owner reviewed of a plugin at that commit: its MCP servers as read (the marketplace's
+ * manifest merged in) and its definitions, which say what its agents may do. An install of
+ * servers, or one that sets definitions up, must match it.
  */
 function reviewToken(sha: string, contents: PluginContents): string {
-  return createHash("sha256").update(JSON.stringify([sha, contents.mcpServers])).digest("hex");
+  return createHash("sha256").update(JSON.stringify([sha, contents.mcpServers, contents.definitions])).digest("hex");
 }
 
 const preview = owner.input(EntryRef).handler(async ({ input, context }) => {
@@ -330,6 +331,8 @@ const InstallInput = EntryRef.extend({
   harnessId: z.string().max(64).optional(),
   /** `preview`'s `reviewed`; required to import MCP servers, so settings only go to URLs the owner saw. */
   reviewed: z.string().max(64).optional(),
+  /** The definitions to set up once installed, as `setUp` takes them; needs `reviewed`. */
+  setup: SetupPick.optional(),
   /** MCP server name → its settings. */
   settings: z
     .record(z.string().max(100), ServerSettings)
@@ -348,7 +351,8 @@ const install = owner
   .input(InstallInput)
   .handler(async ({ input, context }) => {
     const picked = { skills: unique(input.skills), mcpServers: unique(input.mcpServers), agents: unique(input.agents) };
-    const nothingPicked = !picked.skills.length && !picked.mcpServers.length && !picked.agents.length;
+    const setupPicked = !!input.setup && Object.values(input.setup).some((v) => Array.isArray(v) && v.length > 0);
+    const nothingPicked = !picked.skills.length && !picked.mcpServers.length && !picked.agents.length && !setupPicked;
     const { harnessId } = input;
     if (picked.agents.length && !harnessId) throw new ORPCError("BAD_REQUEST", { message: "Pick the harness the plugin's agents run on" });
     if (picked.agents.length && harnessId) {
@@ -366,7 +370,7 @@ const install = owner
     if (nothingPicked && !input.nativeInstall && !agentDefs.length && !primitives.length && !triggers.length) {
       throw new ORPCError("BAD_REQUEST", { message: "Pick at least one skill, MCP server or agent" });
     }
-    if ((picked.mcpServers.length || input.nativeInstall) && reviewToken(sha, contents) !== input.reviewed) {
+    if ((picked.mcpServers.length || input.nativeInstall || setupPicked) && reviewToken(sha, contents) !== input.reviewed) {
       throw new ORPCError("CONFLICT", { message: `${entry.name} changed since you reviewed it: look at it again before installing` });
     }
     const chosen = picked.skills.length ? chosenSkills(contents, picked.skills) : null;
@@ -432,6 +436,9 @@ const install = owner
           if (tools.length) await tx.insert(agentTools).values(tools.map((t) => ({ agentId: id, toolId: t.id })));
           agentIds.push(id);
         }
+        // What the setup would make, checked before anything is kept: a pick it can't make refuses the install.
+        const setup = setupPicked ? await setupItems(tx, context.ownerId, pluginId, input.setup!, true) : null;
+        if (setup && "error" in setup) throw new ORPCError("BAD_REQUEST", { message: setup.error });
         return { tools, agentIds };
       });
     } catch (err) {
@@ -441,7 +448,13 @@ const install = owner
       throw err;
     }
     for (const tool of created.tools) await refreshActions(context.db, context.secrets, context.tools, tool);
-    return { pluginId, toolIds: created.tools.map((t) => t.id), agentIds: created.agentIds };
+    const made = { pluginId, toolIds: created.tools.map((t) => t.id), agentIds: created.agentIds };
+    if (!setupPicked) return { ...made, setup: undefined };
+    // Set up as `setUp` does, from the definitions the token covers: an item refused leaves the plugin installed, and Set up goes on from there.
+    const items = await setupItems(context.db, context.ownerId, pluginId, input.setup!, true);
+    if ("error" in items) throw new ORPCError("BAD_REQUEST", { message: items.error });
+    const { outcomes } = await runItemsAsOwner(context, pluginId, items.items);
+    return { ...made, setup: { outcomes, waiting: items.waiting } };
   });
 
 type PluginRow = typeof pluginsTable.$inferSelect;

@@ -2,6 +2,7 @@ import { call, ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
+import type { Tx } from "../skills/procedures.ts";
 import { agents as agentsTable, fields as fieldsTable, plugins, skillPackages, skills as skillsTable, tables as tablesTable, tools as toolsTable, triggers as triggersTable, type ProposalItem } from "../db/schema.ts";
 import { agents } from "../agents/procedures.ts";
 import { fields, tables } from "../data/tables.ts";
@@ -70,7 +71,7 @@ type Ref = string | { $item: number };
  * its definition: it has no link to the plugin, so an update of the plugin never rewrites it. Each
  * item is parsed with its procedure's input, as a proposal's is.
  */
-export async function setupItems(db: Db, ownerId: string, pluginId: string, pick: SetupPick): Promise<{ items: ProposalItem[]; waiting: Waiting[] } | { error: string }> {
+export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string, pick: SetupPick, fromInstall = false): Promise<{ items: ProposalItem[]; waiting: Waiting[] } | { error: string }> {
   const [plugin] = await db
     .select({ definitions: plugins.definitions, created: plugins.created, components: plugins.components })
     .from(plugins)
@@ -173,7 +174,7 @@ export async function setupItems(db: Db, ownerId: string, pluginId: string, pick
     items.push({ tool: "tables_set_primitive", input: { id: tableOf.get(p.name.toLowerCase())!, primitive: p.primitive, ...(parent ? { parent } : {}) } });
   }
 
-  const agentItems = await agentSetup(db, ownerId, pluginId, plugin.definitions, plugin.components.mcpServers, from, pick, tableOf, items);
+  const agentItems = await agentSetup(db, ownerId, pluginId, plugin.definitions, plugin.components.mcpServers, from, pick, tableOf, items, fromInstall);
   if ("error" in agentItems) return agentItems;
   items.push(...agentItems.items);
   waiting.push(...agentItems.waiting);
@@ -202,7 +203,7 @@ export async function setupItems(db: Db, ownerId: string, pluginId: string, pick
  * works on), a missing skill, tool or consult doesn't.
  */
 async function agentSetup(
-  db: Db,
+  db: Db | Tx,
   ownerId: string,
   pluginId: string,
   { agents: definitions, triggers: triggerDefinitions }: PluginDefinitions,
@@ -211,6 +212,8 @@ async function agentSetup(
   pick: SetupPick,
   tableOf: Map<string, Ref>,
   prior: ProposalItem[],
+  // Run from the install, which shows no items: no server it didn't tick is added, and every tool given starts on Ask.
+  fromInstall: boolean,
 ): Promise<{ items: ProposalItem[]; waiting: Waiting[] } | { error: string }> {
   const first = prior.length;
   const picked: { definition: AgentDefinition; harnessId: string }[] = [];
@@ -307,8 +310,9 @@ async function agentSetup(
     }
     const server = servers.find((s) => s.name === name);
     if (!server) continue;
-    const reason =
-      server.type !== "http" ? "It runs on a runner: add it from the plugin's page" : server.settings.length ? "Its URL needs a setting: add it from the plugin's page" : !server.transport ? "Update the plugin to add it" : null;
+    const reason = fromInstall
+      ? "It wasn't ticked with the install: add it from Set up, where its address is shown"
+      : server.type !== "http" ? "It runs on a runner: add it from the plugin's page" : server.settings.length ? "Its URL needs a setting: add it from the plugin's page" : !server.transport ? "Update the plugin to add it" : null;
     if (reason) {
       waiting.push({ definition, reason });
       continue;
@@ -331,9 +335,9 @@ async function agentSetup(
     }
     for (const s of d.skills.filter((s) => !installed.includes(s))) waiting.push({ definition: key, reason: `Its skill “${s}” wasn't installed with the plugin: the agent is made without it` });
     const toolIds: Ref[] = [];
-    for (const t of d.tools) {
+    for (const t of new Set(d.tools)) {
       const tool = toolOf.get(t);
-      if (tool) toolIds.push(tool);
+      if (tool && !toolIds.some((id) => canonicalRef(id) === canonicalRef(tool))) toolIds.push(tool);
       else waiting.push({ definition: key, reason: `“${t}” isn't added as a tool yet: the agent is made without it` });
     }
     const consults: { agentId: Ref; ask: boolean }[] = [];
@@ -353,6 +357,7 @@ async function agentSetup(
       dataTables,
       skillPackageIds: pkg && d.skills.some((s) => installed.includes(s)) ? [pkg.id] : [],
       toolIds,
+      ...(fromInstall && toolIds.length ? { toolPermissions: toolIds.map((toolId) => ({ toolId, unasked: [] })) } : {}),
       ...(consults.length ? { consults } : {}),
     };
     items.push({ tool: "agents_create", input, from: key });
@@ -413,6 +418,11 @@ async function agentSetup(
       // A server added by this setup lists its actions only once it is added (and signed in): its poll comes afterwards.
       if (typeof toolId !== "string" && server !== undefined) {
         wait(`“${name}” is added by this setup: set the trigger up once it lists its actions`);
+        continue;
+      }
+      // An agent the install makes asks before every action: a poll, which runs its action unasked, would be refused.
+      if (fromInstall && typeof agentId !== "string") {
+        wait(`Its poll runs “${t.config.action}” unasked, which the install doesn't grant: let ${t.agent} run it, then set the trigger up`);
         continue;
       }
       // What `triggers.create` would refuse, said now: the setup doesn't stop on it.

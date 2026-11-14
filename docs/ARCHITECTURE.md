@@ -1254,6 +1254,16 @@
   owner (`runItemsAsOwner`: each through its procedure with the owner's own context, stopping at
   the first refusal, every id recorded with `recordCreated`, which `recordInPlugin` uses too; span
   `plugins.setup`, metric `dispand.plugins.setups`). Both are owner-only and not tools.
+  `plugins.install` takes the same pick as `setup`, in one confirm: the install sheet shows each
+  ticked agent definition's rights in words from the definition itself (no plugin row exists yet
+  for `itemsView`), and `plugins.preview`'s `reviewed` covers the definitions as well as the MCP
+  servers. The pick is turned into items inside the install's transaction, so one it can't make
+  (a table naming another plugin table left unticked) installs nothing; the items are made after
+  the commit, and one refused leaves the plugin installed, with Set up going on from there.
+  Since no items are shown, a setup run from the install (`setupItems(…, fromInstall)`) gives
+  every tool on Ask and adds no plugin server the install left unticked (it waits for Set up,
+  which shows its address), and a poll of an agent it makes waits (a poll runs its action
+  unasked); the sheet lists what was refused or left waiting.
   What a setup makes is the plugin's from its insert: `runItemsAsOwner` passes
   `context.pluginElement` (a value no input sets) and `tables.create`, `fields.create` and
   `agents.create` write it on the row (`tables.plugin_id`, `plugin_component` and the
