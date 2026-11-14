@@ -1456,15 +1456,17 @@ bundle, memory or consult; `withMemory` gives it no memory to read either, since
 `configure` to filter what other agents wrote by), and `allowed` gives a limited Job those tools and no other, so the
 Job server and the cloud listing offer `plugin_decide` alone; a call of another tool is refused.
 `plugin_decide` takes only the Job's own conflicts and goes through `decide`. When the Job ends,
-however it ends, what it didn't decide is `open` again (`reopenUndecided`, in `finishRun`). A
-CLI session would also offer its native tools and the user's MCP servers, so a limited Job's start
-on a CLI harness is refused (`startProblem`) until the runner starts restricted sessions: the Job
-fails and its conflicts are the owner's again. On the element's page (`StemMarks`, from
+however it ends, what it didn't decide is `open` again (`reopenUndecided`, in `finishRun`). On a
+runner, the start says `restricted` (runner protocol 26), and the runner enforces it from its own
+start arguments: on Claude Code, no built-in tool (`tools: []`), no settings source,
+`strictMcpConfig`, no skill package, memory file or consult, and the Job's own `job` server
+alone; on Codex the start is refused (`startProblem` refuses it first), the Job fails and its
+conflicts are the owner's again. On the element's page (`StemMarks`, from
 `plugins.conflicts`), each conflict says where it is: Stem is looking; Stem's merged value waits
 for the owner, who accepts it or keeps theirs (`plugins.resolveConflict`, `answerConflict`, with
 the same check); or it is theirs again, with the three choices of the update's screen (keep
 theirs, take the plugin's, or hand it to Stem once more against the values as they are now). Not
-yet built: the runner's restricted sessions, and tables' and skill files' conflicts.
+yet built: tables' and skill files' conflicts.
 
 Native support currently requires `plugins.native_root = '.'`, recorded from the resolved Git
 checkout when importing or updating. Legacy rows have null until updated. Nested imports are

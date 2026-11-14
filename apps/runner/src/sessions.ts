@@ -257,6 +257,8 @@ export class Sessions {
     } else if (!atLeast(this.options.claudeVersion, MIN_CLAUDE)) {
       return emit({ type: "error", message: `Claude Code ≥ ${MIN_CLAUDE} required (found ${this.options.claudeVersion ?? "none"}): update claude on this machine` });
     }
+    // A restricted session holds nothing but the Job's own server: Codex has no switch for its native tools here.
+    if (start.restricted && start.harness !== "claude-code") return emit({ type: "error", message: "A restricted session runs on Claude Code only" });
     if (start.permissionMode === "bypassPermissions" && !this.config.allowBypass) {
       return emit({ type: "error", message: new BypassRefused().message });
     }
@@ -266,7 +268,10 @@ export class Sessions {
     const prepareMcp = () => {
       claudeMcp = {};
       codexMcp = undefined;
-      const refs = withJobServer(start.mcpServers, this.config.server, start.jobToken);
+      // Restricted: no server of the start's and not the Job's tools server, only the Job's own (`job`).
+      const refs = start.restricted
+        ? withJobServer([], this.config.server, start.jobToken).filter((r) => r.name === JOB_SERVER_NAME)
+        : withJobServer(start.mcpServers, this.config.server, start.jobToken);
       if (refs.length > 0) {
         if (start.harness === "codex") codexMcp = codexMcpServers(refs, this.config.mcpServers);
         else claudeMcp = mcpConfigFor(refs, this.config.mcpServers);
@@ -297,11 +302,11 @@ export class Sessions {
     };
     try {
       // Fetched before the run folder exists: a failed fetch leaves nothing behind.
-      const packages = skills && pluginsDir ? await (skills.fetch ?? fetchPackages)(skills.server, skills.token, start.skills) : [];
+      const packages = skills && pluginsDir && !start.restricted ? await (skills.fetch ?? fetchPackages)(skills.server, skills.token, start.skills) : [];
       const cwd = await resolveWorkdir(this.config, start.cwd, this.options.forbidden, resuming);
       if (!resuming) created = cwd;
       // A Job's memory as Dispand sent it now (a resume gets it again, as it is), gone when the session ends.
-      if (start.jobToken !== undefined) {
+      if (start.jobToken !== undefined && !start.restricted) {
         memoryIn = cwd;
         await writeMemoryFiles(cwd, start.memory ?? []);
       }

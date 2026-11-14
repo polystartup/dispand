@@ -18,7 +18,7 @@ export const HarnessCommands = z.array(z.object({
 })).max(1000);
 export type HarnessCommand = z.infer<typeof HarnessCommands>[number];
 
-export const PROTOCOL_VERSION = 25;
+export const PROTOCOL_VERSION = 26;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -161,6 +161,12 @@ const StartFields = {
    * when none. No size cap of its own: the server fills them within what the frame leaves.
    */
   memory: z.array(MemoryFile).max(MAX_MEMORY_FILES).optional(),
+  /**
+   * A Job limited to some of Dispand's tools (a Stem Job): the session gets no native tool of the
+   * CLI, no settings, skill, memory or MCP server but the Job's own (`job`), whatever else the
+   * start holds. The runner enforces it; Claude Code only.
+   */
+  restricted: z.literal(true).optional(),
 };
 
 export const ClaudePermissionMode = z.enum(["default", "acceptEdits", "plan", "bypassPermissions"]);

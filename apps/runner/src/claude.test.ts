@@ -1710,3 +1710,20 @@ test.each([["allow", "run"], ["deny", "run"], ["allow", "always"], ["deny", "alw
   expect(decisions).toEqual([decision, decision]);
   expect(events.filter((e) => e.type === "question")).toHaveLength(1);
 });
+
+test("a restricted start gets no built-in tool, no settings of the user's, no skill, and its answer as its only tool of its own", async () => {
+  const fake = fakeQuery(async function* ({ next }) {
+    yield init;
+    yield result();
+    await next();
+  });
+  const events: HarnessEvent[] = [];
+  const session = startClaudeSession({ ...start, restricted: true, consults: [{ agentId: "agent_x", name: "X", description: "" }] }, "/work", (e) => events.push(e), { query: fake.query, pluginRoots: ["/plugins/a"] });
+  await vi.waitFor(() => expect(events.some((e) => e.type === "turn-end")).toBe(true));
+  session.close();
+  await session.done;
+  expect(fake.calls[0]).toMatchObject({ tools: [], strictMcpConfig: true, settingSources: [] });
+  expect(fake.calls[0]!.plugins).toBeUndefined();
+  const own = fake.calls[0]!.mcpServers!.dispand as unknown as { tools: { name: string }[] };
+  expect(own.tools.map((t) => t.name)).toEqual(["submit_outputs"]);
+});
