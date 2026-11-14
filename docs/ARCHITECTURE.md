@@ -1352,7 +1352,7 @@
   skill file, a table's fields), it holds rows, memory or a running Job, or something that stays
   refers to it. `REFERENCES` classes every foreign key to an element's table as part of the
   element, its history, content, or a reference followed, and a test holds the schema to it.
-  `plugins.uninstall` takes the preview's `reviewed` token and a choice per element (`keep` or
+  `plugins.uninstall` and an update that drops elements first lock every element row of the plugin (`lockElements`: the consult lock, then tables, triggers, agents, skill packages, tools, in the order their writes and a Job's start take them), so an override or a new use waits for the removal. `plugins.uninstall` takes the preview's `reviewed` token and a choice per element (`keep` or
   `delete`), checks them as a whole (`checkChoices`: every element asked about has a choice,
   one a workflow uses, or a table whose rows a table that stays names, is kept; what a kept
   element needs has a stated choice; a kept table's referenced tables are kept with it) and applies them
