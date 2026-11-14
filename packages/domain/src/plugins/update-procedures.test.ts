@@ -308,3 +308,27 @@ test("a table's changes are listed with their ticks, only the ticked ones apply,
     remove();
   }
 });
+
+test("a table change that fails is reported and offered again; a field an update adds is recorded like a setup's", async () => {
+  const { ctx, pluginId, files, preview, publish, remove } = await setUp();
+  try {
+    const [matters] = await ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Matters"));
+    const definition = JSON.parse(files[MATTERS]!) as { fields: { name: string; type: string }[]; parent: { field: string; required: boolean } };
+    // Every row must name its client now; this one names none, so the change is refused.
+    await call(router.rows.create, { tableId: matters!.id, values: {} } as never, { context: ctx });
+    definition.parent = { ...definition.parent, required: true };
+    definition.fields.push({ name: "Fee", type: "number" });
+    publish({ [MATTERS]: JSON.stringify(definition) });
+    const shown = await preview();
+    const result = await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, tables: { [matters!.id]: ["add:Fee", "parent"] } }, { context: ctx });
+    expect(result.failed).toMatchObject([{ name: "Matters" }]);
+    // The parent change is still offered; the field added isn't, and is the plugin's on record.
+    expect((await preview()).tables).toMatchObject([{ tableId: matters!.id, changes: [{ key: "parent" }] }]);
+    const [fee] = await ctx.db.select().from(schema.fields).where(eq(schema.fields.name, "Fee"));
+    const [plugin] = await ctx.db.select({ created: schema.plugins.created }).from(schema.plugins).where(eq(schema.plugins.id, pluginId));
+    expect(plugin!.created.from).toMatchObject({ "field:Matters.Fee": fee!.id });
+    expect(plugin!.created.field).toContain(fee!.id);
+  } finally {
+    remove();
+  }
+});

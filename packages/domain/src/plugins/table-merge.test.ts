@@ -15,6 +15,7 @@ const kept: PrimitiveDefinition = {
 const actual: ActualTable = {
   primitive: true,
   parentField: "Clients",
+  parentRequired: false,
   fields: [
     { id: "f0", name: "Name", type: "text", choices: [], pluginField: null },
     { id: "f1", name: "Clients", type: "reference", choices: [], pluginField: "Clients" },
@@ -70,4 +71,22 @@ test("a change to something the owner changed is stale and can't be applied; one
 
 test("a change naming a table that doesn't exist yet waits for it", () => {
   expect(kinds(next((d) => d.fields.push({ name: "Invoice", type: "reference", references: "Invoices" })))).toEqual([{ kind: "add", field: "Invoice", ticked: false, waiting: "Invoices" }]);
+});
+
+test("a choice that keeps its label under a new id is a replacement: unticked, and it says what it loses", () => {
+  expect(kinds(next((d) => (d.fields[2]!.choices = [{ id: "open2", label: "Open" }, { id: "closed", label: "Closed" }, { id: "won", label: "Won" }])))).toEqual([{ kind: "choices", field: "Stage", ticked: false, loses: 3 }]);
+});
+
+test("whatever the owner changed is stale for every kind of change: a removal, a move, the primitive flag, the parent", () => {
+  const retyped: ActualTable = { ...actual, fields: actual.fields.map((f) => (f.name === "Conclusions" ? { ...f, type: "text" } : f)) };
+  expect(kinds(next((d) => (d.fields = d.fields.filter((f) => f.name !== "Conclusions"))), retyped)).toEqual([{ kind: "remove", field: "Conclusions", ticked: false, stale: "You changed this field" }]);
+  const reordered: ActualTable = { ...actual, fields: [actual.fields[0]!, actual.fields[2]!, actual.fields[1]!, actual.fields[3]!] };
+  expect(kinds(next((d) => d.fields.reverse()), reordered)).toEqual([{ kind: "move", field: undefined, ticked: false, stale: "You changed the order" }]);
+  const noParent: ActualTable = { ...actual, parentField: null };
+  expect(kinds(next((d) => (d.parent = { field: "Clients", required: true })), noParent)).toEqual([{ kind: "parent", field: undefined, ticked: false, stale: "You changed it" }]);
+});
+
+test("changing what a reference field names isn't offered as something that can be applied here", () => {
+  expect(kinds(next((d) => (d.fields[0]!.references = "Matters")))).toEqual([{ kind: "retype", field: "Clients", ticked: false, stale: "It can't be applied here: change the field by hand" }]);
+  expect(kinds(next((d) => (d.fields[1] = { name: "Conclusions", type: "reference", references: "Clients" })))).toEqual([{ kind: "retype", field: "Conclusions", ticked: false, stale: "It can't be applied here: change the field by hand" }]);
 });
