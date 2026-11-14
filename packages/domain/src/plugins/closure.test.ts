@@ -4,9 +4,10 @@ import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { expect, test } from "vitest";
 import * as schema from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { ownerContext, recordingDb } from "../runners/test-support.ts";
 import { startFakeMcp } from "../tools/test-server.ts";
 import { checkChoices, inUse, REFERENCES, type Element } from "./closure.ts";
+import { lockElements } from "./procedures.ts";
 import { lawFirmMarket, installReviewed } from "./test-support.ts";
 
 const ELEMENT_TABLES = ["agents", "tools", "skill_packages", "tables", "fields", "triggers"];
@@ -188,6 +189,18 @@ test("a table can't be deleted while a table that stays names its rows: the unin
     await call(router.fields.delete, { id: (await call(router.tables.get, { id: mine.id }, { context: ctx })).fields.find((f) => f.name === "Client")!.id }, { context: ctx });
     await expect(uninstall({ [matters.key]: "keep", [clients.key]: "delete" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Matters names the rows of Clients: keep both, or delete both" });
     expect(await ctx.db.select({ id: schema.plugins.id }).from(schema.plugins).where(eq(schema.plugins.id, pluginId))).toHaveLength(1);
+  } finally {
+    remove();
+  }
+});
+
+test("a removal locks every element of the plugin before it works out what is in use, agents before their skills and tools", async () => {
+  const { pluginId, remove } = await setUp();
+  try {
+    const recording = await recordingDb();
+    await recording.db.transaction((tx) => lockElements(tx, pluginId));
+    const locked = recording.statements.flatMap((q) => /^select .* from "(\w+)".* for update/s.exec(q)?.[1] ?? []);
+    expect(locked).toEqual(["tables", "agents", "triggers", "skill_packages", "tools"]);
   } finally {
     remove();
   }
