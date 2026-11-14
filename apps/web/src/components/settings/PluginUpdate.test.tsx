@@ -77,3 +77,33 @@ test("release notes are the plugin's own words for its new version, as plain tex
   rerender(<ReleaseNotes notes={{ from: "a".repeat(40), to: "b".repeat(40), version: null, text: null }} />);
   expect(screen.getByText("No release notes: from aaaaaaa to bbbbbbb.")).toBeTruthy();
 });
+
+test("a table's changes are boxes with their starting ticks; one that can't apply says why and can't be ticked", async () => {
+  const { TableChanges, startingTicks } = await import("./PluginUpdate.tsx");
+  const tick = vi.fn();
+  const tables = [
+    {
+      tableId: "tbl_1",
+      name: "Matters",
+      changes: [
+        { key: "add:Fee", kind: "add" as const, field: "Fee", ticked: true },
+        { key: "remove:Conclusions", kind: "remove" as const, field: "Conclusions", ticked: false, loses: 42 },
+        { key: "retype:Stage", kind: "retype" as const, field: "Stage", ticked: false, stale: "You changed this field" },
+        { key: "add:Invoice", kind: "add" as const, field: "Invoice", ticked: false, waiting: "Invoices" },
+      ],
+    },
+  ];
+  expect(needsReview({ conflicts: [], changes: [], tables })).toBe(true);
+  render(<TableChanges tables={tables} ticked={{ tbl_1: ["add:Fee"] }} busy={false} onTick={tick} />);
+  const table = screen.getByRole("group", { name: "Matters" });
+  expect((within(table).getByRole("checkbox", { name: /Add the field Fee/ }) as HTMLInputElement).checked).toBe(true);
+  const removal = within(table).getByRole("checkbox", { name: /Remove the field Conclusions/ }) as HTMLInputElement;
+  expect(removal.checked).toBe(false);
+  expect(removal.closest("label")!.textContent).toContain("removes the values of 42 rows");
+  expect((within(table).getByRole("checkbox", { name: /Change the type of Stage/ }) as HTMLInputElement).disabled).toBe(true);
+  expect(table.textContent).toContain("You changed this field");
+  expect(table.textContent).toContain("Waits for the table Invoices");
+  expect(startingTicks(tables)).toEqual({ tbl_1: ["add:Fee"] });
+  await userEvent.click(removal);
+  expect(tick).toHaveBeenCalledWith("tbl_1", "remove:Conclusions");
+});

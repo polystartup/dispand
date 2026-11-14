@@ -274,3 +274,37 @@ test("the update's screen gives the new version's changelog section when it has 
     remove();
   }
 });
+
+const MATTERS = "com.dispand/primitives/matters.json";
+
+test("a table's changes are listed with their ticks, only the ticked ones apply, and a declined one isn't offered again", async () => {
+  const { ctx, pluginId, files, preview, publish, remove } = await setUp();
+  try {
+    const [matters] = await ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Matters"));
+    const definition = JSON.parse(files[MATTERS]!) as { fields: { name: string; type: string }[] };
+    definition.fields = [...definition.fields.filter((f) => f.name !== "Conclusions"), { name: "Fee", type: "number" }];
+    publish({ [MATTERS]: JSON.stringify(definition) });
+    const shown = await preview();
+    expect(shown.tables).toEqual([
+      {
+        tableId: matters!.id,
+        name: "Matters",
+        changes: [
+          { key: "add:Fee", kind: "add", field: "Fee", ticked: true },
+          { key: "remove:Conclusions", kind: "remove", field: "Conclusions", ticked: false },
+        ],
+      },
+    ]);
+    // A table change needs the screen's token.
+    await expect(call(router.plugins.update, { id: pluginId }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    // A key that isn't one of the table's changes is refused.
+    await expect(call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, tables: { [matters!.id]: ["remove:Clients"] } }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, tables: { [matters!.id]: ["add:Fee"] } }, { context: ctx });
+    const fields = await ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters!.id));
+    expect(fields.map((f) => [f.name, f.pluginField]).sort()).toEqual([["Clients", "Clients"], ["Conclusions", "Conclusions"], ["Fee", "Fee"], ["Name", null]]);
+    // The removal was declined: the table keeps the field, and the next update doesn't ask again.
+    expect((await preview()).tables).toEqual([]);
+  } finally {
+    remove();
+  }
+});

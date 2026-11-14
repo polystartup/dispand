@@ -47,7 +47,10 @@ Status: Prototype
     harness for a new agent, and makes the ones you pick. What a new version no longer has
     goes with the update, unless it is in use: then the update's screen asks about it as removing
     the plugin would, "Keep as yours" or "Delete". When the plugin keeps a changelog, its notes for the new version
-    are on that screen too. A tool an update gives an agent you
+    are on that screen too. A plugin's table is never overwritten: each change its new version
+    makes to it (a field added or removed, a type, choices, the order, its parent) is a box on
+    that screen. What adds starts ticked; what would take values away doesn't, and says how many
+    rows. A change you leave unticked isn't offered again. A tool an update gives an agent you
     already have asks before every action, until you say otherwise on the agent's page. "Reset to the plugin's"
     takes a field back. Its harness, its model, a tool's headers and sign-in are your settings and
     no update touches them. A plugin's skills work the same way, file by file (Settings, Skills,
