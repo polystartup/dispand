@@ -1,0 +1,79 @@
+import type { PluginReport } from "@dispand/runner-protocol";
+import { call, ORPCError } from "@orpc/server";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { harnesses, runners } from "../db/schema.ts";
+import { newId } from "../ids.ts";
+import type { InitialContext } from "../rpc/context.ts";
+import { RunnerRequestFailed } from "../runners/hub.ts";
+import { workspacePlugin } from "../runners/workspace-plugin.ts";
+
+// A plugin installed natively on a harness follows the plugin: an update moves it to the new
+// commit, as its owner installed it, with nothing of theirs to keep (the native copy is never
+// overridden). Each move goes through the same native operations a person uses, preview first.
+
+class StepFailed extends Error {}
+
+type Context = InitialContext & { ownerId: string };
+/** The harnesses holding the plugin natively, and the runners that couldn't be asked. */
+export type NativeInstalls = { harnesses: { id: string; name: string }[]; unchecked: string[] };
+
+/** Where the plugin is installed natively now: asked of each online runner; an offline one is named as unchecked. */
+export async function nativeInstalls(context: Context, pluginId: string): Promise<NativeInstalls> {
+  const cli = await context.db
+    .select({ id: harnesses.id, name: harnesses.name, kind: harnesses.kind, runnerId: runners.id, runnerName: runners.name })
+    .from(harnesses)
+    .innerJoin(runners, eq(runners.id, harnesses.runnerId))
+    .where(and(eq(harnesses.ownerId, context.ownerId), eq(runners.ownerId, context.ownerId), isNull(runners.revokedAt), inArray(harnesses.kind, ["claude-code", "codex"])))
+    .orderBy(asc(harnesses.name));
+  const found: NativeInstalls = { harnesses: [], unchecked: [] };
+  for (const runnerId of [...new Set(cli.map((h) => h.runnerId))]) {
+    const mine = cli.filter((h) => h.runnerId === runnerId);
+    if (!context.hub.isOnline(runnerId)) {
+      found.unchecked.push(mine[0]!.runnerName);
+      continue;
+    }
+    const report = await context.hub
+      .plugins(runnerId, { type: "plugin.request", requestId: newId("req"), operation: { action: "list" } })
+      .then((r) => r.report)
+      .catch((err: unknown) => {
+        if (err instanceof RunnerRequestFailed) return { error: "unreachable" } as PluginReport;
+        throw err;
+      });
+    if (report.error) {
+      found.unchecked.push(mine[0]!.runnerName);
+      continue;
+    }
+    const kinds = new Set((report.packages ?? []).filter((p) => p.name === `dispand-${pluginId}`).map((p) => p.harness));
+    // Harnesses of one kind on a runner share its native account: the first one names it.
+    for (const kind of kinds) {
+      const harness = mine.find((h) => h.kind === kind);
+      if (harness) found.harnesses.push({ id: harness.id, name: harness.name });
+    }
+  }
+  return found;
+}
+
+/**
+ * Moves the plugin's native install on each harness to the plugin's current commit: removed,
+ * then added again, each previewed then applied. A harness where a step fails is returned, with why.
+ */
+export async function moveNative(context: Context, pluginId: string, installs: NativeInstalls): Promise<{ name: string; reason: string }[]> {
+  const leftBehind: { name: string; reason: string }[] = [];
+  const step = async (harnessId: string, action: "add" | "remove") => {
+    const request = { harnessIds: [harnessId], resource: { kind: "plugin" as const, id: pluginId }, action };
+    const plan = await call(workspacePlugin, { ...request, dryRun: true }, { context });
+    if (plan.error || plan.blocked || !plan.revision) throw new StepFailed(plan.error ?? "the native preview was blocked");
+    const result = await call(workspacePlugin, { ...request, dryRun: false, revision: plan.revision }, { context });
+    if (result.error || result.results?.some((r) => r.status === "failed")) throw new StepFailed(result.error ?? "the native step failed");
+  };
+  for (const harness of installs.harnesses) {
+    try {
+      await step(harness.id, "remove");
+      await step(harness.id, "add");
+    } catch (err) {
+      if (!(err instanceof ORPCError) && !(err instanceof StepFailed)) throw err;
+      leftBehind.push({ name: harness.name, reason: err.message });
+    }
+  }
+  return leftBehind;
+}

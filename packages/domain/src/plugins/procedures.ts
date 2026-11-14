@@ -47,6 +47,7 @@ import { itemsView, recordCreated } from "../platform/proposals.ts";
 import { canonical } from "../platform/approvals.ts";
 import { runItemsAsOwner, SetupPick, setupItems } from "./setup.ts";
 import { addServer } from "./servers.ts";
+import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, PluginError, type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
 
 const owner = base.use(authed);
@@ -981,7 +982,9 @@ const tableOf = (kind: UpdatableKind) => (kind === "agent" ? agentsTable : kind 
 const updatePreview = owner.input(Id).handler(async ({ input, context }) => {
   const row = await findPlugin(context.db, context.ownerId, input.id);
   const { sha, conflicts, changes, additions, removals, shownTables, reviewed, releaseNotes } = await updatePlan(context, row);
-  return { sha, conflicts, changes, additions, removals, tables: shownTables, reviewed, releaseNotes, names: await namesIn(context.db, context.ownerId, [conflicts, changes]) };
+  // Where it is installed natively: named on the screen, moved with the update.
+  const native = await nativeInstalls(context, row.id);
+  return { sha, conflicts, changes, additions, removals, tables: shownTables, reviewed, releaseNotes, native, names: await namesIn(context.db, context.ownerId, [conflicts, changes]) };
 });
 
 /** A name for each id of the owner's agents, tools, tables, fields and skill packages found in `values`, so the screen reads names. */
@@ -1077,7 +1080,9 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
   }
   for (const plan of shown.tables) await applyTable(context, row, plan, input.tables[plan.tableId] ?? [], failed);
   await context.engine.narrowOwnerSessions(context.ownerId, context.db);
-  return { sha, ...(failed.length ? { failed } : {}) };
+  // Its native installs follow, asked again now: one that fails (or a Job, which may not touch them) is left behind, the update stays.
+  const leftBehind = await moveNative(context, row.id, await nativeInstalls(context, row.id));
+  return { sha, ...(failed.length ? { failed } : {}), ...(leftBehind.length ? { leftBehind } : {}) };
 });
 
 const SetupInput = z.object({ id: z.string(), pick: SetupPick });

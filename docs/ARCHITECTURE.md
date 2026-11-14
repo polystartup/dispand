@@ -1420,6 +1420,15 @@ checkout when importing or updating. Legacy rows have null until updated. Nested
 reported as unsupported for native installation because Skillshare cannot reproduce their
 identity from the stored marketplace entry alone; they continue to supply workspace skills.
 
+A native install follows its plugin's updates (`plugins/native.ts`): `updatePreview` names the
+harnesses holding `dispand-<plugin id>` on each online runner (an offline or unreadable runner
+is named as unchecked), which stops the update on its screen, and `update`, after the workspace
+update, asks again and moves each one through `runners.workspacePlugin`, remove then add at the
+new commit, each previewed then applied. Nothing of the owner's is kept there: the native copy
+is never overridden. A harness where a step fails, or any when a Job updated the plugin, is
+returned in `leftBehind`; the update stays applied, and the install is finished from that
+harness's workspace skills.
+
 
 Runner protocol 18 adds optional runner-action `denied` lists to session starts and permission
 updates. The runner accumulates denials and blocks all actions of a removed server. Both native

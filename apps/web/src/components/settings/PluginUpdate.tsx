@@ -5,8 +5,24 @@ export type UpdateAddition = { key: string; kind: "primitive" | "agent" | "trigg
 type Names = Record<string, string>;
 
 /** Whether an update stops on its screen: a field of the owner's the plugin changed, a change that gives more, or a change of wording. */
-export const needsReview = (plan: { conflicts: UpdateConflict[]; changes: UpdateChange[]; additions?: UpdateAddition[]; removals?: unknown[]; tables?: unknown[] }) =>
-  plan.conflicts.length > 0 || plan.changes.some((c) => c.class !== "silent") || (plan.additions?.length ?? 0) > 0 || (plan.removals?.length ?? 0) > 0 || (plan.tables?.length ?? 0) > 0;
+export const needsReview = (plan: { conflicts: UpdateConflict[]; changes: UpdateChange[]; additions?: UpdateAddition[]; removals?: unknown[]; tables?: unknown[]; native?: NativeInstalls }) =>
+  plan.conflicts.length > 0 || plan.changes.some((c) => c.class !== "silent") || (plan.additions?.length ?? 0) > 0 || (plan.removals?.length ?? 0) > 0 || (plan.tables?.length ?? 0) > 0 || (plan.native?.harnesses.length ?? 0) > 0;
+
+export type NativeInstalls = { harnesses: { id: string; name: string }[]; unchecked: string[] };
+
+/** Where the plugin is installed natively: each install moves to the new version with the update. */
+export function NativeMoves({ native }: { native: NativeInstalls }) {
+  if (!native.harnesses.length && !native.unchecked.length) return null;
+  return (
+    <section aria-labelledby="update-native" className="space-y-1 text-[13px]">
+      <h3 id="update-native" className="font-medium text-muted">
+        Native installs
+      </h3>
+      {native.harnesses.length > 0 && <p>Moves to the new version on {native.harnesses.map((h) => h.name).join(", ")}: its hooks, commands and servers there run as the new version's.</p>}
+      {native.unchecked.length > 0 && <p className="text-muted">Couldn't check {native.unchecked.join(", ")}: an install there stays on the old version until you move it from its harness.</p>}
+    </section>
+  );
+}
 
 const ADDED = { primitive: "Table", agent: "Agent", trigger: "Trigger", server: "Tool" };
 

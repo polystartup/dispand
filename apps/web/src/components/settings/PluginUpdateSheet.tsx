@@ -4,7 +4,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { api } from "../../lib/api.ts";
 import { refusal } from "./PluginInstallSheet.tsx";
 import { type RemovalChoice, RemovalChoices, removalPlan } from "./PluginRemoval.tsx";
-import { ReleaseNotes, startingTicks, TableChanges, UpdatePlan } from "./PluginUpdate.tsx";
+import { NativeMoves, ReleaseNotes, startingTicks, TableChanges, UpdatePlan } from "./PluginUpdate.tsx";
 
 export type UpdatePreview = Awaited<ReturnType<typeof api.plugins.updatePreview>>;
 
@@ -74,6 +74,7 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
               <RemovalChoices plan={plan} busy={busy} onChange={(key, choice) => setRemoving((prev) => ({ ...prev, [key]: choice }))} />
             </section>
           )}
+          <NativeMoves native={preview.native} />
           {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
           <div className="flex gap-2">
             <Button type="button" disabled={busy} onClick={() => void confirm()}>
