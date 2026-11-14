@@ -179,8 +179,8 @@ changes it updates this file.
   so two decisions within bounds could give together what neither version did), waits for the
   owner's Approval; a tool it gives an agent starts with every action on Ask. On a runner it runs
   only on Claude Code, as a restricted session (protocol 26): the runner itself gives it no
-  built-in tool, none of the user's settings, no skill, memory or consult, and no MCP server but
-  the Job's own, whatever the start holds. Codex, whose native tools have no such switch here, is
+  built-in tool (nor the CLI's server-side advisor), none of the user's settings, no skill, memory
+  or consult, and no MCP server but the Job's own, whatever the start holds. Codex, whose native tools have no such switch here, is
   refused.
 - **A consult reaches only an agent its Job may consult, and nothing answers in that agent's
   place.** A Job's `consult` tool (cloud and runner sessions; absent when its agent may consult
