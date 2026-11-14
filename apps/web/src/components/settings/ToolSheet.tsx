@@ -157,7 +157,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
           {current?.plugin && (
             <>
               <Overridden plugin={current.plugin.name} overridden={current.overridden} labels={{ name: "Name", url: "URL", transport: "Transport" }} busy={reset.isPending} onReset={(field) => reset.mutate({ kind: "tool", id: current.id, field })} />
-              <StemMarks kind="tool" id={current.id} labels={{ name: "Name", url: "URL", transport: "Transport" }} />
+              <StemMarks kind="tool" id={current.id} labels={{ name: "Name", url: "URL", transport: "Transport" }} onResolved={onClose} />
             </>
           )}
           {reset.error && <p role="alert" className="text-[13px] text-danger">{errorMessage(reset.error, "Could not reset the field. Try again.")}</p>}

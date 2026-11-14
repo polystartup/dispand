@@ -1221,15 +1221,27 @@ const conflicts = owner.input(ElementRef).handler(async ({ input, context }) => 
     .from(pluginConflicts)
     .where(and(eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.kind, input.kind), eq(pluginConflicts.elementId, input.id)))
     .orderBy(asc(pluginConflicts.field));
-  return rows.map((r) => ({ id: r.id, field: r.field, status: r.status, mine: r.mine, next: r.next, merged: r.status === "approval" ? r.merged : null }));
+  // The values as they are now, which the owner decides on: a choice carries their token.
+  return Promise.all(rows.map((r) => conflictView(context.db, r)));
 });
+
+/** A conflict as the element's page shows it: the field's value now, the plugin's now, Stem's suggestion, and the token of the three. */
+async function conflictView(db: Db, r: typeof pluginConflicts.$inferSelect) {
+  const now = await fieldNow(db, r);
+  const shown = { id: r.id, field: r.field, status: r.status, mine: now?.value ?? r.mine, next: now?.plugin ?? r.next, merged: r.status === "approval" ? r.merged : null };
+  return { ...shown, reviewed: createHash("sha256").update(canonical(shown)).digest("hex") };
+}
 
 /**
  * The owner's choice on a conflict: on Stem's merged value, accept or decline it; on one that is
  * theirs again, keep their value, take the plugin's, or hand it to Stem once more.
  */
-const resolveConflict = owner.input(z.object({ id: z.string().max(64), choice: z.enum(["accept", "decline", "mine", "plugin", "stem"]) })).handler(async ({ input, context }) => {
+const resolveConflict = owner.input(z.object({ id: z.string().max(64), choice: z.enum(["accept", "decline", "mine", "plugin", "stem"]), reviewed: z.string().length(64) })).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN");
+  // Decided on the values the page showed: one that changed since (another update, an edit) is shown again.
+  const [row] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, input.id), eq(pluginConflicts.ownerId, context.ownerId)));
+  if (!row) throw new ORPCError("NOT_FOUND");
+  if ((await conflictView(context.db, row)).reviewed !== input.reviewed) throw new ORPCError("CONFLICT", { message: "This field changed since you looked: look at it again" });
   const actor = { type: "user" as const, userId: context.ownerId };
   if (input.choice === "accept" || input.choice === "decline") {
     if ((await answerConflict(context, actor, input.id, input.choice === "accept")) === "gone") throw new ORPCError("NOT_FOUND");

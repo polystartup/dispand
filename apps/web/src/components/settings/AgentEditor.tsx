@@ -121,7 +121,7 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
         {agent?.plugin && (
           <>
             <Overridden plugin={agent.plugin.name} overridden={agent.overridden} labels={FIELD_LABELS} busy={reset.isPending} onReset={(field) => reset.mutate({ kind: "agent", id: agent.id, field })} />
-            <StemMarks kind="agent" id={agent.id} labels={FIELD_LABELS} />
+            <StemMarks kind="agent" id={agent.id} labels={FIELD_LABELS} onResolved={() => onReset?.()} />
           </>
         )}
         {reset.error && <p role="alert" className="text-[13px] text-danger">{refusal(reset.error, "Could not reset the field. Try again.")}</p>}

@@ -135,28 +135,35 @@ test("a tool an agent gains through a decision starts with every action on Ask",
   }
 });
 
-test("on the element's page, the owner sees its conflicts and decides them: take the plugin's, keep theirs, or accept Stem's suggestion", async () => {
+test("on the element's page, the owner decides a conflict on the values shown: take the plugin's, keep theirs, accept Stem's; a stale view is refused", async () => {
   const s = await setUp();
   try {
+    const listed = () => call(router.plugins.conflicts, { kind: "agent", id: s.agent.id }, { context: s.ctx });
+    const choose = async (id: string, choice: "plugin" | "mine" | "accept") => call(router.plugins.resolveConflict, { id, choice, reviewed: (await listed()).find((c) => c.id === id)!.reviewed }, { context: s.ctx });
     const id = await s.conflict("systemPrompt", "Mine", "Next");
     await s.ctx.db.update(schema.pluginConflicts).set({ status: "open" }).where(eq(schema.pluginConflicts.id, id));
-    expect(await call(router.plugins.conflicts, { kind: "agent", id: s.agent.id }, { context: s.ctx })).toEqual([{ id, field: "systemPrompt", status: "open", mine: "Mine", next: "Next", merged: null }]);
-    await call(router.plugins.resolveConflict, { id, choice: "plugin" }, { context: s.ctx });
-    expect((await s.drafting()).systemPrompt).toBe("Next");
-    expect(await call(router.plugins.conflicts, { kind: "agent", id: s.agent.id }, { context: s.ctx })).toEqual([]);
+    const [shown] = await listed();
+    expect(shown).toMatchObject({ id, field: "systemPrompt", status: "open", mine: "Mine", next: "Next", merged: null });
+    // Another update changes the plugin's value after the page was read: the choice is refused, and the page shows the new value.
+    await s.set({ upstream: { ...(await s.drafting()).upstream, systemPrompt: "Newer" } });
+    await expect(call(router.plugins.resolveConflict, { id, choice: "plugin", reviewed: shown!.reviewed }, { context: s.ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect((await listed())[0]).toMatchObject({ next: "Newer" });
+    await choose(id, "plugin");
+    expect((await s.drafting()).systemPrompt).toBe("Newer");
+    expect(await listed()).toEqual([]);
 
-    await s.set({ systemPrompt: "Mine", overridden: ["systemPrompt"] });
+    await s.set({ systemPrompt: "Mine", overridden: ["systemPrompt"], upstream: { ...(await s.drafting()).upstream, systemPrompt: "Next" } });
     const again = await s.conflict("systemPrompt", "Mine", "Next");
     expect(await decide(s.ctx, s.actor, again, { kind: "merge", value: "Mine, and Next" })).toBe("approval");
-    expect((await call(router.plugins.conflicts, { kind: "agent", id: s.agent.id }, { context: s.ctx }))[0]).toMatchObject({ status: "approval", merged: "Mine, and Next" });
-    await call(router.plugins.resolveConflict, { id: again, choice: "accept" }, { context: s.ctx });
+    expect((await listed())[0]).toMatchObject({ status: "approval", merged: "Mine, and Next" });
+    await choose(again, "accept");
     expect((await s.drafting()).systemPrompt).toBe("Mine, and Next");
 
     const third = await s.conflict("systemPrompt", "Mine, and Next", "Next");
     await s.ctx.db.update(schema.pluginConflicts).set({ status: "open" }).where(eq(schema.pluginConflicts.id, third));
-    await call(router.plugins.resolveConflict, { id: third, choice: "mine" }, { context: s.ctx });
+    await choose(third, "mine");
     expect((await s.drafting()).systemPrompt).toBe("Mine, and Next");
-    expect(await call(router.plugins.conflicts, { kind: "agent", id: s.agent.id }, { context: s.ctx })).toEqual([]);
+    expect(await listed()).toEqual([]);
   } finally {
     s.remove();
   }
