@@ -94,3 +94,18 @@ test("a chat Job stays a chat after its trigger became a button", async () => {
   expect(await screen.findByLabelText("Message")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Sort the mail" })).toBeNull();
 });
+
+test("a disabled trigger still shows the Job it ran, without a Start", async () => {
+  fake.triggers.get.mockResolvedValue(trigger("chat", false));
+  fake.runs.list.mockResolvedValue([{ id: "run_1", triggerId: "trigger_1" }]);
+  fake.jobs.def.mockResolvedValue({ trigger: { type: "manual", field: { id: "trigger_1", key: "trigger", type: "chat", label: "Mail", agentId: "agent_1", prompt: "" } }, steps: [], edges: [] });
+  fake.runs.stream.mockImplementation(idle);
+  mount();
+  expect(await screen.findByLabelText("Message")).toBeTruthy();
+  cleanup();
+  fake.triggers.get.mockResolvedValue(trigger("button", false));
+  fake.jobs.def.mockResolvedValue({ trigger: { type: "manual", field: { id: "trigger_1", key: "trigger", type: "button", label: "Mail" } }, steps: [], edges: [] });
+  mount();
+  expect(await screen.findByText("This trigger is disabled.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Sort the mail" })).toBeNull();
+});

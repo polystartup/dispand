@@ -381,7 +381,7 @@
   (`/settings/agents/<id>`) has three tabs: Settings, Triggers (`components/agents/TriggerList`,
   `TriggerSheet`, which reuses the schedule panel) and Jobs (`JobList`). A manual trigger goes
   on a page as a `trigger-form` widget (`widgets.trigger_id`, one per trigger and page):
-  `TriggerWidget` shows its button or its chat (`ChatPanel` with `jobs.start`). The
+  `TriggerWidget` shows its button or its chat (`ChatPanel` with `jobs.start`); disabled, it keeps its last Job without the button. The
   chat's conversation is shown on assistant-ui (`@assistant-ui/react`, pinned exactly):
   `lib/assistant-runtime.ts` is the only adapter (`threadMessages` turns the chat step's
   messages and questions into thread messages, a tool's trace and a question as tool-call
@@ -403,7 +403,7 @@
   of marking the last message as streaming until the entire Job ends.
   Editing, regeneration, branching, uploads and cancellation are not exposed by this frontend
   integration: they need separate run semantics and API support. A Job's
-  questions are listed in Notifications with its agent.
+  questions are listed in the Inbox with its agent.
 - **Checkpoints** (`engine/roots.ts`): every Job has a root cause, a `roots` row (`kind`: `user`
   for a start by hand, `chat`, `schedule`, `event` for a person's or a workflow's write, `poll`),
   going, paused or stopped. `Engine.createJob`, the one place a Job is made, locks the root's row
@@ -852,7 +852,7 @@
   `sm`: grid and columns in `packages/domain/src/pages/layout.ts`, shared with the web
   dashboard, which uses react-grid-layout). A Chat field's widget follows the latest run of its
   workflow through `runs.stream` and shows the chat's questions inline; they are counted in
-  Notifications too, and answering in either place updates both. Widgets showing one run share
+  the Inbox too, and answering in either place updates both. Widgets showing one run share
   its watch (`apps/web/src/lib/run-watch.ts`); at most 3 run streams are open at once and other
   runs are polled. The cap is per tab: the reverse proxy serves HTTP/2 (`deploy/README.md`), so several tabs
   don't exhaust the browser's connections.

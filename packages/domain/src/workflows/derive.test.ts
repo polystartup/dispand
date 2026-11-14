@@ -32,6 +32,14 @@ test("derive collects referenced fields per node", () => {
   });
 });
 
+test("a prompt naming its own node expects nothing of it", () => {
+  const def = chain("Plan {{plan.draft}} from {{brief.idea}}.", "Build.");
+  def.trigger.field = { ...def.trigger.field, prompt: "Ask about {{brief.topic}}." } as never;
+  const outputs = deriveExpectedOutputs(def);
+  expect(outputs.n_plan).toEqual([]);
+  expect(outputs.n_chat).toEqual([{ name: "idea", type: "string" }]);
+});
+
 test("derive updates when a reference moves to another node", () => {
   const before = chain("Plan {{brief.idea}}.", "Build {{brief.repo_name}}.");
   expect(deriveExpectedOutputs(before).n_chat).toContainEqual({ name: "repo_name", type: "string" });

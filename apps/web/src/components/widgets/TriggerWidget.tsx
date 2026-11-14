@@ -10,7 +10,7 @@ export type TriggerFormWidget = Extract<Widget, { type: "trigger-form" }>;
 
 type Props = { widget: TriggerFormWidget; editing: boolean };
 
-/** An agent's manual trigger on a page: its button starts a Job, its chat holds the conversation. */
+/** An agent's manual trigger on a page: its button starts a Job, its chat holds the conversation. Disabled, it still shows the Job it ran last. */
 export function TriggerWidget({ widget, editing }: Props) {
   const trigger = useQuery({ ...orpc.triggers.get.queryOptions({ input: { id: widget.triggerId } }), retry: false });
   const jobs = useQuery(orpc.runs.list.queryOptions({ input: { triggerId: widget.triggerId } }));
@@ -37,12 +37,12 @@ export function TriggerWidget({ widget, editing }: Props) {
         </p>
       ) : !trigger.data || !jobs.data || !shown ? (
         <p className="px-5 pb-5 text-[14px] text-faint">Loading…</p>
-      ) : !trigger.data.enabled ? (
+      ) : !trigger.data.enabled && !runId ? (
         <p className="px-5 pb-5 text-[14px] text-muted">This trigger is disabled.</p>
       ) : shown === "chat" ? (
         <ChatPanel start={start} runId={runId} onRunStarted={setChosen} onNewConversation={() => setChosen(null)} />
       ) : (
-        <StartButton label={trigger.data.name} runId={runId} start={start} onRunStarted={setChosen} />
+        <StartButton label={trigger.data.name} runId={runId} start={start} onRunStarted={setChosen} disabled={!trigger.data.enabled} />
       )}
     </section>
   );

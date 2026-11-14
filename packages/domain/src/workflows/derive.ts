@@ -109,7 +109,8 @@ export function deriveExpectedOutputs(def: WorkflowDef, tables: TableSchema[] = 
   for (const node of nodes) {
     const descriptions = describe(def, tables, tools, node.id);
     for (const ref of readsOf(def, node.id)) {
-      if (sourceFields(def, ref.nodeId).kind !== "agent" || !isOutputName(ref.name)) continue;
+      // A prompt naming its own node (`{{job.x}}` in a Job's instructions) asks nothing of it.
+      if (ref.nodeId === node.id || sourceFields(def, ref.nodeId).kind !== "agent" || !isOutputName(ref.name)) continue;
       const list = fields.get(ref.nodeId);
       if (!list || list.some((f) => f.name === ref.name)) continue;
       const description = descriptions.get(`${ref.nodeId}\u0000${ref.name}`);

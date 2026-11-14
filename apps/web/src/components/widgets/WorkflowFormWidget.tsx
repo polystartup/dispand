@@ -65,7 +65,7 @@ function ButtonField({ workflowId, def, runId, onRunStarted }: { workflowId: str
 }
 
 /** A button that starts a run (a workflow's, or an agent's Job) and says how the latest one went. */
-export function StartButton({ label, runId, start, onRunStarted }: { label: string; runId: string | null; start: () => Promise<{ runId: string }>; onRunStarted: (id: string) => void }) {
+export function StartButton({ label, runId, start, onRunStarted, disabled }: { label: string; runId: string | null; start: () => Promise<{ runId: string }>; onRunStarted: (id: string) => void; disabled?: boolean }) {
   const queryClient = useQueryClient();
   const run = useRun(runId);
   const starting = useMutation({
@@ -78,10 +78,14 @@ export function StartButton({ label, runId, start, onRunStarted }: { label: stri
   const status = run?.run.status;
   return (
     <div className="flex flex-1 flex-col justify-center gap-3 px-5 pb-5">
-      <Button className="self-start" disabled={starting.isPending} onClick={() => starting.mutate()}>
-        <Play aria-hidden />
-        {label}
-      </Button>
+      {disabled ? (
+        <p className="text-[14px] text-muted">This trigger is disabled.</p>
+      ) : (
+        <Button className="self-start" disabled={starting.isPending} onClick={() => starting.mutate()}>
+          <Play aria-hidden />
+          {label}
+        </Button>
+      )}
       {starting.error && <p role="alert" className="text-[13px] text-danger">{starting.error.message}</p>}
       {status && (
         <p role="status" className="text-[13px] text-muted">
