@@ -653,7 +653,11 @@ changes it updates this file.
   repository is refused. An install imports only the components the owner ticks: skills, each
   through `validatePackage` (so `isSafeRelativePath`); agents, as a system prompt on the harness
   the owner picks (the agent file's `tools` and `model` are ignored); and HTTP MCP servers, as
-  HTTP tools. A server is unticked until the owner ticks it with its URL shown, and is imported
+  HTTP tools. An imported agent or tool is the plugin's element: an owner's change of one of its
+  fields is an override made by the element's own procedure, with its checks, and an update of
+  the plugin never replaces an overridden field. A reset to the plugin's value goes through that
+  same procedure, so a tool sent to another origin, by an override or by a reset, loses its saved
+  headers and sign-in. A server is unticked until the owner ticks it with its URL shown, and is imported
   only as reviewed (its definitions at that commit, marketplace manifest included, else
   `CONFLICT`). Its `${VAR}` placeholders are filled from the owner's settings at install, then
   each header is sealed, and so is the whole URL when it holds one (shown as its template). A

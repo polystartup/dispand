@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstatSync, realpathSync } from "node:fs";
 import { join, relative } from "node:path";
-import { ORPCError } from "@orpc/server";
+import { call, ORPCError } from "@orpc/server";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
@@ -31,7 +31,10 @@ import { authed, base } from "../rpc/context.ts";
 import { MAX_DESCRIPTION, PackageError, SKILL_NAME, validatePackage } from "../skills/package.ts";
 import { store, type Tx } from "../skills/procedures.ts";
 import { HeaderValue, insertTool, refreshActions, retarget } from "../tools/procedures.ts";
-import { agentName, hasPlaceholder, httpTool, skillPackageName, toolName } from "./components.ts";
+import { hasPlaceholder, httpTool, skillPackageName, toolName } from "./components.ts";
+import { ELEMENT_FIELDS, rebase } from "./overrides.ts";
+import { agents as agentProcedures } from "../agents/procedures.ts";
+import { tools as toolProcedures } from "../tools/procedures.ts";
 import { fetchGit, GitError } from "./git.ts";
 import { BUILT_IN_MARKETPLACES, MarketplaceError, type MarketplaceEntry, type MarketplaceKind, parseMarketplace } from "./marketplace.ts";
 import { readWellKnownIndex, readWellKnownSkills, WellKnownError, wellKnownIndexUrl } from "./well-known.ts";
@@ -391,22 +394,22 @@ const install = owner
         }
         const tools = [];
         for (const server of servers) {
-          const toolNameFree = await toolName(tx, context.ownerId, server.name, entry.name);
-          tools.push(await insertTool(tx, context.secrets, context.ownerId, { ...server.fields, name: toolNameFree }));
+          tools.push(await insertTool(tx, context.secrets, context.ownerId, { ...server.fields, name: toolName(server.name) }));
         }
         const agentIds: string[] = [];
         for (const agent of agents) {
           const id = newId("agent");
-          const named = await agentName(tx, context.ownerId, agent.name, entry.name);
           // The agent file's `tools` and `model` aren't read: the harness decides them.
           await tx.insert(agentsTable).values({
             id,
             ownerId: context.ownerId,
-            name: named,
+            name: agent.name,
             harnessId: harnessId!,
             systemPrompt: agent.systemPrompt,
             pluginId,
             pluginComponent: agent.name,
+            // The plugin's values of every field it gives an agent: a later change of one is the owner's override.
+            upstream: { name: agent.name, description: "", systemPrompt: agent.systemPrompt, bundles: [], dataTables: "all", selfLearning: [], skillPackageIds: packageId ? [packageId] : [], toolIds: tools.map((t) => t.id), consults: [] },
           });
           if (packageId) await tx.insert(agentSkills).values({ agentId: id, packageId });
           if (tools.length) await tx.insert(agentTools).values(tools.map((t) => ({ agentId: id, toolId: t.id })));
@@ -649,6 +652,18 @@ const uninstall = owner.input(Id.extend({ remove: z.object({ skills: RemovalIds,
         await tx.delete(toolsTable).where(eq(toolsTable.id, id));
       }
     }
+    // What stays is its owner's own from now on: nothing of it is an override any more.
+    await tx.update(agentsTable).set({ upstream: null, overridden: [] }).where(eq(agentsTable.pluginId, row.id));
+    // A kept tool joins the owner's own names: one already taken there gets the plugin's name after it.
+    const kept = await tx.select({ id: toolsTable.id, name: toolsTable.name }).from(toolsTable).where(eq(toolsTable.pluginId, row.id));
+    const own = new Set(
+      (await tx.select({ name: toolsTable.name }).from(toolsTable).where(and(eq(toolsTable.ownerId, context.ownerId), sql`${toolsTable.pluginId} is null`))).map((t) => t.name.toLowerCase()),
+    );
+    for (const tool of kept) {
+      const name = own.has(tool.name.toLowerCase()) ? `${tool.name} (${row.name})`.slice(0, 100) : tool.name;
+      own.add(name.toLowerCase());
+      await tx.update(toolsTable).set({ name, pluginId: null, upstream: null, overridden: [] }).where(eq(toolsTable.id, tool.id));
+    }
     await tx.delete(pluginsTable).where(eq(pluginsTable.id, row.id));
     // Older callers keep the previous behavior; an explicit checklist preserves every unticked item.
     if (!input.remove) for (const pkg of parts.skills) {
@@ -689,15 +704,18 @@ const update = owner.input(Id).handler(async ({ input, context }) => {
     for (const tool of await tx.select().from(toolsTable).where(eq(toolsTable.pluginId, row.id)).for("update")) {
       const server = contents.mcpServers.find((s) => s.name === tool.pluginComponent);
       if (server?.type !== "http" || tool.url === null || tool.urlSealed !== null || hasPlaceholder(server.url) || !URL.canParse(server.url)) continue;
-      if (new URL(server.url).origin !== new URL(tool.url).origin) continue;
-      if (server.url === tool.url && server.transport === tool.transport) continue;
-      moved.push(await retarget(tx, tool, server.url, server.transport));
+      // What the owner left alone follows the plugin; an override stays, with the new value underneath.
+      const { set, upstream } = rebase("tool", tool, tool, { url: server.url, transport: server.transport });
+      const url = (set.url as string | undefined) ?? tool.url;
+      if (new URL(url).origin !== new URL(tool.url).origin) continue;
+      if (Object.keys(set).length) moved.push(await retarget(tx, tool, url, (set.transport as typeof tool.transport | undefined) ?? tool.transport!));
+      await tx.update(toolsTable).set({ upstream }).where(eq(toolsTable.id, tool.id));
     }
     for (const agent of await tx.select().from(agentsTable).where(eq(agentsTable.pluginId, row.id)).for("update")) {
-      const upstream = contents.agents.find((a) => a.name === agent.pluginComponent);
-      if (upstream && upstream.systemPrompt !== agent.systemPrompt) {
-        await tx.update(agentsTable).set({ systemPrompt: upstream.systemPrompt }).where(eq(agentsTable.id, agent.id));
-      }
+      const found = contents.agents.find((a) => a.name === agent.pluginComponent);
+      if (!found) continue;
+      const { set, upstream } = rebase("agent", agent, agent, { systemPrompt: found.systemPrompt });
+      await tx.update(agentsTable).set({ ...(set as { systemPrompt?: string }), upstream }).where(eq(agentsTable.id, agent.id));
     }
     await tx
       .update(pluginsTable)
@@ -732,5 +750,43 @@ const setUp = owner.input(SetupInput.extend({ reviewed: z.string().length(64) })
   return { outcomes, waiting: setup.waiting };
 });
 
+/**
+ * Puts a field of a plugin's agent or tool back to the plugin's value, through the element's own
+ * update, so every check of an ordinary change applies (a tool sent back to another origin loses its headers).
+ */
+const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool"]), id: z.string().max(64), field: z.string().max(64) })).handler(async ({ input, context }) => {
+  const { kind, id, field } = input;
+  if (!(ELEMENT_FIELDS[kind].overridable as readonly string[]).includes(field)) throw new ORPCError("BAD_REQUEST", { message: "Not a field a plugin sets" });
+  const table = kind === "agent" ? agentsTable : toolsTable;
+  const [row] = await context.db
+    .select({ upstream: table.upstream })
+    .from(table)
+    .where(and(eq(table.id, id), eq(table.ownerId, context.ownerId)));
+  if (!row) throw new ORPCError("NOT_FOUND");
+  if (!row.upstream || !(field in row.upstream)) throw new ORPCError("BAD_REQUEST", { message: "No plugin's value to go back to" });
+  const value = { [field]: row.upstream[field] };
+  // The setting that filled it was sealed with the address the override replaced.
+  if (kind === "tool" && field === "url" && hasPlaceholder(String(value.url))) {
+    throw new ORPCError("BAD_REQUEST", { message: "The plugin's address needs a setting: update the plugin, or uninstall and install it again, to enter it" });
+  }
+  if (kind === "tool") return { overridden: (await call(toolProcedures.update, { id, ...value } as never, { context: context as never })).overridden };
+  const a = await call(agentProcedures.get, { id }, { context: context as never });
+  const whole = {
+    id,
+    name: a.name,
+    description: a.description,
+    harnessId: a.harnessId,
+    systemPrompt: a.systemPrompt,
+    ...(a.model === undefined ? {} : { model: a.model }),
+    bundles: a.bundles,
+    selfLearning: a.selfLearning,
+    dataTables: a.dataTables,
+    skillPackageIds: a.skills.map((s) => s.packageId),
+    toolIds: a.tools.filter((t) => t.explicit).map((t) => t.toolId),
+    consults: a.consults.map(({ agentId, ask }) => ({ agentId, ask })),
+  };
+  return { overridden: (await call(agentProcedures.update, { ...whole, ...value } as never, { context: context as never })).overridden };
+});
+
 export const marketplaces = { list: listMarketplaces, add: addMarketplace, remove: removeMarketplace, sync };
-export const plugins = { discover, preview, install, list, uninstallPreview, uninstall, update, setupPreview, setUp };
+export const plugins = { discover, preview, install, list, uninstallPreview, uninstall, update, setupPreview, setUp, resetOverride };

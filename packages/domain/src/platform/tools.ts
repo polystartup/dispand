@@ -415,6 +415,7 @@ export const NOT_TOOLS: string[] = [
   "plugins.update",
   "plugins.setupPreview",
   "plugins.setUp",
+  "plugins.resetOverride",
   // Files and streams.
   "files.upload",
   "rows.editFiles",

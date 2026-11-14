@@ -7,6 +7,7 @@ import { AgentSaved } from "../components/settings/AgentEditor.tsx";
 import { Empty, List } from "../components/settings/parts.tsx";
 import { PageHeader } from "../components/Placeholder.tsx";
 import { orpc } from "../lib/api.ts";
+import { qualifiedName } from "@dispand/domain/plugins/names";
 
 export const Route = createFileRoute("/_app/settings/agents/")({
   // `saved`: an agent was just created, so the list offers the next step.
@@ -61,11 +62,8 @@ function Agents() {
                 params={{ id: a.id }}
                 className="flex items-center justify-between gap-4 px-5 py-4 transition hover:bg-hover"
               >
-                <span className="truncate text-[15px] font-medium">{a.name}</span>
-                <span className="truncate text-[13px] text-muted">
-                  {harnessName.get(a.harnessId)}
-                  {a.plugin && ` · from plugin ${a.plugin.name}`}
-                </span>
+                <span className="truncate text-[15px] font-medium">{qualifiedName(a.plugin?.name ?? null, a.name)}</span>
+                <span className="truncate text-[13px] text-muted">{harnessName.get(a.harnessId)}</span>
               </Link>
             </li>
           ))}

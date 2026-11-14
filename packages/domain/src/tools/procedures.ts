@@ -16,6 +16,7 @@ import { AUTHS, ToolError, TRANSPORTS, type ToolAction, type ToolAuth, type Tool
 import { oauthStep, oauthStore } from "./oauth-store.ts";
 import { pollableActions } from "./pollable.ts";
 import type { InitialContext } from "../rpc/context.ts";
+import { overriddenAfter, refuseOwnDelete } from "../plugins/overrides.ts";
 
 const owner = base.use(authed);
 
@@ -68,6 +69,7 @@ function toView(row: Row, plugin: PluginRef | null) {
     urlSet: row.urlSealed !== null,
     transport: row.transport,
     headerNames: Object.keys(row.headersSealed).sort(),
+    overridden: row.overridden,
     auth: row.auth,
     // OAuth: connected, needs authorization, or re-authorize; and the client id the owner entered (its secret stays sealed).
     oauthStatus: row.auth === "oauth" ? (row.oauthStatus ?? "authorize") : null,
@@ -290,6 +292,7 @@ export async function insertTool(db: Db | Tx, secrets: SecretBox, ownerId: strin
       actions: input.actions ?? [],
       pluginId: input.plugin?.id ?? null,
       pluginComponent: input.plugin?.component ?? null,
+      upstream: input.plugin ? { name: input.name, url: input.url, transport: input.transport } : null,
     })
     .returning()
     .catch((e: unknown) => nameTaken(e, input.name));
@@ -585,6 +588,8 @@ const update = owner
         url,
         urlSealed,
         transport,
+        // A plugin's tool: what now differs from the plugin's values is the owner's override.
+        overridden: overriddenAfter("tool", current, { name: input.name ?? current.name, url, transport }),
         headersSealed,
         auth: authOf(oauth, headersSealed),
         ...oauthColumns,
@@ -660,11 +665,12 @@ const refresh = owner.input(z.object({ id: z.string() })).handler(async ({ input
 const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
     const [row] = await tx
-      .select({ id: toolsTable.id })
+      .select({ id: toolsTable.id, pluginId: toolsTable.pluginId })
       .from(toolsTable)
       .where(and(eq(toolsTable.id, input.id), eq(toolsTable.ownerId, context.ownerId)))
       .for("update");
     if (!row) throw new ORPCError("NOT_FOUND");
+    await refuseOwnDelete(tx, row.pluginId);
     const holder = await toolHolder(tx, context.ownerId, row.id);
     if (holder) throw new ORPCError("CONFLICT", { message: holder });
     await tx.delete(toolsTable).where(eq(toolsTable.id, row.id));

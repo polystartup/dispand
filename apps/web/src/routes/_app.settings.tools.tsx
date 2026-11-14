@@ -10,6 +10,7 @@ import { ToolCatalog } from "../components/settings/ToolCatalog.tsx";
 import { ToolSheet, type Tool } from "../components/settings/ToolSheet.tsx";
 import { PageHeader } from "../components/Placeholder.tsx";
 import { orpc } from "../lib/api.ts";
+import { qualifiedName } from "@dispand/domain/plugins/names";
 
 // `tool`: the tool whose sheet opens, with its settings or Connect: as an OAuth sign-in comes back
 // to it, and as an agent links to it (a tool's `signInPath`).
@@ -74,11 +75,10 @@ function Tools() {
                 className="flex min-w-0 flex-1 items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-hover"
               >
                 <span className="min-w-0">
-                  <span className="block truncate text-[15px] font-medium">{t.name}</span>
+                  <span className="block truncate text-[15px] font-medium">{qualifiedName(t.plugin?.name ?? null, t.name)}</span>
                   <span className="block truncate text-[13px] text-muted">
                     {t.kind === "runner" ? `Runner · ${t.runnerTool ?? "not on a runner yet"}` : `MCP · ${t.urlSet ? "secret URL" : hostOf(t.url ?? "")}`} ·{" "}
                     {t.actions.length === 1 ? "1 action" : `${t.actions.length} actions`}
-                    {t.plugin && ` · from plugin ${t.plugin.name}`}
                   </span>
                   {t.oauthStatus === "authorize" && <span className="block truncate text-[13px] text-muted">Not connected yet</span>}
                   {t.signIn === "needed" && t.auth !== "oauth" && <span className="block truncate text-[13px] text-danger">Needs sign-in: enter its settings</span>}

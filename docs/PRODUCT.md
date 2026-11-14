@@ -35,7 +35,12 @@ Status: Prototype
   - Deleting an agent keeps its Jobs, with their transcripts, Questions and Approvals: a Job
     still going is stopped first, as from its page. Everywhere they show, those Jobs name the
     agent as "<name> (Deleted)" (the name it had when deleted), and they never run again. Its
-    triggers, consult entries, rights and memory go with it. Removing a plugin opens a checklist. Imported skills, tools and native installations start
+    triggers, consult entries, rights and memory go with it. An agent or a tool a plugin brought stays the plugin's: it is listed as
+    `<plugin>/<name>`, and it goes only with its plugin. Changing one of its fields (its name, its
+    instructions, its tools, a tool's address) is yours to do: that field is then marked as yours,
+    an update of the plugin replaces only what you haven't changed, and "Reset to the plugin's"
+    takes a field back. Its harness, its model, a tool's headers and sign-in are your settings and
+    no update touches them. Removing a plugin opens a checklist. Imported skills, tools and native installations start
     selected; agents in use start unticked. Checked skills and tools are removed and unlinked even
     from kept agents; unchecked items stay. Selecting an agent for removal stops its active Jobs
     and keeps their history. Workflow references must be removed before deleting their agent or tool.

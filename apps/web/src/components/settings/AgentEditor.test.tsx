@@ -10,6 +10,7 @@ const fake = vi.hoisted(() => ({
   tools: { list: vi.fn() },
   tables: { list: vi.fn() },
   agents: { create: vi.fn(), update: vi.fn(), list: vi.fn(), toolAsk: vi.fn(), setToolPermission: vi.fn(), cliRules: vi.fn(), removeCliRule: vi.fn() },
+  plugins: { resetOverride: vi.fn() },
 }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");

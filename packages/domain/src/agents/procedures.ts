@@ -18,6 +18,7 @@ import { lockConsults } from "../engine/consults.ts";
 import { skillsAndTools } from "./skills-and-tools.ts";
 import { Permission, setPermission, toolPermissionTarget } from "./tool-ask.ts";
 import { effectiveTools } from "./tools.ts";
+import { overriddenAfter, refuseOwnDelete } from "../plugins/overrides.ts";
 
 const owner = base.use(authed);
 
@@ -83,8 +84,8 @@ async function ownTables(db: Db, ownerId: string, scope: TableScope | undefined)
 }
 
 function toAgent(row: typeof agentsTable.$inferSelect) {
-  const { id, ownerId, name, description, harnessId, systemPrompt, model, bundles, dataTables, selfLearning, builtIn } = row;
-  return { id, ownerId, name, description, harnessId, systemPrompt, ...(model === null ? {} : { model }), bundles, dataTables, selfLearning, ...(builtIn === null ? {} : { builtIn }) };
+  const { id, ownerId, name, description, harnessId, systemPrompt, model, bundles, dataTables, selfLearning, builtIn, overridden } = row;
+  return { id, ownerId, name, description, harnessId, systemPrompt, ...(model === null ? {} : { model }), bundles, dataTables, selfLearning, ...(builtIn === null ? {} : { builtIn }), overridden };
 }
 
 type Row = typeof agentsTable.$inferSelect;
@@ -219,16 +220,18 @@ const create = owner.input(AgentFields).handler(async ({ input, context }) => {
 
 const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async ({ input, context }) => {
   const { id, skillPackageIds, toolIds, toolPermissions, bundles, selfLearning, consults: entries, ...fields } = input;
-  await find(context.db, context.ownerId, id);
+  const current = await find(context.db, context.ownerId, id);
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
   const dataTables = await ownTables(context.db, context.ownerId, input.dataTables);
   await guard(context.db, context.ownerId, id, { kind: "update", bundles, dataTables, skillPackageIds });
+  // A plugin's agent: what now differs from the plugin's values is the owner's override.
+  const overridden = overriddenAfter("agent", current, { ...fields, bundles, selfLearning, dataTables, skillPackageIds, toolIds, consults: entries });
   const { row, ended } = await context.db.transaction(async (tx) => {
     // First: a consult opened meanwhile is either seen by `endConsults` or sees this change.
     await lockConsults(tx, context.ownerId);
     const [row] = await tx
       .update(agentsTable)
-      .set({ ...fields, model: fields.model ?? null, ...(bundles ? { bundles } : {}), ...(selfLearning ? { selfLearning } : {}), ...(dataTables ? { dataTables } : {}) })
+      .set({ ...fields, model: fields.model ?? null, ...(bundles ? { bundles } : {}), ...(selfLearning ? { selfLearning } : {}), ...(dataTables ? { dataTables } : {}), overridden })
       .where(and(eq(agentsTable.id, id), eq(agentsTable.ownerId, context.ownerId)))
       .returning();
     if (!row) throw new ORPCError("NOT_FOUND");
@@ -243,7 +246,8 @@ const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async
 });
 
 const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  await find(context.db, context.ownerId, input.id);
+  const row = await find(context.db, context.ownerId, input.id);
+  await refuseOwnDelete(context.db, row.pluginId);
   await guard(context.db, context.ownerId, input.id, { kind: "delete" });
   if (await agentInUse(context.db, context.ownerId, input.id)) {
     throw new ORPCError("CONFLICT", { message: "A workflow uses this agent" });

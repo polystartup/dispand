@@ -1220,7 +1220,20 @@
   imported; a plugin with definitions installs with nothing else ticked) and one read-only skill package named after it with
   the ticked skills. Ticked HTTP MCP servers become HTTP tools (only as reviewed: the server
   definitions at that commit, else `CONFLICT`; a stdio server that runs a command is refused) and
-  ticked agents become a system prompt on the harness the owner picks. A definition makes nothing
+  ticked agents become a system prompt on the harness the owner picks. An imported agent or tool
+  is the plugin's element (`plugin_id`, `plugin_component`): its row also keeps the plugin's
+  values of the fields a plugin gives it (`upstream`) and the fields its owner changed
+  (`overridden`, migration 0071). `plugins/overrides.ts` owns both: `ELEMENT_FIELDS` classes
+  every column of `agents` and `tools` as the plugin's, a local setting (harness, model, headers,
+  sign-in, enabled actions) or the system's, and a test fails on an unclassed column;
+  `agents.update` and `tools.update` call `overriddenAfter`, so a field that now differs from
+  the plugin's value is an override and one written back to it is not; `plugins.update` goes
+  through `rebase`, which replaces what the owner left alone and stores the new value under an
+  override; `plugins.resetOverride` writes the plugin's value back through the element's own
+  update. A plugin's agent or tool isn't deleted on its own (`refuseOwnDelete`), is named inside
+  its plugin (`tools_owner_name_idx` is unique per owner and plugin; shown as `<plugin>/<name>`,
+  `plugins/names.ts`), and what an uninstall keeps becomes its owner's own, with no `upstream`.
+  A definition makes nothing
   on install: what is set up from one is the owner's, listed in `plugins.created` (by kind, and
   under `from` by definition key, `primitive:<name>`, `agent:<name>`, `trigger:<name>`), and
   `plugins.list` names it for every plugin and marks each definition whose row still exists.

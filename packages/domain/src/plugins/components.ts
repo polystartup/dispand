@@ -1,7 +1,7 @@
 import { ORPCError } from "@orpc/server";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { Tx } from "../db/client.ts";
-import { agents, skillPackages, tools } from "../db/schema.ts";
+import { skillPackages } from "../db/schema.ts";
 import { Headers, Url, type ToolFields } from "../tools/procedures.ts";
 import type { PluginMcpServer } from "./read-plugin.ts";
 
@@ -86,28 +86,8 @@ export function httpTool(server: Extract<PluginMcpServer, { type: "http" }>, val
   };
 }
 
-/** The server's name for its tool, or `<plugin>-<server>` when the owner already has a tool called so. */
-export async function toolName(tx: Tx, ownerId: string, server: string, plugin: string): Promise<string> {
-  const base = server.trim() || "server";
-  const candidates = [cut(base, 100), cut(`${plugin}-${base}`, 100)];
-  const taken = await tx
-    .select({ name: tools.name })
-    .from(tools)
-    .where(and(eq(tools.ownerId, ownerId), inArray(sql`lower(${tools.name})`, candidates.map((c) => c.toLowerCase()))));
-  const free = candidates.find((c) => !taken.some((t) => t.name.toLowerCase() === c.toLowerCase()));
-  // Both taken: the insert says which name is.
-  return free ?? candidates[1]!;
-}
-
-/** The agent's name, or `<name> (<plugin>)` when the owner already has an agent called so. */
-export async function agentName(tx: Tx, ownerId: string, name: string, plugin: string): Promise<string> {
-  const [taken] = await tx
-    .select({ id: agents.id })
-    .from(agents)
-    .where(and(eq(agents.ownerId, ownerId), eq(agents.name, name)))
-    .limit(1);
-  return taken ? cut(`${name} (${plugin})`, 100) : name;
-}
+/** The server's name as its tool's: a plugin's tools share no name with the owner's own. */
+export const toolName = (server: string): string => cut(server.trim() || "server", 100);
 
 
 /** Retained workspace skills keep their names and agent links when a plugin is reinstalled. */
