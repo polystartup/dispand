@@ -27,7 +27,7 @@ const OUTCOMES: Record<Outcome["outcome"], string> = { made: "made", refused: "r
  */
 export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose: () => void }) {
   const queryClient = useQueryClient();
-  const { primitives, agents } = plugin.definitions;
+  const { primitives, agents, triggers } = plugin.definitions;
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   // All ticked: a table made by a run that stopped may still lack its fields, and a run only adds what is missing.
   const [picked, setPicked] = useState(() => new Set(primitives.map((d) => d.name)));
@@ -39,8 +39,13 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
     const harnessId = harnessOf(d);
     return pickedAgents.has(d.name) && harnessId ? [{ name: d.name, harnessId }] : [];
   });
-  const pick = { primitives: primitives.map((d) => d.name).filter((n) => picked.has(n)), ...(agentPicks.length ? { agents: agentPicks } : {}) };
-  const any = pick.primitives.length > 0 || agentPicks.length > 0;
+  // A trigger goes with its agent: ticked while its agent is ticked or made, unless the owner unticks it.
+  const [unticked, setUnticked] = useState(() => new Set<string>());
+  // Names match as the server matches them: whatever their case.
+  const offered = triggers.filter((t) => !t.setUp && agents.some((d) => d.name.toLowerCase() === t.agent.toLowerCase() && (d.setUp || pickedAgents.has(d.name))));
+  const triggerPicks = offered.filter((t) => !unticked.has(t.name)).map((t) => t.name);
+  const pick = { primitives: primitives.map((d) => d.name).filter((n) => picked.has(n)), ...(agentPicks.length ? { agents: agentPicks } : {}), ...(triggerPicks.length ? { triggers: triggerPicks } : {}) };
+  const any = pick.primitives.length > 0 || agentPicks.length > 0 || triggerPicks.length > 0;
   const preview = useQuery({ ...orpc.plugins.setupPreview.queryOptions({ input: { id: plugin.id, pick } }), enabled: any, retry: false });
   const setUp = useMutation(
     orpc.plugins.setUp.mutationOptions({
@@ -66,7 +71,7 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
       <SheetContent className="w-full overflow-y-auto bg-surface sm:max-w-lg">
         <SheetHeader className="px-6 pt-6">
           <SheetTitle className="text-[20px] tracking-tight">Set up {plugin.name}</SheetTitle>
-          <SheetDescription>Pick the tables and agents to make from the plugin. They are yours: removing the plugin keeps them, with their rows and Jobs, and its updates never change them.</SheetDescription>
+          <SheetDescription>Pick the tables, agents and triggers to make from the plugin. They are the plugin's, listed under its name: what you change of them is yours and kept, and a table's rows are always yours.</SheetDescription>
         </SheetHeader>
         <div className="space-y-6 px-6 pb-6">
           {outcomes ? (
@@ -130,6 +135,17 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
                     ))}
                   </ul>
                   {harnesses.data?.length === 0 && <p className="text-[13px] text-faint">Add a harness first to set up agents.</p>}
+                </Section>
+              )}
+              {offered.length > 0 && (
+                <Section id="setup-triggers" title="Triggers">
+                  <ul className="space-y-2">
+                    {offered.map((t) => (
+                      <li key={t.name}>
+                        <Check checked={!unticked.has(t.name)} onChange={() => setUnticked((prev) => toggled(prev, t.name))} label={t.name} detail={`Starts Jobs of ${t.agent}`} />
+                      </li>
+                    ))}
+                  </ul>
                 </Section>
               )}
               {any && (

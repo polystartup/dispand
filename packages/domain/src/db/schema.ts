@@ -372,6 +372,11 @@ export const triggers = pgTable(
     pollCursor: jsonb("poll_cursor").$type<PollCursor>(),
     // `"review"`: the Assistant's scheduled review of the workspace (`agents/builtin.ts`), one per agent. No input sets it.
     builtIn: text("built_in").$type<"review">(),
+    // A plugin's trigger (`plugins/`): its plugin, its name there, the plugin's values of its fields and the ones its owner changed.
+    pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
+    pluginComponent: text("plugin_component"),
+    upstream: jsonb("upstream").$type<Record<string, unknown>>(),
+    overridden: jsonb("overridden").$type<string[]>().notNull().default([]),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

@@ -8,7 +8,7 @@ import { canonical } from "../platform/approvals.ts";
 // (`upstream`), and the fields its owner changed (`overridden`). Every write of such an element
 // goes through here, so an update of the plugin only replaces what nobody changed.
 
-export type ElementKind = "agent" | "tool";
+export type ElementKind = "agent" | "tool" | "trigger";
 
 /**
  * Each kind's fields: the plugin's (an owner's change is an override), local settings (a plugin
@@ -25,6 +25,11 @@ export const ELEMENT_FIELDS = {
     overridable: ["name", "url", "transport"],
     local: ["urlSealed", "headersSealed", "disabled", "pollable", "auth", "oauthSealed", "oauthStatus", "oauthStateHash", "oauthClientId", "runnerId", "runnerTool"],
     system: ["id", "ownerId", "kind", "permissionRevision", "actions", "actionsError", "refreshedAt", "catalogId", "pluginId", "pluginComponent", "upstream", "overridden", "createdAt"],
+  },
+  trigger: {
+    overridable: ["name", "instructions", "config", "concurrency", "rateCap"],
+    local: ["enabled"],
+    system: ["id", "ownerId", "agentId", "kind", "nextFireAt", "lastCheckedAt", "pollCursor", "builtIn", "pluginId", "pluginComponent", "upstream", "overridden", "createdAt", "updatedAt"],
   },
 } as const satisfies Record<ElementKind, { overridable: readonly string[]; local: readonly string[]; system: readonly string[] }>;
 

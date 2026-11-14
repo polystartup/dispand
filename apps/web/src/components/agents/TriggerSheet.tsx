@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Overridden } from "../settings/Overridden.tsx";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { orpc } from "../../lib/api.ts";
@@ -48,6 +49,8 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
   const create = useMutation(orpc.triggers.create.mutationOptions({ onSuccess: done }));
   const update = useMutation(orpc.triggers.update.mutationOptions({ onSuccess: done }));
   const remove = useMutation(orpc.triggers.delete.mutationOptions({ onSuccess: done }));
+  // Back to the plugin's value: the sheet closes, and opens again on the trigger as it is then.
+  const reset = useMutation(orpc.plugins.resetOverride.mutationOptions({ onSuccess: done }));
   const [name, setName] = useState(trigger?.name ?? "");
   const [instructions, setInstructions] = useState(trigger?.instructions ?? "");
   const [starts, setStarts] = useState<Starts>(
@@ -119,6 +122,22 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
           <SheetTitle className="text-[20px] tracking-tight">{trigger ? "Edit trigger" : "New trigger"}</SheetTitle>
           <SheetDescription>What makes this agent work. Each time it fires, the agent gets a Job.</SheetDescription>
         </SheetHeader>
+        {trigger?.plugin && (
+          <div className="px-6">
+            <Overridden
+              plugin={trigger.plugin.name}
+              overridden={trigger.overridden}
+              labels={{ name: "Name", instructions: "What the agent is told", config: "When it fires", concurrency: "Jobs at once", rateCap: "Jobs an hour" }}
+              busy={reset.isPending}
+              onReset={(field) => reset.mutate({ kind: "trigger", id: trigger.id, field })}
+            />
+            {reset.error && (
+              <p role="alert" className="mt-2 text-[13px] text-danger">
+                Could not reset the field: the plugin's value may no longer be allowed. Change it by hand instead.
+              </p>
+            )}
+          </div>
+        )}
         <form
           className="grid gap-5 px-6 pb-6"
           noValidate
@@ -219,7 +238,7 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
             <Button type="submit" disabled={busy}>
               {trigger ? "Save" : "Create trigger"}
             </Button>
-            {trigger && (
+            {trigger && !trigger.plugin && (
               <Button type="button" variant="ghost" className="text-danger" disabled={busy} onClick={() => remove.mutate({ id: trigger.id })}>
                 Delete trigger
               </Button>

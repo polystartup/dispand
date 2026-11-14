@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agents as agentsTable, fields as fieldsTable, plugins as pluginsTable, tables as tablesTable, tools as toolsTable } from "../db/schema.ts";
+import { agents as agentsTable, fields as fieldsTable, plugins as pluginsTable, tables as tablesTable, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import type { SetupPick } from "./setup.ts";
@@ -377,4 +377,85 @@ test("a kept table takes the next free name when the first one is taken too", as
   await call(router.plugins.uninstall, { id: pluginId }, { context: ctx });
   expect((await ctx.db.select().from(tablesTable).orderBy(tablesTable.name)).map((t) => t.name)).toEqual(["Clients", "Clients (law-firm)", "Clients (law-firm) 2", "Matters", "Research"]);
   remove();
+});
+
+const TRIGGERS = ["Matter changed", "New client email", "Research recorded"];
+
+test("the fixture's triggers are set up on its agents as the plugin's: its table by id, the catalog's poll at once, nothing twice", async () => {
+  const { ctx, pluginId, remove } = await installed(["legal-research"]);
+  try {
+    const harnessId = await cloudHarness(ctx);
+    const pick = { ...ALL, agents: AGENTS.map((name) => ({ name, harnessId })), triggers: TRIGGERS };
+    const preview = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
+    expect(preview.items.filter((i) => i.tool === "triggers_create").map((i) => (i.input as { name: string }).name).sort()).toEqual(TRIGGERS);
+    // Gmail isn't a tool yet: it is added from the catalog, as the owner's own, before the agents that use it.
+    expect(preview.items.filter((i) => i.tool === "tools_add_from_catalog")).toHaveLength(1);
+    expect(preview.waiting).toEqual([]);
+    const { outcomes } = await setUp(ctx, pluginId, pick);
+    expect(outcomes.filter((o) => o.outcome !== "made")).toEqual([]);
+
+    const rows = await ctx.db.select().from(triggersTable);
+    const upkeep = await agentNamed(ctx, "Matter upkeep");
+    const matters = (await tableNamed(ctx, "Matters"))!;
+    const changed = rows.find((t) => t.name === "Matter changed")!;
+    expect(changed).toMatchObject({
+      agentId: upkeep.id,
+      kind: "primitive",
+      enabled: true,
+      instructions: "Update the conclusions.",
+      config: { kind: "primitive", tableId: matters.id, operations: ["updated"] },
+      pluginId,
+      pluginComponent: "Matter changed",
+      upstream: { name: "Matter changed", instructions: "Update the conclusions.", concurrency: "parallel", rateCap: 60 },
+      overridden: [],
+    });
+    const [gmail] = await ctx.db.select().from(toolsTable).where(eq(toolsTable.catalogId, "gmail"));
+    expect(gmail).toMatchObject({ pluginId: null });
+    expect(rows.find((t) => t.name === "New client email")).toMatchObject({ kind: "poll", config: { toolId: gmail!.id, action: "search_threads", idPath: "id" }, pluginId });
+    expect((await createdOf(ctx, pluginId)).from).toMatchObject({ "trigger:Matter changed": changed.id });
+    expect((await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx })).items).toEqual([]);
+
+    // A change of one is its owner's override; on or off is their setting; it goes only with its plugin.
+    expect((await call(router.triggers.update, { id: changed.id, instructions: "Mine." }, { context: ctx })).overridden).toEqual(["instructions"]);
+    expect((await call(router.triggers.update, { id: changed.id, enabled: false }, { context: ctx })).overridden).toEqual(["instructions"]);
+    expect(await call(router.plugins.resetOverride, { kind: "trigger", id: changed.id, field: "instructions" }, { context: ctx })).toEqual({ overridden: [] });
+    expect(await call(router.triggers.get, { id: changed.id }, { context: ctx })).toMatchObject({ instructions: "Update the conclusions.", enabled: false });
+    await expect(call(router.triggers.delete, { id: changed.id }, { context: ctx })).rejects.toMatchObject({ code: "FORBIDDEN", message: "It is law-firm's: uninstall the plugin to remove it" });
+    // The owner's own trigger on the plugin's agent is theirs to delete.
+    const own = await call(router.triggers.create, { agentId: upkeep.id, name: "By hand", instructions: "Tidy up.", config: { kind: "manual", placement: "button" } }, { context: ctx });
+    expect(own.overridden).toEqual([]);
+    await call(router.triggers.delete, { id: own.id }, { context: ctx });
+  } finally {
+    remove();
+  }
+});
+
+test("a trigger waits for its agent, and for a table its agent may not work on", async () => {
+  const { ctx, pluginId, remove } = await installed();
+  try {
+    const alone = await call(router.plugins.setupPreview, { id: pluginId, pick: { triggers: ["Matter changed"] } }, { context: ctx });
+    expect(alone.items).toEqual([]);
+    expect(alone.waiting).toEqual([{ definition: "trigger:Matter changed", reason: "Its agent “Matter upkeep” isn't set up: pick it too" }]);
+    await expect(call(router.plugins.setupPreview, { id: pluginId, pick: { triggers: ["Nope"] } }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  } finally {
+    remove();
+  }
+});
+
+test("a poll its tool wouldn't let run is listed as waiting, even when its agent is made by the same setup, and the other triggers are made", async () => {
+  const { ctx, pluginId, remove } = await installed();
+  try {
+    const harnessId = await cloudHarness(ctx);
+    // The owner's Gmail, with the action the poll reads turned off workspace-wide.
+    const gmail = await call(router.tools.addFromCatalog, { catalogId: "gmail" }, { context: ctx });
+    await call(router.tools.setActionEnabled, { toolId: gmail.id, action: "search_threads", enabled: false }, { context: ctx });
+    const pick = { ...ALL, agents: AGENTS.map((name) => ({ name, harnessId })), triggers: TRIGGERS };
+    const preview = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
+    expect(preview.waiting).toContainEqual({ definition: "trigger:New client email", reason: "This action is disabled workspace-wide" });
+    const { outcomes } = await setUp(ctx, pluginId, pick);
+    expect(outcomes.filter((o) => o.outcome !== "made")).toEqual([]);
+    expect((await ctx.db.select({ name: triggersTable.name }).from(triggersTable)).map((t) => t.name).sort()).toEqual(["Matter changed", "Research recorded"]);
+  } finally {
+    remove();
+  }
 });

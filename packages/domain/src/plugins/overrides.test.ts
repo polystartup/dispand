@@ -1,11 +1,11 @@
 import { getTableColumns } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agents, tools } from "../db/schema.ts";
+import { agents, tools, triggers } from "../db/schema.ts";
 import { ELEMENT_FIELDS, overriddenAfter, qualifiedName, rebase, sameValue } from "./overrides.ts";
 
 test("every column of an element's table is the plugin's, a local setting or the system's", () => {
   // A column added later must be classed: an unclassed one would be written with no override recorded.
-  for (const [kind, table] of [["agent", agents], ["tool", tools]] as const) {
+  for (const [kind, table] of [["agent", agents], ["tool", tools], ["trigger", triggers]] as const) {
     const { overridable, local, system } = ELEMENT_FIELDS[kind];
     const known = new Set<string>([...overridable, ...local, ...system]);
     expect(Object.keys(getTableColumns(table)).filter((column) => !known.has(column))).toEqual([]);

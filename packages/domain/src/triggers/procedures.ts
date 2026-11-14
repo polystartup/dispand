@@ -2,12 +2,13 @@ import { ORPCError } from "@orpc/server";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
-import { agents, eventFires, fields, pollItems, polls, tables, triggerFires, triggers as triggersTable } from "../db/schema.ts";
+import { agents, eventFires, fields, plugins, pollItems, polls, tables, triggerFires, triggers as triggersTable } from "../db/schema.ts";
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { pollProblem } from "../tools/pollable.ts";
 import { cronProblem, nextFireAfter } from "../workflows/schedule.ts";
+import { overriddenAfter, refuseOwnDelete } from "../plugins/overrides.ts";
 import { canonicalJson, Concurrency, INTERACTION, RateCap, TriggerConfig, TriggerFields } from "./model.ts";
 
 const owner = base.use(authed);
@@ -145,9 +146,12 @@ async function view(db: Db, row: Row, forJob: boolean) {
           .orderBy(desc(triggerFires.scheduledFor))
           .limit(5)
       : [];
-  const { id, agentId, name, kind, enabled, instructions, concurrency, rateCap, config, nextFireAt } = row;
+  const { id, agentId, name, kind, enabled, instructions, concurrency, rateCap, config, nextFireAt, overridden } = row;
   return {
     id,
+    /** The plugin it is a trigger of, and the fields its owner changed. */
+    plugin: row.pluginId ? ((await db.select({ id: plugins.id, name: plugins.name }).from(plugins).where(eq(plugins.id, row.pluginId)))[0] ?? null) : null,
+    overridden,
     agentId,
     name,
     kind,
@@ -210,6 +214,8 @@ const create = owner.input(TriggerFields.extend({ agentId: z.string() })).handle
       rateCap,
       config,
       ...scheduleColumns(config, null, true, now),
+      // Made as a plugin's element: these are the plugin's values, and a later change of one is an override.
+      ...(context.pluginElement ? { pluginId: context.pluginElement.pluginId, pluginComponent: context.pluginElement.component, upstream: { name, instructions, concurrency, rateCap, config } } : {}),
     })
     .returning();
   return view(context.db, row!, !!context.job);
@@ -261,6 +267,8 @@ const update = owner
           rateCap: input.rateCap ?? previous.rateCap,
           enabled,
           config,
+          // A plugin's trigger: what now differs from the plugin's values is the owner's override; on or off is their setting.
+          overridden: overriddenAfter("trigger", previous, { name: input.name, instructions: input.instructions, concurrency: input.concurrency, rateCap: input.rateCap, config: input.config }),
           ...scheduleColumns(config, previous, enabled, now),
           updatedAt: now,
         })
@@ -273,6 +281,7 @@ const update = owner
 
 const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const row = await find(context.db, context.ownerId, input.id);
+  await refuseOwnDelete(context.db, row.pluginId);
   await guard(context.db, context.ownerId, row.agentId, { kind: "trigger", triggerId: row.id, delete: true });
   await context.db.delete(triggersTable).where(eq(triggersTable.id, input.id));
 });
