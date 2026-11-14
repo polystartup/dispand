@@ -37,6 +37,7 @@ import { hasPlaceholder, httpTool, skillPackageName, toolName } from "./componen
 import { ELEMENT_FIELDS, rebase } from "./overrides.ts";
 import { agents as agentProcedures } from "../agents/procedures.ts";
 import { tools as toolProcedures } from "../tools/procedures.ts";
+import { triggers as triggerProcedures } from "../triggers/procedures.ts";
 import { fetchGit, GitError } from "./git.ts";
 import { BUILT_IN_MARKETPLACES, MarketplaceError, type MarketplaceEntry, type MarketplaceKind, parseMarketplace } from "./marketplace.ts";
 import { readWellKnownIndex, readWellKnownSkills, WellKnownError, wellKnownIndexUrl } from "./well-known.ts";
@@ -667,6 +668,7 @@ const uninstall = owner.input(Id.extend({ remove: z.object({ skills: RemovalIds,
     }
     // What stays is its owner's own from now on: nothing of it is an override any more.
     await tx.update(agentsTable).set({ upstream: null, overridden: [] }).where(eq(agentsTable.pluginId, row.id));
+    await tx.update(triggersTable).set({ pluginComponent: null, upstream: null, overridden: [] }).where(eq(triggersTable.pluginId, row.id));
     // A kept skill package has no plugin's files to differ from any more.
     for (const pkg of parts.skills) await tx.delete(skillFileUpstream).where(eq(skillFileUpstream.packageId, pkg.id));
     // A kept tool or table joins the owner's own names: one already taken there gets the plugin's name after it.
@@ -784,7 +786,7 @@ const setUp = owner.input(SetupInput.extend({ reviewed: z.string().length(64) })
  * Puts a field of a plugin's agent or tool back to the plugin's value, through the element's own
  * update, so every check of an ordinary change applies (a tool sent back to another origin loses its headers).
  */
-const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool", "skill"]), id: z.string().max(64), field: z.string().max(600) })).handler(async ({ input, context }) => {
+const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool", "trigger", "skill"]), id: z.string().max(64), field: z.string().max(600) })).handler(async ({ input, context }) => {
   const { kind, id, field } = input;
   if (kind === "skill") {
     // A skill's fields are its files: `file:<path>`.
@@ -794,7 +796,7 @@ const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool", "ski
     return { overridden: [] };
   }
   if (!(ELEMENT_FIELDS[kind].overridable as readonly string[]).includes(field)) throw new ORPCError("BAD_REQUEST", { message: "Not a field a plugin sets" });
-  const table = kind === "agent" ? agentsTable : toolsTable;
+  const table = kind === "agent" ? agentsTable : kind === "tool" ? toolsTable : triggersTable;
   const [row] = await context.db
     .select({ upstream: table.upstream })
     .from(table)
@@ -807,6 +809,7 @@ const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool", "ski
     throw new ORPCError("BAD_REQUEST", { message: "The plugin's address needs a setting: update the plugin, or uninstall and install it again, to enter it" });
   }
   if (kind === "tool") return { overridden: (await call(toolProcedures.update, { id, ...value } as never, { context: context as never })).overridden };
+  if (kind === "trigger") return { overridden: (await call(triggerProcedures.update, { id, ...value } as never, { context: context as never })).overridden };
   const a = await call(agentProcedures.get, { id }, { context: context as never });
   const whole = {
     id,

@@ -519,6 +519,13 @@
       "when": 1794616199299,
       "tag": "0073_plugin_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1794616789059,
+      "tag": "0074_plugin_triggers",
+      "breakpoints": true
     }
   ]
 }
