@@ -786,7 +786,7 @@ async function latest(context: { db: Db; ownerId: string; gitFileUrls?: boolean 
 
 type Shown = { key: string; kind: UpdatableKind | "skill"; id: string; name: string; field: string };
 /** `reaches`: for a skill's file, the agents whose sessions get the package, named on the screen since its text reaches each of them. */
-type ShownChange = Shown & { class: ChangeClass; before: unknown; after: unknown; reaches?: string[] };
+type ShownChange = Shown & { class: ChangeClass; before: unknown; after: unknown; reaches?: string[]; /** For skills an agent gains: each package's files as text, since their text reaches the agent. */ gained?: { name: string; files: { path: string; text: string | null }[] }[] };
 type ShownConflict = Shown & { old: unknown; mine: unknown; next: unknown; reaches?: string[] };
 
 const MAX_SHOWN_TEXT = 20_000;
@@ -922,6 +922,14 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
   const skill = await skillPlan(context.db, row, read.contents, []);
   const conflicts: ShownConflict[] = [...elements.flatMap((e) => e.plan.conflicts), ...(skill?.conflicts ?? [])];
   const changes: ShownChange[] = [...elements.flatMap((e) => e.plan.changes), ...(skill?.changes ?? [])];
+  // A skill an agent gains reaches it whole: its files are on the screen, and so under its token.
+  for (const c of changes.filter((c) => c.kind === "agent" && c.field === "skillPackageIds")) {
+    const gained = (Array.isArray(c.after) ? c.after : []).filter((id): id is string => typeof id === "string" && !(Array.isArray(c.before) && c.before.includes(id)));
+    if (!gained.length) continue;
+    const pkgs = await context.db.select({ id: skillPackages.id, name: skillPackages.name }).from(skillPackages).where(and(inArray(skillPackages.id, gained), eq(skillPackages.ownerId, context.ownerId)));
+    const files = await context.db.select({ packageId: skillFiles.packageId, path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(inArray(skillFiles.packageId, pkgs.map((p) => p.id))).orderBy(asc(skillFiles.path));
+    c.gained = pkgs.map((p) => ({ name: p.name, files: files.filter((f) => f.packageId === p.id).map((f) => ({ path: f.path, text: shownFile(f.content) })) }));
+  }
   const additions = additionsOf(row, read.contents);
   const leaving = await leavingOf(context.db, context.ownerId, row, read.contents);
   const after = afterOf(elements);

@@ -141,3 +141,10 @@ test("a skill's reworded file names the agents it reaches; a tool's new address 
   await userEvent.click(screen.getByText(/1 wording change/));
   expect(screen.getByText("Reaches Intake, Drafting")).toBeTruthy();
 });
+
+test("a skill an agent gains shows what it tells it, file by file", async () => {
+  const changes = [{ key: "agent:d:skillPackageIds", kind: "agent" as const, id: "d", name: "Drafting", field: "skillPackageIds", class: "widening" as const, before: [], after: ["pkg_1"], gained: [{ name: "legal", files: [{ path: "legal/SKILL.md", text: "Cite the court." }] }] }];
+  render(<UpdatePlan conflicts={[]} changes={changes} names={{}} take={[]} busy={false} onTake={vi.fn()} />);
+  await userEvent.click(screen.getByText(/What the skill legal tells it \(1 file\)/));
+  expect(screen.getByText("Cite the court.")).toBeTruthy();
+});

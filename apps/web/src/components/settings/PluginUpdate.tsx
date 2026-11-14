@@ -1,5 +1,5 @@
 type At = { key: string; kind: "agent" | "tool" | "trigger" | "skill"; id: string; name: string; field: string };
-export type UpdateChange = At & { class: "widening" | "wording" | "silent"; before: unknown; after: unknown; reaches?: string[] };
+export type UpdateChange = At & { class: "widening" | "wording" | "silent"; before: unknown; after: unknown; reaches?: string[]; gained?: { name: string; files: { path: string; text: string | null }[] }[] };
 export type UpdateConflict = At & { old: unknown; mine: unknown; next: unknown; reaches?: string[] };
 export type UpdateAddition = { key: string; kind: "primitive" | "agent" | "trigger" | "server"; name: string; detail: string };
 type Names = Record<string, string>;
@@ -145,6 +145,14 @@ export function UpdatePlan({
               <li key={c.key}>
                 <span className="font-medium text-fg">{c.name}</span> · {label(c.field)}: {shown(c.before, names)} → {shown(c.after, names)}
                 {c.kind === "tool" && (c.field === "url" || c.field === "transport") && <span className="block text-muted">Clears its sign-in, and its saved headers when the origin or the transport changes: enter them again on the tool's page.</span>}
+                {c.gained?.map((g) => (
+                  <details key={g.name} className="mt-1">
+                    <summary className="cursor-pointer text-muted">What the skill {g.name} tells it ({g.files.length} {g.files.length === 1 ? "file" : "files"})</summary>
+                    {g.files.map((f) => (
+                      <Text key={f.path} title={f.path} value={f.text} names={names} />
+                    ))}
+                  </details>
+                ))}
               </li>
             ))}
           </ul>
