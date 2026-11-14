@@ -794,7 +794,9 @@ const MAX_SHOWN_TEXT = 20_000;
 function shownFile(content: Uint8Array | undefined): string | null {
   if (content === undefined) return null;
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(content).slice(0, MAX_SHOWN_TEXT);
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(content);
+    // Cut, and said so: the screen's token covers the whole file all the same.
+    return text.length > MAX_SHOWN_TEXT ? `${text.slice(0, MAX_SHOWN_TEXT)}\n… (${text.length - MAX_SHOWN_TEXT} more characters)` : text;
   } catch {
     return `(${content.length} bytes, not text)`;
   }
@@ -923,12 +925,18 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
   const conflicts: ShownConflict[] = [...elements.flatMap((e) => e.plan.conflicts), ...(skill?.conflicts ?? [])];
   const changes: ShownChange[] = [...elements.flatMap((e) => e.plan.changes), ...(skill?.changes ?? [])];
   // A skill an agent gains reaches it whole: its files are on the screen, and so under its token.
+  // The plugin's own package as the update writes it; another package as it is.
+  const reached: { path: string; content: Uint8Array }[][] = [];
   for (const c of changes.filter((c) => c.kind === "agent" && c.field === "skillPackageIds")) {
     const gained = (Array.isArray(c.after) ? c.after : []).filter((id): id is string => typeof id === "string" && !(Array.isArray(c.before) && c.before.includes(id)));
     if (!gained.length) continue;
     const pkgs = await context.db.select({ id: skillPackages.id, name: skillPackages.name }).from(skillPackages).where(and(inArray(skillPackages.id, gained), eq(skillPackages.ownerId, context.ownerId)));
-    const files = await context.db.select({ packageId: skillFiles.packageId, path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(inArray(skillFiles.packageId, pkgs.map((p) => p.id))).orderBy(asc(skillFiles.path));
-    c.gained = pkgs.map((p) => ({ name: p.name, files: files.filter((f) => f.packageId === p.id).map((f) => ({ path: f.path, text: shownFile(f.content) })) }));
+    const stored = await context.db.select({ packageId: skillFiles.packageId, path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(inArray(skillFiles.packageId, pkgs.map((p) => p.id))).orderBy(asc(skillFiles.path));
+    c.gained = pkgs.map((p) => {
+      const files = skill && p.id === skill.packageId ? [...skill.files].sort((a, b) => (a.path < b.path ? -1 : 1)) : stored.filter((f) => f.packageId === p.id);
+      reached.push(files);
+      return { name: p.name, files: files.map((f) => ({ path: f.path, text: shownFile(f.content) })) };
+    });
   }
   const additions = additionsOf(row, read.contents);
   const leaving = await leavingOf(context.db, context.ownerId, row, read.contents);
@@ -936,7 +944,9 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
   const removals = leaving.size ? await inUse(context.db, context.ownerId, row.id, leaving, after) : [];
   const tables = await tablePlans(context.db, context.ownerId, row, read.contents, leaving);
   const shownTables = tables.map(({ tableId, name, changes }) => ({ tableId, name, changes }));
-  const reviewed = createHash("sha256").update(canonical({ sha: read.sha, conflicts, changes, additions, removals, tables: shownTables })).digest("hex");
+  // The screen cuts a long file: the token also covers every skill file in full, those the update writes and those an agent gains.
+  const fullFiles = [skill?.files ?? [], ...reached].map((files) => files.map((f) => [f.path, createHash("sha256").update(f.content).digest("hex")]));
+  const reviewed = createHash("sha256").update(canonical({ sha: read.sha, conflicts, changes, additions, removals, tables: shownTables, fullFiles })).digest("hex");
   // The plugin's own words for the version it goes to, when its changelog names it; the two commits either way.
   const { version } = read.contents;
   const releaseNotes = { from: row.sha, to: read.sha, version, text: version && read.changelog ? changelogSection(read.changelog, version) : null };

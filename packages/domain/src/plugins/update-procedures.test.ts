@@ -449,12 +449,14 @@ test("a skill's file the plugin rewords names, on the update's screen, every age
 test("a skill an agent gains with a new version is on the update's screen whole: its files, under the screen's token", async () => {
   const { files, preview, publish, remove } = await setUp();
   try {
-    publish({ [DRAFTING]: edited(files[DRAFTING]!, "tools: [\"catalog:gmail\"]", "tools: [\"catalog:gmail\"]\nskills: [legal-research]") });
+    // The same release rewords the skill: what the agent gets is the new text.
+    const SKILL = "skills/legal-research/SKILL.md";
+    publish({ [DRAFTING]: edited(files[DRAFTING]!, "tools: [\"catalog:gmail\"]", "tools: [\"catalog:gmail\"]\nskills: [legal-research]"), [SKILL]: `${files[SKILL]!}\nCite the court and the year.\n` });
     const shown = await preview();
     const change = shown.changes.find((c) => c.name === "Drafting" && c.field === "skillPackageIds") as { class: string; gained?: { name: string; files: { path: string; text: string | null }[] }[] } | undefined;
     expect(change?.class).toBe("widening");
     expect(change!.gained![0]!.files.map((f) => f.path)).toContain("legal-research/SKILL.md");
-    expect(change!.gained![0]!.files[0]!.text).toContain("legal-research");
+    expect(change!.gained![0]!.files.find((f) => f.path === "legal-research/SKILL.md")!.text).toContain("Cite the court and the year.");
   } finally {
     remove();
   }
