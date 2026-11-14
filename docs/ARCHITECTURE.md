@@ -1453,9 +1453,9 @@ it changes (`reopenChanged`), and an element that leaves the plugin drops its co
 conflict) names every agent whose sessions get the package (`reaches`, under the screen's token),
 and a tool's new address or transport says what it clears (its sign-in, and its saved headers
 when the origin or the transport changes). A skill package an agent gains is shown whole beside the change
-(`gained`: each file's text), also under the token, since all of it reaches the agent. A field removal or type change names the workflows whose data step uses the field
-(`stops`, from `workflowsUsingField`: a current version, or one a run is still on), since they
-stop with it. A table change that takes values away (a field removed, a type or choice change that drops
+(`gained`: each file's text), also under the token, since all of it reaches the agent. A field removal or type change names the workflows whose data step writes or filters on the
+field (`stops`, from `workflowsUsingField`: a current version, or one a run is still on): a
+removal stops them, a type change may. A table change that takes values away (a field removed, a type or choice change that drops
 some) puts a digest of that field's values in every row under the token too (`TablePlan.values`):
 a value written after the screen was read refuses the update, and the screen is read again.
 The read and the field operation aren't one transaction (the operation runs its own), so a write

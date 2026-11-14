@@ -132,7 +132,9 @@ export async function workflowsUsingField(db: Db | Tx, ownerId: string, tableId:
     .innerJoin(workflows, eq(workflows.id, runs.workflowId))
     .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, runs.workflowId), eq(workflowVersions.version, runs.version)))
     .where(and(eq(runs.ownerId, ownerId), inArray(runs.status, ["running", "waiting"])));
-  const uses = (def: WorkflowDef) => def.steps.some((step) => (step as { tableId?: string }).tableId === tableId && JSON.stringify(step).includes(`"${fieldId}"`));
+  // A data step on the table that writes the field, or filters on it.
+  const names = (step: { inputs?: { fieldId: string }[]; filters?: { fieldId: string }[] }) => [...(step.inputs ?? []), ...(step.filters ?? [])].some((r) => r.fieldId === fieldId);
+  const uses = (def: WorkflowDef) => def.steps.some((step) => step.type === "data" && step.tableId === tableId && names(step as never));
   return [...new Set([...current, ...running].filter((w) => uses(w.def)).map((w) => w.name))].sort();
 }
 
