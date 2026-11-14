@@ -485,3 +485,25 @@ test("a value written to a field after the update's screen was read refuses its 
     remove();
   }
 });
+
+test("a field removal names, on the update's screen, the workflows whose data step uses the field", async () => {
+  const { ctx, files, agent, preview, publish, remove } = await setUp();
+  try {
+    const [matters] = await ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Matters"));
+    const conclusions = (await ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters!.id))).find((f) => f.name === "Conclusions")!;
+    const drafting = await agent("Drafting");
+    const workflow = await call(router.workflows.create, { name: "Close matter" }, { context: ctx });
+    const def = {
+      trigger: { type: "manual", field: { id: "n_chat", key: "brief", type: "chat", label: "Brief", agentId: drafting.id, prompt: "Ask what was decided." } },
+      steps: [{ id: "n_data", key: "record", type: "data", name: "Record", action: "create-row", tableId: matters!.id, inputs: [{ fieldId: conclusions.id, source: { type: "output", nodeId: "n_chat", name: "decision" } }] }],
+      edges: [{ from: "n_chat", to: "n_data" }],
+    };
+    await call(router.workflows.update, { id: workflow.id, name: "Close matter", def } as never, { context: ctx });
+    const definition = JSON.parse(files[MATTERS]!) as { fields: { name: string }[] };
+    definition.fields = definition.fields.filter((f) => f.name !== "Conclusions");
+    publish({ [MATTERS]: JSON.stringify(definition) });
+    expect((await preview()).tables[0]!.changes).toMatchObject([{ key: "remove:Conclusions", stops: ["Close matter"] }]);
+  } finally {
+    remove();
+  }
+});

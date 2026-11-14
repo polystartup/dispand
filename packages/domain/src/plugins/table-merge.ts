@@ -25,6 +25,8 @@ export type TableChange = {
   stale?: string;
   /** The table it names that isn't there yet: offered again once it is. */
   waiting?: string;
+  /** The workflows a removal or a type change stops: their data steps name the field. */
+  stops?: string[];
 };
 
 type Field = PrimitiveDefinition["fields"][number];

@@ -221,7 +221,7 @@ export function ReleaseNotes({ notes }: { notes: UpdateReleaseNotes }) {
   );
 }
 
-export type UpdateTableChange = { key: string; kind: "add" | "remove" | "retype" | "choices" | "move" | "primitive" | "parent"; field?: string; ticked: boolean; loses?: number; stale?: string; waiting?: string };
+export type UpdateTableChange = { key: string; kind: "add" | "remove" | "retype" | "choices" | "move" | "primitive" | "parent"; field?: string; ticked: boolean; loses?: number; stale?: string; waiting?: string; stops?: string[] };
 export type UpdateTable = { tableId: string; name: string; changes: UpdateTableChange[] };
 
 /** What a table change does, in words. */
@@ -260,6 +260,7 @@ export function TableChanges({ tables, ticked, busy, onTick }: { tables: UpdateT
                 <span>
                   {says(c)}
                   {c.loses ? <span className="block text-danger">Ticked, it removes the values of {c.loses} {c.loses === 1 ? "row" : "rows"}.</span> : null}
+                  {c.stops?.length ? <span className="block text-danger">Ticked, it {c.kind === "retype" ? "may stop" : "stops"} the {c.stops.length === 1 ? "workflow" : "workflows"} {c.stops.join(", ")}: {c.stops.length === 1 ? "its data step names" : "their data steps name"} this field.</span> : null}
                   {blocked && <span className="block text-muted">{blocked}</span>}
                 </span>
               </label>
