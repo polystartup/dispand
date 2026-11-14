@@ -124,3 +124,27 @@ test("0071 gives a plugin's existing agents and tools the values they have as th
     },
   ]);
 });
+
+test("0072 takes a plugin's existing skill files as the plugin's own, and none of the owner's", async () => {
+  const { cp, mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "dispand-0072-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const before = join(dir, "migrations");
+  await cp(new URL("../../drizzle", import.meta.url).pathname, before, { recursive: true });
+  const journalPath = join(before, "meta", "_journal.json");
+  const journal = JSON.parse(await readFile(journalPath, "utf8")) as { entries: { tag: string }[] };
+  journal.entries = journal.entries.filter((e) => e.tag < "0072");
+  await writeFile(journalPath, JSON.stringify(journal));
+  const url = `pglite://${join(dir, "db")}`;
+  const old = await createDb(url, before);
+  await old.execute(sql`insert into "user" (id, name, email) values ('user_1', 'Ada', 'ada@example.com')`);
+  await old.execute(sql`insert into plugins (id, owner_id, name, description, components) values ('plugin_1', 'user_1', 'kit', '', '{"skills":[],"mcpServers":[],"agents":[]}')`);
+  await old.execute(sql`insert into skill_packages (id, owner_id, name, description, plugin_id) values ('pkg_p', 'user_1', 'kit', '', 'plugin_1'), ('pkg_o', 'user_1', 'mine', '', null)`);
+  await old.execute(sql`insert into skill_files (package_id, path, content) values ('pkg_p', 'a/SKILL.md', 'plugin'::bytea), ('pkg_o', 'mine/SKILL.md', 'mine'::bytea)`);
+  await closeDb(old);
+  const db = await createDb(url);
+  onTestFinished(() => closeDb(db));
+  expect(rowsOf(await db.execute(sql`select package_id, path, convert_from(content, 'UTF8') as text from skill_file_upstream`))).toEqual([{ package_id: "pkg_p", path: "a/SKILL.md", text: "plugin" }]);
+});

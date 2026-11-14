@@ -1217,8 +1217,15 @@
   (hooks, commands, `bin/`, servers running `${CLAUDE_PLUGIN_ROOT}`, links, files a skill can't
   hold, skills `validatePackage` refuses). `plugins.install` stores the plugin (`plugins`: url,
   sha, what it offered, its definitions (`plugins.definitions`, migration 0061), what wasn't
-  imported; a plugin with definitions installs with nothing else ticked) and one read-only skill package named after it with
-  the ticked skills. Ticked HTTP MCP servers become HTTP tools (only as reviewed: the server
+  imported; a plugin with definitions installs with nothing else ticked) and one skill package named after it with
+  the ticked skills. That package is the plugin's: `skill_files` holds its files in effect, and
+  `skill_file_upstream` (migration 0072) the files as the plugin has them, so a path whose content
+  differs is its owner's change, one only in effect a file they added, one only upstream a file
+  they removed. The owner changes it file by file (`skills.setFile`, `skills.removeFile`, each
+  checking the whole package with `validatePackage`; `skills.readFile` for the editor),
+  `plugins.update` follows the plugin only for the files the owner left alone (`rebaseFiles`),
+  `plugins.resetOverride` with `file:<path>` puts one path back, and its delete is refused like
+  any element's. A package kept at uninstall keeps its files in effect and no upstream ones. Ticked HTTP MCP servers become HTTP tools (only as reviewed: the server
   definitions at that commit, else `CONFLICT`; a stdio server that runs a command is refused) and
   ticked agents become a system prompt on the harness the owner picks. An imported agent or tool
   is the plugin's element (`plugin_id`, `plugin_component`): its row also keeps the plugin's

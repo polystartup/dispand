@@ -657,7 +657,8 @@ changes it updates this file.
   fields is an override made by the element's own procedure, with its checks, and an update of
   the plugin never replaces an overridden field. A reset to the plugin's value goes through that
   same procedure, so a tool sent to another origin, by an override or by a reset, loses its saved
-  headers and sign-in. A server is unticked until the owner ticks it with its URL shown, and is imported
+  headers and sign-in. A file of a plugin's skill the owner writes goes through `validatePackage`
+  with the whole package, as an upload does: no path leaves the package, and the caps hold. A server is unticked until the owner ticks it with its URL shown, and is imported
   only as reviewed (its definitions at that commit, marketplace manifest included, else
   `CONFLICT`). Its `${VAR}` placeholders are filled from the owner's settings at install, then
   each header is sealed, and so is the whole URL when it holds one (shown as its template). A

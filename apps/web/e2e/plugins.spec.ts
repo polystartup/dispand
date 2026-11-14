@@ -154,8 +154,19 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await expect(page.getByRole("button", { name: /^writing-kit\/docs/ })).toBeVisible();
 
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Skills" }).click();
-  await expect(page.getByRole("button", { name: /^writing-kit/ })).toContainText("From plugin writing-kit");
-  await expect(page.getByText("Read-only")).toBeVisible();
+  await expect(page.getByRole("button", { name: /^writing-kit/ })).toContainText("writing-kit's");
+  // Its files are the plugin's until the owner changes one: here SKILL.md gets a line of theirs.
+  await page.getByRole("button", { name: "Files of writing-kit" }).click();
+  const files = page.getByRole("dialog");
+  await files.getByRole("button", { name: "Edit plain-words/SKILL.md" }).click();
+  const content = files.getByLabel("Content");
+  await content.fill(`${await content.inputValue()}\nPrefer short sentences.\n`);
+  await files.getByRole("button", { name: "Save" }).click();
+  await expect(files.getByText("Yours: changed")).toBeVisible();
+  await files.getByRole("button", { name: "Reset plain-words/SKILL.md to the plugin's" }).click();
+  await expect(files.getByText("Yours: changed")).toBeHidden();
+  await files.getByRole("button", { name: "Close" }).first().click();
+  await expect(files).toBeHidden();
 
   // Removing it takes its skill package, which no agent uses, and keeps its tool, then the
   // owner's own: deleted here, since skills.spec.ts and tools.spec.ts start from empty lists.
