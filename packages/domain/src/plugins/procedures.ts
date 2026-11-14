@@ -8,8 +8,6 @@ import type { Db } from "../db/client.ts";
 import {
   agents as agentsTable,
   agentSkills,
-  agentConsults,
-  runs as runsTable,
   agentTools,
   fields as fieldsTable,
   harnesses,
@@ -24,9 +22,6 @@ import {
   triggers as triggersTable,
   CREATED_KINDS,
 } from "../db/schema.ts";
-import { assistantGuard } from "../agents/builtin.ts";
-import { toolHolder } from "../agents/usage.ts";
-import { agentInUse } from "../workflows/procedures.ts";
 import { pluginNativeKey } from "../skills/native.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -34,6 +29,7 @@ import { MAX_DESCRIPTION, PackageError, SKILL_NAME, validatePackage } from "../s
 import { rebaseFiles, resetFile, store, storeUpstream, type Tx } from "../skills/procedures.ts";
 import { HeaderValue, insertTool, refreshActions, retarget } from "../tools/procedures.ts";
 import { hasPlaceholder, httpTool, skillPackageName, toolName } from "./components.ts";
+import { checkChoices, type Element, inUse } from "./closure.ts";
 import { ELEMENT_FIELDS, rebase } from "./overrides.ts";
 import { agents as agentProcedures } from "../agents/procedures.ts";
 import { tools as toolProcedures } from "../tools/procedures.ts";
@@ -607,94 +603,88 @@ const list = owner.handler(async ({ context }) => {
   });
 });
 
-async function removalComponents(db: Db | Tx, ownerId: string, pluginId: string) {
-  const skills = await db.select({ id: skillPackages.id, name: skillPackages.name }).from(skillPackages).where(and(eq(skillPackages.pluginId, pluginId), eq(skillPackages.ownerId, ownerId)));
-  const tools = await db.select({ id: toolsTable.id, name: toolsTable.name }).from(toolsTable).where(and(eq(toolsTable.pluginId, pluginId), eq(toolsTable.ownerId, ownerId)));
-  const agents = await db.select({ id: agentsTable.id, name: agentsTable.name }).from(agentsTable).where(and(eq(agentsTable.pluginId, pluginId), eq(agentsTable.ownerId, ownerId)));
-  return { skills, tools, agents };
-}
+const removalReview = (elements: Element[]) => createHash("sha256").update(canonical(elements)).digest("hex");
 
+/**
+ * What removing the plugin would ask about: each of its elements with why (its owner changed
+ * it, it holds rows, memory or a running Job, something that stays uses it) and the other
+ * elements it needs if kept. `reviewed` binds the removal to this list.
+ */
 const uninstallPreview = owner.input(Id).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", { message: "Plugin removal requires an owner session" });
   const row = await findPlugin(context.db, context.ownerId, input.id);
-  const parts = await removalComponents(context.db, context.ownerId, row.id);
-  const agents = await Promise.all(parts.agents.map(async (agent) => {
-    const protectedReason = await assistantGuard(context.db, context.ownerId, agent.id, { kind: "delete" }) ?? (await agentInUse(context.db, context.ownerId, agent.id) ? "A workflow uses this agent" : null);
-    const [job] = await context.db.select({ id: runsTable.id }).from(runsTable).where(and(eq(runsTable.agentId, agent.id), inArray(runsTable.status, ["running", "waiting"]))).limit(1);
-    const [trigger] = await context.db.select({ id: triggersTable.id }).from(triggersTable).where(eq(triggersTable.agentId, agent.id)).limit(1);
-    const [consult] = await context.db.select({ id: agentConsults.agentId }).from(agentConsults).where(eq(agentConsults.consultedId, agent.id)).limit(1);
-    return { ...agent, blocked: !!protectedReason, inUse: protectedReason ?? (job ? "Has active Jobs; removing this agent stops them" : trigger ? "Has triggers; removing this agent removes them" : consult ? "Another agent consults this agent" : null) };
-  }));
-  return {
-    skills: parts.skills,
-    tools: parts.tools,
-    agents,
-    nativeName: `dispand-${row.id}`, sourceKey: pluginNativeKey(row) ?? null,
-  };
+  const elements = await inUse(context.db, context.ownerId, row.id);
+  return { elements, reviewed: removalReview(elements), nativeName: `dispand-${row.id}`, sourceKey: pluginNativeKey(row) ?? null };
 });
 
-const RemovalIds = z.array(z.string().min(1).max(64)).max(200).transform(unique);
-const uninstall = owner.input(Id.extend({ remove: z.object({ skills: RemovalIds, tools: RemovalIds, agents: RemovalIds }).optional() })).handler(async ({ input, context }) => {
-  if (context.job && input.remove) throw new ORPCError("FORBIDDEN", { message: "Plugin removal requires an owner session" });
+/** A name among the owner's own: `name`, else `<name> (<plugin>)`, then with 2, 3… after it, cut so the whole fits a name. */
+function freeName(own: Set<string>, name: string, plugin: string): string {
+  let free = name;
+  for (let n = 1; own.has(free.toLowerCase()); n++) {
+    const suffix = ` (${plugin})${n > 1 ? ` ${n}` : ""}`.slice(-60);
+    free = `${name.slice(0, 100 - suffix.length)}${suffix}`;
+  }
+  own.add(free.toLowerCase());
+  return free;
+}
+
+const Choices = z.record(z.string().max(100), z.enum(["keep", "delete"])).refine((c) => Object.keys(c).length <= 1000, "Too many choices");
+
+/**
+ * Removes the plugin and its elements, in the order agents, skills, tools, tables. An element
+ * kept (`keep`) becomes its owner's own, with the values it has; any other goes, and what used
+ * it loses it. Only what `uninstallPreview` showed is applied (`reviewed`), and the choices are
+ * checked as a whole first (`checkChoices`).
+ */
+const uninstall = owner.input(Id.extend({ reviewed: z.string().length(64), choices: Choices })).handler(async ({ input, context }) => {
+  if (context.job) throw new ORPCError("FORBIDDEN", { message: "Plugin removal requires an owner session" });
   const out = await context.db.transaction(async (tx) => {
     const row = await findPlugin(tx, context.ownerId, input.id, true);
-    const parts = await removalComponents(tx, context.ownerId, row.id);
-    let out: Awaited<ReturnType<typeof context.engine.deleteAgents>> = [];
-    if (input.remove) {
-      const picked = input.remove;
-      for (const kind of ["skills", "tools", "agents"] as const) {
-        if (picked[kind].some((id) => !parts[kind].some((p) => p.id === id))) throw new ORPCError("NOT_FOUND", { message: "The selected item does not belong to this plugin" });
-      }
-      for (const id of picked.agents) {
-        const refused = await assistantGuard(tx, context.ownerId, id, { kind: "delete" });
-        if (refused) throw new ORPCError("FORBIDDEN", { message: refused });
-        if (await agentInUse(tx, context.ownerId, id)) throw new ORPCError("CONFLICT", { message: "A workflow uses this agent; keep it or remove it from the workflow first" });
-      }
-      out = await context.engine.deleteAgents(tx, context.ownerId, picked.agents);
-      for (const id of picked.skills) {
-        await tx.select({ id: skillPackages.id }).from(skillPackages).where(eq(skillPackages.id, id)).for("update");
-        await tx.delete(agentSkills).where(eq(agentSkills.packageId, id));
-        await tx.delete(skillPackages).where(eq(skillPackages.id, id));
-      }
-      for (const id of picked.tools) {
-        await tx.select({ id: toolsTable.id }).from(toolsTable).where(eq(toolsTable.id, id)).for("update");
-        await tx.delete(agentTools).where(eq(agentTools.toolId, id));
-        const required = await tx.select({ id: skillPackages.id, tools: skillPackages.requiredToolIds }).from(skillPackages).where(and(eq(skillPackages.ownerId, context.ownerId), sql`${skillPackages.requiredToolIds} @> ${JSON.stringify([id])}::jsonb`)).for("update");
-        for (const pkg of required) await tx.update(skillPackages).set({ requiredToolIds: pkg.tools.filter((toolId) => toolId !== id), updatedAt: sql`now()` }).where(eq(skillPackages.id, pkg.id));
-        const holder = await toolHolder(tx, context.ownerId, id);
-        if (holder) throw new ORPCError("CONFLICT", { message: `${holder}; keep it when removing the plugin` });
-        await tx.delete(toolsTable).where(eq(toolsTable.id, id));
-      }
+    const elements = await inUse(tx, context.ownerId, row.id);
+    if (removalReview(elements) !== input.reviewed) throw new ORPCError("CONFLICT", { message: `${row.name} changed since you looked: look at what would be removed again` });
+    const problem = checkChoices(elements, input.choices);
+    if (problem) throw new ORPCError("BAD_REQUEST", { message: problem });
+    const of = (kind: Element["kind"], keep: boolean) => elements.filter((e) => e.kind === kind && (input.choices[e.key] === "keep") === keep).map((e) => e.id);
+
+    // Agents first, so what still uses a skill or a tool afterwards is what stays.
+    const out = await context.engine.deleteAgents(tx, context.ownerId, of("agent", false));
+    for (const id of of("agent", true)) {
+      await tx.update(agentsTable).set({ pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(agentsTable.id, id));
+      await tx.update(triggersTable).set({ pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(triggersTable.agentId, id));
     }
-    // What stays is its owner's own from now on: nothing of it is an override any more.
-    await tx.update(agentsTable).set({ upstream: null, overridden: [] }).where(eq(agentsTable.pluginId, row.id));
-    await tx.update(triggersTable).set({ pluginComponent: null, upstream: null, overridden: [] }).where(eq(triggersTable.pluginId, row.id));
-    // A kept skill package has no plugin's files to differ from any more.
-    for (const pkg of parts.skills) await tx.delete(skillFileUpstream).where(eq(skillFileUpstream.packageId, pkg.id));
-    // A kept tool or table joins the owner's own names: one already taken there gets the plugin's name after it.
-    for (const table of [toolsTable, tablesTable] as const) {
-      const kept = await tx.select({ id: table.id, name: table.name }).from(table).where(eq(table.pluginId, row.id));
-      const own = new Set((await tx.select({ name: table.name }).from(table).where(and(eq(table.ownerId, context.ownerId), sql`${table.pluginId} is null`))).map((t) => t.name.toLowerCase()));
-      for (const element of kept) {
-        // `<name> (<plugin>)`, then with 2, 3… after it, cut so the whole fits a name.
-        let name = element.name;
-        for (let n = 1; own.has(name.toLowerCase()); n++) {
-          const suffix = ` (${row.name})${n > 1 ? ` ${n}` : ""}`.slice(-60);
-          name = `${element.name.slice(0, 100 - suffix.length)}${suffix}`;
-        }
-        own.add(name.toLowerCase());
-        if (table === toolsTable) await tx.update(toolsTable).set({ name, pluginId: null, upstream: null, overridden: [] }).where(eq(toolsTable.id, element.id));
-        else {
-          await tx.update(tablesTable).set({ name, pluginId: null, pluginComponent: null, definition: null }).where(eq(tablesTable.id, element.id));
-          await tx.update(fieldsTable).set({ pluginField: null }).where(eq(fieldsTable.tableId, element.id));
-        }
-      }
+    for (const id of of("skill", false)) {
+      await tx.delete(agentSkills).where(eq(agentSkills.packageId, id));
+      await tx.delete(skillPackages).where(eq(skillPackages.id, id));
+    }
+    for (const id of of("skill", true)) {
+      await tx.update(skillPackages).set({ pluginId: null }).where(eq(skillPackages.id, id));
+      await tx.delete(skillFileUpstream).where(eq(skillFileUpstream.packageId, id));
+    }
+    const names = async (table: typeof toolsTable | typeof tablesTable) =>
+      new Set((await tx.select({ name: table.name }).from(table).where(and(eq(table.ownerId, context.ownerId), sql`${table.pluginId} is null`))).map((t) => t.name.toLowerCase()));
+    for (const id of of("tool", false)) {
+      await tx.delete(agentTools).where(eq(agentTools.toolId, id));
+      const required = await tx.select({ id: skillPackages.id, tools: skillPackages.requiredToolIds }).from(skillPackages).where(and(eq(skillPackages.ownerId, context.ownerId), sql`${skillPackages.requiredToolIds} @> ${JSON.stringify([id])}::jsonb`)).for("update");
+      for (const pkg of required) await tx.update(skillPackages).set({ requiredToolIds: pkg.tools.filter((toolId) => toolId !== id), updatedAt: sql`now()` }).where(eq(skillPackages.id, pkg.id));
+      await tx.delete(toolsTable).where(eq(toolsTable.id, id));
+    }
+    const toolNames = await names(toolsTable);
+    for (const id of of("tool", true)) {
+      const [tool] = await tx.select({ name: toolsTable.name }).from(toolsTable).where(eq(toolsTable.id, id));
+      await tx.update(toolsTable).set({ name: freeName(toolNames, tool!.name, row.name), pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(toolsTable.id, id));
+    }
+    for (const id of of("table", false)) {
+      // A reference field of a table that stays named its rows: it goes with them.
+      await tx.delete(fieldsTable).where(and(eq(fieldsTable.referencesTableId, id), sql`${fieldsTable.tableId} <> ${id}`));
+      await tx.delete(tablesTable).where(eq(tablesTable.id, id));
+    }
+    const tableNames = await names(tablesTable);
+    for (const id of of("table", true)) {
+      const [table] = await tx.select({ name: tablesTable.name }).from(tablesTable).where(eq(tablesTable.id, id));
+      await tx.update(tablesTable).set({ name: freeName(tableNames, table!.name, row.name), pluginId: null, pluginComponent: null, definition: null }).where(eq(tablesTable.id, id));
+      await tx.update(fieldsTable).set({ pluginField: null }).where(eq(fieldsTable.tableId, id));
     }
     await tx.delete(pluginsTable).where(eq(pluginsTable.id, row.id));
-    // Older callers keep the previous behavior; an explicit checklist preserves every unticked item.
-    if (!input.remove) for (const pkg of parts.skills) {
-      await tx.delete(skillPackages).where(and(eq(skillPackages.id, pkg.id), sql`not exists (select 1 from ${agentSkills} where ${agentSkills.packageId} = ${pkg.id})`));
-    }
     return out;
   });
   context.engine.settled(out);

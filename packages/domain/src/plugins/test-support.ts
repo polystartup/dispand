@@ -1,3 +1,5 @@
+import { call } from "@orpc/server";
+import { router } from "../rpc/router.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -91,4 +93,25 @@ export function lawFirmMarket(caseLawUrl?: string) {
       repo.remove();
     },
   };
+}
+
+/**
+ * Removes a plugin as its owner does from the sheet. `keep`: `"all"` keeps every element as the
+ * owner's own, `"used"` only those asked about with what they need, and `{ remove }` all but
+ * the elements of those ids.
+ */
+export async function removePlugin(context: object, id: string, keep: "all" | "used" | { remove: string[] } = "all"): Promise<void> {
+  const preview = await call(router.plugins.uninstallPreview, { id }, { context: context as never });
+  const kept = new Set<string>();
+  if (keep === "used") {
+    const walk = (key: string) => {
+      if (kept.has(key)) return;
+      kept.add(key);
+      for (const need of preview.elements.find((e) => e.key === key)!.needs) walk(need);
+    };
+    for (const e of preview.elements.filter((e) => e.reasons.length)) walk(e.key);
+  } else for (const e of preview.elements) if (keep === "all" || !keep.remove.includes(e.id)) kept.add(e.key);
+  // Every element gets a stated choice, as the sheet sends them.
+  const choices = Object.fromEntries(preview.elements.map((e) => [e.key, kept.has(e.key) ? ("keep" as const) : ("delete" as const)]));
+  await call(router.plugins.uninstall, { id, reviewed: preview.reviewed, choices }, { context: context as never });
 }

@@ -4,6 +4,7 @@ import { expect, onTestFinished, test } from "vitest";
 import { agents, agentTools, fields as fieldsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
+import { removePlugin } from "../plugins/test-support.ts";
 import { startFakeMcp } from "../tools/test-server.ts";
 import type { Bundle } from "./bundles.ts";
 import { callPlatformTool, toolsOf, type JobIdentity } from "./call.ts";
@@ -813,7 +814,7 @@ test("what an applied proposal creates is recorded in its generated plugin, whic
   expect(plugins[0]!.agents).toHaveLength(1);
   // Nothing to update it from; removing it removes the record, never what it lists.
   await expect(call(router.plugins.update, { id: plugin!.id }, { context })).rejects.toThrow(/generated/);
-  await call(router.plugins.uninstall, { id: plugin!.id }, { context });
+  await removePlugin(context, plugin!.id);
   expect(await call(router.plugins.list, undefined, { context })).toEqual([]);
   expect(await call(router.tables.get, { id: table! }, { context })).toMatchObject({ name: "Matters", fields: [{ name: "Name" }, { id: field }] });
   expect(await call(router.agents.get, { id: agent! }, { context })).toMatchObject({ name: "Clerk", tools: [{ toolId: tool }] });
@@ -836,7 +837,7 @@ test("a generated plugin lists only what was made: no plugin before anything is,
   await approveFor(s, "Direct", [{ tool: "tables_create", input: { name: "Leads" } }]);
   expect(await s.tool("tables_create", { name: "Leads" })).toMatchObject({ ok: true });
   expect((await call(router.plugins.list, undefined, { context })).find((p) => p.name === "Generated: Direct")!.tables.map((t) => t.name)).toEqual(["Leads"]);
-  await call(router.plugins.uninstall, { id: (await call(router.plugins.list, undefined, { context }))[0]!.id }, { context });
+  await removePlugin(context, (await call(router.plugins.list, undefined, { context }))[0]!.id);
   // Stopped after one item made: that one is recorded. Two proposals applied at once share one plugin.
   const stopped = await approveFor(s, "Acme", [
     { tool: "tables_create", input: { name: "Matters" } },
