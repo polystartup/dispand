@@ -82,7 +82,29 @@ export function planElement(kind: UpdatableKind, element: { id: string; name: st
 }
 
 type Plan = ReturnType<typeof planElement>;
-export type ElementPlan = { kind: UpdatableKind; id: string; name: string; plan: Plan; current: Record<string, unknown> };
+export type ElementPlan = { kind: UpdatableKind; id: string; name: string; plan: Plan; current: Record<string, unknown>; /** The plugin's values kept underneath before this update. */ previous: Upstream | null };
+
+/** An agent's values as `agents.update` takes them, read now. */
+export async function agentValues(db: Db | Tx, agent: typeof agents.$inferSelect) {
+  const [skillIds, toolIds, consults] = await Promise.all([
+    db.select({ id: agentSkills.packageId }).from(agentSkills).where(eq(agentSkills.agentId, agent.id)),
+    db.select({ id: agentTools.toolId }).from(agentTools).where(eq(agentTools.agentId, agent.id)),
+    db.select({ agentId: agentConsults.consultedId, ask: agentConsults.ask }).from(agentConsults).where(eq(agentConsults.agentId, agent.id)),
+  ]);
+  return {
+    name: agent.name,
+    description: agent.description,
+    harnessId: agent.harnessId,
+    systemPrompt: agent.systemPrompt,
+    ...(agent.model === null ? {} : { model: agent.model }),
+    bundles: agent.bundles,
+    dataTables: agent.dataTables,
+    selfLearning: agent.selfLearning,
+    skillPackageIds: skillIds.map((s) => s.id),
+    toolIds: toolIds.map((t) => t.id),
+    consults,
+  };
+}
 
 const lower = (s: string) => s.toLowerCase();
 
@@ -109,7 +131,7 @@ export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: s
     // A URL holding the owner's settings stays as they filled it.
     if (server?.type !== "http" || tool.url === null || tool.urlSealed !== null || hasPlaceholder(server.url) || !URL.canParse(server.url)) continue;
     const current = { name: tool.name, url: tool.url, transport: tool.transport };
-    plans.push({ kind: "tool", id: tool.id, name: tool.name, current, plan: planElement("tool", tool, tool, current, { url: server.url, transport: server.transport }, taken("tool", tool.id)) });
+    plans.push({ kind: "tool", id: tool.id, name: tool.name, current, previous: tool.upstream, plan: planElement("tool", tool, tool, current, { url: server.url, transport: server.transport }, taken("tool", tool.id)) });
   }
 
   // What a definition's names stand for, now.
@@ -122,24 +144,7 @@ export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: s
   const found = <T>(values: (T | undefined)[]) => values.filter((v): v is T => v !== undefined);
 
   for (const agent of agentRows) {
-    const [skillIds, toolIds, consults] = await Promise.all([
-      db.select({ id: agentSkills.packageId }).from(agentSkills).where(eq(agentSkills.agentId, agent.id)),
-      db.select({ id: agentTools.toolId }).from(agentTools).where(eq(agentTools.agentId, agent.id)),
-      db.select({ agentId: agentConsults.consultedId, ask: agentConsults.ask }).from(agentConsults).where(eq(agentConsults.agentId, agent.id)),
-    ]);
-    const current = {
-      name: agent.name,
-      description: agent.description,
-      harnessId: agent.harnessId,
-      systemPrompt: agent.systemPrompt,
-      ...(agent.model === null ? {} : { model: agent.model }),
-      bundles: agent.bundles,
-      dataTables: agent.dataTables,
-      selfLearning: agent.selfLearning,
-      skillPackageIds: skillIds.map((s) => s.id),
-      toolIds: toolIds.map((t) => t.id),
-      consults,
-    };
+    const current = await agentValues(db, agent);
     const imported = contents.agents.find((a) => a.name === agent.pluginComponent);
     const d = contents.definitions.agents.find((a) => agent.pluginComponent !== null && lower(a.name) === lower(agent.pluginComponent));
     const next: Upstream | null = d
@@ -160,7 +165,7 @@ export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: s
       : imported
         ? { systemPrompt: imported.systemPrompt }
         : null;
-    if (next) plans.push({ kind: "agent", id: agent.id, name: agent.name, current, plan: planElement("agent", agent, agent, current, next, taken("agent", agent.id)) });
+    if (next) plans.push({ kind: "agent", id: agent.id, name: agent.name, current, previous: agent.upstream, plan: planElement("agent", agent, agent, current, next, taken("agent", agent.id)) });
   }
 
   for (const trigger of triggerRows) {
@@ -184,7 +189,7 @@ export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: s
     const parsed = config === undefined ? undefined : TriggerConfig.safeParse(config);
     if (parsed?.success) next.config = parsed.data;
     const current = { name: trigger.name, instructions: trigger.instructions, concurrency: trigger.concurrency, rateCap: trigger.rateCap, config: trigger.config };
-    plans.push({ kind: "trigger", id: trigger.id, name: trigger.name, current, plan: planElement("trigger", trigger, trigger, current, next, taken("trigger", trigger.id)) });
+    plans.push({ kind: "trigger", id: trigger.id, name: trigger.name, current, previous: trigger.upstream, plan: planElement("trigger", trigger, trigger, current, next, taken("trigger", trigger.id)) });
   }
   return plans;
 }

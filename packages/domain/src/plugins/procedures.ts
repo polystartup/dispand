@@ -30,7 +30,7 @@ import { rebaseFiles, resetFile, store, storeUpstream, type Tx } from "../skills
 import { HeaderValue, insertTool, refreshActions } from "../tools/procedures.ts";
 import { hasPlaceholder, httpTool, skillPackageName, toolName } from "./components.ts";
 import { checkChoices, type Element, inUse } from "./closure.ts";
-import { type ChangeClass, elementPlans, type UpdatableKind } from "./update.ts";
+import { agentValues, type ChangeClass, elementPlans, type UpdatableKind } from "./update.ts";
 import { ELEMENT_FIELDS } from "./overrides.ts";
 import { agents as agentProcedures } from "../agents/procedures.ts";
 import { tools as toolProcedures } from "../tools/procedures.ts";
@@ -728,8 +728,10 @@ function shownFile(content: Uint8Array | undefined): string | null {
  * one they changed, added or removed that the plugin changed too is a conflict, which stays
  * theirs unless its key is in `take`.
  */
-async function skillPlan(db: Db | Tx, row: PluginRow, contents: PluginContents, take: string[]) {
-  const [pkg] = await db.select().from(skillPackages).where(eq(skillPackages.pluginId, row.id));
+async function skillPlan(db: Db | Tx, row: PluginRow, contents: PluginContents, take: string[], lock = false) {
+  const query = db.select().from(skillPackages).where(eq(skillPackages.pluginId, row.id));
+  // Applying: locked as a file's edit locks it, so one saved meanwhile is read here, not overwritten.
+  const [pkg] = lock ? await query.for("update") : await query;
   if (!pkg) return null;
   const current = await db.select({ name: skillsTable.name }).from(skillsTable).where(eq(skillsTable.packageId, pkg.id));
   const kept = current.map((s) => s.name).filter((name) => contents.skills.some((s) => s.name === name));
@@ -769,6 +771,8 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
  * that the plugin changed too (`conflicts`, which stay theirs unless taken), and what follows the
  * plugin (`changes`: `widening`, `wording` or `silent`).
  */
+const tableOf = (kind: UpdatableKind) => (kind === "agent" ? agentsTable : kind === "tool" ? toolsTable : triggersTable);
+
 const updatePreview = owner.input(Id).handler(async ({ input, context }) => {
   const row = await findPlugin(context.db, context.ownerId, input.id);
   const { sha, conflicts, changes, reviewed } = await updatePlan(context, row);
@@ -812,18 +816,15 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
   const elements = await elementPlans(context.db, context.ownerId, row, contents, input.take);
   await context.db.transaction(async (tx) => {
     await findPlugin(tx, context.ownerId, row.id, true);
-    const skill = await skillPlan(tx, row, contents, input.take);
+    const skill = await skillPlan(tx, row, contents, input.take, true);
     if (skill) {
       const { skills } = validated(skill.files);
       await tx.update(skillPackages).set({ updatedAt: sql`now()` }).where(eq(skillPackages.id, skill.packageId));
       await store(tx, skill.packageId, skill.files, skills);
       await storeUpstream(tx, skill.packageId, skill.next);
     }
-    // The plugin's new values go underneath first: each element's own update then reads what differs from them as its owner's.
-    for (const e of elements) {
-      const table = e.kind === "agent" ? agentsTable : e.kind === "tool" ? toolsTable : triggersTable;
-      await tx.update(table).set({ upstream: e.plan.upstream }).where(eq(table.id, e.id));
-    }
+    // An element with nothing to write (its owner's values stay) only gets the plugin's new values underneath.
+    for (const e of elements.filter((e) => Object.keys(e.plan.set).length === 0)) await tx.update(tableOf(e.kind)).set({ upstream: e.plan.upstream }).where(eq(tableOf(e.kind).id, e.id));
     await tx
       .update(pluginsTable)
       .set({ url, sha, nativeRoot: nativeRoot ?? null, layout: contents.layout, components: componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, updatedAt: sql`now()` })
@@ -834,11 +835,18 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
   for (const kind of ["tool", "agent", "trigger"] as const) {
     for (const e of elements.filter((e) => e.kind === kind && Object.keys(e.plan.set).length)) {
       const procedure = kind === "tool" ? toolProcedures.update : kind === "agent" ? agentProcedures.update : triggerProcedures.update;
-      const written = kind === "agent" ? { ...e.current, ...e.plan.set, id: e.id } : { ...e.plan.set, id: e.id };
+      const table = tableOf(kind);
+      // The plugin's new values go underneath first: the element's own update then reads what differs from them as its owner's.
+      await context.db.update(table).set({ upstream: e.plan.upstream }).where(eq(table.id, e.id));
       try {
+        // An agent is written whole: as it is now, not as it was when the plan was made, with the plugin's fields over it.
+        const [agent] = kind === "agent" ? await context.db.select().from(agentsTable).where(eq(agentsTable.id, e.id)) : [];
+        const written = agent ? { ...(await agentValues(context.db, agent)), ...e.plan.set, id: e.id } : { ...e.plan.set, id: e.id };
         await call(procedure as never, written as never, { context: context as never });
       } catch (err) {
         if (!(err instanceof ORPCError)) throw err;
+        // Refused: what was underneath stays, so the next update offers the change again.
+        await context.db.update(table).set({ upstream: e.previous }).where(eq(table.id, e.id));
         failed.push({ name: e.name, reason: err.message });
       }
     }

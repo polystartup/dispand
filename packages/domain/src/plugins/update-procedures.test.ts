@@ -129,3 +129,29 @@ test("an update applies only what was shown: a version published after the scree
     remove();
   }
 });
+
+test("a change an element's own checks refuse is reported and offered again by the next update", async () => {
+  const { ctx, pluginId, files, agent, preview, publish, remove } = await setUp();
+  try {
+    // The trigger would watch a table its agent may not work on.
+    publish({ [CHANGED]: edited(files[CHANGED]!, '"table": "Matters"', '"table": "Clients"') });
+    const shown = await preview();
+    expect(shown.changes).toMatchObject([{ kind: "trigger", name: "Matter changed", field: "config", class: "widening" }]);
+    const result = await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed }, { context: ctx });
+    expect(result.failed).toMatchObject([{ name: "Matter changed" }]);
+    const [matters] = await ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Matters"));
+    const [clients] = await ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Clients"));
+    const [trigger] = await ctx.db.select().from(schema.triggers).where(eq(schema.triggers.pluginComponent, "Matter changed"));
+    expect(trigger).toMatchObject({ config: { tableId: matters!.id }, overridden: [] });
+
+    // The owner lets the agent work on that table: the same change is shown again, and applies.
+    const upkeep = await agent("Matter upkeep");
+    await call(router.agents.update, { id: upkeep.id, name: upkeep.name, harnessId: upkeep.harnessId, systemPrompt: upkeep.systemPrompt, skillPackageIds: [], toolIds: [], dataTables: [matters!.id, clients!.id] }, { context: ctx });
+    const again = await preview();
+    expect(again.changes).toMatchObject([{ kind: "trigger", field: "config" }]);
+    expect((await call(router.plugins.update, { id: pluginId, reviewed: again.reviewed }, { context: ctx })).failed).toBeUndefined();
+    expect((await ctx.db.select().from(schema.triggers).where(eq(schema.triggers.id, trigger!.id)))[0]).toMatchObject({ config: { tableId: clients!.id }, overridden: [] });
+  } finally {
+    remove();
+  }
+});
