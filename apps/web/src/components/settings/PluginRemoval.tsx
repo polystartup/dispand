@@ -46,7 +46,7 @@ const LOSES = {
   agent: "Deleting it removes its triggers and stops its Jobs; their history stays.",
   skill: "Deleting it removes its files and takes it off the agents that use it.",
   tool: "Deleting it removes its saved headers and sign-in, and takes it off the agents and skills that use it.",
-  table: "Deleting it removes its rows and memory, and the fields of other tables that name its rows.",
+  table: "Deleting it removes its rows and its memory.",
 };
 
 function Choice({ element, why, choice, busy, onChange }: { element: RemovalElement; why: string[]; choice: RemovalChoice; busy: boolean; onChange: (key: string, choice: RemovalChoice) => void }) {

@@ -152,7 +152,15 @@ export async function inUse(db: Db | Tx, ownerId: string, pluginId: string): Pro
     for (const u of users) reasons.push(`The agent “${nameOf.get(u.agentId)}” uses it`);
     for (const s of otherSkills.filter((s) => s.requiredToolIds.includes(t.id))) reasons.push(`The skill “${s.name}” requires it`);
     for (const tr of staying.filter((tr) => pollTool(tr) === t.id)) reasons.push(`The trigger “${tr.name}” polls it`);
-    const [workflow] = await db.execute(sql`select 1 from workflow_versions v join workflows w on w.id = v.workflow_id where w.owner_id = ${ownerId} and v.def -> 'steps' @> ${JSON.stringify([{ type: "tool", toolId: t.id }])}::jsonb limit 1`).then((r) => (r as unknown as { rows: unknown[] }).rows);
+    // A Tool step of a workflow's current version, or of the version a run still going is on (as `toolHolder` reads it).
+    const [workflow] = await db
+      .execute(
+        sql`select 1 from workflow_versions v join workflows w on w.id = v.workflow_id
+            where w.owner_id = ${ownerId} and v.def -> 'steps' @> ${JSON.stringify([{ type: "tool", toolId: t.id }])}::jsonb
+              and (v.version = w.current_version or exists (select 1 from runs r where r.workflow_id = w.id and r.version = v.version and r.status in ('running', 'waiting')))
+            limit 1`,
+      )
+      .then((r) => (r as unknown as { rows: unknown[] }).rows);
     if (workflow) {
       keepOnly = "A workflow uses this tool";
       reasons.push(keepOnly);
@@ -171,15 +179,22 @@ export async function inUse(db: Db | Tx, ownerId: string, pluginId: string): Pro
     if (n!.n) reasons.push(`It has ${plural(n!.n, "row")}`);
     const [memory] = await db.select({ n: count() }).from(memories).where(eq(memories.tableId, t.id));
     if (memory!.n) reasons.push("It has memory entries");
-    const own = await db.select({ name: fields.name, type: fields.type, pluginField: fields.pluginField, position: fields.position }).from(fields).where(eq(fields.tableId, t.id));
+    if (t.pluginComponent !== null && t.name !== t.pluginComponent) reasons.push("You renamed it");
+    const own = await db.select({ name: fields.name, type: fields.type, choices: fields.choices, pluginField: fields.pluginField, position: fields.position }).from(fields).where(eq(fields.tableId, t.id));
     // Its structure against the definition it was made from: a field of the owner's, one of the plugin's gone or changed.
     const defined = t.definition?.fields.filter((f) => f.name.toLowerCase() !== "name") ?? [];
+    const labels = (choices: readonly (string | { label: string })[] | undefined) => (choices ?? []).map((c) => (typeof c === "string" ? c : c.label)).join("\n");
+    const sameChoices = (a: Parameters<typeof labels>[0], b: Parameters<typeof labels>[0]) => labels(a) === labels(b);
     const changed =
-      own.some((f) => f.position !== 0 && !defined.some((d) => d.name === f.pluginField && d.name === f.name && d.type === f.type)) ||
+      own.some((f) => (f.position === 0 ? f.name !== "Name" : !defined.some((d) => d.name === f.pluginField && d.name === f.name && d.type === f.type && sameChoices(f.choices, d.choices)))) ||
       own.filter((f) => f.pluginField !== null).length !== defined.length ||
       (t.definition !== null && t.definition.primitive !== t.primitive);
     if (changed) reasons.push("You changed its fields");
-    for (const r of referring.filter((r) => r.to === t.id && !ids.table.has(r.from))) reasons.push(`The field “${r.field}” of your table “${r.table}” names its rows`);
+    // As for any table: one whose rows a field of a table that stays names can't go before that field.
+    for (const r of referring.filter((r) => r.to === t.id && !ids.table.has(r.from))) {
+      reasons.push(`The field “${r.field}” of your table “${r.table}” names its rows`);
+      keepOnly = `The field “${r.field}” of your table “${r.table}” names its rows: delete that field first to delete this table`;
+    }
     for (const a of others.filter((a) => a.dataTables !== "all" && a.dataTables.includes(t.id))) reasons.push(`The agent “${a.name}” works on it`);
     for (const tr of staying.filter((tr) => watched(tr) === t.id)) reasons.push(`The trigger “${tr.name}” watches it`);
     if (widgetRows.some((w) => w.tableId === t.id)) reasons.push("A dashboard shows it");
@@ -208,6 +223,9 @@ export function checkChoices(elements: Element[], choices: Record<string, "keep"
   for (const e of elements.filter((e) => choices[e.key] === "keep")) {
     const missing = e.needs.find((n) => choices[n] === undefined);
     if (missing) return `Choose what becomes of ${byKey.get(missing)!.name}, which ${e.name} needs`;
+    // A table whose field names another table's rows can't outlive it.
+    const gone = e.kind === "table" ? e.needs.find((n) => choices[n] === "delete") : undefined;
+    if (gone) return `${e.name} names the rows of ${byKey.get(gone)!.name}: keep both, or delete both`;
   }
   return null;
 }

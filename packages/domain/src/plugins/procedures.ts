@@ -640,6 +640,8 @@ const uninstall = owner.input(Id.extend({ reviewed: z.string().length(64), choic
   if (context.job) throw new ORPCError("FORBIDDEN", { message: "Plugin removal requires an owner session" });
   const out = await context.db.transaction(async (tx) => {
     const row = await findPlugin(tx, context.ownerId, input.id, true);
+    // Its tables are locked as a row's write locks them: no row arrives between the count below and the deletion.
+    await tx.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.pluginId, row.id)).for("update");
     const elements = await inUse(tx, context.ownerId, row.id);
     if (removalReview(elements) !== input.reviewed) throw new ORPCError("CONFLICT", { message: `${row.name} changed since you looked: look at what would be removed again` });
     const problem = checkChoices(elements, input.choices);
@@ -673,10 +675,11 @@ const uninstall = owner.input(Id.extend({ reviewed: z.string().length(64), choic
       const [tool] = await tx.select({ name: toolsTable.name }).from(toolsTable).where(eq(toolsTable.id, id));
       await tx.update(toolsTable).set({ name: freeName(toolNames, tool!.name, row.name), pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(toolsTable.id, id));
     }
-    for (const id of of("table", false)) {
-      // A reference field of a table that stays named its rows: it goes with them.
-      await tx.delete(fieldsTable).where(and(eq(fieldsTable.referencesTableId, id), sql`${fieldsTable.tableId} <> ${id}`));
-      await tx.delete(tablesTable).where(eq(tablesTable.id, id));
+    // Every table to delete at once: they may name each other's rows, and no table that stays names theirs (`checkChoices`).
+    const gone = of("table", false);
+    if (gone.length) {
+      await tx.delete(fieldsTable).where(and(inArray(fieldsTable.tableId, gone), sql`${fieldsTable.referencesTableId} is not null`));
+      await tx.delete(tablesTable).where(inArray(tablesTable.id, gone));
     }
     const tableNames = await names(tablesTable);
     for (const id of of("table", true)) {

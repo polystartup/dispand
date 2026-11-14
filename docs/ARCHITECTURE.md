@@ -1295,7 +1295,8 @@
   element, its history, content, or a reference followed, and a test holds the schema to it.
   `plugins.uninstall` takes the preview's `reviewed` token and a choice per element (`keep` or
   `delete`), checks them as a whole (`checkChoices`: every element asked about has a choice,
-  one a workflow uses is kept, what a kept element needs has a stated choice) and applies them
+  one a workflow uses, or a table whose rows a table that stays names, is kept; what a kept
+  element needs has a stated choice; a kept table's referenced tables are kept with it) and applies them
   in the order agents, skills, tools, tables: a kept element becomes its owner's own (a tool or
   a table under a free name), any other goes, and what used it loses it. The removal sheet
   (`PluginRemoval.tsx`, `removalPlan`) starts everything asked about kept, lists what a kept

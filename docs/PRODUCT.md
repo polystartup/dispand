@@ -47,7 +47,8 @@ Status: Prototype
     with rows or memory, an agent with a Job going, or anything of yours that uses it. For each
     you choose "Keep as yours" (it becomes your own, with everything that points at it) or
     "Delete" (what used it loses it); what a kept element needs is listed with it and kept too
-    unless you say otherwise. An agent or a tool a workflow uses can only be kept. Deleting an
+    unless you say otherwise. An agent, a tool or a table a workflow uses can only be kept, and so can a table
+    whose rows a field of one of your tables names, until that field is deleted. Deleting an
     agent stops its active Jobs and keeps their history. Native installations start selected. A conversation started from a chat trigger stays open
     until it is stopped.
   - A run or a Job still going can be **stopped** from its page: its open steps fail with

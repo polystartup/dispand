@@ -97,6 +97,9 @@ test("each kind of change the owner made is a reason to ask", async () => {
     const clients = await named("Clients");
     await call(router.fields.create, { tableId: clients.id, name: "Phone", type: "text" }, { context: ctx });
     expect((await named("Clients")).reasons).toEqual(["You changed its fields"]);
+    // A rename of the table itself, or of its first field, is a change too.
+    await call(router.tables.rename, { id: clients.id, name: "Customers" }, { context: ctx });
+    expect((await named("Customers")).reasons).toEqual(["You renamed it", "You changed its fields"]);
     const research = await named("Research");
     await ctx.db.insert(schema.memories).values({ id: "mem_1", ownerId: ctx.ownerId, scope: "table", tableId: research.id, path: "notes.md", name: "Notes", description: "", type: "reference", body: "x", author: { kind: "user" }, revision: 1 } as never);
     expect((await named("Research")).reasons).toEqual(["It has memory entries"]);
@@ -170,4 +173,22 @@ test("choices are checked as a whole", () => {
   expect(checkChoices(elements, { "agent:a": "delete", "agent:w": "keep", "nope:x": "keep" })).toBe("Not an element of this plugin");
   expect(checkChoices(elements, { "agent:a": "delete", "agent:w": "keep" })).toBeNull();
   expect(checkChoices(elements, { "agent:a": "keep", "tool:t": "keep", "agent:w": "keep" })).toBeNull();
+});
+
+test("a table can't be deleted while a table that stays names its rows: the uninstall says which field, and removes nothing", async () => {
+  const { ctx, pluginId, named, uninstall, remove } = await setUp();
+  try {
+    const clients = await named("Clients");
+    const mine = await call(router.tables.create, { name: "Invoices" }, { context: ctx });
+    await call(router.fields.create, { tableId: mine.id, name: "Client", type: "reference", referencesTableId: clients.id }, { context: ctx });
+    expect(await named("Clients")).toMatchObject({ reasons: ["The field “Client” of your table “Invoices” names its rows"], keepOnly: "The field “Client” of your table “Invoices” names its rows: delete that field first to delete this table" });
+    // Matters names Clients' rows too: kept without Clients, it would name a table that is gone.
+    const matters = await named("Matters");
+    expect(matters.needs).toContain(clients.key);
+    await call(router.fields.delete, { id: (await call(router.tables.get, { id: mine.id }, { context: ctx })).fields.find((f) => f.name === "Client")!.id }, { context: ctx });
+    await expect(uninstall({ [matters.key]: "keep", [clients.key]: "delete" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Matters names the rows of Clients: keep both, or delete both" });
+    expect(await ctx.db.select({ id: schema.plugins.id }).from(schema.plugins).where(eq(schema.plugins.id, pluginId))).toHaveLength(1);
+  } finally {
+    remove();
+  }
 });
