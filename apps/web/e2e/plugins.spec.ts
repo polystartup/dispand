@@ -150,7 +150,8 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await shots(page, "slice-4-task-13-installed");
 
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Tools" }).click();
-  await expect(page.getByRole("button", { name: /^docs/ })).toContainText("from plugin writing-kit");
+  // A plugin's tool is listed under its plugin's name.
+  await expect(page.getByRole("button", { name: /^writing-kit\/docs/ })).toBeVisible();
 
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Skills" }).click();
   await expect(page.getByRole("button", { name: /^writing-kit/ })).toContainText("From plugin writing-kit");
