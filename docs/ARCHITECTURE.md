@@ -1299,6 +1299,12 @@
   values underneath, then writes each element through its own procedure (`tools.update`,
   `agents.update`, `triggers.update`), so their checks apply and a tool moved to another origin
   loses its headers; an element its procedure refuses is returned in `failed`.
+  What the new version has that the installed one didn't (`additionsOf`: definitions, HTTP
+  servers, and skills when the plugin has a package) is returned as `additions` and is part of
+  the token; `plugins.update` takes the ones the owner ticked in `add`, a setup's pick with
+  `skills`: a new skill's files join the package, and the rest is made by `setupItems` and
+  `runItemsAsOwner` once the plugin's definitions are the new ones, with its outcomes and what
+  waits in the result. An addition left unticked stays available from the plugin's row.
   `plugins.uninstallPreview` returns each of the plugin's elements (agents, skill packages,
   tools, tables) with why an uninstall asks about it and the other elements it needs
   (`plugins/closure.ts`, `inUse`): its owner changed it (an override, a trigger's override, a

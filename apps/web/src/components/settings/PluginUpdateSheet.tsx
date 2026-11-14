@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { api } from "../../lib/api.ts";
+import { useQuery } from "@tanstack/react-query";
+import { api, orpc } from "../../lib/api.ts";
 import { refusal } from "./PluginInstallSheet.tsx";
-import { UpdatePlan } from "./PluginUpdate.tsx";
+import { addOf, UpdatePlan } from "./PluginUpdate.tsx";
 
 export type UpdatePreview = Awaited<ReturnType<typeof api.plugins.updatePreview>>;
 
@@ -13,6 +14,10 @@ export type UpdatePreview = Awaited<ReturnType<typeof api.plugins.updatePreview>
  */
 export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { id: string; name: string; preview: UpdatePreview; onClose: () => void; onUpdated: (result: Awaited<ReturnType<typeof api.plugins.update>>) => void }) {
   const [take, setTake] = useState<string[]>([]);
+  // What this version adds starts ticked, each agent on a harness of the kind it is written for.
+  const harnesses = useQuery(orpc.harnesses.list.queryOptions());
+  const [picked, setPicked] = useState(() => new Set(preview.additions.map((a) => a.key)));
+  const [harnessOf, setHarnessOf] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,7 +25,8 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
     setBusy(true);
     setError(null);
     try {
-      onUpdated(await api.plugins.update({ id, reviewed: preview.reviewed, take }));
+      const add = addOf(preview.additions, picked, harnessOf, harnesses.data ?? []);
+      onUpdated(await api.plugins.update({ id, reviewed: preview.reviewed, take, ...(add ? { add } : {}) }));
       onClose();
     } catch (e) {
       setError(refusal(e, "Could not update the plugin. It may have changed since: close this and update again."));
@@ -44,6 +50,12 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
             take={take}
             busy={busy}
             onTake={(key, taken) => setTake((prev) => (taken ? [...prev.filter((k) => k !== key), key] : prev.filter((k) => k !== key)))}
+            additions={preview.additions}
+            picked={picked}
+            harnessOf={harnessOf}
+            harnesses={harnesses.data ?? []}
+            onPick={(key) => setPicked((prev) => new Set(prev.has(key) ? [...prev].filter((k) => k !== key) : [...prev, key]))}
+            onHarness={(agent, harnessId) => setHarnessOf((prev) => ({ ...prev, [agent]: harnessId }))}
           />
           {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
           <div className="flex gap-2">

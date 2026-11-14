@@ -15,21 +15,18 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   const queryClient = useQueryClient();
   const refresh = () =>
     Promise.all(
-      [orpc.plugins, orpc.skills, orpc.tools, orpc.agents].map((procedures) => queryClient.invalidateQueries({ queryKey: procedures.key() })),
+      [orpc.plugins, orpc.skills, orpc.tools, orpc.agents, orpc.tables, orpc.triggers].map((procedures) => queryClient.invalidateQueries({ queryKey: procedures.key() })),
     );
   const update = useMutation(orpc.plugins.update.mutationOptions({ onSuccess: refresh }));
   // An update that needs the owner's eyes: what it would change, shown before it is applied.
   const [reviewing, setReviewing] = useState<UpdatePreview | null>(null);
   const [looking, setLooking] = useState(false);
-  const updated = (result: { sha: string; failed?: { name: string; reason: string }[] }) => {
+  const updated = (result: { sha: string; failed?: { name: string; reason: string }[]; made?: { outcome: string; error?: string }[]; waiting?: { reason: string }[] }) => {
     void refresh();
-    setNote(
-      result.failed?.length
-        ? `Updated to ${result.sha.slice(0, 7)}, except ${result.failed.map((f) => `${f.name} (${f.reason})`).join("; ")}.`
-        : result.sha === p.sha
-          ? "Already up to date."
-          : `Updated to ${result.sha.slice(0, 7)}.`,
-    );
+    // What an element's own checks refused, and what of the additions wasn't made, is said, not hidden.
+    const notMade = [...(result.made ?? []).flatMap((o) => (o.outcome === "refused" ? [o.error ?? "refused"] : [])), ...(result.waiting ?? []).map((w) => w.reason)];
+    const except = [...(result.failed ?? []).map((f) => `${f.name} (${f.reason})`), ...notMade];
+    setNote(except.length ? `Updated to ${result.sha.slice(0, 7)}, except ${except.join("; ")}.` : result.sha === p.sha ? "Already up to date." : `Updated to ${result.sha.slice(0, 7)}.`);
   };
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -2,7 +2,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
-import { needsReview, UpdatePlan, type UpdateChange, type UpdateConflict } from "./PluginUpdate.tsx";
+import { addOf, needsReview, UpdatePlan, type UpdateAddition, type UpdateChange, type UpdateConflict } from "./PluginUpdate.tsx";
 
 afterEach(cleanup);
 
@@ -49,4 +49,36 @@ test("what an agent gains and where a tool's calls go are listed by name; wordin
   expect(wording.closest("details")!.textContent).toContain("Read each email.");
   expect(wording.closest("details")!.textContent).toContain("legal-research/SKILL.md");
   expect(screen.getByText("1 other change follows the plugin.")).toBeTruthy();
+});
+
+const additions: UpdateAddition[] = [
+  { key: "primitive:Invoices", kind: "primitive", name: "Invoices", detail: "A table with 1 field" },
+  { key: "agent:Billing", kind: "agent", name: "Billing", detail: "Prepares invoices.", harness: "cloud" },
+  { key: "trigger:Invoice due", kind: "trigger", name: "Invoice due", detail: "Starts Jobs of Billing" },
+  { key: "skill:billing", kind: "skill", name: "billing", detail: "Bills." },
+];
+const harnesses = [{ id: "h_cli", name: "Codex", type: "cli" }, { id: "h_cloud", name: "Claude API", type: "cloud" }];
+
+test("what a version adds is what the update is sent with: ticked, by kind, each agent on its harness", () => {
+  expect(needsReview({ conflicts: [], changes: [], additions })).toBe(true);
+  const all = new Set(additions.map((a) => a.key));
+  // An agent takes the harness picked, else the first of the kind it is written for.
+  expect(addOf(additions, all, {}, harnesses)).toEqual({ primitives: ["Invoices"], agents: [{ name: "Billing", harnessId: "h_cloud" }], triggers: ["Invoice due"], skills: ["billing"] });
+  expect(addOf(additions, all, { Billing: "h_cli" }, harnesses)?.agents).toEqual([{ name: "Billing", harnessId: "h_cli" }]);
+  expect(addOf(additions, new Set(["trigger:Invoice due"]), {}, harnesses)).toEqual({ triggers: ["Invoice due"] });
+  expect(addOf(additions, new Set(), {}, harnesses)).toBeUndefined();
+  // No harness to run it on: the agent can't be added.
+  expect(addOf(additions, all, {}, [])?.agents).toBeUndefined();
+});
+
+test("each addition is a box to tick, and a ticked agent asks for its harness", async () => {
+  const pick = vi.fn();
+  render(<UpdatePlan conflicts={[]} changes={[]} names={{}} take={[]} busy={false} onTake={() => {}} additions={additions} picked={new Set(["agent:Billing"])} harnessOf={{}} harnesses={harnesses} onPick={pick} onHarness={() => {}} />);
+  const added = screen.getByRole("group", { name: "New in this version" });
+  expect((within(added).getByRole("checkbox", { name: /^Billing/ }) as HTMLInputElement).checked).toBe(true);
+  expect((within(added).getByRole("checkbox", { name: /Invoices/ }) as HTMLInputElement).checked).toBe(false);
+  expect(within(added).getByRole("combobox", { name: "Harness of Billing" }).textContent).toContain("Claude API");
+  expect(added.textContent).toContain("Prepares invoices.");
+  await userEvent.click(within(added).getByRole("checkbox", { name: /Invoices/ }));
+  expect(pick).toHaveBeenCalledWith("primitive:Invoices");
 });

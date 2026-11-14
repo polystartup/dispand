@@ -1,10 +1,35 @@
 type At = { key: string; kind: "agent" | "tool" | "trigger" | "skill"; id: string; name: string; field: string };
 export type UpdateChange = At & { class: "widening" | "wording" | "silent"; before: unknown; after: unknown };
 export type UpdateConflict = At & { old: unknown; mine: unknown; next: unknown };
+export type UpdateAddition = { key: string; kind: "primitive" | "agent" | "trigger" | "server" | "skill"; name: string; detail: string; harness?: "cli" | "cloud" };
+type Harness = { id: string; name: string; type: string };
 type Names = Record<string, string>;
 
 /** Whether an update stops on its screen: a field of the owner's the plugin changed, a change that gives more, or a change of wording. */
-export const needsReview = (plan: { conflicts: UpdateConflict[]; changes: UpdateChange[] }) => plan.conflicts.length > 0 || plan.changes.some((c) => c.class !== "silent");
+export const needsReview = (plan: { conflicts: UpdateConflict[]; changes: UpdateChange[]; additions?: UpdateAddition[] }) =>
+  plan.conflicts.length > 0 || plan.changes.some((c) => c.class !== "silent") || (plan.additions?.length ?? 0) > 0;
+
+/** The harness an added agent runs on: the one picked, else the first of the kind it is written for, else the first. */
+const harnessFor = (a: UpdateAddition, picked: Record<string, string>, harnesses: Harness[]) => picked[a.name] ?? (harnesses.find((h) => h.type === a.harness) ?? harnesses[0])?.id;
+
+/** What the update is sent with for the additions ticked, by kind; undefined when none is. An agent with no harness to run on is left out. */
+export function addOf(additions: UpdateAddition[], picked: Set<string>, harnessOf: Record<string, string>, harnesses: Harness[]) {
+  const of = (kind: UpdateAddition["kind"]) => additions.filter((a) => a.kind === kind && picked.has(a.key));
+  const agents = of("agent").flatMap((a) => {
+    const harnessId = harnessFor(a, harnessOf, harnesses);
+    return harnessId ? [{ name: a.name, harnessId }] : [];
+  });
+  const add = {
+    ...(of("primitive").length ? { primitives: of("primitive").map((a) => a.name) } : {}),
+    ...(agents.length ? { agents } : {}),
+    ...(of("trigger").length ? { triggers: of("trigger").map((a) => a.name) } : {}),
+    ...(of("server").length ? { servers: of("server").map((a) => ({ name: a.name })) } : {}),
+    ...(of("skill").length ? { skills: of("skill").map((a) => a.name) } : {}),
+  };
+  return Object.keys(add).length ? add : undefined;
+}
+
+const ADDED = { primitive: "Table", agent: "Agent", trigger: "Trigger", server: "Tool", skill: "Skill" };
 
 const LABELS: Record<string, string> = {
   name: "Name",
@@ -52,7 +77,34 @@ function Text({ title, value, names }: { title: string; value: unknown; names: N
  * changes that give an agent more or move a tool's calls; the changes of wording, on one line
  * that opens; and how many others simply follow. Every value is shown as plain text.
  */
-export function UpdatePlan({ conflicts, changes, names, take, busy, onTake }: { conflicts: UpdateConflict[]; changes: UpdateChange[]; names: Names; take: string[]; busy: boolean; onTake: (key: string, taken: boolean) => void }) {
+export function UpdatePlan({
+  conflicts,
+  changes,
+  names,
+  take,
+  busy,
+  onTake,
+  additions = [],
+  picked = new Set(),
+  harnessOf = {},
+  harnesses = [],
+  onPick = () => {},
+  onHarness = () => {},
+}: {
+  conflicts: UpdateConflict[];
+  changes: UpdateChange[];
+  names: Names;
+  take: string[];
+  busy: boolean;
+  onTake: (key: string, taken: boolean) => void;
+  /** What this version adds, the ones ticked, and the harness picked for each added agent. */
+  additions?: UpdateAddition[];
+  picked?: Set<string>;
+  harnessOf?: Record<string, string>;
+  harnesses?: Harness[];
+  onPick?: (key: string) => void;
+  onHarness?: (agent: string, harnessId: string) => void;
+}) {
   const of = (kind: UpdateChange["class"]) => changes.filter((c) => c.class === kind);
   const [widening, wording, silent] = [of("widening"), of("wording"), of("silent")];
   return (
@@ -95,6 +147,34 @@ export function UpdatePlan({ conflicts, changes, names, take, busy, onTake }: { 
             ))}
           </ul>
         </section>
+      )}
+      {additions.length > 0 && (
+        <fieldset aria-label="New in this version" className="space-y-2">
+          <p className="font-medium text-muted">New in this version</p>
+          <p className="text-muted">Ticked, it is made as the plugin's; unticked, it stays available from the plugin's row. A new skill reaches every agent that uses the plugin's skills.</p>
+          {additions.map((a) => (
+            <div key={a.key} className="space-y-1">
+              <label className="flex items-start gap-2">
+                <input type="checkbox" className="mt-0.5 size-4 accent-[var(--color-accent)]" checked={picked.has(a.key)} disabled={busy} onChange={() => onPick(a.key)} />
+                <span>
+                  <span className="font-medium text-fg">{a.name}</span> <span className="text-faint">· {ADDED[a.kind]}</span>
+                  {a.detail && <span className="block text-muted">{a.detail}</span>}
+                </span>
+              </label>
+              {a.kind === "agent" && picked.has(a.key) && (harnesses.length ? (
+                <select aria-label={`Harness of ${a.name}`} className="ml-6 rounded-lg border border-border bg-surface px-2 py-1" value={harnessFor(a, harnessOf, harnesses) ?? ""} disabled={busy} onChange={(e) => onHarness(a.name, e.target.value)}>
+                  {harnesses.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="ml-6 text-faint">Add a harness first: an agent needs one to run on.</p>
+              ))}
+            </div>
+          ))}
+        </fieldset>
       )}
       {wording.length > 0 && (
         <details>
