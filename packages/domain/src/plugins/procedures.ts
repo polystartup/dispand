@@ -892,7 +892,8 @@ async function leavingOf(db: Db | Tx, ownerId: string, row: PluginRow, contents:
   return leaving;
 }
 
-type TablePlan = { tableId: string; name: string; changes: TableChange[]; kept: PrimitiveDefinition; next: PrimitiveDefinition; fields: ActualTable["fields"] };
+/** `values`: for each change that takes values away, a digest of that field's values in every row now, which the screen's token covers. */
+type TablePlan = { tableId: string; name: string; changes: TableChange[]; kept: PrimitiveDefinition; next: PrimitiveDefinition; fields: ActualTable["fields"]; values: Record<string, string> };
 
 /**
  * For each of the plugin's tables the new version still defines: what differs between the
@@ -912,7 +913,15 @@ async function tablePlans(db: Db | Tx, ownerId: string, row: PluginRow, contents
     const parentField = fields.find((f) => f.id === t.parentFieldId)?.name ?? null;
     const [counted] = await db.select({ n: sql<number>`count(*)::int` }).from(rowsTable).where(eq(rowsTable.tableId, t.id));
     const changes = tableChanges(t.definition, next, { primitive: t.primitive, parentField, parentRequired: t.parentRequired, fields }, counted?.n ?? 0, tableExists);
-    if (changes.length) plans.push({ tableId: t.id, name: t.name, changes, kept: t.definition, next, fields });
+    // What a change that takes values away would take, as it is now: a value written after the screen was read changes the token, and the update is shown again.
+    const losing = changes.filter((c) => c.loses !== undefined && c.field);
+    const rows = losing.length ? await db.select({ id: rowsTable.id, values: rowsTable.values }).from(rowsTable).where(eq(rowsTable.tableId, t.id)).orderBy(asc(rowsTable.id)) : [];
+    const values: Record<string, string> = {};
+    for (const c of losing) {
+      const field = fields.find((f) => lower(f.pluginField) === lower(c.field!));
+      if (field) values[c.key] = createHash("sha256").update(canonical(rows.map((r) => [r.id, r.values[field.id] ?? null]))).digest("hex");
+    }
+    if (changes.length) plans.push({ tableId: t.id, name: t.name, changes, kept: t.definition, next, fields, values });
   }
   return plans;
 }
@@ -946,7 +955,7 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
   const shownTables = tables.map(({ tableId, name, changes }) => ({ tableId, name, changes }));
   // The screen cuts a long file: the token also covers every skill file in full, those the update writes and those an agent gains.
   const fullFiles = [skill?.files ?? [], ...reached].map((files) => files.map((f) => [f.path, createHash("sha256").update(f.content).digest("hex")]));
-  const reviewed = createHash("sha256").update(canonical({ sha: read.sha, conflicts, changes, additions, removals, tables: shownTables, fullFiles })).digest("hex");
+  const reviewed = createHash("sha256").update(canonical({ sha: read.sha, conflicts, changes, additions, removals, tables: shownTables, fullFiles, tableValues: tables.map((t) => t.values) })).digest("hex");
   // The plugin's own words for the version it goes to, when its changelog names it; the two commits either way.
   const { version } = read.contents;
   const releaseNotes = { from: row.sha, to: read.sha, version, text: version && read.changelog ? changelogSection(read.changelog, version) : null };
