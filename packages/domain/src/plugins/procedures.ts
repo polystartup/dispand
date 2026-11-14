@@ -17,6 +17,8 @@ import {
   plugins as pluginsTable,
   skillPackages,
   skills as skillsTable,
+  skillFiles,
+  skillFileUpstream,
   tables as tablesTable,
   tools as toolsTable,
   triggers as triggersTable,
@@ -29,7 +31,7 @@ import { pluginNativeKey } from "../skills/native.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { MAX_DESCRIPTION, PackageError, SKILL_NAME, validatePackage } from "../skills/package.ts";
-import { store, type Tx } from "../skills/procedures.ts";
+import { rebaseFiles, resetFile, store, storeUpstream, type Tx } from "../skills/procedures.ts";
 import { HeaderValue, insertTool, refreshActions, retarget } from "../tools/procedures.ts";
 import { hasPlaceholder, httpTool, skillPackageName, toolName } from "./components.ts";
 import { ELEMENT_FIELDS, rebase } from "./overrides.ts";
@@ -278,6 +280,15 @@ const preview = owner.input(EntryRef).handler(async ({ input, context }) => {
   return { ...componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, reviewed: reviewToken(sha, contents), nativeAvailable: nativeRoot !== undefined && market.kind !== "skill-repo" };
 });
 
+/** The package these files make, or BAD_REQUEST with the reason (an owner's file may not fit the plugin's new ones). */
+function validated(files: Parameters<typeof validatePackage>[0]) {
+  try {
+    return validatePackage(files);
+  } catch (e) {
+    return asBadRequest(e);
+  }
+}
+
 /** The chosen skills' files, checked as one package (its caps); BAD_REQUEST for a name the plugin doesn't have. */
 function chosenSkills(contents: PluginContents, names: string[]) {
   const chosen = names.map((name) => {
@@ -391,6 +402,7 @@ const install = owner
         if (chosen && packageId) {
           await tx.insert(skillPackages).values({ id: packageId, ownerId: context.ownerId, name: await skillPackageName(tx, context.ownerId, name), description, pluginId });
           await store(tx, packageId, chosen.files, chosen.skills);
+          await storeUpstream(tx, packageId, chosen.files);
         }
         const tools = [];
         for (const server of servers) {
@@ -654,6 +666,8 @@ const uninstall = owner.input(Id.extend({ remove: z.object({ skills: RemovalIds,
     }
     // What stays is its owner's own from now on: nothing of it is an override any more.
     await tx.update(agentsTable).set({ upstream: null, overridden: [] }).where(eq(agentsTable.pluginId, row.id));
+    // A kept skill package has no plugin's files to differ from any more.
+    for (const pkg of parts.skills) await tx.delete(skillFileUpstream).where(eq(skillFileUpstream.packageId, pkg.id));
     // A kept tool joins the owner's own names: one already taken there gets the plugin's name after it.
     const kept = await tx.select({ id: toolsTable.id, name: toolsTable.name }).from(toolsTable).where(eq(toolsTable.pluginId, row.id));
     const own = new Set(
@@ -693,9 +707,15 @@ const update = owner.input(Id).handler(async ({ input, context }) => {
       const current = await tx.select({ name: skillsTable.name }).from(skillsTable).where(eq(skillsTable.packageId, pkg.id));
       const kept = current.map((s) => s.name).filter((name) => contents.skills.some((s) => s.name === name));
       if (kept.length === 0) throw new ORPCError("BAD_REQUEST", { message: `None of ${row.name}'s imported skills is left upstream: remove the plugin instead` });
-      const { files, skills } = chosenSkills(contents, kept);
+      const next = chosenSkills(contents, kept).files;
+      // A file the owner left alone follows the plugin; one they changed, added or removed stays theirs.
+      const mine = await tx.select({ path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(eq(skillFiles.packageId, pkg.id));
+      const old = await tx.select({ path: skillFileUpstream.path, content: skillFileUpstream.content }).from(skillFileUpstream).where(eq(skillFileUpstream.packageId, pkg.id));
+      const files = rebaseFiles(mine, old, next);
+      const { skills } = validated(files);
       await tx.update(skillPackages).set({ updatedAt: sql`now()` }).where(eq(skillPackages.id, pkg.id));
       await store(tx, pkg.id, files, skills);
+      await storeUpstream(tx, pkg.id, next);
     }
     // Imported tools follow their server's URL within its origin: the saved headers never go to a
     // host the owner didn't pick. A URL holding settings stays as the owner filled it. Headers,
@@ -754,8 +774,15 @@ const setUp = owner.input(SetupInput.extend({ reviewed: z.string().length(64) })
  * Puts a field of a plugin's agent or tool back to the plugin's value, through the element's own
  * update, so every check of an ordinary change applies (a tool sent back to another origin loses its headers).
  */
-const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool"]), id: z.string().max(64), field: z.string().max(64) })).handler(async ({ input, context }) => {
+const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool", "skill"]), id: z.string().max(64), field: z.string().max(600) })).handler(async ({ input, context }) => {
   const { kind, id, field } = input;
+  if (kind === "skill") {
+    // A skill's fields are its files: `file:<path>`.
+    if (!field.startsWith("file:")) throw new ORPCError("BAD_REQUEST", { message: "Not a field a plugin sets" });
+    await context.db.transaction((tx) => resetFile(tx, context.ownerId, id, field.slice("file:".length)));
+    await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+    return { overridden: [] };
+  }
   if (!(ELEMENT_FIELDS[kind].overridable as readonly string[]).includes(field)) throw new ORPCError("BAD_REQUEST", { message: "Not a field a plugin sets" });
   const table = kind === "agent" ? agentsTable : toolsTable;
   const [row] = await context.db

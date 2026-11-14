@@ -1117,6 +1117,23 @@ export const skillFiles = pgTable(
 );
 
 /**
+ * A plugin's skill files as the plugin has them (`plugins/`), beside `skill_files`, which holds the
+ * files in effect: a path whose content differs is its owner's change, one only there is a file
+ * they added, one only here a file they removed. Empty for a package that is its owner's own.
+ */
+export const skillFileUpstream = pgTable(
+  "skill_file_upstream",
+  {
+    packageId: text("package_id")
+      .notNull()
+      .references(() => skillPackages.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    content: bytea("content").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.packageId, t.path] })],
+);
+
+/**
  * The skill packages and tools chosen for an agent. `agent_tools` holds the explicit tools only:
  * the ones its packages require come with them (`agents/tools.ts`). A package or tool an agent
  * uses can't be deleted (no cascade): its procedure says which agent holds it.
