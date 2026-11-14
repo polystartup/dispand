@@ -936,15 +936,22 @@ async function applyTable(context: InitialContext & { ownerId: string }, row: Pl
     const primitive = isTicked("primitive") ? plan.next.primitive : table!.primitive;
     const wanted = isTicked("parent") ? plan.next.parent : undefined;
     const wantedField = wanted ? await context.db.select({ id: fieldsTable.id, referencesTableId: fieldsTable.referencesTableId }).from(fieldsTable).where(and(eq(fieldsTable.tableId, plan.tableId), sql`lower(${fieldsTable.pluginField}) = ${lower(wanted.field)}`)).then((r) => r[0]) : undefined;
+    // The plugin's parent field isn't there (its addition declined or refused): the parent stays as it is, offered again.
+    const parentTicked = isTicked("parent") && !(wanted && !wantedField?.referencesTableId);
+    if (isTicked("parent") && !parentTicked) {
+      // Both stay offered: the parent can apply once its field is added.
+      refused.add("parent").add(`add:${wanted!.field}`);
+      failed.push({ name: plan.name, reason: `Its parent field ${wanted!.field} isn't there: tick its addition too` });
+    }
     const current = table!.parentFieldId ? await context.db.select({ referencesTableId: fieldsTable.referencesTableId }).from(fieldsTable).where(eq(fieldsTable.id, table!.parentFieldId)).then((r) => r[0]) : undefined;
-    const parent = isTicked("parent")
+    const parent = parentTicked
       ? wanted && wantedField?.referencesTableId ? { tableId: wantedField.referencesTableId, required: wanted.required } : null
       : current?.referencesTableId ? { tableId: current.referencesTableId, required: table!.parentRequired } : null;
-    const key = isTicked("parent") ? "parent" : "primitive";
-    if (await run(key, ["tables", "setPrimitive"], tables.setPrimitive, { id: plan.tableId, primitive, ...(primitive ? { parent } : {}) })) {
+    const key = parentTicked ? "parent" : "primitive";
+    if ((parentTicked || isTicked("primitive")) && (await run(key, ["tables", "setPrimitive"], tables.setPrimitive, { id: plan.tableId, primitive, ...(primitive ? { parent } : {}) }))) {
       // The table keeps a parent field that already names that table: when that isn't the one the plugin names, say so.
       const [after] = await context.db.select({ parentFieldId: tablesTable.parentFieldId }).from(tablesTable).where(eq(tablesTable.id, plan.tableId));
-      if (wantedField && after?.parentFieldId !== wantedField.id) {
+      if (parentTicked && wantedField && after?.parentFieldId !== wantedField.id) {
         refused.add("parent");
         failed.push({ name: plan.name, reason: `Its parent is another field naming the same table: make ${wanted!.field} the parent by hand` });
       }
@@ -962,7 +969,7 @@ async function applyTable(context: InitialContext & { ownerId: string }, row: Pl
   }
   const definition: PrimitiveDefinition = {
     ...plan.next,
-    fields: again.some((c) => c.kind === "move") ? [...plan.kept.fields.filter((f) => fieldsAfter.some((a) => lower(a.name) === lower(f.name))), ...fieldsAfter.filter((a) => !keptField(a.name))] : fieldsAfter,
+    fields: again.some((c) => c.kind === "move") ? [...plan.kept.fields.flatMap((k) => fieldsAfter.filter((a) => lower(a.name) === lower(k.name))), ...fieldsAfter.filter((a) => !keptField(a.name))] : fieldsAfter,
     ...(again.some((c) => c.kind === "primitive") ? { primitive: plan.kept.primitive } : {}),
     ...(again.some((c) => c.kind === "parent") ? { parent: plan.kept.parent } : {}),
   };

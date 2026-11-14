@@ -309,6 +309,28 @@ test("a table's changes are listed with their ticks, only the ticked ones apply,
   }
 });
 
+test("a parent naming a field the owner didn't add is refused and offered again: the table keeps its parent", async () => {
+  const { ctx, pluginId, files, preview, publish, remove } = await setUp();
+  try {
+    const [matters] = await ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Matters"));
+    const definition = JSON.parse(files[MATTERS]!) as { fields: { name: string; type: string; references?: string }[]; parent: { field: string; required: boolean } };
+    const before = definition.parent.field;
+    const referencing = definition.fields.find((f) => f.name === before)!;
+    definition.fields.push({ ...referencing, name: "Client" });
+    definition.parent = { ...definition.parent, field: "Client" };
+    publish({ [MATTERS]: JSON.stringify(definition) });
+    const shown = await preview();
+    const result = await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, tables: { [matters!.id]: ["parent"] } }, { context: ctx });
+    expect(result.failed).toMatchObject([{ name: "Matters" }]);
+    const [table] = await ctx.db.select().from(schema.tables).where(eq(schema.tables.id, matters!.id));
+    const [parentField] = await ctx.db.select().from(schema.fields).where(eq(schema.fields.id, table!.parentFieldId!));
+    expect(parentField!.pluginField).toBe(before);
+    expect((await preview()).tables[0]!.changes.map((c) => c.key)).toEqual(["add:Client", "parent"]);
+  } finally {
+    remove();
+  }
+});
+
 test("a table change that fails is reported and offered again; a field an update adds is recorded like a setup's", async () => {
   const { ctx, pluginId, files, preview, publish, remove } = await setUp();
   try {
