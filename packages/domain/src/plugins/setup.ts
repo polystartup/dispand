@@ -1,5 +1,5 @@
 import { call, ORPCError } from "@orpc/server";
-import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents as agentsTable, fields as fieldsTable, plugins, skillPackages, skills as skillsTable, tables as tablesTable, tools as toolsTable, type ProposalItem } from "../db/schema.ts";
@@ -9,7 +9,11 @@ import { logError } from "../log.ts";
 import { CREATES, parseWithRefs, recordCreated, resolveRefs, snapshotToolPermissions } from "../platform/proposals.ts";
 import type { InitialContext } from "../rpc/context.ts";
 import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
+import { catalogEntry } from "../tools/catalog.ts";
+import { tools } from "../tools/procedures.ts";
 import type { AgentDefinition, PrimitiveDefinition } from "./definitions.ts";
+import type { PluginComponents } from "./read-plugin.ts";
+import { addServer } from "./servers.ts";
 
 // Setting a workspace up from a plugin's definitions: `setupItems` turns the definitions picked
 // into the items a proposal lists (`{ "$item": n }` where an id goes), and `runItemsAsOwner` makes
@@ -19,7 +23,7 @@ import type { AgentDefinition, PrimitiveDefinition } from "./definitions.ts";
 
 const Name = z.string().trim().min(1).max(100);
 
-/** What the owner picks to set up: definitions by name, each agent with the harness it runs on (triggers and servers come later). */
+/** What the owner picks to set up: definitions by name, each agent with the harness it runs on, and servers to add as tools (triggers come later). */
 export const SetupPick = z.object({
   primitives: z.array(Name).max(100).optional(),
   agents: z
@@ -43,6 +47,8 @@ const PROCEDURES = {
   fields_create: { procedure: fields.create, path: ["fields", "create"] },
   tables_set_primitive: { procedure: tables.setPrimitive, path: ["tables", "setPrimitive"] },
   agents_create: { procedure: agents.create, path: ["agents", "create"] },
+  plugins_add_server: { procedure: addServer, path: ["plugins", "addServer"] },
+  tools_add_from_catalog: { procedure: tools.addFromCatalog, path: ["tools", "addFromCatalog"] },
 } as const;
 type SetupTool = keyof typeof PROCEDURES;
 
@@ -60,7 +66,7 @@ type Ref = string | { $item: number };
  */
 export async function setupItems(db: Db, ownerId: string, pluginId: string, pick: SetupPick): Promise<{ items: ProposalItem[]; waiting: Waiting[] } | { error: string }> {
   const [plugin] = await db
-    .select({ definitions: plugins.definitions, created: plugins.created })
+    .select({ definitions: plugins.definitions, created: plugins.created, components: plugins.components })
     .from(plugins)
     .where(and(eq(plugins.id, pluginId), eq(plugins.ownerId, ownerId)));
   if (!plugin) return { error: "Plugin not found" };
@@ -68,7 +74,6 @@ export async function setupItems(db: Db, ownerId: string, pluginId: string, pick
   const from = plugin.created.from ?? {};
   const waiting: Waiting[] = [];
   for (const t of pick.triggers ?? []) waiting.push({ definition: `trigger:${t}`, reason: "Triggers aren't set up from a plugin yet" });
-  for (const s of pick.servers ?? []) waiting.push({ definition: `server:${s.name}`, reason: "Servers aren't added from a plugin yet" });
 
   const picked: PrimitiveDefinition[] = [];
   for (const name of pick.primitives ?? []) {
@@ -114,7 +119,8 @@ export async function setupItems(db: Db, ownerId: string, pluginId: string, pick
     ? await db
         .select({ id: tablesTable.id, name: tablesTable.name })
         .from(tablesTable)
-        .where(and(eq(tablesTable.ownerId, ownerId), inArray(sql`lower(${tablesTable.name})`, outside)))
+        // The owner's own tables: another plugin's table of that name isn't the workspace's.
+        .where(and(eq(tablesTable.ownerId, ownerId), isNull(tablesTable.pluginId), inArray(sql`lower(${tablesTable.name})`, outside)))
     : [];
 
   for (const p of picked) {
@@ -162,7 +168,7 @@ export async function setupItems(db: Db, ownerId: string, pluginId: string, pick
     items.push({ tool: "tables_set_primitive", input: { id: tableOf.get(p.name.toLowerCase())!, primitive: p.primitive, ...(parent ? { parent } : {}) } });
   }
 
-  const agentItems = await agentSetup(db, ownerId, pluginId, plugin.definitions.agents, from, pick.agents ?? [], tableOf, items.length);
+  const agentItems = await agentSetup(db, ownerId, pluginId, plugin.definitions.agents, plugin.components.mcpServers, from, pick, tableOf, items.length);
   if ("error" in agentItems) return agentItems;
   items.push(...agentItems.items);
   waiting.push(...agentItems.waiting);
@@ -185,26 +191,30 @@ export async function setupItems(db: Db, ownerId: string, pluginId: string, pick
  * made before or by this setup, else the workspace's of that name), the plugin's skill package when
  * it lists a skill installed in it, the tools already added for what it names, and the agents it
  * consults among those this plugin made or this setup makes. An agent made before is reused by its
- * recorded id. What it names that isn't there yet is listed in `waiting`: a missing table holds the
- * agent back (its tables are what it works on), a missing skill, tool or consult doesn't.
+ * recorded id. Each server of the plugin and catalog entry a new agent names, or the owner picked,
+ * that isn't a tool yet is added by an item placed before the agents. What it names that isn't
+ * there yet is listed in `waiting`: a missing table holds the agent back (its tables are what it
+ * works on), a missing skill, tool or consult doesn't.
  */
 async function agentSetup(
   db: Db,
   ownerId: string,
   pluginId: string,
   definitions: AgentDefinition[],
+  servers: PluginComponents["mcpServers"],
   from: Record<string, string>,
-  picks: NonNullable<SetupPick["agents"]>,
+  pick: SetupPick,
   tableOf: Map<string, Ref>,
   first: number,
 ): Promise<{ items: ProposalItem[]; waiting: Waiting[] } | { error: string }> {
   const picked: { definition: AgentDefinition; harnessId: string }[] = [];
-  for (const p of picks) {
+  for (const p of pick.agents ?? []) {
     const definition = definitions.find((d) => same(d.name, p.name));
     if (!definition) return { error: `“${p.name}” isn't an agent definition of this plugin` };
     if (!picked.some((a) => a.definition === definition)) picked.push({ definition, harnessId: p.harnessId });
   }
-  if (!picked.length) return { items: [], waiting: [] };
+  for (const p of pick.servers ?? []) if (!servers.some((s) => s.name === p.name)) return { error: `“${p.name}” isn't an MCP server of this plugin` };
+  if (!picked.length && !pick.servers?.length) return { items: [], waiting: [] };
 
   // The agents this plugin made before, still there: they are reused, and may be consulted.
   const recorded = definitions.flatMap((d) => from[`agent:${d.name}`] ?? []);
@@ -227,16 +237,6 @@ async function agentSetup(
     .where(and(eq(skillPackages.pluginId, pluginId), eq(skillPackages.ownerId, ownerId)));
   const installed = pkg ? (await db.select({ name: skillsTable.name }).from(skillsTable).where(eq(skillsTable.packageId, pkg.id))).map((s) => s.name) : [];
 
-  // The tools already added for the plugin's servers, and from the catalog entries named.
-  const catalogIds = [...new Set(picked.flatMap((a) => a.definition.tools.filter((t) => t.startsWith("catalog:")).map((t) => t.slice("catalog:".length))))];
-  const toolRows = await db
-    .select({ id: toolsTable.id, pluginId: toolsTable.pluginId, component: toolsTable.pluginComponent, catalogId: toolsTable.catalogId })
-    .from(toolsTable)
-    .where(and(eq(toolsTable.ownerId, ownerId), catalogIds.length ? or(eq(toolsTable.pluginId, pluginId), inArray(toolsTable.catalogId, catalogIds)) : eq(toolsTable.pluginId, pluginId)))
-    .orderBy(asc(toolsTable.createdAt));
-  const toolOf = (name: string) =>
-    name.startsWith("catalog:") ? toolRows.find((t) => t.catalogId === name.slice("catalog:".length)) : toolRows.find((t) => t.pluginId === pluginId && t.component === name);
-
   // The tables named that are neither the plugin's set up nor made now: the workspace's, by name.
   const named = picked.flatMap((a) => (Array.isArray(a.definition.tables) ? a.definition.tables : []));
   const outside = [...new Set(named.map((n) => n.toLowerCase()).filter((n) => !tableOf.has(n)))];
@@ -244,7 +244,8 @@ async function agentSetup(
     ? await db
         .select({ id: tablesTable.id, name: tablesTable.name })
         .from(tablesTable)
-        .where(and(eq(tablesTable.ownerId, ownerId), inArray(sql`lower(${tablesTable.name})`, outside)))
+        // The owner's own tables: another plugin's table of that name isn't the workspace's.
+        .where(and(eq(tablesTable.ownerId, ownerId), isNull(tablesTable.pluginId), inArray(sql`lower(${tablesTable.name})`, outside)))
     : [];
   const tableNamed = (name: string): Ref | undefined => tableOf.get(name.toLowerCase()) ?? workspace.find((t) => same(t.name, name))?.id;
 
@@ -260,6 +261,46 @@ async function agentSetup(
 
   const items: ProposalItem[] = [];
   const waiting: Waiting[] = [];
+
+  // The tools the new agents name and the servers picked: added already (for the plugin's servers, or from the catalog entries named), else by an item here.
+  const toolNames = [...new Set([...(pick.servers ?? []).map((s) => s.name), ...ordered.flatMap((a) => a.definition.tools)])];
+  const catalogIds = toolNames.filter((t) => t.startsWith("catalog:")).map((t) => t.slice("catalog:".length));
+  const toolRows = await db
+    .select({ id: toolsTable.id, pluginId: toolsTable.pluginId, component: toolsTable.pluginComponent, catalogId: toolsTable.catalogId })
+    .from(toolsTable)
+    .where(and(eq(toolsTable.ownerId, ownerId), catalogIds.length ? or(eq(toolsTable.pluginId, pluginId), inArray(toolsTable.catalogId, catalogIds)) : eq(toolsTable.pluginId, pluginId)))
+    .orderBy(asc(toolsTable.createdAt));
+  const toolOf = new Map<string, Ref>();
+  for (const name of toolNames) {
+    const id = name.startsWith("catalog:") ? name.slice("catalog:".length) : null;
+    const row = id === null ? toolRows.find((t) => t.pluginId === pluginId && t.component === name) : toolRows.find((t) => t.catalogId === id);
+    if (row) {
+      toolOf.set(name, row.id);
+      continue;
+    }
+    const definition = `tool:${name}`;
+    if (id !== null) {
+      const entry = catalogEntry(id);
+      if (entry?.kind !== "http") {
+        waiting.push({ definition, reason: entry ? `${entry.name} runs on the owner's machine: add it in Settings → Tools` : "It isn't in the catalog" });
+        continue;
+      }
+      toolOf.set(name, { $item: first + items.length });
+      items.push({ tool: "tools_add_from_catalog", input: { catalogId: id }, from: `catalog:${id}` });
+      continue;
+    }
+    const server = servers.find((s) => s.name === name);
+    if (!server) continue;
+    const reason =
+      server.type !== "http" ? "It runs on a runner: add it from the plugin's page" : server.settings.length ? "Its URL needs a setting: add it from the plugin's page" : !server.transport ? "Update the plugin to add it" : null;
+    if (reason) {
+      waiting.push({ definition, reason });
+      continue;
+    }
+    toolOf.set(name, { $item: first + items.length });
+    items.push({ tool: "plugins_add_server", input: { pluginId, server: name, url: server.url, transport: server.transport }, from: `server:${name}` });
+  }
+
   for (const { definition: d, harnessId } of ordered) {
     const key = `agent:${d.name}`;
     // Written out even when the definition leaves it out (`agents.create` takes all then), so the owner reads the grant.
@@ -273,10 +314,10 @@ async function agentSetup(
       dataTables = d.tables.map((n) => tableNamed(n)!);
     }
     for (const s of d.skills.filter((s) => !installed.includes(s))) waiting.push({ definition: key, reason: `Its skill “${s}” wasn't installed with the plugin: the agent is made without it` });
-    const toolIds: string[] = [];
+    const toolIds: Ref[] = [];
     for (const t of d.tools) {
-      const tool = toolOf(t);
-      if (tool) toolIds.push(tool.id);
+      const tool = toolOf.get(t);
+      if (tool) toolIds.push(tool);
       else waiting.push({ definition: key, reason: `“${t}” isn't added as a tool yet: the agent is made without it` });
     }
     const consults: { agentId: Ref; ask: boolean }[] = [];
@@ -324,6 +365,14 @@ export function runItemsAsOwner(context: InitialContext & { ownerId: string }, p
   return traces.startActiveSpan("plugins.setup", { attributes: { "dispand.plugin.id": pluginId, "dispand.setup.items": items.length } }, async (span) => {
     let result = "done";
     try {
+      const [plugin] = await context.db.select({ definitions: plugins.definitions }).from(plugins).where(eq(plugins.id, pluginId));
+      /** What an item makes from a definition is the plugin's from its insert, under its name there. */
+      const elementOf = (item: ProposalItem) => {
+        if (!item.from || !/^(primitive|field|agent):/.test(item.from)) return undefined;
+        const component = (item.input as { name: string }).name;
+        const definition = item.from.startsWith("primitive:") ? plugin?.definitions.primitives.find((p) => p.name === component) : undefined;
+        return { pluginId, component, ...(definition ? { definition } : {}) };
+      };
       const made: ProposalItem[] = [];
       const outcomes: ItemOutcome[] = [];
       for (const [index, item] of items.entries()) {
@@ -340,7 +389,8 @@ export function runItemsAsOwner(context: InitialContext & { ownerId: string }, p
           const { procedure, path } = PROCEDURES[item.tool as SetupTool];
           try {
             const permissions = item.toolPermissions ? resolveRefs(made, item.toolPermissions) as { toolId: string; target: string }[] : undefined;
-            output = await call(procedure as never, input as never, { context: { ...context, approvedToolTargets: permissions } as never, path: [...path] });
+            const pluginElement = elementOf(item);
+            output = await call(procedure as never, input as never, { context: { ...context, approvedToolTargets: permissions, ...(pluginElement ? { pluginElement } : {}) } as never, path: [...path] });
           } catch (err) {
             if (err instanceof ORPCError) error = err.code === "NOT_FOUND" ? "Not found" : err.message;
             else {

@@ -643,10 +643,12 @@ changes it updates this file.
   that procedure's checks. The owner's setup (`plugins.setUp`) makes the items a proposal would
   list, each through its procedure with the owner's own session, and binds to what an earlier
   setup made only by the id it recorded, never to a table by its name. An agent made from a
-  definition is a copy with no link to its plugin, made by `agents.create` with the bundles,
-  tables and self-learning the owner reads in the item, so its consults pass the same pair check
-  as any agent's; an update replaces the definitions and never what was made from
-  them. Links are checked out
+  definition is the plugin's element, made by `agents.create` with the bundles, tables and
+  self-learning the owner reads in the item, so its consults pass the same pair check as any
+  agent's. That a row is a plugin's is set only by the server (`context.pluginElement`, which no
+  request input reaches); an update replaces the definitions and, so far, nothing of what was
+  made from them. A plugin's HTTP server becomes a tool only through `plugins.addServer` (or its setup
+  item), with no credentials and only at the URL and transport the owner reviewed in the item. Links are checked out
   as plain files (`core.symlinks=false`), then removed from the checkout and listed as not
   imported: nothing is ever written or read through one, and a file name that isn't UTF-8 refuses
   the fetch. Every file is read with `lstat`, any other non-regular file is skipped, and a plugin or skill folder whose real path leaves the

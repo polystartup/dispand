@@ -24,6 +24,9 @@ export { ToolError } from "./errors.ts";
 
 export { inboundProblem, MAX_ACTIONS, MAX_MESSAGE_VALUES, MAX_RESPONSE_BYTES, redact } from "./inbound.ts";
 
+/** Whether a listing failed because (the words of `toolError` for 401 and 403) the server refused it without credentials (401 or 403). */
+export const refusedListing = (actionsError: string | null) => actionsError !== null && /refused the request \((?:401|403)\)/.test(actionsError);
+
 export const TRANSPORTS = ["streamable-http", "sse"] as const;
 export type ToolTransport = (typeof TRANSPORTS)[number];
 /** How an HTTP tool signs in: nothing, its sealed headers, or OAuth. */

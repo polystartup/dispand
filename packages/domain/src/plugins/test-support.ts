@@ -77,9 +77,11 @@ export function fakeSite(routes: Record<string, Route>) {
   return asked;
 }
 
-/** The law-firm fixture as a plugin of a marketplace. */
-export function lawFirmMarket() {
-  const plugin = fixtureRepo(lawFirm());
+/** The law-firm fixture as a plugin of a marketplace, its case-law server at `caseLawUrl` when given (a fake MCP server's). */
+export function lawFirmMarket(caseLawUrl?: string) {
+  const files = lawFirm();
+  if (caseLawUrl) files["mcp.json"] = files["mcp.json"]!.replace("https://case-law.example.com/mcp", caseLawUrl);
+  const plugin = fixtureRepo(files);
   const repo = fixtureRepo({ ".claude-plugin/marketplace.json": JSON.stringify({ name: "firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin.url } }] }) });
   return {
     plugin,

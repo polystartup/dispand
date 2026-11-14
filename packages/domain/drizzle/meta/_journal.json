@@ -512,6 +512,13 @@
       "when": 1794614765842,
       "tag": "0072_skill_file_upstream",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1794616199299,
+      "tag": "0073_plugin_tables",
+      "breakpoints": true
     }
   ]
 }

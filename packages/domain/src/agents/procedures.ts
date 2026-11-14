@@ -209,7 +209,23 @@ const create = owner.input(AgentFields).handler(async ({ input, context }) => {
   const row = await context.db.transaction(async (tx) => {
     const [row] = await tx
       .insert(agentsTable)
-      .values({ ...fields, model: fields.model ?? null, bundles: bundles ?? [], selfLearning: selfLearning ?? [], dataTables: dataTables ?? "all", id: newId("agent"), ownerId: context.ownerId })
+      .values({
+        ...fields,
+        model: fields.model ?? null,
+        bundles: bundles ?? [],
+        selfLearning: selfLearning ?? [],
+        dataTables: dataTables ?? "all",
+        id: newId("agent"),
+        ownerId: context.ownerId,
+        // Made as a plugin's element: these are the plugin's values, and a later change of one is an override.
+        ...(context.pluginElement
+          ? {
+              pluginId: context.pluginElement.pluginId,
+              pluginComponent: context.pluginElement.component,
+              upstream: { name: fields.name, description: fields.description ?? "", systemPrompt: fields.systemPrompt, bundles: bundles ?? [], dataTables: dataTables ?? "all", selfLearning: selfLearning ?? [], skillPackageIds, toolIds, consults: entries ?? [] },
+            }
+          : {}),
+      })
       .returning();
     await attach(tx, context.ownerId, row!.id, skillPackageIds, toolIds, harness.runnerId, toolPermissions, context.approvedToolTargets);
     await consults(tx, context.ownerId, row!.id, entries);

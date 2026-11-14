@@ -31,6 +31,7 @@ const TITLES: Record<string, string> = {
   tools_add: "Add a tool: a server Dispand will call",
   tools_add_from_catalog: "Add a tool from the catalog: a server Dispand will call",
   tools_delete: "Delete a tool, with its saved headers",
+  plugins_add_server: "Add a plugin's server as a tool: a server Dispand will call",
   triggers_create: "Create a trigger: what starts an agent's Jobs",
   triggers_update: "Change a trigger",
   triggers_delete: "Delete a trigger",
@@ -51,6 +52,7 @@ const LABELS_OF: Record<string, Record<string, string>> = {
   tools_add: { name: "Name", url: "Address", transport: "Transport" },
   tools_add_from_catalog: { catalogId: "Catalog entry", name: "Name" },
   tools_delete: { id: "Tool" },
+  plugins_add_server: { pluginId: "Plugin", server: "Server", url: "Address", transport: "Transport" },
   agents_set_tool_permission: { agentId: "Agent", toolId: "Tool", action: "Action", permission: "Permission" },
   harnesses_set_limit: { id: "Harness", maxWorking: "At most at once" },
 };
@@ -268,7 +270,7 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
                   ) : item.tool.startsWith("agents_") && name === "selfLearning" ? (
                     <Targets value={value} />
                   ) : (
-                    <Value name={name} value={value} items={proposal.items} names={proposal.names} isRef={item.refs.includes(name)} address={item.tool === "tools_add" && name === "url"} />
+                    <Value name={name} value={value} items={proposal.items} names={proposal.names} isRef={item.refs.includes(name)} address={(item.tool === "tools_add" || item.tool === "plugins_add_server") && name === "url"} />
                   )}
                 </dd>
               </div>

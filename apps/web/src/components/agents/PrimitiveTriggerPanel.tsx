@@ -3,6 +3,7 @@ import { Input } from "@/components/ui/input";
 import { orpc } from "../../lib/api.ts";
 import { selectClass } from "../data/NewFieldPopover.tsx";
 import { FormField } from "../settings/parts.tsx";
+import { qualifiedName } from "@dispand/domain/plugins/names";
 
 export type Operation = "created" | "updated" | "deleted" | "answered" | "expired";
 export type ChangeConfig = { tableId: string; operations: Operation[]; fields?: string[] };
@@ -67,7 +68,7 @@ export function PrimitiveTriggerPanel({
           <option value={INTERACTION}>A Question or an Approval</option>
           {primitives.map((t) => (
             <option key={t.id} value={t.id}>
-              {t.name}
+              {qualifiedName(t.plugin?.name ?? null, t.name)}
             </option>
           ))}
         </select>

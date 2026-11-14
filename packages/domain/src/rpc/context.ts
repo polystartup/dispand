@@ -7,6 +7,7 @@ import type { RunnerHub } from "../runners/hub.ts";
 import type { SecretBox } from "../secrets.ts";
 import { annotate, meter, recordError, tracer } from "../telemetry/index.ts";
 import type { ToolConnector } from "../tools/mcp.ts";
+import type { PrimitiveDefinition } from "../plugins/definitions.ts";
 
 /** What the web server gives every request. */
 export type InitialContext = {
@@ -38,6 +39,11 @@ export type InitialContext = {
   job?: { runId: string; ownerId: string; agentId: string };
   /** Server-owned bindings of a reviewed agent grant; never built from request input. */
   approvedToolTargets?: { toolId: string; target: string }[];
+  /**
+   * The plugin's element a create makes (`plugins/setup.ts`): the row is the plugin's from its
+   * insert, under this name in it. Server-owned; never built from request input.
+   */
+  pluginElement?: { pluginId: string; component: string; definition?: PrimitiveDefinition };
   headers: Headers;
   /** Headers the web server adds to the response (refreshed session cookies). */
   resHeaders: Headers;

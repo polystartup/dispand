@@ -33,7 +33,7 @@ export type PluginContents = {
 export type PluginComponents = {
   skills: { name: string; description: string }[];
   /** `url` (an HTTP server's, with its placeholders) is where its settings would go: the install sheet shows it. */
-  mcpServers: { name: string; type: "http" | "stdio"; settings: string[]; url?: string }[];
+  mcpServers: { name: string; type: "http" | "stdio"; settings: string[]; url?: string; transport?: "streamable-http" | "sse" }[];
   agents: { name: string; description: string }[];
   /** The names of its `com.dispand` definitions, registered on install (absent from rows stored before them). */
   definitions?: { agents: string[]; primitives: string[]; triggers: string[] };
@@ -42,7 +42,7 @@ export type PluginComponents = {
 export function componentsOf(contents: PluginContents): PluginComponents {
   return {
     skills: contents.skills.map(({ name, description }) => ({ name, description })),
-    mcpServers: contents.mcpServers.map((s) => ({ name: s.name, type: s.type, settings: s.settings, ...(s.type === "http" ? { url: s.url } : {}) })),
+    mcpServers: contents.mcpServers.map((s) => ({ name: s.name, type: s.type, settings: s.settings, ...(s.type === "http" ? { url: s.url, transport: s.transport } : {}) })),
     agents: contents.agents.map(({ name, description }) => ({ name, description })),
     definitions: {
       agents: contents.definitions.agents.map((d) => d.name),
