@@ -1,4 +1,5 @@
 import { pluginNativeKey, workspaceNativeKey } from "../skills/native.ts";
+import { filesOverridden } from "../skills/runner-access.ts";
 import { ORPCError } from "@orpc/server";
 import type { HarnessCommand } from "@dispand/runner-protocol";
 import { and, asc, eq } from "drizzle-orm";
@@ -43,7 +44,7 @@ export const assistantCommands = base.use(authed).input(z.object({ agentId: z.st
     const name = `${skill.package}:${skill.name}`;
     const sameSkill = (c: HarnessCommand) => c.name.replace(/~[a-f0-9]{12}$/, "").split(":").at(-1) === skill.name;
     if (!keys.has(skill.packageId)) {
-      let key = skill.plugin ? pluginNativeKey(skill.plugin) : undefined;
+      let key = skill.plugin && !(await filesOverridden(context.db, skill.packageId)) ? pluginNativeKey(skill.plugin) : undefined;
       if (!skill.plugin && native.some((c) => c.sourceKey?.startsWith("workspace:") && sameSkill(c))) {
         const files = await context.db.select().from(skillFiles).where(eq(skillFiles.packageId, skill.packageId));
         key = workspaceNativeKey(files.map((f) => ({ path: f.path, base64: Buffer.from(f.content).toString("base64") })));

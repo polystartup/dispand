@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
-import { agents, agentSkills, harnesses, plugins, runners, skillFiles, skillPackages, runs, stepRuns } from "../db/schema.ts";
+import { agents, agentSkills, harnesses, plugins, runners, skillFiles, skillPackages, runs, stepRuns, skillFileUpstream } from "../db/schema.ts";
 import { pluginNativeKey, workspaceNativeKey } from "./native.ts";
 
 /**
@@ -24,6 +24,15 @@ export async function usedOnRunner(db: Db, runnerId: string, packageId: string):
   return selected.some((r) => r.snapshot?.invokedSkills?.includes(packageId));
 }
 
+/** Whether a plugin's package differs from the plugin's own files: one changed, added or removed by its owner. */
+export async function filesOverridden(db: Db, packageId: string): Promise<boolean> {
+  const [mine, theirs] = await Promise.all([
+    db.select({ path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(eq(skillFiles.packageId, packageId)),
+    db.select({ path: skillFileUpstream.path, content: skillFileUpstream.content }).from(skillFileUpstream).where(eq(skillFileUpstream.packageId, packageId)),
+  ]);
+  return mine.length !== theirs.length || mine.some((f) => !theirs.some((u) => u.path === f.path && Buffer.from(u.content).equals(Buffer.from(f.content))));
+}
+
 /**
  * A skill package as `GET /runner/packages/<id>` sends it to a runner: its name and files
  * (base64). Only a package of the runner's owner that an agent on that runner uses; null
@@ -39,6 +48,7 @@ export async function packageForRunner(db: Db, runnerId: string, packageId: stri
   const files = await db.select({ path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(eq(skillFiles.packageId, pkg.id));
   const encoded = files.map((f) => ({ path: f.path, base64: Buffer.from(f.content).toString("base64") }));
   const [plugin] = pkg.pluginId ? await db.select().from(plugins).where(eq(plugins.id, pkg.pluginId)) : [];
-  const nativeKey = plugin ? pluginNativeKey(plugin) : !pkg.pluginId ? workspaceNativeKey(encoded) : undefined;
+  // A plugin's package its owner changed isn't what the plugin's native install holds: its files are sent.
+  const nativeKey = plugin ? ((await filesOverridden(db, pkg.id)) ? undefined : pluginNativeKey(plugin)) : !pkg.pluginId ? workspaceNativeKey(encoded) : undefined;
   return { name: pkg.name, ...(nativeKey ? { nativePlugin: `dispand-${pkg.pluginId ?? pkg.id}`, nativeKey } : {}), files: encoded };
 }

@@ -15,8 +15,8 @@ test("create writes SKILL.md with name and description", async () => {
   expect(got.skillMd).toBe("---\nname: hello-check\ndescription: Answers HELLO-CHECK.\n---\n\n# Hello\n\nAnswer HELLO-CHECK.\n");
   expect(got.instructions).toBe("# Hello\n\nAnswer HELLO-CHECK.\n");
   expect(got.files).toEqual([
-    { path: "hello-check/SKILL.md", size: Buffer.byteLength(got.skillMd!) },
-    { path: "hello-check/scripts/run.sh", size: 8 },
+    { path: "hello-check/SKILL.md", size: Buffer.byteLength(got.skillMd!), overridden: null },
+    { path: "hello-check/scripts/run.sh", size: 8, overridden: null },
   ]);
   expect(got).toMatchObject({ packageId, name: "hello-check", description: "Answers HELLO-CHECK.", plugin: null, requiredTools: [] });
   expect(await call(router.skills.list, undefined, { context })).toEqual([
@@ -116,7 +116,7 @@ test("a plugin's package can't be edited or deleted here", async () => {
   await expect(call(router.skills.update, { ...hello, packageId: "skillpkg_plugin" }, { context })).rejects.toMatchObject({ code: "FORBIDDEN" });
   await expect(call(router.skills.delete, { packageId: "skillpkg_plugin" }, { context })).rejects.toMatchObject({
     code: "FORBIDDEN",
-    message: expect.stringMatching(/Remove the plugin/),
+    message: "It is superpowers's: uninstall the plugin to remove it",
   });
 });
 

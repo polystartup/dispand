@@ -40,7 +40,9 @@ Status: Prototype
     instructions, its tools, a tool's address) is yours to do: that field is then marked as yours,
     an update of the plugin replaces only what you haven't changed, and "Reset to the plugin's"
     takes a field back. Its harness, its model, a tool's headers and sign-in are your settings and
-    no update touches them. Removing a plugin opens a checklist. Imported skills, tools and native installations start
+    no update touches them. A plugin's skills work the same way, file by file (Settings, Skills,
+    Files): a file you edit, add or remove is yours and stays so through updates, the others
+    follow the plugin, and Reset takes one back. Removing a plugin opens a checklist. Imported skills, tools and native installations start
     selected; agents in use start unticked. Checked skills and tools are removed and unlinked even
     from kept agents; unchecked items stay. Selecting an agent for removal stops its active Jobs
     and keeps their history. Workflow references must be removed before deleting their agent or tool.

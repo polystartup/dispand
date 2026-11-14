@@ -3,6 +3,7 @@ import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { ELEMENT_FIELDS } from "./overrides.ts";
+import { skillFileUpstream } from "../db/schema.ts";
 import { messages, plugins as pluginsTable, questions, runs as runsTable, skillFiles, skillPackages, stepRuns, tools } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { router } from "../rpc/router.ts";
@@ -1010,4 +1011,85 @@ test("a tool whose plugin address needs a setting can't be reset to it: the sett
   });
   expect(await call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).toMatchObject({ url: fx.server.url, overridden: ["url"] });
   await fx.remove();
+});
+
+/** The document-skills plugin installed with its pdf skill (`pdf/SKILL.md`, `pdf/fill.py`). */
+async function withSkill() {
+  const ctx = await context();
+  const plugin = superpowers();
+  const repo = marketplace(plugin);
+  const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
+  const { pluginId } = await call(router.plugins.install, { marketplaceId: market.id, entryName: "document-skills", skills: ["pdf"] }, { context: ctx });
+  const [pkg] = await ctx.db.select().from(skillPackages).where(eq(skillPackages.pluginId, pluginId));
+  const packageId = pkg!.id;
+  const b64 = (text: string) => Buffer.from(text).toString("base64");
+  const view = () => call(router.skills.get, { packageId }, { context: ctx });
+  const text = async (path: string) => (await call(router.skills.readFile, { packageId, path }, { context: ctx })).text;
+  const marks = async () => Object.fromEntries((await view()).files.filter((f) => f.overridden).map((f) => [f.path, f.overridden]));
+  return { ctx, repo, pluginId, packageId, b64, view, text, marks, remove: () => { plugin.remove(); repo.remove(); } };
+}
+
+test("a file of a plugin's skill its owner changes is theirs, and the others go on following the plugin", async () => {
+  const { ctx, repo, pluginId, packageId, b64, text, marks, remove } = await withSkill();
+  expect(await marks()).toEqual({});
+  await call(router.skills.setFile, { packageId, path: "pdf/fill.py", base64: b64("print('mine')\n") }, { context: ctx });
+  expect(await marks()).toEqual({ "pdf/fill.py": "changed" });
+  repo.commit({ "skills/pdf/fill.py": "print(2)\n", "skills/pdf/SKILL.md": skillMd("pdf", "Fills PDF forms, better.") });
+  await call(router.plugins.update, { id: pluginId }, { context: ctx });
+  // The owner's file stays; the one they left alone is the plugin's new one.
+  expect(await text("pdf/fill.py")).toBe("print('mine')\n");
+  expect(await text("pdf/SKILL.md")).toContain("Fills PDF forms, better.");
+  expect((await call(router.skills.get, { packageId }, { context: ctx })).skills).toEqual([{ name: "pdf", description: "Fills PDF forms, better." }]);
+  // Reset gives the plugin's file as it is now.
+  await call(router.plugins.resetOverride, { kind: "skill", id: packageId, field: "file:pdf/fill.py" }, { context: ctx });
+  expect(await text("pdf/fill.py")).toBe("print(2)\n");
+  expect(await marks()).toEqual({});
+  // Written back by hand: the plugin's again.
+  await call(router.skills.setFile, { packageId, path: "pdf/fill.py", base64: b64("x") }, { context: ctx });
+  await call(router.skills.setFile, { packageId, path: "pdf/fill.py", base64: b64("print(2)\n") }, { context: ctx });
+  expect(await marks()).toEqual({});
+  remove();
+});
+
+test("a file the owner adds or removes in a plugin's skill stays so through an update, and reset undoes it", async () => {
+  const { ctx, repo, pluginId, packageId, b64, view, text, marks, remove } = await withSkill();
+  await call(router.skills.setFile, { packageId, path: "pdf/notes.md", base64: b64("Mine.\n") }, { context: ctx });
+  await call(router.skills.removeFile, { packageId, path: "pdf/fill.py" }, { context: ctx });
+  expect(await marks()).toEqual({ "pdf/notes.md": "added" });
+  expect((await view()).removed).toEqual(["pdf/fill.py"]);
+  repo.commit({ "skills/pdf/fill.py": "print(2)\n" });
+  await call(router.plugins.update, { id: pluginId }, { context: ctx });
+  expect((await view()).files.map((f) => f.path)).toEqual(["pdf/SKILL.md", "pdf/notes.md"]);
+  expect((await view()).removed).toEqual(["pdf/fill.py"]);
+  await call(router.plugins.resetOverride, { kind: "skill", id: packageId, field: "file:pdf/fill.py" }, { context: ctx });
+  await call(router.plugins.resetOverride, { kind: "skill", id: packageId, field: "file:pdf/notes.md" }, { context: ctx });
+  expect((await view()).files.map((f) => f.path)).toEqual(["pdf/SKILL.md", "pdf/fill.py"]);
+  expect(await text("pdf/fill.py")).toBe("print(2)\n");
+  expect((await view()).removed).toEqual([]);
+  remove();
+});
+
+test("a change that would leave a plugin's skill invalid is refused, and its package goes only with its plugin", async () => {
+  const { ctx, packageId, b64, text, remove } = await withSkill();
+  await expect(call(router.skills.removeFile, { packageId, path: "pdf/SKILL.md" }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(call(router.skills.setFile, { packageId, path: "../escape.md", base64: b64("x") }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(call(router.skills.setFile, { packageId, path: "pdf/SKILL.md", base64: b64("no frontmatter") }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  expect(await text("pdf/SKILL.md")).toContain("name: pdf");
+  await expect(call(router.skills.delete, { packageId }, { context: ctx })).rejects.toMatchObject({ code: "FORBIDDEN", message: "It is document-skills's: uninstall the plugin to remove it" });
+  // The owner's own package is edited from its form, not file by file.
+  const mine = await call(router.skills.create, { name: "mine", description: "Mine.", instructions: "Do it.", requiredToolIds: [] }, { context: ctx });
+  await expect(call(router.skills.setFile, { packageId: mine.packageId, path: "mine/x.md", base64: b64("x") }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  remove();
+});
+
+test("a skill package kept at uninstall is its owner's own: nothing of it is a plugin's file any more", async () => {
+  const { ctx, pluginId, packageId, b64, view, remove } = await withSkill();
+  await call(router.skills.setFile, { packageId, path: "pdf/fill.py", base64: b64("mine") }, { context: ctx });
+  const h = await harness(ctx);
+  await call(router.agents.create, { name: "Uses it", harnessId: h.id, systemPrompt: "", skillPackageIds: [packageId], toolIds: [] }, { context: ctx });
+  await call(router.plugins.uninstall, { id: pluginId }, { context: ctx });
+  expect(await view()).toMatchObject({ plugin: null, removed: [] });
+  expect((await view()).files.every((f) => f.overridden === null)).toBe(true);
+  expect(await ctx.db.select().from(skillFileUpstream)).toEqual([]);
+  remove();
 });
