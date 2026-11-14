@@ -1723,8 +1723,9 @@ test("a restricted start gets no built-in tool, no settings of the user's, no sk
   session.close();
   await session.done;
   expect(fake.calls[0]).toMatchObject({ tools: [], strictMcpConfig: true, settingSources: [] });
-  // The CLI's advisor, a second model call, isn't one of `tools`: denied by name.
-  expect(fake.calls[0]!.disallowedTools).toContain("advisor");
+  // The CLI's advisor, a second model call, isn't one of `tools` and ignores `disallowedTools`: switched off in its environment.
+  expect(fake.calls[0]!.env).toMatchObject({ CLAUDE_CODE_DISABLE_ADVISOR_TOOL: "1" });
+  expect(fake.calls[0]!.env!.PATH).toBe(process.env.PATH);
   expect(fake.calls[0]!.plugins).toBeUndefined();
   const own = fake.calls[0]!.mcpServers!.dispand as unknown as { tools: { name: string }[] };
   expect(own.tools.map((t) => t.name)).toEqual(["submit_outputs"]);
