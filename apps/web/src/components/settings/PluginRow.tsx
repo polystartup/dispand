@@ -21,16 +21,17 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   // An update that needs the owner's eyes: what it would change, shown before it is applied.
   const [reviewing, setReviewing] = useState<UpdatePreview | null>(null);
   const [looking, setLooking] = useState(false);
-  const updated = (result: { sha: string; failed?: { name: string; reason: string }[] }) => {
+  const updated = (result: { sha: string; failed?: { name: string; reason: string }[]; leftBehind?: { name: string; reason: string }[] }) => {
     void refresh();
     // What an element's own checks refused is said, not hidden.
-    setNote(
-      result.failed?.length
-        ? `Updated to ${result.sha.slice(0, 7)}, except ${result.failed.map((f) => `${f.name} (${f.reason})`).join("; ")}.`
-        : result.sha === p.sha
-          ? "Already up to date."
-          : `Updated to ${result.sha.slice(0, 7)}.`,
-    );
+    const done = result.failed?.length
+      ? `Updated to ${result.sha.slice(0, 7)}, except ${result.failed.map((f) => `${f.name} (${f.reason})`).join("; ")}.`
+      : result.sha === p.sha
+        ? "Already up to date."
+        : `Updated to ${result.sha.slice(0, 7)}.`;
+    // A native install that didn't move: finished from its harness's workspace skills.
+    const native = result.leftBehind?.length ? ` The native install on ${result.leftBehind.map((h) => `${h.name} (${h.reason})`).join("; ")} didn't move: install it again from that harness's workspace skills.` : "";
+    setNote(done + native);
   };
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -2,7 +2,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
-import { needsReview, UpdatePlan, type UpdateAddition, type UpdateChange, type UpdateConflict } from "./PluginUpdate.tsx";
+import { NativeMoves, needsReview, UpdatePlan, type UpdateAddition, type UpdateChange, type UpdateConflict } from "./PluginUpdate.tsx";
 
 afterEach(cleanup);
 
@@ -94,6 +94,8 @@ test("a table's changes are boxes with their starting ticks; one that can't appl
     },
   ];
   expect(needsReview({ conflicts: [], changes: [], tables })).toBe(true);
+  expect(needsReview({ conflicts: [], changes: [], native: { harnesses: [{ id: "h_1", name: "Claude Code" }], unchecked: [] } })).toBe(true);
+  expect(needsReview({ conflicts: [], changes: [], native: { harnesses: [], unchecked: ["Laptop"] } })).toBe(false);
   render(<TableChanges tables={tables} ticked={{ tbl_1: ["add:Fee"] }} busy={false} onTick={tick} />);
   const table = screen.getByRole("group", { name: "Matters" });
   expect((within(table).getByRole("checkbox", { name: /Add the field Fee/ }) as HTMLInputElement).checked).toBe(true);
@@ -106,4 +108,10 @@ test("a table's changes are boxes with their starting ticks; one that can't appl
   expect(startingTicks(tables)).toEqual({ tbl_1: ["add:Fee"] });
   await userEvent.click(removal);
   expect(tick).toHaveBeenCalledWith("tbl_1", "remove:Conclusions");
+});
+
+test("the native installs an update moves are named, and a runner that couldn't be asked is said", () => {
+  render(<NativeMoves native={{ harnesses: [{ id: "h_1", name: "Claude Code" }], unchecked: ["Laptop"] }} />);
+  expect(screen.getByText(/Moves to the new version on Claude Code/)).toBeTruthy();
+  expect(screen.getByText(/Stays as it is on Laptop/)).toBeTruthy();
 });
