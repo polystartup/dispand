@@ -169,42 +169,26 @@ Prepare the invoice of each matter.
 const NEW_TABLE = JSON.stringify({ name: "Invoices", primitive: true, fields: [{ name: "Amount", type: "number" }] });
 const NEW_TRIGGER = JSON.stringify({ agent: "Billing", name: "Invoice due", instructions: "Prepare it.", config: { kind: "schedule", cron: "0 9 * * 1", timezone: "UTC" } });
 
-test("what a new version adds is offered, made only when ticked, and stays available afterwards", async () => {
-  const { ctx, pluginId, preview, publish, remove } = await setUp();
-  try {
-    publish({ "com.dispand/agents/billing.md": NEW_AGENT, "com.dispand/primitives/invoices.json": NEW_TABLE, "com.dispand/triggers/invoice-due.json": NEW_TRIGGER });
-    const shown = await preview();
-    expect(shown.additions.map((a) => a.key).sort()).toEqual(["agent:Billing", "primitive:Invoices", "trigger:Invoice due"]);
-    expect(shown.additions.find((a) => a.kind === "agent")).toMatchObject({ name: "Billing", detail: "Prepares each matter's invoice.", harness: "cloud" });
-    // Nothing ticked: the update applies, and nothing new is made.
-    const none = await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed }, { context: ctx });
-    expect(none.made).toBeUndefined();
-    expect(await ctx.db.select().from(schema.agents).where(eq(schema.agents.pluginComponent, "Billing"))).toEqual([]);
-    // They are no longer new, and stay available from the plugin's row.
-    expect((await preview()).additions).toEqual([]);
-    const [listed] = await call(router.plugins.list, undefined, { context: ctx });
-    expect(listed!.definitions.agents.find((a) => a.name === "Billing")).toMatchObject({ setUp: false });
-  } finally {
-    remove();
-  }
-});
-
-test("ticked additions are made by the same update as the plugin's, a new agent on the harness given, and an addition that isn't one is refused", async () => {
+test("what a new version adds is named on the update's screen, made by none of it, and set up afterwards with its grants shown", async () => {
   const { ctx, pluginId, harness, preview, publish, remove } = await setUp();
   try {
     publish({ "com.dispand/agents/billing.md": NEW_AGENT, "com.dispand/primitives/invoices.json": NEW_TABLE, "com.dispand/triggers/invoice-due.json": NEW_TRIGGER });
     const shown = await preview();
-    const add = { primitives: ["Invoices"], agents: [{ name: "Billing", harnessId: harness.id }], triggers: ["Invoice due"] };
-    await expect(call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, add: { primitives: ["Clients"] } }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    // Without the review, nothing is added.
-    await expect(call(router.plugins.update, { id: pluginId, add }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
-    const result = await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, add }, { context: ctx });
-    expect(result.made!.filter((o) => o.outcome !== "made")).toEqual([]);
-    expect(result.waiting).toEqual([]);
+    expect(shown.additions.map((a) => a.key).sort()).toEqual(["agent:Billing", "primitive:Invoices", "trigger:Invoice due"]);
+    expect(shown.additions.find((a) => a.kind === "agent")).toMatchObject({ name: "Billing", detail: "Prepares each matter's invoice." });
+    // The update makes nothing new: it has no way to be told to.
+    await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed }, { context: ctx });
+    expect(await ctx.db.select().from(schema.agents).where(eq(schema.agents.pluginComponent, "Billing"))).toEqual([]);
+    expect((await preview()).additions).toEqual([]);
+
+    // From the plugin's Set up: the items say what the agent may do, and are what is made.
+    const pick = { primitives: ["Invoices"], agents: [{ name: "Billing", harnessId: harness.id }], triggers: ["Invoice due"] };
+    const setup = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
+    expect(setup.items.find((i) => i.tool === "agents_create")).toMatchObject({ input: { name: "Billing", bundles: ["data"], systemPrompt: expect.stringContaining("Prepare the invoice") } });
+    const { outcomes } = await call(router.plugins.setUp, { id: pluginId, pick, reviewed: setup.reviewed }, { context: ctx });
+    expect(outcomes.filter((o) => o.outcome !== "made")).toEqual([]);
     const [billing] = await ctx.db.select().from(schema.agents).where(eq(schema.agents.pluginComponent, "Billing"));
-    const [invoices] = await ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Invoices"));
-    expect(billing).toMatchObject({ pluginId, harnessId: harness.id, overridden: [] });
-    expect(billing!.dataTables).toContain(invoices!.id);
+    expect(billing).toMatchObject({ pluginId, harnessId: harness.id });
     expect(await ctx.db.select().from(schema.triggers).where(eq(schema.triggers.pluginComponent, "Invoice due"))).toMatchObject([{ agentId: billing!.id, pluginId }]);
   } finally {
     remove();

@@ -42,9 +42,9 @@ Status: Prototype
     more (a tool, a table, a right), move a tool's address, reword what an agent is told, or
     meets something you changed yourself, Update first shows what it changes: your own values
     stay unless you take the plugin's, and nothing is applied until you confirm. What a new
-    version adds (a table, an agent, a trigger, a tool, a skill) is listed there too, ticked: a
-    new agent asks for its harness, a new skill reaches every agent that uses the plugin's
-    skills, and what you untick stays available from the plugin's row. "Reset to the plugin's"
+    version adds (a table, an agent, a trigger, a tool) is named there too; the update makes none
+    of it. Set up opens afterwards with them: it shows what each would be allowed to do, asks a
+    harness for a new agent, and makes the ones you pick. "Reset to the plugin's"
     takes a field back. Its harness, its model, a tool's headers and sign-in are your settings and
     no update touches them. A plugin's skills work the same way, file by file (Settings, Skills,
     Files): a file you edit, add or remove is yours and stays so through updates, the others

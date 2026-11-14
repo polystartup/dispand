@@ -1,35 +1,14 @@
 type At = { key: string; kind: "agent" | "tool" | "trigger" | "skill"; id: string; name: string; field: string };
 export type UpdateChange = At & { class: "widening" | "wording" | "silent"; before: unknown; after: unknown };
 export type UpdateConflict = At & { old: unknown; mine: unknown; next: unknown };
-export type UpdateAddition = { key: string; kind: "primitive" | "agent" | "trigger" | "server" | "skill"; name: string; detail: string; harness?: "cli" | "cloud" };
-type Harness = { id: string; name: string; type: string };
+export type UpdateAddition = { key: string; kind: "primitive" | "agent" | "trigger" | "server"; name: string; detail: string };
 type Names = Record<string, string>;
 
 /** Whether an update stops on its screen: a field of the owner's the plugin changed, a change that gives more, or a change of wording. */
 export const needsReview = (plan: { conflicts: UpdateConflict[]; changes: UpdateChange[]; additions?: UpdateAddition[] }) =>
   plan.conflicts.length > 0 || plan.changes.some((c) => c.class !== "silent") || (plan.additions?.length ?? 0) > 0;
 
-/** The harness an added agent runs on: the one picked, else the first of the kind it is written for, else the first. */
-const harnessFor = (a: UpdateAddition, picked: Record<string, string>, harnesses: Harness[]) => picked[a.name] ?? (harnesses.find((h) => h.type === a.harness) ?? harnesses[0])?.id;
-
-/** What the update is sent with for the additions ticked, by kind; undefined when none is. An agent with no harness to run on is left out. */
-export function addOf(additions: UpdateAddition[], picked: Set<string>, harnessOf: Record<string, string>, harnesses: Harness[]) {
-  const of = (kind: UpdateAddition["kind"]) => additions.filter((a) => a.kind === kind && picked.has(a.key));
-  const agents = of("agent").flatMap((a) => {
-    const harnessId = harnessFor(a, harnessOf, harnesses);
-    return harnessId ? [{ name: a.name, harnessId }] : [];
-  });
-  const add = {
-    ...(of("primitive").length ? { primitives: of("primitive").map((a) => a.name) } : {}),
-    ...(agents.length ? { agents } : {}),
-    ...(of("trigger").length ? { triggers: of("trigger").map((a) => a.name) } : {}),
-    ...(of("server").length ? { servers: of("server").map((a) => ({ name: a.name })) } : {}),
-    ...(of("skill").length ? { skills: of("skill").map((a) => a.name) } : {}),
-  };
-  return Object.keys(add).length ? add : undefined;
-}
-
-const ADDED = { primitive: "Table", agent: "Agent", trigger: "Trigger", server: "Tool", skill: "Skill" };
+const ADDED = { primitive: "Table", agent: "Agent", trigger: "Trigger", server: "Tool" };
 
 const LABELS: Record<string, string> = {
   name: "Name",
@@ -85,11 +64,6 @@ export function UpdatePlan({
   busy,
   onTake,
   additions = [],
-  picked = new Set(),
-  harnessOf = {},
-  harnesses = [],
-  onPick = () => {},
-  onHarness = () => {},
 }: {
   conflicts: UpdateConflict[];
   changes: UpdateChange[];
@@ -97,13 +71,8 @@ export function UpdatePlan({
   take: string[];
   busy: boolean;
   onTake: (key: string, taken: boolean) => void;
-  /** What this version adds, the ones ticked, and the harness picked for each added agent. */
+  /** What this version adds: named here, made afterwards from the plugin's Set up. */
   additions?: UpdateAddition[];
-  picked?: Set<string>;
-  harnessOf?: Record<string, string>;
-  harnesses?: Harness[];
-  onPick?: (key: string) => void;
-  onHarness?: (agent: string, harnessId: string) => void;
 }) {
   const of = (kind: UpdateChange["class"]) => changes.filter((c) => c.class === kind);
   const [widening, wording, silent] = [of("widening"), of("wording"), of("silent")];
@@ -149,32 +118,20 @@ export function UpdatePlan({
         </section>
       )}
       {additions.length > 0 && (
-        <fieldset aria-label="New in this version" className="space-y-2">
-          <p className="font-medium text-muted">New in this version</p>
-          <p className="text-muted">Ticked, it is made as the plugin's; unticked, it stays available from the plugin's row. A new skill reaches every agent that uses the plugin's skills.</p>
-          {additions.map((a) => (
-            <div key={a.key} className="space-y-1">
-              <label className="flex items-start gap-2">
-                <input type="checkbox" className="mt-0.5 size-4 accent-[var(--color-accent)]" checked={picked.has(a.key)} disabled={busy} onChange={() => onPick(a.key)} />
-                <span>
-                  <span className="font-medium text-fg">{a.name}</span> <span className="text-faint">· {ADDED[a.kind]}</span>
-                  {a.detail && <span className="block text-muted">{a.detail}</span>}
-                </span>
-              </label>
-              {a.kind === "agent" && picked.has(a.key) && (harnesses.length ? (
-                <select aria-label={`Harness of ${a.name}`} className="ml-6 rounded-lg border border-border bg-surface px-2 py-1" value={harnessFor(a, harnessOf, harnesses) ?? ""} disabled={busy} onChange={(e) => onHarness(a.name, e.target.value)}>
-                  {harnesses.map((h) => (
-                    <option key={h.id} value={h.id}>
-                      {h.name}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <p className="ml-6 text-faint">Add a harness first: an agent needs one to run on.</p>
-              ))}
-            </div>
-          ))}
-        </fieldset>
+        <section aria-labelledby="update-additions" className="space-y-2">
+          <h3 id="update-additions" className="font-medium text-muted">
+            New in this version
+          </h3>
+          <p className="text-muted">The update makes none of these. Set up opens afterwards: it shows what each would be allowed to do, and makes the ones you pick.</p>
+          <ul aria-labelledby="update-additions" className="space-y-1">
+            {additions.map((a) => (
+              <li key={a.key}>
+                <span className="font-medium text-fg">{a.name}</span> <span className="text-faint">· {ADDED[a.kind]}</span>
+                {a.detail && <span className="block text-muted">{a.detail}</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       {wording.length > 0 && (
         <details>

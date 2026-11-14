@@ -40,7 +40,7 @@ import { BUILT_IN_MARKETPLACES, MarketplaceError, type MarketplaceEntry, type Ma
 import { readWellKnownIndex, readWellKnownSkills, WellKnownError, wellKnownIndexUrl } from "./well-known.ts";
 import { itemsView } from "../platform/proposals.ts";
 import { canonical } from "../platform/approvals.ts";
-import { runItemsAsOwner, SetupPick, setupItems, type Waiting } from "./setup.ts";
+import { runItemsAsOwner, SetupPick, setupItems } from "./setup.ts";
 import { addServer } from "./servers.ts";
 import { componentsOf, PluginError, type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
 
@@ -728,7 +728,7 @@ function shownFile(content: Uint8Array | undefined): string | null {
  * one they changed, added or removed that the plugin changed too is a conflict, which stays
  * theirs unless its key is in `take`.
  */
-async function skillPlan(db: Db | Tx, row: PluginRow, contents: PluginContents, take: string[], lock = false, added: string[] = []) {
+async function skillPlan(db: Db | Tx, row: PluginRow, contents: PluginContents, take: string[], lock = false) {
   const query = db.select().from(skillPackages).where(eq(skillPackages.pluginId, row.id));
   // Applying: locked as a file's edit locks it, so one saved meanwhile is read here, not overwritten.
   const [pkg] = lock ? await query.for("update") : await query;
@@ -736,8 +736,7 @@ async function skillPlan(db: Db | Tx, row: PluginRow, contents: PluginContents, 
   const current = await db.select({ name: skillsTable.name }).from(skillsTable).where(eq(skillsTable.packageId, pkg.id));
   const kept = current.map((s) => s.name).filter((name) => contents.skills.some((s) => s.name === name));
   if (kept.length === 0) throw new ORPCError("BAD_REQUEST", { message: `None of ${row.name}'s imported skills is left upstream: remove the plugin instead` });
-  // A skill this version adds, ticked, joins the package: every agent that uses the package gets it.
-  const next = chosenSkills(contents, [...kept, ...added.filter((name) => !kept.includes(name))]).files;
+  const next = chosenSkills(contents, kept).files;
   const mine = await db.select({ path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(eq(skillFiles.packageId, pkg.id));
   const old = await db.select({ path: skillFileUpstream.path, content: skillFileUpstream.content }).from(skillFileUpstream).where(eq(skillFileUpstream.packageId, pkg.id));
   const at = (files: { path: string; content: Uint8Array }[], path: string) => files.find((f) => f.path === path)?.content;
@@ -756,23 +755,22 @@ async function skillPlan(db: Db | Tx, row: PluginRow, contents: PluginContents, 
   return { packageId: pkg.id, files, next, changes, conflicts };
 }
 
-type Addition = { key: string; kind: "primitive" | "agent" | "trigger" | "server" | "skill"; name: string; detail: string; /** The kind of harness an agent is written for, a hint for the owner's pick. */ harness?: "cli" | "cloud" };
+type Addition = { key: string; kind: "primitive" | "agent" | "trigger" | "server"; name: string; detail: string };
 
 /**
- * What this version of the plugin has that the one installed didn't: offered on the update's
- * screen, made only when ticked. What an earlier version already had, made or not, isn't new: it
- * stays available from the plugin's row. A skill is offered when the plugin has a package to join.
+ * What this version of the plugin defines that the one installed didn't: named on the update's
+ * screen, and made afterwards from the plugin's Set up, which shows what each would be allowed
+ * to do before it is made. The update itself makes none of it.
  */
-function additionsOf(row: PluginRow, contents: PluginContents, hasPackage: boolean): Addition[] {
+function additionsOf(row: PluginRow, contents: PluginContents): Addition[] {
   const fresh = <T extends { name: string }>(now: T[], before: { name: string }[] | string[]) =>
     now.filter((n) => !before.some((b) => (typeof b === "string" ? b : b.name).toLowerCase() === n.name.toLowerCase()));
   const had = row.definitions;
   return [
     ...fresh(contents.definitions.primitives, had.primitives).map((d) => ({ key: `primitive:${d.name}`, kind: "primitive" as const, name: d.name, detail: `A table with ${d.fields.length} ${d.fields.length === 1 ? "field" : "fields"}` })),
-    ...fresh(contents.definitions.agents, had.agents).map((d) => ({ key: `agent:${d.name}`, kind: "agent" as const, name: d.name, detail: d.description, ...(d.harness ? { harness: d.harness } : {}) })),
+    ...fresh(contents.definitions.agents, had.agents).map((d) => ({ key: `agent:${d.name}`, kind: "agent" as const, name: d.name, detail: d.description })),
     ...fresh(contents.definitions.triggers, had.triggers).map((d) => ({ key: `trigger:${d.name}`, kind: "trigger" as const, name: d.name, detail: `Starts Jobs of ${d.agent}` })),
     ...fresh(contents.mcpServers.filter((s) => s.type === "http"), row.components.mcpServers).map((s) => ({ key: `server:${s.name}`, kind: "server" as const, name: s.name, detail: s.type === "http" ? s.url : "" })),
-    ...(hasPackage ? fresh(contents.skills, row.components.skills).map((s) => ({ key: `skill:${s.name}`, kind: "skill" as const, name: s.name, detail: s.description })) : []),
   ];
 }
 
@@ -783,7 +781,7 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
   const skill = await skillPlan(context.db, row, read.contents, []);
   const conflicts: ShownConflict[] = [...elements.flatMap((e) => e.plan.conflicts), ...(skill?.conflicts ?? [])];
   const changes: ShownChange[] = [...elements.flatMap((e) => e.plan.changes), ...(skill?.changes ?? [])];
-  const additions = additionsOf(row, read.contents, skill !== null);
+  const additions = additionsOf(row, read.contents);
   const reviewed = createHash("sha256").update(canonical({ sha: read.sha, conflicts, changes, additions })).digest("hex");
   return { ...read, conflicts, changes, additions, reviewed };
 }
@@ -827,30 +825,18 @@ async function namesIn(db: Db, ownerId: string, values: unknown): Promise<Record
  * only as `updatePreview` showed it (`reviewed`); one with none applies at once. Each element is
  * written through its own procedure, with its checks; one it refuses is reported, not applied.
  */
-const Added = SetupPick.extend({ skills: z.array(z.string().max(64)).max(200).optional() });
-const UpdateInput = Id.extend({ reviewed: z.string().length(64).optional(), take: z.array(z.string().max(700)).max(1000).default([]), /** What this version adds that the owner ticked. */ add: Added.optional() });
-
-const update = owner.input(UpdateInput).handler(async ({ input, context }) => {
+const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(), take: z.array(z.string().max(700)).max(1000).default([]) })).handler(async ({ input, context }) => {
   const row = await findPlugin(context.db, context.ownerId, input.id);
   const shown = await updatePlan(context, row);
   const { contents, url, sha, nativeRoot } = shown;
-  const { skills: addedSkills = [], ...pick } = input.add ?? {};
-  const added = [
-    ...(pick.primitives ?? []).map((n) => `primitive:${n}`),
-    ...(pick.agents ?? []).map((a) => `agent:${a.name}`),
-    ...(pick.triggers ?? []).map((n) => `trigger:${n}`),
-    ...(pick.servers ?? []).map((s) => `server:${s.name}`),
-    ...addedSkills.map((n) => `skill:${n}`),
-  ];
-  if ((shown.conflicts.length || shown.changes.some((c) => c.class !== "silent") || added.length) && shown.reviewed !== input.reviewed) {
+  if ((shown.conflicts.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
     throw new ORPCError("CONFLICT", { message: `Look at what updating ${row.name} changes before it is applied` });
   }
-  if (added.some((key) => !shown.additions.some((a) => a.key.toLowerCase() === key.toLowerCase()))) throw new ORPCError("BAD_REQUEST", { message: "Not something this version adds" });
   if (input.take.some((key) => !shown.conflicts.some((c) => c.key === key))) throw new ORPCError("BAD_REQUEST", { message: "Not a field in conflict" });
   const elements = await elementPlans(context.db, context.ownerId, row, contents, input.take);
   await context.db.transaction(async (tx) => {
     await findPlugin(tx, context.ownerId, row.id, true);
-    const skill = await skillPlan(tx, row, contents, input.take, true, addedSkills);
+    const skill = await skillPlan(tx, row, contents, input.take, true);
     if (skill) {
       const { skills } = validated(skill.files);
       await tx.update(skillPackages).set({ updatedAt: sql`now()` }).where(eq(skillPackages.id, skill.packageId));
@@ -885,19 +871,8 @@ const update = owner.input(UpdateInput).handler(async ({ input, context }) => {
       }
     }
   }
-  // What this version adds and the owner ticked, made as a setup makes it, now that its definitions are the plugin's.
-  let made: Awaited<ReturnType<typeof runItemsAsOwner>>["outcomes"] | undefined;
-  let waiting: Waiting[] | undefined;
-  if (added.length > addedSkills.length) {
-    const setup = await setupItems(context.db, context.ownerId, row.id, pick);
-    if ("error" in setup) failed.push({ name: "What this version adds", reason: setup.error });
-    else {
-      made = (await runItemsAsOwner(context, row.id, setup.items)).outcomes;
-      waiting = setup.waiting;
-    }
-  }
   await context.engine.narrowOwnerSessions(context.ownerId, context.db);
-  return { sha, ...(failed.length ? { failed } : {}), ...(made ? { made, waiting: waiting ?? [] } : {}) };
+  return { sha, ...(failed.length ? { failed } : {}) };
 });
 
 const SetupInput = z.object({ id: z.string(), pick: SetupPick });

@@ -21,12 +21,16 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   // An update that needs the owner's eyes: what it would change, shown before it is applied.
   const [reviewing, setReviewing] = useState<UpdatePreview | null>(null);
   const [looking, setLooking] = useState(false);
-  const updated = (result: { sha: string; failed?: { name: string; reason: string }[]; made?: { outcome: string; error?: string }[]; waiting?: { reason: string }[] }) => {
+  const updated = (result: { sha: string; failed?: { name: string; reason: string }[] }) => {
     void refresh();
-    // What an element's own checks refused, and what of the additions wasn't made, is said, not hidden.
-    const notMade = [...(result.made ?? []).flatMap((o) => (o.outcome === "refused" ? [o.error ?? "refused"] : [])), ...(result.waiting ?? []).map((w) => w.reason)];
-    const except = [...(result.failed ?? []).map((f) => `${f.name} (${f.reason})`), ...notMade];
-    setNote(except.length ? `Updated to ${result.sha.slice(0, 7)}, except ${except.join("; ")}.` : result.sha === p.sha ? "Already up to date." : `Updated to ${result.sha.slice(0, 7)}.`);
+    // What an element's own checks refused is said, not hidden.
+    setNote(
+      result.failed?.length
+        ? `Updated to ${result.sha.slice(0, 7)}, except ${result.failed.map((f) => `${f.name} (${f.reason})`).join("; ")}.`
+        : result.sha === p.sha
+          ? "Already up to date."
+          : `Updated to ${result.sha.slice(0, 7)}.`,
+    );
   };
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -179,7 +183,19 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
       )}
       {removing && <PluginRemoveSheet id={p.id} name={p.name} onClose={() => setRemoving(false)} />}
       {settingUp && <PluginSetupSheet plugin={p} onClose={() => setSettingUp(false)} />}
-      {reviewing && <PluginUpdateSheet id={p.id} name={p.name} preview={reviewing} onClose={() => setReviewing(null)} onUpdated={updated} />}
+      {reviewing && (
+        <PluginUpdateSheet
+          id={p.id}
+          name={p.name}
+          preview={reviewing}
+          onClose={() => setReviewing(null)}
+          onUpdated={(result) => {
+            updated(result);
+            // What the version adds is made from Set up, which shows what each would be allowed to do.
+            if (reviewing.additions.length) setSettingUp(true);
+          }}
+        />
+      )}
     </li>
   );
 }
