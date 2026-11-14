@@ -1,4 +1,5 @@
 import { TARGET_TEXT, WORKSPACE_LINE } from "../settings/SelfLearning.tsx";
+import { PluginInstallItem } from "./PluginInstallItem.tsx";
 
 /** A proposal as the server gives it to its owner: every write, and a name for each id a write points at. */
 export type ProposalView = {
@@ -35,6 +36,7 @@ const TITLES: Record<string, string> = {
   triggers_create: "Create a trigger: what starts an agent's Jobs",
   triggers_update: "Change a trigger",
   triggers_delete: "Delete a trigger",
+  plugins_install: "Install a plugin, and set up what it defines",
 };
 /** What a key is called, by tool where one name isn't enough. */
 const LABELS_OF: Record<string, Record<string, string>> = {
@@ -250,6 +252,9 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
             {TITLES[item.tool] ?? item.tool}
             {item.used && <span className={`ml-2 text-[12px] font-normal ${item.failed ? "text-danger" : "text-faint"}`}>{item.failed ? "refused" : "done"}</span>}
           </p>
+          {item.tool === "plugins_install" ? (
+            <PluginInstallItem input={item.input as never} />
+          ) : (
           <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1.5 text-[13px]">
             {Object.entries((item.input ?? {}) as Record<string, unknown>).filter(([name]) => !(item.tools && name === "toolPermissions")).map(([name, value]) => (
               <div key={name} className="contents">
@@ -276,6 +281,7 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
               </div>
             ))}
           </dl>
+          )}
         </li>
       ))}
     </ol>

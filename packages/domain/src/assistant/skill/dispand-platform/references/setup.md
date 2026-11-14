@@ -22,7 +22,8 @@ These calls run only as an item of a proposal a person approved, in the same Job
 - `tools_add_from_catalog` (a catalog entry's id, and a name if you want another), `tools_add`
   (a name, a URL and a transport), `tools_delete`: neither takes a credential;
 - `tables_delete`, `fields_delete` (they can't be undone);
-- `harnesses_set_limit`, `workspace_set_checkpoint`.
+- `harnesses_set_limit`, `workspace_set_checkpoint`;
+- `plugins_install` (below).
 
 The other writes of `configure` (`tables_create`, `tables_rename`, `tables_set_primitive`,
 `fields_create`, `fields_update`, `fields_reorder`) you may call directly, or list in a
@@ -61,6 +62,20 @@ proposal so the owner sees the whole setup at once.
    ask the owner whether to use what has it (`tables_list` gives its id) or another name. You
    may also make the calls yourself, exactly as listed (with the created ids in place of the
    references), once each.
+
+## Plugins first
+
+Before writing definitions of your own, look for a plugin that already holds them:
+`plugins_discover` lists what the owner's marketplaces offer, and `plugins_preview` reads one
+(its skills, and its definitions: tables, agents with what their Jobs may do, triggers) with
+the `reviewed` token an install carries. When one fits, propose `plugins_install` with that
+token, the skills to bring in, and `setup`: the `primitives` to make, the `agents` each with a
+`harnessId`, and the `triggers`. Leave out its MCP servers, agent files and native install: the
+owner adds those. Every tool its agents get starts on Ask, and a poll of an agent it makes
+waits: say so in the approval message, and propose the `agents_set_tool_permission` items a
+poll needs afterwards, once the install has made the agent. What the plugin doesn't cover, add
+in a proposal of your own as below. A plugin that changed since you read it is refused: read it
+again and propose again.
 
 ## Proposing a setup
 

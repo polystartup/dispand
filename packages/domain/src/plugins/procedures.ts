@@ -354,6 +354,11 @@ const install = owner
     const setupPicked = !!input.setup && Object.values(input.setup).some((v) => Array.isArray(v) && v.length > 0);
     const nothingPicked = !picked.skills.length && !picked.mcpServers.length && !picked.agents.length && !setupPicked;
     const { harnessId } = input;
+    // From a Job's approved item: bound to the commit shown, skills and the setup only. A server
+    // (its address, its settings), an agent file (its tools' default grants) and a native install are the owner's to give.
+    if (context.job && (input.nativeInstall || Object.keys(input.settings).length || picked.mcpServers.length || picked.agents.length)) {
+      throw new ORPCError("FORBIDDEN", { message: "A proposed install picks skills and definitions only: MCP servers, agent files and native installation are the owner's to add" });
+    }
     if (picked.agents.length && !harnessId) throw new ORPCError("BAD_REQUEST", { message: "Pick the harness the plugin's agents run on" });
     if (picked.agents.length && harnessId) {
       const [harness] = await context.db
@@ -370,7 +375,7 @@ const install = owner
     if (nothingPicked && !input.nativeInstall && !agentDefs.length && !primitives.length && !triggers.length) {
       throw new ORPCError("BAD_REQUEST", { message: "Pick at least one skill, MCP server or agent" });
     }
-    if ((picked.mcpServers.length || input.nativeInstall || setupPicked) && reviewToken(sha, contents) !== input.reviewed) {
+    if ((context.job || picked.mcpServers.length || input.nativeInstall || setupPicked) && reviewToken(sha, contents) !== input.reviewed) {
       throw new ORPCError("CONFLICT", { message: `${entry.name} changed since you reviewed it: look at it again before installing` });
     }
     const chosen = picked.skills.length ? chosenSkills(contents, picked.skills) : null;
@@ -453,6 +458,7 @@ const install = owner
     // Set up as `setUp` does, from the definitions the token covers: an item refused leaves the plugin installed, and Set up goes on from there.
     const items = await setupItems(context.db, context.ownerId, pluginId, input.setup!, true);
     if ("error" in items) throw new ORPCError("BAD_REQUEST", { message: items.error });
+    // From a Job, under its context: its approved item is the owner's approval, and each item's procedure checks it as it does a call of the owner.
     const { outcomes } = await runItemsAsOwner(context, pluginId, items.items);
     return { ...made, setup: { outcomes, waiting: items.waiting } };
   });

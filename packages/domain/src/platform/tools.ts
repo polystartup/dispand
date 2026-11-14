@@ -240,6 +240,10 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("tools.add", "configure", `Adds a tool: an MCP server reached at a URL, with no credentials (the owner enters those afterwards). ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("tools.delete", "configure", `Deletes a tool no agent uses, with its saved headers: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("agents.update", "configure", `Changes an agent: give every field, as agents_get shows them. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool("plugins.discover", "configure", "Lists what the owner's marketplaces offer (each entry with its marketplace's id), with whether it is installed; a query narrows them by name or description.", { tables: none }),
+  tool("plugins.preview", "configure", "Reads a marketplace entry as installing it would: its skills, MCP servers, agents, and definitions (tables, agents with what their Jobs may do, triggers), and the reviewed token an install must carry.", { tables: none }),
+  tool("plugins.list", "configure", "Lists the installed plugins with their definitions and which of them are set up.", { tables: none }),
+  tool("plugins.install", "configure", `Installs a marketplace entry: its skills, and with setup the definitions picked (tables, agents each on a harness, triggers), made as the plugin's. Give plugins_preview's reviewed token: an entry changed since is refused. Pick skills and setup only: its MCP servers, agent files and native install are the owner's to add. Every tool its agents get starts on Ask. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
 ];
 
 /**
@@ -406,10 +410,6 @@ export const NOT_TOOLS: string[] = [
   "marketplaces.add",
   "marketplaces.remove",
   "marketplaces.sync",
-  "plugins.discover",
-  "plugins.preview",
-  "plugins.install",
-  "plugins.list",
   "plugins.uninstallPreview",
   "plugins.uninstall",
   "plugins.update",

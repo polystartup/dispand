@@ -13,7 +13,7 @@ type Harness = Awaited<ReturnType<typeof api.harnesses.list>>[number];
 type Offered = { primitives: { name: string; setUp?: boolean }[]; agents: AgentDefinition[]; triggers: { name: string; agent: string; setUp?: boolean }[] };
 
 /** What an agent definition's Jobs may do, in words: shown before it is made when no proposal shows it. */
-function AgentRights({ d }: { d: AgentDefinition }) {
+export function AgentRights({ d }: { d: AgentDefinition }) {
   const { bundles = [], tools = [], consults = [], selfLearning = [] } = d;
   const lines = [
     `What its Jobs may do: ${bundles.length ? bundles.map((b) => BUNDLE_TEXT.find(([bundle]) => bundle === b)?.[1] ?? b).join(", ") : "nothing through Dispand's own tools"}`,
