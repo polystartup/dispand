@@ -41,7 +41,11 @@ Status: Prototype
     an update of the plugin replaces only what you haven't changed. When it would give an agent
     more (a tool, a table, a right), move a tool's address, reword what an agent is told, or
     meets something you changed yourself, Update first shows what it changes: your own values
-    stay unless you take the plugin's, and nothing is applied until you confirm. "Reset to the plugin's"
+    stay unless you take the plugin's, and nothing is applied until you confirm. What a new
+    version adds (a table, an agent, a trigger, a tool) is named there too; the update makes none
+    of it. Set up opens afterwards with them: it shows what each would be allowed to do, asks a
+    harness for a new agent, and makes the ones you pick. A tool an update gives an agent you
+    already have asks before every action, until you say otherwise on the agent's page. "Reset to the plugin's"
     takes a field back. Its harness, its model, a tool's headers and sign-in are your settings and
     no update touches them. A plugin's skills work the same way, file by file (Settings, Skills,
     Files): a file you edit, add or remove is yours and stays so through updates, the others

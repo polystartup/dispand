@@ -1,10 +1,14 @@
 type At = { key: string; kind: "agent" | "tool" | "trigger" | "skill"; id: string; name: string; field: string };
 export type UpdateChange = At & { class: "widening" | "wording" | "silent"; before: unknown; after: unknown };
 export type UpdateConflict = At & { old: unknown; mine: unknown; next: unknown };
+export type UpdateAddition = { key: string; kind: "primitive" | "agent" | "trigger" | "server"; name: string; detail: string };
 type Names = Record<string, string>;
 
 /** Whether an update stops on its screen: a field of the owner's the plugin changed, a change that gives more, or a change of wording. */
-export const needsReview = (plan: { conflicts: UpdateConflict[]; changes: UpdateChange[] }) => plan.conflicts.length > 0 || plan.changes.some((c) => c.class !== "silent");
+export const needsReview = (plan: { conflicts: UpdateConflict[]; changes: UpdateChange[]; additions?: UpdateAddition[] }) =>
+  plan.conflicts.length > 0 || plan.changes.some((c) => c.class !== "silent") || (plan.additions?.length ?? 0) > 0;
+
+const ADDED = { primitive: "Table", agent: "Agent", trigger: "Trigger", server: "Tool" };
 
 const LABELS: Record<string, string> = {
   name: "Name",
@@ -52,7 +56,24 @@ function Text({ title, value, names }: { title: string; value: unknown; names: N
  * changes that give an agent more or move a tool's calls; the changes of wording, on one line
  * that opens; and how many others simply follow. Every value is shown as plain text.
  */
-export function UpdatePlan({ conflicts, changes, names, take, busy, onTake }: { conflicts: UpdateConflict[]; changes: UpdateChange[]; names: Names; take: string[]; busy: boolean; onTake: (key: string, taken: boolean) => void }) {
+export function UpdatePlan({
+  conflicts,
+  changes,
+  names,
+  take,
+  busy,
+  onTake,
+  additions = [],
+}: {
+  conflicts: UpdateConflict[];
+  changes: UpdateChange[];
+  names: Names;
+  take: string[];
+  busy: boolean;
+  onTake: (key: string, taken: boolean) => void;
+  /** What this version adds: named here, made afterwards from the plugin's Set up. */
+  additions?: UpdateAddition[];
+}) {
   const of = (kind: UpdateChange["class"]) => changes.filter((c) => c.class === kind);
   const [widening, wording, silent] = [of("widening"), of("wording"), of("silent")];
   return (
@@ -91,6 +112,22 @@ export function UpdatePlan({ conflicts, changes, names, take, busy, onTake }: { 
             {widening.map((c) => (
               <li key={c.key}>
                 <span className="font-medium text-fg">{c.name}</span> · {label(c.field)}: {shown(c.before, names)} → {shown(c.after, names)}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {additions.length > 0 && (
+        <section aria-labelledby="update-additions" className="space-y-2">
+          <h3 id="update-additions" className="font-medium text-muted">
+            New in this version
+          </h3>
+          <p className="text-muted">The update makes none of these. Set up opens afterwards: it shows what each would be allowed to do, and makes the ones you pick.</p>
+          <ul aria-labelledby="update-additions" className="space-y-1">
+            {additions.map((a) => (
+              <li key={a.key}>
+                <span className="font-medium text-fg">{a.name}</span> <span className="text-faint">· {ADDED[a.kind]}</span>
+                {a.detail && <span className="block text-muted">{a.detail}</span>}
               </li>
             ))}
           </ul>

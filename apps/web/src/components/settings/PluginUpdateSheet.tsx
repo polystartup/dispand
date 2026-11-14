@@ -44,6 +44,7 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
             take={take}
             busy={busy}
             onTake={(key, taken) => setTake((prev) => (taken ? [...prev.filter((k) => k !== key), key] : prev.filter((k) => k !== key)))}
+            additions={preview.additions}
           />
           {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
           <div className="flex gap-2">

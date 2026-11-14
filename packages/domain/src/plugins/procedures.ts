@@ -755,6 +755,25 @@ async function skillPlan(db: Db | Tx, row: PluginRow, contents: PluginContents, 
   return { packageId: pkg.id, files, next, changes, conflicts };
 }
 
+type Addition = { key: string; kind: "primitive" | "agent" | "trigger" | "server"; name: string; detail: string };
+
+/**
+ * What this version of the plugin defines that the one installed didn't: named on the update's
+ * screen, and made afterwards from the plugin's Set up, which shows what each would be allowed
+ * to do before it is made. The update itself makes none of it.
+ */
+function additionsOf(row: PluginRow, contents: PluginContents): Addition[] {
+  const fresh = <T extends { name: string }>(now: T[], before: { name: string }[] | string[]) =>
+    now.filter((n) => !before.some((b) => (typeof b === "string" ? b : b.name).toLowerCase() === n.name.toLowerCase()));
+  const had = row.definitions;
+  return [
+    ...fresh(contents.definitions.primitives, had.primitives).map((d) => ({ key: `primitive:${d.name}`, kind: "primitive" as const, name: d.name, detail: `A table with ${d.fields.length} ${d.fields.length === 1 ? "field" : "fields"}` })),
+    ...fresh(contents.definitions.agents, had.agents).map((d) => ({ key: `agent:${d.name}`, kind: "agent" as const, name: d.name, detail: d.description })),
+    ...fresh(contents.definitions.triggers, had.triggers).map((d) => ({ key: `trigger:${d.name}`, kind: "trigger" as const, name: d.name, detail: `Starts Jobs of ${d.agent}` })),
+    ...fresh(contents.mcpServers.filter((s) => s.type === "http"), row.components.mcpServers).map((s) => ({ key: `server:${s.name}`, kind: "server" as const, name: s.name, detail: s.type === "http" ? s.url : "" })),
+  ];
+}
+
 /** What an update to the plugin's current commit would do, for the owner to see: `reviewed` binds the update to it. */
 async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: boolean }, row: PluginRow) {
   const read = await latest(context, row);
@@ -762,8 +781,9 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
   const skill = await skillPlan(context.db, row, read.contents, []);
   const conflicts: ShownConflict[] = [...elements.flatMap((e) => e.plan.conflicts), ...(skill?.conflicts ?? [])];
   const changes: ShownChange[] = [...elements.flatMap((e) => e.plan.changes), ...(skill?.changes ?? [])];
-  const reviewed = createHash("sha256").update(canonical({ sha: read.sha, conflicts, changes })).digest("hex");
-  return { ...read, conflicts, changes, reviewed };
+  const additions = additionsOf(row, read.contents);
+  const reviewed = createHash("sha256").update(canonical({ sha: read.sha, conflicts, changes, additions })).digest("hex");
+  return { ...read, conflicts, changes, additions, reviewed };
 }
 
 /**
@@ -775,8 +795,8 @@ const tableOf = (kind: UpdatableKind) => (kind === "agent" ? agentsTable : kind 
 
 const updatePreview = owner.input(Id).handler(async ({ input, context }) => {
   const row = await findPlugin(context.db, context.ownerId, input.id);
-  const { sha, conflicts, changes, reviewed } = await updatePlan(context, row);
-  return { sha, conflicts, changes, reviewed, names: await namesIn(context.db, context.ownerId, [conflicts, changes]) };
+  const { sha, conflicts, changes, additions, reviewed } = await updatePlan(context, row);
+  return { sha, conflicts, changes, additions, reviewed, names: await namesIn(context.db, context.ownerId, [conflicts, changes]) };
 });
 
 /** A name for each id of the owner's agents, tools, tables, fields and skill packages found in `values`, so the screen reads names. */
@@ -809,7 +829,7 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
   const row = await findPlugin(context.db, context.ownerId, input.id);
   const shown = await updatePlan(context, row);
   const { contents, url, sha, nativeRoot } = shown;
-  if ((shown.conflicts.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
+  if ((shown.conflicts.length || shown.additions.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
     throw new ORPCError("CONFLICT", { message: `Look at what updating ${row.name} changes before it is applied` });
   }
   if (input.take.some((key) => !shown.conflicts.some((c) => c.key === key))) throw new ORPCError("BAD_REQUEST", { message: "Not a field in conflict" });
@@ -841,7 +861,10 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
       try {
         // An agent is written whole: as it is now, not as it was when the plan was made, with the plugin's fields over it.
         const [agent] = kind === "agent" ? await context.db.select().from(agentsTable).where(eq(agentsTable.id, e.id)) : [];
-        const written = agent ? { ...(await agentValues(context.db, agent)), ...e.plan.set, id: e.id } : { ...e.plan.set, id: e.id };
+        const now = agent ? await agentValues(context.db, agent) : null;
+        // A tool the update gives it starts with every action on Ask: the screen showed the tool, not what of it would run unasked.
+        const gained = now && Array.isArray(e.plan.set.toolIds) ? (e.plan.set.toolIds as string[]).filter((toolId) => !now.toolIds.includes(toolId)) : [];
+        const written = now ? { ...now, ...e.plan.set, id: e.id, ...(gained.length ? { toolPermissions: gained.map((toolId) => ({ toolId, unasked: [] })) } : {}) } : { ...e.plan.set, id: e.id };
         await call(procedure as never, written as never, { context: context as never });
       } catch (err) {
         if (!(err instanceof ORPCError)) throw err;

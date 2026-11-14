@@ -1299,6 +1299,13 @@
   values underneath, then writes each element through its own procedure (`tools.update`,
   `agents.update`, `triggers.update`), so their checks apply and a tool moved to another origin
   loses its headers; an element its procedure refuses is returned in `failed`.
+  What the new version defines that the installed one didn't (`additionsOf`: definitions and
+  HTTP servers) is returned as `additions` and is part of the token, but the update makes none
+  of it: once it is applied, the row opens the plugin's Set up, whose items show what each new
+  element would be allowed to do and whose own `reviewed` token binds what is made. Set up also offers the plugin's HTTP servers
+  that aren't tools yet and need no setting, unticked (`pick.servers`). A tool an update gives
+  an existing agent is attached with every action on Ask (`toolPermissions` with nothing
+  unasked): the update's screen shows the tool gained, not which actions would run unasked.
   `plugins.uninstallPreview` returns each of the plugin's elements (agents, skill packages,
   tools, tables) with why an uninstall asks about it and the other elements it needs
   (`plugins/closure.ts`, `inUse`): its owner changed it (an override, a trigger's override, a

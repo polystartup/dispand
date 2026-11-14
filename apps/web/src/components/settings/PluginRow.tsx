@@ -15,7 +15,7 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   const queryClient = useQueryClient();
   const refresh = () =>
     Promise.all(
-      [orpc.plugins, orpc.skills, orpc.tools, orpc.agents].map((procedures) => queryClient.invalidateQueries({ queryKey: procedures.key() })),
+      [orpc.plugins, orpc.skills, orpc.tools, orpc.agents, orpc.tables, orpc.triggers].map((procedures) => queryClient.invalidateQueries({ queryKey: procedures.key() })),
     );
   const update = useMutation(orpc.plugins.update.mutationOptions({ onSuccess: refresh }));
   // An update that needs the owner's eyes: what it would change, shown before it is applied.
@@ -23,6 +23,7 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   const [looking, setLooking] = useState(false);
   const updated = (result: { sha: string; failed?: { name: string; reason: string }[] }) => {
     void refresh();
+    // What an element's own checks refused is said, not hidden.
     setNote(
       result.failed?.length
         ? `Updated to ${result.sha.slice(0, 7)}, except ${result.failed.map((f) => `${f.name} (${f.reason})`).join("; ")}.`
@@ -68,7 +69,7 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {(p.definitions.primitives.length > 0 || p.definitions.agents.length > 0) && (
+          {(p.definitions.primitives.length > 0 || p.definitions.agents.length > 0 || p.available.mcpServers.some((s) => s.type === "http" && s.settings.length === 0)) && (
             <Button size="sm" variant="ghost" aria-label={`Set up ${p.name}`} disabled={busy} onClick={() => setSettingUp(true)}>
               Set up
             </Button>
@@ -182,7 +183,19 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
       )}
       {removing && <PluginRemoveSheet id={p.id} name={p.name} onClose={() => setRemoving(false)} />}
       {settingUp && <PluginSetupSheet plugin={p} onClose={() => setSettingUp(false)} />}
-      {reviewing && <PluginUpdateSheet id={p.id} name={p.name} preview={reviewing} onClose={() => setReviewing(null)} onUpdated={updated} />}
+      {reviewing && (
+        <PluginUpdateSheet
+          id={p.id}
+          name={p.name}
+          preview={reviewing}
+          onClose={() => setReviewing(null)}
+          onUpdated={(result) => {
+            updated(result);
+            // What the version adds is made from Set up, which shows what each would be allowed to do: opened once the row holds the new definitions.
+            if (reviewing.additions.length) void refresh().then(() => setSettingUp(true));
+          }}
+        />
+      )}
     </li>
   );
 }

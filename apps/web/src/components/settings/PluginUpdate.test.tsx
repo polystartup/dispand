@@ -2,7 +2,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
-import { needsReview, UpdatePlan, type UpdateChange, type UpdateConflict } from "./PluginUpdate.tsx";
+import { needsReview, UpdatePlan, type UpdateAddition, type UpdateChange, type UpdateConflict } from "./PluginUpdate.tsx";
 
 afterEach(cleanup);
 
@@ -49,4 +49,18 @@ test("what an agent gains and where a tool's calls go are listed by name; wordin
   expect(wording.closest("details")!.textContent).toContain("Read each email.");
   expect(wording.closest("details")!.textContent).toContain("legal-research/SKILL.md");
   expect(screen.getByText("1 other change follows the plugin.")).toBeTruthy();
+});
+
+const additions: UpdateAddition[] = [
+  { key: "primitive:Invoices", kind: "primitive", name: "Invoices", detail: "A table with 1 field" },
+  { key: "agent:Billing", kind: "agent", name: "Billing", detail: "Prepares invoices." },
+];
+
+test("what a version adds is named, with where it gets made: the update has no box to tick for it", () => {
+  expect(needsReview({ conflicts: [], changes: [], additions })).toBe(true);
+  render(<UpdatePlan conflicts={[]} changes={[]} names={{}} take={[]} busy={false} onTake={() => {}} additions={additions} />);
+  const added = screen.getByRole("list", { name: "New in this version" });
+  expect(within(added).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Invoices · TableA table with 1 field", "Billing · AgentPrepares invoices."]);
+  expect(screen.queryByRole("checkbox")).toBeNull();
+  expect(screen.getByText(/Set up opens afterwards/)).toBeTruthy();
 });
