@@ -1310,7 +1310,11 @@
   stays is an element of its own (an override, an unfinished Job it started, changes held back,
   a widget). `plugins.update` takes a `choices` record as an uninstall does, re-checks the
   removals with the plugin's tables locked, and applies them through `removeElements`, the
-  function the uninstall uses. Set up also offers the plugin's HTTP servers
+  function the uninstall uses. `releaseNotes` gives the installed and the new commit and, when
+  the plugin has a `CHANGELOG.md` at its root (a regular file of at most 256 KiB, read with the
+  checkout, `plugins/release-notes.ts`) whose heading names the new manifest version, that
+  section, cut to 10,000 characters. The checkout is shallow, so no commit subjects between the
+  two are shown. The sheet renders it as plain text. Set up also offers the plugin's HTTP servers
   that aren't tools yet and need no setting, unticked (`pick.servers`). A tool an update gives
   an existing agent is attached with every action on Ask (`toolPermissions` with nothing
   unasked): the update's screen shows the tool gained, not which actions would run unasked.

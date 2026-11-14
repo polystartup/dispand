@@ -128,6 +128,7 @@ test("an update that rewords an agent or meets the owner's own change stops on i
     changes: [{ key: "agent:b:systemPrompt", kind: "agent", id: "b", name: "Intake", field: "systemPrompt", class: "wording", before: "Read.", after: "Read all." }],
     additions: [],
     removals: [],
+    releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null },
     names: {},
     reviewed: "r".repeat(64),
   });
@@ -146,7 +147,7 @@ test("an update that rewords an agent or meets the owner's own change stops on i
 });
 
 test("after an update that adds elements, Set up opens: they are made from there, not by the update", async () => {
-  fake.plugins.updatePreview.mockResolvedValue({ sha: "b".repeat(40), conflicts: [], changes: [], additions: [{ key: "agent:Billing", kind: "agent", name: "Billing", detail: "Prepares invoices." }], removals: [], names: {}, reviewed: "r".repeat(64) });
+  fake.plugins.updatePreview.mockResolvedValue({ sha: "b".repeat(40), conflicts: [], changes: [], additions: [{ key: "agent:Billing", kind: "agent", name: "Billing", detail: "Prepares invoices." }], removals: [], releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null }, names: {}, reviewed: "r".repeat(64) });
   fake.plugins.update.mockResolvedValue({ sha: "b".repeat(40) });
   fake.harnesses.list.mockResolvedValue([]);
   mount(installed);
@@ -167,6 +168,7 @@ test("what a new version drops is on the update's screen with the removal's choi
       { key: "table:t1", kind: "table", id: "t1", name: "Research", reasons: ["It has 1 row"], needs: [], keepOnly: null },
       { key: "agent:a1", kind: "agent", id: "a1", name: "Matter upkeep", reasons: [], needs: [], keepOnly: null },
     ],
+    releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null },
     names: {},
     reviewed: "r".repeat(64),
   });

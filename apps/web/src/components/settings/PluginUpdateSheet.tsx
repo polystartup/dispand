@@ -4,7 +4,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { api } from "../../lib/api.ts";
 import { refusal } from "./PluginInstallSheet.tsx";
 import { type RemovalChoice, RemovalChoices, removalPlan } from "./PluginRemoval.tsx";
-import { UpdatePlan } from "./PluginUpdate.tsx";
+import { ReleaseNotes, UpdatePlan } from "./PluginUpdate.tsx";
 
 export type UpdatePreview = Awaited<ReturnType<typeof api.plugins.updatePreview>>;
 
@@ -41,6 +41,7 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
           <SheetDescription>What this update changes. What you changed yourself stays yours unless you take the plugin's value. Nothing is applied until you confirm.</SheetDescription>
         </SheetHeader>
         <div className="space-y-5 px-6 pb-6">
+          <ReleaseNotes notes={preview.releaseNotes} />
           <UpdatePlan
             conflicts={preview.conflicts}
             changes={preview.changes}
