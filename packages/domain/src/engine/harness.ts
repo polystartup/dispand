@@ -45,6 +45,8 @@ export type StartParams = Omit<ClaudeSessionStart, "harness" | "cwd" | "permissi
   jobMemory?: JobMemory;
   /** The agents a Job's session may consult (its `consult` tool), as they were when it started; absent when none. */
   consults?: ConsultTarget[];
+  /** A Job limited to some tools of Dispand's (a Stem Job): it runs only where nothing else is offered, a cloud harness. */
+  restricted?: true;
 };
 
 /** An agent a session may consult: its id (what the tool takes), and its name and description as the asker reads them. */

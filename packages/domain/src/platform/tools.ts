@@ -12,6 +12,7 @@ import { signalsWithin } from "../assistant/review.ts";
 import { AnswerInput, answerQuestion, getQuestion, GetInput, listQuestions, ListInput } from "../questions/inbox.ts";
 import { readMemory, ReadInput, RemoveInput, removeMemoryTool, tablesOf, WriteInput, writeMemoryTool } from "../memory/tools.ts";
 import type { Rights } from "./rights.ts";
+import { type Decision, decide } from "../plugins/resolve.ts";
 
 export { BUNDLES, type Bundle, type TableScope } from "./bundles.ts";
 
@@ -63,6 +64,8 @@ export type PlatformTool = {
 
 /** Whether the Job's rights give the tool: its bundle, or its own rule when it has one. */
 export function allowed(tool: PlatformTool, rights: Rights): boolean {
+  // A Job limited to some tools (a Stem Job) has those and no other, whatever its bundles.
+  if (rights.only) return rights.only.includes(tool.name);
   return tool.available ? tool.available(rights) : tool.bundle !== null && rights.bundles.includes(tool.bundle);
 }
 
@@ -329,6 +332,32 @@ export const INBOX_TOOLS: PlatformTool[] = [
     run: (app, job, input) => answerQuestion(app, job, input as never),
   },
 ];
+
+const DecideInput = z.object({
+  conflictId: z.string().max(64),
+  decision: z.discriminatedUnion("kind", [z.object({ kind: z.literal("reset") }), z.object({ kind: z.literal("merge"), value: z.unknown() })]),
+});
+
+/**
+ * A Stem Job's one tool (`plugins/resolve.ts`): its decision on one field handed to it. Only the
+ * Job's own conflicts; what it may apply at once, and what waits for the owner's Approval, is
+ * decided there, whatever it asks.
+ */
+export const PLUGIN_DECIDE: PlatformTool = {
+  path: "",
+  name: "plugin_decide",
+  bundle: null,
+  available: () => false,
+  description: "Decides one field the owner handed you, by its conflict id: reset to take the plugin's new value, or merge with the value to keep. A merge that isn't the owner's value, the plugin's, or a list of their entries waits for the owner's approval.",
+  input: DecideInput,
+  tables: none,
+  run: async (app, job, input) => {
+    const { conflictId, decision } = DecideInput.parse(input);
+    const context = { ...app, job, ownerId: job.ownerId, headers: new Headers(), resHeaders: new Headers() };
+    const outcome = await decide(context, { type: "job", runId: job.runId }, conflictId, decision as Decision, job.runId);
+    return outcome === "gone" ? { ok: false, error: "Not a field handed to this Job" } : { ok: true, output: { outcome } };
+  },
+};
 
 const tableOfScope = async (_db: Db, _ownerId: string, input: unknown) => tablesOf(input);
 const learns = (rights: Rights) => rights.selfLearning.length > 0;

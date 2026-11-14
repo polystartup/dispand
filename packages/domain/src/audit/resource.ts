@@ -25,6 +25,8 @@ export const RESOURCE_OF: Record<string, AuditResource> = {
   proposal: "proposal",
   questions: "question",
   memory: "memory",
+  // `plugin_decide`: a Stem Job's decision on one of a plugin's fields.
+  plugin: "plugin",
 };
 
 /** The key `RESOURCE_OF` holds for a tool. */

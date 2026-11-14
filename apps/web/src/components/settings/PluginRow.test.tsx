@@ -142,7 +142,7 @@ test("an update that rewords an agent or meets the owner's own change stops on i
   expect(dialog.textContent).toContain("1 wording change");
   await userEvent.click(screen.getByRole("radio", { name: "Take the plugin's" }));
   await userEvent.click(screen.getByRole("button", { name: "Update" }));
-  expect(fake.plugins.update.mock.calls[0]![0]).toEqual({ id: "plugin_1", reviewed: "r".repeat(64), take: ["agent:a:systemPrompt"], choices: {}, tables: {}, native: [] });
+  expect(fake.plugins.update.mock.calls[0]![0]).toEqual({ id: "plugin_1", reviewed: "r".repeat(64), take: ["agent:a:systemPrompt"], choices: {}, tables: {}, native: [], stem: [] });
   // What an element's own checks refused is said, not hidden.
   expect((await screen.findByText(/except Intake \(Harness not found\)/)).textContent).toContain("Updated to bbbbbbb");
 });
@@ -155,7 +155,7 @@ test("after an update that adds elements, Set up opens: they are made from there
   await userEvent.click(screen.getByRole("button", { name: "Update law-firm" }));
   expect((await screen.findByRole("dialog")).textContent).toContain("New in this version");
   await userEvent.click(screen.getByRole("button", { name: "Update" }));
-  expect(fake.plugins.update.mock.calls[0]![0]).toEqual({ id: "plugin_1", reviewed: "r".repeat(64), take: [], choices: {}, tables: {}, native: [] });
+  expect(fake.plugins.update.mock.calls[0]![0]).toEqual({ id: "plugin_1", reviewed: "r".repeat(64), take: [], choices: {}, tables: {}, native: [], stem: [] });
   expect((await screen.findByRole("dialog")).textContent).toContain("Set up law-firm");
 });
 
@@ -182,5 +182,5 @@ test("what a new version drops is on the update's screen with the removal's choi
   expect(screen.getByRole("group", { name: "Research" }).textContent).toContain("It has 1 row");
   expect(dialog.textContent).toContain("1 other element goes with the plugin.");
   await userEvent.click(screen.getByRole("button", { name: "Update" }));
-  expect(fake.plugins.update.mock.calls[0]![0]).toEqual({ id: "plugin_1", reviewed: "r".repeat(64), take: [], choices: { "table:t1": "keep" }, tables: {}, native: [] });
+  expect(fake.plugins.update.mock.calls[0]![0]).toEqual({ id: "plugin_1", reviewed: "r".repeat(64), take: [], choices: { "table:t1": "keep" }, tables: {}, native: [], stem: [] });
 });

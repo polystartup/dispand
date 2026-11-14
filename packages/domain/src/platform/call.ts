@@ -12,7 +12,7 @@ import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
 import { approvedItems, createProposal, issues, recordInPlugin, recordOutcome, resolveRefs, takeItem, type ItemAt } from "./proposals.ts";
 import type { TableScope } from "./bundles.ts";
 import { rightsOf, type JobIdentity } from "./rights.ts";
-import { allowed, APPLY, INBOX_TOOLS, MEMORY_TOOLS, PLATFORM_TOOLS, procedureOf, PROPOSE, WHOLE_WORKSPACE, type PlatformTool } from "./tools.ts";
+import { allowed, APPLY, INBOX_TOOLS, MEMORY_TOOLS, PLATFORM_TOOLS, procedureOf, PROPOSE, WHOLE_WORKSPACE, type PlatformTool, PLUGIN_DECIDE } from "./tools.ts";
 
 // The one way a Job's session calls Dispand's own procedures, for a cloud session (in process)
 // and for the Job endpoint alike: every call is authorized here, against the Job and against
@@ -24,7 +24,7 @@ export type PlatformApp = Omit<InitialContext, "headers" | "resHeaders" | "job">
 export type ToolResult = { ok: true; output: unknown } | { ok: false; error: string };
 
 /** Every tool a Job may be given. */
-export const ALL_TOOLS = [...PLATFORM_TOOLS, PROPOSE, APPLY, ...INBOX_TOOLS, ...MEMORY_TOOLS];
+export const ALL_TOOLS = [...PLATFORM_TOOLS, PROPOSE, APPLY, ...INBOX_TOOLS, ...MEMORY_TOOLS, PLUGIN_DECIDE];
 const NEEDS_PROPOSAL =
   "This change needs the owner's approval: list it in a proposal (propose), ask for it (request_approval with the proposal's id), then have proposal_apply make it, or make the call exactly as listed, once.";
 const OVER = "This Job is over";

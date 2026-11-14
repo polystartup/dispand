@@ -14,6 +14,7 @@ export type UpdatePreview = Awaited<ReturnType<typeof api.plugins.updatePreview>
  */
 export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { id: string; name: string; preview: UpdatePreview; onClose: () => void; onUpdated: (result: Awaited<ReturnType<typeof api.plugins.update>>) => void }) {
   const [take, setTake] = useState<string[]>([]);
+  const [stem, setStem] = useState<string[]>([]);
   // What the new version drops: what is in use is kept unless the owner says otherwise, as at an uninstall.
   const [removing, setRemoving] = useState<Record<string, RemovalChoice>>({});
   const plan = removalPlan(preview.removals, removing);
@@ -26,7 +27,7 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
     setBusy(true);
     setError(null);
     try {
-      onUpdated(await api.plugins.update({ id, reviewed: preview.reviewed, take, choices: plan.choices, tables: ticked, native: preview.native.harnesses.map((h) => h.id) }));
+      onUpdated(await api.plugins.update({ id, reviewed: preview.reviewed, take, choices: plan.choices, tables: ticked, native: preview.native.harnesses.map((h) => h.id), stem }));
       onClose();
     } catch (e) {
       setError(refusal(e, "Could not update the plugin. It may have changed since: close this and update again."));
@@ -52,7 +53,10 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
             busy={busy}
             onTake={(key, taken) => setTake((prev) => (taken ? [...prev.filter((k) => k !== key), key] : prev.filter((k) => k !== key)))}
             additions={preview.additions}
+            stem={stem}
+            onStem={(key, handed) => setStem((prev) => (handed ? [...prev.filter((k) => k !== key), key] : prev.filter((k) => k !== key)))}
           />
+          {stem.length > 0 && <p className="text-[13px] text-muted">Stem decides {stem.length === 1 ? "this field" : `these ${stem.length} fields`} after the update, with no tool but its decision: they stay yours until it does, and a merged text of its own waits for your approval.</p>}
           {preview.tables.length > 0 && (
             <section aria-labelledby="update-tables" className="space-y-2">
               <h3 id="update-tables" className="text-[13px] font-medium text-muted">

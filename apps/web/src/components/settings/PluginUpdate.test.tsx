@@ -115,3 +115,18 @@ test("the native installs an update moves are named, and a runner that couldn't 
   expect(screen.getByText(/Moves to the new version on Claude Code/)).toBeTruthy();
   expect(screen.getByText(/Stays as it is on Laptop/)).toBeTruthy();
 });
+
+test("a conflict of an agent's field can be handed to Stem; a skill file's can't", async () => {
+  const conflicts = [
+    { key: "agent:a:systemPrompt", kind: "agent" as const, id: "a", name: "Drafting", field: "systemPrompt", old: "Old", mine: "Mine", next: "New" },
+    { key: "skill:p:file:x.md", kind: "skill" as const, id: "p", name: "legal", field: "file:x.md", old: "a", mine: "b", next: "c" },
+  ];
+  const onStem = vi.fn();
+  const onTake = vi.fn();
+  render(<UpdatePlan conflicts={conflicts} changes={[]} names={{}} take={[]} busy={false} onTake={onTake} stem={[]} onStem={onStem} />);
+  const agent = screen.getByRole("group", { name: /Drafting/ });
+  await userEvent.click(within(agent).getByRole("radio", { name: "Let Stem deal with it" }));
+  expect(onStem).toHaveBeenCalledWith("agent:a:systemPrompt", true);
+  expect(onTake).toHaveBeenCalledWith("agent:a:systemPrompt", false);
+  expect(within(screen.getByRole("group", { name: /legal/ })).queryByRole("radio", { name: "Let Stem deal with it" })).toBeNull();
+});

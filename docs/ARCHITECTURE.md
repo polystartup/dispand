@@ -1448,9 +1448,20 @@ decision is an Audit row (`plugin.decided`: the element, the field's name and th
 kind, never a value). An update reopens the pending conflicts of the fields whose plugin value
 it changes (`reopenChanged`), and an element that leaves the plugin drops its conflicts
 (`forgetConflicts`). Writes go through the element's own update (`plugins/write-field.ts`, which
-`resetOverride` uses too). Not yet built on it: handing conflicts to Stem from the update's
-screen with the restricted Stem Job, tables' and skill files' conflicts, and the marks on the
-element pages.
+`resetOverride` uses too). The update's screen offers "Let Stem deal with it" on a field of an
+agent, tool or trigger: `plugins.update` takes those keys (`stem`), keeps them as conflicts and
+starts one Job of the Assistant (`handToStem`, a `stem` firing with no trigger, its conflicts as
+the trigger node's data). Its snapshot is limited (`only: ["plugin_decide"]`, and no skill, tool,
+bundle, memory or consult; `withMemory` gives it no memory to read either, since it holds no
+`configure` to filter what other agents wrote by), and `allowed` gives a limited Job those tools and no other, so the
+Job server and the cloud listing offer `plugin_decide` alone; a call of another tool is refused.
+`plugin_decide` takes only the Job's own conflicts and goes through `decide`. When the Job ends,
+however it ends, what it didn't decide is `open` again (`reopenUndecided`, in `finishRun`). A
+CLI session would also offer its native tools and the user's MCP servers, so a limited Job's start
+on a CLI harness is refused (`startProblem`) until the runner starts restricted sessions: the Job
+fails and its conflicts are the owner's again. Not yet built: those restricted sessions, the
+element pages' marks and answering a merged value's Approval there, and tables' and skill files'
+conflicts.
 
 Native support currently requires `plugins.native_root = '.'`, recorded from the resolved Git
 checkout when importing or updating. Legacy rows have null until updated. Nested imports are
