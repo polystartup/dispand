@@ -69,7 +69,7 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {(p.definitions.primitives.length > 0 || p.definitions.agents.length > 0) && (
+          {(p.definitions.primitives.length > 0 || p.definitions.agents.length > 0 || p.available.mcpServers.some((s) => s.type === "http" && s.settings.length === 0)) && (
             <Button size="sm" variant="ghost" aria-label={`Set up ${p.name}`} disabled={busy} onClick={() => setSettingUp(true)}>
               Set up
             </Button>
@@ -191,8 +191,8 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
           onClose={() => setReviewing(null)}
           onUpdated={(result) => {
             updated(result);
-            // What the version adds is made from Set up, which shows what each would be allowed to do.
-            if (reviewing.additions.length) setSettingUp(true);
+            // What the version adds is made from Set up, which shows what each would be allowed to do: opened once the row holds the new definitions.
+            if (reviewing.additions.length) void refresh().then(() => setSettingUp(true));
           }}
         />
       )}

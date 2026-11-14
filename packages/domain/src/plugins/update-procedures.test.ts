@@ -15,7 +15,8 @@ const CHANGED = "com.dispand/triggers/matter-changed.json";
 /** The law-firm plugin installed and set up, with the way to publish a new version of some of its files. */
 async function setUp() {
   const ctx = { ...(await ownerContext()), gitFileUrls: true };
-  const server = await startFakeMcp([{ name: "lookup", description: "Finds case law", inputSchema: { type: "object" }, call: () => ({ content: [] }) }]);
+  // An action its server calls read-only: one a setup may start on Run.
+  const server = await startFakeMcp([{ name: "lookup", description: "Finds case law", inputSchema: { type: "object" }, annotations: { readOnlyHint: true }, call: () => ({ content: [] }) }]);
   const fx = lawFirmMarket(server.url);
   const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
   const { pluginId } = await call(router.plugins.install, { marketplaceId: market.id, entryName: "law-firm", skills: ["legal-research"] }, { context: ctx });
@@ -80,6 +81,9 @@ test("what an agent gains is listed as widening, what it only loses is silent, a
     expect(upkeep).toMatchObject({ bundles: ["data", "configure"], overridden: [] });
     expect(upkeep.dataTables).toContain(research!.id);
     expect(upkeep.tools.map((t) => t.toolId)).toEqual([caseLaw!.id]);
+    // The screen showed the tool gained, not which of its actions would run unasked: none does, though its server calls one read-only.
+    const asks = await ctx.db.select().from(schema.agentTools).where(eq(schema.agentTools.toolId, caseLaw!.id));
+    expect(asks.find((a) => a.agentId === upkeep.id)!.unasked).toEqual([]);
     expect((await agent("Drafting")).dataTables).not.toContain(research!.id);
     const [trigger] = await ctx.db.select().from(schema.triggers).where(eq(schema.triggers.pluginComponent, "Matter changed"));
     expect(trigger).toMatchObject({ config: { operations: ["updated", "created"] }, overridden: [] });
@@ -176,6 +180,8 @@ test("what a new version adds is named on the update's screen, made by none of i
     const shown = await preview();
     expect(shown.additions.map((a) => a.key).sort()).toEqual(["agent:Billing", "primitive:Invoices", "trigger:Invoice due"]);
     expect(shown.additions.find((a) => a.kind === "agent")).toMatchObject({ name: "Billing", detail: "Prepares each matter's invoice." });
+    // What it names is what the owner saw: without the screen's token, nothing is applied.
+    await expect(call(router.plugins.update, { id: pluginId }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
     // The update makes nothing new: it has no way to be told to.
     await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed }, { context: ctx });
     expect(await ctx.db.select().from(schema.agents).where(eq(schema.agents.pluginComponent, "Billing"))).toEqual([]);

@@ -829,7 +829,7 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
   const row = await findPlugin(context.db, context.ownerId, input.id);
   const shown = await updatePlan(context, row);
   const { contents, url, sha, nativeRoot } = shown;
-  if ((shown.conflicts.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
+  if ((shown.conflicts.length || shown.additions.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
     throw new ORPCError("CONFLICT", { message: `Look at what updating ${row.name} changes before it is applied` });
   }
   if (input.take.some((key) => !shown.conflicts.some((c) => c.key === key))) throw new ORPCError("BAD_REQUEST", { message: "Not a field in conflict" });
@@ -861,7 +861,10 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
       try {
         // An agent is written whole: as it is now, not as it was when the plan was made, with the plugin's fields over it.
         const [agent] = kind === "agent" ? await context.db.select().from(agentsTable).where(eq(agentsTable.id, e.id)) : [];
-        const written = agent ? { ...(await agentValues(context.db, agent)), ...e.plan.set, id: e.id } : { ...e.plan.set, id: e.id };
+        const now = agent ? await agentValues(context.db, agent) : null;
+        // A tool the update gives it starts with every action on Ask: the screen showed the tool, not what of it would run unasked.
+        const gained = now && Array.isArray(e.plan.set.toolIds) ? (e.plan.set.toolIds as string[]).filter((toolId) => !now.toolIds.includes(toolId)) : [];
+        const written = now ? { ...now, ...e.plan.set, id: e.id, ...(gained.length ? { toolPermissions: gained.map((toolId) => ({ toolId, unasked: [] })) } : {}) } : { ...e.plan.set, id: e.id };
         await call(procedure as never, written as never, { context: context as never });
       } catch (err) {
         if (!(err instanceof ORPCError)) throw err;

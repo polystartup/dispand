@@ -132,3 +132,22 @@ test("a trigger is offered with its agent, ticked, and leaves the pick when unti
   await userEvent.click(screen.getAllByRole("checkbox", { name: /Drafting/ })[0]!);
   expect(screen.queryByRole("checkbox", { name: /Research recorded/ })).toBeNull();
 });
+
+test("a server of the plugin that isn't a tool yet is offered with its address, unticked, and is picked alone when ticked", async () => {
+  fake.harnesses.list.mockResolvedValue([]);
+  fake.plugins.setupPreview.mockResolvedValue({ reviewed: "r", items: [], names: {}, waiting: [] });
+  mount({
+    ...plugin,
+    definitions: { primitives: [], agents: [], triggers: [] },
+    available: { skills: [], agents: [], mcpServers: [{ name: "case-law", type: "http", settings: [], url: "https://case-law.example.com/mcp" }, { name: "tenant", type: "http", settings: ["TENANT"], url: "https://x.example/${TENANT}/mcp" }, { name: "local", type: "stdio", settings: [] }] },
+  });
+  const server = screen.getByRole("checkbox", { name: /case-law/ }) as HTMLInputElement;
+  // Ticked only once its address is seen; one that needs a setting or runs on a machine isn't added from here.
+  expect(server.checked).toBe(false);
+  expect(server.closest("label")!.textContent).toContain("https://case-law.example.com/mcp");
+  expect(screen.queryByRole("checkbox", { name: /tenant/ })).toBeNull();
+  expect(screen.queryByRole("checkbox", { name: /local/ })).toBeNull();
+  expect(fake.plugins.setupPreview).not.toHaveBeenCalled();
+  await userEvent.click(server);
+  await vi.waitFor(() => expect(fake.plugins.setupPreview.mock.calls.at(-1)![0]).toEqual({ id: "plugin_1", pick: { primitives: [], servers: [{ name: "case-law" }] } }));
+});

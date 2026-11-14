@@ -44,8 +44,17 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
   // Names match as the server matches them: whatever their case.
   const offered = triggers.filter((t) => !t.setUp && agents.some((d) => d.name.toLowerCase() === t.agent.toLowerCase() && (d.setUp || pickedAgents.has(d.name))));
   const triggerPicks = offered.filter((t) => !unticked.has(t.name)).map((t) => t.name);
-  const pick = { primitives: primitives.map((d) => d.name).filter((n) => picked.has(n)), ...(agentPicks.length ? { agents: agentPicks } : {}), ...(triggerPicks.length ? { triggers: triggerPicks } : {}) };
-  const any = pick.primitives.length > 0 || agentPicks.length > 0 || triggerPicks.length > 0;
+  // The plugin's servers that aren't tools yet and can be added as they are: over HTTP, with no setting to enter. Ticked by the owner, once they see where its calls go.
+  const servers = (plugin.available?.mcpServers ?? []).filter((s) => s.type === "http" && s.settings.length === 0);
+  const [pickedServers, setPickedServers] = useState(() => new Set<string>());
+  const serverPicks = servers.filter((s) => pickedServers.has(s.name)).map((s) => ({ name: s.name }));
+  const pick = {
+    primitives: primitives.map((d) => d.name).filter((n) => picked.has(n)),
+    ...(agentPicks.length ? { agents: agentPicks } : {}),
+    ...(triggerPicks.length ? { triggers: triggerPicks } : {}),
+    ...(serverPicks.length ? { servers: serverPicks } : {}),
+  };
+  const any = pick.primitives.length > 0 || agentPicks.length > 0 || triggerPicks.length > 0 || serverPicks.length > 0;
   const preview = useQuery({ ...orpc.plugins.setupPreview.queryOptions({ input: { id: plugin.id, pick } }), enabled: any, retry: false });
   const setUp = useMutation(
     orpc.plugins.setUp.mutationOptions({
@@ -143,6 +152,17 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
                     {offered.map((t) => (
                       <li key={t.name}>
                         <Check checked={!unticked.has(t.name)} onChange={() => setUnticked((prev) => toggled(prev, t.name))} label={t.name} detail={`Starts Jobs of ${t.agent}`} />
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
+              )}
+              {servers.length > 0 && (
+                <Section id="setup-servers" title="Tools">
+                  <ul className="space-y-2">
+                    {servers.map((s) => (
+                      <li key={s.name}>
+                        <Check checked={pickedServers.has(s.name)} onChange={() => setPickedServers((prev) => toggled(prev, s.name))} label={s.name} detail={`A server Dispand will call: ${s.url ?? ""}`} />
                       </li>
                     ))}
                   </ul>
