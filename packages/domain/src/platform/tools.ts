@@ -413,6 +413,7 @@ export const NOT_TOOLS: string[] = [
   "plugins.uninstallPreview",
   "plugins.uninstall",
   "plugins.update",
+  "plugins.updatePreview",
   "plugins.setupPreview",
   "plugins.setUp",
   "plugins.resetOverride",

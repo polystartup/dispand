@@ -1,0 +1,52 @@
+// @vitest-environment jsdom
+import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, expect, test, vi } from "vitest";
+import { needsReview, UpdatePlan, type UpdateChange, type UpdateConflict } from "./PluginUpdate.tsx";
+
+afterEach(cleanup);
+
+const at = (kind: UpdateChange["kind"], name: string, field: string) => ({ key: `${kind}:${name}:${field}`, kind, id: name, name, field });
+const conflicts: UpdateConflict[] = [{ ...at("agent", "Drafting", "systemPrompt"), old: "Draft.", mine: "Mine.", next: "Draft well." }];
+const changes: UpdateChange[] = [
+  { ...at("agent", "Matter upkeep", "toolIds"), class: "widening", before: [], after: ["tool_1"] },
+  { ...at("tool", "case-law", "url"), class: "widening", before: "https://a.example/mcp", after: "https://b.example/mcp" },
+  { ...at("agent", "Intake", "systemPrompt"), class: "wording", before: "Read.", after: "Read each email." },
+  { ...at("skill", "law-firm", "file:legal-research/SKILL.md"), class: "wording", before: "Old.", after: "New." },
+  { ...at("agent", "Drafting", "dataTables"), class: "silent", before: ["tbl_1"], after: [] },
+];
+const names = { tool_1: "case-law", tbl_1: "Research" };
+
+test("an update needs the owner's eyes for a conflict, a widening change or a change of wording, and for nothing else", () => {
+  expect(needsReview({ conflicts: [], changes: [changes[4]!] })).toBe(false);
+  expect(needsReview({ conflicts: [], changes: [] })).toBe(false);
+  expect(needsReview({ conflicts, changes: [] })).toBe(true);
+  expect(needsReview({ conflicts: [], changes: [changes[2]!] })).toBe(true);
+  expect(needsReview({ conflicts: [], changes: [changes[0]!] })).toBe(true);
+});
+
+test("a conflict shows the three values and keeps the owner's unless they take the plugin's", async () => {
+  const take = vi.fn();
+  render(<UpdatePlan conflicts={conflicts} changes={[]} names={names} take={[]} busy={false} onTake={take} />);
+  const conflict = screen.getByRole("group", { name: "Drafting: Instructions" });
+  for (const text of ["Draft.", "Mine.", "Draft well."]) expect(conflict.textContent).toContain(text);
+  expect((within(conflict).getByRole("radio", { name: "Keep mine" }) as HTMLInputElement).checked).toBe(true);
+  await userEvent.click(within(conflict).getByRole("radio", { name: "Take the plugin's" }));
+  expect(take).toHaveBeenCalledWith("agent:Drafting:systemPrompt", true);
+});
+
+test("what an agent gains and where a tool's calls go are listed by name; wording is one line that opens; the rest is a count", async () => {
+  render(<UpdatePlan conflicts={[]} changes={changes} names={names} take={[]} busy={false} onTake={() => {}} />);
+  const widening = screen.getByRole("list", { name: "Changes that give more" });
+  expect(within(widening).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+    "Matter upkeep · Tools: none → case-law",
+    "case-law · URL: https://a.example/mcp → https://b.example/mcp",
+  ]);
+  const wording = screen.getByText("2 wording changes");
+  // Closed: the texts are there to read, not in the way.
+  expect((wording.closest("details") as HTMLDetailsElement).open).toBe(false);
+  await userEvent.click(wording);
+  expect(wording.closest("details")!.textContent).toContain("Read each email.");
+  expect(wording.closest("details")!.textContent).toContain("legal-research/SKILL.md");
+  expect(screen.getByText("1 other change follows the plugin.")).toBeTruthy();
+});

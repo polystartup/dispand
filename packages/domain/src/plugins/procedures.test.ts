@@ -10,7 +10,7 @@ import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { BUILT_IN_MARKETPLACES } from "./marketplace.ts";
 import { marketplaceUrl, packageName } from "./procedures.ts";
-import { fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd } from "./test-support.ts";
+import { fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd, updatePlugin } from "./test-support.ts";
 import { toolTarget } from "../tools/procedures.ts";
 import { addStep } from "../workflows/model.ts";
 import { type FakeAction, startFakeMcp } from "../tools/test-server.ts";
@@ -170,7 +170,7 @@ test("update replaces the imported skills' files with the latest commit's; new s
       plugins: [{ name: "document-skills", source: "./", strict: false, skills: ["./skills/pdf", "./skills/docx", "./skills/xlsx"] }],
     }),
   });
-  expect(await call(router.plugins.update, { id: pluginId }, { context: ctx })).toEqual({ sha });
+  expect(await updatePlugin(ctx, pluginId)).toEqual({ sha });
   const [pkg] = await ctx.db.select().from(skillPackages).where(eq(skillPackages.pluginId, pluginId));
   const [file] = await ctx.db.select().from(skillFiles).where(eq(skillFiles.path, "pdf/fill.py"));
   expect(file!.packageId).toBe(pkg!.id);
@@ -563,7 +563,7 @@ test("uninstall keeps its agents with their Jobs and its tools with their header
   await fx.remove();
 });
 
-test("update refreshes imported agents' prompts and tools' URLs within their origin; settings stay", async () => {
+test("update refreshes imported agents' prompts and tools' URLs; a saved token stays within its origin", async () => {
   const ctx = await context();
   const fx = await toolPlugin();
   const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
@@ -573,25 +573,29 @@ test("update refreshes imported agents' prompts and tools' URLs within their ori
     { marketplaceId: market.id, entryName: "github", reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["github"], agents: ["reviewer"], harnessId: h.id, settings: { github: { GITHUB_TOKEN: TOKEN } } },
     { context: ctx },
   );
-  // Another origin: the saved token doesn't follow it there.
-  const elsewhere = await startFakeMcp([echo]);
-  fx.plugin.commit({
-    ".mcp.json": JSON.stringify({ github: { type: "http", url: elsewhere.url, headers: { Authorization: "Bearer ${GITHUB_TOKEN}" } } }),
-    "agents/reviewer.md": "---\nname: reviewer\n---\n\nYou review carefully.\n",
-  });
-  await call(router.plugins.update, { id: pluginId }, { context: ctx });
-  expect(await call(router.agents.get, { id: agentIds[0]! }, { context: ctx })).toMatchObject({ systemPrompt: "You review carefully.", harnessId: h.id });
-  expect(await call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).toMatchObject({ url: fx.server.url });
-  expect(elsewhere.requests).toEqual([]);
-  await elsewhere.close();
   // The same origin: followed, with the saved headers.
   const v2 = fx.server.url.replace(/\/mcp$/, "/v2/mcp");
-  fx.plugin.commit({ ".mcp.json": JSON.stringify({ github: { type: "http", url: v2, headers: { Authorization: "Bearer ${GITHUB_TOKEN}" } } }) });
+  fx.plugin.commit({
+    ".mcp.json": JSON.stringify({ github: { type: "http", url: v2, headers: { Authorization: "Bearer ${GITHUB_TOKEN}" } } }),
+    "agents/reviewer.md": "---\nname: reviewer\n---\n\nYou review carefully.\n",
+  });
   const before = fx.server.requests.length;
-  await call(router.plugins.update, { id: pluginId }, { context: ctx });
+  await updatePlugin(ctx, pluginId);
+  expect(await call(router.agents.get, { id: agentIds[0]! }, { context: ctx })).toMatchObject({ systemPrompt: "You review carefully.", harnessId: h.id });
   expect(await call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).toMatchObject({ url: v2, headerNames: ["authorization"], actions: [{ name: "echo" }] });
   expect(fx.server.requests.length).toBeGreaterThan(before);
   expect(fx.server.requests.every((r) => r.authorization === `Bearer ${TOKEN}`)).toBe(true);
+  // Another origin: shown as a change of where its calls go, and once confirmed the tool moves without the saved token.
+  const elsewhere = await startFakeMcp([echo]);
+  fx.plugin.commit({ ".mcp.json": JSON.stringify({ github: { type: "http", url: elsewhere.url, headers: { Authorization: "Bearer ${GITHUB_TOKEN}" } } }) });
+  const shown = await call(router.plugins.updatePreview, { id: pluginId }, { context: ctx });
+  expect(shown.changes).toMatchObject([{ kind: "tool", field: "url", class: "widening", before: v2, after: elsewhere.url }]);
+  await expect(call(router.plugins.update, { id: pluginId }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+  expect(elsewhere.requests).toEqual([]);
+  await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed }, { context: ctx });
+  expect(await call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).toMatchObject({ url: elsewhere.url, headerNames: [] });
+  expect(elsewhere.requests.every((r) => r.authorization === undefined)).toBe(true);
+  await elsewhere.close();
   await fx.remove();
 });
 
@@ -747,7 +751,7 @@ test("update replaces the definitions: what was set up stays as the owner has it
   });
   execFileSync("git", ["rm", "-q", "com.dispand/triggers/research-recorded.json"], { cwd: fx.plugin.dir });
   fx.plugin.commit({});
-  await call(router.plugins.update, { id: pluginId }, { context: ctx });
+  await updatePlugin(ctx, pluginId);
   const [row] = await ctx.db.select().from(pluginsTable).where(eq(pluginsTable.id, pluginId));
   expect(row!.definitions.primitives.map((d) => d.name)).toEqual(["Clients", "Invoices", "Matters", "Research"]);
   expect(row!.definitions.triggers.map((d) => d.name)).toEqual(["Matter changed", "New client email"]);
@@ -969,7 +973,7 @@ test("an update of the plugin replaces what the owner left alone and keeps an ov
     ".mcp.json": JSON.stringify({ github: { type: "http", url: v2, headers: { Authorization: "Bearer ${GITHUB_TOKEN}" } } }),
     "agents/reviewer.md": "---\nname: reviewer\n---\n\nYou review carefully.\n",
   });
-  await call(router.plugins.update, { id: pluginId }, { context: ctx });
+  await updatePlugin(ctx, pluginId);
   expect(await agent()).toMatchObject({ systemPrompt: "Mine.", overridden: ["systemPrompt"] });
   // The tool's name is the owner's; its URL, which they left alone, follows.
   expect(await tool()).toMatchObject({ name: "GitHub", url: v2, overridden: ["name"] });
@@ -1040,7 +1044,7 @@ test("a file of a plugin's skill its owner changes is theirs, and the others go 
   await call(router.skills.setFile, { packageId, path: "pdf/fill.py", base64: b64("print('mine')\n") }, { context: ctx });
   expect(await marks()).toEqual({ "pdf/fill.py": "changed" });
   repo.commit({ "skills/pdf/fill.py": "print(2)\n", "skills/pdf/SKILL.md": skillMd("pdf", "Fills PDF forms, better.") });
-  await call(router.plugins.update, { id: pluginId }, { context: ctx });
+  await updatePlugin(ctx, pluginId);
   // The owner's file stays; the one they left alone is the plugin's new one.
   expect(await text("pdf/fill.py")).toBe("print('mine')\n");
   expect(await text("pdf/SKILL.md")).toContain("Fills PDF forms, better.");
@@ -1063,7 +1067,7 @@ test("a file the owner adds or removes in a plugin's skill stays so through an u
   expect(await marks()).toEqual({ "pdf/notes.md": "added" });
   expect((await view()).removed).toEqual(["pdf/fill.py"]);
   repo.commit({ "skills/pdf/fill.py": "print(2)\n" });
-  await call(router.plugins.update, { id: pluginId }, { context: ctx });
+  await updatePlugin(ctx, pluginId);
   expect((await view()).files.map((f) => f.path)).toEqual(["pdf/SKILL.md", "pdf/notes.md"]);
   expect((await view()).removed).toEqual(["pdf/fill.py"]);
   await call(router.plugins.resetOverride, { kind: "skill", id: packageId, field: "file:pdf/fill.py" }, { context: ctx });

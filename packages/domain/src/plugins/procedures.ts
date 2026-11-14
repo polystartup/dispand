@@ -27,10 +27,11 @@ import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { MAX_DESCRIPTION, PackageError, SKILL_NAME, validatePackage } from "../skills/package.ts";
 import { rebaseFiles, resetFile, store, storeUpstream, type Tx } from "../skills/procedures.ts";
-import { HeaderValue, insertTool, refreshActions, retarget } from "../tools/procedures.ts";
+import { HeaderValue, insertTool, refreshActions } from "../tools/procedures.ts";
 import { hasPlaceholder, httpTool, skillPackageName, toolName } from "./components.ts";
 import { checkChoices, type Element, inUse } from "./closure.ts";
-import { ELEMENT_FIELDS, rebase } from "./overrides.ts";
+import { type ChangeClass, elementPlans, type UpdatableKind } from "./update.ts";
+import { ELEMENT_FIELDS } from "./overrides.ts";
 import { agents as agentProcedures } from "../agents/procedures.ts";
 import { tools as toolProcedures } from "../tools/procedures.ts";
 import { triggers as triggerProcedures } from "../triggers/procedures.ts";
@@ -694,63 +695,156 @@ const uninstall = owner.input(Id.extend({ reviewed: z.string().length(64), choic
   await context.engine.narrowOwnerSessions(context.ownerId, context.db);
 });
 
-const update = owner.input(Id).handler(async ({ input, context }) => {
-  const row = await findPlugin(context.db, context.ownerId, input.id);
+/** The plugin as its marketplace lists it now: the entry's current commit, read. A failed sync keeps the entries. */
+async function latest(context: { db: Db; ownerId: string; gitFileUrls?: boolean }, row: PluginRow) {
   if (row.source === "generated" || !row.marketplaceId || !row.entryName) {
     throw new ORPCError("BAD_REQUEST", { message: `${row.name} was generated in this workspace: there is nothing to update it from` });
   }
   const allowFile = !!context.gitFileUrls;
-  // Its latest commit is what the marketplace lists now: sync it first (a failed sync keeps the entries).
   const market = await syncMarketplace(context.db, await findMarketplace(context.db, context.ownerId, row.marketplaceId), allowFile);
   const entry = market.entries.find((e) => e.name === row.entryName);
   if (!entry) throw new ORPCError("BAD_REQUEST", { message: `${market.name} no longer lists ${row.name}` });
-  const { contents, url, sha, nativeRoot } = await readEntry(market, entry, allowFile).catch(asBadRequest);
-  const moved = await context.db.transaction(async (tx) => {
+  return readEntry(market, entry, allowFile).catch(asBadRequest);
+}
+
+type Shown = { key: string; kind: UpdatableKind | "skill"; id: string; name: string; field: string };
+type ShownChange = Shown & { class: ChangeClass; before: unknown; after: unknown };
+type ShownConflict = Shown & { old: unknown; mine: unknown; next: unknown };
+
+const MAX_SHOWN_TEXT = 20_000;
+/** A file as the update's screen shows it: its text, cut, or its size when it isn't text; null when there is none. */
+function shownFile(content: Uint8Array | undefined): string | null {
+  if (content === undefined) return null;
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(content).slice(0, MAX_SHOWN_TEXT);
+  } catch {
+    return `(${content.length} bytes, not text)`;
+  }
+}
+
+/**
+ * The plugin's skill package under an update to `contents`: the files in effect afterwards, the
+ * plugin's own, and what the owner must see. A file they left alone follows the plugin (wording);
+ * one they changed, added or removed that the plugin changed too is a conflict, which stays
+ * theirs unless its key is in `take`.
+ */
+async function skillPlan(db: Db | Tx, row: PluginRow, contents: PluginContents, take: string[]) {
+  const [pkg] = await db.select().from(skillPackages).where(eq(skillPackages.pluginId, row.id));
+  if (!pkg) return null;
+  const current = await db.select({ name: skillsTable.name }).from(skillsTable).where(eq(skillsTable.packageId, pkg.id));
+  const kept = current.map((s) => s.name).filter((name) => contents.skills.some((s) => s.name === name));
+  if (kept.length === 0) throw new ORPCError("BAD_REQUEST", { message: `None of ${row.name}'s imported skills is left upstream: remove the plugin instead` });
+  const next = chosenSkills(contents, kept).files;
+  const mine = await db.select({ path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(eq(skillFiles.packageId, pkg.id));
+  const old = await db.select({ path: skillFileUpstream.path, content: skillFileUpstream.content }).from(skillFileUpstream).where(eq(skillFileUpstream.packageId, pkg.id));
+  const at = (files: { path: string; content: Uint8Array }[], path: string) => files.find((f) => f.path === path)?.content;
+  const same = (a: Uint8Array | undefined, b: Uint8Array | undefined) => (a === undefined || b === undefined ? a === b : Buffer.from(a).equals(Buffer.from(b)));
+  const changes: ShownChange[] = [];
+  const conflicts: ShownConflict[] = [];
+  let files = rebaseFiles(mine, old, next);
+  for (const path of [...new Set([...old, ...next].map((f) => f.path))].sort()) {
+    const [was, now, own] = [at(old, path), at(next, path), at(mine, path)];
+    if (same(was, now)) continue;
+    const shown = { key: `skill:${pkg.id}:file:${path}`, kind: "skill" as const, id: pkg.id, name: pkg.name, field: `file:${path}` };
+    if (same(own, was)) changes.push({ ...shown, class: "wording", before: shownFile(was), after: shownFile(now) });
+    else if (take.includes(shown.key)) files = [...files.filter((f) => f.path !== path), ...(now ? [{ path, content: now }] : [])];
+    else conflicts.push({ ...shown, old: shownFile(was), mine: shownFile(own), next: shownFile(now) });
+  }
+  return { packageId: pkg.id, files, next, changes, conflicts };
+}
+
+/** What an update to the plugin's current commit would do, for the owner to see: `reviewed` binds the update to it. */
+async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: boolean }, row: PluginRow) {
+  const read = await latest(context, row);
+  const elements = await elementPlans(context.db, context.ownerId, row, read.contents, []);
+  const skill = await skillPlan(context.db, row, read.contents, []);
+  const conflicts: ShownConflict[] = [...elements.flatMap((e) => e.plan.conflicts), ...(skill?.conflicts ?? [])];
+  const changes: ShownChange[] = [...elements.flatMap((e) => e.plan.changes), ...(skill?.changes ?? [])];
+  const reviewed = createHash("sha256").update(canonical({ sha: read.sha, conflicts, changes })).digest("hex");
+  return { ...read, conflicts, changes, reviewed };
+}
+
+/**
+ * What updating the plugin would change, before anything is done: the fields the owner changed
+ * that the plugin changed too (`conflicts`, which stay theirs unless taken), and what follows the
+ * plugin (`changes`: `widening`, `wording` or `silent`).
+ */
+const updatePreview = owner.input(Id).handler(async ({ input, context }) => {
+  const row = await findPlugin(context.db, context.ownerId, input.id);
+  const { sha, conflicts, changes, reviewed } = await updatePlan(context, row);
+  return { sha, conflicts, changes, reviewed, names: await namesIn(context.db, context.ownerId, [conflicts, changes]) };
+});
+
+/** A name for each id of the owner's agents, tools, tables, fields and skill packages found in `values`, so the screen reads names. */
+async function namesIn(db: Db, ownerId: string, values: unknown): Promise<Record<string, string>> {
+  const ids = new Set<string>();
+  const walk = (v: unknown) => {
+    if (typeof v === "string") {
+      if (/^[a-z]+_[0-9A-Z]{26}$/.test(v)) ids.add(v);
+    } else if (Array.isArray(v)) v.forEach(walk);
+    else if (typeof v === "object" && v !== null) Object.values(v).forEach(walk);
+  };
+  walk(values);
+  if (!ids.size) return {};
+  const wanted = [...ids];
+  const names: Record<string, string> = {};
+  for (const table of [agentsTable, toolsTable, tablesTable, fieldsTable, skillPackages] as const) {
+    for (const r of await db.select({ id: table.id, name: table.name }).from(table).where(and(inArray(table.id, wanted), eq(table.ownerId, ownerId)))) names[r.id] = r.name;
+  }
+  return names;
+}
+
+/**
+ * Updates the plugin to its entry's current commit. What its owner left alone follows the
+ * plugin; what they changed stays, with the plugin's new value underneath, unless its conflict's
+ * key is in `take`. An update with a conflict, a widening change or a change of wording applies
+ * only as `updatePreview` showed it (`reviewed`); one with none applies at once. Each element is
+ * written through its own procedure, with its checks; one it refuses is reported, not applied.
+ */
+const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(), take: z.array(z.string().max(700)).max(1000).default([]) })).handler(async ({ input, context }) => {
+  const row = await findPlugin(context.db, context.ownerId, input.id);
+  const shown = await updatePlan(context, row);
+  const { contents, url, sha, nativeRoot } = shown;
+  if ((shown.conflicts.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
+    throw new ORPCError("CONFLICT", { message: `Look at what updating ${row.name} changes before it is applied` });
+  }
+  if (input.take.some((key) => !shown.conflicts.some((c) => c.key === key))) throw new ORPCError("BAD_REQUEST", { message: "Not a field in conflict" });
+  const elements = await elementPlans(context.db, context.ownerId, row, contents, input.take);
+  await context.db.transaction(async (tx) => {
     await findPlugin(tx, context.ownerId, row.id, true);
-    const [pkg] = await tx.select().from(skillPackages).where(eq(skillPackages.pluginId, row.id)).for("update");
-    if (pkg) {
-      const current = await tx.select({ name: skillsTable.name }).from(skillsTable).where(eq(skillsTable.packageId, pkg.id));
-      const kept = current.map((s) => s.name).filter((name) => contents.skills.some((s) => s.name === name));
-      if (kept.length === 0) throw new ORPCError("BAD_REQUEST", { message: `None of ${row.name}'s imported skills is left upstream: remove the plugin instead` });
-      const next = chosenSkills(contents, kept).files;
-      // A file the owner left alone follows the plugin; one they changed, added or removed stays theirs.
-      const mine = await tx.select({ path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(eq(skillFiles.packageId, pkg.id));
-      const old = await tx.select({ path: skillFileUpstream.path, content: skillFileUpstream.content }).from(skillFileUpstream).where(eq(skillFileUpstream.packageId, pkg.id));
-      const files = rebaseFiles(mine, old, next);
-      const { skills } = validated(files);
-      await tx.update(skillPackages).set({ updatedAt: sql`now()` }).where(eq(skillPackages.id, pkg.id));
-      await store(tx, pkg.id, files, skills);
-      await storeUpstream(tx, pkg.id, next);
+    const skill = await skillPlan(tx, row, contents, input.take);
+    if (skill) {
+      const { skills } = validated(skill.files);
+      await tx.update(skillPackages).set({ updatedAt: sql`now()` }).where(eq(skillPackages.id, skill.packageId));
+      await store(tx, skill.packageId, skill.files, skills);
+      await storeUpstream(tx, skill.packageId, skill.next);
     }
-    // Imported tools follow their server's URL within its origin: the saved headers never go to a
-    // host the owner didn't pick. A URL holding settings stays as the owner filled it. Headers,
-    // harnesses and runners stay.
-    const moved = [];
-    for (const tool of await tx.select().from(toolsTable).where(eq(toolsTable.pluginId, row.id)).for("update")) {
-      const server = contents.mcpServers.find((s) => s.name === tool.pluginComponent);
-      if (server?.type !== "http" || tool.url === null || tool.urlSealed !== null || hasPlaceholder(server.url) || !URL.canParse(server.url)) continue;
-      // What the owner left alone follows the plugin; an override stays, with the new value underneath.
-      const { set, upstream } = rebase("tool", tool, tool, { url: server.url, transport: server.transport });
-      const url = (set.url as string | undefined) ?? tool.url;
-      if (new URL(url).origin !== new URL(tool.url).origin) continue;
-      if (Object.keys(set).length) moved.push(await retarget(tx, tool, url, (set.transport as typeof tool.transport | undefined) ?? tool.transport!));
-      await tx.update(toolsTable).set({ upstream }).where(eq(toolsTable.id, tool.id));
-    }
-    for (const agent of await tx.select().from(agentsTable).where(eq(agentsTable.pluginId, row.id)).for("update")) {
-      const found = contents.agents.find((a) => a.name === agent.pluginComponent);
-      if (!found) continue;
-      const { set, upstream } = rebase("agent", agent, agent, { systemPrompt: found.systemPrompt });
-      await tx.update(agentsTable).set({ ...(set as { systemPrompt?: string }), upstream }).where(eq(agentsTable.id, agent.id));
+    // The plugin's new values go underneath first: each element's own update then reads what differs from them as its owner's.
+    for (const e of elements) {
+      const table = e.kind === "agent" ? agentsTable : e.kind === "tool" ? toolsTable : triggersTable;
+      await tx.update(table).set({ upstream: e.plan.upstream }).where(eq(table.id, e.id));
     }
     await tx
       .update(pluginsTable)
-      // Its definitions are replaced as they are upstream; what was set up from them stays as the owner has it.
       .set({ url, sha, nativeRoot: nativeRoot ?? null, layout: contents.layout, components: componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, updatedAt: sql`now()` })
       .where(eq(pluginsTable.id, row.id));
-    return moved;
   });
-  for (const tool of moved) await refreshActions(context.db, context.secrets, context.tools, tool);
-  return { sha };
+  // Tools first: an agent's new list may name one at its new address.
+  const failed: { name: string; reason: string }[] = [];
+  for (const kind of ["tool", "agent", "trigger"] as const) {
+    for (const e of elements.filter((e) => e.kind === kind && Object.keys(e.plan.set).length)) {
+      const procedure = kind === "tool" ? toolProcedures.update : kind === "agent" ? agentProcedures.update : triggerProcedures.update;
+      const written = kind === "agent" ? { ...e.current, ...e.plan.set, id: e.id } : { ...e.plan.set, id: e.id };
+      try {
+        await call(procedure as never, written as never, { context: context as never });
+      } catch (err) {
+        if (!(err instanceof ORPCError)) throw err;
+        failed.push({ name: e.name, reason: err.message });
+      }
+    }
+  }
+  await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  return { sha, ...(failed.length ? { failed } : {}) };
 });
 
 const SetupInput = z.object({ id: z.string(), pick: SetupPick });
@@ -822,4 +916,4 @@ const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool", "tri
 });
 
 export const marketplaces = { list: listMarketplaces, add: addMarketplace, remove: removeMarketplace, sync };
-export const plugins = { discover, preview, install, list, uninstallPreview, uninstall, update, setupPreview, setUp, resetOverride, addServer };
+export const plugins = { discover, preview, install, list, uninstallPreview, uninstall, update, setupPreview, setUp, resetOverride, addServer, updatePreview };

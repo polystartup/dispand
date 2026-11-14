@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import { refusal } from "./PluginInstallSheet.tsx";
 import { PluginRemoveSheet } from "./PluginRemoveSheet.tsx";
 import { PluginSetupSheet } from "./PluginSetupSheet.tsx";
-import { type api, orpc } from "../../lib/api.ts";
+import { api, orpc } from "../../lib/api.ts";
+import { needsReview } from "./PluginUpdate.tsx";
+import { PluginUpdateSheet, type UpdatePreview } from "./PluginUpdateSheet.tsx";
 
 type Plugin = Awaited<ReturnType<typeof api.plugins.list>>[number];
 
@@ -16,11 +18,24 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
       [orpc.plugins, orpc.skills, orpc.tools, orpc.agents].map((procedures) => queryClient.invalidateQueries({ queryKey: procedures.key() })),
     );
   const update = useMutation(orpc.plugins.update.mutationOptions({ onSuccess: refresh }));
+  // An update that needs the owner's eyes: what it would change, shown before it is applied.
+  const [reviewing, setReviewing] = useState<UpdatePreview | null>(null);
+  const [looking, setLooking] = useState(false);
+  const updated = (result: { sha: string; failed?: { name: string; reason: string }[] }) => {
+    void refresh();
+    setNote(
+      result.failed?.length
+        ? `Updated to ${result.sha.slice(0, 7)}, except ${result.failed.map((f) => `${f.name} (${f.reason})`).join("; ")}.`
+        : result.sha === p.sha
+          ? "Already up to date."
+          : `Updated to ${result.sha.slice(0, 7)}.`,
+    );
+  };
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [settingUp, setSettingUp] = useState(false);
-  const busy = update.isPending;
+  const busy = update.isPending || looking;
   const available = [
     ...p.available.skills.map((s) => `${s.name} (skill)`),
     ...p.available.mcpServers.map((s) => `${s.name} (MCP server)`),
@@ -66,12 +81,18 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
               disabled={busy}
               onClick={() =>
                 void run(async () => {
-                  const { sha } = await update.mutateAsync({ id: p.id });
-                  setNote(sha === p.sha ? "Already up to date." : `Updated to ${sha.slice(0, 7)}.`);
+                  setLooking(true);
+                  try {
+                    const preview = await api.plugins.updatePreview({ id: p.id });
+                    if (needsReview(preview)) setReviewing(preview);
+                    else updated(await update.mutateAsync({ id: p.id, reviewed: preview.reviewed }));
+                  } finally {
+                    setLooking(false);
+                  }
                 }, "Could not update the plugin.")
               }
             >
-              {update.isPending ? "Updating…" : "Update"}
+              {update.isPending || looking ? "Updating…" : "Update"}
             </Button>
           )}
           <Button
@@ -161,6 +182,7 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
       )}
       {removing && <PluginRemoveSheet id={p.id} name={p.name} onClose={() => setRemoving(false)} />}
       {settingUp && <PluginSetupSheet plugin={p} onClose={() => setSettingUp(false)} />}
+      {reviewing && <PluginUpdateSheet id={p.id} name={p.name} preview={reviewing} onClose={() => setReviewing(null)} onUpdated={updated} />}
     </li>
   );
 }
