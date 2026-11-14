@@ -17,6 +17,7 @@ import { JobRights, type Rights } from "./JobRights.tsx";
 import { SelfLearning } from "./SelfLearning.tsx";
 import { qualifiedName } from "@dispand/domain/plugins/names";
 import { Overridden } from "./Overridden.tsx";
+import { StemMarks } from "./StemMarks.tsx";
 import { BannerSlot, Empty, FormField, NextStep } from "./parts.tsx";
 
 /** The fields a plugin gives an agent, as this form names them. */
@@ -118,7 +119,10 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
           <p className="text-[13px] text-muted">The workspace's Assistant: it can't be deleted. Its name, harness, model and instructions are yours to change.</p>
         )}
         {agent?.plugin && (
-          <Overridden plugin={agent.plugin.name} overridden={agent.overridden} labels={FIELD_LABELS} busy={reset.isPending} onReset={(field) => reset.mutate({ kind: "agent", id: agent.id, field })} />
+          <>
+            <Overridden plugin={agent.plugin.name} overridden={agent.overridden} labels={FIELD_LABELS} busy={reset.isPending} onReset={(field) => reset.mutate({ kind: "agent", id: agent.id, field })} />
+            <StemMarks kind="agent" id={agent.id} labels={FIELD_LABELS} />
+          </>
         )}
         {reset.error && <p role="alert" className="text-[13px] text-danger">{refusal(reset.error, "Could not reset the field. Try again.")}</p>}
         <FormField label="Name" htmlFor="agent-name">

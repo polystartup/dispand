@@ -1459,9 +1459,12 @@ Job server and the cloud listing offer `plugin_decide` alone; a call of another 
 however it ends, what it didn't decide is `open` again (`reopenUndecided`, in `finishRun`). A
 CLI session would also offer its native tools and the user's MCP servers, so a limited Job's start
 on a CLI harness is refused (`startProblem`) until the runner starts restricted sessions: the Job
-fails and its conflicts are the owner's again. Not yet built: those restricted sessions, the
-element pages' marks and answering a merged value's Approval there, and tables' and skill files'
-conflicts.
+fails and its conflicts are the owner's again. On the element's page (`StemMarks`, from
+`plugins.conflicts`), each conflict says where it is: Stem is looking; Stem's merged value waits
+for the owner, who accepts it or keeps theirs (`plugins.resolveConflict`, `answerConflict`, with
+the same check); or it is theirs again, with the three choices of the update's screen (keep
+theirs, take the plugin's, or hand it to Stem once more against the values as they are now). Not
+yet built: the runner's restricted sessions, and tables' and skill files' conflicts.
 
 Native support currently requires `plugins.native_root = '.'`, recorded from the resolved Git
 checkout when importing or updating. Legacy rows have null until updated. Nested imports are

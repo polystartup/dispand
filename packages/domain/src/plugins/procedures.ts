@@ -50,7 +50,7 @@ import { canonical } from "../platform/approvals.ts";
 import { runItemsAsOwner, SetupPick, setupItems } from "./setup.ts";
 import { addServer } from "./servers.ts";
 import { writeFields } from "./write-field.ts";
-import { forgetConflicts, reopenChanged } from "./resolve.ts";
+import { answerConflict, fieldNow, forgetConflicts, ownerChoice, reopenChanged } from "./resolve.ts";
 import { findAssistant } from "../agents/builtin.ts";
 import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, PluginError, type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
@@ -1211,4 +1211,43 @@ const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool", "tri
 });
 
 export const marketplaces = { list: listMarketplaces, add: addMarketplace, remove: removeMarketplace, sync };
-export const plugins = { discover, preview, install, list, uninstallPreview, uninstall, update, setupPreview, setUp, resetOverride, addServer, updatePreview };
+const ElementRef = z.object({ kind: z.enum(["agent", "tool", "trigger"]), id: z.string().max(64) });
+
+/** The conflicts of one of a plugin's elements: with Stem, waiting for the owner's Approval, or theirs again. */
+const conflicts = owner.input(ElementRef).handler(async ({ input, context }) => {
+  if (context.job) throw new ORPCError("FORBIDDEN");
+  const rows = await context.db
+    .select()
+    .from(pluginConflicts)
+    .where(and(eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.kind, input.kind), eq(pluginConflicts.elementId, input.id)))
+    .orderBy(asc(pluginConflicts.field));
+  return rows.map((r) => ({ id: r.id, field: r.field, status: r.status, mine: r.mine, next: r.next, merged: r.status === "approval" ? r.merged : null }));
+});
+
+/**
+ * The owner's choice on a conflict: on Stem's merged value, accept or decline it; on one that is
+ * theirs again, keep their value, take the plugin's, or hand it to Stem once more.
+ */
+const resolveConflict = owner.input(z.object({ id: z.string().max(64), choice: z.enum(["accept", "decline", "mine", "plugin", "stem"]) })).handler(async ({ input, context }) => {
+  if (context.job) throw new ORPCError("FORBIDDEN");
+  const actor = { type: "user" as const, userId: context.ownerId };
+  if (input.choice === "accept" || input.choice === "decline") {
+    if ((await answerConflict(context, actor, input.id, input.choice === "accept")) === "gone") throw new ORPCError("NOT_FOUND");
+  } else if (input.choice === "mine" || input.choice === "plugin") {
+    await ownerChoice(context, actor, input.id, input.choice);
+  } else {
+    const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, input.id), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "open")));
+    if (!c) throw new ORPCError("NOT_FOUND");
+    const now = await fieldNow(context.db, c);
+    const assistant = await findAssistant(context.db, context.ownerId);
+    if (!now || !assistant) throw new ORPCError("BAD_REQUEST", { message: !now ? "It is no longer the plugin's" : "Set the Assistant up first: Stem is the Assistant" });
+    const table = c.kind === "agent" ? agentsTable : c.kind === "tool" ? toolsTable : triggersTable;
+    const [element] = await context.db.select({ name: table.name }).from(table).where(eq(table.id, c.elementId));
+    // Handed off again against the values as they are now.
+    await handToStem(context, c.pluginId, assistant.agentId, [{ key: `${c.kind}:${c.elementId}:${c.field}`, kind: c.kind, id: c.elementId, name: element?.name ?? c.kind, field: c.field, old: c.old, mine: now.value, next: now.plugin }]);
+  }
+  await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  return { ok: true };
+});
+
+export const plugins = { discover, preview, install, list, uninstallPreview, uninstall, update, setupPreview, setUp, resetOverride, addServer, updatePreview, conflicts, resolveConflict };
