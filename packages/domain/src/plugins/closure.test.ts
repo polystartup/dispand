@@ -194,13 +194,14 @@ test("a table can't be deleted while a table that stays names its rows: the unin
   }
 });
 
-test("a removal locks every element of the plugin before it works out what is in use, agents before their skills and tools", async () => {
-  const { pluginId, remove } = await setUp();
+test("a removal takes the consult lock, then locks every element of the plugin, triggers before agents and agents before their skills and tools", async () => {
+  const { ctx, pluginId, remove } = await setUp();
   try {
     const recording = await recordingDb();
-    await recording.db.transaction((tx) => lockElements(tx, pluginId));
+    await recording.db.transaction((tx) => lockElements(tx, ctx.ownerId, pluginId));
+    expect(recording.statements[0]).toContain("pg_advisory_xact_lock");
     const locked = recording.statements.flatMap((q) => /^select .* from "(\w+)".* for update/s.exec(q)?.[1] ?? []);
-    expect(locked).toEqual(["tables", "agents", "triggers", "skill_packages", "tools"]);
+    expect(locked).toEqual(["tables", "triggers", "agents", "skill_packages", "tools"]);
   } finally {
     remove();
   }

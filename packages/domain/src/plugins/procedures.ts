@@ -25,6 +25,7 @@ import {
 } from "../db/schema.ts";
 import { pluginNativeKey } from "../skills/native.ts";
 import { newId } from "../ids.ts";
+import { lockConsults } from "../engine/consults.ts";
 import { authed, base, type InitialContext } from "../rpc/context.ts";
 import { MAX_DESCRIPTION, PackageError, SKILL_NAME, validatePackage } from "../skills/package.ts";
 import { rebaseFiles, resetFile, store, storeUpstream, type Tx } from "../skills/procedures.ts";
@@ -634,12 +635,15 @@ const list = owner.handler(async ({ context }) => {
  * Locks every element row of the plugin, as their own writes lock them, before a removal works
  * out what is in use: an override, a row of its tables, or a new use of its skills or tools
  * (which share-locks them) waits for the removal instead of landing between the check and the
- * deletion. In the order the writes take them (agents, then their skills and tools).
+ * deletion. In the order the writes take them (the consult lock, triggers, agents, then their skills and tools).
  */
-export async function lockElements(tx: Tx, pluginId: string) {
+export async function lockElements(tx: Tx, ownerId: string, pluginId: string) {
+  // The consult lock first, as an agent's edit and its deletion take it before the agent's row.
+  await lockConsults(tx, ownerId);
   await tx.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.pluginId, pluginId)).for("update");
-  await tx.select({ id: agentsTable.id }).from(agentsTable).where(eq(agentsTable.pluginId, pluginId)).for("update");
+  // Triggers before their agents, as a Job's start takes them.
   await tx.select({ id: triggersTable.id }).from(triggersTable).where(eq(triggersTable.pluginId, pluginId)).for("update");
+  await tx.select({ id: agentsTable.id }).from(agentsTable).where(eq(agentsTable.pluginId, pluginId)).for("update");
   await tx.select({ id: skillPackages.id }).from(skillPackages).where(eq(skillPackages.pluginId, pluginId)).for("update");
   await tx.select({ id: toolsTable.id }).from(toolsTable).where(eq(toolsTable.pluginId, pluginId)).for("update");
 }
@@ -747,7 +751,7 @@ const uninstall = owner.input(Id.extend({ reviewed: z.string().length(64), choic
   if (context.job) throw new ORPCError("FORBIDDEN", { message: "Plugin removal requires an owner session" });
   const out = await context.db.transaction(async (tx) => {
     const row = await findPlugin(tx, context.ownerId, input.id, true);
-    await lockElements(tx, row.id);
+    await lockElements(tx, context.ownerId, row.id);
     const elements = await inUse(tx, context.ownerId, row.id);
     if (removalReview(elements) !== input.reviewed) throw new ORPCError("CONFLICT", { message: `${row.name} changed since you looked: look at what would be removed again` });
     const problem = checkChoices(elements, input.choices);
@@ -1064,7 +1068,7 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
     // What leaves, worked out again with the plugin's elements locked: removed only as the screen showed it.
     let out: Awaited<ReturnType<typeof removeElements>> = [];
     if (shown.leaving.size) {
-      await lockElements(tx, row.id);
+      await lockElements(tx, context.ownerId, row.id);
       const removals = await inUse(tx, context.ownerId, row.id, shown.leaving, shown.after);
       if (canonical(removals) !== canonical(shown.removals)) throw new ORPCError("CONFLICT", { message: `${row.name} changed since you looked: look at what updating it changes again` });
       const problem = checkChoices(removals, input.choices);
