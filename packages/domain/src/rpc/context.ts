@@ -44,6 +44,12 @@ export type InitialContext = {
    * insert, under this name in it. Server-owned; never built from request input.
    */
   pluginElement?: { pluginId: string; component: string; definition?: PrimitiveDefinition };
+  /**
+   * A write that holds only while one field still has this value (a Stem decision,
+   * `plugins/resolve.ts`): the element's update checks it under its row lock and refuses with
+   * CONFLICT otherwise. Server-owned; never built from request input.
+   */
+  expectField?: { field: string; value: unknown };
   headers: Headers;
   /** Headers the web server adds to the response (refreshed session cookies). */
   resHeaders: Headers;

@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/server";
 import { and, eq, inArray } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { agents as agentsTable, pluginConflicts, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
@@ -60,8 +61,13 @@ async function fresh(db: Db | Tx, c: Conflict): Promise<{ plugin: unknown } | "g
   return sameValue(kind, c.field, now.value, c.mine) && sameValue(kind, c.field, now.plugin, c.next) ? { plugin: now.plugin } : "stale";
 }
 
-/** Writes the decided value; a tool the agent gains by it starts with every action on Ask, as a tool an update gives does. */
-async function apply(context: Context, c: Conflict, value: unknown) {
+/**
+ * Writes the decided value; a tool the agent gains by it starts with every action on Ask, as a
+ * tool an update gives does. With `mine`, the write holds only while the field still has that
+ * value, checked by the element's update under its row lock: false when the owner's change got
+ * there first.
+ */
+async function apply(context: Context, c: Conflict, value: unknown, mine?: unknown): Promise<boolean> {
   let extra = {};
   if (c.kind === "agent" && c.field === "toolIds" && Array.isArray(value)) {
     const [agent] = await context.db.select().from(agentsTable).where(eq(agentsTable.id, c.elementId));
@@ -69,7 +75,20 @@ async function apply(context: Context, c: Conflict, value: unknown) {
     const gained = (value as string[]).filter((id) => !had.includes(id));
     if (gained.length) extra = { toolPermissions: gained.map((toolId) => ({ toolId, unasked: [] })) };
   }
-  await writeFields(context, c.kind, c.elementId, { [c.field]: value, ...extra });
+  try {
+    await writeFields(mine === undefined ? context : { ...context, expectField: { field: c.field, value: mine } }, c.kind, c.elementId, { [c.field]: value, ...extra });
+    return true;
+  } catch (err) {
+    if (mine !== undefined && err instanceof ORPCError && err.code === "CONFLICT") return false;
+    throw err;
+  }
+}
+
+/** A decision whose field changed before it could be written: the conflict is the owner's again. */
+async function reopen(context: Context, actor: AuditActor, c: Conflict): Promise<"reopened"> {
+  await context.db.update(pluginConflicts).set({ status: "open", merged: null }).where(eq(pluginConflicts.id, c.id));
+  await audit(context, actor, c, "reopened", c.runId);
+  return "reopened";
 }
 
 /**
@@ -99,8 +118,8 @@ export async function decide(context: Context, actor: AuditActor, conflictId: st
     await audit(context, actor, c, "approval", c.runId);
     return "approval";
   }
-  // shortcut: the check above and this write aren't one transaction (the element's update runs its own, with a session lookup that can't nest), so an owner's save landing in the milliseconds between them is overwritten; make each element update take an expected value, checked under its row lock, if that ever shows up.
-  await apply(context, c, value);
+  // The check above read the field; the write holds only if it still has the owner's value, so a save landing in between wins.
+  if (!(await apply(context, c, value, c.mine))) return reopen(context, actor, c);
   await context.db.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
   await audit(context, actor, c, decision.kind, c.runId);
   return "applied";
@@ -120,7 +139,7 @@ export async function answerConflict(context: Context, actor: AuditActor, confli
     await audit(context, actor, c, "reopened", c.runId);
     return "reopened";
   }
-  if (approved && state !== "gone") await apply(context, c, c.merged);
+  if (approved && state !== "gone" && !(await apply(context, c, c.merged, c.mine))) return reopen(context, actor, c);
   await context.db.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
   if (state === "gone") return "gone";
   await audit(context, actor, c, approved ? "approved" : "declined", c.runId);

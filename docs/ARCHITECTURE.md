@@ -1442,9 +1442,9 @@ conflict is `open`, the owner's again); a reset takes the plugin's value; a deci
 once when its value is `mine` or `next`, except a change to an agent's rights (bundles, tables,
 tools, skills, self-learning, consults), which combine and so always wait; anything else waits in
 `merged` for the owner's Approval, which `answerApproval` applies (yes) or drops ("Keep mine") per conflict, with
-the same check. The check and the write are two steps (the element's update runs its own
-transaction), so an owner's save landing between them, within the same call, is the one known
-gap. A tool an agent gains by a decision starts with every action on Ask. Each
+the same check. The write holds only while the field still has the owner's value: the element's update checks
+`context.expectField` (server-owned) under its row lock, or in its write for a tool, and a save
+that got there first refuses it and reopens the conflict. A tool an agent gains by a decision starts with every action on Ask. Each
 decision is an Audit row (`plugin.decided`: the element, the field's name and the decision's
 kind, never a value). An update reopens the pending conflicts of the fields whose plugin value
 it changes (`reopenChanged`), and an element that leaves the plugin drops its conflicts
@@ -1459,7 +1459,7 @@ removal stops them, a type change may. A table change that takes values away (a 
 some) puts a digest of that field's values in every row under the token too (`TablePlan.values`):
 a value written after the screen was read refuses the update, and the screen is read again.
 The read and the field operation aren't one transaction (the operation runs its own), so a write
-landing within the same call is the gap left, as for Stem's decisions. The update's screen offers "Let Stem deal with it" on a field of an
+landing within the same call is the gap left. The update's screen offers "Let Stem deal with it" on a field of an
 agent, tool or trigger: `plugins.update` takes those keys (`stem`), keeps them as conflicts and
 starts one Job of the Assistant (`handToStem`, a `stem` firing with no trigger, its conflicts as
 the trigger node's data). Its snapshot is limited (`only: ["plugin_decide"]`, and no skill, tool,

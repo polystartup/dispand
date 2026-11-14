@@ -18,7 +18,8 @@ import { lockConsults } from "../engine/consults.ts";
 import { skillsAndTools } from "./skills-and-tools.ts";
 import { Permission, setPermission, toolPermissionTarget } from "./tool-ask.ts";
 import { effectiveTools } from "./tools.ts";
-import { overriddenAfter, refuseOwnDelete } from "../plugins/overrides.ts";
+import { overriddenAfter, refuseOwnDelete, sameValue } from "../plugins/overrides.ts";
+import { agentValues } from "../plugins/update.ts";
 
 const owner = base.use(authed);
 
@@ -245,6 +246,12 @@ const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async
   const { row, ended } = await context.db.transaction(async (tx) => {
     // First: a consult opened meanwhile is either seen by `endConsults` or sees this change.
     await lockConsults(tx, context.ownerId);
+    // A write that holds only while a field is as it was read (a Stem decision): checked with the row locked.
+    if (context.expectField) {
+      const [locked] = await tx.select().from(agentsTable).where(and(eq(agentsTable.id, id), eq(agentsTable.ownerId, context.ownerId))).for("update");
+      const now = locked ? (await agentValues(tx, locked))[context.expectField.field as keyof Awaited<ReturnType<typeof agentValues>>] : undefined;
+      if (!locked || !sameValue("agent", context.expectField.field, now, context.expectField.value)) throw new ORPCError("CONFLICT", { message: "This field changed meanwhile" });
+    }
     const [row] = await tx
       .update(agentsTable)
       .set({ ...fields, model: fields.model ?? null, ...(bundles ? { bundles } : {}), ...(selfLearning ? { selfLearning } : {}), ...(dataTables ? { dataTables } : {}), overridden })

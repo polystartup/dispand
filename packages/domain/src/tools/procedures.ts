@@ -307,6 +307,9 @@ async function askAgain(db: Db | Tx, toolId: string) {
   await db.update(agentTools).set({ unasked: [] }).where(eq(agentTools.toolId, toolId));
 }
 
+/** The column of a tool's field a plugin sets. */
+const toolColumn = (field: string) => (field === "url" ? toolsTable.url : field === "transport" ? toolsTable.transport : toolsTable.name);
+
 /** Points the tool at a new (plain) URL, under the same rules as `update`; its actions are listed again afterwards. */
 export async function retarget(db: Db | Tx, row: Row, url: string, transport: ToolTransport): Promise<Row> {
   if (!Url.safeParse(url).success) bad("Not an http(s) URL");
@@ -596,10 +599,11 @@ const update = owner
         // Another server's actions don't describe this one, nor does the catalog entry it came from.
         ...(moved ? { actions: [], refreshedAt: null, catalogId: null, permissionRevision: sql`${toolsTable.permissionRevision} + 1` } : {}),
       })
-      .where(and(eq(toolsTable.id, current.id), eq(toolsTable.ownerId, context.ownerId)))
+      // A write that holds only while a field is as it was read (a Stem decision): compared in the write itself.
+      .where(and(eq(toolsTable.id, current.id), eq(toolsTable.ownerId, context.ownerId), ...(context.expectField ? [eq(toolColumn(context.expectField.field), context.expectField.value as string)] : [])))
       .returning()
       .catch((e: unknown) => nameTaken(e, input.name ?? current.name));
-    if (!row) throw new ORPCError("NOT_FOUND");
+    if (!row) throw context.expectField ? new ORPCError("CONFLICT", { message: "This field changed meanwhile" }) : new ORPCError("NOT_FOUND");
     if (moved) {
       await askAgain(context.db, row.id);
       await context.engine.narrowOwnerSessions(context.ownerId, context.db);

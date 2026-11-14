@@ -7,6 +7,7 @@ import { ownerContext } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { answerApproval, answerConflict, decide, reopenChanged } from "./resolve.ts";
 import { lawFirmMarket } from "./test-support.ts";
+import { writeFields } from "./write-field.ts";
 
 const OWNER = { type: "user" as const, userId: "" };
 
@@ -168,6 +169,30 @@ test("on the element's page, the owner decides a conflict on the values shown: t
     await choose(third, "mine");
     expect((await s.drafting()).systemPrompt).toBe("Mine, and Next");
     expect(await listed()).toEqual([]);
+  } finally {
+    s.remove();
+  }
+});
+
+test("an element's update with an expected field value refuses when the field changed, and writes when it didn't: agents, tools and triggers", async () => {
+  const s = await setUp();
+  try {
+    const expecting = (value: unknown, field: string) => ({ ...s.ctx, expectField: { field, value } });
+    // An agent: its instructions are "Mine".
+    await expect(writeFields(expecting("Not mine", "systemPrompt"), "agent", s.agent.id, { systemPrompt: "Stem's" })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect((await s.drafting()).systemPrompt).toBe("Mine");
+    await writeFields(expecting("Mine", "systemPrompt"), "agent", s.agent.id, { systemPrompt: "Stem's" });
+    expect((await s.drafting()).systemPrompt).toBe("Stem's");
+    // A tool, compared in its write.
+    const tool = await call(router.tools.create, { name: "Notes", url: "https://notes.example.com/mcp", transport: "streamable-http", headers: {} }, { context: s.ctx });
+    await expect(writeFields(expecting("Other", "name"), "tool", tool.id, { name: "Notes 2" })).rejects.toMatchObject({ code: "CONFLICT" });
+    await writeFields(expecting("Notes", "name"), "tool", tool.id, { name: "Notes 2" });
+    expect((await s.ctx.db.select().from(schema.tools).where(eq(schema.tools.id, tool.id)))[0]!.name).toBe("Notes 2");
+    // A trigger, under its row lock.
+    const trigger = await call(router.triggers.create, { agentId: s.agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: s.ctx });
+    await expect(writeFields(expecting("Stop.", "instructions"), "trigger", trigger.id, { instructions: "Work hard." })).rejects.toMatchObject({ code: "CONFLICT" });
+    await writeFields(expecting("Work.", "instructions"), "trigger", trigger.id, { instructions: "Work hard." });
+    expect((await s.ctx.db.select().from(schema.triggers).where(eq(schema.triggers.id, trigger.id)))[0]!.instructions).toBe("Work hard.");
   } finally {
     s.remove();
   }
