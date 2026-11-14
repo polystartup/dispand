@@ -681,6 +681,17 @@ async function removeElements(tx: Tx, ownerId: string, engine: InitialContext["e
   for (const id of of("trigger", true)) await tx.update(triggersTable).set({ pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(triggersTable.id, id));
   const triggersGone = of("trigger", false);
   if (triggersGone.length) await tx.delete(triggersTable).where(inArray(triggersTable.id, triggersGone));
+  // What left is no longer the plugin's: its setup record forgets it, so a definition of that name can be set up again.
+  const left = new Set(elements.map((e) => e.id));
+  const [plugin] = await tx.select({ created: pluginsTable.created }).from(pluginsTable).where(eq(pluginsTable.id, row.id));
+  if (plugin) {
+    const { from = {}, ...kinds } = plugin.created;
+    const created = {
+      ...Object.fromEntries(Object.entries(kinds).map(([kind, ids]) => [kind, (ids ?? []).filter((id) => !left.has(id))])),
+      from: Object.fromEntries(Object.entries(from).filter(([, id]) => !left.has(id))),
+    };
+    await tx.update(pluginsTable).set({ created }).where(eq(pluginsTable.id, row.id));
+  }
   return out;
 }
 

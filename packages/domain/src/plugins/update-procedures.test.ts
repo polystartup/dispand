@@ -252,6 +252,9 @@ test("a trigger a new version drops while its agent stays is asked about when th
     await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, choices: { [shown.removals[0]!.key]: "keep" } }, { context: ctx });
     expect((await ctx.db.select().from(schema.triggers).where(eq(schema.triggers.id, trigger!.id)))[0]).toMatchObject({ pluginId: null, instructions: "Mine.", overridden: [] });
     expect(await call(router.triggers.get, { id: trigger!.id }, { context: ctx })).toMatchObject({ plugin: null });
+    // No longer the plugin's: its setup record forgets it, so a definition of that name could be set up again.
+    const [plugin] = await ctx.db.select({ created: schema.plugins.created }).from(schema.plugins).where(eq(schema.plugins.id, pluginId));
+    expect(JSON.stringify(plugin!.created)).not.toContain(trigger!.id);
   } finally {
     remove();
   }
