@@ -1264,6 +1264,15 @@
   every tool on Ask and adds no plugin server the install left unticked (it waits for Set up,
   which shows its address), and a poll of an agent it makes waits (a poll runs its action
   unasked); the sheet lists what was refused or left waiting.
+  The Assistant proposes the same install: `plugins_discover`, `plugins_preview` and
+  `plugins_list` are `configure` reads, and `plugins_install` is a grant (a proposal item) whose
+  input carries `plugins_preview`'s `reviewed` and the `setup` pick. From a Job, the install
+  always requires the token and refuses MCP servers, settings, agent files and a native
+  install; its setup items run under the Job's context, whose approved item is the approval.
+  A tool's `shown` hook runs when an item is proposed: for `plugins_install` it reads the plugin
+  again, refuses a token that isn't that read's, and stores the picked agents' rights on the item
+  (`ProposalItem.shown`), which `proposalView` returns and `PluginInstallItem` shows. The tool's
+  `tables` is the whole workspace, so only a Job on every table proposes it.
   What a setup makes is the plugin's from its insert: `runItemsAsOwner` passes
   `context.pluginElement` (a value no input sets) and `tables.create`, `fields.create` and
   `agents.create` write it on the row (`tables.plugin_id`, `plugin_component` and the

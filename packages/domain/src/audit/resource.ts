@@ -18,6 +18,7 @@ export const RESOURCE_OF: Record<string, AuditResource> = {
   // A list of the workspace's workflows: no row of its own.
   workflows: "workspace",
   tools: "tool",
+  plugins: "plugin",
   // Audit's own list: the workspace's record.
   audit: "workspace",
   propose: "proposal",

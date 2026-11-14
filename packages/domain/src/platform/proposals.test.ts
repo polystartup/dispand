@@ -1,10 +1,10 @@
 import { call } from "@orpc/server";
 import { eq, sql } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
-import { agents, agentTools, fields as fieldsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, user } from "../db/schema.ts";
+import { agents, agentTools, fields as fieldsTable, plugins as pluginsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
-import { removePlugin } from "../plugins/test-support.ts";
+import { lawFirm, lawFirmMarket, removePlugin } from "../plugins/test-support.ts";
 import { startFakeMcp } from "../tools/test-server.ts";
 import type { Bundle } from "./bundles.ts";
 import { callPlatformTool, toolsOf, type JobIdentity } from "./call.ts";
@@ -233,7 +233,7 @@ test("an approval doesn't bring back a right taken since, nor skip the procedure
 test("every tool marked as a grant is refused without a proposal", async () => {
   const s = await setup(["data", "configure"]);
   const grants = PLATFORM_TOOLS.filter((t) => t.grant);
-  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_permission", "agents_update", "fields_delete", "harnesses_set_limit", "tables_delete", "tools_add", "tools_add_from_catalog", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
+  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_permission", "agents_update", "fields_delete", "harnesses_set_limit", "plugins_install", "tables_delete", "tools_add", "tools_add_from_catalog", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
   const table = await call(router.tables.create, { name: "Clients" }, { context: s.context });
   const field = (await call(router.tables.get, { id: table.id }, { context: s.context })).fields[0]!;
   const inputs: Record<string, unknown> = {
@@ -250,6 +250,7 @@ test("every tool marked as a grant is refused without a proposal", async () => {
     tools_delete: { id: "tool_x" },
     harnesses_set_limit: { id: s.agent.harnessId, maxWorking: 10 },
     workspace_set_checkpoint: { checkpoint: 500 },
+    plugins_install: { marketplaceId: "mkt_x", entryName: "x", reviewed: "r".repeat(64) },
   };
   for (const t of grants) expect(((await s.tool(t.name, inputs[t.name])) as { error: string }).error).toMatch(NEEDS);
 });
@@ -944,4 +945,48 @@ test("workspace availability filters proposals and invalidates previously review
   const masked = s.idOf(await s.propose([{ tool: "agents_create", input: { ...s.newAgent, toolIds: ["tool_mail"] } }]));
   expect((await proposalView(s.context.db, s.context.ownerId, masked))!.items[0]!.tools![0]!.runs).toEqual([]);
   expect(PLATFORM_TOOLS.some((t) => t.name === "tools_set_action_enabled")).toBe(false);
+});
+
+test("the Assistant proposes a plugin's install with a pick: approved, it makes the plugin's elements; a commit pushed meanwhile refuses it", async () => {
+  const s = await setup();
+  Object.assign(s.context, { gitFileUrls: true });
+  const fx = lawFirmMarket();
+  onTestFinished(() => fx.remove());
+  const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: s.context });
+  const entry = { marketplaceId: market.id, entryName: "law-firm" };
+  const shown = (await s.tool("plugins_preview", entry)) as { ok: true; output: { reviewed: string } };
+  const install = { ...entry, reviewed: shown.output.reviewed, skills: ["legal-research"], setup: { primitives: ["Clients", "Matters", "Research"], agents: [{ name: "Matter upkeep", harnessId: s.harness.id }] } };
+  // Outside a proposal, it is refused.
+  expect(((await s.tool("plugins_install", install)) as { error: string }).error).toMatch(NEEDS);
+  // A token from another read is refused when proposed: the owner would read rights it doesn't bind.
+  expect(await s.propose([{ tool: "plugins_install", input: { ...install, reviewed: "f".repeat(64) } }])).toMatchObject({ ok: false, error: expect.stringContaining("changed since you read it") });
+  const id = s.idOf(await s.propose([{ tool: "plugins_install", input: install }]));
+  // What the owner reads: each agent's rights, read by the server when proposed.
+  expect((await proposalView(s.context.db, s.context.ownerId, id))!.items[0]!.shown).toMatchObject({ agents: [{ name: "Matter upkeep", bundles: ["data"], tables: ["Matters"] }] });
+  await s.settle(id, "approved");
+  const applied = await s.tool("proposal_apply", { proposalId: id });
+  expect(applied).toMatchObject({ ok: true });
+  const [plugin] = await s.context.db.select().from(pluginsTable);
+  const [upkeep] = await s.context.db.select().from(agents).where(eq(agents.name, "Matter upkeep"));
+  expect(upkeep).toMatchObject({ pluginId: plugin!.id, pluginComponent: "Matter upkeep" });
+  expect((await s.context.db.select().from(tablesTable)).map((t) => t.pluginId)).toEqual([plugin!.id, plugin!.id, plugin!.id]);
+
+  // Another workspace's turn: the plugin changes between the proposal and its approval.
+  await removePlugin(s.context, plugin!.id);
+  const again = (await s.tool("plugins_preview", entry)) as { ok: true; output: { reviewed: string } };
+  const second = s.idOf(await s.propose([{ tool: "plugins_install", input: { ...install, reviewed: again.output.reviewed } }]));
+  const upkeepFile = lawFirm()["com.dispand/agents/matter-upkeep.md"]!;
+  fx.plugin.commit({ "com.dispand/agents/matter-upkeep.md": `${upkeepFile}\nMind the deadlines.\n` });
+  await s.settle(second, "approved");
+  expect(await s.tool("proposal_apply", { proposalId: second })).toMatchObject({ output: { items: [{ outcome: "refused", error: expect.stringContaining("changed since you reviewed it") }] } });
+  expect(await s.context.db.select().from(pluginsTable)).toEqual([]);
+  // Servers and native installs are the owner's: refused even approved.
+  const fresh = (await s.tool("plugins_preview", entry)) as { ok: true; output: { reviewed: string } };
+  const third = s.idOf(await s.propose([{ tool: "plugins_install", input: { ...entry, reviewed: fresh.output.reviewed, nativeInstall: true } }]));
+  await s.settle(third, "approved");
+  expect(await s.tool("proposal_apply", { proposalId: third })).toMatchObject({ output: { items: [{ outcome: "refused", error: expect.stringContaining("owner's to add") }] } });
+  // Its setup may reach any table: a Job on some tables can't propose it.
+  const table = await call(router.tables.create, { name: "Notes" }, { context: s.context });
+  await call(router.agents.update, { ...s.base, id: s.agent.id, bundles: ["configure"], dataTables: [table.id] }, { context: s.context });
+  expect(await s.propose([{ tool: "plugins_install", input: { ...install, reviewed: fresh.output.reviewed } }])).toMatchObject({ ok: false, error: expect.stringContaining("Not found") });
 });

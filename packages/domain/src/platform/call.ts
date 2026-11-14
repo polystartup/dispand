@@ -127,7 +127,7 @@ async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, i
     // Outside the Job's tables, or naming nothing: the same answer, so a Job learns nothing about what it can't reach.
     if (touched.some((id) => id === null || (scope !== "all" && !scope.includes(id)))) return refuse("not-found", NOT_FOUND);
     if (tool === PROPOSE) {
-      const made = await createProposal(app.db, job, ALL_TOOLS.filter((t) => allowed(t, rights)), scope, parsed.data);
+      const made = await createProposal(app, job, ALL_TOOLS.filter((t) => allowed(t, rights)), scope, parsed.data);
       if ("error" in made) return refuse("invalid", made.error);
       return done({
         ok: true,

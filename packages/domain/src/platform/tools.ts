@@ -1,4 +1,4 @@
-import { isProcedure } from "@orpc/server";
+import { call, isProcedure, ORPCError } from "@orpc/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
@@ -52,6 +52,11 @@ export type PlatformTool = {
   write?: true;
   /** What the call creates: its kind, and its id read from the output. An item may name it with `{ "$item": n }`. */
   creates?: { kind: ProposalName["kind"]; id(output: unknown): string | null };
+  /**
+   * What the owner must read of an item of this tool that its input doesn't hold, read by the
+   * server when it is proposed and kept with it (`shown`); a string refuses the proposal.
+   */
+  shown?(app: PlatformApp, job: JobIdentity, input: unknown): Promise<unknown>;
   /** A tool that works for the Job itself, not as its owner: no procedure of the router, run here instead. */
   run?(app: PlatformApp, job: JobIdentity, input: unknown, rights: Rights): Promise<ToolResult>;
 };
@@ -148,6 +153,8 @@ async function tableOfField(db: Db, ownerId: string, input: unknown): Promise<(s
  * includes this. `null` for an id that is no Job of the owner's.
  */
 export const WHOLE_WORKSPACE = "*";
+/** A call that may reach any table: only a Job on every table makes it. */
+const everyTable = async () => [WHOLE_WORKSPACE];
 async function wholeWorkspace(db: Db, ownerId: string, input: unknown): Promise<(string | null)[]> {
   const id = str(input, "id") ?? str(input, "runId");
   const [job] = id
@@ -167,11 +174,28 @@ const idOf = (output: unknown): string | null => {
   return typeof id === "string" ? id : null;
 };
 
-function tool(path: string, bundle: Bundle, description: string, rest: Pick<PlatformTool, "tables" | "filter" | "grant" | "write">): PlatformTool {
+function tool(path: string, bundle: Bundle, description: string, rest: Pick<PlatformTool, "tables" | "filter" | "grant" | "write" | "shown">): PlatformTool {
   // `agents.setToolPermission` is `agents_set_tool_permission`: lower case with `_`, like every tool's name.
   const name = path.replace(".", "_").replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
   const kind = CREATES[name];
   return { path, name, bundle, description, input: procedureOf(router, path)["~orpc"].inputSchema ?? z.object({}), ...rest, ...(kind ? { creates: { kind, id: idOf } } : {}) };
+}
+
+/**
+ * What a proposed plugin install's agents may do, read from the plugin now: the owner approves
+ * these, and the install's token (checked here and again when it runs) makes them what is made.
+ */
+async function pluginRights(app: PlatformApp, job: JobIdentity, input: unknown): Promise<unknown> {
+  const { marketplaceId, entryName, reviewed, setup } = input as { marketplaceId: string; entryName: string; reviewed?: string; setup?: { agents?: { name: string }[] } };
+  try {
+    const preview = await call(procedureOf(router, "plugins.preview") as never, { marketplaceId, entryName } as never, { context: { ...app, job, headers: new Headers(), resHeaders: new Headers() } as never }) as { reviewed: string; definitions: { agents: { name: string; description: string; bundles?: unknown; tables?: unknown; tools: unknown; consults: unknown; selfLearning?: unknown }[] } };
+    if (preview.reviewed !== reviewed) return "The plugin changed since you read it: read it again with plugins_preview and propose again";
+    const picked = new Set((setup?.agents ?? []).map((a) => a.name.toLowerCase()));
+    return { agents: preview.definitions.agents.filter((d) => picked.has(d.name.toLowerCase())).map(({ name, description, bundles, tables, tools, consults, selfLearning }) => ({ name, description, bundles, tables, tools, consults, selfLearning })) };
+  } catch (err) {
+    if (err instanceof ORPCError) return err.message;
+    throw err;
+  }
 }
 
 export const PLATFORM_TOOLS: PlatformTool[] = [
@@ -240,6 +264,10 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("tools.add", "configure", `Adds a tool: an MCP server reached at a URL, with no credentials (the owner enters those afterwards). ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("tools.delete", "configure", `Deletes a tool no agent uses, with its saved headers: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("agents.update", "configure", `Changes an agent: give every field, as agents_get shows them. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool("plugins.discover", "configure", "Lists what the owner's marketplaces offer (each entry with its marketplace's id), with whether it is installed; a query narrows them by name or description.", { tables: none }),
+  tool("plugins.preview", "configure", "Reads a marketplace entry as installing it would: its skills, MCP servers, agents, and definitions (tables, agents with what their Jobs may do, triggers), and the reviewed token an install must carry.", { tables: none }),
+  tool("plugins.list", "configure", "Lists the installed plugins with their definitions and which of them are set up.", { tables: none }),
+  tool("plugins.install", "configure", `Installs a marketplace entry: its skills, and with setup the definitions picked (tables, agents each on a harness, triggers), made as the plugin's. Give plugins_preview's reviewed token: an entry changed since is refused. Pick skills and setup only: its MCP servers, agent files and native install are the owner's to add. Every tool its agents get starts on Ask. Only an agent on every table installs. ${NEEDS_PROPOSAL}`, { tables: everyTable, grant: true, shown: pluginRights }),
 ];
 
 /**
@@ -406,10 +434,6 @@ export const NOT_TOOLS: string[] = [
   "marketplaces.add",
   "marketplaces.remove",
   "marketplaces.sync",
-  "plugins.discover",
-  "plugins.preview",
-  "plugins.install",
-  "plugins.list",
   "plugins.uninstallPreview",
   "plugins.uninstall",
   "plugins.update",
