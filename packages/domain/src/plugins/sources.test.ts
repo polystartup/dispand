@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { afterEach, expect, test, vi } from "vitest";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
-import { fakeSite, fixtureRepo, skillMd } from "./test-support.ts";
+import { fakeSite, fixtureRepo, skillMd, updatePlugin } from "./test-support.ts";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -60,7 +60,7 @@ test("a skill site is one entry; install downloads its skills, update sees chang
 
   routes[`${site}/.well-known/skills/greet/SKILL.md`] = skillMd("greet", "Greets warmly.");
   fakeSite(routes);
-  const { sha } = await call(router.plugins.update, { id: pluginId }, { context: ctx });
+  const { sha } = await updatePlugin(ctx, pluginId);
   expect(sha).not.toBe(installed!.sha);
   const [pkg] = await call(router.skills.list, undefined, { context: ctx });
   expect(pkg!.skills).toEqual([{ name: "greet", description: "Greets warmly." }]);

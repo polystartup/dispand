@@ -646,8 +646,10 @@ changes it updates this file.
   definition is the plugin's element, made by `agents.create` with the bundles, tables and
   self-learning the owner reads in the item, so its consults pass the same pair check as any
   agent's. That a row is a plugin's is set only by the server (`context.pluginElement`, which no
-  request input reaches); an update replaces the definitions and, so far, nothing of what was
-  made from them. A plugin's HTTP server becomes a tool only through `plugins.addServer` (or its setup
+  request input reaches); an update shows, before applying, every change that
+  gives an agent more or moves a tool's calls, every change of what an agent is told, and every
+  field of the owner's the plugin changed; it applies only what was shown (`reviewed`), through
+  each element's own procedure, and never replaces an overridden field unasked. A plugin's HTTP server becomes a tool only through `plugins.addServer` (or its setup
   item), with no credentials and only at the URL and transport the owner reviewed in the item. Links are checked out
   as plain files (`core.symlinks=false`), then removed from the checkout and listed as not
   imported: nothing is ever written or read through one, and a file name that isn't UTF-8 refuses

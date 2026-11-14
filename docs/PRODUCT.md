@@ -38,7 +38,10 @@ Status: Prototype
     triggers, consult entries, rights and memory go with it. An agent or a tool a plugin brought stays the plugin's: it is listed as
     `<plugin>/<name>`, and it goes only with its plugin. Changing one of its fields (its name, its
     instructions, its tools, a tool's address) is yours to do: that field is then marked as yours,
-    an update of the plugin replaces only what you haven't changed, and "Reset to the plugin's"
+    an update of the plugin replaces only what you haven't changed. When it would give an agent
+    more (a tool, a table, a right), move a tool's address, reword what an agent is told, or
+    meets something you changed yourself, Update first shows what it changes: your own values
+    stay unless you take the plugin's, and nothing is applied until you confirm. "Reset to the plugin's"
     takes a field back. Its harness, its model, a tool's headers and sign-in are your settings and
     no update touches them. A plugin's skills work the same way, file by file (Settings, Skills,
     Files): a file you edit, add or remove is yours and stays so through updates, the others

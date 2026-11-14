@@ -115,3 +115,9 @@ export async function removePlugin(context: object, id: string, keep: "all" | "u
   const choices = Object.fromEntries(preview.elements.map((e) => [e.key, kept.has(e.key) ? ("keep" as const) : ("delete" as const)]));
   await call(router.plugins.uninstall, { id, reviewed: preview.reviewed, choices }, { context: context as never });
 }
+
+/** Updates a plugin as its owner does from the sheet: looks at what would change, then confirms it, keeping their own values unless `take` names a conflict. */
+export async function updatePlugin(context: object, id: string, take: string[] = []) {
+  const preview = await call(router.plugins.updatePreview, { id }, { context: context as never });
+  return call(router.plugins.update, { id, reviewed: preview.reviewed, take }, { context: context as never });
+}

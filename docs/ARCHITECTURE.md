@@ -1284,9 +1284,21 @@
   (`signInOf`), until the owner enters its headers or signs in on its page; its consults name the agents this setup makes before
   it (`$item`, ordered so a consulted agent comes first) or those the plugin made earlier. A
   missing skill, tool or consult is listed in `waiting` and the agent is made without it.
-  `plugins.update` syncs the marketplace, then replaces the imported skills' files with the
-  entry's current commit and the definitions with its current ones, leaving what was set up from
-  them as it is;
+  `plugins.updatePreview` syncs the marketplace, reads the entry's current commit and returns
+  what an update would change (`plugins/update.ts`): for each of the plugin's agents, tools and
+  triggers, `planElement` compares the plugin's new values with the ones kept underneath
+  (`upstream`), a definition's names resolved to ids as a setup resolves them. A field the owner
+  overrode that the plugin changed is a conflict; a field they left alone follows, classed by
+  `classify` as `widening` (an agent gains a bundle, a table, a skill, a tool or a consult, or a
+  consult stops asking; a tool's URL or transport; a trigger's config, more Jobs at once or an
+  hour), `wording` (an agent's name, description or instructions, a tool's name, a trigger's
+  instructions, a skill taken off an agent, a skill's files) or `silent`. `FIELD_CLASS` holds
+  every overridable field to a class, by a test. `plugins.update` applies at once when nothing
+  is a conflict, widening or wording; otherwise only with the preview's `reviewed` token, and
+  with `take` naming the conflicts whose plugin value the owner takes. It stores the plugin's new
+  values underneath, then writes each element through its own procedure (`tools.update`,
+  `agents.update`, `triggers.update`), so their checks apply and a tool moved to another origin
+  loses its headers; an element its procedure refuses is returned in `failed`.
   `plugins.uninstallPreview` returns each of the plugin's elements (agents, skill packages,
   tools, tables) with why an uninstall asks about it and the other elements it needs
   (`plugins/closure.ts`, `inUse`): its owner changed it (an override, a trigger's override, a
