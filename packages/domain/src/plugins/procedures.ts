@@ -785,8 +785,9 @@ async function latest(context: { db: Db; ownerId: string; gitFileUrls?: boolean 
 }
 
 type Shown = { key: string; kind: UpdatableKind | "skill"; id: string; name: string; field: string };
-type ShownChange = Shown & { class: ChangeClass; before: unknown; after: unknown };
-type ShownConflict = Shown & { old: unknown; mine: unknown; next: unknown };
+/** `reaches`: for a skill's file, the agents whose sessions get the package, named on the screen since its text reaches each of them. */
+type ShownChange = Shown & { class: ChangeClass; before: unknown; after: unknown; reaches?: string[] };
+type ShownConflict = Shown & { old: unknown; mine: unknown; next: unknown; reaches?: string[] };
 
 const MAX_SHOWN_TEXT = 20_000;
 /** A file as the update's screen shows it: its text, cut, or its size when it isn't text; null when there is none. */
@@ -820,11 +821,15 @@ async function skillPlan(db: Db | Tx, row: PluginRow, contents: PluginContents, 
   const same = (a: Uint8Array | undefined, b: Uint8Array | undefined) => (a === undefined || b === undefined ? a === b : Buffer.from(a).equals(Buffer.from(b)));
   const changes: ShownChange[] = [];
   const conflicts: ShownConflict[] = [];
+  // The agents the package's text reaches: named beside each of its files, and so under the screen's token.
+  const reaches = (
+    await db.select({ name: agentsTable.name }).from(agentSkills).innerJoin(agentsTable, eq(agentsTable.id, agentSkills.agentId)).where(eq(agentSkills.packageId, pkg.id)).orderBy(asc(agentsTable.name))
+  ).map((a) => a.name);
   let files = rebaseFiles(mine, old, next);
   for (const path of [...new Set([...old, ...next].map((f) => f.path))].sort()) {
     const [was, now, own] = [at(old, path), at(next, path), at(mine, path)];
     if (same(was, now)) continue;
-    const shown = { key: `skill:${pkg.id}:file:${path}`, kind: "skill" as const, id: pkg.id, name: pkg.name, field: `file:${path}` };
+    const shown = { key: `skill:${pkg.id}:file:${path}`, kind: "skill" as const, id: pkg.id, name: pkg.name, field: `file:${path}`, reaches };
     if (same(own, was)) changes.push({ ...shown, class: "wording", before: shownFile(was), after: shownFile(now) });
     else if (take.includes(shown.key)) files = [...files.filter((f) => f.path !== path), ...(now ? [{ path, content: now }] : [])];
     else conflicts.push({ ...shown, old: shownFile(was), mine: shownFile(own), next: shownFile(now) });

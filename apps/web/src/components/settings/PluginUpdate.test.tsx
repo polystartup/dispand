@@ -40,7 +40,7 @@ test("what an agent gains and where a tool's calls go are listed by name; wordin
   const widening = screen.getByRole("list", { name: "Changes that give more" });
   expect(within(widening).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
     "Matter upkeep · Tools: none → case-law",
-    "case-law · URL: https://a.example/mcp → https://b.example/mcp",
+    "case-law · URL: https://a.example/mcp → https://b.example/mcpClears its sign-in, and its saved headers when the origin or the transport changes: enter them again on the tool's page.",
   ]);
   const wording = screen.getByText("2 wording changes");
   // Closed: the texts are there to read, not in the way.
@@ -129,4 +129,15 @@ test("a conflict of an agent's field can be handed to Stem; a skill file's can't
   expect(onStem).toHaveBeenCalledWith("agent:a:systemPrompt", true);
   expect(onTake).toHaveBeenCalledWith("agent:a:systemPrompt", false);
   expect(within(screen.getByRole("group", { name: /legal/ })).queryByRole("radio", { name: "Let Stem deal with it" })).toBeNull();
+});
+
+test("a skill's reworded file names the agents it reaches; a tool's new address says what it clears", async () => {
+  const changes = [
+    { key: "skill:p:file:x/SKILL.md", kind: "skill" as const, id: "p", name: "legal", field: "file:x/SKILL.md", class: "wording" as const, before: "a", after: "b", reaches: ["Intake", "Drafting"] },
+    { key: "tool:t:url", kind: "tool" as const, id: "t", name: "Case law", field: "url", class: "widening" as const, before: "https://a.example/mcp", after: "https://b.example/mcp" },
+  ];
+  render(<UpdatePlan conflicts={[]} changes={changes} names={{}} take={[]} busy={false} onTake={vi.fn()} />);
+  expect(screen.getByText(/Clears its sign-in/)).toBeTruthy();
+  await userEvent.click(screen.getByText(/1 wording change/));
+  expect(screen.getByText("Reaches Intake, Drafting")).toBeTruthy();
 });
