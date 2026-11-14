@@ -377,6 +377,7 @@ test("a kept table takes the next free name when the first one is taken too", as
   await call(router.plugins.uninstall, { id: pluginId }, { context: ctx });
   expect((await ctx.db.select().from(tablesTable).orderBy(tablesTable.name)).map((t) => t.name)).toEqual(["Clients", "Clients (law-firm)", "Clients (law-firm) 2", "Matters", "Research"]);
   remove();
+});
 
 const TRIGGERS = ["Matter changed", "New client email", "Research recorded"];
 
