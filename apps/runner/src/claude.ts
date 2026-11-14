@@ -121,6 +121,9 @@ function inputQueue(verbatim: (text: string) => Promise<boolean>, gate: Promise<
  * `claude`. Permission prompts and `AskUserQuestion` become `question` events; the agent hands
  * its results back through the `submit_outputs` tool of the in-process `dispand` MCP server.
  */
+/** What a restricted session never offers, beyond `tools: []`: the CLI's server-side tools, which `tools` doesn't cover. */
+const RESTRICTED_DENIED = ["advisor"];
+
 export function startClaudeSession(
   start: ClaudeSessionStart,
   cwd: string,
@@ -397,7 +400,8 @@ export function startClaudeSession(
       // Skill packages only: the runner wrote nothing but plugin.json and skills/ there.
       ...(pluginRoots.length > 0 ? { plugins: pluginRoots.map((path) => ({ type: "local" as const, path, skipMcpDiscovery: true })) } : {}),
       canUseTool,
-      disallowedTools: [...denied.names],
+      // Restricted: not even the CLI's own server-side tools (the advisor, a second model call that would get the session's text).
+      disallowedTools: [...denied.names, ...(restricted ? RESTRICTED_DENIED : [])],
       // The highest-priority settings layer the user controls; disallowed edits are also refused in canUseTool.
       // Plans default to ~/.claude/plans, which the boundary denies: keep them in the run folder.
       // No skill or command runs shell commands as it loads (`!` substitutions): the owner approves every command.
