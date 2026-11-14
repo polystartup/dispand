@@ -8,7 +8,7 @@ import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { pollProblem } from "../tools/pollable.ts";
 import { cronProblem, nextFireAfter } from "../workflows/schedule.ts";
-import { overriddenAfter, refuseOwnDelete } from "../plugins/overrides.ts";
+import { overriddenAfter, refuseOwnDelete, sameValue } from "../plugins/overrides.ts";
 import { canonicalJson, Concurrency, INTERACTION, RateCap, TriggerConfig, TriggerFields } from "./model.ts";
 
 const owner = base.use(authed);
@@ -243,6 +243,10 @@ const update = owner
         .where(and(eq(triggersTable.id, input.id), eq(triggersTable.ownerId, context.ownerId)))
         .for("update");
       if (!previous) throw new ORPCError("NOT_FOUND");
+      // A write that holds only while a field is as it was read (a Stem decision): checked with the row locked.
+      if (context.expectField && !sameValue("trigger", context.expectField.field, (previous as Record<string, unknown>)[context.expectField.field], context.expectField.value)) {
+        throw new ORPCError("CONFLICT", { message: "This field changed meanwhile" });
+      }
       await guard(tx, context.ownerId, previous.agentId, { kind: "trigger", triggerId: previous.id, enabled: input.enabled, config: input.config });
       const config = input.config ?? previous.config;
       if (config.kind !== previous.kind) throw new ORPCError("BAD_REQUEST", { message: "A trigger's kind can't change" });
