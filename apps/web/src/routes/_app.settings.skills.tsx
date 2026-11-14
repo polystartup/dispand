@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Empty, List } from "../components/settings/parts.tsx";
+import { PluginSkillSheet } from "../components/settings/PluginSkillSheet.tsx";
 import { SkillEditor, type SkillPackage } from "../components/settings/SkillEditor.tsx";
 import { PageHeader } from "../components/Placeholder.tsx";
 import { orpc } from "../lib/api.ts";
@@ -15,6 +16,8 @@ function Skills() {
   const packages = useQuery(orpc.skills.list.queryOptions());
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [sheet, setSheet] = useState<{ pkg?: SkillPackage } | null>(null);
+  // A plugin's package: its files, changed one by one.
+  const [filesOf, setFilesOf] = useState<SkillPackage | null>(null);
 
   const create = (
     <Button onClick={() => setSheet({})}>
@@ -62,13 +65,17 @@ function Skills() {
                     <span className="min-w-0">
                       <span className="block truncate text-[15px] font-medium">{p.name}</span>
                       <span className="block truncate text-[13px] text-muted">
-                        {p.builtIn ? "Built in · " : p.plugin ? `From plugin ${p.plugin.name} · ` : ""}
+                        {p.builtIn ? "Built in · " : p.plugin ? `${p.plugin.name}'s · ` : ""}
                         {p.skills.length === 1 ? p.description : `${p.skills.length} skills`}
                       </span>
                     </span>
                   </button>
-                  {p.plugin || p.builtIn ? (
+                  {p.builtIn ? (
                     <span className="shrink-0 text-[12px] text-faint">Read-only</span>
+                  ) : p.plugin ? (
+                    <Button variant="ghost" size="sm" aria-label={`Files of ${p.name}`} onClick={() => setFilesOf(p)}>
+                      Files
+                    </Button>
                   ) : (
                     <Button variant="ghost" size="sm" aria-label={`Edit ${p.name}`} onClick={() => setSheet({ pkg: p })}>
                       Edit
@@ -93,6 +100,7 @@ function Skills() {
           })}
         </List>
       )}
+      {filesOf && <PluginSkillSheet key={filesOf.packageId} pkg={filesOf} onClose={() => setFilesOf(null)} />}
       {sheet && <SkillEditor key={sheet.pkg?.packageId ?? "new"} pkg={sheet.pkg} onClose={() => setSheet(null)} />}
     </>
   );
