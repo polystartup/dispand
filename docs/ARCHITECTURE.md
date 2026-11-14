@@ -1464,7 +1464,8 @@ Job server and the cloud listing offer `plugin_decide` alone; a call of another 
 however it ends, what it didn't decide is `open` again (`reopenUndecided`, in `finishRun`). On a
 runner, the start says `restricted` (runner protocol 26), and the runner enforces it from its own
 start arguments: on Claude Code, no built-in tool (`tools: []`, and the CLI's server-side
-`advisor` denied by name, which `tools` doesn't cover), no settings source,
+`advisor` switched off with `CLAUDE_CODE_DISABLE_ADVISOR_TOOL`, since neither `tools` nor
+`disallowedTools` removes it), no settings source,
 `strictMcpConfig`, no skill package, memory file or consult, and the Job's own `job` server
 alone; on Codex the start is refused (`startProblem` refuses it first), the Job fails and its
 conflicts are the owner's again. On the element's page (`StemMarks`, from

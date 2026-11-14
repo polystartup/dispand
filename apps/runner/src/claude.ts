@@ -121,8 +121,12 @@ function inputQueue(verbatim: (text: string) => Promise<boolean>, gate: Promise<
  * `claude`. Permission prompts and `AskUserQuestion` become `question` events; the agent hands
  * its results back through the `submit_outputs` tool of the in-process `dispand` MCP server.
  */
-/** What a restricted session never offers, beyond `tools: []`: the CLI's server-side tools, which `tools` doesn't cover. */
-const RESTRICTED_DENIED = ["advisor"];
+/**
+ * What a restricted session's CLI gets in its environment, beyond `tools: []`: the switch that
+ * takes away its server-side advisor (a second model call that would get the session's text),
+ * which neither `tools` nor `disallowedTools` removes (checked with claude 2.1.311).
+ */
+const RESTRICTED_ENV = { CLAUDE_CODE_DISABLE_ADVISOR_TOOL: "1" };
 
 export function startClaudeSession(
   start: ClaudeSessionStart,
@@ -400,8 +404,7 @@ export function startClaudeSession(
       // Skill packages only: the runner wrote nothing but plugin.json and skills/ there.
       ...(pluginRoots.length > 0 ? { plugins: pluginRoots.map((path) => ({ type: "local" as const, path, skipMcpDiscovery: true })) } : {}),
       canUseTool,
-      // Restricted: not even the CLI's own server-side tools (the advisor, a second model call that would get the session's text).
-      disallowedTools: [...denied.names, ...(restricted ? RESTRICTED_DENIED : [])],
+      disallowedTools: [...denied.names],
       // The highest-priority settings layer the user controls; disallowed edits are also refused in canUseTool.
       // Plans default to ~/.claude/plans, which the boundary denies: keep them in the run folder.
       // No skill or command runs shell commands as it loads (`!` substitutions): the owner approves every command.
@@ -457,7 +460,8 @@ export function startClaudeSession(
         ],
       },
       ...(deps.claudePath ? { pathToClaudeCodeExecutable: deps.claudePath } : {}),
-      ...(deps.env ? { env: deps.env } : {}),
+      // Restricted: the CLI's own environment, with its advisor switched off (`env` replaces the whole environment).
+      ...(restricted ? { env: { ...(deps.env ?? process.env), ...RESTRICTED_ENV } } : deps.env ? { env: deps.env } : {}),
     },
   });
   onQuery(q);
