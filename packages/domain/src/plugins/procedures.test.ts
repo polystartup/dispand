@@ -10,7 +10,7 @@ import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { BUILT_IN_MARKETPLACES } from "./marketplace.ts";
 import { marketplaceUrl, packageName } from "./procedures.ts";
-import { fixtureRepo, lawFirm, lawFirmMarket, skillMd } from "./test-support.ts";
+import { fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd } from "./test-support.ts";
 import { toolTarget } from "../tools/procedures.ts";
 import { addStep } from "../workflows/model.ts";
 import { type FakeAction, startFakeMcp } from "../tools/test-server.ts";
@@ -189,7 +189,7 @@ test("uninstall removes the plugin's skill package when no agent uses it, else k
   const ref = { marketplaceId: market.id, entryName: "document-skills", skills: ["pdf", "docx"] };
   // No agent uses it: it goes with the plugin.
   const first = await call(router.plugins.install, ref, { context: ctx });
-  await call(router.plugins.uninstall, { id: first.pluginId }, { context: ctx });
+  await removePlugin(ctx, first.pluginId, "used");
   expect(await call(router.plugins.list, undefined, { context: ctx })).toEqual([]);
   expect(await call(router.skills.list, undefined, { context: ctx })).toEqual([]);
   expect(await ctx.db.select().from(skillFiles)).toEqual([]);
@@ -199,7 +199,8 @@ test("uninstall removes the plugin's skill package when no agent uses it, else k
   const [pkg] = await call(router.skills.list, undefined, { context: ctx });
   expect(pkg).toMatchObject({ plugin: { id: second.pluginId } });
   const agent = await call(router.agents.create, { name: "Writer", harnessId: h.id, systemPrompt: "", skillPackageIds: [pkg!.packageId] }, { context: ctx });
-  await call(router.plugins.uninstall, { id: second.pluginId }, { context: ctx });
+  expect((await call(router.plugins.uninstallPreview, { id: second.pluginId }, { context: ctx })).elements[0]!.reasons).toEqual(["The agent “Writer” uses it"]);
+  await removePlugin(ctx, second.pluginId, "used");
   expect(await call(router.plugins.list, undefined, { context: ctx })).toEqual([]);
   const [kept] = await call(router.skills.list, undefined, { context: ctx });
   expect(kept).toMatchObject({ packageId: pkg!.packageId, name: "document-skills", plugin: null });
@@ -209,7 +210,7 @@ test("uninstall removes the plugin's skill package when no agent uses it, else k
   const reinstalled = await call(router.skills.list, undefined, { context: ctx });
   expect(reinstalled.find((p) => p.plugin?.id === again.pluginId)).toMatchObject({ name: "document-skills-2" });
   expect(await call(router.agents.get, { id: agent.id }, { context: ctx })).toMatchObject({ skills: [{ name: "document-skills" }] });
-  await call(router.plugins.uninstall, { id: again.pluginId }, { context: ctx });
+  await removePlugin(ctx, again.pluginId, "used");
   // Editing it adds the skill named like it and keeps the plugin's, files included.
   const edit = { packageId: pkg!.packageId, description: "Mine now.", instructions: "Use them.", requiredToolIds: [] };
   await expect(call(router.skills.update, { ...edit, name: "pdf" }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
@@ -533,7 +534,7 @@ test("uninstall keeps its agents with their Jobs and its tools with their header
     status: "pending",
   });
 
-  await call(router.plugins.uninstall, { id: pluginId }, { context: ctx });
+  await removePlugin(ctx, pluginId);
   expect(await call(router.plugins.list, undefined, { context: ctx })).toEqual([]);
   expect(await call(router.agents.get, { id: agentId }, { context: ctx })).toMatchObject({
     name: "reviewer",
@@ -802,9 +803,9 @@ test("selective plugin removal deletes only the selected imported resources", as
   const { ctx, fx, pluginId, packageId, toolIds, agentIds } = await removablePlugin();
   try {
     const preview = await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx });
-    expect(preview.skills).toMatchObject([{ id: packageId }]);
-    expect(preview.agents).toMatchObject([{ id: agentIds[0], inUse: null }]);
-    await call(router.plugins.uninstall, { id: pluginId, remove: { skills: [packageId], tools: toolIds, agents: agentIds } }, { context: ctx });
+    expect(preview.elements.filter((e) => e.kind === "skill")).toMatchObject([{ id: packageId }]);
+    expect(preview.elements.filter((e) => e.kind === "agent")).toMatchObject([{ id: agentIds[0], reasons: [], keepOnly: null }]);
+    await removePlugin(ctx, pluginId, { remove: [...[packageId], ...toolIds, ...agentIds] });
     expect(await call(router.plugins.list, undefined, { context: ctx })).toEqual([]);
     expect(await call(router.skills.list, undefined, { context: ctx })).toEqual([]);
     await expect(call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -817,7 +818,7 @@ test("checked skills and tools are removed and unlinked even when their agents a
   try {
     const other = await call(router.agents.create, { name: "Mine", harnessId: h.id, systemPrompt: "", skillPackageIds: [packageId], toolIds }, { context: ctx });
     const ownSkill = await call(router.skills.create, { name: "mine", description: "My skill", instructions: "Keep this", requiredToolIds: toolIds }, { context: ctx });
-    await call(router.plugins.uninstall, { id: pluginId, remove: { skills: [packageId], tools: toolIds, agents: [] } }, { context: ctx });
+    await removePlugin(ctx, pluginId, { remove: [...[packageId], ...toolIds, ...[]] });
     const [keptSkill] = await ctx.db.select().from(skillPackages).where(eq(skillPackages.id, ownSkill.packageId));
     expect(keptSkill).toMatchObject({ name: "mine", requiredToolIds: [] });
     for (const id of [...agentIds, other.id]) expect(await call(router.agents.get, { id }, { context: ctx })).toMatchObject({ plugin: null, skills: [], tools: [] });
@@ -829,7 +830,7 @@ test("checked skills and tools are removed and unlinked even when their agents a
 test("explicitly kept unused skills survive removal", async () => {
   const { ctx, fx, pluginId, packageId, toolIds, agentIds } = await removablePlugin();
   try {
-    await call(router.plugins.uninstall, { id: pluginId, remove: { skills: [], tools: toolIds, agents: agentIds } }, { context: ctx });
+    await removePlugin(ctx, pluginId, { remove: [...[], ...toolIds, ...agentIds] });
     expect(await call(router.skills.get, { packageId }, { context: ctx })).toMatchObject({ name: "github", plugin: null });
   } finally { await fx.remove(); }
 });
@@ -842,9 +843,9 @@ test("plugin removal previews active use and refuses workflow agents and unrelat
     Object.assign(def.steps[0]!, { agentId: agentIds[0], prompt: "Review." });
     await call(router.workflows.update, { id: wf.id, name: "Review", def }, { context: ctx });
     const preview = await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx });
-    expect(preview.agents[0]!.inUse).toContain("workflow");
-    await expect(call(router.plugins.uninstall, { id: pluginId, remove: { skills: [], tools: [], agents: agentIds } }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
-    await expect(call(router.plugins.uninstall, { id: pluginId, remove: { skills: [], tools: [...toolIds, "unrelated"], agents: [] } }, { context: ctx })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(preview.elements.find((e) => e.kind === "agent")).toMatchObject({ reasons: ["A workflow uses this agent"], keepOnly: "A workflow uses this agent" });
+    await expect(removePlugin(ctx, pluginId, { remove: agentIds })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "A workflow uses this agent" });
+    await expect(call(router.plugins.uninstall, { id: pluginId, reviewed: preview.reviewed, choices: { "tool:unrelated": "delete" } }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Not an element of this plugin" });
     expect(await call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).toMatchObject({ plugin: { id: pluginId } });
   } finally { await fx.remove(); }
 });
@@ -857,7 +858,7 @@ test("a workflow tool prevents removal without partially unlinking kept agents",
     const def = addStep(wf.def, { after: wf.def.trigger.field.id }, "n_search", "tool");
     Object.assign(def.steps[0]!, { toolId: toolIds[0], action: "echo" });
     await call(router.workflows.update, { id: wf.id, name: "Search", def }, { context: ctx });
-    await expect(call(router.plugins.uninstall, { id: pluginId, remove: { skills: [], tools: toolIds, agents: [] } }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("workflow") });
+    await expect(removePlugin(ctx, pluginId, { remove: toolIds })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("workflow") });
     expect(await call(router.agents.get, { id: agentIds[0]! }, { context: ctx })).toMatchObject({ tools: [{ toolId: toolIds[0] }], plugin: { id: pluginId } });
   } finally { await fx.remove(); }
 });
@@ -868,7 +869,7 @@ test("destructive plugin checklists and previews require an owner session", asyn
   try {
     const job = { ...ctx, job: { ownerId: ctx.ownerId, runId: "run_1", agentId: "agent_1" } };
     await expect(call(router.plugins.uninstallPreview, { id: pluginId }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(call(router.plugins.uninstall, { id: pluginId, remove: { skills: [packageId], tools: toolIds, agents: agentIds } }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(removePlugin(job, pluginId, { remove: [...[packageId], ...toolIds, ...agentIds] })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(await call(router.agents.get, { id: agentIds[0]! }, { context: ctx })).toMatchObject({ plugin: { id: pluginId } });
   } finally { await fx.remove(); }
 });
@@ -882,8 +883,8 @@ test("removal leaves active agents unticked in preview and preserves Jobs when e
     const [step] = await ctx.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
     const messageId = newId("msg");
     await ctx.db.insert(messages).values({ id: messageId, ownerId: ctx.ownerId, runId, stepRunId: step!.id, role: "assistant", text: "Work already done" });
-    expect((await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx })).agents[0]!.inUse).toContain("active Jobs");
-    await call(router.plugins.uninstall, { id: pluginId, remove: { skills: [], tools: [], agents: agentIds } }, { context: ctx });
+    expect((await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx })).elements.find((e) => e.kind === "agent")!.reasons).toContain("It has a Job running or waiting");
+    await removePlugin(ctx, pluginId, { remove: [...[], ...[], ...agentIds] });
     const [job] = await ctx.db.select().from(runsTable).where(eq(runsTable.id, runId));
     expect(job).toMatchObject({ agentId: null, agentName: "reviewer", status: "failed" });
     expect(await ctx.db.select({ id: messages.id }).from(messages).where(eq(messages.id, messageId))).toEqual([{ id: messageId }]);
@@ -994,7 +995,7 @@ test("a tool kept at uninstall takes a free name when the owner has one called t
   const { ctx, fx, pluginId, tool } = await withElements();
   const id = (await tool()).id;
   await call(router.tools.create, { name: "GitHub", url: fx.server.url, transport: "streamable-http", headers: {} }, { context: ctx });
-  await call(router.plugins.uninstall, { id: pluginId }, { context: ctx });
+  await removePlugin(ctx, pluginId);
   expect(await tool()).toMatchObject({ id, name: "github (github)", plugin: null, overridden: [] });
   await fx.remove();
 });
@@ -1091,7 +1092,7 @@ test("a skill package kept at uninstall is its owner's own: nothing of it is a p
   await call(router.skills.setFile, { packageId, path: "pdf/fill.py", base64: b64("mine") }, { context: ctx });
   const h = await harness(ctx);
   await call(router.agents.create, { name: "Uses it", harnessId: h.id, systemPrompt: "", skillPackageIds: [packageId], toolIds: [] }, { context: ctx });
-  await call(router.plugins.uninstall, { id: pluginId }, { context: ctx });
+  await removePlugin(ctx, pluginId);
   expect(await view()).toMatchObject({ plugin: null, removed: [] });
   expect((await view()).files.every((f) => f.overridden === null)).toBe(true);
   expect(await ctx.db.select().from(skillFileUpstream)).toEqual([]);

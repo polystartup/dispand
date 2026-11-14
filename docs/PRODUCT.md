@@ -42,11 +42,14 @@ Status: Prototype
     takes a field back. Its harness, its model, a tool's headers and sign-in are your settings and
     no update touches them. A plugin's skills work the same way, file by file (Settings, Skills,
     Files): a file you edit, add or remove is yours and stays so through updates, the others
-    follow the plugin, and Reset takes one back. Removing a plugin opens a checklist. Imported skills, tools and native installations start
-    selected; agents in use start unticked. Checked skills and tools are removed and unlinked even
-    from kept agents; unchecked items stay. Selecting an agent for removal stops its active Jobs
-    and keeps their history. Workflow references must be removed before deleting their agent or tool.
-    Setup-created business data is kept. A conversation started from a chat trigger stays open
+    follow the plugin, and Reset takes one back. Removing a plugin removes what it brought. You are asked, on one
+    screen and before anything is done, only about what is in use: something you changed, a table
+    with rows or memory, an agent with a Job going, or anything of yours that uses it. For each
+    you choose "Keep as yours" (it becomes your own, with everything that points at it) or
+    "Delete" (what used it loses it); what a kept element needs is listed with it and kept too
+    unless you say otherwise. An agent, a tool or a table a workflow uses can only be kept, and so can a table
+    whose rows a field of one of your tables names, until that field is deleted. Deleting an
+    agent stops its active Jobs and keeps their history. Native installations start selected. A conversation started from a chat trigger stays open
     until it is stopped.
   - A run or a Job still going can be **stopped** from its page: its open steps fail with
     "Stopped", its questions expire and its sessions end at once, whatever they were doing. A

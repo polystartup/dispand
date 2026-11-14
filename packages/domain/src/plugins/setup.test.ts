@@ -5,7 +5,7 @@ import { agents as agentsTable, fields as fieldsTable, plugins as pluginsTable, 
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import type { SetupPick } from "./setup.ts";
-import { fixtureRepo, lawFirmMarket } from "./test-support.ts";
+import { fixtureRepo, lawFirmMarket, removePlugin } from "./test-support.ts";
 import { catalogEntry } from "../tools/catalog.ts";
 import { type FakeAction, startFakeMcp } from "../tools/test-server.ts";
 
@@ -118,7 +118,7 @@ test("a plugin's table kept at uninstall is its owner's own, under a free name",
   const { ctx, pluginId, remove } = await installed();
   await call(router.tables.create, { name: "Clients" }, { context: ctx });
   await setUp(ctx, pluginId);
-  await call(router.plugins.uninstall, { id: pluginId }, { context: ctx });
+  await removePlugin(ctx, pluginId);
   const rows = await ctx.db.select().from(tablesTable).orderBy(tablesTable.name);
   expect(rows.map((t) => t.name)).toEqual(["Clients", "Clients (law-firm)", "Matters", "Research"]);
   expect(rows.every((t) => t.pluginId === null && t.pluginComponent === null && t.definition === null)).toBe(true);
@@ -348,7 +348,7 @@ test("a picked server is added as a tool without credentials, reads “needs sig
     await call(router.tools.update, { id: toolId, headers: { authorization: "Bearer case-key" } }, { context: ctx });
     expect(await call(router.tools.get, { id: toolId }, { context: ctx })).toMatchObject({ signIn: "connected", actions: [expect.objectContaining({ name: "lookup" })] });
 
-    await call(router.plugins.uninstall, { id: pluginId }, { context: ctx });
+    await removePlugin(ctx, pluginId);
     expect(await call(router.tools.get, { id: toolId }, { context: ctx })).toMatchObject({ id: toolId, plugin: null });
   } finally {
     remove();
@@ -374,7 +374,7 @@ test("a kept table takes the next free name when the first one is taken too", as
   await call(router.tables.create, { name: "Clients" }, { context: ctx });
   await call(router.tables.create, { name: "Clients (law-firm)" }, { context: ctx });
   await setUp(ctx, pluginId);
-  await call(router.plugins.uninstall, { id: pluginId }, { context: ctx });
+  await removePlugin(ctx, pluginId);
   expect((await ctx.db.select().from(tablesTable).orderBy(tablesTable.name)).map((t) => t.name)).toEqual(["Clients", "Clients (law-firm)", "Clients (law-firm) 2", "Matters", "Research"]);
   remove();
 });

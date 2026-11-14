@@ -175,8 +175,8 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await expect(row).toContainText("Choose what to remove; items you keep stay in your workspace");
   await page.getByRole("button", { name: "Remove writing-kit" }).click();
   const removal = page.getByRole("dialog");
-  await expect(removal.getByRole("checkbox", { name: /writing-kit/ })).toBeChecked();
-  await expect(removal.getByRole("checkbox", { name: /docs/ })).toBeChecked();
+  // Its skill package and its tool are used by nothing of the owner's: they go with it, unasked.
+  await expect(removal.getByText("Nothing of it is in use: its 2 elements go with it.")).toBeVisible();
   await shots(page, "plugin-removal-checklist");
   await removal.getByRole("button", { name: "Remove plugin" }).click();
   await expect(page.getByText("No plugin installed")).toBeVisible();

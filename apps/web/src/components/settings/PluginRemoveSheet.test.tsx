@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ plugins: { uninstallPreview: vi.fn(), uninstall: vi.fn() }, runners: { list: vi.fn(), plugins: vi.fn(), workspacePlugin: vi.fn() }, harnesses: { list: vi.fn() }, skills: {}, tools: {}, agents: {}, triggers: {}, jobs: {} }));
+const fake = vi.hoisted(() => ({ plugins: { uninstallPreview: vi.fn(), uninstall: vi.fn() }, runners: { list: vi.fn(), plugins: vi.fn(), workspacePlugin: vi.fn() }, harnesses: { list: vi.fn() }, skills: {}, tools: {}, agents: {}, triggers: {}, jobs: {}, tables: {} }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -12,7 +12,8 @@ vi.mock("../../lib/api.ts", async () => {
 const { PluginRemoveSheet } = await import("./PluginRemoveSheet.tsx");
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
-const preview = { skills: [{ id: "s1", name: "Writing skills" }], tools: [{ id: "t1", name: "Document search" }], agents: [{ id: "a1", name: "Writer", blocked: false, inUse: null as string | null }], nativeName: "dispand-plugin_1", sourceKey: "pinned-source" };
+const element = (kind: "agent" | "skill" | "tool", id: string, name: string, more: { reasons?: string[]; needs?: string[]; keepOnly?: string | null } = {}) => ({ key: `${kind}:${id}`, kind, id, name, reasons: [] as string[], needs: [] as string[], keepOnly: null as string | null, ...more });
+const preview = { elements: [element("agent", "a1", "Writer"), element("skill", "s1", "Writing skills"), element("tool", "t1", "Document search")], reviewed: "r".repeat(64), nativeName: "dispand-plugin_1", sourceKey: "pinned-source" };;
 
 async function mount(data = preview, native = false) {
   fake.plugins.uninstallPreview.mockResolvedValue(data);
@@ -30,23 +31,25 @@ async function mount(data = preview, native = false) {
   return close;
 }
 
-test("removal selects every unused imported item by default and sends the checklist", async () => {
+test("a plugin nothing uses is removed whole, with no question and no choice to send", async () => {
   const close = await mount();
-  for (const name of ["Writer", "Writing skills", "Document search"]) expect(screen.getByRole("checkbox", { name: new RegExp(name) })).toHaveProperty("checked", true);
+  expect(screen.getByText("Nothing of it is in use: its 3 elements go with it.")).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Remove plugin" }));
   await waitFor(() => expect(close).toHaveBeenCalled());
-  expect(fake.plugins.uninstall).toHaveBeenCalledWith({ id: "plugin_1", remove: { skills: ["s1"], tools: ["t1"], agents: ["a1"] } });
+  expect(fake.plugins.uninstall).toHaveBeenCalledWith({ id: "plugin_1", reviewed: preview.reviewed, choices: {} });
 });
 
-test("agents in use start kept while checked skills and tools are still removed", async () => {
-  await mount({ ...preview, agents: [{ ...preview.agents[0]!, inUse: "Has active Jobs" }] });
-  expect(screen.getByRole("checkbox", { name: /Writer/ })).toHaveProperty("checked", false);
-  for (const name of ["Writing skills", "Document search"]) expect(screen.getByRole("checkbox", { name: new RegExp(name) })).toHaveProperty("checked", true);
-  await userEvent.click(screen.getByRole("checkbox", { name: /Writer/ }));
-  expect(screen.getByRole("checkbox", { name: /Writing skills/ })).toHaveProperty("checked", true);
-  await userEvent.click(screen.getByRole("checkbox", { name: /Writer/ }));
+test("an agent in use starts kept with what it needs, and the choices made are what is sent", async () => {
+  const writer = element("agent", "a1", "Writer", { reasons: ["It has a Job running or waiting"], needs: ["skill:s1", "tool:t1"] });
+  await mount({ ...preview, elements: [writer, preview.elements[1]!, preview.elements[2]!] });
+  expect(screen.getByRole("group", { name: "Writer" }).textContent).toContain("It has a Job running or waiting");
+  expect(screen.getByRole("group", { name: "Writing skills" }).textContent).toContain("Needed by Writer if you keep it");
+  // The tool is force deleted: stated, so the kept agent loses it.
+  const tool = screen.getByRole("group", { name: "Document search" });
+  await userEvent.click(within(tool).getByRole("radio", { name: "Delete" }));
+  expect(tool.textContent).toContain("takes it off the agents and skills that use it");
   await userEvent.click(screen.getByRole("button", { name: "Remove plugin" }));
-  await waitFor(() => expect(fake.plugins.uninstall).toHaveBeenCalledWith({ id: "plugin_1", remove: { skills: ["s1"], tools: ["t1"], agents: [] } }));
+  await waitFor(() => expect(fake.plugins.uninstall).toHaveBeenCalledWith({ id: "plugin_1", reviewed: preview.reviewed, choices: { "agent:a1": "keep", "skill:s1": "keep", "tool:t1": "delete" } }));
 });
 
 test("native removals default selected and use reviewed revisions before workspace deletion", async () => {
@@ -79,7 +82,7 @@ test("a partial native failure retains the workspace and retries without repeati
 });
 
 
-test("a cached removal preview cannot select an agent before fresh usage is loaded", async () => {
+test("a cached removal preview shows no choice before fresh usage is loaded", async () => {
   const { orpc } = await import("../../lib/api.ts");
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(orpc.plugins.uninstallPreview.queryOptions({ input: { id: "plugin_1" } }).queryKey, preview);
@@ -88,9 +91,9 @@ test("a cached removal preview cannot select an agent before fresh usage is load
   fake.harnesses.list.mockResolvedValue([]);
   fake.runners.list.mockResolvedValue([]);
   render(<QueryClientProvider client={client}><PluginRemoveSheet id="plugin_1" name="Writing kit" onClose={vi.fn()} /></QueryClientProvider>);
-  expect(screen.queryByRole("checkbox", { name: /Writer/ })).toBeNull();
-  finish({ ...preview, agents: [{ ...preview.agents[0]!, inUse: "A workflow uses this agent", blocked: true }] });
-  const agent = await screen.findByRole("checkbox", { name: /Writer/ });
-  expect(agent).toHaveProperty("checked", false);
-  expect(agent).toHaveProperty("disabled", true);
+  expect(screen.queryByText(/Nothing of it is in use/)).toBeNull();
+  finish({ ...preview, elements: [element("agent", "a1", "Writer", { reasons: ["A workflow uses this agent"], keepOnly: "A workflow uses this agent" }), preview.elements[1]!, preview.elements[2]!] });
+  const agent = await screen.findByRole("group", { name: "Writer" });
+  expect(agent.textContent).toContain("It stays, as yours.");
+  expect(within(agent).queryByRole("radio")).toBeNull();
 });
