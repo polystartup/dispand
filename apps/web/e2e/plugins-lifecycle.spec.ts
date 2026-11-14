@@ -68,6 +68,9 @@ test("install a plugin with its definitions, override an agent, update, uninstal
   const market = repo(join(dir, "market"), { ".claude-plugin/marketplace.json": JSON.stringify({ name: "firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin.url } }] }) });
 
   await signIn(page);
+  // What earlier specs left: kept as it is when this one cleans up after itself.
+  const ids = async (path: string, key = "id") => new Set((await rpc<Record<string, string>[]>(page, path)).map((x) => x[key]!));
+  const before = { agents: await ids("agents/list"), tables: await ids("tables/list"), skills: await ids("skills/list", "packageId"), tools: await ids("tools/list") };
   // The agents of the plugin are written for a cloud harness; this app has none yet (settings.spec.ts makes its own later).
   const harness = await rpc<{ id: string }>(page, "harnesses/create", { type: "cloud", name: "Lifecycle model", kind: "openai-compatible", baseUrl: model.baseUrl, model: "lifecycle-model", systemPrompt: "" });
 
@@ -174,15 +177,16 @@ test("install a plugin with its definitions, override an agent, update, uninstal
   await expect.poll(async () => (await rpc<{ status: string }>(page, "jobs/get", { id: runId })).status).toBe("succeeded");
   expect(model.requests[0]![0]!.content).toContain(mine);
 
-  // Leave the app as the next specs expect it: nothing of the plugin's, no harness, no marketplace.
-  for (const a of await rpc<{ id: string }[]>(page, "agents/list")) await rpc(page, "agents/delete", { id: a.id });
+  // Leave the app as the next specs expect it: what this spec made goes (only that), with its harness and marketplace.
+  for (const a of await rpc<{ id: string }[]>(page, "agents/list")) if (!before.agents.has(a.id)) await rpc(page, "agents/delete", { id: a.id });
   // A table another refers to goes after it: the tables stand in the order of their references.
-  for (let left = await rpc<{ id: string }[]>(page, "tables/list"); left.length; left = await rpc<{ id: string }[]>(page, "tables/list")) {
+  const made = async () => (await rpc<{ id: string }[]>(page, "tables/list")).filter((t) => !before.tables.has(t.id));
+  for (let left = await made(); left.length; left = await made()) {
     const res = await page.request.post("/api/rpc/tables/delete", { headers: { "x-csrf-token": "orpc" }, data: { json: { id: left.at(-1)!.id } } });
     expect(res.status(), `tables/delete: ${await res.text()}`).toBe(200);
   }
-  for (const k of await rpc<{ packageId: string }[]>(page, "skills/list")) await rpc(page, "skills/delete", { packageId: k.packageId });
-  for (const t of await rpc<{ id: string }[]>(page, "tools/list")) await rpc(page, "tools/delete", { id: t.id });
+  for (const k of await rpc<{ packageId: string }[]>(page, "skills/list")) if (!before.skills.has(k.packageId)) await rpc(page, "skills/delete", { packageId: k.packageId });
+  for (const t of await rpc<{ id: string }[]>(page, "tools/list")) if (!before.tools.has(t.id)) await rpc(page, "tools/delete", { id: t.id });
   await rpc(page, "harnesses/delete", { id: harness.id });
   await page.goto("/settings/plugins");
   await page.getByRole("button", { name: "Remove firms" }).click();
