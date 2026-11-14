@@ -142,7 +142,11 @@ changes it updates this file.
   and a poll of an agent it makes waits. A `plugins_install` item carries the `reviewed` token
   of the plugin as `plugins_preview` read it (its commit, servers and definitions), so a commit
   pushed meanwhile is refused; it picks skills and definitions only: MCP servers (their
-  addresses and settings), agent files and native installs stay the owner's to add.
+  addresses and settings), agent files and native installs stay the owner's to add. When it is
+  proposed, the server reads the plugin again, refuses a token that isn't that read's, and keeps
+  the picked agents' rights with the item (`shown`): the owner reads those, never a page fetched
+  on its own, and the token makes them what is made. Only a Job on every table proposes it, as
+  its setup may reach any table.
   The snapshot binds the grant to the tool's target and permission revision; retargeting
   increments the revision atomically, including when pointed back later. Agent writes check
   the binding while holding a shared lock on the tool, so retargeting cannot restore an old grant.

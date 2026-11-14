@@ -10,7 +10,7 @@ export type ProposalView = {
    * hold `{ "$item": n }` where an id goes: what item `n` creates (`creates`), once made
    * `createdId`; `failed` when its call was refused.
    */
-  items: { tool: string; input: unknown; used: boolean; refs: string[]; creates?: string | null; createdId?: string | null; failed?: boolean; tools?: { toolId: string | { $item: number }; runs: string[] }[] }[];
+  items: { tool: string; input: unknown; used: boolean; refs: string[]; creates?: string | null; createdId?: string | null; failed?: boolean; tools?: { toolId: string | { $item: number }; runs: string[] }[]; shown?: unknown }[];
   names: Record<string, { kind: string; name: string; detail?: string }>;
   /** The generated plugin ("Generated: <business name>") that records what the items create. */
   plugin?: string | null;
@@ -253,7 +253,7 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
             {item.used && <span className={`ml-2 text-[12px] font-normal ${item.failed ? "text-danger" : "text-faint"}`}>{item.failed ? "refused" : "done"}</span>}
           </p>
           {item.tool === "plugins_install" ? (
-            <PluginInstallItem input={item.input as never} />
+            <PluginInstallItem input={item.input as never} shown={item.shown as never} />
           ) : (
           <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1.5 text-[13px]">
             {Object.entries((item.input ?? {}) as Record<string, unknown>).filter(([name]) => !(item.tools && name === "toolPermissions")).map(([name, value]) => (

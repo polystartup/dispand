@@ -4,17 +4,17 @@ import { AgentRights } from "../settings/PluginDefinitionPicks.tsx";
 
 type Input = { marketplaceId?: string; entryName?: string; reviewed?: string; skills?: string[]; setup?: { primitives?: string[]; agents?: { name: string; harnessId: string }[]; triggers?: string[] } };
 
+type Shown = { agents?: Parameters<typeof AgentRights>[0]["d"][] };
+
 /**
  * A proposed plugin install as its owner reads it: the entry, what it brings in, and what each
- * of its agents may do, read from the plugin as it is now. When it changed since it was
- * proposed, approving installs nothing: the install carries the token of what was read.
+ * agent it makes may do, as the server read the plugin when it was proposed. The install carries
+ * that read's token, so a plugin changed since installs nothing.
  */
-export function PluginInstallItem({ input }: { input: Input }) {
-  const ref = { marketplaceId: input.marketplaceId ?? "", entryName: input.entryName ?? "" };
-  const preview = useQuery({ ...orpc.plugins.preview.queryOptions({ input: ref }), retry: false, staleTime: Infinity });
+export function PluginInstallItem({ input, shown }: { input: Input; shown: Shown | undefined }) {
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   const setup = input.setup ?? {};
-  const agents = (setup.agents ?? []).map((a) => ({ ...a, definition: preview.data?.definitions.agents.find((d) => d.name.toLowerCase() === a.name.toLowerCase()) }));
+  const agents = (setup.agents ?? []).map((a) => ({ ...a, definition: shown?.agents?.find((d) => d.name.toLowerCase() === a.name.toLowerCase()) }));
   const lines: [string, string][] = [
     ["Plugin", input.entryName ?? ""],
     ["Skills", (input.skills ?? []).join(", ") || "none"],
@@ -36,14 +36,12 @@ export function PluginInstallItem({ input }: { input: Input }) {
           {agents.map((a) => (
             <li key={a.name}>
               <span className="font-medium">{a.name}</span> <span className="text-muted">on {harnesses.data?.find((h) => h.id === a.harnessId)?.name ?? "a harness"}</span>
-              {a.definition && <AgentRights d={a.definition} />}
+              {a.definition ? <AgentRights d={a.definition} /> : <p className="ml-7 text-[12px] text-danger">What it may do wasn't read: decline, and ask for it to be proposed again.</p>}
             </li>
           ))}
         </ul>
       )}
-      <p className="text-muted">Every tool its agents get asks before each action; its servers and native install are yours to add.</p>
-      {preview.error && <p className="text-danger">The plugin couldn't be read: approving may install nothing.</p>}
-      {preview.data && preview.data.reviewed !== input.reviewed && <p role="alert" className="text-danger">The plugin changed since this was proposed: approving installs nothing. Ask for it to be proposed again.</p>}
+      <p className="text-muted">Every tool its agents get asks before each action; its servers and native install are yours to add. A plugin changed since it was proposed installs nothing.</p>
     </div>
   );
 }

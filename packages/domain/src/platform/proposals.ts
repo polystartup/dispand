@@ -11,7 +11,7 @@ import { catalogEntry, defaultDisabled, defaultUnasked } from "../tools/catalog.
 import { toolPermissionTarget } from "../agents/tool-ask.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
-import type { JobIdentity } from "./call.ts";
+import type { JobIdentity, PlatformApp } from "./call.ts";
 import type { PlatformTool } from "./tools.ts";
 
 // Proposals: what changes what agents may do is a person's decision. An agent lists the exact
@@ -213,7 +213,8 @@ export const proposable = (tool: PlatformTool): boolean => tool.bundle === "conf
  * a later call is compared with. A reference to an earlier item is parsed as an id would be and
  * kept as the reference. Refused with the reason when it couldn't be shown whole.
  */
-export async function createProposal(db: Db, job: JobIdentity, tools: PlatformTool[], scope: TableScope, input: unknown): Promise<{ proposalId: string } | { error: string }> {
+export async function createProposal(app: PlatformApp, job: JobIdentity, tools: PlatformTool[], scope: TableScope, input: unknown): Promise<{ proposalId: string } | { error: string }> {
+  const { db } = app;
   const parsed = ProposeInput.safeParse(input);
   if (!parsed.success) return { error: `propose needs items, each a tool's name and its input: ${issues(parsed.error)}` };
   if (parsed.data.items.length === 0) return { error: "A proposal lists at least one write" };
@@ -259,7 +260,9 @@ export async function createProposal(db: Db, job: JobIdentity, tools: PlatformTo
     if (!everyString(kept, (s) => !s.includes(nonce))) return { error: `${at}: a reference stands only where an id goes` };
     const prepared = await snapshotToolPermissions(db, job.ownerId, items, { tool: tool.name, input: kept });
     if (typeof prepared === "string") return { error: `${at}: ${prepared}` };
-    items.push(prepared);
+    const shown = tool.shown ? await tool.shown(app, job, kept) : undefined;
+    if (typeof shown === "string") return { error: `${at}: ${shown}` };
+    items.push(shown === undefined ? prepared : { ...prepared, shown });
   }
   if (!everyString([items, parsed.data.plugin ?? ""], storable)) return { error: "The proposal holds a character Dispand can't store (NUL or a lone surrogate)" };
   if (Buffer.byteLength(JSON.stringify(items)) > MAX_BYTES) return { error: "The proposal is too large to show whole (at most 64 KiB): make several, or shorten the texts" };
@@ -573,7 +576,7 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
     (r) => ({ name: r.name, detail: `of the agent ${r.agent}` }),
   );
   return {
-    items: items.map(({ tool, input, usedAt, createdId, failed, toolPermissions }) => ({
+    items: items.map(({ tool, input, usedAt, createdId, failed, toolPermissions, shown }) => ({
       tool,
       input,
       used: usedAt !== undefined,
@@ -582,6 +585,7 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
       creates: createsOf(tool) ?? null,
       createdId: createdId ?? null,
       ...(toolPermissions ? { tools: toolPermissions.map((p) => ({ toolId: p.toolId, runs: p.unasked })) } : {}),
+      ...(shown !== undefined ? { shown } : {}),
     })),
     names,
   };

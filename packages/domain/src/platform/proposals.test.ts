@@ -958,7 +958,11 @@ test("the Assistant proposes a plugin's install with a pick: approved, it makes 
   const install = { ...entry, reviewed: shown.output.reviewed, skills: ["legal-research"], setup: { primitives: ["Clients", "Matters", "Research"], agents: [{ name: "Matter upkeep", harnessId: s.harness.id }] } };
   // Outside a proposal, it is refused.
   expect(((await s.tool("plugins_install", install)) as { error: string }).error).toMatch(NEEDS);
+  // A token from another read is refused when proposed: the owner would read rights it doesn't bind.
+  expect(await s.propose([{ tool: "plugins_install", input: { ...install, reviewed: "f".repeat(64) } }])).toMatchObject({ ok: false, error: expect.stringContaining("changed since you read it") });
   const id = s.idOf(await s.propose([{ tool: "plugins_install", input: install }]));
+  // What the owner reads: each agent's rights, read by the server when proposed.
+  expect((await proposalView(s.context.db, s.context.ownerId, id))!.items[0]!.shown).toMatchObject({ agents: [{ name: "Matter upkeep", bundles: ["data"], tables: ["Matters"] }] });
   await s.settle(id, "approved");
   const applied = await s.tool("proposal_apply", { proposalId: id });
   expect(applied).toMatchObject({ ok: true });
@@ -977,7 +981,12 @@ test("the Assistant proposes a plugin's install with a pick: approved, it makes 
   expect(await s.tool("proposal_apply", { proposalId: second })).toMatchObject({ output: { items: [{ outcome: "refused", error: expect.stringContaining("changed since you reviewed it") }] } });
   expect(await s.context.db.select().from(pluginsTable)).toEqual([]);
   // Servers and native installs are the owner's: refused even approved.
-  const third = s.idOf(await s.propose([{ tool: "plugins_install", input: { ...entry, reviewed: "r".repeat(64), nativeInstall: true } }]));
+  const fresh = (await s.tool("plugins_preview", entry)) as { ok: true; output: { reviewed: string } };
+  const third = s.idOf(await s.propose([{ tool: "plugins_install", input: { ...entry, reviewed: fresh.output.reviewed, nativeInstall: true } }]));
   await s.settle(third, "approved");
   expect(await s.tool("proposal_apply", { proposalId: third })).toMatchObject({ output: { items: [{ outcome: "refused", error: expect.stringContaining("owner's to add") }] } });
+  // Its setup may reach any table: a Job on some tables can't propose it.
+  const table = await call(router.tables.create, { name: "Notes" }, { context: s.context });
+  await call(router.agents.update, { ...s.base, id: s.agent.id, bundles: ["configure"], dataTables: [table.id] }, { context: s.context });
+  expect(await s.propose([{ tool: "plugins_install", input: { ...install, reviewed: fresh.output.reviewed } }])).toMatchObject({ ok: false, error: expect.stringContaining("Not found") });
 });
