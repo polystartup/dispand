@@ -24,12 +24,12 @@ import {
 } from "../db/schema.ts";
 import { pluginNativeKey } from "../skills/native.ts";
 import { newId } from "../ids.ts";
-import { authed, base } from "../rpc/context.ts";
+import { authed, base, type InitialContext } from "../rpc/context.ts";
 import { MAX_DESCRIPTION, PackageError, SKILL_NAME, validatePackage } from "../skills/package.ts";
 import { rebaseFiles, resetFile, store, storeUpstream, type Tx } from "../skills/procedures.ts";
 import { HeaderValue, insertTool, refreshActions } from "../tools/procedures.ts";
 import { hasPlaceholder, httpTool, skillPackageName, toolName } from "./components.ts";
-import { checkChoices, type Element, inUse } from "./closure.ts";
+import { type After, checkChoices, type Element, inUse } from "./closure.ts";
 import { agentValues, type ChangeClass, elementPlans, type UpdatableKind } from "./update.ts";
 import { ELEMENT_FIELDS } from "./overrides.ts";
 import { agents as agentProcedures } from "../agents/procedures.ts";
@@ -629,6 +629,61 @@ function freeName(own: Set<string>, name: string, plugin: string): string {
   return free;
 }
 
+/**
+ * Removes a plugin's elements that leave (all of them at an uninstall, the ones its new version
+ * drops at an update), in the order agents, skills, tools, tables, then triggers: one kept
+ * (`keep`) becomes its owner's own, with the values it has (a tool or a table under a free
+ * name); any other goes, and what used it loses it. The choices were checked (`checkChoices`).
+ */
+async function removeElements(tx: Tx, ownerId: string, engine: InitialContext["engine"], row: PluginRow, elements: Element[], choices: Record<string, "keep" | "delete">) {
+  const of = (kind: Element["kind"], keep: boolean) => elements.filter((e) => e.kind === kind && (choices[e.key] === "keep") === keep).map((e) => e.id);
+
+  // Agents first, so what still uses a skill or a tool afterwards is what stays.
+  const out = await engine.deleteAgents(tx, ownerId, of("agent", false));
+  for (const id of of("agent", true)) {
+    await tx.update(agentsTable).set({ pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(agentsTable.id, id));
+    await tx.update(triggersTable).set({ pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(triggersTable.agentId, id));
+  }
+  for (const id of of("skill", false)) {
+    await tx.delete(agentSkills).where(eq(agentSkills.packageId, id));
+    await tx.delete(skillPackages).where(eq(skillPackages.id, id));
+  }
+  for (const id of of("skill", true)) {
+    await tx.update(skillPackages).set({ pluginId: null }).where(eq(skillPackages.id, id));
+    await tx.delete(skillFileUpstream).where(eq(skillFileUpstream.packageId, id));
+  }
+  const names = async (table: typeof toolsTable | typeof tablesTable) =>
+    new Set((await tx.select({ name: table.name }).from(table).where(and(eq(table.ownerId, ownerId), sql`${table.pluginId} is null`))).map((t) => t.name.toLowerCase()));
+  for (const id of of("tool", false)) {
+    await tx.delete(agentTools).where(eq(agentTools.toolId, id));
+    const required = await tx.select({ id: skillPackages.id, tools: skillPackages.requiredToolIds }).from(skillPackages).where(and(eq(skillPackages.ownerId, ownerId), sql`${skillPackages.requiredToolIds} @> ${JSON.stringify([id])}::jsonb`)).for("update");
+    for (const pkg of required) await tx.update(skillPackages).set({ requiredToolIds: pkg.tools.filter((toolId) => toolId !== id), updatedAt: sql`now()` }).where(eq(skillPackages.id, pkg.id));
+    await tx.delete(toolsTable).where(eq(toolsTable.id, id));
+  }
+  const toolNames = await names(toolsTable);
+  for (const id of of("tool", true)) {
+    const [tool] = await tx.select({ name: toolsTable.name }).from(toolsTable).where(eq(toolsTable.id, id));
+    await tx.update(toolsTable).set({ name: freeName(toolNames, tool!.name, row.name), pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(toolsTable.id, id));
+  }
+  // Every table to delete at once: they may name each other's rows, and no table that stays names theirs (`checkChoices`).
+  const gone = of("table", false);
+  if (gone.length) {
+    await tx.delete(fieldsTable).where(and(inArray(fieldsTable.tableId, gone), sql`${fieldsTable.referencesTableId} is not null`));
+    await tx.delete(tablesTable).where(inArray(tablesTable.id, gone));
+  }
+  const tableNames = await names(tablesTable);
+  for (const id of of("table", true)) {
+    const [table] = await tx.select({ name: tablesTable.name }).from(tablesTable).where(eq(tablesTable.id, id));
+    await tx.update(tablesTable).set({ name: freeName(tableNames, table!.name, row.name), pluginId: null, pluginComponent: null, definition: null }).where(eq(tablesTable.id, id));
+    await tx.update(fieldsTable).set({ pluginField: null }).where(eq(fieldsTable.tableId, id));
+  }
+  // A trigger dropped while its agent stays: kept as the owner's own, or gone.
+  for (const id of of("trigger", true)) await tx.update(triggersTable).set({ pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(triggersTable.id, id));
+  const triggersGone = of("trigger", false);
+  if (triggersGone.length) await tx.delete(triggersTable).where(inArray(triggersTable.id, triggersGone));
+  return out;
+}
+
 const Choices = z.record(z.string().max(100), z.enum(["keep", "delete"])).refine((c) => Object.keys(c).length <= 1000, "Too many choices");
 
 /**
@@ -647,47 +702,7 @@ const uninstall = owner.input(Id.extend({ reviewed: z.string().length(64), choic
     if (removalReview(elements) !== input.reviewed) throw new ORPCError("CONFLICT", { message: `${row.name} changed since you looked: look at what would be removed again` });
     const problem = checkChoices(elements, input.choices);
     if (problem) throw new ORPCError("BAD_REQUEST", { message: problem });
-    const of = (kind: Element["kind"], keep: boolean) => elements.filter((e) => e.kind === kind && (input.choices[e.key] === "keep") === keep).map((e) => e.id);
-
-    // Agents first, so what still uses a skill or a tool afterwards is what stays.
-    const out = await context.engine.deleteAgents(tx, context.ownerId, of("agent", false));
-    for (const id of of("agent", true)) {
-      await tx.update(agentsTable).set({ pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(agentsTable.id, id));
-      await tx.update(triggersTable).set({ pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(triggersTable.agentId, id));
-    }
-    for (const id of of("skill", false)) {
-      await tx.delete(agentSkills).where(eq(agentSkills.packageId, id));
-      await tx.delete(skillPackages).where(eq(skillPackages.id, id));
-    }
-    for (const id of of("skill", true)) {
-      await tx.update(skillPackages).set({ pluginId: null }).where(eq(skillPackages.id, id));
-      await tx.delete(skillFileUpstream).where(eq(skillFileUpstream.packageId, id));
-    }
-    const names = async (table: typeof toolsTable | typeof tablesTable) =>
-      new Set((await tx.select({ name: table.name }).from(table).where(and(eq(table.ownerId, context.ownerId), sql`${table.pluginId} is null`))).map((t) => t.name.toLowerCase()));
-    for (const id of of("tool", false)) {
-      await tx.delete(agentTools).where(eq(agentTools.toolId, id));
-      const required = await tx.select({ id: skillPackages.id, tools: skillPackages.requiredToolIds }).from(skillPackages).where(and(eq(skillPackages.ownerId, context.ownerId), sql`${skillPackages.requiredToolIds} @> ${JSON.stringify([id])}::jsonb`)).for("update");
-      for (const pkg of required) await tx.update(skillPackages).set({ requiredToolIds: pkg.tools.filter((toolId) => toolId !== id), updatedAt: sql`now()` }).where(eq(skillPackages.id, pkg.id));
-      await tx.delete(toolsTable).where(eq(toolsTable.id, id));
-    }
-    const toolNames = await names(toolsTable);
-    for (const id of of("tool", true)) {
-      const [tool] = await tx.select({ name: toolsTable.name }).from(toolsTable).where(eq(toolsTable.id, id));
-      await tx.update(toolsTable).set({ name: freeName(toolNames, tool!.name, row.name), pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(toolsTable.id, id));
-    }
-    // Every table to delete at once: they may name each other's rows, and no table that stays names theirs (`checkChoices`).
-    const gone = of("table", false);
-    if (gone.length) {
-      await tx.delete(fieldsTable).where(and(inArray(fieldsTable.tableId, gone), sql`${fieldsTable.referencesTableId} is not null`));
-      await tx.delete(tablesTable).where(inArray(tablesTable.id, gone));
-    }
-    const tableNames = await names(tablesTable);
-    for (const id of of("table", true)) {
-      const [table] = await tx.select({ name: tablesTable.name }).from(tablesTable).where(eq(tablesTable.id, id));
-      await tx.update(tablesTable).set({ name: freeName(tableNames, table!.name, row.name), pluginId: null, pluginComponent: null, definition: null }).where(eq(tablesTable.id, id));
-      await tx.update(fieldsTable).set({ pluginField: null }).where(eq(fieldsTable.tableId, id));
-    }
+    const out = await removeElements(tx, context.ownerId, context.engine, row, elements, input.choices);
     await tx.delete(pluginsTable).where(eq(pluginsTable.id, row.id));
     return out;
   });
@@ -774,6 +789,40 @@ function additionsOf(row: PluginRow, contents: PluginContents): Addition[] {
   ];
 }
 
+/**
+ * The keys (`<kind>:<id>`) of the plugin's elements its new version no longer has: an agent, a
+ * table or a tool with no definition or component of its name, and a trigger with no definition
+ * of its name or one that names another agent now (another trigger, then). A dropped agent's
+ * triggers go with it. A skill isn't an element here: its files are followed one by one.
+ */
+/** What the update writes over each staying agent's uses: what a removal counts as still using a dropped element. */
+const afterOf = (elements: Awaited<ReturnType<typeof elementPlans>>) =>
+  new Map(elements.filter((e) => e.kind === "agent").map((e) => [e.id, e.plan.set as After]));
+
+async function leavingOf(db: Db | Tx, ownerId: string, row: PluginRow, contents: PluginContents): Promise<Set<string>> {
+  const lower = (s: string | null) => (s ?? "").toLowerCase();
+  const has = (names: { name: string }[], component: string | null) => names.some((n) => lower(n.name) === lower(component));
+  const mine = (t: typeof agentsTable | typeof tablesTable | typeof toolsTable | typeof triggersTable) => and(eq(t.pluginId, row.id), eq(t.ownerId, ownerId));
+  const [agentRows, tableRows, toolRows, triggerRows] = await Promise.all([
+    db.select({ id: agentsTable.id, component: agentsTable.pluginComponent }).from(agentsTable).where(mine(agentsTable)),
+    db.select({ id: tablesTable.id, component: tablesTable.pluginComponent }).from(tablesTable).where(mine(tablesTable)),
+    db.select({ id: toolsTable.id, component: toolsTable.pluginComponent }).from(toolsTable).where(mine(toolsTable)),
+    db.select({ id: triggersTable.id, component: triggersTable.pluginComponent, agentId: triggersTable.agentId }).from(triggersTable).where(mine(triggersTable)),
+  ]);
+  const leaving = new Set<string>();
+  const gone = agentRows.filter((a) => !has(contents.definitions.agents, a.component) && !has(contents.agents, a.component));
+  for (const a of gone) leaving.add(`agent:${a.id}`);
+  for (const t of tableRows) if (!has(contents.definitions.primitives, t.component)) leaving.add(`table:${t.id}`);
+  for (const t of toolRows) if (!contents.mcpServers.some((s) => s.name === t.component)) leaving.add(`tool:${t.id}`);
+  for (const t of triggerRows) {
+    if (gone.some((a) => a.id === t.agentId)) continue;
+    const d = contents.definitions.triggers.find((d) => lower(d.name) === lower(t.component));
+    const agentId = d && agentRows.find((a) => lower(a.component) === lower(d.agent))?.id;
+    if (agentId !== t.agentId) leaving.add(`trigger:${t.id}`);
+  }
+  return leaving;
+}
+
 /** What an update to the plugin's current commit would do, for the owner to see: `reviewed` binds the update to it. */
 async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: boolean }, row: PluginRow) {
   const read = await latest(context, row);
@@ -782,8 +831,11 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
   const conflicts: ShownConflict[] = [...elements.flatMap((e) => e.plan.conflicts), ...(skill?.conflicts ?? [])];
   const changes: ShownChange[] = [...elements.flatMap((e) => e.plan.changes), ...(skill?.changes ?? [])];
   const additions = additionsOf(row, read.contents);
-  const reviewed = createHash("sha256").update(canonical({ sha: read.sha, conflicts, changes, additions })).digest("hex");
-  return { ...read, conflicts, changes, additions, reviewed };
+  const leaving = await leavingOf(context.db, context.ownerId, row, read.contents);
+  const after = afterOf(elements);
+  const removals = leaving.size ? await inUse(context.db, context.ownerId, row.id, leaving, after) : [];
+  const reviewed = createHash("sha256").update(canonical({ sha: read.sha, conflicts, changes, additions, removals })).digest("hex");
+  return { ...read, conflicts, changes, additions, leaving, after, removals, reviewed };
 }
 
 /**
@@ -795,8 +847,8 @@ const tableOf = (kind: UpdatableKind) => (kind === "agent" ? agentsTable : kind 
 
 const updatePreview = owner.input(Id).handler(async ({ input, context }) => {
   const row = await findPlugin(context.db, context.ownerId, input.id);
-  const { sha, conflicts, changes, additions, reviewed } = await updatePlan(context, row);
-  return { sha, conflicts, changes, additions, reviewed, names: await namesIn(context.db, context.ownerId, [conflicts, changes]) };
+  const { sha, conflicts, changes, additions, removals, reviewed } = await updatePlan(context, row);
+  return { sha, conflicts, changes, additions, removals, reviewed, names: await namesIn(context.db, context.ownerId, [conflicts, changes]) };
 });
 
 /** A name for each id of the owner's agents, tools, tables, fields and skill packages found in `values`, so the screen reads names. */
@@ -825,17 +877,27 @@ async function namesIn(db: Db, ownerId: string, values: unknown): Promise<Record
  * only as `updatePreview` showed it (`reviewed`); one with none applies at once. Each element is
  * written through its own procedure, with its checks; one it refuses is reported, not applied.
  */
-const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(), take: z.array(z.string().max(700)).max(1000).default([]) })).handler(async ({ input, context }) => {
+const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(), take: z.array(z.string().max(700)).max(1000).default([]), /** What becomes of each element the new version drops that was asked about. */ choices: Choices.default({}) })).handler(async ({ input, context }) => {
   const row = await findPlugin(context.db, context.ownerId, input.id);
   const shown = await updatePlan(context, row);
   const { contents, url, sha, nativeRoot } = shown;
-  if ((shown.conflicts.length || shown.additions.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
+  if ((shown.conflicts.length || shown.additions.length || shown.removals.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
     throw new ORPCError("CONFLICT", { message: `Look at what updating ${row.name} changes before it is applied` });
   }
   if (input.take.some((key) => !shown.conflicts.some((c) => c.key === key))) throw new ORPCError("BAD_REQUEST", { message: "Not a field in conflict" });
-  const elements = await elementPlans(context.db, context.ownerId, row, contents, input.take);
-  await context.db.transaction(async (tx) => {
+  const elements = (await elementPlans(context.db, context.ownerId, row, contents, input.take)).filter((e) => !shown.leaving.has(`${e.kind}:${e.id}`));
+  const out = await context.db.transaction(async (tx) => {
     await findPlugin(tx, context.ownerId, row.id, true);
+    // What leaves, worked out again with the plugin's tables locked: removed only as the screen showed it.
+    let out: Awaited<ReturnType<typeof removeElements>> = [];
+    if (shown.leaving.size) {
+      await tx.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.pluginId, row.id)).for("update");
+      const removals = await inUse(tx, context.ownerId, row.id, shown.leaving, shown.after);
+      if (canonical(removals) !== canonical(shown.removals)) throw new ORPCError("CONFLICT", { message: `${row.name} changed since you looked: look at what updating it changes again` });
+      const problem = checkChoices(removals, input.choices);
+      if (problem) throw new ORPCError("BAD_REQUEST", { message: problem });
+      out = await removeElements(tx, context.ownerId, context.engine, row, removals, input.choices);
+    } else if (Object.keys(input.choices).length) throw new ORPCError("BAD_REQUEST", { message: "Not an element of this plugin" });
     const skill = await skillPlan(tx, row, contents, input.take, true);
     if (skill) {
       const { skills } = validated(skill.files);
@@ -849,7 +911,9 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
       .update(pluginsTable)
       .set({ url, sha, nativeRoot: nativeRoot ?? null, layout: contents.layout, components: componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, updatedAt: sql`now()` })
       .where(eq(pluginsTable.id, row.id));
+    return out;
   });
+  context.engine.settled(out);
   // Tools first: an agent's new list may name one at its new address.
   const failed: { name: string; reason: string }[] = [];
   for (const kind of ["tool", "agent", "trigger"] as const) {

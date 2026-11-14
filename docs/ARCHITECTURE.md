@@ -1302,7 +1302,15 @@
   What the new version defines that the installed one didn't (`additionsOf`: definitions and
   HTTP servers) is returned as `additions` and is part of the token, but the update makes none
   of it: once it is applied, the row opens the plugin's Set up, whose items show what each new
-  element would be allowed to do and whose own `reviewed` token binds what is made. Set up also offers the plugin's HTTP servers
+  element would be allowed to do and whose own `reviewed` token binds what is made. What the new version no longer has
+  (`leavingOf`: an agent, a table or a tool with no definition or component of its name; a
+  trigger with no definition, or one that names another agent now) is returned as `removals`:
+  `inUse` with that `leaving` set, so the plugin's elements the update keeps count as staying,
+  each staying agent read as the update leaves it (`afterOf`). A dropped trigger whose agent
+  stays is an element of its own (an override, an unfinished Job it started, changes held back,
+  a widget). `plugins.update` takes a `choices` record as an uninstall does, re-checks the
+  removals with the plugin's tables locked, and applies them through `removeElements`, the
+  function the uninstall uses. Set up also offers the plugin's HTTP servers
   that aren't tools yet and need no setting, unticked (`pick.servers`). A tool an update gives
   an existing agent is attached with every action on Ask (`toolPermissions` with nothing
   unasked): the update's screen shows the tool gained, not which actions would run unasked.

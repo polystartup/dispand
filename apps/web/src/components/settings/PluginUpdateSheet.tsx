@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { api } from "../../lib/api.ts";
 import { refusal } from "./PluginInstallSheet.tsx";
+import { type RemovalChoice, RemovalChoices, removalPlan } from "./PluginRemoval.tsx";
 import { UpdatePlan } from "./PluginUpdate.tsx";
 
 export type UpdatePreview = Awaited<ReturnType<typeof api.plugins.updatePreview>>;
@@ -13,6 +14,9 @@ export type UpdatePreview = Awaited<ReturnType<typeof api.plugins.updatePreview>
  */
 export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { id: string; name: string; preview: UpdatePreview; onClose: () => void; onUpdated: (result: Awaited<ReturnType<typeof api.plugins.update>>) => void }) {
   const [take, setTake] = useState<string[]>([]);
+  // What the new version drops: what is in use is kept unless the owner says otherwise, as at an uninstall.
+  const [removing, setRemoving] = useState<Record<string, RemovalChoice>>({});
+  const plan = removalPlan(preview.removals, removing);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,7 +24,7 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
     setBusy(true);
     setError(null);
     try {
-      onUpdated(await api.plugins.update({ id, reviewed: preview.reviewed, take }));
+      onUpdated(await api.plugins.update({ id, reviewed: preview.reviewed, take, choices: plan.choices }));
       onClose();
     } catch (e) {
       setError(refusal(e, "Could not update the plugin. It may have changed since: close this and update again."));
@@ -46,6 +50,14 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
             onTake={(key, taken) => setTake((prev) => (taken ? [...prev.filter((k) => k !== key), key] : prev.filter((k) => k !== key)))}
             additions={preview.additions}
           />
+          {preview.removals.length > 0 && (
+            <section aria-labelledby="update-removals" className="space-y-2">
+              <h3 id="update-removals" className="text-[13px] font-medium text-muted">
+                No longer in this version
+              </h3>
+              <RemovalChoices plan={plan} busy={busy} onChange={(key, choice) => setRemoving((prev) => ({ ...prev, [key]: choice }))} />
+            </section>
+          )}
           {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
           <div className="flex gap-2">
             <Button type="button" disabled={busy} onClick={() => void confirm()}>

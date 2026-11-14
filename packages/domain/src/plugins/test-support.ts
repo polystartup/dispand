@@ -49,8 +49,9 @@ export function fixtureRepo(files: Record<string, FixtureFile>) {
   const dir = mkdtempSync(join(tmpdir(), "dispand-fixture-"));
   const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, env: gitEnv, encoding: "utf8" }).trim();
   git("init", "-q", "-b", "main");
-  const commit = (more: Record<string, FixtureFile>) => {
+  const commit = (more: Record<string, FixtureFile>, removed: string[] = []) => {
     writeTree(dir, more);
+    for (const path of removed) rmSync(join(dir, path), { force: true });
     git("add", "-A");
     git("commit", "-q", "-m", "fixture");
     return git("rev-parse", "HEAD");

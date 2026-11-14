@@ -1,4 +1,4 @@
-export type RemovalElement = { key: string; kind: "agent" | "skill" | "tool" | "table"; id: string; name: string; reasons: string[]; needs: string[]; keepOnly: string | null };
+export type RemovalElement = { key: string; kind: "agent" | "skill" | "tool" | "table" | "trigger"; id: string; name: string; reasons: string[]; needs: string[]; keepOnly: string | null };
 export type RemovalChoice = "keep" | "delete";
 export type RemovalPlan = {
   /** The elements asked about for a reason of their own. */
@@ -40,13 +40,14 @@ export function removalPlan(elements: RemovalElement[], state: Record<string, Re
   return { asked, needed, gone: elements.length - shown.length, choices: Object.fromEntries(shown.map((e) => [e.key, choiceOf(e)])) };
 }
 
-const KINDS = { agent: "Agent", skill: "Skill package", tool: "Tool", table: "Table" };
+const KINDS = { agent: "Agent", skill: "Skill package", tool: "Tool", table: "Table", trigger: "Trigger" };
 /** What deleting one takes with it, said before the choice. */
 const LOSES = {
   agent: "Deleting it removes its triggers and stops its Jobs; their history stays.",
   skill: "Deleting it removes its files and takes it off the agents that use it.",
   tool: "Deleting it removes its saved headers and sign-in, and takes it off the agents and skills that use it.",
   table: "Deleting it removes its rows and its memory.",
+  trigger: "Deleting it stops it starting Jobs; what it started stays.",
 };
 
 function Choice({ element, why, choice, busy, onChange }: { element: RemovalElement; why: string[]; choice: RemovalChoice; busy: boolean; onChange: (key: string, choice: RemovalChoice) => void }) {
