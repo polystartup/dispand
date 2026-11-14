@@ -32,6 +32,7 @@ export const ACTION_WORDS: Record<AuditAction, string> = {
   "poll.run": "Tool polled",
   "event.recorded": "Row change recorded",
   "memory.written": "Memory written",
+  "plugin.decided": "Plugin change decided",
 };
 
 const RESOURCE_WORDS: Record<AuditResource, string> = {
@@ -68,12 +69,14 @@ const DETAIL_LABELS: Record<keyof AuditDetails, string> = {
   rowId: "Row",
   eventId: "Event",
   memoryId: "Memory",
+  elementId: "Plugin element",
   agentName: "Agent",
   harnessName: "Harness",
   runnerName: "Runner",
   triggerName: "Trigger",
   toolName: "Tool",
   tableName: "Table",
+  field: "Field",
   causeKind: "Cause",
   firing: "Firing",
   questionKind: "Kind",
@@ -84,6 +87,7 @@ const DETAIL_LABELS: Record<keyof AuditDetails, string> = {
   operation: "Operation",
   scope: "Scope",
   status: "Status",
+  elementKind: "Element kind",
   item: "Item",
   items: "Items",
   jobs: "Jobs",

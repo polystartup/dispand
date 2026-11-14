@@ -1434,6 +1434,22 @@ Runner protocol 14 introduced runner-tool `unasked` actions and `session.permiss
 
 Runner MCP aliases are hashes of the tool id, runner id and local server key. They survive renames and other tools’ removal, and change on retargeting. Pending persistent answers are checked against the current binding and permission before delivery; permission updates invalidate local caching of older approvals. Updates arriving during skill fetching narrow the start before CLI launch. Automatic runner calls share the poll path guard for protected machine and session configuration.
 
+"Let Stem deal with it" keeps each conflict handed to Stem in `plugin_conflicts` (migration
+0075): one field of one of a plugin's agents, tools or triggers, with `mine` and `next`, the two
+values it was handed off against. `plugins/resolve.ts` decides: `decide` applies a decision
+only while the field is still `mine` and the element's `upstream` for it still `next` (else the
+conflict is `open`, the owner's again); a reset takes the plugin's value; a merge applies at once
+when it is `mine`, `next`, or a list of their entries, and otherwise waits in `merged` for the
+owner's Approval, which `answerApproval` applies (yes) or drops ("Keep mine") per conflict, with
+the same check. A tool an agent gains by a decision starts with every action on Ask. Each
+decision is an Audit row (`plugin.decided`: the element, the field's name and the decision's
+kind, never a value). An update reopens the pending conflicts of the fields whose plugin value
+it changes (`reopenChanged`), and an element that leaves the plugin drops its conflicts
+(`forgetConflicts`). Writes go through the element's own update (`plugins/write-field.ts`, which
+`resetOverride` uses too). Not yet built on it: handing conflicts to Stem from the update's
+screen with the restricted Stem Job, tables' and skill files' conflicts, and the marks on the
+element pages.
+
 Native support currently requires `plugins.native_root = '.'`, recorded from the resolved Git
 checkout when importing or updating. Legacy rows have null until updated. Nested imports are
 reported as unsupported for native installation because Skillshare cannot reproduce their
