@@ -1,5 +1,5 @@
 import { call, ORPCError } from "@orpc/server";
-import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents as agentsTable, fields as fieldsTable, plugins, skillPackages, skills as skillsTable, tables as tablesTable, tools as toolsTable, type ProposalItem } from "../db/schema.ts";
@@ -119,7 +119,8 @@ export async function setupItems(db: Db, ownerId: string, pluginId: string, pick
     ? await db
         .select({ id: tablesTable.id, name: tablesTable.name })
         .from(tablesTable)
-        .where(and(eq(tablesTable.ownerId, ownerId), inArray(sql`lower(${tablesTable.name})`, outside)))
+        // The owner's own tables: another plugin's table of that name isn't the workspace's.
+        .where(and(eq(tablesTable.ownerId, ownerId), isNull(tablesTable.pluginId), inArray(sql`lower(${tablesTable.name})`, outside)))
     : [];
 
   for (const p of picked) {
@@ -243,7 +244,8 @@ async function agentSetup(
     ? await db
         .select({ id: tablesTable.id, name: tablesTable.name })
         .from(tablesTable)
-        .where(and(eq(tablesTable.ownerId, ownerId), inArray(sql`lower(${tablesTable.name})`, outside)))
+        // The owner's own tables: another plugin's table of that name isn't the workspace's.
+        .where(and(eq(tablesTable.ownerId, ownerId), isNull(tablesTable.pluginId), inArray(sql`lower(${tablesTable.name})`, outside)))
     : [];
   const tableNamed = (name: string): Ref | undefined => tableOf.get(name.toLowerCase()) ?? workspace.find((t) => same(t.name, name))?.id;
 
@@ -363,6 +365,14 @@ export function runItemsAsOwner(context: InitialContext & { ownerId: string }, p
   return traces.startActiveSpan("plugins.setup", { attributes: { "dispand.plugin.id": pluginId, "dispand.setup.items": items.length } }, async (span) => {
     let result = "done";
     try {
+      const [plugin] = await context.db.select({ definitions: plugins.definitions }).from(plugins).where(eq(plugins.id, pluginId));
+      /** What an item makes from a definition is the plugin's from its insert, under its name there. */
+      const elementOf = (item: ProposalItem) => {
+        if (!item.from || !/^(primitive|field|agent):/.test(item.from)) return undefined;
+        const component = (item.input as { name: string }).name;
+        const definition = item.from.startsWith("primitive:") ? plugin?.definitions.primitives.find((p) => p.name === component) : undefined;
+        return { pluginId, component, ...(definition ? { definition } : {}) };
+      };
       const made: ProposalItem[] = [];
       const outcomes: ItemOutcome[] = [];
       for (const [index, item] of items.entries()) {
@@ -379,7 +389,8 @@ export function runItemsAsOwner(context: InitialContext & { ownerId: string }, p
           const { procedure, path } = PROCEDURES[item.tool as SetupTool];
           try {
             const permissions = item.toolPermissions ? resolveRefs(made, item.toolPermissions) as { toolId: string; target: string }[] : undefined;
-            output = await call(procedure as never, input as never, { context: { ...context, approvedToolTargets: permissions } as never, path: [...path] });
+            const pluginElement = elementOf(item);
+            output = await call(procedure as never, input as never, { context: { ...context, approvedToolTargets: permissions, ...(pluginElement ? { pluginElement } : {}) } as never, path: [...path] });
           } catch (err) {
             if (err instanceof ORPCError) error = err.code === "NOT_FOUND" ? "Not found" : err.message;
             else {

@@ -669,15 +669,19 @@ const uninstall = owner.input(Id.extend({ remove: z.object({ skills: RemovalIds,
     await tx.update(agentsTable).set({ upstream: null, overridden: [] }).where(eq(agentsTable.pluginId, row.id));
     // A kept skill package has no plugin's files to differ from any more.
     for (const pkg of parts.skills) await tx.delete(skillFileUpstream).where(eq(skillFileUpstream.packageId, pkg.id));
-    // A kept tool joins the owner's own names: one already taken there gets the plugin's name after it.
-    const kept = await tx.select({ id: toolsTable.id, name: toolsTable.name }).from(toolsTable).where(eq(toolsTable.pluginId, row.id));
-    const own = new Set(
-      (await tx.select({ name: toolsTable.name }).from(toolsTable).where(and(eq(toolsTable.ownerId, context.ownerId), sql`${toolsTable.pluginId} is null`))).map((t) => t.name.toLowerCase()),
-    );
-    for (const tool of kept) {
-      const name = own.has(tool.name.toLowerCase()) ? `${tool.name} (${row.name})`.slice(0, 100) : tool.name;
-      own.add(name.toLowerCase());
-      await tx.update(toolsTable).set({ name, pluginId: null, upstream: null, overridden: [] }).where(eq(toolsTable.id, tool.id));
+    // A kept tool or table joins the owner's own names: one already taken there gets the plugin's name after it.
+    for (const table of [toolsTable, tablesTable] as const) {
+      const kept = await tx.select({ id: table.id, name: table.name }).from(table).where(eq(table.pluginId, row.id));
+      const own = new Set((await tx.select({ name: table.name }).from(table).where(and(eq(table.ownerId, context.ownerId), sql`${table.pluginId} is null`))).map((t) => t.name.toLowerCase()));
+      for (const element of kept) {
+        const name = own.has(element.name.toLowerCase()) ? `${element.name} (${row.name})`.slice(0, 100) : element.name;
+        own.add(name.toLowerCase());
+        if (table === toolsTable) await tx.update(toolsTable).set({ name, pluginId: null, upstream: null, overridden: [] }).where(eq(toolsTable.id, element.id));
+        else {
+          await tx.update(tablesTable).set({ name, pluginId: null, pluginComponent: null, definition: null }).where(eq(tablesTable.id, element.id));
+          await tx.update(fieldsTable).set({ pluginField: null }).where(eq(fieldsTable.tableId, element.id));
+        }
+      }
     }
     await tx.delete(pluginsTable).where(eq(pluginsTable.id, row.id));
     // Older callers keep the previous behavior; an explicit checklist preserves every unticked item.

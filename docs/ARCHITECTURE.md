@@ -1254,9 +1254,16 @@
   owner (`runItemsAsOwner`: each through its procedure with the owner's own context, stopping at
   the first refusal, every id recorded with `recordCreated`, which `recordInPlugin` uses too; span
   `plugins.setup`, metric `dispand.plugins.setups`). Both are owner-only and not tools.
-  Agents come after the tables, one `agents_create` each, on the harness picked: a copy of the
-  definition (prompt, description, bundles, self-learning) with no `plugin_id`, so
-  `plugins.update` never rewrites it. Its tables resolve as above, else wait; its skills give it
+  What a setup makes is the plugin's from its insert: `runItemsAsOwner` passes
+  `context.pluginElement` (a value no input sets) and `tables.create`, `fields.create` and
+  `agents.create` write it on the row (`tables.plugin_id`, `plugin_component` and the
+  `definition` it was made from; `fields.plugin_field`; an agent's `plugin_id`,
+  `plugin_component` and `upstream`; migration 0073). A plugin's table is named inside its
+  plugin (`tables_owner_name_idx` is unique per owner and plugin), isn't deleted on its own, and
+  a name in a definition that isn't one of the plugin's tables finds only the owner's own.
+  Agents come after the tables, one `agents_create` each, on the harness picked: the plugin's
+  agent (prompt, description, bundles, self-learning), whose fields the owner overrides as any
+  plugin agent's. Its tables resolve as above, else wait; its skills give it
   the plugin's skill package when one is installed in it; its tools are those already added for
   the servers and catalog entries it names, else added by an item placed before the agents: a
   `tools_add_from_catalog` for an HTTP catalog entry, a `plugins_add_server` for one of the

@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agents as agentsTable, plugins as pluginsTable, tools as toolsTable } from "../db/schema.ts";
+import { agents as agentsTable, fields as fieldsTable, plugins as pluginsTable, tables as tablesTable, tools as toolsTable } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import type { SetupPick } from "./setup.ts";
@@ -77,26 +77,52 @@ test("the fixture's primitives set up from the plugin make its tables, fields an
   remove();
 });
 
-test("a run stops where the owner's own table holds a name and says so; once renamed, the next run resumes without duplicates", async () => {
+test("what a setup makes is the plugin's: named inside it, beside the owner's own of the same name, with the plugin's values kept", async () => {
   const { ctx, pluginId, remove } = await installed();
+  const harnessId = await cloudHarness(ctx);
+  // The owner's own Research: no clash, and never taken for the plugin's.
   const own = await call(router.tables.create, { name: "research" }, { context: ctx });
-  const first = await setUp(ctx, pluginId);
-  expect(first.outcomes.slice(0, 4)).toEqual([
-    { $item: 0, tool: "tables_create", from: "primitive:Clients", outcome: "made", id: expect.any(String) },
-    { $item: 1, tool: "tables_create", from: "primitive:Matters", outcome: "made", id: expect.any(String) },
-    { $item: 2, tool: "tables_create", from: "primitive:Research", outcome: "refused", error: "A table is already called “Research”" },
-    { $item: 3, tool: "fields_create", from: "field:Clients.Email", outcome: "not made" },
-  ]);
-  expect(first.outcomes.slice(3).every((o) => o.outcome === "not made")).toBe(true);
+  const { outcomes } = await setUp(ctx, pluginId, { ...ALL, agents: [{ name: "Matter upkeep", harnessId }] });
+  expect(outcomes.every((o) => o.outcome === "made")).toBe(true);
 
-  await call(router.tables.rename, { id: own.id, name: "Old research" }, { context: ctx });
-  const second = await setUp(ctx, pluginId);
-  // Clients and Matters are reused by id: only Research is made.
-  expect(second.outcomes.filter((o) => o.tool === "tables_create").map((o) => o.from)).toEqual(["primitive:Research"]);
-  expect(second.outcomes.every((o) => o.outcome === "made")).toBe(true);
-  expect((await call(router.tables.list, undefined, { context: ctx })).map((t) => t.name)).toEqual(["Clients", "Matters", "Old research", "Research"]);
-  const research = await call(router.tables.get, { id: (await tableNamed(ctx, "Research"))!.id }, { context: ctx });
-  expect(research.fields.map((f) => f.name)).toEqual(["Name", "Matters"]);
+  const rows = await ctx.db.select().from(tablesTable).orderBy(tablesTable.name);
+  expect(rows.map((t) => [t.name, t.pluginId, t.pluginComponent])).toEqual([
+    ["Clients", pluginId, "Clients"],
+    ["Matters", pluginId, "Matters"],
+    ["Research", pluginId, "Research"],
+    ["research", null, null],
+  ]);
+  // Each keeps the definition it was made from: what a later update is compared with.
+  const matters = rows.find((t) => t.name === "Matters")!;
+  expect(matters.definition).toMatchObject({ name: "Matters", primitive: true });
+  const fields = await ctx.db.select().from(fieldsTable).where(eq(fieldsTable.tableId, matters.id));
+  expect(Object.fromEntries(fields.map((f) => [f.name, f.pluginField]))).toMatchObject({ Name: null, Clients: "Clients" });
+  expect((await call(router.tables.list, undefined, { context: ctx })).find((t) => t.id === matters.id)).toMatchObject({ plugin: { id: pluginId, name: "law-firm" } });
+
+  // Its agent is the plugin's too: its rights name the plugin's table by id, and a change of it is an override.
+  const upkeep = await agentNamed(ctx, "Matter upkeep");
+  expect(upkeep).toMatchObject({ plugin: { id: pluginId, name: "law-firm" }, dataTables: [matters.id], overridden: [] });
+  const [agentRow] = await ctx.db.select().from(agentsTable).where(eq(agentsTable.id, upkeep.id));
+  expect(agentRow).toMatchObject({ pluginComponent: "Matter upkeep", upstream: { name: "Matter upkeep", dataTables: [matters.id], toolIds: [], consults: [] } });
+  const edited = await call(router.agents.update, { id: upkeep.id, name: upkeep.name, harnessId, systemPrompt: "Mine.", skillPackageIds: [], toolIds: [] }, { context: ctx });
+  expect(edited.overridden).toEqual(["systemPrompt"]);
+
+  // Neither goes on its own.
+  const refusal = { code: "FORBIDDEN", message: "It is law-firm's: uninstall the plugin to remove it" };
+  await expect(call(router.tables.delete, { id: matters.id }, { context: ctx })).rejects.toMatchObject(refusal);
+  await call(router.tables.delete, { id: own.id }, { context: ctx });
+  remove();
+});
+
+test("a plugin's table kept at uninstall is its owner's own, under a free name", async () => {
+  const { ctx, pluginId, remove } = await installed();
+  await call(router.tables.create, { name: "Clients" }, { context: ctx });
+  await setUp(ctx, pluginId);
+  await call(router.plugins.uninstall, { id: pluginId }, { context: ctx });
+  const rows = await ctx.db.select().from(tablesTable).orderBy(tablesTable.name);
+  expect(rows.map((t) => t.name)).toEqual(["Clients", "Clients (law-firm)", "Matters", "Research"]);
+  expect(rows.every((t) => t.pluginId === null && t.pluginComponent === null && t.definition === null)).toBe(true);
+  expect((await ctx.db.select().from(fieldsTable)).every((f) => f.pluginField === null)).toBe(true);
   remove();
 });
 
@@ -117,11 +143,13 @@ test("a resumed run binds to recorded rows by id, makes again what is gone, and 
   expect(again.outcomes).toMatchObject([{ outcome: "made", from: "field:Matters.Conclusions" }]);
   expect((await createdOf(ctx, pluginId)).from?.["primitive:Clients"]).toBe(clients.id);
 
-  // A recorded table that is gone is made again; the unrelated table bearing its name is reported, never bound.
-  await call(router.tables.delete, { id: (await tableNamed(ctx, "Research"))!.id }, { context: ctx });
+  // A recorded table that is gone is made again, as the plugin's; the owner's unrelated table bearing its name is never bound.
+  // Gone without its plugin (its own delete is refused): as when an update or an uninstall removed it.
+  await ctx.db.delete(tablesTable).where(eq(tablesTable.id, (await tableNamed(ctx, "Research"))!.id));
   await call(router.tables.rename, { id: unrelated.id, name: "Research" }, { context: ctx });
-  const stopped = await setUp(ctx, pluginId);
-  expect(stopped.outcomes[0]).toEqual({ $item: 0, tool: "tables_create", from: "primitive:Research", outcome: "refused", error: "A table is already called “Research”" });
+  const remade = await setUp(ctx, pluginId);
+  expect(remade.outcomes[0]).toEqual({ $item: 0, tool: "tables_create", from: "primitive:Research", outcome: "made", id: expect.any(String) });
+  expect(remade.outcomes[0]!.id).not.toBe(unrelated.id);
   expect(Object.values((await createdOf(ctx, pluginId)).from ?? {})).not.toContain(unrelated.id);
   expect((await call(router.tables.get, { id: unrelated.id }, { context: ctx })).fields.map((f) => f.name)).toEqual(["Name"]);
   remove();
@@ -199,7 +227,7 @@ test("plugin setup shows the exact tool permissions and refuses a changed previe
   } finally { remove(); }
 });
 
-test("the fixture's agents are set up as copies with their tables, skill package, tools and consults", async () => {
+test("the fixture's agents are set up as the plugin's, with their tables, skill package, tools and consults", async () => {
   const { ctx, pluginId, remove } = await installed(["legal-research"]);
   const harnessId = await cloudHarness(ctx);
   // The owner's Gmail, added from the catalog before: the agents naming it get it.
@@ -226,7 +254,7 @@ test("the fixture's agents are set up as copies with their tables, skill package
   const intake = await agentNamed(ctx, "Intake and research");
   const drafting = await agentNamed(ctx, "Drafting");
   const upkeep = await agentNamed(ctx, "Matter upkeep");
-  expect(intake).toMatchObject({ harnessId, bundles: ["data"], dataTables: [clients, matters, research], plugin: null, systemPrompt: expect.stringContaining("Read each new client email") });
+  expect(intake).toMatchObject({ harnessId, bundles: ["data"], dataTables: [clients, matters, research], plugin: { id: pluginId, name: "law-firm" }, systemPrompt: expect.stringContaining("Read each new client email") });
   expect(intake.description).toBe("Takes in each new client email, finds its client and matter, and researches it.");
   expect(JSON.stringify(intake)).toContain("law-firm");
   expect(drafting.consults).toEqual([{ agentId: intake.id, ask: false, inactive: null }]);
@@ -235,9 +263,9 @@ test("the fixture's agents are set up as copies with their tables, skill package
   expect(JSON.stringify(intake)).toContain(caseLaw.id);
   expect(caseLaw).toMatchObject({ pluginId, actions: [expect.objectContaining({ name: "lookup" })], actionsError: null });
   expect(upkeep.dataTables).toEqual([matters]);
-  // Copies: no link to the plugin, so its updates never rewrite them; listed as what it made.
-  const rows = await ctx.db.select({ pluginId: agentsTable.pluginId }).from(agentsTable);
-  expect(rows.every((r) => r.pluginId === null)).toBe(true);
+  // The plugin's agents, each under its definition's name; listed as what it made.
+  const rows = await ctx.db.select({ pluginId: agentsTable.pluginId, component: agentsTable.pluginComponent }).from(agentsTable);
+  expect(rows.map((r) => [r.pluginId, r.component]).sort()).toEqual(AGENTS.map((name) => [pluginId, name]).sort());
   const created = await createdOf(ctx, pluginId);
   expect(created.agent?.sort()).toEqual([intake.id, drafting.id, upkeep.id].sort());
   expect(created.from).toMatchObject({ "agent:Intake and research": intake.id, "agent:Drafting": drafting.id, "agent:Matter upkeep": upkeep.id });

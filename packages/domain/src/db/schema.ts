@@ -14,7 +14,7 @@ import type { WorkflowDef } from "../workflows/model.ts";
 import type { MemoryAuthor, MemoryType } from "../memory/model.ts";
 import type { CloudKind } from "../harnesses/cloud.ts";
 import type { MarketplaceEntry, MarketplaceKind } from "../plugins/marketplace.ts";
-import type { PluginDefinitions } from "../plugins/definitions.ts";
+import type { PluginDefinitions, PrimitiveDefinition } from "../plugins/definitions.ts";
 import type { NotImported, PluginComponents } from "../plugins/read-plugin.ts";
 import type { OAuthStatus, ToolAction, ToolAuth, ToolTransport } from "../tools/mcp.ts";
 import type { AuditAction, AuditActor, AuditDetails, AuditResource, AuditResult } from "../audit/model.ts";
@@ -727,10 +727,16 @@ export const tables = pgTable(
     // whether every row must name one. The field can't be deleted or retyped while it is the parent.
     parentFieldId: text("parent_field_id").references((): AnyPgColumn => fields.id, { onDelete: "set null" }),
     parentRequired: boolean("parent_required").notNull().default(false),
+    // A plugin's table (`plugins/`): its plugin, its name there, and the definition it was last
+    // merged with. Its structure is its owner's to change; names are unique within a plugin, and
+    // among the owner's own.
+    pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
+    pluginComponent: text("plugin_component"),
+    definition: jsonb("definition").$type<PrimitiveDefinition>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("tables_owner_name_idx").on(t.ownerId, sql`lower(${t.name})`)],
+  (t) => [uniqueIndex("tables_owner_name_idx").on(t.ownerId, sql`coalesce(${t.pluginId}, '')`, sql`lower(${t.name})`)],
 );
 
 /** Who made a write: a person, a Job (its run), or a workflow's step. */
@@ -884,6 +890,8 @@ export const fields = pgTable(
     referencesTableId: text("references_table_id").references((): AnyPgColumn => tables.id),
     /** 0 is the primary field. */
     position: integer("position").notNull(),
+    /** Its name in the definition of its plugin's table, when it was made from one. */
+    pluginField: text("plugin_field"),
   },
   (t) => [uniqueIndex("fields_table_name_idx").on(t.tableId, sql`lower(${t.name})`)],
 );

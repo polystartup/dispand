@@ -8,6 +8,7 @@ import { authed, base } from "../rpc/context.ts";
 import { tableIdsOf, type TableSchema } from "../workflows/data-steps.ts";
 import { StorableText } from "../workflows/model.ts";
 import type { DataEvent } from "./events.ts";
+import { refuseOwnDelete } from "../plugins/overrides.ts";
 import { type Cell, Choice, convertCells, FIELD_TYPES, type FieldSchema, type FieldType, MAX_CHOICES } from "./fields.ts";
 
 // Tables and their fields. Every schema change locks the table's row `FOR UPDATE` first, so
@@ -122,7 +123,11 @@ function publish(events: { publish(event: DataEvent): void }, tableId: string, r
 const create = owner.input(z.object({ name: Name })).handler(async ({ input, context }) => {
   const table = await context.db
     .transaction(async (tx) => {
-      const [table] = await tx.insert(tablesTable).values({ id: newId("tbl"), ownerId: context.ownerId, name: input.name }).returning();
+      const element = context.pluginElement;
+      const [table] = await tx
+        .insert(tablesTable)
+        .values({ id: newId("tbl"), ownerId: context.ownerId, name: input.name, ...(element ? { pluginId: element.pluginId, pluginComponent: element.component, definition: element.definition ?? null } : {}) })
+        .returning();
       await tx.insert(fieldsTable).values({ id: newId("fld"), ownerId: context.ownerId, tableId: table!.id, name: "Name", type: "text", position: 0 });
       return tableView(tx, table!);
     })
@@ -137,6 +142,8 @@ const list = owner.handler(async ({ context }) => {
       id: tablesTable.id,
       name: tablesTable.name,
       primitive: tablesTable.primitive,
+      // The plugin it is a table of: listed as `<plugin>/<name>`.
+      plugin: sql<{ id: string; name: string } | null>`(select jsonb_build_object('id', p.id, 'name', p.name) from "plugins" p where p.id = "tables"."plugin_id")`,
       rowCount: sql<number>`(select count(*) from "rows" where "rows"."table_id" = "tables"."id")::int`,
       updatedAt: tablesTable.updatedAt,
     })
@@ -174,6 +181,8 @@ const rename = owner.input(z.object({ id: z.string(), name: Name })).handler(asy
 const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
     await lockTable(tx, context.ownerId, input.id);
+    const [own] = await tx.select({ pluginId: tablesTable.pluginId }).from(tablesTable).where(eq(tablesTable.id, input.id));
+    await refuseOwnDelete(tx, own?.pluginId ?? null);
     if (await tableInUse(tx, context.ownerId, input.id)) throw new ORPCError("CONFLICT", { message: "A workflow uses this table" });
     // A reference field of another table names its rows: that field goes first.
     const [referring] = await tx
@@ -275,7 +284,7 @@ const createField = owner
         if (n!.n >= MAX_FIELDS) throw new ORPCError("BAD_REQUEST", { message: `A table has at most ${MAX_FIELDS} fields` });
         const [field] = await tx
           .insert(fieldsTable)
-          .values({ id: newId("fld"), ownerId: context.ownerId, tableId: input.tableId, name: input.name, type: input.type, choices, position: n!.n, referencesTableId: input.referencesTableId ?? null })
+          .values({ id: newId("fld"), ownerId: context.ownerId, tableId: input.tableId, name: input.name, type: input.type, choices, position: n!.n, referencesTableId: input.referencesTableId ?? null, pluginField: context.pluginElement?.component ?? null })
           .returning();
         await touch(tx, input.tableId);
         return field!;

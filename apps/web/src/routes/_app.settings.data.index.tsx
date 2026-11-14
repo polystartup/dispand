@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Empty, List } from "../components/settings/parts.tsx";
 import { PageHeader } from "../components/Placeholder.tsx";
 import { orpc } from "../lib/api.ts";
+import { qualifiedName } from "@dispand/domain/plugins/names";
 
 export const Route = createFileRoute("/_app/settings/data/")({ component: Tables });
 
@@ -74,7 +75,7 @@ function Tables() {
           {tables.data.map((t) => (
             <li key={t.id}>
               <Link to="/settings/data/$tableId" params={{ tableId: t.id }} className="flex items-center justify-between gap-4 px-5 py-4 transition hover:bg-hover">
-                <span className="truncate text-[15px] font-medium">{t.name}</span>
+                <span className="truncate text-[15px] font-medium">{qualifiedName(t.plugin?.name ?? null, t.name)}</span>
                 <span className="shrink-0 text-[13px] text-muted">{t.rowCount === 1 ? "1 row" : `${t.rowCount} rows`}</span>
               </Link>
             </li>

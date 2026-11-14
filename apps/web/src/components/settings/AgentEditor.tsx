@@ -245,7 +245,7 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
         </>}
         <JobRights
           rights={rights}
-          tables={tables.data ?? []}
+          tables={(tables.data ?? []).map((t) => ({ id: t.id, name: qualifiedName(t.plugin?.name ?? null, t.name) }))}
           onChange={setRights}
           {...(assistant ? { locked: "The Assistant always works on data and changes tables, on every table." } : {})}
         />
