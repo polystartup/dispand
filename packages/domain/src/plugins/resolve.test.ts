@@ -5,7 +5,7 @@ import * as schema from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
-import { answerApproval, decide, reopenChanged } from "./resolve.ts";
+import { answerApproval, answerConflict, decide, reopenChanged } from "./resolve.ts";
 import { lawFirmMarket } from "./test-support.ts";
 
 const OWNER = { type: "user" as const, userId: "" };
@@ -53,16 +53,18 @@ test("a reset takes the plugin's value at once; a merge equal to the owner's val
   }
 });
 
-test("a list within the two lists applies; one with an entry of neither waits for the Approval", async () => {
+test("a change to an agent's rights waits for the Approval, even within the two lists; keeping the owner's applies", async () => {
   const s = await setUp();
   try {
     await s.set({ selfLearning: ["data"], overridden: ["selfLearning"], upstream: { ...(await s.drafting()).upstream, selfLearning: ["agent"] } });
     const id = await s.conflict("selfLearning", ["data"], ["agent"]);
-    expect(await decide(s.ctx, s.actor, id, { kind: "merge", value: ["data", "workspace"] })).toBe("approval");
+    // Rights combine: what is within both lists could still give more with the agent's other rights.
+    expect(await decide(s.ctx, s.actor, id, { kind: "merge", value: ["data", "agent"] })).toBe("approval");
     expect((await s.drafting()).selfLearning).toEqual(["data"]);
     await s.ctx.db.update(schema.pluginConflicts).set({ status: "stem", merged: null }).where(eq(schema.pluginConflicts.id, id));
-    expect(await decide(s.ctx, s.actor, id, { kind: "merge", value: ["data", "agent"] })).toBe("applied");
-    expect([...(await s.drafting()).selfLearning].sort()).toEqual(["agent", "data"]);
+    expect(await decide(s.ctx, s.actor, id, { kind: "reset" })).toBe("approval");
+    await s.ctx.db.update(schema.pluginConflicts).set({ status: "stem", merged: null }).where(eq(schema.pluginConflicts.id, id));
+    expect(await decide(s.ctx, s.actor, id, { kind: "merge", value: ["data"] })).toBe("applied");
   } finally {
     s.remove();
   }
@@ -127,7 +129,9 @@ test("a tool an agent gains through a decision starts with every action on Ask",
     const had = (await s.ctx.db.select({ id: schema.agentTools.toolId }).from(schema.agentTools).where(eq(schema.agentTools.agentId, s.agent.id))).map((t) => t.id);
     await s.set({ overridden: ["toolIds"], upstream: { ...(await s.drafting()).upstream, toolIds: [...had, "tool_notes"] } });
     const id = await s.conflict("toolIds", had, [...had, "tool_notes"]);
-    expect(await decide(s.ctx, s.actor, id, { kind: "reset" })).toBe("applied");
+    // A change to its tools waits for the owner; accepted, the tool it gains asks before each action.
+    expect(await decide(s.ctx, s.actor, id, { kind: "reset" })).toBe("approval");
+    expect(await answerConflict(s.ctx, s.actor, id, true)).toBe("applied");
     const [grant] = await s.ctx.db.select().from(schema.agentTools).where(and(eq(schema.agentTools.agentId, s.agent.id), eq(schema.agentTools.toolId, "tool_notes")));
     expect(grant!.unasked).toEqual([]);
   } finally {
