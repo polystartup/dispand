@@ -29,3 +29,10 @@ test("a section is cut to what a screen shows", () => {
   const long = `## 1.0.0\n${"x".repeat(30_000)}\n`;
   expect(changelogSection(long, "1.0.0")!.length).toBe(10_000);
 });
+
+test("a heading inside a code example is part of the section, not the start of the next one", () => {
+  const notes = "## 2.1.0\n\nRename it like this:\n\n```md\n## New title\n```\n\n- Migrate before updating.\n\n## 2.0.0\n- Old.\n";
+  expect(changelogSection(notes, "2.1.0")).toBe("## 2.1.0\n\nRename it like this:\n\n```md\n## New title\n```\n\n- Migrate before updating.");
+  // Nor can one name the version.
+  expect(changelogSection("```\n## 3.0.0\n```\n", "3.0.0")).toBeNull();
+});

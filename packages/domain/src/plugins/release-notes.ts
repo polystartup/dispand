@@ -26,16 +26,16 @@ function names(text: string, version: string): boolean {
 /** The changelog's section for `version`: its heading and the lines up to the next heading of the same level or above, cut to what a screen shows. */
 export function changelogSection(changelog: string, version: string): string | null {
   const lines = changelog.split(/\r?\n/);
-  const start = lines.findIndex((line) => {
-    const h = heading(line);
-    return h !== null && names(h.text, version);
+  // A heading inside a fenced code example is the example's, not the changelog's.
+  let fenced = false;
+  const headings = lines.map((line) => {
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+    return fenced ? null : heading(line);
   });
+  const start = headings.findIndex((h) => h !== null && names(h.text, version));
   if (start < 0) return null;
-  const level = heading(lines[start]!)!.level;
-  let end = lines.findIndex((line, i) => {
-    const h = i > start ? heading(line) : null;
-    return h !== null && h.level <= level;
-  });
+  const level = headings[start]!.level;
+  let end = headings.findIndex((h, i) => i > start && h !== null && h.level <= level);
   if (end < 0) end = lines.length;
   return lines.slice(start, end).join("\n").trim().slice(0, MAX_SECTION);
 }
