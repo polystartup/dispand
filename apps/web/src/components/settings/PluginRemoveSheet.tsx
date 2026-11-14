@@ -6,6 +6,7 @@ import { api, orpc } from "../../lib/api.ts";
 import { Check, refusal, Section, toggled } from "./PluginInstallSheet.tsx";
 import { useNativeTargets } from "./NativeSkills.tsx";
 import { cliLabels } from "./HarnessSheet.tsx";
+import { type RemovalChoice, RemovalChoices, removalPlan } from "./PluginRemoval.tsx";
 
 type Preview = Awaited<ReturnType<typeof api.plugins.uninstallPreview>>;
 
@@ -15,7 +16,7 @@ export function PluginRemoveSheet({ id, name, onClose }: { id: string; name: str
     <SheetContent className="w-full overflow-y-auto bg-surface sm:max-w-lg">
       <SheetHeader className="px-6 pt-6">
         <SheetTitle className="text-[20px] tracking-tight">Remove {name}</SheetTitle>
-        <SheetDescription>Choose what to remove. Unticked items stay in your workspace. Checked skills and tools are also removed from agents that use them. Job history and data created during setup are kept.</SheetDescription>
+        <SheetDescription>What the plugin brought goes with it. You are asked only about what is in use: keep it as yours, or delete it. Nothing is removed until you confirm, and Job history is always kept.</SheetDescription>
       </SheetHeader>
       <div className="px-6 pb-6">{preview.data && preview.isFetchedAfterMount && !preview.error ? <RemoveForm id={id} preview={preview.data} onClose={onClose} /> : preview.error ? <p role="alert">{refusal(preview.error, "Could not read the plugin. Close this dialog and try again.")}</p> : <p>Reading what this plugin installed…</p>}</div>
     </SheetContent>
@@ -27,13 +28,14 @@ function RemoveForm({ id, preview, onClose }: { id: string; preview: Preview; on
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   const runners = useQuery(orpc.runners.list.queryOptions());
   const targets = useNativeTargets(harnesses.data ?? [], runners.data ?? [], "remove");
-  const [kept, setKept] = useState(() => new Set(preview.agents.filter((a) => a.inUse).map((a) => a.id)));
+  // The choices made so far; an element asked about that has none yet is kept.
+  const [state, setState] = useState<Record<string, RemovalChoice>>({});
+  const plan = removalPlan(preview.elements, state);
+  // The harnesses whose native installation the owner keeps.
+  const [kept, setKept] = useState(() => new Set<string>());
   const [removedNative, setRemovedNative] = useState(() => new Set<string>());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const agents = preview.agents.filter((a) => !a.blocked && !kept.has(a.id)).map((a) => a.id);
-  const skills = preview.skills.filter((s) => !kept.has(s.id)).map((s) => s.id);
-  const tools = preview.tools.filter((t) => !kept.has(t.id)).map((t) => t.id);
   const native = targets.filter((t) => removedNative.has(t.harness.id) || t.bindings.some((b) => b.name === preview.nativeName || (!!preview.sourceKey && b.sourceKey === preview.sourceKey)));
   const toggle = (itemId: string) => setKept((prev) => toggled(prev, itemId));
 
@@ -50,9 +52,9 @@ function RemoveForm({ id, preview, onClose }: { id: string; preview: Preview; on
         setRemovedNative((prev) => new Set([...prev, target.harness.id]));
         void client.invalidateQueries({ queryKey: ["native-plugins"] });
       }
-      await api.plugins.uninstall({ id, remove: { skills, tools, agents } });
+      await api.plugins.uninstall({ id, reviewed: preview.reviewed, choices: plan.choices });
       await Promise.all([
-        ...[orpc.plugins, orpc.skills, orpc.tools, orpc.agents, orpc.triggers, orpc.jobs].map((p) => client.invalidateQueries({ queryKey: p.key() })),
+        ...[orpc.plugins, orpc.skills, orpc.tools, orpc.agents, orpc.triggers, orpc.jobs, orpc.tables].map((p) => client.invalidateQueries({ queryKey: p.key() })),
         client.invalidateQueries({ queryKey: ["native-plugins"] }),
       ]);
       onClose();
@@ -62,14 +64,8 @@ function RemoveForm({ id, preview, onClose }: { id: string; preview: Preview; on
   }
 
   return <form className="space-y-6" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-    <Section id="remove-agents" title="Agents">
-      {preview.agents.length ? preview.agents.map((a) => <Check key={a.id} label={a.name} detail={a.inUse ?? "Remove this agent; its Job history is kept."} checked={agents.includes(a.id)} disabled={busy || a.blocked} onChange={() => toggle(a.id)} />) : <p className="text-[13px] text-muted">No imported agents.</p>}
-    </Section>
-    <Section id="remove-skills" title="Skill packages">
-      {preview.skills.length ? preview.skills.map((s) => <Check key={s.id} label={s.name} detail="Remove the files and unlink this package from all agents." checked={skills.includes(s.id)} disabled={busy} onChange={() => toggle(s.id)} />) : <p className="text-[13px] text-muted">No imported skills.</p>}
-    </Section>
-    <Section id="remove-tools" title="Tools">
-      {preview.tools.length ? preview.tools.map((t) => <Check key={t.id} label={t.name} detail="Remove this tool and saved settings; unlink it from agents and skills." checked={tools.includes(t.id)} disabled={busy} onChange={() => toggle(t.id)} />) : <p className="text-[13px] text-muted">No imported tools.</p>}
+    <Section id="remove-elements" title="In use">
+      <RemovalChoices plan={plan} busy={busy} onChange={(key, choice) => setState((prev) => ({ ...prev, [key]: choice }))} />
     </Section>
     <Section id="remove-native" title="Native installations">
       {targets.filter((t) => t.loading).length > 0 && <p className="text-[13px] text-muted">Reading native installations…</p>}

@@ -1287,10 +1287,19 @@
   `plugins.update` syncs the marketplace, then replaces the imported skills' files with the
   entry's current commit and the definitions with its current ones, leaving what was set up from
   them as it is;
-  `plugins.uninstallPreview` lists the plugin-owned packages, tools and agents. Agents used by
-  workflows, active Jobs, triggers or consult entries start unticked; workflow and Assistant
-  protections also apply at deletion. The removal sheet defaults other imported components and
-  matching native bindings to selected. Native removals use reviewed revisions, one harness at
+  `plugins.uninstallPreview` returns each of the plugin's elements (agents, skill packages,
+  tools, tables) with why an uninstall asks about it and the other elements it needs
+  (`plugins/closure.ts`, `inUse`): its owner changed it (an override, a trigger's override, a
+  skill file, a table's fields), it holds rows, memory or a running Job, or something that stays
+  refers to it. `REFERENCES` classes every foreign key to an element's table as part of the
+  element, its history, content, or a reference followed, and a test holds the schema to it.
+  `plugins.uninstall` takes the preview's `reviewed` token and a choice per element (`keep` or
+  `delete`), checks them as a whole (`checkChoices`: every element asked about has a choice,
+  one a workflow uses is kept, what a kept element needs has a stated choice) and applies them
+  in the order agents, skills, tools, tables: a kept element becomes its owner's own (a tool or
+  a table under a free name), any other goes, and what used it loses it. The removal sheet
+  (`PluginRemoval.tsx`, `removalPlan`) starts everything asked about kept, lists what a kept
+  element needs under it, and selects matching native bindings. Native removals use reviewed revisions, one harness at
   a time, before the atomic workspace removal; a failed native operation leaves the workspace
   plugin present and shows partial native progress without repeating completed removals.
   `plugins.uninstall` accepts an explicit checklist scoped to that plugin's owned rows. Checked
