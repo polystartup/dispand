@@ -660,7 +660,7 @@ const uninstall = owner.input(Id.extend({ remove: z.object({ skills: RemovalIds,
       (await tx.select({ name: toolsTable.name }).from(toolsTable).where(and(eq(toolsTable.ownerId, context.ownerId), sql`${toolsTable.pluginId} is null`))).map((t) => t.name.toLowerCase()),
     );
     for (const tool of kept) {
-      const name = own.has(tool.name.toLowerCase()) ? `${tool.name.slice(0, 97 - row.name.length)} (${row.name})` : tool.name;
+      const name = own.has(tool.name.toLowerCase()) ? `${tool.name} (${row.name})`.slice(0, 100) : tool.name;
       own.add(name.toLowerCase());
       await tx.update(toolsTable).set({ name, pluginId: null, upstream: null, overridden: [] }).where(eq(toolsTable.id, tool.id));
     }
