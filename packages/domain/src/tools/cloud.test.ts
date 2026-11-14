@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import type { ChatItem } from "../cloud/model-client.ts";
 import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
-import { agentTools, attachments, audit, questions, runs, tools as toolsTable } from "../db/schema.ts";
+import { agentTools, attachments, audit, plugins, questions, runs, tools as toolsTable } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
@@ -199,6 +199,15 @@ test("an approval is for the tool it was asked about: it never moves to another 
   expect(s.calls).toEqual([]);
   expect(other).toEqual([]);
   expect(lastTool(s.model.inputs[1]!.items)).toMatchObject({ isError: true });
+});
+
+test("a plugin's tool is asked about under its plugin's name, apart from a local tool of the same name", async () => {
+  // The model names it after the label too.
+  const s = await setup([use("Forge_GitHub_list_repos", {}), say("Done.")]);
+  await s.context.db.insert(plugins).values({ id: "plugin_1", ownerId: s.context.ownerId, name: "Forge", description: "Code", components: { skills: [], mcpServers: [], agents: [] } });
+  await s.context.db.update(toolsTable).set({ pluginId: "plugin_1", pluginComponent: "GitHub" }).where(eq(toolsTable.id, s.tool.id));
+  const q = await s.pending(await s.start());
+  expect(q.payload).toMatchObject({ toolName: "Forge/GitHub list_repos" });
 });
 
 test("an action the owner took off the asking ones runs unasked; the others still ask", async () => {

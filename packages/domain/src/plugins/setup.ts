@@ -312,7 +312,7 @@ async function agentSetup(
     if (!server) continue;
     const reason = fromInstall
       ? "It wasn't ticked with the install: add it from Set up, where its address is shown"
-      : server.type !== "http" ? "It runs on a runner: add it from the plugin's page" : server.settings.length ? "Its URL needs a setting: add it from the plugin's page" : !server.transport ? "Update the plugin to add it" : null;
+      : server.type !== "http" ? "It runs on a runner: add it from that runner's own MCP servers (Settings → Tools → Add runner tool), or install the plugin natively on a runner's harness" : server.settings.length ? "Its URL needs a setting: add it from the plugin's page" : !server.transport ? "Update the plugin to add it" : null;
     if (reason) {
       waiting.push({ definition, reason });
       continue;

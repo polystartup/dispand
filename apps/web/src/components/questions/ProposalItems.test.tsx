@@ -227,6 +227,25 @@ test("a reference in a sentence never repeats what it says: the table is named o
   expect(byId!.textContent).toContain("A change to the table Clients");
 });
 
+test("a poll trigger's tool reads by name, or as the item that adds it, never as JSON", () => {
+  const setup: ProposalView = {
+    id: "prop_poll",
+    status: "asked",
+    items: [
+      { tool: "tools_add_from_catalog", used: false, refs: ["catalogId"], creates: "tool", createdId: null, input: { catalogId: "github" } },
+      { tool: "triggers_create", used: false, refs: ["agentId"], creates: "trigger", createdId: null, input: { agentId: "agent_1", name: "New issue", config: { kind: "poll", toolId: { $item: 0 }, action: "list_issues", idPath: "id" } } },
+      { tool: "triggers_create", used: false, refs: ["agentId"], creates: "trigger", createdId: null, input: { agentId: "agent_1", name: "New mail", config: { kind: "poll", toolId: "tool_mail", action: "search", idPath: "id" } } },
+    ],
+    names: { agent_1: { kind: "agent", name: "Builder" }, github: { kind: "catalog", name: "GitHub" }, tool_mail: { kind: "tool", name: "Gmail" } },
+  };
+  render(<ProposalItems proposal={setup} />);
+  const [, byRef, byId] = screen.getAllByRole("listitem");
+  expect(byRef!.textContent).toContain("Polls the tool item 1 creates");
+  expect(byRef!.textContent).not.toContain("$item");
+  expect(byId!.textContent).toContain("Polls Gmail");
+  expect(byId!.textContent).toContain("search");
+});
+
 test("a trigger's rate cap and concurrency read in words, and a field's choices by their labels", () => {
   const setup: ProposalView = {
     id: "prop_6",

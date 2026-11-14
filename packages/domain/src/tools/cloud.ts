@@ -1,9 +1,12 @@
+import { inArray } from "drizzle-orm";
 import { recordToolCall } from "../audit/tool-call.ts";
 import type { ToolCaller } from "../cloud/runner.ts";
 import { keepJobFiles } from "../data/files.ts";
 import type { Db } from "../db/client.ts";
+import { plugins } from "../db/schema.ts";
 import { logError } from "../log.ts";
 import { sessionTooling } from "../engine/tooling.ts";
+import { qualifiedName } from "../plugins/names.ts";
 import type { InstalledTools } from "./executor.ts";
 
 const PREFIX = "tool:";
@@ -27,10 +30,13 @@ export function installedToolCaller(db: Db, installed: InstalledTools, filesDir?
   return {
     async specs(sessionId) {
       const { httpTools } = await sessionTooling(db, sessionId);
+      // A plugin's tool may share a local tool's name: the label names its plugin, as the UI does.
+      const pluginIds = [...new Set(httpTools.flatMap((t) => (t.pluginId ? [t.pluginId] : [])))];
+      const pluginNames = new Map(pluginIds.length ? (await db.select({ id: plugins.id, name: plugins.name }).from(plugins).where(inArray(plugins.id, pluginIds))).map((p) => [p.id, p.name]) : []);
       return httpTools.flatMap((tool) =>
         tool.actions.map((action) => ({
           key: toolKey(tool.id, action.name),
-          label: `${tool.name} ${action.name}`,
+          label: `${qualifiedName((tool.pluginId && pluginNames.get(tool.pluginId)) || null, tool.name)} ${action.name}`,
           spec: { name: "", description: action.description, inputSchema: action.inputSchema },
           ...(tool.unasked.includes(action.name) ? { ask: false as const } : {}),
           ...(tool.chosen ? { always: true as const } : {}),

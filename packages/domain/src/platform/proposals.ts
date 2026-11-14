@@ -502,12 +502,17 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
       wanted.get(kind)!.add(item.createdId);
     }
     // A table-change trigger names its table and fields inside its config.
-    const config = ((item.input ?? {}) as { config?: { kind?: unknown; tableId?: unknown; fields?: unknown } }).config;
+    const config = ((item.input ?? {}) as { config?: { kind?: unknown; tableId?: unknown; fields?: unknown; toolId?: unknown } }).config;
     if (item.tool.startsWith("triggers_") && config?.kind === "primitive") {
       for (const [kind, ids] of [["table", strings(config.tableId)], ["field", strings(config.fields)]] as const) {
         if (!wanted.has(kind)) wanted.set(kind, new Set());
         for (const id of ids) wanted.get(kind)!.add(id);
       }
+    }
+    // A poll trigger names the tool it calls.
+    if (item.tool.startsWith("triggers_") && config?.kind === "poll") {
+      if (!wanted.has("tool")) wanted.set("tool", new Set());
+      for (const id of strings(config.toolId)) wanted.get("tool")!.add(id);
     }
   }
   const names: Record<string, ProposalName> = {};

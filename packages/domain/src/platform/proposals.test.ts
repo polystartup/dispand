@@ -10,7 +10,7 @@ import type { Bundle } from "./bundles.ts";
 import { callPlatformTool, toolsOf, type JobIdentity } from "./call.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { PLATFORM_TOOLS } from "./tools.ts";
-import { proposalView } from "./proposals.ts";
+import { itemsView, proposalView } from "./proposals.ts";
 import { retarget } from "../tools/procedures.ts";
 
 /** An agent with `bundles`, a Job of it still going, and what its tools answer. */
@@ -989,4 +989,12 @@ test("the Assistant proposes a plugin's install with a pick: approved, it makes 
   const table = await call(router.tables.create, { name: "Notes" }, { context: s.context });
   await call(router.agents.update, { ...s.base, id: s.agent.id, bundles: ["configure"], dataTables: [table.id] }, { context: s.context });
   expect(await s.propose([{ tool: "plugins_install", input: { ...install, reviewed: fresh.output.reviewed } }])).toMatchObject({ ok: false, error: expect.stringContaining("Not found") });
+});
+
+test("a poll trigger's tool is named in the view", async () => {
+  const s = await setup();
+  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http" });
+  const input = { agentId: s.agent.id, name: "New mail", config: { kind: "poll", toolId: "tool_mail", action: "search", idPath: "id" } };
+  const view = await itemsView(s.context.db, s.context.ownerId, [{ tool: "triggers_create", input }] as never);
+  expect(view.names.tool_mail).toMatchObject({ kind: "tool", name: "Mail" });
 });

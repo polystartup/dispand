@@ -198,6 +198,18 @@ function Value({ name, value, items, names, isRef, address }: { name: string; va
     );
   }
   if (typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "primitive") return <ChangeConfig config={value as never} items={items} names={names} />;
+  // A poll's tool read by name, or as the item that adds it; the rest of its config as it is.
+  if (typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "poll") {
+    const { toolId, ...rest } = value as { toolId: unknown };
+    return (
+      <span className="flex flex-col gap-1">
+        <span>
+          Polls <Id value={toolId} items={items} names={names} />
+        </span>
+        <pre className="whitespace-pre-wrap break-words rounded-lg bg-hover p-2 font-mono text-[12.5px]">{JSON.stringify(rest, null, 2)}</pre>
+      </span>
+    );
+  }
   // A primitive table's parent: a table, and whether every row must name one.
   if (typeof value === "object" && value !== null && "tableId" in value && "required" in value) {
     const parent = value as { tableId: unknown; required: unknown };
