@@ -984,3 +984,30 @@ test("a plugin's agent or tool can't be deleted on its own, and shares no name s
   await call(router.tools.delete, { id: local.id }, { context: ctx });
   await fx.remove();
 });
+
+test("a tool kept at uninstall takes a free name when the owner has one called the same", async () => {
+  const { ctx, fx, pluginId, tool } = await withElements();
+  const id = (await tool()).id;
+  await call(router.tools.create, { name: "GitHub", url: fx.server.url, transport: "streamable-http", headers: {} }, { context: ctx });
+  await call(router.plugins.uninstall, { id: pluginId }, { context: ctx });
+  expect(await tool()).toMatchObject({ id, name: "github (github)", plugin: null, overridden: [] });
+  await fx.remove();
+});
+
+test("a tool whose plugin address needs a setting can't be reset to it: the setting's value is gone with the override", async () => {
+  const ctx = await context();
+  const fx = await toolPlugin();
+  const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
+  const { toolIds } = await call(
+    router.plugins.install,
+    { marketplaceId: market.id, entryName: "github", reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["tenant"], settings: { tenant: { TENANT: "Acme-Tenant" } } },
+    { context: ctx },
+  );
+  await call(router.tools.update, { id: toolIds[0]!, url: fx.server.url }, { context: ctx });
+  await expect(call(router.plugins.resetOverride, { kind: "tool", id: toolIds[0]!, field: "url" }, { context: ctx })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+    message: "The plugin's address needs a setting: update the plugin, or uninstall and install it again, to enter it",
+  });
+  expect(await call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).toMatchObject({ url: fx.server.url, overridden: ["url"] });
+  await fx.remove();
+});

@@ -654,7 +654,16 @@ const uninstall = owner.input(Id.extend({ remove: z.object({ skills: RemovalIds,
     }
     // What stays is its owner's own from now on: nothing of it is an override any more.
     await tx.update(agentsTable).set({ upstream: null, overridden: [] }).where(eq(agentsTable.pluginId, row.id));
-    await tx.update(toolsTable).set({ upstream: null, overridden: [] }).where(eq(toolsTable.pluginId, row.id));
+    // A kept tool joins the owner's own names: one already taken there gets the plugin's name after it.
+    const kept = await tx.select({ id: toolsTable.id, name: toolsTable.name }).from(toolsTable).where(eq(toolsTable.pluginId, row.id));
+    const own = new Set(
+      (await tx.select({ name: toolsTable.name }).from(toolsTable).where(and(eq(toolsTable.ownerId, context.ownerId), sql`${toolsTable.pluginId} is null`))).map((t) => t.name.toLowerCase()),
+    );
+    for (const tool of kept) {
+      const name = own.has(tool.name.toLowerCase()) ? `${tool.name.slice(0, 97 - row.name.length)} (${row.name})` : tool.name;
+      own.add(name.toLowerCase());
+      await tx.update(toolsTable).set({ name, pluginId: null, upstream: null, overridden: [] }).where(eq(toolsTable.id, tool.id));
+    }
     await tx.delete(pluginsTable).where(eq(pluginsTable.id, row.id));
     // Older callers keep the previous behavior; an explicit checklist preserves every unticked item.
     if (!input.remove) for (const pkg of parts.skills) {
@@ -756,6 +765,10 @@ const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool"]), id
   if (!row) throw new ORPCError("NOT_FOUND");
   if (!row.upstream || !(field in row.upstream)) throw new ORPCError("BAD_REQUEST", { message: "No plugin's value to go back to" });
   const value = { [field]: row.upstream[field] };
+  // The setting that filled it was sealed with the address the override replaced.
+  if (kind === "tool" && field === "url" && hasPlaceholder(String(value.url))) {
+    throw new ORPCError("BAD_REQUEST", { message: "The plugin's address needs a setting: update the plugin, or uninstall and install it again, to enter it" });
+  }
   if (kind === "tool") return { overridden: (await call(toolProcedures.update, { id, ...value } as never, { context: context as never })).overridden };
   const a = await call(agentProcedures.get, { id }, { context: context as never });
   const whole = {
