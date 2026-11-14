@@ -1453,7 +1453,11 @@ it changes (`reopenChanged`), and an element that leaves the plugin drops its co
 conflict) names every agent whose sessions get the package (`reaches`, under the screen's token),
 and a tool's new address or transport says what it clears (its sign-in, and its saved headers
 when the origin or the transport changes). A skill package an agent gains is shown whole beside the change
-(`gained`: each file's text), also under the token, since all of it reaches the agent. The update's screen offers "Let Stem deal with it" on a field of an
+(`gained`: each file's text), also under the token, since all of it reaches the agent. A table change that takes values away (a field removed, a type or choice change that drops
+some) puts a digest of that field's values in every row under the token too (`TablePlan.values`):
+a value written after the screen was read refuses the update, and the screen is read again.
+The read and the field operation aren't one transaction (the operation runs its own), so a write
+landing within the same call is the gap left, as for Stem's decisions. The update's screen offers "Let Stem deal with it" on a field of an
 agent, tool or trigger: `plugins.update` takes those keys (`stem`), keeps them as conflicts and
 starts one Job of the Assistant (`handToStem`, a `stem` firing with no trigger, its conflicts as
 the trigger node's data). Its snapshot is limited (`only: ["plugin_decide"]`, and no skill, tool,

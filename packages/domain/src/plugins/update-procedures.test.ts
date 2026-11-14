@@ -461,3 +461,27 @@ test("a skill an agent gains with a new version is on the update's screen whole:
     remove();
   }
 });
+
+test("a value written to a field after the update's screen was read refuses its removal: the screen is shown again", async () => {
+  const { ctx, pluginId, files, preview, publish, remove } = await setUp();
+  try {
+    const [matters] = await ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Matters"));
+    const conclusions = (await ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters!.id))).find((f) => f.name === "Conclusions")!;
+    const row = await call(router.rows.create, { tableId: matters!.id, values: { [conclusions.id]: "Settled." } } as never, { context: ctx });
+    const definition = JSON.parse(files[MATTERS]!) as { fields: { name: string }[] };
+    definition.fields = definition.fields.filter((f) => f.name !== "Conclusions");
+    publish({ [MATTERS]: JSON.stringify(definition) });
+    const shown = await preview();
+    expect(shown.tables[0]!.changes).toMatchObject([{ key: "remove:Conclusions", loses: 1 }]);
+    // A Job writes to that field meanwhile: the screen counted what was there, not this.
+    await call(router.rows.update, { id: (row as { id: string }).id, values: { [conclusions.id]: "Settled, then appealed." } } as never, { context: ctx });
+    await expect(call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, tables: { [matters!.id]: ["remove:Conclusions"] } }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect((await ctx.db.select().from(schema.fields).where(eq(schema.fields.id, conclusions.id))).length).toBe(1);
+    // Read again, it applies.
+    const again = await preview();
+    await call(router.plugins.update, { id: pluginId, reviewed: again.reviewed, tables: { [matters!.id]: ["remove:Conclusions"] } }, { context: ctx });
+    expect(await ctx.db.select().from(schema.fields).where(eq(schema.fields.id, conclusions.id))).toEqual([]);
+  } finally {
+    remove();
+  }
+});
