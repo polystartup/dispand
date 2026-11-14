@@ -181,7 +181,8 @@ export function startClaudeSession(
   /** Messages sent and not yet answered by a result: a turn runs while there is one. */
   const unanswered: string[] = [];
   const unansweredBytes = new Map<string, number>();
-  const pluginRoots = deps.pluginRoots ?? [];
+  // A restricted session loads no skill package, whatever it was given.
+  const pluginRoots = start.restricted ? [] : (deps.pluginRoots ?? []);
   const boundary = permissionBoundary(cwd, homedir(), deps.env ?? process.env, pluginRoots);
 
   /** Every user message starts (or joins) a turn. */
@@ -372,7 +373,9 @@ export function startClaudeSession(
     return { behavior: "allow", updatedInput: toolInput };
   };
 
-  const sdkServers = { dispand: createSdkMcpServer({ name: "dispand", tools: [submitOutputs, requestApprovalTool, ...(consults.length > 0 ? [consultTool] : [])] }) };
+  // Restricted (a Stem Job): its answer only, no approval request or consult of its own.
+  const restricted = start.restricted === true;
+  const sdkServers = { dispand: createSdkMcpServer({ name: "dispand", tools: restricted ? [submitOutputs] : [submitOutputs, requestApprovalTool, ...(consults.length > 0 ? [consultTool] : [])] }) };
   const queryAbort = new AbortController();
   const q = (deps.query ?? query)({
     prompt: input.iterable,
@@ -381,7 +384,9 @@ export function startClaudeSession(
       abortController: queryAbort,
       // The user's own settings only: whatever a run folder holds (its .claude/ settings and
       // hooks, .mcp.json) never loads by itself, on start or resume (controller ruling R30).
-      settingSources: ["user"],
+      // Restricted: not even the user's settings (their hooks, their MCP servers), no built-in tool, and only the servers given here.
+      settingSources: restricted ? [] : ["user"],
+      ...(restricted ? { tools: [], strictMcpConfig: true } : {}),
       systemPrompt: { type: "preset", preset: "claude_code", append: start.systemPrompt },
       ...(start.resumeCliSessionId ? { resume: start.resumeCliSessionId } : {}),
       ...(start.model ? { model: start.model } : {}),

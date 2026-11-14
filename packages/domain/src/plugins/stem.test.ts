@@ -5,6 +5,7 @@ import type { TurnInput } from "../cloud/model-client.ts";
 import { fakeModel, say, type Script } from "../cloud/test-model.ts";
 import * as schema from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
+import { startProblem } from "../engine/engine.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
@@ -76,4 +77,10 @@ test("a Stem Job that ends without deciding leaves the conflict the owner's agai
   expect(await s.ctx.db.select({ status: schema.pluginConflicts.status }).from(schema.pluginConflicts)).toEqual([{ status: "open" }]);
   expect((await s.drafting()).systemPrompt).toBe("Mine.");
   expect(s.model.inputs[0]!.system).not.toContain("SENTINEL-UNACCEPTED");
+});
+
+test("a limited Job's start goes to Claude Code restricted, and is refused on Codex, whose native tools have no switch here", () => {
+  const start = { sessionId: "ses_1", runKey: "run_1-step_1", systemPrompt: "Decide.", prompt: "Decide.", expectedOutputs: [], interactive: false, restricted: true as const };
+  expect(startProblem({ id: "h", runnerId: "r", kind: "claude-code", permissionMode: "default" }, start)).toBeNull();
+  expect(startProblem({ id: "h", runnerId: "r", kind: "codex", permissionMode: "default" } as never, start)).toMatch(/Claude Code or a cloud harness/);
 });

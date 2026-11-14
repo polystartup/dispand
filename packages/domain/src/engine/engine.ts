@@ -155,8 +155,8 @@ function runOf(e: RunEvent): string {
 
 /** Why the runner would refuse this start (the protocol's `SessionStart`), in the owner's words; null if it wouldn't. */
 export function startProblem(harness: CliHarness, { runKey, restricted, ...start }: StartParams): string | null {
-  // shortcut: a CLI session offers its native tools and the user's MCP servers; until the runner starts restricted sessions, a Stem Job runs on a cloud harness only.
-  if (restricted) return "Stem decides on a cloud harness: set the Assistant on one, or decide these fields yourself";
+  // shortcut: a Codex session offers its native tools with no switch here to take them away; a limited Job (a Stem Job) runs on Claude Code, started restricted, or on a cloud harness.
+  if (restricted && harness.kind !== "claude-code") return "Stem decides on Claude Code or a cloud harness: set the Assistant on one, or decide these fields yourself";
   const parsed = SessionStart.safeParse({
     ...start,
     harness: harness.kind,
