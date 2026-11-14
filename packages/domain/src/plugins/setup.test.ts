@@ -459,3 +459,26 @@ test("a poll its tool wouldn't let run is listed as waiting, even when its agent
     remove();
   }
 });
+
+test("one install with a pick sets the definitions up as Set up does; a stale review, or a pick it can't make, installs nothing", async () => {
+  const ctx = { ...(await ownerContext()), gitFileUrls: true };
+  const server = await startFakeMcp([lookup], "streamable-http");
+  const fx = lawFirmMarket(server.url);
+  try {
+    const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
+    const entry = { marketplaceId: market.id, entryName: "law-firm" };
+    const { reviewed } = await call(router.plugins.preview, entry, { context: ctx });
+    // Setting definitions up needs the review, which covers them.
+    await expect(call(router.plugins.install, { ...entry, setup: ALL }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    // Matters names Clients: without it, nothing is installed.
+    await expect(call(router.plugins.install, { ...entry, reviewed, setup: { primitives: ["Matters"] } }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(await call(router.plugins.list, undefined, { context: ctx })).toEqual([]);
+    const result = await call(router.plugins.install, { ...entry, reviewed, setup: ALL }, { context: ctx });
+    expect(result.setup?.outcomes.every((o) => o.outcome === "made")).toBe(true);
+    expect((await call(router.tables.list, undefined, { context: ctx })).map((t) => [t.name, t.primitive])).toEqual([["Clients", true], ["Matters", true], ["Research", true]]);
+    expect((await createdOf(ctx, result.pluginId)).table).toHaveLength(3);
+  } finally {
+    fx.remove();
+    void server.close();
+  }
+});

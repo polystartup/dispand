@@ -2,6 +2,7 @@ import { call, ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
+import type { Tx } from "../skills/procedures.ts";
 import { agents as agentsTable, fields as fieldsTable, plugins, skillPackages, skills as skillsTable, tables as tablesTable, tools as toolsTable, triggers as triggersTable, type ProposalItem } from "../db/schema.ts";
 import { agents } from "../agents/procedures.ts";
 import { fields, tables } from "../data/tables.ts";
@@ -70,7 +71,7 @@ type Ref = string | { $item: number };
  * its definition: it has no link to the plugin, so an update of the plugin never rewrites it. Each
  * item is parsed with its procedure's input, as a proposal's is.
  */
-export async function setupItems(db: Db, ownerId: string, pluginId: string, pick: SetupPick): Promise<{ items: ProposalItem[]; waiting: Waiting[] } | { error: string }> {
+export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string, pick: SetupPick): Promise<{ items: ProposalItem[]; waiting: Waiting[] } | { error: string }> {
   const [plugin] = await db
     .select({ definitions: plugins.definitions, created: plugins.created, components: plugins.components })
     .from(plugins)
@@ -202,7 +203,7 @@ export async function setupItems(db: Db, ownerId: string, pluginId: string, pick
  * works on), a missing skill, tool or consult doesn't.
  */
 async function agentSetup(
-  db: Db,
+  db: Db | Tx,
   ownerId: string,
   pluginId: string,
   { agents: definitions, triggers: triggerDefinitions }: PluginDefinitions,

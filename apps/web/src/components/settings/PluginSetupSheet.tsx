@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ProposalItems } from "../questions/ProposalItems.tsx";
 import { type api, orpc } from "../../lib/api.ts";
 import { Check, refusal, Section, toggled } from "./PluginInstallSheet.tsx";
+import { useDefinitionPicks } from "./PluginDefinitionPicks.tsx";
 
 type Plugin = Awaited<ReturnType<typeof api.plugins.list>>[number];
 type Outcome = Awaited<ReturnType<typeof api.plugins.setUp>>["outcomes"][number];
@@ -27,34 +27,14 @@ const OUTCOMES: Record<Outcome["outcome"], string> = { made: "made", refused: "r
  */
 export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose: () => void }) {
   const queryClient = useQueryClient();
-  const { primitives, agents, triggers } = plugin.definitions;
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
-  // All ticked: a table made by a run that stopped may still lack its fields, and a run only adds what is missing.
-  const [picked, setPicked] = useState(() => new Set(primitives.map((d) => d.name)));
-  const [pickedAgents, setPickedAgents] = useState(() => new Set(agents.filter((d) => !d.setUp).map((d) => d.name)));
-  const [chosen, setChosen] = useState<Record<string, string>>({});
-  // The harness picked for an agent, else the first of the kind its definition is written for.
-  const harnessOf = (d: (typeof agents)[number]) => chosen[d.name] ?? (harnesses.data?.find((h) => h.type === d.harness) ?? harnesses.data?.[0])?.id;
-  const agentPicks = agents.flatMap((d) => {
-    const harnessId = harnessOf(d);
-    return pickedAgents.has(d.name) && harnessId ? [{ name: d.name, harnessId }] : [];
-  });
-  // A trigger goes with its agent: ticked while its agent is ticked or made, unless the owner unticks it.
-  const [unticked, setUnticked] = useState(() => new Set<string>());
-  // Names match as the server matches them: whatever their case.
-  const offered = triggers.filter((t) => !t.setUp && agents.some((d) => d.name.toLowerCase() === t.agent.toLowerCase() && (d.setUp || pickedAgents.has(d.name))));
-  const triggerPicks = offered.filter((t) => !unticked.has(t.name)).map((t) => t.name);
+  const definitions = useDefinitionPicks(plugin.definitions, harnesses.data);
   // The plugin's servers that aren't tools yet and can be added as they are: over HTTP, with no setting to enter. Ticked by the owner, once they see where its calls go.
   const servers = (plugin.available?.mcpServers ?? []).filter((s) => s.type === "http" && s.settings.length === 0);
   const [pickedServers, setPickedServers] = useState(() => new Set<string>());
   const serverPicks = servers.filter((s) => pickedServers.has(s.name)).map((s) => ({ name: s.name }));
-  const pick = {
-    primitives: primitives.map((d) => d.name).filter((n) => picked.has(n)),
-    ...(agentPicks.length ? { agents: agentPicks } : {}),
-    ...(triggerPicks.length ? { triggers: triggerPicks } : {}),
-    ...(serverPicks.length ? { servers: serverPicks } : {}),
-  };
-  const any = pick.primitives.length > 0 || agentPicks.length > 0 || triggerPicks.length > 0 || serverPicks.length > 0;
+  const pick = { ...definitions.pick, ...(serverPicks.length ? { servers: serverPicks } : {}) };
+  const any = definitions.any || serverPicks.length > 0;
   const preview = useQuery({ ...orpc.plugins.setupPreview.queryOptions({ input: { id: plugin.id, pick } }), enabled: any, retry: false });
   const setUp = useMutation(
     orpc.plugins.setUp.mutationOptions({
@@ -104,59 +84,7 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
             </Section>
           ) : (
             <>
-              {primitives.length > 0 && (
-                <Section id="setup-tables" title="Tables">
-                  <ul className="space-y-1">
-                    {primitives.map((d) => (
-                      <li key={d.name}>
-                        <Check checked={picked.has(d.name)} onChange={() => setPicked((prev) => toggled(prev, d.name))} label={d.name} detail={d.setUp ? "Made: setting it up again adds what is missing" : "Not set up yet"} />
-                      </li>
-                    ))}
-                  </ul>
-                </Section>
-              )}
-              {agents.length > 0 && (
-                <Section id="setup-agents" title="Agents">
-                  <ul className="space-y-2">
-                    {agents.map((d) => (
-                      <li key={d.name} className="space-y-1">
-                        <Check
-                          checked={pickedAgents.has(d.name)}
-                          onChange={() => setPickedAgents((prev) => toggled(prev, d.name))}
-                          label={d.name}
-                          detail={[d.setUp ? "Made: it stays as you have it" : d.description || "Not set up yet", d.selfLearning.length ? `Learns into: ${d.selfLearning.join(", ")}` : ""].filter(Boolean).join(" · ")}
-                        />
-                        {pickedAgents.has(d.name) && !d.setUp && harnesses.data && harnesses.data.length > 0 && (
-                          <Select value={harnessOf(d) ?? ""} onValueChange={(id) => setChosen((prev) => ({ ...prev, [d.name]: id }))}>
-                            <SelectTrigger aria-label={`Harness of ${d.name}`} className="ml-7 w-[calc(100%-1.75rem)]">
-                              <SelectValue placeholder="Pick a harness" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {harnesses.data.map((h) => (
-                                <SelectItem key={h.id} value={h.id}>
-                                  {h.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                  {harnesses.data?.length === 0 && <p className="text-[13px] text-faint">Add a harness first to set up agents.</p>}
-                </Section>
-              )}
-              {offered.length > 0 && (
-                <Section id="setup-triggers" title="Triggers">
-                  <ul className="space-y-2">
-                    {offered.map((t) => (
-                      <li key={t.name}>
-                        <Check checked={!unticked.has(t.name)} onChange={() => setUnticked((prev) => toggled(prev, t.name))} label={t.name} detail={`Starts Jobs of ${t.agent}`} />
-                      </li>
-                    ))}
-                  </ul>
-                </Section>
-              )}
+              {definitions.sections}
               {servers.length > 0 && (
                 <Section id="setup-servers" title="Tools">
                   <ul className="space-y-2">

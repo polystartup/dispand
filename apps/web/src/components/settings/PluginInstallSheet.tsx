@@ -7,6 +7,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { api, orpc } from "../../lib/api.ts";
 import { FormField } from "./parts.tsx";
 import { NativeTargetPicker, nativeWarning, useNativeTargets } from "./NativeSkills.tsx";
+import { useDefinitionPicks } from "./PluginDefinitionPicks.tsx";
 
 export const pluginTabs = [
   { to: "/settings/plugins", label: "Discover" },
@@ -144,6 +145,8 @@ function InstallForm({
   // Server name → `${VAR}` → value. Sent only for the ticked servers, never shown again.
   const [settings, setSettings] = useState<Record<string, Record<string, string>>>({});
   const [error, setError] = useState<string | null>(null);
+  // The definitions to set up with the install: their rights shown here, as no proposal shows them.
+  const definitionPicks = useDefinitionPicks(preview.definitions, harnesses.data, true);
   const setSetting = (server: string, name: string, value: string) => setSettings((prev) => ({ ...prev, [server]: { ...prev[server], [name]: value } }));
 
   async function submit() {
@@ -160,7 +163,14 @@ function InstallForm({
         agents: preview.agents.map((a) => a.name).filter((n) => agents.has(n)),
         ...(agents.size > 0 ? { harnessId } : {}),
         settings: Object.fromEntries(mcpServers.flatMap((n) => (settings[n] ? [[n, settings[n]]] : []))),
+        ...(definitionPicks.any ? { setup: definitionPicks.pick } : {}),
       });
+      // A setup item refused: the plugin is installed, and Set up goes on from there.
+      const refused = result.setup?.outcomes.find((o) => o.outcome === "refused");
+      if (refused) {
+        setError(`Installed, but setting it up stopped: ${refused.error ?? "an item was refused"}. Open Set up on the plugin to go on.`);
+        return;
+      }
       if (!native || !nativeTargets.size) { onClose(); return; }
       const selected = (harnesses.data ?? []).flatMap((h) => h.type === "cli" && nativeTargets.has(h.id) ? [h] : []);
       setNativeProgress(selected.map((h) => ({ id: h.id, name: h.name, status: "Installing…" })));
@@ -314,27 +324,10 @@ function InstallForm({
       )}
 
       {defined > 0 && (
-        <Section id="install-definitions" title="Definitions">
-          <p className="text-[12px] text-faint">
-            {definitions.description ?? "What the plugin can set up in your workspace."} Installing registers them; nothing is made until you set them up from the plugin.
-          </p>
-          <ul className="space-y-1 text-[13px]">
-            {(
-              [
-                ["Tables", definitions.primitives.map((d) => d.name)],
-                ["Agents", definitions.agents.map((d) => d.name)],
-                ["Triggers", definitions.triggers.map((d) => `${d.name} (${d.agent})`)],
-              ] as const
-            ).map(([label, names]) =>
-              names.length > 0 ? (
-                <li key={label} className="px-2">
-                  <span className="text-muted">{label}: </span>
-                  {names.join(", ")}
-                </li>
-              ) : null,
-            )}
-          </ul>
-        </Section>
+        <>
+          <p className="text-[12px] text-faint">{definitions.description ?? "What the plugin can set up in your workspace."} What you tick is made with the install, as the plugin's; the rest can be set up later from the plugin.</p>
+          {definitionPicks.sections}
+        </>
       )}
 
       {preview.notImported.length > 0 && (

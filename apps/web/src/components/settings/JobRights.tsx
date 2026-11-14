@@ -4,7 +4,7 @@ import { Lock } from "lucide-react";
 /** What an agent's Jobs may do through Dispand's own tools, and on which tables. */
 export type Rights = { bundles: Bundle[]; dataTables: TableScope };
 
-const BUNDLE_TEXT: [Bundle, string, string][] = [
+export const BUNDLE_TEXT: [Bundle, string, string][] = [
   ["data", "Work on data", "Its Jobs can read, add, change and delete rows."],
   ["configure", "Change tables and fields", "Its Jobs can create tables, change what they are called, and add, change and order their fields. Deleting stays yours."],
   ["inbox", "Answer Questions", "Its Jobs can be started by Questions other agents' Jobs ask on its tables. Approvals, and Questions of Jobs that change tables, stay yours."],
