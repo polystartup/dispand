@@ -1441,7 +1441,9 @@ only while the field is still `mine` and the element's `upstream` for it still `
 conflict is `open`, the owner's again); a reset takes the plugin's value; a merge applies at once
 when it is `mine`, `next`, or a list of their entries, and otherwise waits in `merged` for the
 owner's Approval, which `answerApproval` applies (yes) or drops ("Keep mine") per conflict, with
-the same check. A tool an agent gains by a decision starts with every action on Ask. Each
+the same check. The check and the write are two steps (the element's update runs its own
+transaction), so an owner's save landing between them, within the same call, is the one known
+gap. A tool an agent gains by a decision starts with every action on Ask. Each
 decision is an Audit row (`plugin.decided`: the element, the field's name and the decision's
 kind, never a value). An update reopens the pending conflicts of the fields whose plugin value
 it changes (`reopenChanged`), and an element that leaves the plugin drops its conflicts

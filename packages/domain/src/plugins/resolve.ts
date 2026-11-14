@@ -90,6 +90,7 @@ export async function decide(context: Context, actor: AuditActor, conflictId: st
     await audit(context, actor, c, "approval", c.runId);
     return "approval";
   }
+  // shortcut: the check above and this write aren't one transaction (the element's update runs its own, with a session lookup that can't nest), so an owner's save landing in the milliseconds between them is overwritten; make each element update take an expected value, checked under its row lock, if that ever shows up.
   await apply(context, c, value);
   await context.db.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
   await audit(context, actor, c, decision.kind, c.runId);
