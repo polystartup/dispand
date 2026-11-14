@@ -10,7 +10,8 @@ import type { TableScope } from "./bundles.ts";
 export type JobIdentity = { runId: string; ownerId: string; agentId: string };
 
 /** Bundles, the tables they apply to, and where the Job may write memory. */
-export type Rights = { bundles: string[]; tables: TableScope; selfLearning: MemoryTarget[] };
+/** `only`: the only tools of Dispand's the Job may call, whatever its bundles (a Stem Job). */
+export type Rights = { bundles: string[]; tables: TableScope; selfLearning: MemoryTarget[]; only?: string[] };
 
 /** Both lists narrowed to what is in each: "all" only when both are. */
 export function narrow(a: TableScope, b: TableScope): TableScope {
@@ -42,5 +43,6 @@ export async function rightsOf(db: Db | Tx, job: JobIdentity): Promise<Rights | 
     bundles: (snapshot?.bundles ?? []).filter((b) => row.bundles.includes(b)),
     tables: narrow(snapshot?.tables ?? "all", row.dataTables),
     selfLearning: (snapshot?.selfLearning ?? []).filter((t) => row.selfLearning.includes(t)),
+    ...(snapshot?.only ? { only: snapshot.only } : {}),
   };
 }

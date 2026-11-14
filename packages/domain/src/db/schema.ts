@@ -202,7 +202,9 @@ export type RunTrigger =
   /** A poll trigger's new item, with the action that found it and what the trigger node gives the Job: the item. */
   | { type: "poll"; triggerId: string; itemId: string; toolId: string; action: string; outputs: Record<string, string> }
   /** Another Job's consult (`engine/consults.ts`): its question row, and what the trigger node gives the Job (the question, who asks). */
-  | { type: "consult"; questionId: string; outputs: Record<string, string> };
+  | { type: "consult"; questionId: string; outputs: Record<string, string> }
+  /** An update's conflicts the owner handed to Stem (`plugins/resolve.ts`), as the trigger node gives them to the Job. */
+  | { type: "stem"; pluginId: string; outputs: Record<string, string> };
 export type StepStatus = "pending" | "running" | "waiting" | "succeeded" | "failed" | "skipped";
 
 /** Who waits on a queued step, served in this order (`engine/slots.ts`): a person, a resume, a new start. */
@@ -231,6 +233,8 @@ export type AgentSnapshot = {
   selfLearning?: MemoryTarget[];
   /** The agents it may consult (`agent_consults`); absent in Jobs created before consults existed: none. */
   consults?: { agentId: string; ask: boolean }[];
+  /** The only tools of Dispand's the Job may call, whatever its bundles: a Stem Job's `plugin_decide`. */
+  only?: string[];
 };
 /** What made a Job, and how many Jobs deep its chain is (0 for a user or a schedule): information only, never a limit. */
 export type JobCause = (
@@ -242,6 +246,8 @@ export type JobCause = (
   | { kind: "poll"; triggerId: string; itemId: string }
   /** A consult: the asking Job's question row, and that Job. */
   | { kind: "consult"; questionId: string; jobId: string }
+  /** The owner handed an update's conflicts to Stem. */
+  | { kind: "stem"; pluginId: string }
 ) & { depth: number };
 
 export type RootKind = "user" | "chat" | "schedule" | "event" | "poll";

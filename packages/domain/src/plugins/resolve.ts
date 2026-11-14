@@ -71,8 +71,11 @@ async function apply(context: Context, c: Conflict, value: unknown) {
  * within the two values applies; any other merge waits for the owner's Approval (`merged`). A
  * conflict that changed since it was handed off applies nothing and is the owner's again.
  */
-export async function decide(context: Context, actor: AuditActor, conflictId: string, decision: Decision): Promise<DecisionOutcome> {
-  const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, conflictId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "stem")));
+export async function decide(context: Context, actor: AuditActor, conflictId: string, decision: Decision, runId?: string): Promise<DecisionOutcome> {
+  const [c] = await context.db
+    .select()
+    .from(pluginConflicts)
+    .where(and(eq(pluginConflicts.id, conflictId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "stem"), ...(runId ? [eq(pluginConflicts.runId, runId)] : [])));
   if (!c) return "gone";
   const state = await fresh(context.db, c);
   if (state === "gone") {
@@ -136,4 +139,12 @@ export async function reopenChanged(tx: Db | Tx, kind: ElementKind, elementId: s
 /** Elements that leave the plugin, kept as the owner's own or gone, have no plugin conflict left. */
 export async function forgetConflicts(tx: Db | Tx, elementIds: string[]): Promise<void> {
   if (elementIds.length) await tx.delete(pluginConflicts).where(inArray(pluginConflicts.elementId, elementIds));
+}
+
+/**
+ * A Stem Job that ended: what it didn't decide is the owner's again. A merged value waiting for
+ * their approval keeps waiting, answered from the element's page (`answerApproval`).
+ */
+export async function reopenUndecided(tx: Db | Tx, runId: string): Promise<void> {
+  await tx.update(pluginConflicts).set({ status: "open" }).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "stem")));
 }

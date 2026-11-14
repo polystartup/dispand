@@ -63,6 +63,7 @@ import type { SecretBox } from "../secrets.ts";
 import { consultOutputs, jobDef, jobSystemPrompt, timezonePrompt } from "./job-def.ts";
 import { jobMemoryPrompt } from "../memory/read.ts";
 import { deletedAgent } from "../jobs/agent-name.ts";
+import { reopenUndecided } from "../plugins/resolve.ts";
 import { agentName, approvalOf, consultEnd, consultProblem, DECLINED, deliveryProblem, failed, FLAGGED, lockConsults, TOO_LONG } from "./consults.ts";
 import { nextActions, outputsFor, toolValues, valuesFor } from "./next-actions.ts";
 import { consultsOf, type ConsultEntry } from "../agents/consults.ts";
@@ -94,6 +95,7 @@ type StopReason = "stopped" | "stopped-checkpoint" | "consult-revoked";
 function creatorOf(ownerId: string, cause: JobCause): AuditActor {
   if (cause.kind === "user") return { type: "user", userId: ownerId };
   if (cause.kind === "consult") return { type: "job", runId: cause.jobId };
+  if (cause.kind === "stem") return { type: "user", userId: ownerId };
   return { type: "scheduler" };
 }
 const ACTIVE_STEP: StepStatus[] = ["running", "waiting"];
@@ -152,7 +154,9 @@ function runOf(e: RunEvent): string {
 }
 
 /** Why the runner would refuse this start (the protocol's `SessionStart`), in the owner's words; null if it wouldn't. */
-export function startProblem(harness: CliHarness, { runKey, ...start }: StartParams): string | null {
+export function startProblem(harness: CliHarness, { runKey, restricted, ...start }: StartParams): string | null {
+  // shortcut: a CLI session offers its native tools and the user's MCP servers; until the runner starts restricted sessions, a Stem Job runs on a cloud harness only.
+  if (restricted) return "Stem decides on a cloud harness: set the Assistant on one, or decide these fields yourself";
   const parsed = SessionStart.safeParse({
     ...start,
     harness: harness.kind,
@@ -539,10 +543,13 @@ export class Engine {
       .where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)))
       .for("share");
     if (!agent) throw new EngineError("NOT_FOUND", "Agent not found");
-    if (firing.type === "consult" ? triggerId || !given : !trigger || !trigger.enabled) throw new EngineError("NOT_FOUND", "Trigger not found");
-    const root = given ?? (await lockRoot(await newRoot(tx, ownerId, cause.kind as RootKind, runId)));
+    // A consult's and a Stem Job's firing is no trigger: the consult's root is the asking Job's; a Stem Job's, the owner's hand-off.
+    if (firing.type === "consult" ? triggerId || !given : firing.type === "stem" ? !!triggerId : !trigger || !trigger.enabled) throw new EngineError("NOT_FOUND", "Trigger not found");
+    const root = given ?? (await lockRoot(await newRoot(tx, ownerId, cause.kind === "stem" ? "user" : (cause.kind as RootKind), runId)));
     const rootId = root.id;
-    const { skills, tools } = await skillsAndTools(tx, agentId);
+    // A Stem Job decides the fields handed to it and nothing else: no skill, tool, bundle, memory or consult, and one tool of Dispand's.
+    const stem = firing.type === "stem";
+    const { skills, tools } = stem ? { skills: [], tools: [] } : await skillsAndTools(tx, agentId);
     const snapshot: AgentSnapshot = {
       id: agent.id,
       name: agent.name,
@@ -551,12 +558,13 @@ export class Engine {
       ...(agent.model ? { model: agent.model } : {}),
       skills,
       tools: tools.map(({ toolId, name }) => ({ toolId, name })),
-      bundles: agent.bundles,
-      tables: agent.dataTables,
-      selfLearning: agent.selfLearning,
-      consults: await consultsOf(tx, agentId),
+      bundles: stem ? [] : agent.bundles,
+      tables: stem ? [] : agent.dataTables,
+      selfLearning: stem ? [] : agent.selfLearning,
+      consults: stem ? [] : await consultsOf(tx, agentId),
+      ...(stem ? { only: ["plugin_decide"] } : {}),
     };
-    const def = jobDef({ agent: snapshot, trigger: trigger ?? null });
+    const def = jobDef({ agent: snapshot, trigger: trigger ?? null, stem });
     const token = this.secrets ? issueJobToken(this.secrets, runId) : undefined;
     await tx.insert(runs).values({
       id: runId,
@@ -1903,7 +1911,7 @@ export class Engine {
       const nodes = new Map(nodesOf(def).map((n) => [n.id, n]));
       let changed = false;
       const scheduledFor = run.trigger.type === "schedule" ? new Date(run.trigger.scheduledFor) : run.createdAt;
-      const outputs = run.trigger.type === "event" || run.trigger.type === "poll" || run.trigger.type === "consult" ? run.trigger.outputs : undefined;
+      const outputs = run.trigger.type === "event" || run.trigger.type === "poll" || run.trigger.type === "consult" || run.trigger.type === "stem" ? run.trigger.outputs : undefined;
       for (const action of nextActions(def, steps, { scheduledFor, ...(outputs ? { outputs } : {}) })) {
         const out: Out[] = [];
         if (action.type === "finish") {
@@ -2156,6 +2164,7 @@ export class Engine {
       expectedOutputs:
         deriveExpectedOutputs(def, await loadTableSchemas(this.db, run.ownerId, tableIdsOf(def)), await loadToolSchemas(this.db, run.ownerId, toolIdsOf(def)))[node.id] ?? [],
       interactive: node.kind === "trigger",
+      ...(run.snapshot?.only ? { restricted: true as const } : {}),
     };
     // A Job's session consults the agents of its snapshot that its agent still has (each call is
     // checked again, `consultProblem`); a workflow's agent step has no such tool.
@@ -2468,6 +2477,8 @@ export class Engine {
         });
       }
       await this.answerConsult(tx, row, out);
+      // A Stem Job's conflicts it didn't decide are the owner's again, however it ended.
+      if (row.trigger.type === "stem") await reopenUndecided(tx, row.id);
     }
   }
 

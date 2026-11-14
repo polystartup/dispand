@@ -13,6 +13,7 @@ import {
   harnesses,
   marketplaces as marketplacesTable,
   plugins as pluginsTable,
+  pluginConflicts,
   skillPackages,
   skills as skillsTable,
   skillFiles,
@@ -50,6 +51,7 @@ import { runItemsAsOwner, SetupPick, setupItems } from "./setup.ts";
 import { addServer } from "./servers.ts";
 import { writeFields } from "./write-field.ts";
 import { forgetConflicts, reopenChanged } from "./resolve.ts";
+import { findAssistant } from "../agents/builtin.ts";
 import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, PluginError, type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
 
@@ -1056,7 +1058,7 @@ async function namesIn(db: Db, ownerId: string, values: unknown): Promise<Record
  * only as `updatePreview` showed it (`reviewed`); one with none applies at once. Each element is
  * written through its own procedure, with its checks; one it refuses is reported, not applied.
  */
-const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(), take: z.array(z.string().max(700)).max(1000).default([]), /** What becomes of each element the new version drops that was asked about. */ choices: Choices.default({}), /** The changes ticked of each table, by their keys. */ tables: z.record(z.string().max(64), z.array(z.string().max(200)).max(200)).default({}), /** The harnesses whose native install the screen said would move. */ native: z.array(z.string().max(64)).max(50).default([]) })).handler(async ({ input, context }) => {
+const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(), take: z.array(z.string().max(700)).max(1000).default([]), /** What becomes of each element the new version drops that was asked about. */ choices: Choices.default({}), /** The changes ticked of each table, by their keys. */ tables: z.record(z.string().max(64), z.array(z.string().max(200)).max(200)).default({}), /** The harnesses whose native install the screen said would move. */ native: z.array(z.string().max(64)).max(50).default([]), /** The conflicts handed to Stem ("Let Stem deal with it"): they stay the owner's until it decides. */ stem: z.array(z.string().max(700)).max(1000).default([]) })).handler(async ({ input, context }) => {
   const row = await findPlugin(context.db, context.ownerId, input.id);
   const shown = await updatePlan(context, row);
   const { contents, url, sha, nativeRoot } = shown;
@@ -1068,6 +1070,11 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
     if (!plan || keys.some((k) => !plan.changes.some((c) => c.key === k && !c.stale && !c.waiting))) throw new ORPCError("BAD_REQUEST", { message: "Not a change of this table that can be applied" });
   }
   if (input.take.some((key) => !shown.conflicts.some((c) => c.key === key))) throw new ORPCError("BAD_REQUEST", { message: "Not a field in conflict" });
+  // Handed to Stem: a field of an agent, tool or trigger in conflict, not also taken; the Assistant decides it.
+  const handed = shown.conflicts.filter((c) => input.stem.includes(c.key));
+  if (handed.length !== input.stem.length || handed.some((c) => c.kind === "skill" || input.take.includes(c.key))) throw new ORPCError("BAD_REQUEST", { message: "Stem decides fields of agents, tools and triggers in conflict, that you didn't take" });
+  const assistant = handed.length ? await findAssistant(context.db, context.ownerId) : null;
+  if (handed.length && !assistant) throw new ORPCError("BAD_REQUEST", { message: "Set the Assistant up first: Stem is the Assistant" });
   const elements = (await elementPlans(context.db, context.ownerId, row, contents, input.take)).filter((e) => !shown.leaving.has(`${e.kind}:${e.id}`));
   const out = await context.db.transaction(async (tx) => {
     await findPlugin(tx, context.ownerId, row.id, true);
@@ -1127,8 +1134,30 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
   await context.engine.narrowOwnerSessions(context.ownerId, context.db);
   // The native installs shown follow, at the commit the screen's token covers: what can't (or a Job, which may not touch them) is left behind, the update stays.
   const leftBehind = await moveNative(context, row.id, input.native);
-  return { sha, ...(failed.length ? { failed } : {}), ...(leftBehind.length ? { leftBehind } : {}) };
+  const stemJob = assistant ? await handToStem(context, row.id, assistant.agentId, handed) : undefined;
+  return { sha, ...(failed.length ? { failed } : {}), ...(leftBehind.length ? { leftBehind } : {}), ...(stemJob ? { stemJob } : {}) };
 });
+
+/**
+ * Hands conflicts to Stem: each kept as a conflict with the two values it is handed off against,
+ * and one Job of the Assistant, limited to `plugin_decide`, given them as data. A later hand-off
+ * of the same field replaces the earlier one.
+ */
+async function handToStem(context: InitialContext & { ownerId: string }, pluginId: string, agentId: string, handed: ShownConflict[]): Promise<string> {
+  const runId = await context.db.transaction(async (tx) => {
+    const rows = handed.map((c) => ({ id: newId("conflict"), ownerId: context.ownerId, pluginId, kind: c.kind as "agent" | "tool" | "trigger", elementId: c.id, field: c.field, old: c.old, mine: c.mine, next: c.next, status: "stem" as const }));
+    for (const r of rows) await tx.delete(pluginConflicts).where(and(eq(pluginConflicts.kind, r.kind), eq(pluginConflicts.elementId, r.elementId), eq(pluginConflicts.field, r.field)));
+    await tx.insert(pluginConflicts).values(rows);
+    // The values as data, each with the id plugin_decide takes.
+    const data = rows.map((r, i) => ({ id: r.id, element: `${handed[i]!.name} (${r.kind})`, field: r.field, plugin_before: r.old, owner_now: r.mine, plugin_new: r.next }));
+    const id = await context.engine.createJob(tx, { ownerId: context.ownerId, agentId, cause: { kind: "stem", pluginId, depth: 0 }, firing: { type: "stem", pluginId, outputs: { conflicts: JSON.stringify(data, null, 2) } } });
+    await tx.update(pluginConflicts).set({ runId: id }).where(inArray(pluginConflicts.id, rows.map((r) => r.id)));
+    return id;
+  });
+  await context.engine.announceCheckpoints();
+  await context.engine.continueRun(runId);
+  return runId;
+}
 
 const SetupInput = z.object({ id: z.string(), pick: SetupPick });
 const setupReview = (items: unknown) => createHash("sha256").update(canonical(items)).digest("hex");

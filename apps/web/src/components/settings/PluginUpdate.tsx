@@ -79,6 +79,8 @@ export function UpdatePlan({
   take,
   busy,
   onTake,
+  stem = [],
+  onStem,
   additions = [],
 }: {
   conflicts: UpdateConflict[];
@@ -87,6 +89,9 @@ export function UpdatePlan({
   take: string[];
   busy: boolean;
   onTake: (key: string, taken: boolean) => void;
+  /** The conflicts handed to Stem: it decides them after the update, and they stay yours until it does. */
+  stem?: string[];
+  onStem?: (key: string, handed: boolean) => void;
   /** What this version adds: named here, made afterwards from the plugin's Set up. */
   additions?: UpdateAddition[];
 }) {
@@ -107,11 +112,21 @@ export function UpdatePlan({
               <Text title="The plugin's, before" value={c.old} names={names} />
               <Text title="Yours" value={c.mine} names={names} />
               <Text title="The plugin's, now" value={c.next} names={names} />
-              <div className="flex gap-4">
-                {([false, true] as const).map((taken) => (
-                  <label key={String(taken)} className="flex items-center gap-2">
-                    <input type="radio" name={`conflict-${c.key}`} className="size-4 accent-[var(--color-accent)]" checked={take.includes(c.key) === taken} disabled={busy} onChange={() => onTake(c.key, taken)} />
-                    {taken ? "Take the plugin's" : "Keep mine"}
+              <div className="flex flex-wrap gap-x-4 gap-y-2">
+                {(["mine", "plugin", ...(onStem && c.kind !== "skill" ? ["stem" as const] : [])] as const).map((choice) => (
+                  <label key={choice} className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name={`conflict-${c.key}`}
+                      className="size-4 accent-[var(--color-accent)]"
+                      checked={(take.includes(c.key) ? "plugin" : stem.includes(c.key) ? "stem" : "mine") === choice}
+                      disabled={busy}
+                      onChange={() => {
+                        onTake(c.key, choice === "plugin");
+                        onStem?.(c.key, choice === "stem");
+                      }}
+                    />
+                    {choice === "plugin" ? "Take the plugin's" : choice === "stem" ? "Let Stem deal with it" : "Keep mine"}
                   </label>
                 ))}
               </div>

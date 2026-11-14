@@ -170,6 +170,15 @@ changes it updates this file.
   (which agents that may consult it read), change the same way: a person on the agent's page,
   or an approved `agents_create` or `agents_update` item. An entry pairs only two agents that
   both have `configure` or neither has, and never an agent with itself.
+  "Let Stem deal with it" hands an update's conflicts to one Job of the Assistant that holds a
+  single tool, `plugin_decide`, and nothing else of Dispand's (no row, configuration, proposal or
+  memory tool, no skill, installed tool or consult), because its prompt carries the plugin's new
+  text: whatever that text says, the Job can only decide the fields handed to it. A decision
+  applies only while the field still holds the owner's value and the plugin's value it was handed
+  off against; a merge that is neither value, nor a list of their entries, waits for the owner's
+  Approval; a tool it gives an agent starts with every action on Ask. Such a Job doesn't start on
+  a CLI harness, whose session would offer native tools, until the runner starts restricted
+  sessions.
 - **A consult reaches only an agent its Job may consult, and nothing answers in that agent's
   place.** A Job's `consult` tool (cloud and runner sessions; absent when its agent may consult
   none, and in workflow steps) names an agent by id. A runner sends a consult only for an agent
