@@ -2077,6 +2077,9 @@ export class Engine {
   private async withMemory(harness: Harness, step: StepRow, start: StartParams): Promise<StartParams> {
     const [run] = await this.db.select().from(runs).where(eq(runs.id, step.runId));
     if (run?.source !== "agent" || !run.snapshot) return start;
+    // A limited Job (a Stem Job) reads no memory: it holds no `configure` to filter what others
+    // wrote by, and its one tool changes agents. Its instructions are the snapshot's alone.
+    if (run.snapshot.only) return { ...start, systemPrompt: run.snapshot.systemPrompt };
     // Built from the snapshot's instructions, whatever the stored start holds. On a runner, the
     // same reading also goes as files (`CliHarnessAdapter.start`).
     const onRunner = !isCloud(harness);

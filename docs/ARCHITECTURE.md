@@ -1452,7 +1452,8 @@ it changes (`reopenChanged`), and an element that leaves the plugin drops its co
 agent, tool or trigger: `plugins.update` takes those keys (`stem`), keeps them as conflicts and
 starts one Job of the Assistant (`handToStem`, a `stem` firing with no trigger, its conflicts as
 the trigger node's data). Its snapshot is limited (`only: ["plugin_decide"]`, and no skill, tool,
-bundle, memory or consult), and `allowed` gives a limited Job those tools and no other, so the
+bundle, memory or consult; `withMemory` gives it no memory to read either, since it holds no
+`configure` to filter what other agents wrote by), and `allowed` gives a limited Job those tools and no other, so the
 Job server and the cloud listing offer `plugin_decide` alone; a call of another tool is refused.
 `plugin_decide` takes only the Job's own conflicts and goes through `decide`. When the Job ends,
 however it ends, what it didn't decide is `open` again (`reopenUndecided`, in `finishRun`). A
