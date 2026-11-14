@@ -2,7 +2,7 @@ import { ORPCError } from "@orpc/server";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
-import { agents, eventFires, fields, pollItems, polls, tables, triggerFires, triggers as triggersTable } from "../db/schema.ts";
+import { agents, eventFires, fields, plugins, pollItems, polls, tables, triggerFires, triggers as triggersTable } from "../db/schema.ts";
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -149,9 +149,9 @@ async function view(db: Db, row: Row, forJob: boolean) {
   const { id, agentId, name, kind, enabled, instructions, concurrency, rateCap, config, nextFireAt, overridden } = row;
   return {
     id,
-    /** The fields of a plugin's trigger its owner changed; whether it is one. */
+    /** The plugin it is a trigger of, and the fields its owner changed. */
+    plugin: row.pluginId ? ((await db.select({ id: plugins.id, name: plugins.name }).from(plugins).where(eq(plugins.id, row.pluginId)))[0] ?? null) : null,
     overridden,
-    ofPlugin: row.upstream !== null,
     agentId,
     name,
     kind,

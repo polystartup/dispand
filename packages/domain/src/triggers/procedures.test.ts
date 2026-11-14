@@ -27,8 +27,8 @@ test("creates a manual chat trigger on the owner's agent", async () => {
   );
   expect(created).toEqual({
     id: expect.stringMatching(/^trigger_/),
+    plugin: null,
     overridden: [],
-    ofPlugin: false,
     agentId: agent.id,
     name: "Ask the clerk",
     kind: "manual",

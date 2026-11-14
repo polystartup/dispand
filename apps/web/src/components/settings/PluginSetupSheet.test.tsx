@@ -101,3 +101,34 @@ test("agents not set up yet are ticked, each on the first harness of the kind it
   await userEvent.click(screen.getByRole("button", { name: "Set up" }));
   expect((await screen.findByRole("region", { name: "What was made" })).textContent).toContain("Agent Drafting: made");
 });
+
+test("a trigger is offered with its agent, ticked, and leaves the pick when unticked or when its agent does", async () => {
+  fake.harnesses.list.mockResolvedValue([{ id: "harness_cloud", name: "Claude API", type: "cloud" }]);
+  fake.plugins.setupPreview.mockResolvedValue({ reviewed: "r", items: [], names: {}, waiting: [] });
+  mount({
+    ...plugin,
+    definitions: {
+      primitives: [],
+      agents: [
+        { name: "Intake", description: "", harness: "cloud", selfLearning: [], setUp: true },
+        { name: "Drafting", description: "", harness: "cloud", selfLearning: [], setUp: false },
+      ],
+      triggers: [
+        { name: "New email", agent: "Intake", setUp: false },
+        { name: "Research recorded", agent: "Drafting", setUp: false },
+        { name: "Already there", agent: "Intake", setUp: true },
+      ],
+    },
+  });
+  const picks = () => (fake.plugins.setupPreview.mock.calls.at(-1)![0] as { pick: { triggers?: string[] } }).pick.triggers;
+  // One for an agent made before, one for the agent ticked; the one already set up isn't offered.
+  expect((await screen.findByRole("checkbox", { name: /New email/ }) as HTMLInputElement).checked).toBe(true);
+  expect(screen.getByRole("checkbox", { name: /Research recorded/ }).closest("label")!.textContent).toContain("Starts Jobs of Drafting");
+  expect(screen.queryByRole("checkbox", { name: /Already there/ })).toBeNull();
+  await vi.waitFor(() => expect(picks()).toEqual(["New email", "Research recorded"]));
+  await userEvent.click(screen.getByRole("checkbox", { name: /New email/ }));
+  await vi.waitFor(() => expect(picks()).toEqual(["Research recorded"]));
+  // The agent's own box: the trigger's says "Starts Jobs of Drafting" too.
+  await userEvent.click(screen.getAllByRole("checkbox", { name: /Drafting/ })[0]!);
+  expect(screen.queryByRole("checkbox", { name: /Research recorded/ })).toBeNull();
+});

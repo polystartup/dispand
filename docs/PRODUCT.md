@@ -107,7 +107,11 @@ Status: Prototype
     What it makes is the plugin's, listed as `<plugin>/<name>`: a table of yours with the same
     name stays apart, and neither goes without its plugin (a table kept when the plugin is
     removed becomes yours). Its agents are set up the same way, each on a harness the owner
-    picks: a change you make to one is yours, kept through the plugin's updates. A server of the plugin, or a
+    picks: a change you make to one is yours, kept through the plugin's updates. The triggers a
+    plugin suggests are offered with their agent, ticked: a table-change trigger, a schedule, or
+    a poll of a tool. One that can't be made yet (its tool hasn't signed in, its agent isn't set
+    up) is listed with the reason and offered again later. A plugin's trigger is turned on or off
+    like any other; what you change of it is yours. A server of the plugin, or a
     catalog entry, that an agent names and isn't a tool yet is added first, with no credentials:
     the owner enters them, or signs in, on the tool's page. A skill it names that isn't installed,
     or a server that runs on a machine or needs a setting, is listed, and the agent is made without it.

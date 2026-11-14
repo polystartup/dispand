@@ -4,7 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ triggers: { create: vi.fn(), update: vi.fn(), delete: vi.fn() }, tables: { list: vi.fn(), get: vi.fn() }, tools: { pollable: vi.fn(), list: vi.fn(), catalog: vi.fn() }, agents: { get: vi.fn() } }));
+const fake = vi.hoisted(() => ({ triggers: { create: vi.fn(), update: vi.fn(), delete: vi.fn() }, tables: { list: vi.fn(), get: vi.fn() }, tools: { pollable: vi.fn(), list: vi.fn(), catalog: vi.fn() }, agents: { get: vi.fn() }, plugins: { resetOverride: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };

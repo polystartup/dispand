@@ -1261,6 +1261,15 @@
   `plugin_component` and `upstream`; migration 0073). A plugin's table is named inside its
   plugin (`tables_owner_name_idx` is unique per owner and plugin), isn't deleted on its own, and
   a name in a definition that isn't one of the plugin's tables finds only the owner's own.
+  Triggers come last, one `triggers_create` each on its agent (made before, or by an item of
+  the same setup): a table-change trigger names its table and fields by id, a poll its tool (the
+  plugin's server's, or the owner's catalog tool, added by an item when missing). A trigger whose
+  agent isn't set up, whose field isn't there yet, or whose poll `pollProblem` would refuse is
+  listed in `waiting` instead of stopping the run; a poll on a server this same setup adds waits
+  until that tool has listed its actions. A plugin's trigger keeps `plugin_id`,
+  `plugin_component`, `upstream` and `overridden` (migration 0074): `triggers.update` records
+  overrides of its name, instructions, config, concurrency and rate (on or off is a local
+  setting), `triggers.delete` refuses it, and `plugins.resetOverride` takes `kind: "trigger"`.
   Agents come after the tables, one `agents_create` each, on the harness picked: the plugin's
   agent (prompt, description, bundles, self-learning), whose fields the owner overrides as any
   plugin agent's. Its tables resolve as above, else wait; its skills give it
