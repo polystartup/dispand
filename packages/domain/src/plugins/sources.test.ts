@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { afterEach, expect, test, vi } from "vitest";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
-import { fakeSite, fixtureRepo, skillMd, updatePlugin } from "./test-support.ts";
+import { fakeSite, fixtureRepo, installReviewed, skillMd, updatePlugin } from "./test-support.ts";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -26,7 +26,7 @@ test("a Git repository of skills (no marketplace file) is one entry, its skills/
   const preview = await call(router.plugins.preview, { marketplaceId: market.id, entryName: name }, { context: ctx });
   expect(preview.skills.map((s) => s.name)).toEqual(["plain-words", "review"]);
   expect(preview.notImported).toEqual([{ component: "hook", name: "hooks", reason: "Hooks run commands on the machine" }]);
-  await call(router.plugins.install, { marketplaceId: market.id, entryName: name, skills: ["plain-words"] }, { context: ctx });
+  await installReviewed(ctx, { marketplaceId: market.id, entryName: name, skills: ["plain-words"] });
   const [pkg] = await call(router.skills.list, undefined, { context: ctx });
   expect(pkg).toMatchObject({ skills: [{ name: "plain-words" }], plugin: { name } });
   repo.remove();
@@ -54,7 +54,7 @@ test("a skill site is one entry; install downloads its skills, update sees chang
   expect(market).toMatchObject({ kind: "well-known", name: "skills.example", url: `${site}/.well-known/skills/index.json`, plugins: 1 });
   const [found] = await call(router.plugins.discover, {}, { context: ctx }).then((all) => all.filter((r) => r.marketplaceId === market.id));
   expect(found!.entry).toMatchObject({ name: "skills.example", description: "1 skill: greet" });
-  const { pluginId } = await call(router.plugins.install, { marketplaceId: market.id, entryName: "skills.example", skills: ["greet"] }, { context: ctx });
+  const { pluginId } = await installReviewed(ctx, { marketplaceId: market.id, entryName: "skills.example", skills: ["greet"] });
   const [installed] = await call(router.plugins.list, undefined, { context: ctx });
   expect(installed).toMatchObject({ url: `${site}/.well-known/skills/index.json`, skills: [{ name: "greet" }] });
 

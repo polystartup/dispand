@@ -136,7 +136,10 @@ changes it updates this file.
   Explicit `toolPermissions` are part of the exact matched input; defaults and retained grants
   are saved alongside it. Old unconsumed agent items with tools but no recorded permissions
   must be proposed again. Plugin setup uses the same snapshot and checks a digest of its
-  preview before making any writes, so a changed list requires another review. A plugin install
+  preview before making any writes, so a changed list requires another review. Every plugin
+  install carries the `reviewed` token of the preview the owner read (its commit, servers and
+  definitions), whatever it picks, so a skill's files or an agent's instructions pushed since
+  are refused. A plugin install
   set up from its install sheet, or from an approved `plugins_install` item, shows no item list:
   every tool it gives an agent starts on Ask, it adds no plugin server the install didn't tick,
   and a poll of an agent it makes waits. A `plugins_install` item carries the `reviewed` token

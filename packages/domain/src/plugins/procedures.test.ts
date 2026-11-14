@@ -10,7 +10,7 @@ import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { BUILT_IN_MARKETPLACES } from "./marketplace.ts";
 import { marketplaceUrl, packageName } from "./procedures.ts";
-import { fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd, updatePlugin } from "./test-support.ts";
+import { fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd, updatePlugin, installReviewed } from "./test-support.ts";
 import { toolTarget } from "../tools/procedures.ts";
 import { addStep } from "../workflows/model.ts";
 import { type FakeAction, startFakeMcp } from "../tools/test-server.ts";
@@ -86,7 +86,7 @@ test("install reads the skills a strict:false entry lists, and skills shows them
   const preview = await call(router.plugins.preview, { marketplaceId: market.id, entryName: "document-skills" }, { context: ctx });
   expect(preview.skills.map((s) => s.name)).toEqual(["pdf", "docx"]);
 
-  const { pluginId } = await call(router.plugins.install, { marketplaceId: market.id, entryName: "document-skills", skills: ["pdf"] }, { context: ctx });
+  const { pluginId } = await installReviewed(ctx, { marketplaceId: market.id, entryName: "document-skills", skills: ["pdf"] });
   const [pkg] = await call(router.skills.list, undefined, { context: ctx });
   expect(pkg).toMatchObject({ name: "document-skills", plugin: { id: pluginId, name: "document-skills" }, skills: [{ name: "pdf", description: "Does pdf." }] });
   const files = await ctx.db.select({ path: skillFiles.path }).from(skillFiles).where(eq(skillFiles.packageId, pkg!.packageId));
@@ -97,7 +97,7 @@ test("install reads the skills a strict:false entry lists, and skills shows them
   expect(installed).toMatchObject({ id: pluginId, source: "marketplace", marketplace: "acme", tables: [], triggers: [], skills: [{ name: "pdf" }], available: { skills: [{ name: "docx" }] } });
   expect((await call(router.plugins.discover, { query: "document" }, { context: ctx }))[0]!.installed).toBe(true);
   await expect(
-    call(router.plugins.install, { marketplaceId: market.id, entryName: "document-skills", skills: ["docx"] }, { context: ctx }),
+    installReviewed(ctx, { marketplaceId: market.id, entryName: "document-skills", skills: ["docx"] }),
   ).rejects.toMatchObject({ code: "CONFLICT" });
   await expect(call(router.marketplaces.remove, { id: market.id }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
   plugin.remove();
@@ -116,7 +116,7 @@ test("install reads skills/ of a url-sourced plugin at its sha; hooks and comman
     { component: "hook", name: "hooks", reason: "Hooks run commands on the machine" },
     { component: "command", name: "plan", reason: "Commands aren't imported" },
   ]);
-  await call(router.plugins.install, { marketplaceId: market.id, entryName: "superpowers", skills: ["brainstorming", "tdd"] }, { context: ctx });
+  await installReviewed(ctx, { marketplaceId: market.id, entryName: "superpowers", skills: ["brainstorming", "tdd"] });
   const [installed] = await call(router.plugins.list, undefined, { context: ctx });
   expect(installed).toMatchObject({ sha: plugin.sha, skills: [{ name: "brainstorming" }, { name: "tdd" }], notImported: preview.notImported });
   plugin.remove();
@@ -137,7 +137,7 @@ test("unsupported and escaping sources, and unknown skills, are refused with the
     code: "BAD_REQUEST",
     message: "The plugin's folder is outside its repository",
   });
-  await expect(call(router.plugins.install, { ...ref, entryName: "document-skills", skills: ["nope"] }, { context: ctx })).rejects.toMatchObject({
+  await expect(installReviewed(ctx, { ...ref, entryName: "document-skills", skills: ["nope"] })).rejects.toMatchObject({
     code: "BAD_REQUEST",
   });
   await expect(call(router.plugins.preview, { ...ref, entryName: "missing" }, { context: ctx })).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -161,7 +161,7 @@ test("update replaces the imported skills' files with the latest commit's; new s
   const plugin = superpowers();
   const repo = marketplace(plugin);
   const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
-  const { pluginId } = await call(router.plugins.install, { marketplaceId: market.id, entryName: "document-skills", skills: ["pdf"] }, { context: ctx });
+  const { pluginId } = await installReviewed(ctx, { marketplaceId: market.id, entryName: "document-skills", skills: ["pdf"] });
   repo.commit({ "skills/pdf/fill.py": "print(2)\n", "skills/xlsx/SKILL.md": skillMd("xlsx") });
   // The marketplace lists the new skill too.
   const sha = repo.commit({
@@ -188,13 +188,13 @@ test("uninstall removes the plugin's skill package when no agent uses it, else k
   const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
   const ref = { marketplaceId: market.id, entryName: "document-skills", skills: ["pdf", "docx"] };
   // No agent uses it: it goes with the plugin.
-  const first = await call(router.plugins.install, ref, { context: ctx });
+  const first = await installReviewed(ctx, ref);
   await removePlugin(ctx, first.pluginId, "used");
   expect(await call(router.plugins.list, undefined, { context: ctx })).toEqual([]);
   expect(await call(router.skills.list, undefined, { context: ctx })).toEqual([]);
   expect(await ctx.db.select().from(skillFiles)).toEqual([]);
   // An agent uses it: it stays, no longer the plugin's, and editable.
-  const second = await call(router.plugins.install, ref, { context: ctx });
+  const second = await installReviewed(ctx, ref);
   const h = await harness(ctx);
   const [pkg] = await call(router.skills.list, undefined, { context: ctx });
   expect(pkg).toMatchObject({ plugin: { id: second.pluginId } });
@@ -206,7 +206,7 @@ test("uninstall removes the plugin's skill package when no agent uses it, else k
   expect(kept).toMatchObject({ packageId: pkg!.packageId, name: "document-skills", plugin: null });
   expect((await call(router.skills.list, undefined, { context: ctx }))[0]!.skills.map((s) => s.name).sort()).toEqual(["docx", "pdf"]);
   expect(await call(router.agents.get, { id: agent.id }, { context: ctx })).toMatchObject({ skills: [{ name: "document-skills" }] });
-  const again = await call(router.plugins.install, ref, { context: ctx });
+  const again = await installReviewed(ctx, ref);
   const reinstalled = await call(router.skills.list, undefined, { context: ctx });
   expect(reinstalled.find((p) => p.plugin?.id === again.pluginId)).toMatchObject({ name: "document-skills-2" });
   expect(await call(router.agents.get, { id: agent.id }, { context: ctx })).toMatchObject({ skills: [{ name: "document-skills" }] });
@@ -232,7 +232,7 @@ test("plugin imports use a free package name without changing existing skills", 
   const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
   const mine = await call(router.skills.create, { name: "document-skills", description: "Mine.", instructions: "Keep these edits.", requiredToolIds: [] }, { context: ctx });
   await call(router.skills.create, { name: "document-skills-2", description: "Also mine.", instructions: "x", requiredToolIds: [] }, { context: ctx });
-  const result = await call(router.plugins.install, { marketplaceId: market.id, entryName: "document-skills", skills: ["pdf"] }, { context: ctx });
+  const result = await installReviewed(ctx, { marketplaceId: market.id, entryName: "document-skills", skills: ["pdf"] });
   const packages = await call(router.skills.list, undefined, { context: ctx });
   expect(packages.find((p) => p.plugin?.id === result.pluginId)).toMatchObject({ name: "document-skills-3" });
   expect((await call(router.skills.get, { packageId: mine.packageId }, { context: ctx })).instructions).toContain("Keep these edits.");
@@ -270,7 +270,7 @@ test("a custom marketplace shaped like superpowers-marketplace: url sources at t
   expect(preview.skills.map((s) => s.name)).toEqual(["brainstorming", "tdd"]);
   const devPreview = await call(router.plugins.preview, { marketplaceId: market.id, entryName: "superpowers-dev" }, { context: ctx });
   expect(devPreview.skills.map((s) => s.name)).toEqual(["brainstorming", "dev-only", "tdd"]);
-  await call(router.plugins.install, { marketplaceId: market.id, entryName: "superpowers", skills: ["brainstorming", "tdd"] }, { context: ctx });
+  await installReviewed(ctx, { marketplaceId: market.id, entryName: "superpowers", skills: ["brainstorming", "tdd"] });
   const [installed] = await call(router.plugins.list, undefined, { context: ctx });
   expect(installed).toMatchObject({ name: "superpowers", sha: plugin.sha, skills: [{ name: "brainstorming" }, { name: "tdd" }] });
   plugin.remove();
@@ -299,7 +299,7 @@ test("symlinked file is skipped: a link in a fetched plugin is listed, never imp
     { component: "file", name: "skills/peek/host", reason: "A symbolic link" },
     { component: "file", name: "skills/peek/keys", reason: "A symbolic link" },
   ]);
-  await call(router.plugins.install, { marketplaceId: market.id, entryName: "peek", skills: ["peek"] }, { context: ctx });
+  await installReviewed(ctx, { marketplaceId: market.id, entryName: "peek", skills: ["peek"] });
   const files = await ctx.db.select({ path: skillFiles.path }).from(skillFiles);
   expect(files.map((f) => f.path)).toEqual(["peek/SKILL.md"]);
   plugin.remove();
@@ -473,7 +473,7 @@ test("an agent is created on the chosen harness with the plugin's skills and too
   const fx = await toolPlugin();
   const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
   const ref = { marketplaceId: market.id, entryName: "github" };
-  await expect(call(router.plugins.install, { ...ref, agents: ["reviewer"] }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(installReviewed(ctx, { ...ref, agents: ["reviewer"] })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   const h = await harness(ctx);
   await call(router.agents.create, { name: "reviewer", harnessId: h.id, systemPrompt: "Mine." }, { context: ctx });
   const { pluginId, agentIds } = await call(
@@ -655,7 +655,7 @@ test("a plugin's definitions are shown before install, registered by an install 
   expect(preview.definitions).toMatchObject({ triggers: [{ name: "Matter changed" }, { name: "New client email" }, { name: "Research recorded" }] });
   expect(preview.notImported).toEqual([]);
 
-  const { pluginId, toolIds, agentIds } = await call(router.plugins.install, ref, { context: ctx });
+  const { pluginId, toolIds, agentIds } = await installReviewed(ctx, ref);
   // Registering makes nothing: no table, agent, trigger or tool.
   expect({ toolIds, agentIds }).toEqual({ toolIds: [], agentIds: [] });
   expect(await call(router.tables.list, undefined, { context: ctx })).toEqual([]);
@@ -680,7 +680,7 @@ test("a plugin with neither definitions nor a pick installs nothing", async () =
   const plugin = superpowers();
   const repo = marketplace(plugin);
   const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
-  await expect(call(router.plugins.install, { marketplaceId: market.id, entryName: "superpowers" }, { context: ctx })).rejects.toMatchObject({
+  await expect(installReviewed(ctx, { marketplaceId: market.id, entryName: "superpowers" })).rejects.toMatchObject({
     code: "BAD_REQUEST",
     message: "Pick at least one skill, MCP server or agent",
   });
@@ -707,7 +707,7 @@ test("list names what a marketplace plugin's created holds, and a definition rea
   const ctx = await context();
   const fx = lawFirmMarket();
   const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
-  const { pluginId } = await call(router.plugins.install, { marketplaceId: market.id, entryName: "law-firm" }, { context: ctx });
+  const { pluginId } = await installReviewed(ctx, { marketplaceId: market.id, entryName: "law-firm" });
   const h = await harness(ctx);
   const table = await call(router.tables.create, { name: "Clients" }, { context: ctx });
   const agent = await call(router.agents.create, { name: "Drafting", harnessId: h.id, systemPrompt: "My own words.", skillPackageIds: [], toolIds: [] }, { context: ctx });
@@ -736,7 +736,7 @@ test("update replaces the definitions: what was set up stays as the owner has it
   const ctx = await context();
   const fx = lawFirmMarket();
   const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
-  const { pluginId } = await call(router.plugins.install, { marketplaceId: market.id, entryName: "law-firm" }, { context: ctx });
+  const { pluginId } = await installReviewed(ctx, { marketplaceId: market.id, entryName: "law-firm" });
   const h = await harness(ctx);
   const table = await call(router.tables.create, { name: "Matters" }, { context: ctx });
   const agent = await call(router.agents.create, { name: "Drafting", harnessId: h.id, systemPrompt: "Draft the reply, my way.", skillPackageIds: [], toolIds: [] }, { context: ctx });
@@ -1028,7 +1028,7 @@ async function withSkill() {
   const plugin = superpowers();
   const repo = marketplace(plugin);
   const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
-  const { pluginId } = await call(router.plugins.install, { marketplaceId: market.id, entryName: "document-skills", skills: ["pdf"] }, { context: ctx });
+  const { pluginId } = await installReviewed(ctx, { marketplaceId: market.id, entryName: "document-skills", skills: ["pdf"] });
   const [pkg] = await ctx.db.select().from(skillPackages).where(eq(skillPackages.pluginId, pluginId));
   const packageId = pkg!.id;
   const b64 = (text: string) => Buffer.from(text).toString("base64");

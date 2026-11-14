@@ -329,7 +329,7 @@ const InstallInput = EntryRef.extend({
   agents: z.array(z.string().max(100)).max(100).default([]),
   /** The harness the plugin's agents run on; required when `agents` isn't empty. */
   harnessId: z.string().max(64).optional(),
-  /** `preview`'s `reviewed`; required to import MCP servers, so settings only go to URLs the owner saw. */
+  /** `preview`'s `reviewed`: the install makes what the owner saw at that commit, else `CONFLICT`. */
   reviewed: z.string().max(64).optional(),
   /** The definitions to set up once installed, as `setUp` takes them; needs `reviewed`. */
   setup: SetupPick.optional(),
@@ -375,7 +375,8 @@ const install = owner
     if (nothingPicked && !input.nativeInstall && !agentDefs.length && !primitives.length && !triggers.length) {
       throw new ORPCError("BAD_REQUEST", { message: "Pick at least one skill, MCP server or agent" });
     }
-    if ((context.job || picked.mcpServers.length || input.nativeInstall || setupPicked) && reviewToken(sha, contents) !== input.reviewed) {
+    // Whatever it picks: its skills' files and its agents' instructions are what the owner saw too.
+    if (reviewToken(sha, contents) !== input.reviewed) {
       throw new ORPCError("CONFLICT", { message: `${entry.name} changed since you reviewed it: look at it again before installing` });
     }
     const chosen = picked.skills.length ? chosenSkills(contents, picked.skills) : null;
