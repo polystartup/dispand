@@ -357,7 +357,7 @@ test("a table change that fails is reported and offered again; a field an update
 });
 
 /** A runner whose native inventory holds the plugin on Claude Code, answering each native operation and recording it. */
-async function nativeRunner(ctx: Awaited<ReturnType<typeof setUp>>["ctx"], pluginId: string, fail?: "add") {
+async function nativeRunner(ctx: Awaited<ReturnType<typeof setUp>>["ctx"], pluginId: string, fail?: "add", enabled = true) {
   const { runnerId } = await call(router.runners.create, { name: "Desk" }, { context: ctx });
   await ctx.db.insert(schema.harnesses).values({ id: "h_native", ownerId: ctx.ownerId, name: "Claude Code", runnerId, kind: "claude-code", permissionMode: "default" });
   const operations: string[] = [];
@@ -366,7 +366,7 @@ async function nativeRunner(ctx: Awaited<ReturnType<typeof setUp>>["ctx"], plugi
   vi.spyOn(ctx.hub, "plugins").mockImplementation(async (_runner, msg) => {
     const op = msg.operation;
     const report = (r: object) => ({ type: "plugin.replied" as const, requestId: msg.requestId, report: r });
-    if (op.action === "list") return report({ packages: installed ? [{ name: `dispand-${pluginId}`, harness: "claude-code", installed: true, enabled: true, pending: false }] : [] });
+    if (op.action === "list") return report({ packages: installed ? [{ name: `dispand-${pluginId}`, harness: "claude-code", installed: true, enabled, pending: false }] : [] });
     if (op.action !== "add" && op.action !== "remove") throw new Error("unexpected native operation");
     operations.push(`${op.action}${op.dryRun ? " preview" : ""}`);
     if (op.dryRun) return report({ revision: "rev", blocked: false, changes: [] });
@@ -386,7 +386,10 @@ test("an update names the harnesses holding the plugin natively and moves each i
     expect(shown.native).toEqual({ harnesses: [{ id: "h_native", name: "Claude Code" }], unchecked: [] });
     // Native installs need an https source: this one, as the update writes it, gets one.
     await ctx.db.update(schema.plugins).set({ url: "https://example.com/law-firm.git", sha: "a".repeat(40), entryName: "law-firm", nativeRoot: "." }).where(eq(schema.plugins.id, pluginId));
-    expect(await moveNative(ctx, pluginId, shown.native)).toEqual([]);
+    // Only what the screen showed moves.
+    expect(await moveNative(ctx, pluginId, [])).toMatchObject([{ name: "Claude Code", reason: "it wasn't on the update's screen" }]);
+    expect(operations).toEqual([]);
+    expect(await moveNative(ctx, pluginId, ["h_native"])).toEqual([]);
     expect(operations).toEqual(["remove preview", "remove", "add preview", "add"]);
   } finally {
     remove();
@@ -396,18 +399,35 @@ test("an update names the harnesses holding the plugin natively and moves each i
 test("an offline runner is named as unchecked; a native step that fails leaves the plugin updated and its harness listed", async () => {
   const { ctx, pluginId, files, preview, publish, remove } = await setUp();
   try {
-    await nativeRunner(ctx, pluginId);
+    const operations = await nativeRunner(ctx, pluginId);
     const { runnerId: offline } = await call(router.runners.create, { name: "Laptop" }, { context: ctx });
     await ctx.db.insert(schema.harnesses).values({ id: "h_offline", ownerId: ctx.ownerId, name: "Codex", runnerId: offline, kind: "codex", permissionMode: "default" });
     publish({ [DRAFTING]: edited(files[DRAFTING]!, "Draft", "Write") });
     const shown = await preview();
     expect(shown.native.unchecked).toEqual(["Laptop"]);
+    // Moving a native install needs the screen's token, whatever else the update holds.
+    await expect(call(router.plugins.update, { id: pluginId, native: ["h_native"] }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
     // The fixture's source is a local folder, which can't be installed natively: the add is refused.
-    const result = await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed }, { context: ctx });
+    const result = await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, native: ["h_native"] }, { context: ctx });
     expect(result.sha).toBe(shown.sha);
     expect(result.leftBehind).toMatchObject([{ name: "Claude Code" }]);
+    expect(operations.at(-1)).toBe("remove");
     const [plugin] = await ctx.db.select({ sha: schema.plugins.sha }).from(schema.plugins).where(eq(schema.plugins.id, pluginId));
     expect(plugin!.sha).toBe(shown.sha);
+  } finally {
+    remove();
+  }
+});
+
+test("a native install its owner disabled isn't moved: it is named as staying, and stays disabled", async () => {
+  const { ctx, pluginId, preview, publish, files, remove } = await setUp();
+  try {
+    const operations = await nativeRunner(ctx, pluginId, undefined, false);
+    publish({ [DRAFTING]: edited(files[DRAFTING]!, "Draft", "Write") });
+    const shown = await preview();
+    expect(shown.native).toEqual({ harnesses: [], unchecked: ["Claude Code (disabled or changing there)"] });
+    await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, native: ["h_native"] }, { context: ctx });
+    expect(operations).toEqual([]);
   } finally {
     remove();
   }

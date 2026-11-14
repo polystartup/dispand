@@ -26,7 +26,7 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
     setBusy(true);
     setError(null);
     try {
-      onUpdated(await api.plugins.update({ id, reviewed: preview.reviewed, take, choices: plan.choices, tables: ticked }));
+      onUpdated(await api.plugins.update({ id, reviewed: preview.reviewed, take, choices: plan.choices, tables: ticked, native: preview.native.harnesses.map((h) => h.id) }));
       onClose();
     } catch (e) {
       setError(refusal(e, "Could not update the plugin. It may have changed since: close this and update again."));

@@ -14,10 +14,14 @@ import { workspacePlugin } from "../runners/workspace-plugin.ts";
 class StepFailed extends Error {}
 
 type Context = InitialContext & { ownerId: string };
-/** The harnesses holding the plugin natively, and the runners that couldn't be asked. */
+/** The harnesses holding the plugin natively, enabled, and what stays as it is: a runner that couldn't be asked, an install disabled or mid-change. */
 export type NativeInstalls = { harnesses: { id: string; name: string }[]; unchecked: string[] };
 
-/** Where the plugin is installed natively now: asked of each online runner; an offline one is named as unchecked. */
+/**
+ * Where Dispand installed the plugin natively (`dispand-<plugin id>`): asked of each online runner.
+ * Only an enabled, settled install follows: one its owner disabled stays disabled, and is named with
+ * the runners that couldn't be asked.
+ */
 export async function nativeInstalls(context: Context, pluginId: string): Promise<NativeInstalls> {
   const cli = await context.db
     .select({ id: harnesses.id, name: harnesses.name, kind: harnesses.kind, runnerId: runners.id, runnerName: runners.name })
@@ -43,22 +47,32 @@ export async function nativeInstalls(context: Context, pluginId: string): Promis
       found.unchecked.push(mine[0]!.runnerName);
       continue;
     }
-    const kinds = new Set((report.packages ?? []).filter((p) => p.name === `dispand-${pluginId}`).map((p) => p.harness));
     // Harnesses of one kind on a runner share its native account: the first one names it.
-    for (const kind of kinds) {
-      const harness = mine.find((h) => h.kind === kind);
-      if (harness) found.harnesses.push({ id: harness.id, name: harness.name });
+    for (const binding of (report.packages ?? []).filter((p) => p.name === `dispand-${pluginId}`)) {
+      const harness = mine.find((h) => h.kind === binding.harness);
+      if (!harness || found.harnesses.some((h) => h.id === harness.id)) continue;
+      if (binding.installed && binding.enabled === true && !binding.pending) found.harnesses.push({ id: harness.id, name: harness.name });
+      else found.unchecked.push(`${harness.name} (disabled or changing there)`);
     }
   }
   return found;
 }
 
 /**
- * Moves the plugin's native install on each harness to the plugin's current commit: removed,
- * then added again, each previewed then applied. A harness where a step fails is returned, with why.
+ * Moves the plugin's native install to the plugin's current commit on each harness the owner was
+ * shown (`shown`) that still holds it: removed, then added again, each previewed then applied. A
+ * shown harness where that fails, or that can't be asked now, and one holding it that wasn't
+ * shown, are returned, with why.
  */
-export async function moveNative(context: Context, pluginId: string, installs: NativeInstalls): Promise<{ name: string; reason: string }[]> {
-  const leftBehind: { name: string; reason: string }[] = [];
+export async function moveNative(context: Context, pluginId: string, shown: string[]): Promise<{ name: string; reason: string }[]> {
+  const installs = await nativeInstalls(context, pluginId);
+  const leftBehind: { name: string; reason: string }[] = installs.harnesses.filter((h) => !shown.includes(h.id)).map((h) => ({ name: h.name, reason: "it wasn't on the update's screen" }));
+  const gone = shown.filter((id) => !installs.harnesses.some((h) => h.id === id));
+  if (gone.length) {
+    for (const h of await context.db.select({ name: harnesses.name }).from(harnesses).where(and(inArray(harnesses.id, gone), eq(harnesses.ownerId, context.ownerId)))) {
+      leftBehind.push({ name: h.name, reason: "its runner couldn't be asked, or the install changed since" });
+    }
+  }
   const step = async (harnessId: string, action: "add" | "remove") => {
     const request = { harnessIds: [harnessId], resource: { kind: "plugin" as const, id: pluginId }, action };
     const plan = await call(workspacePlugin, { ...request, dryRun: true }, { context });
@@ -66,7 +80,7 @@ export async function moveNative(context: Context, pluginId: string, installs: N
     const result = await call(workspacePlugin, { ...request, dryRun: false, revision: plan.revision }, { context });
     if (result.error || result.results?.some((r) => r.status === "failed")) throw new StepFailed(result.error ?? "the native step failed");
   };
-  for (const harness of installs.harnesses) {
+  for (const harness of installs.harnesses.filter((h) => shown.includes(h.id))) {
     try {
       await step(harness.id, "remove");
       await step(harness.id, "add");

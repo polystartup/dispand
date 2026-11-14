@@ -1421,13 +1421,16 @@ reported as unsupported for native installation because Skillshare cannot reprod
 identity from the stored marketplace entry alone; they continue to supply workspace skills.
 
 A native install follows its plugin's updates (`plugins/native.ts`): `updatePreview` names the
-harnesses holding `dispand-<plugin id>` on each online runner (an offline or unreadable runner
-is named as unchecked), which stops the update on its screen, and `update`, after the workspace
-update, asks again and moves each one through `runners.workspacePlugin`, remove then add at the
-new commit, each previewed then applied. Nothing of the owner's is kept there: the native copy
-is never overridden. A harness where a step fails, or any when a Job updated the plugin, is
-returned in `leftBehind`; the update stays applied, and the install is finished from that
-harness's workspace skills.
+harnesses holding `dispand-<plugin id>` enabled and settled on each online runner, which stops
+the update on its screen; an install disabled or mid-change there, and a runner that couldn't be
+asked, are named as staying as they are. `update` moves only the harnesses the screen named
+(`native`, which requires the screen's `reviewed` token and so its commit) that still hold it,
+through `runners.workspacePlugin`: remove then add at the new commit, each previewed then
+applied. A disabled install is never moved, so it stays disabled. Nothing of the owner's is kept
+there: the native copy is never overridden. A shown harness that couldn't be moved, one holding it
+that wasn't shown, and any when a Job updated the plugin, are returned in `leftBehind`; the update
+stays applied, and the install is finished from that harness's workspace skills. An install made
+in the native client under another name isn't Dispand's and doesn't follow.
 
 
 Runner protocol 18 adds optional runner-action `denied` lists to session starts and permission

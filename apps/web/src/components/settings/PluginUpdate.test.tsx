@@ -113,5 +113,5 @@ test("a table's changes are boxes with their starting ticks; one that can't appl
 test("the native installs an update moves are named, and a runner that couldn't be asked is said", () => {
   render(<NativeMoves native={{ harnesses: [{ id: "h_1", name: "Claude Code" }], unchecked: ["Laptop"] }} />);
   expect(screen.getByText(/Moves to the new version on Claude Code/)).toBeTruthy();
-  expect(screen.getByText(/Couldn't check Laptop/)).toBeTruthy();
+  expect(screen.getByText(/Stays as it is on Laptop/)).toBeTruthy();
 });

@@ -19,7 +19,7 @@ export function NativeMoves({ native }: { native: NativeInstalls }) {
         Native installs
       </h3>
       {native.harnesses.length > 0 && <p>Moves to the new version on {native.harnesses.map((h) => h.name).join(", ")}: its hooks, commands and servers there run as the new version's.</p>}
-      {native.unchecked.length > 0 && <p className="text-muted">Couldn't check {native.unchecked.join(", ")}: an install there stays on the old version until you move it from its harness.</p>}
+      {native.unchecked.length > 0 && <p className="text-muted">Stays as it is on {native.unchecked.join(", ")}: an install there keeps the old version until you move it from its harness.</p>}
     </section>
   );
 }
