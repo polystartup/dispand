@@ -1452,7 +1452,8 @@ it changes (`reopenChanged`), and an element that leaves the plugin drops its co
 `resetOverride` uses too). On the update's screen, a skill's file (a wording change or a
 conflict) names every agent whose sessions get the package (`reaches`, under the screen's token),
 and a tool's new address or transport says what it clears (its sign-in, and its saved headers
-when the origin or the transport changes). The update's screen offers "Let Stem deal with it" on a field of an
+when the origin or the transport changes). A skill package an agent gains is shown whole beside the change
+(`gained`: each file's text), also under the token, since all of it reaches the agent. The update's screen offers "Let Stem deal with it" on a field of an
 agent, tool or trigger: `plugins.update` takes those keys (`stem`), keeps them as conflicts and
 starts one Job of the Assistant (`handToStem`, a `stem` firing with no trigger, its conflicts as
 the trigger node's data). Its snapshot is limited (`only: ["plugin_decide"]`, and no skill, tool,
