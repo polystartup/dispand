@@ -348,7 +348,7 @@ export const PLUGIN_DECIDE: PlatformTool = {
   name: "plugin_decide",
   bundle: null,
   available: () => false,
-  description: "Decides one field the owner handed you, by its conflict id: reset to take the plugin's new value, or merge with the value to keep. A merge that isn't the owner's value, the plugin's, or a list of their entries waits for the owner's approval.",
+  description: "Decides one field the owner handed you, by its conflict id: reset to take the plugin's new value, or merge with the value to keep. A value that is neither the owner's nor the plugin's, or that changes an agent's rights (its bundles, tables, tools, skills, self-learning or consults), waits for the owner's approval.",
   input: DecideInput,
   tables: none,
   run: async (app, job, input) => {

@@ -1438,9 +1438,10 @@ Runner MCP aliases are hashes of the tool id, runner id and local server key. Th
 0075): one field of one of a plugin's agents, tools or triggers, with `mine` and `next`, the two
 values it was handed off against. `plugins/resolve.ts` decides: `decide` applies a decision
 only while the field is still `mine` and the element's `upstream` for it still `next` (else the
-conflict is `open`, the owner's again); a reset takes the plugin's value; a merge applies at once
-when it is `mine`, `next`, or a list of their entries, and otherwise waits in `merged` for the
-owner's Approval, which `answerApproval` applies (yes) or drops ("Keep mine") per conflict, with
+conflict is `open`, the owner's again); a reset takes the plugin's value; a decision applies at
+once when its value is `mine` or `next`, except a change to an agent's rights (bundles, tables,
+tools, skills, self-learning, consults), which combine and so always wait; anything else waits in
+`merged` for the owner's Approval, which `answerApproval` applies (yes) or drops ("Keep mine") per conflict, with
 the same check. The check and the write are two steps (the element's update runs its own
 transaction), so an owner's save landing between them, within the same call, is the one known
 gap. A tool an agent gains by a decision starts with every action on Ask. Each

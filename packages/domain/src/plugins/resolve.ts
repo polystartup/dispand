@@ -34,11 +34,17 @@ export async function fieldNow(db: Db | Tx, c: Conflict): Promise<{ value: unkno
   return { value: (row as Record<string, unknown>)[c.field], plugin: row.upstream[c.field] };
 }
 
-/** Whether a merged value stays within the two the owner had and was shown: one of them, or a list of their entries. */
+/**
+ * An agent's rights: they combine, so two decisions each within bounds could give the agent
+ * together what neither the owner's nor the plugin's version did. A change to one of them always
+ * waits for the owner's Approval.
+ */
+const AGENT_RIGHTS = new Set(["bundles", "dataTables", "toolIds", "skillPackageIds", "selfLearning", "consults"]);
+
+/** Whether a decided value may apply without the owner's Approval: one of the two values, and for an agent's rights the owner's alone. */
 function within(kind: ElementKind, field: string, value: unknown, mine: unknown, next: unknown): boolean {
-  if (sameValue(kind, field, value, mine) || sameValue(kind, field, value, next)) return true;
-  if (!Array.isArray(value) || !Array.isArray(mine) || !Array.isArray(next)) return false;
-  return value.every((v) => [...mine, ...next].some((e) => sameValue(kind, field, [v], [e])));
+  if (kind === "agent" && AGENT_RIGHTS.has(field)) return sameValue(kind, field, value, mine);
+  return sameValue(kind, field, value, mine) || sameValue(kind, field, value, next);
 }
 
 async function audit(context: Context, actor: AuditActor, c: Conflict, decision: string, jobId: string | null) {
@@ -88,7 +94,7 @@ export async function decide(context: Context, actor: AuditActor, conflictId: st
     return "reopened";
   }
   const value = decision.kind === "reset" ? state.plugin : decision.value;
-  if (decision.kind === "merge" && !within(c.kind, c.field, value, c.mine, c.next)) {
+  if (!within(c.kind, c.field, value, c.mine, c.next)) {
     await context.db.update(pluginConflicts).set({ status: "approval", merged: value }).where(eq(pluginConflicts.id, c.id));
     await audit(context, actor, c, "approval", c.runId);
     return "approval";
