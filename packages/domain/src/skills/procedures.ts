@@ -147,7 +147,7 @@ async function pluginPackage(tx: Tx, ownerId: string, packageId: string) {
 const FilePath = PackageId.extend({ path: z.string().min(1).max(500) });
 
 /** Sets one file of a plugin's skill: the owner's version of it, or a file of their own. */
-const setFile = owner.input(FilePath.extend({ base64: z.string().max(3_000_000) })).handler(async ({ input, context }) => {
+const setFile = owner.input(FilePath.extend({ base64: UploadedFile.shape.base64 })).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
     const { files } = await pluginPackage(tx, context.ownerId, input.packageId);
     await writeFiles(tx, input.packageId, [...files.filter((f) => f.path !== input.path), { path: input.path, content: Buffer.from(input.base64, "base64") }]);

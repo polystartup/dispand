@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test, vi } from "vitest";
-import { harnesses, marketplaces, plugins, runners, skillPackages, user } from "../db/schema.ts";
+import { harnesses, marketplaces, plugins, runners, skillFiles, skillFileUpstream, skillPackages, skills, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
 import { ownerContext } from "./test-support.ts";
@@ -181,4 +181,22 @@ test("subfolder workspace plugins send their imported folder and retain distinct
   expect(request.mock.calls[1]![1].operation).toMatchObject({ action: "add", sourcePath: "plugin", sourceRef: "a".repeat(40), plugin: "review-tools" });
   const inventory = await call(router.runners.workspaceSkills, undefined, { context });
   expect(inventory[0]).toMatchObject({ unavailable: null, sourceKey: createHash("sha256").update(JSON.stringify(["https://example.com/review", "a".repeat(40), "review-tools", "plugin"])).digest("hex") });
+});
+
+test("a plugin's skill its owner changed is sent to a session as it is in the workspace, not taken from the native install", async () => {
+  const { context } = await setup();
+  await pluginFixture(context);
+  const md = Buffer.from("---\nname: review\ndescription: Reviews.\n---\n\nReview.\n");
+  await context.db.insert(skills).values({ id: "skill_1", packageId: "skillpkg_plugin", name: "review", description: "Reviews." });
+  await context.db.insert(skillFiles).values({ packageId: "skillpkg_plugin", path: "review/SKILL.md", content: md });
+  await context.db.insert(skillFileUpstream).values({ packageId: "skillpkg_plugin", path: "review/SKILL.md", content: md });
+  await call(router.agents.create, { name: "Reviewer", harnessId: "harness_1", systemPrompt: "", skillPackageIds: ["skillpkg_plugin"] }, { context });
+  // Untouched, it is the native install's content: the runner may use that one.
+  expect(await packageForRunner(context.db, "runner_1", "skillpkg_plugin")).toMatchObject({ nativePlugin: "dispand-plugin_1", nativeKey: expect.stringMatching(/^[a-f0-9]{64}$/) });
+  await call(router.skills.setFile, { packageId: "skillpkg_plugin", path: "review/notes.md", base64: Buffer.from("Mine.").toString("base64") }, { context });
+  const changed = await packageForRunner(context.db, "runner_1", "skillpkg_plugin");
+  expect(changed).not.toHaveProperty("nativeKey");
+  expect(changed!.files.map((f) => f.path).sort()).toEqual(["review/SKILL.md", "review/notes.md"]);
+  // Malformed base64 is refused, never stored as an empty file.
+  await expect(call(router.skills.setFile, { packageId: "skillpkg_plugin", path: "review/notes.md", base64: "!!!!" }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });
