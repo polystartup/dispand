@@ -1314,7 +1314,16 @@
   the plugin has a `CHANGELOG.md` at its root (a regular file of at most 256 KiB, read with the
   checkout, `plugins/release-notes.ts`) whose heading names the new manifest version, that
   section, cut to 10,000 characters. The checkout is shallow, so no commit subjects between the
-  two are shown. The sheet renders it as plain text. Set up also offers the plugin's HTTP servers
+  two are shown. The sheet renders it as plain text.
+  A plugin's table isn't overridden: `tablePlans` compares the definition it was last merged
+  with (`tables.definition`) to the new one (`plugins/table-merge.ts`, `tableChanges`) and lists
+  each difference with its starting tick: a field added or a move ticked; a removal, a type
+  change, choices removed or replaced, the primitive flag or the parent unticked, with the rows
+  whose values it takes away; one the owner already changed is `stale`, and one naming a table
+  that isn't there yet `waiting`. `plugins.update` takes the ticked keys per table (`tables`),
+  part of the `reviewed` token, applies each through the field or table operation a person uses
+  (`applyTable`), then keeps the new definition, but for what waits, which the next update offers
+  again. A declined change isn't offered again. Set up also offers the plugin's HTTP servers
   that aren't tools yet and need no setting, unticked (`pick.servers`). A tool an update gives
   an existing agent is attached with every action on Ask (`toolPermissions` with nothing
   unasked): the update's screen shows the tool gained, not which actions would run unasked.

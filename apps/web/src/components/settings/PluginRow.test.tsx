@@ -128,6 +128,7 @@ test("an update that rewords an agent or meets the owner's own change stops on i
     changes: [{ key: "agent:b:systemPrompt", kind: "agent", id: "b", name: "Intake", field: "systemPrompt", class: "wording", before: "Read.", after: "Read all." }],
     additions: [],
     removals: [],
+    tables: [],
     releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null },
     names: {},
     reviewed: "r".repeat(64),
@@ -141,20 +142,20 @@ test("an update that rewords an agent or meets the owner's own change stops on i
   expect(dialog.textContent).toContain("1 wording change");
   await userEvent.click(screen.getByRole("radio", { name: "Take the plugin's" }));
   await userEvent.click(screen.getByRole("button", { name: "Update" }));
-  expect(fake.plugins.update.mock.calls[0]![0]).toEqual({ id: "plugin_1", reviewed: "r".repeat(64), take: ["agent:a:systemPrompt"], choices: {} });
+  expect(fake.plugins.update.mock.calls[0]![0]).toEqual({ id: "plugin_1", reviewed: "r".repeat(64), take: ["agent:a:systemPrompt"], choices: {}, tables: {} });
   // What an element's own checks refused is said, not hidden.
   expect((await screen.findByText(/except Intake \(Harness not found\)/)).textContent).toContain("Updated to bbbbbbb");
 });
 
 test("after an update that adds elements, Set up opens: they are made from there, not by the update", async () => {
-  fake.plugins.updatePreview.mockResolvedValue({ sha: "b".repeat(40), conflicts: [], changes: [], additions: [{ key: "agent:Billing", kind: "agent", name: "Billing", detail: "Prepares invoices." }], removals: [], releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null }, names: {}, reviewed: "r".repeat(64) });
+  fake.plugins.updatePreview.mockResolvedValue({ sha: "b".repeat(40), conflicts: [], changes: [], additions: [{ key: "agent:Billing", kind: "agent", name: "Billing", detail: "Prepares invoices." }], removals: [], tables: [], releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null }, names: {}, reviewed: "r".repeat(64) });
   fake.plugins.update.mockResolvedValue({ sha: "b".repeat(40) });
   fake.harnesses.list.mockResolvedValue([]);
   mount(installed);
   await userEvent.click(screen.getByRole("button", { name: "Update law-firm" }));
   expect((await screen.findByRole("dialog")).textContent).toContain("New in this version");
   await userEvent.click(screen.getByRole("button", { name: "Update" }));
-  expect(fake.plugins.update.mock.calls[0]![0]).toEqual({ id: "plugin_1", reviewed: "r".repeat(64), take: [], choices: {} });
+  expect(fake.plugins.update.mock.calls[0]![0]).toEqual({ id: "plugin_1", reviewed: "r".repeat(64), take: [], choices: {}, tables: {} });
   expect((await screen.findByRole("dialog")).textContent).toContain("Set up law-firm");
 });
 
@@ -168,6 +169,7 @@ test("what a new version drops is on the update's screen with the removal's choi
       { key: "table:t1", kind: "table", id: "t1", name: "Research", reasons: ["It has 1 row"], needs: [], keepOnly: null },
       { key: "agent:a1", kind: "agent", id: "a1", name: "Matter upkeep", reasons: [], needs: [], keepOnly: null },
     ],
+    tables: [],
     releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null },
     names: {},
     reviewed: "r".repeat(64),
@@ -180,5 +182,5 @@ test("what a new version drops is on the update's screen with the removal's choi
   expect(screen.getByRole("group", { name: "Research" }).textContent).toContain("It has 1 row");
   expect(dialog.textContent).toContain("1 other element goes with the plugin.");
   await userEvent.click(screen.getByRole("button", { name: "Update" }));
-  expect(fake.plugins.update.mock.calls[0]![0]).toEqual({ id: "plugin_1", reviewed: "r".repeat(64), take: [], choices: { "table:t1": "keep" } });
+  expect(fake.plugins.update.mock.calls[0]![0]).toEqual({ id: "plugin_1", reviewed: "r".repeat(64), take: [], choices: { "table:t1": "keep" }, tables: {} });
 });

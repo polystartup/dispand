@@ -5,8 +5,8 @@ export type UpdateAddition = { key: string; kind: "primitive" | "agent" | "trigg
 type Names = Record<string, string>;
 
 /** Whether an update stops on its screen: a field of the owner's the plugin changed, a change that gives more, or a change of wording. */
-export const needsReview = (plan: { conflicts: UpdateConflict[]; changes: UpdateChange[]; additions?: UpdateAddition[]; removals?: unknown[] }) =>
-  plan.conflicts.length > 0 || plan.changes.some((c) => c.class !== "silent") || (plan.additions?.length ?? 0) > 0 || (plan.removals?.length ?? 0) > 0;
+export const needsReview = (plan: { conflicts: UpdateConflict[]; changes: UpdateChange[]; additions?: UpdateAddition[]; removals?: unknown[]; tables?: unknown[] }) =>
+  plan.conflicts.length > 0 || plan.changes.some((c) => c.class !== "silent") || (plan.additions?.length ?? 0) > 0 || (plan.removals?.length ?? 0) > 0 || (plan.tables?.length ?? 0) > 0;
 
 const ADDED = { primitive: "Table", agent: "Agent", trigger: "Trigger", server: "Tool" };
 
@@ -176,5 +176,55 @@ export function ReleaseNotes({ notes }: { notes: UpdateReleaseNotes }) {
       <summary className="cursor-pointer font-medium text-muted">Release notes for {notes.version}</summary>
       <p className="mt-2 max-h-60 overflow-y-auto whitespace-pre-wrap rounded-lg bg-hover px-2 py-1">{notes.text}</p>
     </details>
+  );
+}
+
+export type UpdateTableChange = { key: string; kind: "add" | "remove" | "retype" | "choices" | "move" | "primitive" | "parent"; field?: string; ticked: boolean; loses?: number; stale?: string; waiting?: string };
+export type UpdateTable = { tableId: string; name: string; changes: UpdateTableChange[] };
+
+/** What a table change does, in words. */
+function says(c: UpdateTableChange): string {
+  const field = c.field ?? "";
+  return {
+    add: `Add the field ${field}`,
+    remove: `Remove the field ${field}`,
+    retype: `Change the type of ${field}`,
+    choices: `Change the choices of ${field}`,
+    move: "Put the plugin's fields in its new order",
+    primitive: "Change whether it records each change of its rows",
+    parent: "Change its parent table",
+  }[c.kind];
+}
+
+/** The keys ticked to start with, for each table. */
+export const startingTicks = (tables: UpdateTable[]) => Object.fromEntries(tables.map((t) => [t.tableId, t.changes.filter((c) => c.ticked && !c.stale && !c.waiting).map((c) => c.key)]));
+
+/**
+ * The changes of each of the plugin's tables, as boxes: what adds starts ticked, what takes values
+ * away doesn't and says how many rows, and one that can't apply (the owner changed it, or it waits
+ * for a table not made yet) says why and can't be ticked.
+ */
+export function TableChanges({ tables, ticked, busy, onTick }: { tables: UpdateTable[]; ticked: Record<string, string[]>; busy: boolean; onTick: (tableId: string, key: string) => void }) {
+  return (
+    <div className="space-y-3 text-[13px]">
+      {tables.map((t) => (
+        <fieldset key={t.tableId} aria-label={t.name} className="space-y-1.5 rounded-xl border border-border p-3">
+          <p className="font-medium text-fg">{t.name}</p>
+          {t.changes.map((c) => {
+            const blocked = c.stale ?? (c.waiting ? `Waits for the table ${c.waiting}: offered again once it is made` : undefined);
+            return (
+              <label key={c.key} className="flex items-start gap-2">
+                <input type="checkbox" className="mt-0.5 size-4 accent-[var(--color-accent)]" checked={(ticked[t.tableId] ?? []).includes(c.key)} disabled={busy || blocked !== undefined} onChange={() => onTick(t.tableId, c.key)} />
+                <span>
+                  {says(c)}
+                  {c.loses ? <span className="block text-danger">Ticked, it removes the values of {c.loses} {c.loses === 1 ? "row" : "rows"}.</span> : null}
+                  {blocked && <span className="block text-muted">{blocked}</span>}
+                </span>
+              </label>
+            );
+          })}
+        </fieldset>
+      ))}
+    </div>
   );
 }

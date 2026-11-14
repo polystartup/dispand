@@ -4,7 +4,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { api } from "../../lib/api.ts";
 import { refusal } from "./PluginInstallSheet.tsx";
 import { type RemovalChoice, RemovalChoices, removalPlan } from "./PluginRemoval.tsx";
-import { ReleaseNotes, UpdatePlan } from "./PluginUpdate.tsx";
+import { ReleaseNotes, startingTicks, TableChanges, UpdatePlan } from "./PluginUpdate.tsx";
 
 export type UpdatePreview = Awaited<ReturnType<typeof api.plugins.updatePreview>>;
 
@@ -17,6 +17,8 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
   // What the new version drops: what is in use is kept unless the owner says otherwise, as at an uninstall.
   const [removing, setRemoving] = useState<Record<string, RemovalChoice>>({});
   const plan = removalPlan(preview.removals, removing);
+  // Each table's changes, ticked as they start.
+  const [ticked, setTicked] = useState(() => startingTicks(preview.tables));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,7 +26,7 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
     setBusy(true);
     setError(null);
     try {
-      onUpdated(await api.plugins.update({ id, reviewed: preview.reviewed, take, choices: plan.choices }));
+      onUpdated(await api.plugins.update({ id, reviewed: preview.reviewed, take, choices: plan.choices, tables: ticked }));
       onClose();
     } catch (e) {
       setError(refusal(e, "Could not update the plugin. It may have changed since: close this and update again."));
@@ -51,6 +53,19 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
             onTake={(key, taken) => setTake((prev) => (taken ? [...prev.filter((k) => k !== key), key] : prev.filter((k) => k !== key)))}
             additions={preview.additions}
           />
+          {preview.tables.length > 0 && (
+            <section aria-labelledby="update-tables" className="space-y-2">
+              <h3 id="update-tables" className="text-[13px] font-medium text-muted">
+                Changes to the plugin's tables
+              </h3>
+              <TableChanges
+                tables={preview.tables}
+                ticked={ticked}
+                busy={busy}
+                onTick={(tableId, key) => setTicked((prev) => ({ ...prev, [tableId]: (prev[tableId] ?? []).includes(key) ? prev[tableId]!.filter((k) => k !== key) : [...(prev[tableId] ?? []), key] }))}
+              />
+            </section>
+          )}
           {preview.removals.length > 0 && (
             <section aria-labelledby="update-removals" className="space-y-2">
               <h3 id="update-removals" className="text-[13px] font-medium text-muted">

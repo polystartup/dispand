@@ -18,6 +18,7 @@ import {
   skillFiles,
   skillFileUpstream,
   tables as tablesTable,
+  rows as rowsTable,
   tools as toolsTable,
   triggers as triggersTable,
   CREATED_KINDS,
@@ -31,6 +32,9 @@ import { HeaderValue, insertTool, refreshActions } from "../tools/procedures.ts"
 import { hasPlaceholder, httpTool, skillPackageName, toolName } from "./components.ts";
 import { type After, checkChoices, type Element, inUse } from "./closure.ts";
 import { changelogSection, readChangelog } from "./release-notes.ts";
+import { type ActualTable, type TableChange, tableChanges } from "./table-merge.ts";
+import type { PrimitiveDefinition } from "./definitions.ts";
+import { fields, tables } from "../data/tables.ts";
 import { agentValues, type ChangeClass, elementPlans, type UpdatableKind } from "./update.ts";
 import { ELEMENT_FIELDS } from "./overrides.ts";
 import { agents as agentProcedures } from "../agents/procedures.ts";
@@ -39,7 +43,7 @@ import { triggers as triggerProcedures } from "../triggers/procedures.ts";
 import { fetchGit, GitError } from "./git.ts";
 import { BUILT_IN_MARKETPLACES, MarketplaceError, type MarketplaceEntry, type MarketplaceKind, parseMarketplace } from "./marketplace.ts";
 import { readWellKnownIndex, readWellKnownSkills, WellKnownError, wellKnownIndexUrl } from "./well-known.ts";
-import { itemsView } from "../platform/proposals.ts";
+import { itemsView, recordCreated } from "../platform/proposals.ts";
 import { canonical } from "../platform/approvals.ts";
 import { runItemsAsOwner, SetupPick, setupItems } from "./setup.ts";
 import { addServer } from "./servers.ts";
@@ -835,6 +839,31 @@ async function leavingOf(db: Db | Tx, ownerId: string, row: PluginRow, contents:
   return leaving;
 }
 
+type TablePlan = { tableId: string; name: string; changes: TableChange[]; kept: PrimitiveDefinition; next: PrimitiveDefinition; fields: ActualTable["fields"] };
+
+/**
+ * For each of the plugin's tables the new version still defines: what differs between the
+ * definition it was last merged with and the new one (`tableChanges`), with the table as it is
+ * now. Only tables with a difference are listed.
+ */
+async function tablePlans(db: Db | Tx, ownerId: string, row: PluginRow, contents: PluginContents, leaving: Set<string>): Promise<TablePlan[]> {
+  const rowsOf = await db.select().from(tablesTable).where(and(eq(tablesTable.pluginId, row.id), eq(tablesTable.ownerId, ownerId)));
+  const local = await db.select({ name: tablesTable.name }).from(tablesTable).where(and(eq(tablesTable.ownerId, ownerId), sql`${tablesTable.pluginId} is null`));
+  const lower = (s: string | null) => (s ?? "").toLowerCase();
+  const tableExists = (name: string) => rowsOf.some((t) => lower(t.pluginComponent) === lower(name)) || local.some((t) => lower(t.name) === lower(name));
+  const plans: TablePlan[] = [];
+  for (const t of rowsOf) {
+    const next = contents.definitions.primitives.find((d) => lower(d.name) === lower(t.pluginComponent));
+    if (!t.definition || !next || leaving.has(`table:${t.id}`)) continue;
+    const fields = (await db.select().from(fieldsTable).where(eq(fieldsTable.tableId, t.id)).orderBy(asc(fieldsTable.position))).map((f) => ({ id: f.id, name: f.name, type: f.type, choices: f.choices, pluginField: f.pluginField, referencesTableId: f.referencesTableId }));
+    const parentField = fields.find((f) => f.id === t.parentFieldId)?.name ?? null;
+    const [counted] = await db.select({ n: sql<number>`count(*)::int` }).from(rowsTable).where(eq(rowsTable.tableId, t.id));
+    const changes = tableChanges(t.definition, next, { primitive: t.primitive, parentField, parentRequired: t.parentRequired, fields }, counted?.n ?? 0, tableExists);
+    if (changes.length) plans.push({ tableId: t.id, name: t.name, changes, kept: t.definition, next, fields });
+  }
+  return plans;
+}
+
 /** What an update to the plugin's current commit would do, for the owner to see: `reviewed` binds the update to it. */
 async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: boolean }, row: PluginRow) {
   const read = await latest(context, row);
@@ -846,11 +875,13 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
   const leaving = await leavingOf(context.db, context.ownerId, row, read.contents);
   const after = afterOf(elements);
   const removals = leaving.size ? await inUse(context.db, context.ownerId, row.id, leaving, after) : [];
-  const reviewed = createHash("sha256").update(canonical({ sha: read.sha, conflicts, changes, additions, removals })).digest("hex");
+  const tables = await tablePlans(context.db, context.ownerId, row, read.contents, leaving);
+  const shownTables = tables.map(({ tableId, name, changes }) => ({ tableId, name, changes }));
+  const reviewed = createHash("sha256").update(canonical({ sha: read.sha, conflicts, changes, additions, removals, tables: shownTables })).digest("hex");
   // The plugin's own words for the version it goes to, when its changelog names it; the two commits either way.
   const { version } = read.contents;
   const releaseNotes = { from: row.sha, to: read.sha, version, text: version && read.changelog ? changelogSection(read.changelog, version) : null };
-  return { ...read, conflicts, changes, additions, leaving, after, removals, reviewed, releaseNotes };
+  return { ...read, conflicts, changes, additions, leaving, after, removals, tables, shownTables, reviewed, releaseNotes };
 }
 
 /**
@@ -858,12 +889,99 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
  * that the plugin changed too (`conflicts`, which stay theirs unless taken), and what follows the
  * plugin (`changes`: `widening`, `wording` or `silent`).
  */
+/**
+ * Applies the changes of a plugin's table its owner ticked, each through the field or table
+ * operation a person would use, then keeps the new definition as the one the table was merged
+ * with, but for what waits for a table that isn't there yet: offered again by the next update.
+ */
+async function applyTable(context: InitialContext & { ownerId: string }, row: PluginRow, plan: TablePlan, ticked: string[], failed: { name: string; reason: string }[]) {
+  const lower = (s: string | null) => (s ?? "").toLowerCase();
+  // The keys of the changes that failed: their part of the definition stays as it was, so the next update offers them again.
+  const refused = new Set<string>();
+  const run = async (key: string, path: string[], procedure: unknown, input: object, element?: { pluginId: string; component: string }): Promise<unknown> => {
+    try {
+      return await call(procedure as never, input as never, { context: { ...context, ...(element ? { pluginElement: element } : {}) } as never, path });
+    } catch (err) {
+      if (!(err instanceof ORPCError)) throw err;
+      refused.add(key);
+      failed.push({ name: plan.name, reason: err.message });
+      return undefined;
+    }
+  };
+  const fieldOf = (name: string) => plan.fields.find((f) => lower(f.pluginField) === lower(name));
+  const [tablesNow] = [await context.db.select({ id: tablesTable.id, name: tablesTable.name, component: tablesTable.pluginComponent, pluginId: tablesTable.pluginId }).from(tablesTable).where(eq(tablesTable.ownerId, context.ownerId))];
+  const tableNamed = (name: string) => tablesNow.find((t) => t.pluginId === row.id && lower(t.component) === lower(name))?.id ?? tablesNow.find((t) => t.pluginId === null && lower(t.name) === lower(name))?.id;
+  const isTicked = (key: string) => ticked.includes(key);
+  for (const change of plan.changes.filter((c) => isTicked(c.key) && c.kind !== "primitive" && c.kind !== "parent")) {
+    const def = change.field ? plan.next.fields.find((f) => lower(f.name) === lower(change.field!)) : undefined;
+    const field = change.field ? fieldOf(change.field) : undefined;
+    if (change.kind === "add" && def) {
+      const made = await run(change.key, ["fields", "create"], fields.create, { tableId: plan.tableId, name: def.name, type: def.type, ...(def.choices ? { choices: def.choices } : {}), ...(def.references ? { referencesTableId: tableNamed(def.references) } : {}) }, { pluginId: row.id, component: def.name });
+      // Recorded as a setup records it: a later setup finds it by id.
+      const id = (made as { id?: string } | undefined)?.id;
+      if (id) await recordCreated(context.db, row.id, "field", id, `field:${plan.kept.name}.${def.name}`);
+    } else if (change.kind === "remove" && field) await run(change.key, ["fields", "delete"], fields.delete, { id: field.id });
+    else if (change.kind === "retype" && field && def) await run(change.key, ["fields", "retype"], fields.retype, { id: field.id, type: def.type, dryRun: false });
+    else if (change.kind === "choices" && field && def) await run(change.key, ["fields", "update"], fields.update, { id: field.id, choices: def.choices ?? [] });
+    else if (change.kind === "move") {
+      const now = await context.db.select({ id: fieldsTable.id, pluginField: fieldsTable.pluginField, position: fieldsTable.position }).from(fieldsTable).where(eq(fieldsTable.tableId, plan.tableId)).orderBy(asc(fieldsTable.position));
+      // The first field stays first; the plugin's fields in their new order; the owner's own after them, as they were.
+      const rank = (f: (typeof now)[number]) => (f.position === 0 ? -1 : f.pluginField === null ? 10_000 + f.position : plan.next.fields.findIndex((d) => lower(d.name) === lower(f.pluginField)));
+      await run(change.key, ["fields", "reorder"], fields.reorder, { tableId: plan.tableId, fieldIds: [...now].sort((a, b) => rank(a) - rank(b)).map((f) => f.id) });
+    }
+  }
+  // The primitive flag and the parent, each as ticked: what isn't ticked stays as the table has it.
+  if (isTicked("primitive") || isTicked("parent")) {
+    const [table] = await context.db.select().from(tablesTable).where(eq(tablesTable.id, plan.tableId));
+    const primitive = isTicked("primitive") ? plan.next.primitive : table!.primitive;
+    const wanted = isTicked("parent") ? plan.next.parent : undefined;
+    const wantedField = wanted ? await context.db.select({ id: fieldsTable.id, referencesTableId: fieldsTable.referencesTableId }).from(fieldsTable).where(and(eq(fieldsTable.tableId, plan.tableId), sql`lower(${fieldsTable.pluginField}) = ${lower(wanted.field)}`)).then((r) => r[0]) : undefined;
+    // The plugin's parent field isn't there (its addition declined or refused): the parent stays as it is, offered again.
+    const parentTicked = isTicked("parent") && !(wanted && !wantedField?.referencesTableId);
+    if (isTicked("parent") && !parentTicked) {
+      // Both stay offered: the parent can apply once its field is added.
+      refused.add("parent").add(`add:${wanted!.field}`);
+      failed.push({ name: plan.name, reason: `Its parent field ${wanted!.field} isn't there: tick its addition too` });
+    }
+    const current = table!.parentFieldId ? await context.db.select({ referencesTableId: fieldsTable.referencesTableId }).from(fieldsTable).where(eq(fieldsTable.id, table!.parentFieldId)).then((r) => r[0]) : undefined;
+    const parent = parentTicked
+      ? wanted && wantedField?.referencesTableId ? { tableId: wantedField.referencesTableId, required: wanted.required } : null
+      : current?.referencesTableId ? { tableId: current.referencesTableId, required: table!.parentRequired } : null;
+    const key = parentTicked ? "parent" : "primitive";
+    if ((parentTicked || isTicked("primitive")) && (await run(key, ["tables", "setPrimitive"], tables.setPrimitive, { id: plan.tableId, primitive, ...(primitive ? { parent } : {}) }))) {
+      // The table keeps a parent field that already names that table: when that isn't the one the plugin names, say so.
+      const [after] = await context.db.select({ parentFieldId: tablesTable.parentFieldId }).from(tablesTable).where(eq(tablesTable.id, plan.tableId));
+      if (parentTicked && wantedField && after?.parentFieldId !== wantedField.id) {
+        refused.add("parent");
+        failed.push({ name: plan.name, reason: `Its parent is another field naming the same table: make ${wanted!.field} the parent by hand` });
+      }
+    }
+  }
+  // What waits, or failed, stays as it was in the definition kept, so it is offered again; the rest is the new one, ticked or not.
+  const again = plan.changes.filter((c) => c.waiting || refused.has(c.key));
+  const keptField = (name: string) => plan.kept.fields.find((f) => lower(f.name) === lower(name));
+  const fieldsAfter = plan.next.fields
+    .filter((f) => !again.some((c) => c.kind === "add" && lower(c.field ?? "") === lower(f.name)))
+    .map((f) => (again.some((c) => (c.kind === "retype" || c.kind === "choices") && lower(c.field ?? "") === lower(f.name)) ? (keptField(f.name) ?? f) : f));
+  for (const c of again.filter((c) => c.kind === "remove")) {
+    const was = keptField(c.field ?? "");
+    if (was) fieldsAfter.push(was);
+  }
+  const definition: PrimitiveDefinition = {
+    ...plan.next,
+    fields: again.some((c) => c.kind === "move") ? [...plan.kept.fields.flatMap((k) => fieldsAfter.filter((a) => lower(a.name) === lower(k.name))), ...fieldsAfter.filter((a) => !keptField(a.name))] : fieldsAfter,
+    ...(again.some((c) => c.kind === "primitive") ? { primitive: plan.kept.primitive } : {}),
+    ...(again.some((c) => c.kind === "parent") ? { parent: plan.kept.parent } : {}),
+  };
+  await context.db.update(tablesTable).set({ definition }).where(eq(tablesTable.id, plan.tableId));
+}
+
 const tableOf = (kind: UpdatableKind) => (kind === "agent" ? agentsTable : kind === "tool" ? toolsTable : triggersTable);
 
 const updatePreview = owner.input(Id).handler(async ({ input, context }) => {
   const row = await findPlugin(context.db, context.ownerId, input.id);
-  const { sha, conflicts, changes, additions, removals, reviewed, releaseNotes } = await updatePlan(context, row);
-  return { sha, conflicts, changes, additions, removals, reviewed, releaseNotes, names: await namesIn(context.db, context.ownerId, [conflicts, changes]) };
+  const { sha, conflicts, changes, additions, removals, shownTables, reviewed, releaseNotes } = await updatePlan(context, row);
+  return { sha, conflicts, changes, additions, removals, tables: shownTables, reviewed, releaseNotes, names: await namesIn(context.db, context.ownerId, [conflicts, changes]) };
 });
 
 /** A name for each id of the owner's agents, tools, tables, fields and skill packages found in `values`, so the screen reads names. */
@@ -892,12 +1010,16 @@ async function namesIn(db: Db, ownerId: string, values: unknown): Promise<Record
  * only as `updatePreview` showed it (`reviewed`); one with none applies at once. Each element is
  * written through its own procedure, with its checks; one it refuses is reported, not applied.
  */
-const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(), take: z.array(z.string().max(700)).max(1000).default([]), /** What becomes of each element the new version drops that was asked about. */ choices: Choices.default({}) })).handler(async ({ input, context }) => {
+const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(), take: z.array(z.string().max(700)).max(1000).default([]), /** What becomes of each element the new version drops that was asked about. */ choices: Choices.default({}), /** The changes ticked of each table, by their keys. */ tables: z.record(z.string().max(64), z.array(z.string().max(200)).max(200)).default({}) })).handler(async ({ input, context }) => {
   const row = await findPlugin(context.db, context.ownerId, input.id);
   const shown = await updatePlan(context, row);
   const { contents, url, sha, nativeRoot } = shown;
-  if ((shown.conflicts.length || shown.additions.length || shown.removals.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
+  if ((shown.conflicts.length || shown.additions.length || shown.removals.length || shown.tables.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
     throw new ORPCError("CONFLICT", { message: `Look at what updating ${row.name} changes before it is applied` });
+  }
+  for (const [tableId, keys] of Object.entries(input.tables)) {
+    const plan = shown.tables.find((t) => t.tableId === tableId);
+    if (!plan || keys.some((k) => !plan.changes.some((c) => c.key === k && !c.stale && !c.waiting))) throw new ORPCError("BAD_REQUEST", { message: "Not a change of this table that can be applied" });
   }
   if (input.take.some((key) => !shown.conflicts.some((c) => c.key === key))) throw new ORPCError("BAD_REQUEST", { message: "Not a field in conflict" });
   const elements = (await elementPlans(context.db, context.ownerId, row, contents, input.take)).filter((e) => !shown.leaving.has(`${e.kind}:${e.id}`));
@@ -953,6 +1075,7 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
       }
     }
   }
+  for (const plan of shown.tables) await applyTable(context, row, plan, input.tables[plan.tableId] ?? [], failed);
   await context.engine.narrowOwnerSessions(context.ownerId, context.db);
   return { sha, ...(failed.length ? { failed } : {}) };
 });
