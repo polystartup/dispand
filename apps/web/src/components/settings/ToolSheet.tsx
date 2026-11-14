@@ -12,6 +12,7 @@ import { PollableActions } from "./PollableActions.tsx";
 import { CatalogSettings } from "./CatalogSettings.tsx";
 import { ToolSignIn } from "./ToolSignIn.tsx";
 import { Overridden } from "./Overridden.tsx";
+import { StemMarks } from "./StemMarks.tsx";
 
 export type Tool = Awaited<ReturnType<typeof api.tools.list>>[number];
 type Action = Tool["actions"][number];
@@ -154,7 +155,10 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
         </SheetHeader>
         <div className="space-y-8 px-6 pb-6">
           {current?.plugin && (
-            <Overridden plugin={current.plugin.name} overridden={current.overridden} labels={{ name: "Name", url: "URL", transport: "Transport" }} busy={reset.isPending} onReset={(field) => reset.mutate({ kind: "tool", id: current.id, field })} />
+            <>
+              <Overridden plugin={current.plugin.name} overridden={current.overridden} labels={{ name: "Name", url: "URL", transport: "Transport" }} busy={reset.isPending} onReset={(field) => reset.mutate({ kind: "tool", id: current.id, field })} />
+              <StemMarks kind="tool" id={current.id} labels={{ name: "Name", url: "URL", transport: "Transport" }} onResolved={onClose} />
+            </>
           )}
           {reset.error && <p role="alert" className="text-[13px] text-danger">{errorMessage(reset.error, "Could not reset the field. Try again.")}</p>}
           <form

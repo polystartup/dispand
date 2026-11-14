@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Overridden } from "../settings/Overridden.tsx";
+import { StemMarks } from "../settings/StemMarks.tsx";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { orpc } from "../../lib/api.ts";
@@ -131,6 +132,7 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
               busy={reset.isPending}
               onReset={(field) => reset.mutate({ kind: "trigger", id: trigger.id, field })}
             />
+            <StemMarks kind="trigger" id={trigger.id} labels={{ name: "Name", instructions: "What the agent is told", config: "When it fires", concurrency: "Jobs at once", rateCap: "Jobs an hour" }} onResolved={() => void done()} />
             {reset.error && (
               <p role="alert" className="mt-2 text-[13px] text-danger">
                 Could not reset the field: the plugin's value may no longer be allowed. Change it by hand instead.

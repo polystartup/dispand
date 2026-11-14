@@ -470,6 +470,8 @@ export const NOT_TOOLS: string[] = [
   "plugins.setupPreview",
   "plugins.setUp",
   "plugins.resetOverride",
+  "plugins.conflicts",
+  "plugins.resolveConflict",
   "skills.setFile",
   "skills.removeFile",
   "skills.readFile",

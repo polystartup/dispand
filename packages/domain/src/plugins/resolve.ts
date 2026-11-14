@@ -22,7 +22,7 @@ export type DecisionOutcome = "applied" | "approval" | "reopened" | "gone";
 type Conflict = typeof pluginConflicts.$inferSelect;
 
 /** The field's value in effect and the plugin's, on the conflict's element; null when the element is gone or no longer the plugin's. */
-async function fieldNow(db: Db | Tx, c: Conflict): Promise<{ value: unknown; plugin: unknown } | null> {
+export async function fieldNow(db: Db | Tx, c: Conflict): Promise<{ value: unknown; plugin: unknown } | null> {
   if (c.kind === "agent") {
     const [agent] = await db.select().from(agentsTable).where(and(eq(agentsTable.id, c.elementId), eq(agentsTable.ownerId, c.ownerId), eq(agentsTable.pluginId, c.pluginId)));
     if (!agent?.upstream) return null;
@@ -101,30 +101,47 @@ export async function decide(context: Context, actor: AuditActor, conflictId: st
 }
 
 /**
- * The owner's answer to the Approval of a Stem Job's merged values: each still standing applies
- * on a yes; on a no each stays as the owner has it ("Keep mine"). One that changed meanwhile is
- * the owner's again either way.
+ * The owner's answer to one merged value of Stem's waiting for their Approval: still standing, it
+ * applies on a yes; on a no the field stays as they have it ("Keep mine"). One that changed
+ * meanwhile is theirs again either way.
  */
+export async function answerConflict(context: Context, actor: AuditActor, conflictId: string, approved: boolean): Promise<"applied" | "kept" | "reopened" | "gone"> {
+  const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, conflictId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "approval")));
+  if (!c) return "gone";
+  const state = await fresh(context.db, c);
+  if (state === "stale") {
+    await context.db.update(pluginConflicts).set({ status: "open", merged: null }).where(eq(pluginConflicts.id, c.id));
+    await audit(context, actor, c, "reopened", c.runId);
+    return "reopened";
+  }
+  if (approved && state !== "gone") await apply(context, c, c.merged);
+  await context.db.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
+  if (state === "gone") return "gone";
+  await audit(context, actor, c, approved ? "approved" : "declined", c.runId);
+  return approved ? "applied" : "kept";
+}
+
+/** The owner's answer to the Approval of a Stem Job's merged values, for every one of them. */
 export async function answerApproval(context: Context, actor: AuditActor, runId: string, approved: boolean): Promise<{ applied: number; reopened: number }> {
-  const waiting = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "approval")));
+  const waiting = await context.db.select({ id: pluginConflicts.id }).from(pluginConflicts).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "approval")));
   let applied = 0;
   let reopened = 0;
-  for (const c of waiting) {
-    const state = await fresh(context.db, c);
-    if (state === "stale") {
-      await context.db.update(pluginConflicts).set({ status: "open", merged: null }).where(eq(pluginConflicts.id, c.id));
-      await audit(context, actor, c, "reopened", runId);
-      reopened++;
-      continue;
-    }
-    if (approved && state !== "gone") {
-      await apply(context, c, c.merged);
-      applied++;
-    }
-    await context.db.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
-    if (state !== "gone") await audit(context, actor, c, approved ? "approved" : "declined", runId);
+  for (const { id } of waiting) {
+    const outcome = await answerConflict(context, actor, id, approved);
+    if (outcome === "applied") applied++;
+    if (outcome === "reopened") reopened++;
   }
   return { applied, reopened };
+}
+
+/** The owner decides a conflict that is theirs again: keep their value, or take the plugin's. */
+export async function ownerChoice(context: Context, actor: AuditActor, conflictId: string, choice: "mine" | "plugin"): Promise<void> {
+  const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, conflictId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "open")));
+  if (!c) return;
+  const now = await fieldNow(context.db, c);
+  if (now && choice === "plugin") await apply(context, c, now.plugin);
+  await context.db.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
+  if (now) await audit(context, actor, c, choice, c.runId);
 }
 
 /** An update that changes the plugin's value of these fields: their pending conflicts are the owner's again. */
