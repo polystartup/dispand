@@ -33,8 +33,9 @@ test("each field handed to Stem says where it is: Stem looking, its suggestion t
   expect(screen.getByText(/Stem is looking/)).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Accept Stem's" }));
   expect(fake.plugins.resolveConflict.mock.calls[0]![0]).toEqual({ id: "c1", choice: "accept", reviewed: "r1" });
-  // The editor starts over from the saved element: its form can't write the old value back.
+  // The editor starts over from the saved element, read again first: its form can't write the old value back.
   await vi.waitFor(() => expect(onResolved).toHaveBeenCalled());
+  expect(fake.plugins.conflicts.mock.invocationCallOrder.at(-1)!).toBeLessThan(onResolved.mock.invocationCallOrder[0]!);
   await userEvent.click(screen.getByRole("button", { name: "Let Stem deal with it" }));
   expect(fake.plugins.resolveConflict.mock.calls[1]![0]).toEqual({ id: "c3", choice: "stem", reviewed: "r3" });
 });

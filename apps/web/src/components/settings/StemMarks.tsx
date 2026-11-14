@@ -15,10 +15,15 @@ export function StemMarks({ kind, id, labels, onResolved }: { kind: "agent" | "t
   const queryClient = useQueryClient();
   // While Stem is looking, asked again until it is done.
   const conflicts = useQuery({ ...orpc.plugins.conflicts.queryOptions({ input: { kind, id } }), refetchInterval: (q) => (q.state.data?.some((c) => c.status === "stem") ? 3000 : false) });
+  const refresh = () => Promise.all([orpc.plugins, orpc.agents, orpc.tools, orpc.triggers].map((p) => queryClient.invalidateQueries({ queryKey: p.key() })));
   const resolve = useMutation(
     orpc.plugins.resolveConflict.mutationOptions({
-      onSettled: () => Promise.all([orpc.plugins, orpc.agents, orpc.tools, orpc.triggers].map((p) => queryClient.invalidateQueries({ queryKey: p.key() }))),
-      onSuccess: onResolved,
+      // The saved element first, then the editor starts over from it.
+      onSuccess: async () => {
+        await refresh();
+        onResolved();
+      },
+      onError: () => refresh(),
     }),
   );
   if (!conflicts.data?.length) return null;
