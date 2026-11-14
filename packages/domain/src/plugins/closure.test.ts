@@ -7,7 +7,7 @@ import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp } from "../tools/test-server.ts";
 import { checkChoices, inUse, REFERENCES, type Element } from "./closure.ts";
-import { lawFirmMarket } from "./test-support.ts";
+import { lawFirmMarket, installReviewed } from "./test-support.ts";
 
 const ELEMENT_TABLES = ["agents", "tools", "skill_packages", "tables", "fields", "triggers"];
 
@@ -37,7 +37,7 @@ async function setUp() {
   const server = await startFakeMcp([{ name: "lookup", description: "Finds case law", inputSchema: { type: "object" }, call: () => ({ content: [] }) }]);
   const fx = lawFirmMarket(server.url);
   const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
-  const { pluginId } = await call(router.plugins.install, { marketplaceId: market.id, entryName: "law-firm", skills: ["legal-research"] }, { context: ctx });
+  const { pluginId } = await installReviewed(ctx, { marketplaceId: market.id, entryName: "law-firm", skills: ["legal-research"] });
   const harness = await call(router.harnesses.create, { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" }, { context: ctx });
   const pick = { primitives: ["Clients", "Matters", "Research"], agents: AGENTS.map((name) => ({ name, harnessId: harness.id })), triggers: ["Matter changed", "Research recorded"] };
   const { reviewed } = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });

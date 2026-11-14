@@ -122,3 +122,9 @@ export async function updatePlugin(context: object, id: string, take: string[] =
   const preview = await call(router.plugins.updatePreview, { id }, { context: context as never });
   return call(router.plugins.update, { id, reviewed: preview.reviewed, take }, { context: context as never });
 }
+
+/** Installs as the install sheet does: with the token of the preview read just before, unless the input gives one. */
+export async function installReviewed(context: object, input: { marketplaceId: string; entryName: string } & Record<string, unknown>) {
+  const { reviewed } = await call(router.plugins.preview, { marketplaceId: input.marketplaceId, entryName: input.entryName }, { context: context as never });
+  return call(router.plugins.install, { reviewed, ...input } as never, { context: context as never });
+}

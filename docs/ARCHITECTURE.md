@@ -1266,9 +1266,9 @@
   unasked); the sheet lists what was refused or left waiting.
   The Assistant proposes the same install: `plugins_discover`, `plugins_preview` and
   `plugins_list` are `configure` reads, and `plugins_install` is a grant (a proposal item) whose
-  input carries `plugins_preview`'s `reviewed` and the `setup` pick. From a Job, the install
-  always requires the token and refuses MCP servers, settings, agent files and a native
-  install; its setup items run under the Job's context, whose approved item is the approval.
+  input carries `plugins_preview`'s `reviewed` and the `setup` pick. Every install requires
+  the token, whatever it picks; from a Job, it also refuses MCP servers, settings, agent files
+  and a native install; its setup items run under the Job's context, whose approved item is the approval.
   A tool's `shown` hook runs when an item is proposed: for `plugins_install` it reads the plugin
   again, refuses a token that isn't that read's, and stores the picked agents' rights on the item
   (`ProposalItem.shown`), which `proposalView` returns and `PluginInstallItem` shows. The tool's
