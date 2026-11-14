@@ -82,6 +82,7 @@ function Choice({ element, why, choice, busy, onChange }: { element: RemovalElem
 /** The one screen of a plugin's removal: every element in use with its reasons and its two choices, and what a kept one needs. */
 export function RemovalChoices({ plan, busy, onChange }: { plan: RemovalPlan; busy: boolean; onChange: (key: string, choice: RemovalChoice) => void }) {
   const total = plan.asked.length + plan.needed.length + plan.gone;
+  if (total === 0) return <p className="text-[13px] text-muted">Nothing in your workspace is the plugin's own: removing it removes nothing else.</p>;
   if (plan.asked.length === 0) return <p className="text-[13px] text-muted">Nothing of it is in use: its {total} {total === 1 ? "element goes" : "elements go"} with it.</p>;
   return (
     <div className="space-y-3">

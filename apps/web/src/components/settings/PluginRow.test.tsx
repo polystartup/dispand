@@ -43,7 +43,7 @@ function mount(plugin: Parameters<typeof PluginRow>[0]["plugin"]) {
 
 test("a generated plugin lists what was created, by kind, has nothing to update, and says removing it keeps them", async () => {
   fake.plugins.uninstall.mockResolvedValue(undefined);
-  fake.plugins.uninstallPreview.mockResolvedValue({ skills: [], tools: [], agents: [], nativeName: "dispand-plugin_1", sourceKey: null });
+  fake.plugins.uninstallPreview.mockResolvedValue({ elements: [], reviewed: "r".repeat(64), nativeName: "dispand-plugin_1", sourceKey: null });
   fake.harnesses.list.mockResolvedValue([]);
   fake.runners.list.mockResolvedValue([]);
   mount({
@@ -68,9 +68,10 @@ test("a generated plugin lists what was created, by kind, has nothing to update,
   await userEvent.click(screen.getByRole("button", { name: "Remove Generated: Acme Law" }));
   expect(fake.plugins.uninstall).not.toHaveBeenCalled();
   const dialog = await screen.findByRole("dialog");
-  expect(dialog.textContent).toContain("Choose what to remove");
+  // It only lists what was created: nothing in the workspace is its own.
+  expect(dialog.textContent).toContain("removing it removes nothing else");
   await userEvent.click(screen.getByRole("button", { name: "Remove plugin" }));
-  expect(fake.plugins.uninstall.mock.calls[0]![0]).toEqual({ id: "plugin_1", remove: { skills: [], tools: [], agents: [] } });
+  expect(fake.plugins.uninstall.mock.calls[0]![0]).toEqual({ id: "plugin_1", reviewed: "r".repeat(64), choices: {} });
 });
 
 test("a marketplace plugin reads as before: where it came from, its commit, Update", () => {

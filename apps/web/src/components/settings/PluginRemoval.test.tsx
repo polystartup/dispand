@@ -48,6 +48,11 @@ test("each element shows why it is asked about and its two choices; one a workfl
   expect(screen.getByText("1 other element goes with the plugin.")).toBeTruthy();
 });
 
+test("a plugin that holds no element of its own says removing it removes nothing else", () => {
+  render(<RemovalChoices plan={removalPlan([], {})} busy={false} onChange={() => {}} />);
+  expect(screen.getByText("Nothing in your workspace is the plugin's own: removing it removes nothing else.")).toBeTruthy();
+});
+
 test("a plugin nothing uses says so", () => {
   render(<RemovalChoices plan={removalPlan([el("agent:Upkeep"), el("tool:case-law")], {})} busy={false} onChange={() => {}} />);
   expect(screen.getByText("Nothing of it is in use: its 2 elements go with it.")).toBeTruthy();
