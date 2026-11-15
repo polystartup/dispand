@@ -157,9 +157,8 @@ test("a reset that points a skill's tool back at the plugin's server makes the c
     expect(await rememberAllowedAction(s.ctx.db, s.ctx.ownerId, { agentId: s.agent.id, toolId: "tool_echo", action: "echo" })).toBe(true);
     expect(await unasked()).toEqual(["echo"]);
     await s.ctx.db.insert(schema.pluginConflicts).values({ id: "conflict_url", ownerId: s.ctx.ownerId, pluginId, kind: "tool", elementId: "tool_echo", field: "url", old: null, mine: mine.url, next: next.url, status: "stem" });
-    const outcome = await decide(s.ctx, s.actor, "conflict_url", { kind: "reset" });
-    if (outcome === "approval") expect(await answerConflict(s.ctx, s.actor, "conflict_url", true)).toBe("applied");
-    else expect(outcome).toBe("applied");
+    // Taking the plugin's own value applies at once.
+    expect(await decide(s.ctx, s.actor, "conflict_url", { kind: "reset" })).toBe("applied");
     expect((await s.ctx.db.select({ url: schema.tools.url }).from(schema.tools).where(eq(schema.tools.id, "tool_echo")))[0]!.url).toBe(next.url);
     expect(await unasked()).toEqual([]);
   } finally {

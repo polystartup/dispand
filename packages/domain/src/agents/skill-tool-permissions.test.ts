@@ -95,6 +95,13 @@ test("a save that keeps the package keeps the choice; dropping the package, or t
   expect(await s.nextJob()).toBe("refused");
   await call(router.agents.update, { ...base, skillPackageIds: [s.packageId], toolIds: [] }, { context: s.context });
   expect(await s.nextJob()).toBe("asks");
+
+  // A remembered Off survives choosing the tool, even for an action its server calls read-only.
+  await s.context.db.update(tools).set({ actions: [{ name: ACTION, description: "", inputSchema: {}, readOnly: true }] }).where(eq(tools.id, "tool_mail"));
+  await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: "tool_mail", action: ACTION, permission: "off" }, { context: s.context });
+  expect(await s.nextJob()).toBe("refused");
+  await call(router.agents.update, { ...base, skillPackageIds: [s.packageId], toolIds: ["tool_mail"] }, { context: s.context });
+  expect(await s.nextJob()).toBe("refused");
 });
 
 const servers: FakeMcp[] = [];

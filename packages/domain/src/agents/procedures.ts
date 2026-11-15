@@ -1,6 +1,6 @@
 import { ORPCError } from "@orpc/server";
 import { MAX_CLI_RULE_LENGTH } from "@dispand/runner-protocol";
-import { and, asc, eq, inArray, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents as agentsTable, agentSkills, agentSkillToolPermissions, agentTools, harnesses, plugins, skillPackages, tables as tablesTable, tools as toolsTable } from "../db/schema.ts";
@@ -166,19 +166,20 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
   // entry's, or the actions its server calls read-only. Only here are those read: later, they change nothing by themselves.
   const kept = new Map((await tx.delete(agentTools).where(eq(agentTools.agentId, agentId)).returning()).map((t) => [t.toolId, t]));
   if (packageIds.length) await tx.insert(agentSkills).values(packageIds.map((packageId) => ({ agentId, packageId })));
-  // What was remembered for a package's tools goes with the package, and once the agent chooses
-  // the tool itself: its own permissions take over, and dropping them later must not revive it.
-  const gone = [...(packageIds.length ? [notInArray(agentSkillToolPermissions.skillPackageId, packageIds)] : [sql`true`]), ...(toolIds.length ? [inArray(agentSkillToolPermissions.toolId, toolIds)] : [])];
-  await tx.delete(agentSkillToolPermissions).where(and(eq(agentSkillToolPermissions.agentId, agentId), or(...gone)));
+  // What was remembered for a package's tools goes with the package.
+  const mine = eq(agentSkillToolPermissions.agentId, agentId);
+  await tx.delete(agentSkillToolPermissions).where(packageIds.length ? and(mine, notInArray(agentSkillToolPermissions.skillPackageId, packageIds)) : mine);
+  // A tool the agent now chooses itself: its own row takes over (removing it later revives nothing), keeping a remembered Off.
+  const shadowed = toolIds.length ? await tx.delete(agentSkillToolPermissions).where(and(mine, inArray(agentSkillToolPermissions.toolId, toolIds))).returning() : [];
   if (toolIds.length) {
     await tx.insert(agentTools).values(
       toolIds.map((toolId) => {
-        const denied = kept.get(toolId)?.denied ?? [];
         const tool = found.find((t) => t.id === toolId)!;
+        const denied = kept.get(toolId)?.denied ?? [...new Set(shadowed.filter((r) => r.toolId === toolId && r.target === toolPermissionTarget(tool)).flatMap((r) => r.denied))];
         const requested = permissions.find((p) => p.toolId === toolId)?.unasked;
         if (requested?.some((action) => tool.disabled.includes(action))) throw new ORPCError("BAD_REQUEST", { message: "An action is disabled workspace-wide" });
         const latent = (kept.get(toolId)?.unasked ?? []).filter((action) => tool.disabled.includes(action));
-        const unasked = requested ? [...new Set([...requested, ...latent])] : kept.get(toolId)?.unasked ?? defaultUnasked(tool);
+        const unasked = requested ? [...new Set([...requested, ...latent])] : kept.get(toolId)?.unasked ?? defaultUnasked(tool).filter((action) => !denied.includes(action));
         if (unasked.some((action) => denied.includes(action))) throw new ORPCError("CONFLICT", { message: "An action is disabled: change its permission explicitly before granting it" });
         return { agentId, toolId, unasked, denied };
       }),

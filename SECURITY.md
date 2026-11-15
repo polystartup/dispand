@@ -360,15 +360,18 @@ changes it updates this file.
   server or runner tool is no longer its entry). That hint is the
   server's claim and is read only then: a server that later calls another action read-only
   gains nothing, an action that appears later asks, and a tool that only comes with a skill
-  asks for everything until a future-run answer changes it. That answer is kept in
+  asks for everything until a future-run answer, or the owner's Run/Ask/Off change for that
+  agent (`agents.setToolPermission`, or an approved proposal item), changes it. That answer is kept in
   `agent_skill_tool_permissions`, one row per agent, skill package requiring the tool and tool
   id, with the tool's `toolPermissionTarget` it was written for: a row applies only to that
   agent, to that tool id (a same-named tool of a plugin or of the owner is another tool), while
-  the package is the agent's and still requires the tool, and only while the tool's target is
+  a package that gives the agent the tool is the agent's and still requires it (each answer is
+  written for every such package at once, so it holds while any of them stays), and only while the tool's target is
   unchanged (another address, transport or runner tool, an availability change: by an edit, a
   reset to a plugin's value or a plugin update, the tool asks again). Removing the package from
   the agent, or the tool from the package, deletes its rows, and so does choosing the tool for
-  the agent (its `agent_tools` row takes over, and removing it later revives nothing); an agent
+  the agent (its `agent_tools` row takes over, starting with a remembered Off, and removing it
+  later revives nothing); an agent
   save that keeps the package keeps them. The write locks the package and its `agent_skills` row. A tool pointed at another address or transport asks for everything
   again on every agent for enabled actions: the unasked list named the old server's actions. Tools reached by URL and runner tools
   have this list; runner tools use it in Job sessions only. The list changes in three ways, each a person's: the owner on the
