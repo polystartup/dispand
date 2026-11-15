@@ -16,7 +16,7 @@ test("fresh app asks for setup, shows the shell, and signs out to login", async 
   const sidebar = page.getByRole("navigation", { name: "Main" });
   // The first visit to the shell compiles it on the dev server: seconds on a busy machine.
   await expect(sidebar.getByRole("link", { name: "Home" })).toBeVisible({ timeout: 15_000 });
-  for (const name of ["Assistant", "Harnesses", "Agents", "Skills", "Tools", "Data", "Workflows", "Help"]) {
+  for (const name of ["Stem", "Harnesses", "Agents", "Skills", "Tools", "Data", "Workflows", "Help"]) {
     await expect(sidebar.getByRole("link", { name })).toBeVisible();
   }
   await expect(page.getByText("Choose where the Assistant runs")).toBeVisible();

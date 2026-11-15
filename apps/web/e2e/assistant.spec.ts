@@ -166,7 +166,7 @@ test("the lawyer: a fresh install's Assistant sets up the whole workspace from o
   expect(table("Research")).toMatchObject({ primitive: true, parent: { tableId: table("Matters").id } });
 
   await page.goto("/settings/agents");
-  for (const name of ["Assistant", "Intake and research", "Drafting", "Matter upkeep"]) await expect(page.getByRole("main").getByText(name, { exact: true }).first()).toBeVisible();
+  for (const name of ["Stem", "Intake and research", "Drafting", "Matter upkeep"]) await expect(page.getByRole("main").getByText(name, { exact: true }).first()).toBeVisible();
   await page.goto("/settings/tools");
   await expect(page.getByRole("button", { name: /^Gmail/ })).toContainText("Not connected yet");
   await expect(page.getByRole("button", { name: /^Case law/ })).toContainText("1 action");

@@ -57,7 +57,7 @@ test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ pa
   const skillPackageIds = agent.skills.map((s) => s.packageId);
   await rpc(page, "agents/update", { id: agentId, name: agent.name, harnessId: harness.id, systemPrompt: agent.systemPrompt, skillPackageIds, toolIds: [] });
 
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Assistant" }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Stem" }).click();
   await expect(page).toHaveURL(/\/assistant$/);
 
   const chat = page.getByRole("region", { name: "Assistant" });
