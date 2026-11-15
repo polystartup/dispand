@@ -100,7 +100,8 @@ test("a save that keeps the package keeps the choice; dropping the package, or t
   await s.context.db.update(tools).set({ actions: [{ name: ACTION, description: "", inputSchema: {}, readOnly: true }] }).where(eq(tools.id, "tool_mail"));
   await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: "tool_mail", action: ACTION, permission: "off" }, { context: s.context });
   expect(await s.nextJob()).toBe("refused");
-  await call(router.agents.update, { ...base, skillPackageIds: [s.packageId], toolIds: ["tool_mail"] }, { context: s.context });
+  // A proposal's frozen defaults name the action as Run: the carried-over Off still wins.
+  await call(router.agents.update, { ...base, skillPackageIds: [s.packageId], toolIds: ["tool_mail"], toolPermissions: [{ toolId: "tool_mail", unasked: [ACTION] }] }, { context: s.context });
   expect(await s.nextJob()).toBe("refused");
 });
 

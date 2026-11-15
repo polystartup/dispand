@@ -179,7 +179,8 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
         const requested = permissions.find((p) => p.toolId === toolId)?.unasked;
         if (requested?.some((action) => tool.disabled.includes(action))) throw new ORPCError("BAD_REQUEST", { message: "An action is disabled workspace-wide" });
         const latent = (kept.get(toolId)?.unasked ?? []).filter((action) => tool.disabled.includes(action));
-        const unasked = requested ? [...new Set([...requested, ...latent])] : kept.get(toolId)?.unasked ?? defaultUnasked(tool).filter((action) => !denied.includes(action));
+        // An Off carried over from the skill wins over defaults, a proposal's frozen ones included.
+        const unasked = (requested ? [...new Set([...requested, ...latent])] : kept.get(toolId)?.unasked ?? defaultUnasked(tool)).filter((action) => kept.has(toolId) || !denied.includes(action));
         if (unasked.some((action) => denied.includes(action))) throw new ORPCError("CONFLICT", { message: "An action is disabled: change its permission explicitly before granting it" });
         return { agentId, toolId, unasked, denied };
       }),
