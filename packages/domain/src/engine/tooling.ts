@@ -56,7 +56,7 @@ export async function toolingOf(db: Db, run: { ownerId: string; snapshot: AgentS
   // A tool it didn't choose: what was remembered for it with the packages that give it, for its current target.
   const packageIds = now.skills.filter((s) => !snapshot || snapshot.skills.some((k) => k.packageId === s.packageId)).map((s) => s.packageId);
   const withSkills = packageIds.length ? await db.select().from(agentSkillToolPermissions).where(and(eq(agentSkillToolPermissions.agentId, agentId), inArray(agentSkillToolPermissions.skillPackageId, packageIds))) : [];
-  const strict = await strictTargets(db, run.ownerId, agentId, rows, packageIds);
+  const strict = await strictTargets(db, run.ownerId, agentId, rows, packageIds, snapshot?.revision);
   const permitted = rows.map((tool) => {
     const target = toolPermissionTarget(tool);
     const fromSkills = withSkills.filter((r) => r.toolId === tool.id && r.target === target);

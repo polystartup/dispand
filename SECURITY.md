@@ -393,7 +393,12 @@ changes it updates this file.
   strict target differs, was written while strict was off, or can't be checked (the tool's last
   listing failed) asks again; its Off stays (a stale Off asking would widen). An explicit change
   under strict drops the stale grants of that tool rather than carrying them over. Turning strict on
-  makes choices remembered while it was off ask; turning it off keeps every choice. A run's own
+  makes choices remembered while it was off ask; turning it off keeps every choice. A Job is held to
+  the agent revision it was made from (its snapshot's), so a grant given after an edit doesn't reach
+  a Job still running the earlier configuration. Polls read only grants that still hold
+  (`tools/pollable.ts`). Turning strict on, and refreshing a tool's listing while it is on, narrows
+  running sessions. A future-run answer under strict carries the strict target it was offered for
+  and is refused when it is no longer current. A run's own
   remembered decisions (`runs.remembered`) end with the run and carry no version. Tools reached by URL and runner tools
   have this list; runner tools use it in Job sessions only. The list changes in three ways, each a person's: the owner on the
   agent's page; an item of a proposal the owner approved (the write is a grant: an agent

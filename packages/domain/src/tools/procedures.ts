@@ -1,6 +1,7 @@
 import { ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import { strictPermissionsOf } from "../agents/tool-ask.ts";
 import { toolHolder } from "../agents/usage.ts";
 import type { Db, Tx } from "../db/client.ts";
 import { McpServerName } from "@dispand/runner-protocol";
@@ -668,7 +669,10 @@ const authorize = owner
   });
 
 const refresh = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  return view(context.db, await refreshAny(context, await find(context.db, context.ownerId, input.id)));
+  const row = await refreshAny(context, await find(context.db, context.ownerId, input.id));
+  // Under strict permissions a new listing (or a failed one) can end grants: running sessions lose them too.
+  if (await strictPermissionsOf(context.db, context.ownerId)) await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  return view(context.db, row);
 });
 
 // Agents, skill packages and Tool steps hold a tool: `toolHolder`.

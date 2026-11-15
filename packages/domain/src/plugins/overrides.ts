@@ -20,7 +20,7 @@ export const ELEMENT_FIELDS = {
   agent: {
     overridable: ["name", "description", "systemPrompt", "bundles", "dataTables", "selfLearning", "skillPackageIds", "toolIds", "consults"],
     local: ["harnessId", "model", "cliRules"],
-    system: ["id", "ownerId", "pluginId", "pluginComponent", "upstream", "overridden", "builtIn", "createdAt"],
+    system: ["id", "ownerId", "pluginId", "pluginComponent", "upstream", "overridden", "builtIn", "revision", "createdAt"],
   },
   tool: {
     overridable: ["name", "url", "transport"],

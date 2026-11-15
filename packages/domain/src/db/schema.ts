@@ -239,6 +239,8 @@ export type AgentSnapshot = {
   consults?: { agentId: string; ask: boolean }[];
   /** The only tools of Dispand's the Job may call, whatever its bundles: a Stem Job's `plugin_decide`. */
   only?: string[];
+  /** The agent's `revision` it was made from: strict permissions hold only for it. Absent in Jobs made before: the agent's current one. */
+  revision?: number;
 };
 /** What made a Job, and how many Jobs deep its chain is (0 for a user or a schedule): information only, never a limit. */
 export type JobCause = (

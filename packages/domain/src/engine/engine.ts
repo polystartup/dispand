@@ -571,6 +571,7 @@ export class Engine {
       selfLearning: stem ? [] : agent.selfLearning,
       consults: stem ? [] : await consultsOf(tx, agentId),
       ...(stem ? { only: ["plugin_decide"] } : {}),
+      revision: agent.revision,
     };
     const def = jobDef({ agent: snapshot, trigger: trigger ?? null, stem });
     const token = this.secrets ? issueJobToken(this.secrets, runId) : undefined;

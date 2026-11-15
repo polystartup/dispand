@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
+import { heldUnasked, strictTargets } from "../agents/tool-ask.ts";
 import { agents, agentTools, tools } from "../db/schema.ts";
 
 // Polls only read (design 6.7): the scheduler calls a tool outside any Job, so an action it may
@@ -8,16 +9,17 @@ import { agents, agentTools, tools } from "../db/schema.ts";
 
 /** Each of the tool's actions, whether a poll may read it now, and the agents that must ask before using it. */
 export async function pollableActions(db: Db | Tx, ownerId: string, toolId: string) {
-  const [tool] = await db.select({ actions: tools.actions, pollable: tools.pollable, disabled: tools.disabled }).from(tools).where(and(eq(tools.id, toolId), eq(tools.ownerId, ownerId)));
+  const [tool] = await db.select().from(tools).where(and(eq(tools.id, toolId), eq(tools.ownerId, ownerId)));
   if (!tool) return null;
   // Every agent that holds the tool, chosen or through a skill that requires it; one without a
   // choice of its own asks before every action.
   const owned = await db.select({ id: agents.id, name: agents.name }).from(agents).where(eq(agents.ownerId, ownerId));
-  const chosen = await db.select({ agentId: agentTools.agentId, unasked: agentTools.unasked }).from(agentTools).where(eq(agentTools.toolId, toolId));
+  const chosen = await db.select({ agentId: agentTools.agentId, unasked: agentTools.unasked, strictTarget: agentTools.strictTarget }).from(agentTools).where(eq(agentTools.toolId, toolId));
   const holders: { name: string; unasked: string[] }[] = [];
   for (const agent of owned) {
     const mine = chosen.find((c) => c.agentId === agent.id);
-    if (mine) holders.push({ name: agent.name, unasked: mine.unasked });
+    // Under strict permissions, only the grants that still hold (`heldUnasked`), as in its Jobs.
+    if (mine) holders.push({ name: agent.name, unasked: heldUnasked(await strictTargets(db, ownerId, agent.id, [tool], []), mine, tool) });
     else if ((await skillsAndTools(db, agent.id)).tools.some((t) => t.toolId === toolId)) holders.push({ name: agent.name, unasked: [] });
   }
   const allowed = new Set(tool.pollable ?? tool.actions.flatMap((a) => (a.readOnly ? [a.name] : [])));

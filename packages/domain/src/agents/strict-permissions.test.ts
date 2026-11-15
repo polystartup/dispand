@@ -1,12 +1,14 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { afterEach, expect, test } from "vitest";
-import { plugins, stepRuns, tools } from "../db/schema.ts";
-import { sessionTooling } from "../engine/tooling.ts";
+import { afterEach, expect, test, vi } from "vitest";
+import { plugins, questions, runs, stepRuns, tools } from "../db/schema.ts";
+import { sessionTooling, toolingOf } from "../engine/tooling.ts";
+import { pollableActions } from "../tools/pollable.ts";
+import { remember } from "./remember.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp, type FakeAction, type FakeMcp } from "../tools/test-server.ts";
-import { rememberAllowedAction } from "./tool-ask.ts";
+import { rememberAllowedAction, strictTargets, toolPermissionTarget } from "./tool-ask.ts";
 
 const servers: FakeMcp[] = [];
 afterEach(async () => {
@@ -33,10 +35,20 @@ async function setup() {
   const fields = { name: "Clerk", harnessId: harness.id, systemPrompt: "", skillPackageIds: [packageId], toolIds: [echo.id] };
   const agent = await call(router.agents.create, fields, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work", config: { kind: "manual", placement: "button" } }, { context });
-  const nextJob = async () => {
+  const startJob = async () => {
     const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
     const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
-    const { httpTools } = await sessionTooling(context.db, step!.sessionId!);
+    return { runId, step: step! };
+  };
+  /** What the Job `runId` gets now, by tool. */
+  const jobGets = async (runId: string) => {
+    const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
+    const { httpTools } = await toolingOf(context.db, run!, agent.id);
+    return { echo: httpTools.find((t) => t.id === echo.id)!.unasked, notes: httpTools.find((t) => t.id === notes.id)!.unasked };
+  };
+  const nextJob = async () => {
+    const { step } = await startJob();
+    const { httpTools } = await sessionTooling(context.db, step.sessionId!);
     return { echo: httpTools.find((t) => t.id === echo.id)!.unasked, notes: httpTools.find((t) => t.id === notes.id)!.unasked };
   };
   const grant = async () => {
@@ -55,7 +67,7 @@ async function setup() {
     agent: () => call(router.agents.update, { id: agent.id, ...fields, systemPrompt: "Be brief." }, { context }),
   };
   const shown = async () => (await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions.find((a) => a.name === "echo")!.permission;
-  return { context, echo, echoServer, nextJob, grant, strict, edits, shown };
+  return { context, agent, echo, echoServer, startJob, jobGets, nextJob, grant, strict, edits, shown };
 }
 
 const GRANTED = { echo: ["echo"], notes: ["note"] };
@@ -118,4 +130,57 @@ test("turning strict permissions on makes stored choices ask; turning them off k
   await s.strict(false);
   expect(await s.nextJob()).toEqual(GRANTED);
   expect(await s.shown()).toBe("run");
+});
+
+test("with strict permissions, a grant for an edited agent doesn't reach a Job made from its earlier configuration", async () => {
+  const s = await setup();
+  await s.strict(true);
+  const { runId: older } = await s.startJob();
+  await s.edits.agent();
+  await s.grant();
+  expect(await s.nextJob()).toEqual(GRANTED);
+  expect(await s.jobGets(older)).toEqual({ echo: [], notes: [] });
+});
+
+test("with strict permissions, polls read only actions whose grant still holds", async () => {
+  const s = await setup();
+  await s.context.db.update(tools).set({ pollable: ["echo"] }).where(eq(tools.id, s.echo.id));
+  await s.grant();
+  const echo = async () => (await pollableActions(s.context.db, s.context.ownerId, s.echo.id))!.find((a) => a.name === "echo")!;
+  expect(await echo()).toMatchObject({ pollable: true, askedBy: [] });
+  await s.strict(true);
+  expect(await echo()).toMatchObject({ pollable: false, askedBy: ["Clerk"] });
+});
+
+test("turning strict permissions on narrows the sessions already running", async () => {
+  const s = await setup();
+  const narrow = vi.spyOn(s.context.engine, "narrowOwnerSessions");
+  await s.strict(false);
+  expect(narrow).not.toHaveBeenCalled();
+  await s.strict(true);
+  expect(narrow).toHaveBeenCalledWith(s.context.ownerId, s.context.db);
+  narrow.mockClear();
+  await call(router.tools.refresh, { id: s.echo.id }, { context: s.context });
+  expect(narrow).toHaveBeenCalledWith(s.context.ownerId, s.context.db);
+});
+
+test("with strict permissions, an Always answer holds only for the tool and configuration that asked", async () => {
+  const s = await setup();
+  await s.strict(true);
+  const { runId, step } = await s.startJob();
+  const [tool] = await s.context.db.select().from(tools).where(eq(tools.id, s.echo.id));
+  const base = { kind: "tool" as const, agentId: s.agent.id, toolId: s.echo.id, action: "echo", target: toolPermissionTarget(tool!) };
+  const ask = async (id: string, subject: typeof base & { strictTarget?: string }) => {
+    await s.context.db.insert(questions).values({ id, ownerId: s.context.ownerId, runId, stepRunId: step.id, sessionId: step.sessionId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: "echo", input: {}, canAlwaysAllow: false }, status: "pending", remember: { scopes: ["run", "always"], subject } });
+    return remember(s.context.db, { questionId: id, decision: "allow", scope: "always", by: { type: "user", userId: s.context.ownerId } });
+  };
+  const current = (await strictTargets(s.context.db, s.context.ownerId, s.agent.id, [tool!], []))!(tool!)!;
+  // Offered before strict permissions were on: no strict target, nothing remembered.
+  expect(await ask("q_1", base)).toBe(false);
+  await s.edits.newAction();
+  // Offered for the listing before the new action.
+  expect(await ask("q_2", { ...base, strictTarget: current })).toBe(false);
+  const [listed] = await s.context.db.select().from(tools).where(eq(tools.id, s.echo.id));
+  expect(await ask("q_3", { ...base, strictTarget: (await strictTargets(s.context.db, s.context.ownerId, s.agent.id, [listed!], []))!(listed!)! })).toBe(true);
+  expect((await s.nextJob()).echo).toEqual(["echo"]);
 });

@@ -84,6 +84,8 @@ const setStrictPermissions = owner.input(z.object({ strict: z.boolean() })).hand
     .insert(workspaceSettings)
     .values({ ownerId: context.ownerId, strictPermissions: input.strict })
     .onConflictDoUpdate({ target: workspaceSettings.ownerId, set: { strictPermissions: input.strict } });
+  // Grants that stop holding leave the sessions already running too.
+  if (input.strict) await context.engine.narrowOwnerSessions(context.ownerId, context.db);
   return { strict: input.strict };
 });
 
