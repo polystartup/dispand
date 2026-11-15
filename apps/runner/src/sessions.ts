@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   type HarnessEvent,
+  JOB_FILES_PATH,
   JOB_SERVER_NAME,
   MAX_LIVE_SESSIONS,
   type ServerToRunner,
@@ -276,9 +277,11 @@ export class Sessions {
       const refs = start.restricted
         ? withJobServer([], this.config.server, start.jobToken).filter((r) => r.name === JOB_SERVER_NAME)
         : withJobServer(start.mcpServers, this.config.server, start.jobToken);
+      // A Job's runner tools hand their files to that Job, at this runner's own server.
+      const options = start.jobToken === undefined ? {} : { files: { url: new URL(JOB_FILES_PATH, this.config.server).href, token: start.jobToken } };
       if (refs.length > 0) {
-        if (start.harness === "codex") codexMcp = codexMcpServers(refs, this.config.mcpServers);
-        else claudeMcp = mcpConfigFor(refs, this.config.mcpServers);
+        if (start.harness === "codex") codexMcp = codexMcpServers(refs, this.config.mcpServers, options);
+        else claudeMcp = mcpConfigFor(refs, this.config.mcpServers, options);
       }
     };
     try {

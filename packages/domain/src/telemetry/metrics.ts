@@ -67,7 +67,8 @@ export const METRICS = {
   // A step of an OAuth tool's sign-in (`authorize`, `callback`, `refresh`) and how it ended.
   "dispand.tool.oauth": ["dispand.oauth.step", "dispand.result"],
   "dispand.attachments.stored": ["dispand.attachment.source"],
-  "dispand.attachments.refused": [],
+  // Files of a tool result kept none of (all or none), by the limit it passed: `result`, `job` or `install`.
+  "dispand.attachments.refused": ["dispand.attachment.limit"],
   "dispand.attachments.swept": [],
   "dispand.model.calls": ["dispand.harness.kind", "dispand.result"],
   "dispand.model.duration": ["dispand.harness.kind", "dispand.result"],

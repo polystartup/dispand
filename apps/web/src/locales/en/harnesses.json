@@ -158,6 +158,14 @@
     "save": "Save",
     "range": "A whole number from {{min}} to {{max}}"
   },
+  "filesLimit": {
+    "title": "Files",
+    "text": "How much the files agents' tools return, and the files of your tables, may take on this install's disk in all. Past it, a tool result's files are refused and the agent is told why; files already kept stay.",
+    "before": "Keep at most",
+    "after": "MiB of files",
+    "save": "Save",
+    "range": "A whole number from {{min}} to {{max}}"
+  },
   "limits": {
     "status": "{{working}} working · {{queued}} waiting",
     "atOnce": "At most at once",

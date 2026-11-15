@@ -3,9 +3,6 @@ apps/runner/src/config.test.ts:  expect(runnerStateDir({}, "/home/me")).toBe("/h
 apps/runner/src/config.test.ts:  expect(runnerStateDir({ XDG_STATE_HOME: "relative" }, "/home/me")).toBe("/home/me/.local/state/dispand-runner");
 apps/runner/src/config.test.ts:  expect(machineConfigPaths("/cfg", env, "/home/me")).toContain(join(base, "real"));
 apps/runner/src/config.test.ts:  expect(machineConfigPaths("/cfg", {}, "/home/me")).toContain("/home/me/.codex");
-apps/runner/src/mcp.test.ts:const fromHome = (command: string, ...args: string[]) => ["-c", 'cd "$1" && shift && exec "$@"', "sh", "/home/me", command, ...args];
-apps/runner/src/mcp.test.ts:  const config = mcpConfigFor([{ name: "search", type: "runner", tool: "brave" }], { brave: { command: "npx", args: ["-y", "brave"], env: { BRAVE_API_KEY: "k" } } }, "/home/me");
-apps/runner/src/mcp.test.ts:    "/home/me",
 apps/web/src/lib/auth-call.test.ts:    throw new Error("connect ECONNREFUSED 10.0.0.5");
 apps/web/src/routes/_app.index.tsx:  const home = useQuery(orpc.pages.home.queryOptions());
 apps/web/src/routes/_app.settings.workflows.$id.tsx:  const home = useQuery(orpc.pages.home.queryOptions());

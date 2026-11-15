@@ -525,9 +525,16 @@ changes it updates this file.
   its `config.json` names under `mcpServers` (command, args, env), or refuses the session before
   its folder or CLI exists; `hello` reports the names only, so the server never sees the
   commands or their `env` (keys stay on the machine), and `pair` and `install.sh --update` keep
-  them. Each starts from the home folder (`sh` changes to it, for Claude Code and Codex alike),
-  never the run folder, where the agent could write files its command loads (`.npmrc`,
-  `package.json`). Listing a runner tool's actions (`tool.discover`) starts only such a server,
+  them. In a session, the CLI starts the runner's own MCP proxy (`dispand-runner mcp-proxy`,
+  `mcp-proxy.ts`) in its place, and the proxy starts it from the home folder, for Claude Code and
+  Codex alike, never the run folder, where the agent could write files its command loads
+  (`.npmrc`, `package.json`), with the proxy's environment stripped of every `DISPAND_*`
+  variable plus its own `env`: the Job's token never reaches it. The proxy relays every message
+  as it came, but a `tools/call` result in a Job's session: its files (images, audio, embedded
+  resources' blobs) go to Dispand's files endpoint and the result gets the text naming the Job's
+  attachments in their place (see the files paragraph below). The token reaches the proxy in its
+  environment (for Codex, by name through `env_vars` from the app-server's environment, never in
+  `thread/start`), as the Job server's bearer reaches the CLI. Listing a runner tool's actions (`tool.discover`) starts only such a server,
   with an MCP client's default environment plus its `env`, from the home folder, its stderr
   dropped, one listing per tool at a time, stopped after 30 s; its `env` values are redacted from
   what it lists before anything reads it, and an error carries the runner's own words, never the
@@ -600,7 +607,16 @@ changes it updates this file.
   which the unused files are swept), like any other value of the row. Files in the result of a
   Job's HTTP tool call (images, embedded resources' blobs; at most 20 a result, each with the
   same bounds and sniffing as an upload) are stored as that Job's, and the agent gets their ids
-  in place of the bytes. A Job can write in a cell only its own such files that no table has
+  in place of the bytes. So are the files a Job's runner tools return: the runner's MCP proxy
+  sends them to `POST /mcp/job/files` with the Job's token, which names that one running Job, so
+  a stdio server can't put a file in another Job, and the path stays the server's own
+  (`<ownerId>/<attachmentId>`). A result is kept or refused whole, with the reason in its text
+  (what the agent sees, and the Job's transcript): a file over 10 MiB, more than 20 files, the
+  Job's totals (200 MiB and 100 files over every file it keeps, from any tool, a file a table took
+  included) or the install's (its owner's setting, 10 GiB until set, over every attachment). The
+  check and the store run under one install-wide lock, so two results can't both fit a total only
+  one fits; the proxy checks the per-result limits before sending, and the endpoint takes one
+  result's worth of body (268 MiB) and no more. A Job can write in a cell only its own such files that no table has
   yet, which then become that table's for good (`writeRow` takes the writer from the call, never
   from its input): never another Job's, nor one a person writes. The bytes are stored as the
   server sent them, not redacted like the result's text: only the owner can read them.

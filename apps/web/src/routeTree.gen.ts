@@ -31,6 +31,7 @@ import { Route as AppSettingsSkillsRouteImport } from './routes/_app.settings.sk
 import { Route as AppSettingsToolsRouteImport } from './routes/_app.settings.tools'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth.$'
 import { Route as ApiRpcSplatRouteImport } from './routes/api/rpc.$'
+import { Route as McpJobFilesRouteImport } from './routes/mcp/job_.files'
 import { Route as McpJobToolsRouteImport } from './routes/mcp/job_.tools'
 import { Route as RunnerPackagesIdRouteImport } from './routes/runner/packages.$id'
 import { Route as AppSettingsAgentsIndexRouteImport } from './routes/_app.settings.agents.index'
@@ -157,6 +158,11 @@ const ApiRpcSplatRoute = ApiRpcSplatRouteImport.update({
   path: '/api/rpc/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const McpJobFilesRoute = McpJobFilesRouteImport.update({
+  id: '/mcp/job_/files',
+  path: '/mcp/job/files',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const McpJobToolsRoute = McpJobToolsRouteImport.update({
   id: '/mcp/job_/tools',
   path: '/mcp/job/tools',
@@ -267,6 +273,7 @@ export interface FileRoutesByFullPath {
   '/settings/tools': typeof AppSettingsToolsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
+  '/mcp/job/files': typeof McpJobFilesRoute
   '/mcp/job/tools': typeof McpJobToolsRoute
   '/runner/packages/$id': typeof RunnerPackagesIdRoute
   '/settings/agents/$id': typeof AppSettingsAgentsIdRoute
@@ -306,6 +313,7 @@ export interface FileRoutesByTo {
   '/settings/tools': typeof AppSettingsToolsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
+  '/mcp/job/files': typeof McpJobFilesRoute
   '/mcp/job/tools': typeof McpJobToolsRoute
   '/runner/packages/$id': typeof RunnerPackagesIdRoute
   '/settings/agents/$id': typeof AppSettingsAgentsIdRoute
@@ -347,6 +355,7 @@ export interface FileRoutesById {
   '/_app/settings/tools': typeof AppSettingsToolsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
+  '/mcp/job_/files': typeof McpJobFilesRoute
   '/mcp/job_/tools': typeof McpJobToolsRoute
   '/runner/packages/$id': typeof RunnerPackagesIdRoute
   '/_app/settings/agents/$id': typeof AppSettingsAgentsIdRoute
@@ -388,6 +397,7 @@ export interface FileRouteTypes {
     | '/settings/tools'
     | '/api/auth/$'
     | '/api/rpc/$'
+    | '/mcp/job/files'
     | '/mcp/job/tools'
     | '/runner/packages/$id'
     | '/settings/agents/$id'
@@ -427,6 +437,7 @@ export interface FileRouteTypes {
     | '/settings/tools'
     | '/api/auth/$'
     | '/api/rpc/$'
+    | '/mcp/job/files'
     | '/mcp/job/tools'
     | '/runner/packages/$id'
     | '/settings/agents/$id'
@@ -467,6 +478,7 @@ export interface FileRouteTypes {
     | '/_app/settings/tools'
     | '/api/auth/$'
     | '/api/rpc/$'
+    | '/mcp/job_/files'
     | '/mcp/job_/tools'
     | '/runner/packages/$id'
     | '/_app/settings/agents/$id'
@@ -498,6 +510,7 @@ export interface RootRouteChildren {
   RunnerUpdateRoute: typeof RunnerUpdateRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiRpcSplatRoute: typeof ApiRpcSplatRoute
+  McpJobFilesRoute: typeof McpJobFilesRoute
   McpJobToolsRoute: typeof McpJobToolsRoute
   RunnerPackagesIdRoute: typeof RunnerPackagesIdRoute
 }
@@ -656,6 +669,13 @@ declare module '@tanstack/react-router' {
       path: '/api/rpc/$'
       fullPath: '/api/rpc/$'
       preLoaderRoute: typeof ApiRpcSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mcp/job_/files': {
+      id: '/mcp/job_/files'
+      path: '/mcp/job/files'
+      fullPath: '/mcp/job/files'
+      preLoaderRoute: typeof McpJobFilesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/mcp/job_/tools': {
@@ -842,6 +862,7 @@ const rootRouteChildren: RootRouteChildren = {
   RunnerUpdateRoute: RunnerUpdateRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiRpcSplatRoute: ApiRpcSplatRoute,
+  McpJobFilesRoute: McpJobFilesRoute,
   McpJobToolsRoute: McpJobToolsRoute,
   RunnerPackagesIdRoute: RunnerPackagesIdRoute,
 }

@@ -20,14 +20,19 @@ const built = (await import(new URL("./dist/server/server.js", import.meta.url).
 const config = built.loadServerConfig();
 
 // No request needs more than 1 MiB but an upload (`files.upload`, 10 MiB of file plus multipart
-// overhead; `skills.create` and `skills.update`, 8 MiB of files in base64): the API and auth take
-// small JSON bodies. A body announced larger than its path's cap
+// overhead; `skills.create` and `skills.update`, 8 MiB of files in base64) and a runner tool's
+// result (`/mcp/job/files`, up to 20 files of 10 MiB in base64, kept or refused whole): the API
+// and auth take small JSON bodies. A body announced larger than its path's cap
 // gets a 413 at once, and one without a length (chunked) a 411, so no body runs past its cap;
 // browsers and the runner always send the length. `/runner/pair` reads at most 1 KiB itself.
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
 const MAX_UPLOAD_BODY_BYTES = 11 * 1024 * 1024;
+const MAX_RESULT_BODY_BYTES = 268 * 1024 * 1024;
 const UPLOAD_PATHS = new Set(["/api/rpc/files/upload", "/api/rpc/skills/create", "/api/rpc/skills/update"]);
-const capOf = (request: Request) => (UPLOAD_PATHS.has(URL.parse(request.url)?.pathname ?? "") ? MAX_UPLOAD_BODY_BYTES : MAX_REQUEST_BODY_BYTES);
+const capOf = (request: Request) => {
+  const path = URL.parse(request.url)?.pathname ?? "";
+  return path === "/mcp/job/files" ? MAX_RESULT_BODY_BYTES : UPLOAD_PATHS.has(path) ? MAX_UPLOAD_BODY_BYTES : MAX_REQUEST_BODY_BYTES;
+};
 const refuseLargeBodies = (request: Request, next: () => Response | Promise<Response>) => {
   if (request.headers.has("transfer-encoding") && !request.headers.has("content-length")) return new Response(null, { status: 411 });
   return Number(request.headers.get("content-length") ?? 0) > capOf(request) ? new Response(null, { status: 413 }) : next();
@@ -36,7 +41,7 @@ const refuseLargeBodies = (request: Request, next: () => Response | Promise<Resp
 const server = serve({
   port: config.port,
   hostname: config.host,
-  maxRequestBodySize: MAX_UPLOAD_BODY_BYTES,
+  maxRequestBodySize: MAX_RESULT_BODY_BYTES,
   // Stopped below, together with the runner sockets and the database.
   gracefulShutdown: false,
   middleware: [refuseLargeBodies, staticMiddleware({ dir: new URL("./dist/client", import.meta.url).pathname })],

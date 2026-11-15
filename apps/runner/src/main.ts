@@ -14,6 +14,7 @@ import { canonicalEntry, contentDigest } from "./plugin-digest.ts";
 import { checkPluginFiles } from "./plugin-servers.ts";
 import { claudeEnv, codexEnv, configDir, loadConfig, PLUGIN_NAME, PluginEntry, loadToken, machineConfigPaths, preparePairing, type RunnerConfig, runnerStateDir, serverUrl, stateDir } from "./config.ts";
 import { callTool, credentialValues, discoverTool } from "./mcp.ts";
+import { PROXY_SPEC, PROXY_TOKEN, ProxySpec, runProxy } from "./mcp-proxy.ts";
 import { codexDenied } from "./boundary.ts";
 import { clearSessions, readCapped } from "./skills.ts";
 import { Connection } from "./connection.ts";
@@ -310,6 +311,17 @@ const [command, ...rest] = process.argv.slice(2);
 if (command === "pair") await pair(rest);
 else if (command === "run") await run(rest);
 else if (command === "allow-plugin") await allowPlugin(rest);
+// Started by a session's CLI in place of a runner tool (`mcp.ts` `mcpConfigFor`), never by hand.
+else if (command === "mcp-proxy") {
+  let spec: ProxySpec;
+  try {
+    spec = ProxySpec.parse(JSON.parse(process.env[PROXY_SPEC] ?? ""));
+  } catch {
+    fail("mcp-proxy is started by a session, with its spec");
+  }
+  // Its server gone, the proxy goes too, whatever the CLI still holds open (pipes write synchronously on Linux).
+  process.exit(await runProxy(spec, process.env[PROXY_TOKEN]));
+}
 else if (command === "native-plugins") {
   const { values } = parseArgs({ args: rest, options: { config: { type: "string" } } });
   const dir = values.config ? resolve(values.config) : configDir();

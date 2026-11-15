@@ -293,10 +293,13 @@ export const workspaceSettings = pgTable(
     checkpoint: integer("checkpoint").notNull().default(100),
     // How many days Audit rows are kept (design 6.8).
     auditRetentionDays: integer("audit_retention_days").notNull().default(90),
+    // How many MiB of files the whole install keeps (`data/files.ts` `keepJobFiles`); one owner per install.
+    filesLimitMib: integer("files_limit_mib").notNull().default(10240),
   },
   (t) => [
     check("workspace_settings_checkpoint_range", sql`${t.checkpoint} between 1 and 100000`),
     check("workspace_settings_audit_retention_range", sql`${t.auditRetentionDays} between 1 and 3650`),
+    check("workspace_settings_files_limit_range", sql`${t.filesLimitMib} between 1 and 1048576`),
   ],
 );
 

@@ -23,18 +23,28 @@ test("http server passed with its headers", () => {
   });
 });
 
-const fromHome = (command: string, ...args: string[]) => ["-c", 'cd "$1" && shift && exec "$@"', "sh", "/home/me", command, ...args];
+const entry = { command: process.execPath, args: [resolve("src/main.ts"), "mcp-proxy"] };
+/** The proxy's environment for `server`, from `dir`, and its files' URL and token in a Job's session. */
+const proxied = (server: { command: string; args?: string[]; env?: Record<string, string> }, dir: string, files?: { url: string; token: string }) => ({
+  DISPAND_PROXY: JSON.stringify({ command: server.command, args: server.args ?? [], env: server.env ?? {}, cwd: dir, ...(files ? { files: files.url } : {}) }),
+  ...(files ? { DISPAND_JOB_TOKEN: files.token } : {}),
+});
 
-test("a runner tool is the machine's own server of that name, started from the home folder", () => {
-  const config = mcpConfigFor([{ name: "search", type: "runner", tool: "brave" }], { brave: { command: "npx", args: ["-y", "brave"], env: { BRAVE_API_KEY: "k" } } }, "/home/me");
-  expect(config).toEqual({ search: { type: "stdio", command: "/bin/sh", args: fromHome("npx", "-y", "brave"), env: { BRAVE_API_KEY: "k" } } });
+test("a runner tool is the machine's own server of that name, started behind the proxy from the home folder", () => {
+  const brave = { command: "npx", args: ["-y", "brave"], env: { BRAVE_API_KEY: "k" } };
+  const config = mcpConfigFor([{ name: "search", type: "runner", tool: "brave" }], { brave }, { dir: "/opt/me", entry });
+  expect(config).toEqual({ search: { type: "stdio", ...entry, env: proxied(brave, "/opt/me") } });
+  // In a Job's session, the proxy also gets where the files go and the Job's token.
+  const files = { url: "https://dispand.test/mcp/job/files", token: "dj_t" };
+  expect(mcpConfigFor([{ name: "search", type: "runner", tool: "brave" }], { brave }, { dir: "/opt/me", entry, files }).search).toEqual({ type: "stdio", ...entry, env: proxied(brave, "/opt/me", files) });
 });
 
 test("never from the session's folder, where the agent could plant an .npmrc", async () => {
   const dir = await realpath(await mkdtemp(join(tmpdir(), "mcp-home-")));
-  const config = mcpConfigFor([{ name: "pwd", type: "runner", tool: "pwd" }], { pwd: { command: "pwd" } }, dir);
-  const server = config.pwd as { command: string; args: string[] };
-  const { stdout } = await promisify(execFile)(server.command, server.args, { cwd: tmpdir() });
+  const config = mcpConfigFor([{ name: "pwd", type: "runner", tool: "pwd" }], { pwd: { command: "pwd" } }, { dir, entry });
+  const server = config.pwd as { command: string; args: string[]; env: Record<string, string> };
+  // The proxy relays what `pwd` prints, line by line.
+  const { stdout } = await promisify(execFile)(server.command, server.args, { cwd: tmpdir(), env: { ...process.env, ...server.env } });
   expect(stdout.trim()).toBe(dir);
   await rm(dir, { recursive: true });
 });
@@ -58,14 +68,20 @@ test("Codex gets header values by environment variable name only", () => {
       { name: "search", type: "runner", tool: "brave" },
     ],
     { brave: { command: "npx", args: ["brave"], env: { BRAVE_API_KEY: "k" } } },
-    "/home/me",
+    { dir: "/opt/me", entry, files: { url: "https://dispand.test/mcp/job/files", token: "dj_s3cret" } },
   );
   expect(servers).toEqual({
     github: { url: "https://api.example.test/mcp", env_http_headers: { authorization: "DISPAND_MCP_0_0", "x-org": "DISPAND_MCP_0_1" }, default_tools_approval_mode: "prompt" },
-    search: { command: "/bin/sh", args: fromHome("npx", "brave"), env: { BRAVE_API_KEY: "k" }, default_tools_approval_mode: "prompt" },
+    search: {
+      ...entry,
+      env: { DISPAND_PROXY: JSON.stringify({ command: "npx", args: ["brave"], env: { BRAVE_API_KEY: "k" }, cwd: "/opt/me", files: "https://dispand.test/mcp/job/files" }) },
+      // The Job's token: by name, from the app-server's environment.
+      env_vars: ["DISPAND_JOB_TOKEN"],
+      default_tools_approval_mode: "prompt",
+    },
   });
   expect(JSON.stringify(servers)).not.toContain("s3cret");
-  expect(env).toEqual({ DISPAND_MCP_0_0: "Bearer s3cret", DISPAND_MCP_0_1: "acme" });
+  expect(env).toEqual({ DISPAND_MCP_0_0: "Bearer s3cret", DISPAND_MCP_0_1: "acme", DISPAND_JOB_TOKEN: "dj_s3cret" });
 });
 
 test("an SSE server is refused for Codex", () => {

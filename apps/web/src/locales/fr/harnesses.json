@@ -158,6 +158,14 @@
     "save": "Enregistrer",
     "range": "Un nombre entier de {{min}} à {{max}}"
   },
+  "filesLimit": {
+    "title": "Fichiers",
+    "text": "La place que peuvent prendre en tout, sur le disque de cette installation, les fichiers que renvoient les outils des agents et ceux de vos tables. Au-delà, les fichiers d’un résultat d’outil sont refusés et l’agent apprend pourquoi ; les fichiers déjà gardés restent.",
+    "before": "Garder au plus",
+    "after": "Mio de fichiers",
+    "save": "Enregistrer",
+    "range": "Un nombre entier de {{min}} à {{max}}"
+  },
   "limits": {
     "status": "{{working}} en cours · {{queued}} en attente",
     "atOnce": "Au plus en même temps",

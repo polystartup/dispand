@@ -4,6 +4,7 @@ import { reviewSignals } from "../assistant/review.ts";
 import { DEFAULT_RETENTION_DAYS } from "../audit/sweep.ts";
 import { agents, triggers, workspaceSettings } from "../db/schema.ts";
 import { checkpointOf } from "../engine/roots.ts";
+import { filesLimitOf } from "../data/files.ts";
 import { authed, base } from "../rpc/context.ts";
 import { DEFAULT_TIMEZONE } from "../workflows/schedule.ts";
 
@@ -50,6 +51,24 @@ const setAuditRetention = owner.input(z.object({ days: AuditRetentionDays })).ha
   return { days: input.days };
 });
 
+/** How many MiB of files the whole install keeps (`data/files.ts` `keepJobFiles`): 1 MiB to 1 TiB. */
+export const FilesLimitMib = z.number().int().min(1).max(1_048_576);
+
+/** The install's limit on its files, in MiB (10 GiB until set). */
+const filesLimit = owner.handler(async ({ context }) => ({ mib: await filesLimitOf(context.db, context.ownerId) }));
+
+/**
+ * Sets the install's limit on its files. Files already kept stay: a lower limit only refuses the
+ * next tool results that would pass it. The owner's only: raising it lets agents fill the disk.
+ */
+const setFilesLimit = owner.input(z.object({ mib: FilesLimitMib })).handler(async ({ input, context }) => {
+  await context.db
+    .insert(workspaceSettings)
+    .values({ ownerId: context.ownerId, filesLimitMib: input.mib })
+    .onConflictDoUpdate({ target: workspaceSettings.ownerId, set: { filesLimitMib: input.mib } });
+  return { mib: input.mib };
+});
+
 /**
  * What could be better in the workspace (`assistant/review.ts`). Hours are read in the time zone
  * of the Assistant's review, which is the owner's once they turned it on.
@@ -64,4 +83,4 @@ const review = owner.handler(async ({ context }) => {
   return reviewSignals(context.db, context.ownerId, (context.now ?? (() => new Date()))(), timezone);
 });
 
-export const workspace = { checkpoint, setCheckpoint, auditRetention, setAuditRetention, review };
+export const workspace = { checkpoint, setCheckpoint, auditRetention, setAuditRetention, filesLimit, setFilesLimit, review };

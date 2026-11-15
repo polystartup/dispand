@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { CheckpointSetting } from "../components/settings/CheckpointSetting.tsx";
+import { FilesLimitSetting } from "../components/settings/FilesLimitSetting.tsx";
 import { HarnessLimits } from "../components/settings/HarnessLimits.tsx";
 import { NativeWorkspaceSkills } from "../components/settings/NativeSkills.tsx";
 import { cliVersion, HarnessSheet, harnessTabs, type Harness } from "../components/settings/HarnessSheet.tsx";
@@ -107,6 +108,7 @@ function Harnesses() {
 
       {loaded && harnesses.data!.length > 0 && <HarnessLimits />}
       {loaded && harnesses.data!.length > 0 && <CheckpointSetting />}
+      {loaded && harnesses.data!.length > 0 && <FilesLimitSetting />}
 
       {sheet && (
         <HarnessSheet

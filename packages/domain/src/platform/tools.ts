@@ -539,6 +539,9 @@ export const NOT_TOOLS: string[] = [
   // or changes it, not even through a proposal.
   "workspace.auditRetention",
   "workspace.setAuditRetention",
+  // How many files the install keeps: it guards the machine's disk against agents' tool results.
+  "workspace.filesLimit",
+  "workspace.setFilesLimit",
   // The owner's memory pages; agents have their own memory tools, gated by their targets.
   "memories.list",
   "memories.get",

@@ -1,0 +1,2 @@
+ALTER TABLE "workspace_settings" ADD COLUMN "files_limit_mib" integer DEFAULT 10240 NOT NULL;--> statement-breakpoint
+ALTER TABLE "workspace_settings" ADD CONSTRAINT "workspace_settings_files_limit_range" CHECK ("workspace_settings"."files_limit_mib" between 1 and 1048576);

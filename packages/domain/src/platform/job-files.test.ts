@@ -12,6 +12,7 @@ import { asCli, ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp, type FakeMcp } from "../tools/test-server.ts";
 import { jobTokenOf } from "./token.ts";
 import { handleJobToolsMcp } from "./tools-mcp.ts";
+import { handleJobFiles } from "./job-files.ts";
 
 const servers: FakeMcp[] = [];
 afterEach(async () => {
@@ -60,10 +61,11 @@ async function setup() {
   const job = async () => {
     const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
     const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
+    const token = jobTokenOf(context.secrets, run!)!;
     const client = new Client({ name: "test", version: "1.0.0" });
     await client.connect(
       new StreamableHTTPClientTransport(new URL("https://dispand.test/mcp/job/tools"), {
-        requestInit: { headers: { authorization: `Bearer ${jobTokenOf(context.secrets, run!)!}` } },
+        requestInit: { headers: { authorization: `Bearer ${token}` } },
         fetch: (input, init) => handleJobToolsMcp(new Request(input as string | URL, init as RequestInit), context),
       }),
     );
@@ -73,7 +75,17 @@ async function setup() {
       const result = (await client.callTool({ name: await named(readable), arguments: {} })) as { content: { text: string }[]; isError?: boolean };
       return { text: result.content[0]!.text, isError: result.isError === true };
     };
-    return { runId, callTool };
+    /** What the runner's MCP proxy sends for one result of a runner tool, with this Job's token. */
+    const send = (files: { name: string; bytes: Buffer }[], bearer = token) =>
+      handleJobFiles(
+        new Request("https://dispand.test/mcp/job/files", {
+          method: "POST",
+          headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
+          body: JSON.stringify({ files: files.map((f) => ({ name: f.name, base64: f.bytes.toString("base64") })) }),
+        }),
+        context,
+      );
+    return { runId, callTool, send };
   };
   /** Writes `ids` in the file field of a new row, as `actor`. */
   const write = (ids: string[], actor: Parameters<typeof writeRow>[1]["actor"]) =>
@@ -144,8 +156,76 @@ test("a file over the size limit isn't kept, and the agent is told why", async (
   const { runId, callTool } = await s.job();
   const result = await callTool("mail_get_big");
   expect(result.isError).toBe(false);
-  expect(result.text).toContain("File 1 (“scan.tiff”): not kept, files are at most 10 MiB");
+  expect(result.text).toContain("None of the files in this result were kept: file 1 (“scan.tiff”) is larger than 10 MiB, the most a file may be.");
   expect(await ownedBy(s, runId)).toEqual([]);
+});
+
+const files = (n: number, size = 16) => Array.from({ length: n }, (_, i) => ({ name: `f${i}.bin`, bytes: Buffer.alloc(size, i) }));
+const textOf = async (response: Response) => {
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { text: string }).text;
+};
+
+test("a runner tool's image becomes an attachment of the token's Job, and the reply names it", async () => {
+  const s = await setup();
+  const { runId, send } = await s.job();
+  const text = await textOf(await send([{ name: "image", bytes: PNG }]));
+  const [image] = await ownedBy(s, runId);
+  expect(image).toMatchObject({ name: "image", mime: "image/png", image: true, size: PNG.length, tableId: null, ownerId: s.context.ownerId });
+  expect(text).toBe(`Files in this result, kept for this Job (write an attachment's id in a file field to keep it; the others are removed an hour after the Job ends):\nFile 1 (“image”): attachment ${image!.id}, image/png, ${PNG.length} bytes`);
+  // Only a live Job's token: another bearer gets nothing in.
+  expect((await send([{ name: "image", bytes: PNG }], "dj_not-a-token")).status).toBe(401);
+  expect(await ownedBy(s, runId)).toHaveLength(1);
+});
+
+test("a runner tool's oversized file, or too many files, is refused whole, with the reason", async () => {
+  const s = await setup();
+  const { runId, send } = await s.job();
+  expect(await textOf(await send([{ name: "small.txt", bytes: Buffer.from("hi") }, { name: "scan.tiff", bytes: Buffer.alloc(MAX_FILE_BYTES + 1) }]))).toBe(
+    "None of the files in this result were kept: file 2 (“scan.tiff”) is larger than 10 MiB, the most a file may be.",
+  );
+  expect(await textOf(await send(files(21)))).toBe("None of the 21 files in this result were kept: a result keeps at most 20.");
+  expect(await ownedBy(s, runId)).toEqual([]);
+});
+
+test("a tool returning files on every call is refused once the Job's total is reached, keeping nothing of that result", async () => {
+  const s = await setup();
+  const { runId, callTool, send } = await s.job();
+  // Every source counts: two files of a tool reached by URL, then 93 of a runner tool.
+  await callTool("mail_get_mail");
+  for (const n of [20, 20, 20, 20, 13]) await textOf(await send(files(n)));
+  expect(await ownedBy(s, runId)).toHaveLength(95);
+  expect(await textOf(await send(files(10)))).toBe("None of the files in this result were kept: this Job already keeps 95 files, and a Job keeps at most 100.");
+  expect(await ownedBy(s, runId)).toHaveLength(95);
+  // What still fits goes in.
+  await textOf(await send(files(5)));
+  expect(await textOf(await send(files(1)))).toContain("this Job already keeps 100 files");
+  // Another Job has its own total.
+  const other = await s.job();
+  expect(await textOf(await other.send(files(1)))).toContain("kept for this Job");
+});
+
+test("a Job's bytes count too: a result that would pass 200 MiB is refused whole", async () => {
+  const s = await setup();
+  const { runId, send } = await s.job();
+  const big = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `big${i}`, bytes: Buffer.alloc(MAX_FILE_BYTES) }));
+  for (let i = 0; i < 2; i++) await textOf(await send(big(9)));
+  expect(await textOf(await send(big(3)))).toBe("None of the files in this result were kept: with them, this Job's files would pass 200 MiB, the most a Job keeps.");
+  expect(await ownedBy(s, runId)).toHaveLength(18);
+});
+
+test("many Jobs each under their total are refused once the install's total is reached", async () => {
+  const s = await setup();
+  await call(router.workspace.setFilesLimit, { mib: 1 }, { context: s.context });
+  const third = 300 * 1024;
+  for (let i = 0; i < 3; i++) {
+    const { send } = await s.job();
+    expect(await textOf(await send(files(1, third)))).toContain("kept for this Job");
+  }
+  const last = await s.job();
+  expect(await textOf(await last.send(files(1, third)))).toBe("None of the files in this result were kept: with them, Dispand's files would pass 1 MiB, the most this install keeps (a setting of its owner).");
+  expect(await ownedBy(s, last.runId)).toEqual([]);
+  expect(await s.context.db.select().from(attachments)).toHaveLength(3);
 });
 
 test("a file store that fails gives the agent a fixed reason, not the error", async () => {

@@ -12,7 +12,7 @@
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with
-  `Authorization: Bearer <token>` and `Dispand-Protocol: 25` (`PROTOCOL_VERSION`, bumped by
+  `Authorization: Bearer <token>` and `Dispand-Protocol: 27` (`PROTOCOL_VERSION`, bumped by
   every change an older runner can't parse or honor). An older runner is refused with 426 "update
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
@@ -674,7 +674,8 @@
   snapshot. A CLI start carries the skills (the runner fetches each package from
   `/runner/packages/<id>`, which serves a package only to the runner of a harness whose agent
   has it) and one `runner` MCP server per runner tool of the harness's own runner, named by
-  `serverName` (lowercase words joined by `_`, never `job` or `dispand`, distinct); they are
+  `serverName` (lowercase words joined by `_`, never `job` or `dispand`, distinct; the CLI starts
+  each behind the runner's MCP proxy, `apps/runner/src/mcp-proxy.ts`, see Attachments); they are
   read at each start, so a resume carries them as they are then, and are never stored with the
   step. A CLI session gets at most 50 skill packages and 20 runner tools (`MAX_SESSION_SKILLS`,
   `MAX_SESSION_RUNNER_TOOLS`), the first in name order; saving or reading an agent on a CLI
@@ -1078,7 +1079,28 @@
   sniffed type). Files in the MCP content of a Job's HTTP tool call (image items, embedded
   resources with a blob; the tools endpoint and a cloud Job's calls) go the same way through
   `keepJobFiles`, owned by the Job (`job_id`, no table yet), and the result's text tells the agent
-  their ids, or why one wasn't kept (over 10 MiB, past 20 a result). Tool steps and workflow runs'
+  their ids. So do the files of a Job's runner tools: the CLI starts each runner tool behind the
+  runner's MCP proxy (`dispand-runner mcp-proxy`, `apps/runner/src/mcp-proxy.ts`), a relay of
+  JSON-RPC lines that leaves every message as it came but a `tools/call` result, whose image,
+  audio and blob parts it sends (JSON, base64) to `POST /mcp/job/files` (`platform/job-files.ts`,
+  route `routes/mcp/job_.files.ts`, the Job's bearer, `JOB_FILES_PATH` in the runner protocol)
+  and replaces with the reply's text. A relay rather than the SDK's `Client` and `Server`: those
+  answer only what the proxy implements, and the relay keeps resources, prompts, progress and the
+  server's own requests as they were. Its spec (the command, args, `env` and folder from the
+  runner's config, and the files URL) is the `DISPAND_PROXY` variable, the Job's token
+  `DISPAND_JOB_TOKEN` (Codex: `env_vars`); outside a Job it relays results untouched. A
+  plugin's stdio server can start from the same spec (`plugin-servers.ts` `Launch`). Runner protocol 27.
+  `keepJobFiles` keeps a result whole or refuses it whole, with the reason as its text: a file
+  over 10 MiB or more than 20 files (`resultRefusal`, shared with the proxy, which checks before
+  sending), the Job's totals (`MAX_JOB_BYTES` 200 MiB, `MAX_JOB_FILES` 100, over every attachment
+  whose `job_id` is the Job's, whatever its source, a file a table took included: we chose these as
+  ten results of large files and five full results), or the install's
+  (`workspace_settings.files_limit_mib`, 10 GiB until set, 1 MiB to 1 TiB, over every attachment;
+  `workspace.filesLimit`/`setFilesLimit`, owner-only, not tools, set on the Harnesses page beside
+  the checkpoint). A future source of a Job's files counts by storing them as attachment rows
+  with its `job_id`. Checks and stores run in one transaction under
+  `pg_advisory_xact_lock('dispand:attachments')`; refusals count in
+  `dispand.attachments.refused` by `dispand.attachment.limit`. Tool steps and workflow runs'
   sessions keep none: their text has placeholders only. `writeRow` accepts ids of the same
   table, locked `FOR SHARE`, and, when a Job writes, that Job's files no table has, locked
   `FOR UPDATE` and given to the table once the row is written. `GET /files/<id>` (`apps/web/src/server/files.ts`, the one route outside oRPC,

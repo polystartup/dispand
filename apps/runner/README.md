@@ -167,8 +167,12 @@ An HTTP one comes with its headers: Claude Code gets them over the SDK's control
 (`setMcpServers`), never on its command line, and Codex as variable names
 (`env_http_headers`), their values only in its app-server's environment and never in shells.
 Codex has no SSE transport: an SSE server in a Codex session is refused. A server that doesn't
-connect ends the session before its first turn. A runner tool's server starts from your home
-folder, never the run folder (where the agent could plant an `.npmrc`). Managed Job tools follow
+connect ends the session before its first turn. A runner tool's server starts behind the
+runner's MCP proxy (`dispand-runner mcp-proxy`, which the CLI starts in its place) from your home
+folder, never the run folder (where the agent could plant an `.npmrc`), without any `DISPAND_*`
+variable. In a Job's session, the files its results carry (images, audio, embedded blobs) go to
+Dispand as the Job's attachments, and the agent gets their ids in their place; a result past a
+limit (10 MiB a file, 20 files, the Job's or the install's total) keeps none, and says why. Managed Job tools follow
 the agent's per-action permissions in every session mode: Run actions proceed, Ask actions ask
 each time, with an option to remember the permission for the agent. Other MCP tools ask each
 time outside `bypassPermissions`. Codex servers use `default_tools_approval_mode: "prompt"`

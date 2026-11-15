@@ -1,11 +1,12 @@
+import { MAX_FILE_BYTES, MAX_RESULT_FILES, resultRefusal } from "@dispand/runner-protocol";
 import { ORPCError } from "@orpc/server";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { mkdir, open, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
-import { attachments, rows as rowsTable, runs, tables as tablesTable, type EventActor } from "../db/schema.ts";
+import { attachments, rows as rowsTable, runs, tables as tablesTable, workspaceSettings, type EventActor } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { meter } from "../telemetry/index.ts";
@@ -19,11 +20,18 @@ import type { ToolResult } from "../tools/mcp.ts";
 
 const owner = base.use(authed);
 
-export const MAX_FILE_BYTES = 10 * 1024 * 1024;
+export { MAX_FILE_BYTES, MAX_RESULT_FILES };
 /** An upload or an orphan file is kept this long before the sweep may remove it; a Job's files, this long after the Job ends. */
 const GRACE_MS = 3600_000;
-/** Of one tool result, the files a Job keeps. */
-export const MAX_RESULT_FILES = 20;
+const MIB = 1024 * 1024;
+/**
+ * What one Job keeps in all, whatever a file came from: 200 MiB is ten results of large files,
+ * and 100 files five full results. A runaway loop of calls stops there, well before the disk.
+ */
+export const MAX_JOB_BYTES = 200 * MIB;
+export const MAX_JOB_FILES = 100;
+/** What the whole install keeps until its owner sets otherwise (`workspace_settings.files_limit_mib`): 10 GiB. */
+export const DEFAULT_FILES_LIMIT_MIB = 10_240;
 
 const counts = meter("files");
 
@@ -71,7 +79,7 @@ const upload = owner.input(z.object({ tableId: z.string().max(64), file: z.file(
  * Stores one file (at most `MAX_FILE_BYTES`, checked by the caller) for a table or a Job: its type
  * sniffed from its first bytes, the file on disk before its row.
  */
-async function storeAttachment(db: Db, filesDir: string, file: { ownerId: string; tableId?: string; jobId?: string; name: string; bytes: Uint8Array }) {
+async function storeAttachment(db: Db | Tx, filesDir: string, file: { ownerId: string; tableId?: string; jobId?: string; name: string; bytes: Uint8Array }) {
   const image = detectImage(file.bytes);
   const id = newId("att");
   const dir = ownerDir(filesDir, file.ownerId);
@@ -87,29 +95,68 @@ async function storeAttachment(db: Db, filesDir: string, file: { ownerId: string
   return row!;
 }
 
+/** The install's limit on all its files, in MiB: its owner's setting. */
+export async function filesLimitOf(db: Db | Tx, ownerId: string): Promise<number> {
+  const [row] = await db.select({ mib: workspaceSettings.filesLimitMib }).from(workspaceSettings).where(eq(workspaceSettings.ownerId, ownerId));
+  return row?.mib ?? DEFAULT_FILES_LIMIT_MIB;
+}
+
+/**
+ * The files a Job keeps, and the bytes of every file of the install: what the totals cover. A
+ * Job's file stays counted once a table takes it (its `jobId` stays). Every file a Job holds is an
+ * attachment row with its `jobId`, whatever it came from, so a new source counts here by storing
+ * its files that way.
+ */
+async function totals(tx: Tx, jobId: string): Promise<{ jobFiles: number; jobBytes: number; installBytes: number }> {
+  const bytes = sql<string>`coalesce(sum(${attachments.size}), 0)`;
+  const [job] = await tx.select({ n: count(), bytes }).from(attachments).where(eq(attachments.jobId, jobId));
+  const [install] = await tx.select({ bytes }).from(attachments);
+  return { jobFiles: job?.n ?? 0, jobBytes: Number(job?.bytes ?? 0), installBytes: Number(install?.bytes ?? 0) };
+}
+
+type Limit = "result" | "job" | "install";
+
+/** Why none of these files may be kept now, and which limit says so; null when every one fits. */
+async function refusal(tx: Tx, job: { ownerId: string; runId: string }, files: { name: string; size: number }[]): Promise<{ limit: Limit; text: string } | null> {
+  const perResult = resultRefusal(files);
+  if (perResult) return { limit: "result", text: perResult };
+  const size = files.reduce((n, f) => n + f.size, 0);
+  const now = await totals(tx, job.runId);
+  if (now.jobFiles + files.length > MAX_JOB_FILES) return { limit: "job", text: `None of the files in this result were kept: this Job already keeps ${now.jobFiles} files, and a Job keeps at most ${MAX_JOB_FILES}.` };
+  if (now.jobBytes + size > MAX_JOB_BYTES) return { limit: "job", text: `None of the files in this result were kept: with them, this Job's files would pass ${MAX_JOB_BYTES / MIB} MiB, the most a Job keeps.` };
+  const limit = await filesLimitOf(tx, job.ownerId);
+  if (now.installBytes + size > limit * MIB) return { limit: "install", text: `None of the files in this result were kept: with them, Dispand's files would pass ${limit} MiB, the most this install keeps (a setting of its owner).` };
+  return null;
+}
+
 /**
  * The files of a tool's result, kept as attachments of the Job that called it (with the same
- * bounds and sniffing as uploads), and the result's text telling the agent their ids in place of
- * the bytes, or why one wasn't kept. The Job can then write them in a file field (`writeRow`).
+ * sniffing as uploads), and the result's text telling the agent their ids in place of the bytes.
+ * All or none: a result that passes a limit (a file over 10 MiB, more than 20 files, the Job's
+ * totals or the install's) keeps none of its files, and the text says why. The Job can then write
+ * them in a file field (`writeRow`). `source` names where they came from, for the metrics.
  */
-export async function keepJobFiles(db: Db, filesDir: string, job: { ownerId: string; runId: string }, result: ToolResult): Promise<ToolResult> {
+export async function keepJobFiles(db: Db, filesDir: string, job: { ownerId: string; runId: string }, result: ToolResult, source: "tool" | "runner-tool" = "tool"): Promise<ToolResult> {
   const { files, ...rest } = result;
   if (!files?.length) return rest;
-  const lines: string[] = [];
-  let kept = 0;
-  for (const [i, file] of files.slice(0, MAX_RESULT_FILES).entries()) {
-    const label = `File ${i + 1} (“${storedName(file.name)}”)`;
-    if (file.bytes.length > MAX_FILE_BYTES) lines.push(`${label}: not kept, files are at most 10 MiB`);
-    else {
-      const row = await storeAttachment(db, filesDir, { ownerId: job.ownerId, jobId: job.runId, name: file.name, bytes: file.bytes });
-      lines.push(`${label}: attachment ${row.id}, ${row.mime}, ${row.size} bytes`);
-      kept++;
-    }
+  const outcome = await db.transaction(async (tx) => {
+    // One result at a time over the whole install: two can't both pass a total only one of them fits.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('dispand:attachments'))`);
+    const refused = await refusal(tx, job, files.map((f) => ({ name: storedName(f.name), size: f.bytes.length })));
+    if (refused) return refused;
+    const rows = [];
+    for (const file of files) rows.push(await storeAttachment(tx, filesDir, { ownerId: job.ownerId, jobId: job.runId, name: file.name, bytes: file.bytes }));
+    return rows;
+  });
+  let note: string;
+  if (Array.isArray(outcome)) {
+    counts.counter("dispand.attachments.stored").add(outcome.length, { "dispand.attachment.source": source });
+    const lines = outcome.map((row, i) => `File ${i + 1} (“${row.name}”): attachment ${row.id}, ${row.mime}, ${row.size} bytes`);
+    note = `Files in this result, kept for this Job (write an attachment's id in a file field to keep it; the others are removed an hour after the Job ends):\n${lines.join("\n")}`;
+  } else {
+    counts.counter("dispand.attachments.refused").add(files.length, { "dispand.attachment.limit": outcome.limit });
+    note = outcome.text;
   }
-  if (files.length > MAX_RESULT_FILES) lines.push(`${files.length - MAX_RESULT_FILES} more files: not kept, a result keeps at most ${MAX_RESULT_FILES}`);
-  if (kept > 0) counts.counter("dispand.attachments.stored").add(kept, { "dispand.attachment.source": "tool" });
-  if (files.length > kept) counts.counter("dispand.attachments.refused").add(files.length - kept);
-  const note = `Files in this result, kept for this Job (write an attachment's id in a file field to keep it; the others are removed an hour after the Job ends):\n${lines.join("\n")}`;
   return { ...rest, text: rest.text ? `${rest.text}\n\n${note}` : note };
 }
 

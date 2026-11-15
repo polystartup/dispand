@@ -29,3 +29,4 @@ export {
 } from "./messages.ts";
 
 export { PluginHarness, PluginName, PluginSource, PluginOperation, PluginReport, nativeSourceKey, workspacePluginContent } from "./plugins.ts";
+export { JOB_FILES_PATH, MAX_FILE_BYTES, MAX_RESULT_FILES, resultRefusal } from "./files.ts";
