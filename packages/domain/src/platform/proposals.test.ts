@@ -1,5 +1,6 @@
 import { call } from "@orpc/server";
 import { eq, sql } from "drizzle-orm";
+import { say } from "../messages/index.ts";
 import { expect, onTestFinished, test } from "vitest";
 import { agents, agentTools, audit, fields as fieldsTable, plugins as pluginsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
@@ -467,7 +468,7 @@ test("the owner reads a name for the table, the field, the agent and the tool an
   expect(proposal!.items.map((i) => i.refs)).toEqual([["id"], ["id"], ["agentId", "toolId"], ["agentId", "toolId"]]);
   expect(proposal!.names).toMatchObject({
     [table.id]: { kind: "table", name: "Clients" },
-    [field.id]: { kind: "field", name: field.name, detail: "of the table Clients" },
+    [field.id]: { kind: "field", name: field.name, detail: say("data.field.ofTable", { table: "Clients" }) },
     [s.agent.id]: { kind: "agent", name: "Builder" },
     tool_mail: { kind: "tool", name: "Mail" },
   });
@@ -493,7 +494,7 @@ test("a trigger is created, changed and deleted only on approved items, and the 
   const q = await s.ask({ message: "May I?", proposal: proposalId });
   const { proposal } = (await call(router.questions.list, { status: "pending" }, { context })).find((i) => i.id === q)!;
   expect(proposal!.items[0]).toMatchObject({ refs: ["id"], input: { instructions: "Read the mail, file it, and draft replies." } });
-  expect(proposal!.names[id]).toEqual({ kind: "trigger", name: "Every morning", detail: "of the agent Clerk" });
+  expect(proposal!.names[id]).toEqual({ kind: "trigger", name: "Every morning", detail: { text: "of the agent Clerk" } });
   await s.answer(q, "allow");
   expect(await s.tool("triggers_update", { id, instructions: "Read the mail, file it, and draft replies." })).toMatchObject({ ok: true });
   expect(await s.tool("triggers_delete", { id })).toMatchObject({ ok: true });

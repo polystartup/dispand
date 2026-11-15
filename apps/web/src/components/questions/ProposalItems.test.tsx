@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { say } from "@dispand/domain";
+import { say } from "@dispand/domain/messages/index.ts";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { ProposalItems, type ProposalView } from "./ProposalItems.tsx";

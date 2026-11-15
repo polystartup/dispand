@@ -224,7 +224,7 @@ test("validateDataSteps reports a deleted field and an attachment field", () => 
 test("validateDataSteps refuses a literal that doesn't fit its field and an op its type doesn't have", () => {
   const def = chatThenData();
   const literal = setSource(def, "n_data", { fieldId: "f_price" }, { type: "value", value: "lots" });
-  expect(validateDataSteps(literal, [projects])).toEqual([{ nodeId: "n_data", message: "“Price”: expected a number, got “lots”" }]);
+  expect(validateDataSteps(literal, [projects])).toEqual([{ nodeId: "n_data", message: "“Price”: expected a number, got “lots”." }]);
   const find = withStep(def, {
     id: "n_data",
     key: "create_project",
@@ -247,7 +247,7 @@ test("validateDataSteps refuses a literal that doesn't fit its field and an op i
     { nodeId: "n_data", message: "“Price” can't be filtered by “contains”" },
     { nodeId: "n_data", message: "“Price”: a value is needed" },
     { nodeId: "n_data", message: "“Price”: a value is needed" },
-    { nodeId: "n_data", message: "“Status”: expected one of the field's choices, got “Someday”" },
+    { nodeId: "n_data", message: "“Status”: expected one of the field's choices, got “Someday”." },
   ]);
   const update = withStep(def, { ...dataStep(def), action: "update-row", rowId: { type: "value", value: " " } } as DataStep);
   expect(validateDataSteps(update, [projects])).toEqual([{ nodeId: "n_data", message: "Choose the row to update" }]);
