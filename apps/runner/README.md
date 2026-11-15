@@ -193,11 +193,33 @@ the result, however the server reached them. A call whose arguments name the run
 a CLI's home (as a path, `~/…` or a file URL, or through a link) is refused before the server
 starts.
 
+`allowedPlugins` is the machine's record of the plugins' stdio servers it allows, one per plugin
+name (at most 100): `{ "name": "<plugin>", "digest": "sha256:<hex>", "entry": { "command",
+"args", "env", "cwd" } }`. `allow-plugin` writes it, or you write it by hand; the server never
+does. Before a plugin's server starts, the runner computes the digest itself over the files it
+was given (SHA-256 over every file sorted by path: the path, a NUL, the length, a NUL, the bytes)
+and compares the launch entry, canonicalized, with the record of that name: a changed byte,
+argument or `env` value, or no record of that name, refuses the start. Only then does it write
+the files read-only under `<state>/plugins/<name>/<hex digest>/`, resolve a `./` command inside
+that folder (its real path), keep `cwd` (default: that folder) inside it or
+`<state>/plugin-data/<name>/` (created once and kept across updates), expand `${PLUGIN_ROOT}`
+and `${PLUGIN_DATA}` once and only in `args`, `env` values and `cwd`, and set both variables
+last over the entry's `env`. A plugin update that changes any file or the entry needs a new
+`allow-plugin`. The record covers the files and the command line, not what the command
+downloads when it runs (`npx some-package`). Dispand doesn't send plugin servers to runners yet:
+the record is in place for when it does.
+
 ## Commands
 
 - `DISPAND_PAIRING_CODE=<code> node main.mjs pair [--config <dir>] --server <url> --root <dir>...`: checks everything locally
   first (roots, config dir, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`), then trades the single-use code for a token
   and saves both atomically.
+- `node main.mjs allow-plugin [--config <dir>] <tool id> <name>@<digest>`, as a plugin tool's page
+  writes it out: fetches that tool's plugin files from Dispand with the runner's token
+  (`GET /runner/plugins/<tool id>`), refuses when its name isn't `<name>` or the digest it
+  computes isn't `<digest>`, shows the launch entry (and says so when the command isn't a file of
+  the plugin), and writes the record after you type `yes`, replacing that name's. It runs nothing.
+  Restart the runner to use it.
 - `node main.mjs run [--config <dir>]`: on SIGTERM or SIGINT it aborts its live CLIs without
   reporting errors (Dispand resumes them once the runner is back), writes every event to
   the backlog and exits, within 10 s. It connects (while Dispand is unreachable, events

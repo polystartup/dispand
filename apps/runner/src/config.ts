@@ -8,6 +8,9 @@ import { inside, isConfigPath, realOf } from "./boundary.ts";
 import { runnerPackageDir } from "./skillshare.ts";
 import { moveDurable, writeDurable } from "./durable.ts";
 
+/** The Agent Plugins standard's names (as `packages/domain/src/plugins/standard.ts`). */
+export const PLUGIN_NAME = /^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;
+
 const HTTPS_ONLY = "the server must use https (plain http only on localhost, 127.0.0.0/8 or ::1)";
 
 /** The token goes out with every connection: plain http only to this machine. */
@@ -28,6 +31,9 @@ export function serverUrl(server: string): string {
   if (!isAllowedServer(server)) throw new Error(HTTPS_ONLY);
   return server.replace(/\/+$/, "");
 }
+
+/** A plugin's stdio launch entry, as its `mcp.json` writes it. */
+export const PluginEntry = z.strictObject({ command: z.string().min(1), args: z.array(z.string()).optional(), env: z.record(z.string(), z.string()).optional(), cwd: z.string().optional() });
 
 /**
  * The machine's own rules for the runner, edited on the machine only: the server never changes
@@ -60,6 +66,21 @@ const RunnerConfig = z.object({
     )
     // `hello` lists them all, up to the protocol's limit.
     .refine((servers) => Object.keys(servers).length <= 100, "at most 100 MCP servers")
+    .optional(),
+  /**
+   * The plugins' stdio servers this machine allows (`allow-plugin`, or written by hand): one
+   * record per plugin name, holding the content digest and the launch entry it may run.
+   */
+  allowedPlugins: z
+    .array(
+      z.strictObject({
+        name: z.string().max(64).regex(PLUGIN_NAME),
+        digest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+        entry: PluginEntry,
+      }),
+    )
+    .max(100)
+    .refine((records) => new Set(records.map((r) => r.name)).size === records.length, "one record per plugin name")
     .optional(),
 });
 export type RunnerConfig = z.infer<typeof RunnerConfig>;

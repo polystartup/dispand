@@ -924,6 +924,22 @@
   runner's and the CLI's config out of every root and working directory. `install.sh` writes the unit
   where the user manager looks (its `XDG_CONFIG_HOME`, else `~/.config`) and passes the
   runner's config dir with `--config`.
+- **A plugin's stdio server on a runner (runner side):** the runner runs plugin code only
+  when its own record allows exactly that code. `allowedPlugins` in the machine's config holds,
+  per plugin name, the content digest and the launch entry; `dispand-runner allow-plugin <tool
+  id> <name>@<digest>` writes it after fetching the files itself (`GET /runner/plugins/<tool
+  id>`), recomputing the digest and a typed yes. `plugin-digest.ts` computes the digest
+  (`sha256:` over every file sorted by its path's UTF-8 bytes: path, NUL, length, NUL, bytes) and
+  the canonical entry (keys sorted, `env` keys sorted, `cwd` default `./`). `pluginLaunch`
+  (`plugin-servers.ts`) checks the record, the digest and the entry before writing anything, then
+  materializes the files read-only under `<state>/plugins/<name>/<hex digest>/` (a temporary
+  folder renamed into place, so an existing one is complete and reused), resolves a `./` command
+  by real path inside that root, keeps `cwd` inside it or `<state>/plugin-data/<name>/` (kept
+  across digests), expands `${PLUGIN_ROOT}` and `${PLUGIN_DATA}` once in `args`, `env` values and
+  `cwd` only, and sets both last over `env`. A refusal is a `PluginRefused` whose message names
+  only the plugin and digests, logged by the runner. No protocol message carries a plugin server
+  yet: the files route, the `plugin` server ref and the tool's page come with it, and call
+  `pluginLaunch` for sessions, `tool.discover` and polls.
 - **Runner distribution:** `pnpm build` bundles the runner with esbuild into
   `dispand-runner.tgz` and copies it with `install/install.sh` into
   `apps/web/public/runner/` (gitignored), so the web app serves `/runner/install.sh` and

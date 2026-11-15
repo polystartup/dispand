@@ -657,6 +657,22 @@ changes it updates this file.
   harness. Missing, disabled, unknown, mismatched or unavailable native inventory retains the
   stripped workspace copy. Native execution failures never trigger automatic fallback or retries.
   A locally overridden Skillshare target must name the same CLI account sessions use.
+- **A runner runs a plugin's code only when its own record matches.** `allowedPlugins` in the
+  runner's config, written on the machine only (`dispand-runner allow-plugin`, or by hand) and
+  out of the server's reach like `mcpServers`, holds per plugin name the content digest and the
+  launch entry. `allow-plugin` doesn't take the tool's page on trust: it fetches the files over
+  the runner's token, refuses another name or a digest other than the one typed, shows the entry
+  and writes only after a typed yes. Before a launch, `pluginLaunch`
+  (`apps/runner/src/plugin-servers.ts`) recomputes the digest over the files it was given and
+  canonicalizes the entry it was sent; with no record of that name, or a digest or entry other
+  than the record's, it refuses before writing anything, so a label from the server proves
+  nothing. It then writes the files read-only outside every root and the machine's config,
+  runs a `./` command only when its real path is a file inside the plugin, keeps `cwd` inside the
+  plugin or its data folder, and expands only `${PLUGIN_ROOT}` and `${PLUGIN_DATA}`, once, in
+  `args`, `env` values and `cwd`. The record proves the plugin's files and its command line, not
+  what that command downloads when it runs (`npx some-package`): `allow-plugin` says so whenever
+  the command isn't a file of the plugin. Until Dispand delivers plugin servers to runners, no
+  plugin command is stored or run, as the next paragraph says.
 - **Workspace plugin imports bring files, never code that runs.** Marketplaces and plugins are fetched with
   `fetchGit` (`packages/domain/src/plugins/git.ts`): `https://` only (no credentials in the URL;
   `file://` only in a development build with `DISPAND_GIT_FILE_URLS=1`, for e2e fixtures),
