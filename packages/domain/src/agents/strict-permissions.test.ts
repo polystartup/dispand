@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, expect, test, vi } from "vitest";
 import { plugins, questions, runs, stepRuns, tools } from "../db/schema.ts";
 import { sessionTooling, toolingOf } from "../engine/tooling.ts";
+import { snapshotToolPermissions } from "../platform/proposals.ts";
 import { pollableActions } from "../tools/pollable.ts";
 import { remember } from "./remember.ts";
 import { router } from "../rpc/router.ts";
@@ -67,7 +68,7 @@ async function setup() {
     agent: () => call(router.agents.update, { id: agent.id, ...fields, systemPrompt: "Be brief." }, { context }),
   };
   const shown = async () => (await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions.find((a) => a.name === "echo")!.permission;
-  return { context, agent, echo, echoServer, startJob, jobGets, nextJob, grant, strict, edits, shown };
+  return { context, agent, fields, packageId, notes, echo, echoServer, startJob, jobGets, nextJob, grant, strict, edits, shown };
 }
 
 const GRANTED = { echo: ["echo"], notes: ["note"] };
@@ -164,17 +165,23 @@ test("turning strict permissions on narrows the sessions already running", async
   expect(narrow).toHaveBeenCalledWith(s.context.ownerId, s.context.db);
 });
 
-test("with strict permissions, an Always answer holds only for the tool and configuration that asked", async () => {
-  const s = await setup();
-  await s.strict(true);
+/** A pending future-run approval of `action` of `toolId` in a new Job, answered Always: whether it was remembered. */
+async function asking(s: Awaited<ReturnType<typeof setup>>, toolId: string, action: string) {
   const { runId, step } = await s.startJob();
-  const [tool] = await s.context.db.select().from(tools).where(eq(tools.id, s.echo.id));
-  const base = { kind: "tool" as const, agentId: s.agent.id, toolId: s.echo.id, action: "echo", target: toolPermissionTarget(tool!) };
+  const [tool] = await s.context.db.select().from(tools).where(eq(tools.id, toolId));
+  const base = { kind: "tool" as const, agentId: s.agent.id, toolId, action, target: toolPermissionTarget(tool!) };
   const ask = async (id: string, subject: typeof base & { strictTarget?: string }) => {
     await s.context.db.insert(questions).values({ id, ownerId: s.context.ownerId, runId, stepRunId: step.id, sessionId: step.sessionId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: "echo", input: {}, canAlwaysAllow: false }, status: "pending", remember: { scopes: ["run", "always"], subject } });
     return remember(s.context.db, { questionId: id, decision: "allow", scope: "always", by: { type: "user", userId: s.context.ownerId } });
   };
-  const current = (await strictTargets(s.context.db, s.context.ownerId, s.agent.id, [tool!], []))!(tool!)!;
+  return { tool: tool!, base, ask };
+}
+
+test("with strict permissions, an Always answer holds only for the tool and configuration that asked", async () => {
+  const s = await setup();
+  await s.strict(true);
+  const { tool, base, ask } = await asking(s, s.echo.id, "echo");
+  const current = (await strictTargets(s.context.db, s.context.ownerId, s.agent.id, [tool], []))!(tool)!;
   // Offered before strict permissions were on: no strict target, nothing remembered.
   expect(await ask("q_1", base)).toBe(false);
   await s.edits.newAction();
@@ -183,4 +190,36 @@ test("with strict permissions, an Always answer holds only for the tool and conf
   const [listed] = await s.context.db.select().from(tools).where(eq(tools.id, s.echo.id));
   expect(await ask("q_3", { ...base, strictTarget: (await strictTargets(s.context.db, s.context.ownerId, s.agent.id, [listed!], []))!(listed!)! })).toBe(true);
   expect((await s.nextJob()).echo).toEqual(["echo"]);
+});
+
+test("with strict permissions, an Always answer for a skill's tool holds only for the skill files it was asked under", async () => {
+  const s = await setup();
+  await s.strict(true);
+  const { tool, base, ask } = await asking(s, s.notes.id, "note");
+  const target = async () => (await strictTargets(s.context.db, s.context.ownerId, s.agent.id, [tool], [s.packageId]))!(tool, s.packageId)!;
+  const before = await target();
+  await s.edits.skillFile();
+  expect(await ask("q_1", { ...base, strictTarget: before })).toBe(false);
+  expect(await ask("q_2", { ...base, strictTarget: await target() })).toBe(true);
+  expect((await s.nextJob()).notes).toEqual(["note"]);
+});
+
+test("with strict permissions, an agent update proposal freezes only the grants that still hold", async () => {
+  const s = await setup();
+  await s.grant();
+  const frozen = async () => {
+    const item = await snapshotToolPermissions(s.context.db, s.context.ownerId, [], { tool: "agents_update", input: { id: s.agent.id, ...s.fields } });
+    return typeof item === "string" ? item : item.toolPermissions?.find((p) => p.toolId === s.echo.id)?.unasked;
+  };
+  await s.edits.newAction();
+  expect(await frozen()).toEqual(["echo"]);
+  await s.strict(true);
+  expect(await frozen()).toEqual([]);
+});
+
+test("a skill edit narrows the sessions already running", async () => {
+  const s = await setup();
+  const narrow = vi.spyOn(s.context.engine, "narrowOwnerSessions");
+  await s.edits.skillFile();
+  expect(narrow).toHaveBeenCalledWith(s.context.ownerId, s.context.db);
 });

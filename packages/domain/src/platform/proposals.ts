@@ -9,7 +9,7 @@ import { newId } from "../ids.ts";
 import { say, type Text } from "../messages/index.ts";
 import { canonical } from "./approvals.ts";
 import { catalogEntry, defaultDisabled, defaultUnasked } from "../tools/catalog.ts";
-import { toolPermissionTarget } from "../agents/tool-ask.ts";
+import { heldUnasked, strictTargets, toolPermissionTarget } from "../agents/tool-ask.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
 import type { JobIdentity, PlatformApp } from "./call.ts";
@@ -138,8 +138,10 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
   let kept = new Map<string, { unasked: string[]; denied: string[] }>();
   if (item.tool === "agents_update") {
     if (typeof input.id === "string") {
-      const rows = await db.select({ toolId: agentTools.toolId, unasked: agentTools.unasked, denied: agentTools.denied }).from(agentTools).innerJoin(agents, eq(agents.id, agentTools.agentId)).where(and(eq(agents.id, input.id), eq(agents.ownerId, ownerId)));
-      kept = new Map(rows.map((p) => [key(p.toolId), { unasked: p.unasked, denied: p.denied }]));
+      const rows = await db.select({ tool: toolsTable, unasked: agentTools.unasked, denied: agentTools.denied, strictTarget: agentTools.strictTarget }).from(agentTools).innerJoin(agents, eq(agents.id, agentTools.agentId)).innerJoin(toolsTable, eq(toolsTable.id, agentTools.toolId)).where(and(eq(agents.id, input.id), eq(agents.ownerId, ownerId)));
+      // Only the grants that still hold: a frozen list is written as a fresh choice on approval.
+      const strict = await strictTargets(db, ownerId, input.id, rows.map((r) => r.tool), []);
+      kept = new Map(rows.map((p) => [key(p.tool.id), { unasked: heldUnasked(strict, p, p.tool), denied: p.denied }]));
     }
     for (const [index, previous] of prior.entries()) {
       const fields = previous.input as { id?: Ref; agentId?: Ref; toolId?: Ref; action?: string; permission?: string };

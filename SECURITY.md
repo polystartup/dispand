@@ -397,8 +397,10 @@ changes it updates this file.
   the agent revision it was made from (its snapshot's), so a grant given after an edit doesn't reach
   a Job still running the earlier configuration. Polls read only grants that still hold
   (`tools/pollable.ts`). Turning strict on, and refreshing a tool's listing while it is on, narrows
-  running sessions. A future-run answer under strict carries the strict target it was offered for
-  and is refused when it is no longer current. A run's own
+  running sessions, as skill edits and plugin updates already do. A future-run answer under strict
+  carries the strict target it was offered for (for a tool that comes with skills, each requiring
+  package's, its files included) and is refused when it is no longer current. An agent update
+  proposal freezes only the grants that still hold, so its approval can't revive a stale one. A run's own
   remembered decisions (`runs.remembered`) end with the run and carry no version. Tools reached by URL and runner tools
   have this list; runner tools use it in Job sessions only. The list changes in three ways, each a person's: the owner on the
   agent's page; an item of a proposal the owner approved (the write is a grant: an agent
