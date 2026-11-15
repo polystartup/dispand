@@ -1,4 +1,4 @@
-import { MAX_FILE_BYTES, MAX_RESULT_FILES } from "@dispand/runner-protocol";
+import { MAX_RESULT_BODY_BYTES } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { keepJobFiles } from "../data/files.ts";
 import { errorKind, logError } from "../log.ts";
@@ -13,8 +13,6 @@ import { jobOfRequest } from "./mcp.ts";
 
 const traces = tracer("platform");
 
-/** One result's files, base64 in JSON: room for the most a result may hold, and no more. */
-const MAX_BODY_BYTES = MAX_RESULT_FILES * Math.ceil(MAX_FILE_BYTES / 3) * 4 + 1024 * 1024;
 const Body = z.object({ files: z.array(z.object({ name: z.string().max(1024), base64: z.base64() })).min(1).max(1000) });
 
 /** The body as text, or null once it passes `max` bytes. */
@@ -38,7 +36,7 @@ export async function handleJobFiles(request: Request, app: PlatformApp): Promis
   const { job } = found;
   return inJobTrace(job, () =>
     inSpan(traces, "platform.job_files", { "dispand.job.id": job.runId }, errorKind, async (span) => {
-      const raw = await readCapped(request, MAX_BODY_BYTES);
+      const raw = await readCapped(request, MAX_RESULT_BODY_BYTES);
       if (raw === null) return Response.json({ error: "Too large" }, { status: 413 });
       let body: z.infer<typeof Body>;
       try {

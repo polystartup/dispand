@@ -9,6 +9,8 @@ export const JOB_FILES_PATH = "/mcp/job/files";
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 /** The most files one tool result holds. */
 export const MAX_RESULT_FILES = 20;
+/** The largest body `JOB_FILES_PATH` takes: one result's files in base64, and room for its JSON. */
+export const MAX_RESULT_BODY_BYTES = MAX_RESULT_FILES * Math.ceil(MAX_FILE_BYTES / 3) * 4 + 1024 * 1024;
 
 /**
  * Why none of a result's files are kept, by the per-result limits alone (the runner checks

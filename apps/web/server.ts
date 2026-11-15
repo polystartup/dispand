@@ -12,6 +12,7 @@ type Built = {
   loadServerConfig: () => ServerConfig;
   closeRunnerHub: () => Promise<void>;
   closeApp: () => Promise<void>;
+  MAX_RESULT_BODY_BYTES: number;
 };
 
 const built = (await import(new URL("./dist/server/server.js", import.meta.url).href)) as Built;
@@ -27,7 +28,7 @@ const config = built.loadServerConfig();
 // browsers and the runner always send the length. `/runner/pair` reads at most 1 KiB itself.
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
 const MAX_UPLOAD_BODY_BYTES = 11 * 1024 * 1024;
-const MAX_RESULT_BODY_BYTES = 268 * 1024 * 1024;
+const { MAX_RESULT_BODY_BYTES } = built;
 const UPLOAD_PATHS = new Set(["/api/rpc/files/upload", "/api/rpc/skills/create", "/api/rpc/skills/update"]);
 const capOf = (request: Request) => {
   const path = URL.parse(request.url)?.pathname ?? "";

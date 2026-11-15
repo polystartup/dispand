@@ -1086,7 +1086,8 @@
   route `routes/mcp/job_.files.ts`, the Job's bearer, `JOB_FILES_PATH` in the runner protocol)
   and replaces with the reply's text. A relay rather than the SDK's `Client` and `Server`: those
   answer only what the proxy implements, and the relay keeps resources, prompts, progress and the
-  server's own requests as they were. Its spec (the command, args, `env` and folder from the
+  server's own requests as they were. Lines reach the CLI in the order the server sent them, so
+  while a result's files are being kept (up to 120 s), the server's later lines wait. Its spec (the command, args, `env` and folder from the
   runner's config, and the files URL) is the `DISPAND_PROXY` variable, the Job's token
   `DISPAND_JOB_TOKEN` (Codex: `env_vars`); outside a Job it relays results untouched. A
   plugin's stdio server can start from the same spec (`plugin-servers.ts` `Launch`). Runner protocol 27.

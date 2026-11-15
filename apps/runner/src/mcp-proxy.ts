@@ -87,7 +87,8 @@ export async function withoutFiles(result: Json, keep: (files: FileOut[]) => Pro
   const text = refused ?? (await keep(found));
   // Counts only: no name, no content (the CLI keeps a server's stderr in its logs).
   console.error(`dispand-runner: mcp-proxy: ${found.length} files in a result, ${refused ? "refused" : "sent to Dispand"}`);
-  return { ...result, content: [...content.filter((_, i) => files[i] === null), { type: "text", text }] };
+  // Files lost on the way are an error, as on Dispand's own tools endpoint; a refusal is the result's text.
+  return { ...result, content: [...content.filter((_, i) => files[i] === null), { type: "text", text }], ...(text === FILES_FAILED ? { isError: true } : {}) };
 }
 
 function parse(line: string): Json | null {

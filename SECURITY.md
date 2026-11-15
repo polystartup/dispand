@@ -534,7 +534,8 @@ changes it updates this file.
   resources' blobs) go to Dispand's files endpoint and the result gets the text naming the Job's
   attachments in their place (see the files paragraph below). The token reaches the proxy in its
   environment (for Codex, by name through `env_vars` from the app-server's environment, never in
-  `thread/start`), as the Job server's bearer reaches the CLI. Listing a runner tool's actions (`tool.discover`) starts only such a server,
+  `thread/start`), as the Job server's bearer reaches the CLI.
+  Listing a runner tool's actions (`tool.discover`) starts only such a server,
   with an MCP client's default environment plus its `env`, from the home folder, its stderr
   dropped, one listing per tool at a time, stopped after 30 s; its `env` values are redacted from
   what it lists before anything reads it, and an error carries the runner's own words, never the
@@ -616,7 +617,8 @@ changes it updates this file.
   included) or the install's (its owner's setting, 10 GiB until set, over every attachment). The
   check and the store run under one install-wide lock, so two results can't both fit a total only
   one fits; the proxy checks the per-result limits before sending, and the endpoint takes one
-  result's worth of body (268 MiB) and no more. A Job can write in a cell only its own such files that no table has
+  result's worth of body (about 268 MiB) and no more.
+  A Job can write in a cell only its own such files that no table has
   yet, which then become that table's for good (`writeRow` takes the writer from the call, never
   from its input): never another Job's, nor one a person writes. The bytes are stored as the
   server sent them, not redacted like the result's text: only the owner can read them.

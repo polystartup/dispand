@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { homedir } from "node:os";
@@ -82,4 +83,19 @@ test("outside a Job, a result goes through as the server gave it", async () => {
   const content = await callEcho();
   expect(content.map((part) => part.type)).toEqual(["text", "image"]);
   expect(Buffer.from(content[1]!.data!, "base64")).toHaveLength(64);
+});
+
+test("a server's last long line reaches a slow CLI whole, though the server exits right after it", async () => {
+  // The server answers one line of 4 MiB and exits; the CLI reads nothing for a second.
+  const script = `process.stdin.once("data", () => process.stdout.write("x".repeat(4 << 20) + "\\n", () => process.exit(0)));`;
+  const spec = { command: process.execPath, args: ["-e", script], env: {}, cwd: homedir() };
+  const proxy = spawn(entry.command, entry.args, { env: { ...process.env, DISPAND_PROXY: JSON.stringify(spec) }, stdio: ["pipe", "pipe", "ignore"] });
+  proxy.stdout.pause();
+  proxy.stdin.write("{}\n");
+  await new Promise((done) => setTimeout(done, 1000));
+  let size = 0;
+  proxy.stdout.on("data", (chunk: Buffer) => (size += chunk.length)).resume();
+  const code = await new Promise((done) => proxy.on("close", done));
+  expect(code).toBe(0);
+  expect(size).toBe((4 << 20) + 1);
 });

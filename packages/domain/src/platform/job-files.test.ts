@@ -205,6 +205,17 @@ test("a tool returning files on every call is refused once the Job's total is re
   expect(await textOf(await other.send(files(1)))).toContain("kept for this Job");
 });
 
+test("two results at once that each fit the Job's total alone, but not together: one is kept, the other refused whole", async () => {
+  const s = await setup();
+  const { runId, send } = await s.job();
+  for (let i = 0; i < 4; i++) await textOf(await send(files(20)));
+  await textOf(await send(files(15)));
+  const texts = await Promise.all([send(files(5)), send(files(5))].map(async (r) => textOf(await r)));
+  expect(texts.filter((t) => t.includes("kept for this Job"))).toHaveLength(1);
+  expect(texts.filter((t) => t.includes("this Job already keeps 100 files"))).toHaveLength(1);
+  expect(await ownedBy(s, runId)).toHaveLength(100);
+});
+
 test("a Job's bytes count too: a result that would pass 200 MiB is refused whole", async () => {
   const s = await setup();
   const { runId, send } = await s.job();
