@@ -4,11 +4,13 @@ import { and, eq } from "drizzle-orm";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import type { ChatItem } from "../cloud/model-client.ts";
 import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
-import { agentTools, attachments, audit, plugins, questions, runs, tools as toolsTable } from "../db/schema.ts";
+import { agentTools, attachments, audit, plugins, questions, runs, stepRuns, tools as toolsTable } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
+import { installedToolCaller } from "./cloud.ts";
+import type { InstalledTools } from "./executor.ts";
 import { startFakeMcp, type FakeMcp } from "./test-server.ts";
 
 const servers: FakeMcp[] = [];
@@ -145,6 +147,32 @@ test("a tool removed from the agent, or an action gone since, is refused without
   await gone.engine.answer(asked.id, { kind: "permission", decision: "allow" });
   await gone.until(second, "succeeded");
   expect(gone.calls).toEqual([]);
+});
+
+test("the caller refuses, without calling the tool, a key it didn't make, a tool the agent no longer has, an action it doesn't list, and arguments that aren't an object", async () => {
+  const s = await setup([use("GitHub_list_repos", {}), say("Done.")]);
+  const runId = await s.start();
+  await s.pending(runId);
+  const [step] = await s.context.db.select({ sessionId: stepRuns.sessionId }).from(stepRuns).where(eq(stepRuns.runId, runId));
+  const sessionId = step!.sessionId!;
+  const called: string[] = [];
+  const installed = { call: async (_tool: unknown, action: string) => (called.push(action), { ok: true, result: { text: "ran", isError: false } }) } as unknown as InstalledTools;
+  const caller = installedToolCaller(s.context.db, installed);
+  const signal = new AbortController().signal;
+  const key = `tool:${s.tool.id}:list_repos`;
+  const gone = { text: "This tool is not available.", isError: true };
+  expect(await caller.call(sessionId, `platform:${s.tool.id}:list_repos`, {}, signal)).toEqual(gone);
+  expect(await caller.call(sessionId, "tool:tool_unknown:list_repos", {}, signal)).toEqual(gone);
+  expect(await caller.call(sessionId, `tool:${s.tool.id}:delete_repos`, {}, signal)).toEqual(gone);
+  for (const args of [null, [], "acme", 3]) expect(await caller.call(sessionId, key, args, signal)).toEqual({ text: "The arguments must be an object.", isError: true });
+  expect(called).toEqual([]);
+  // The same key and an object goes through: the refusals above weren't about the session.
+  expect(await caller.call(sessionId, key, {}, signal)).toEqual({ text: "ran", isError: false });
+  expect(called).toEqual(["list_repos"]);
+  // Taken back from the agent since: gone, still without a call.
+  await call(router.agents.update, { ...s.fields, id: s.agent.id, toolIds: [] }, { context: s.context });
+  expect(await caller.call(sessionId, key, {}, signal)).toEqual(gone);
+  expect(called).toEqual(["list_repos"]);
 });
 
 test("a workflow step's cloud session gets its agent's HTTP tools, and none of Dispand's own", async () => {

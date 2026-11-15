@@ -232,11 +232,15 @@ export class Sessions {
 
   private async start(start: SessionStart) {
     let recorded = false;
+    /** How the launched session ended, for its log line: its last result or error, never their words. */
+    let outcome = "exited";
     const emit = (event: HarnessEvent) => {
       if (event.type === "cli-session") {
         this.resumes.record(event.cliSessionId, start.cwd.runKey);
         recorded = true;
       }
+      if (event.type === "result") outcome = "succeeded";
+      if (event.type === "error") outcome = "failed";
       this.emit(start.sessionId, event);
     };
     // Stopping: nothing starts, and nothing is reported (Dispand starts it again after the restart).
@@ -359,6 +363,9 @@ export class Sessions {
       session.send = (text) => send(resolveSkillAlias(text, aliases));
       this.live.set(start.sessionId, session);
       this.toldNotRunning.delete(start.sessionId);
+      // One line at the start and one at the end: ids, the harness and the outcome only (no prompt, result or error text).
+      const named = `session ${start.sessionId} of run ${start.cwd.runKey} (${start.harness})`;
+      console.log(`dispand-runner: ${named} started`);
       // Shutdown waits for it: memory files must not outlive their session.
       const ended = session.done
         .finally(() => {
@@ -368,7 +375,9 @@ export class Sessions {
         .finally(() => {
           this.live.delete(start.sessionId);
           this.ending.delete(ended);
-          if (this.stopping.delete(start.sessionId) && !this.shuttingDown) emit({ type: "session-ended" });
+          const stopped = this.stopping.delete(start.sessionId);
+          console.log(`dispand-runner: ${named} ended: ${stopped ? "stopped" : this.shuttingDown ? "aborted" : outcome}`);
+          if (stopped && !this.shuttingDown) emit({ type: "session-ended" });
         });
       this.ending.add(ended);
     } catch (err) {

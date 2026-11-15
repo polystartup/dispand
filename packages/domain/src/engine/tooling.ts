@@ -107,10 +107,25 @@ export function runnerServerName(tool: { id: string; runnerId: string; tool: str
   return `tool_${createHash("sha256").update(JSON.stringify([tool.id, tool.runnerId, tool.tool])).digest("hex").slice(0, 24)}`;
 }
 
+/** The most skill packages and runner tools a CLI session gets: the ones past these, in name order, are left out. */
+export const MAX_SESSION_SKILLS = 50;
+export const MAX_SESSION_RUNNER_TOOLS = 20;
+
+/**
+ * What a CLI session of an agent with these skills and runner tools (each in name order, as
+ * sessions get them) leaves out: per kind, the limit and the names past it.
+ */
+export function leftOut(skills: { name: string }[], runnerTools: { name: string }[]) {
+  return {
+    skills: { max: MAX_SESSION_SKILLS, names: skills.filter((s) => SKILL_NAME.test(s.name)).slice(MAX_SESSION_SKILLS).map((s) => s.name) },
+    runnerTools: { max: MAX_SESSION_RUNNER_TOOLS, names: runnerTools.slice(MAX_SESSION_RUNNER_TOOLS).map((t) => t.name) },
+  };
+}
+
 export function runnerServers(tooling: Pick<Tooling, "runnerTools">, runnerId: string): (Tooling["runnerTools"][number] & { server: string })[] {
   return tooling.runnerTools
     .filter((t) => t.runnerId === runnerId)
-    .slice(0, 20)
+    .slice(0, MAX_SESSION_RUNNER_TOOLS)
     .map((t) => ({ ...t, server: runnerServerName(t) }));
 }
 

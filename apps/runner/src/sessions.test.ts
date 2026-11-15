@@ -100,6 +100,15 @@ test.each([
   expect(fake.calls).toHaveLength(1);
 });
 
+test("a session logs one line when it starts and one when it ends, with its ids, harness and outcome, and none of its words", async () => {
+  const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+  const { sessions } = await setup();
+  await sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), prompt: "secret prompt" } });
+  await vi.waitFor(() => expect(log.mock.calls.flat()).toHaveLength(2));
+  expect(log.mock.calls.flat()).toEqual(["dispand-runner: session ses_1 of run run_a (claude-code) started", "dispand-runner: session ses_1 of run run_a (claude-code) ended: succeeded"]);
+  log.mockRestore();
+});
+
 test("an id mapped to another run's folder is refused", async () => {
   const { base, events, fake, sessions } = await setup();
   await sessions.handle({ type: "session.start", start: start("ses_1", "run_a") });

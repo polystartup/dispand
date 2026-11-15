@@ -12,6 +12,8 @@ export function formatters(language: string) {
     date: (date: Date | number | string, options: Intl.DateTimeFormatOptions = { dateStyle: "medium" }) => new Intl.DateTimeFormat(language, options).format(new Date(date)),
     time: (date: Date | number | string, options: Intl.DateTimeFormatOptions = { timeStyle: "short" }) => new Intl.DateTimeFormat(language, options).format(new Date(date)),
     number: (value: number, options?: Intl.NumberFormatOptions) => new Intl.NumberFormat(language, options).format(value),
+    /** Names joined as the language writes a list: "A, B and C". */
+    list: (items: string[]) => new Intl.ListFormat(language, { type: "conjunction" }).format(items),
   };
 }
 

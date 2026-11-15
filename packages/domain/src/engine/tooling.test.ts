@@ -1,5 +1,5 @@
 import { toolPermissionTarget } from "../agents/tool-ask.ts";
-import { runnerServers } from "./tooling.ts";
+import { leftOut, runnerServers } from "./tooling.ts";
 import { call } from "@orpc/server";
 import { McpServerRef } from "@dispand/runner-protocol";
 import { eq } from "drizzle-orm";
@@ -150,4 +150,12 @@ test("workflow run memory remains scoped to its agent and run denial beats a per
   const run = { ownerId: s.context.ownerId, snapshot: null, remembered: { allow: [subject], deny: [{ ...subject, action: "send" }] } };
   expect((await toolingOf(s.context.db, run, s.agent.id)).runnerTools[0]).toMatchObject({ actions: [actions[0]], unasked: ["read"], denied: ["send"] });
   expect((await toolingOf(s.context.db, run, other.id)).runnerTools[0]).toMatchObject({ actions, unasked: ["send"], denied: [] });
+});
+
+test("a CLI session leaves out the skills past 50 and the runner tools past 20, in the order given; a skill whose name a runner refuses doesn't count", async () => {
+  const named = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => ({ name: `${prefix}${String(i + 1).padStart(2, "0")}` }));
+  const names = (out: ReturnType<typeof leftOut>) => [out.skills.names, out.runnerTools.names];
+  expect(names(leftOut(named("s", 50), named("t", 20)))).toEqual([[], []]);
+  expect(leftOut(named("s", 52), named("t", 21))).toEqual({ skills: { max: 50, names: ["s51", "s52"] }, runnerTools: { max: 20, names: ["t21"] } });
+  expect(names(leftOut([{ name: "not a skill name" }, ...named("s", 50)], []))).toEqual([[], []]);
 });

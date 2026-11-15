@@ -11,6 +11,7 @@ import { HarnessModelPicker } from "./HarnessModelPicker.tsx";
 import { Textarea } from "@/components/ui/textarea";
 import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
+import { useFormat } from "../../lib/format.ts";
 import { ConsultList, type ConsultEntry } from "./ConsultList.tsx";
 import { ToolAsk } from "./ToolAsk.tsx";
 import { CliRules } from "./CliRules.tsx";
@@ -39,6 +40,8 @@ function refusal(e: unknown, fallback: string): string {
 /** Create (no `agent`) or edit an agent. A new agent goes back to the list; both offer the next step. */
 export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agent; defaultHarnessId?: string; /** A field went back to its plugin's value: the form is stale. */ onReset?: () => void }) {
   const { t } = useTranslation("messages");
+  const { t: tc } = useTranslation();
+  const format = useFormat();
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   const packages = useQuery(orpc.skills.list.queryOptions());
   const tools = useQuery(orpc.tools.list.queryOptions());
@@ -78,6 +81,8 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
   const [error, setError] = useState<string | null>(null);
   const assistant = agent?.builtIn === "assistant";
   const busy = create.isPending || update.isPending;
+  // What its CLI sessions will leave out: as the last save returned it, else as the page read it.
+  const leftOut = (update.data ?? agent)?.leftOut;
   const navigate = useNavigate();
 
   if (harnesses.data && harnesses.data.length === 0) {
@@ -96,8 +101,10 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
     try {
       const fields = { name, description, harnessId, systemPrompt, skillPackageIds, toolIds, consults, selfLearning, ...rights, ...(model ? { model } : {}) };
       if (!agent) {
-        await create.mutateAsync(fields);
-        await navigate({ to: "/settings/agents", search: { saved: true } });
+        const created = await create.mutateAsync(fields);
+        // What its CLI sessions will leave out is told on its page.
+        if ("leftOut" in created) await navigate({ to: "/settings/agents/$id", params: { id: created.id } });
+        else await navigate({ to: "/settings/agents", search: { saved: true } });
         return;
       }
       await update.mutateAsync({ ...fields, id: agent.id });
@@ -268,6 +275,15 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
             className="min-h-48 rounded-xl font-mono text-[13px]"
           />
         </FormField>
+        {leftOut &&
+          (["skills", "runnerTools"] as const).map(
+            (kind) =>
+              leftOut[kind].names.length > 0 && (
+                <p key={kind} role="status" className="text-[13px] text-danger">
+                  {tc(`agent.leftOut.${kind}`, { count: leftOut[kind].names.length, max: leftOut[kind].max, names: format.list(leftOut[kind].names) })}
+                </p>
+              ),
+          )}
         {error && (
           <p role="alert" className="text-[13px] text-danger">
             {error}

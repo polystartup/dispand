@@ -6,5 +6,13 @@
   },
   "errors": {
     "generic": "Something went wrong. Try again."
+  },
+  "agent": {
+    "leftOut": {
+      "skills_one": "A CLI session gets at most {{max}} skills, so the skill {{names}} will be left out.",
+      "skills_other": "A CLI session gets at most {{max}} skills, so these {{count}} skills will be left out: {{names}}.",
+      "runnerTools_one": "A CLI session gets at most {{max}} runner tools, so the tool {{names}} will be left out.",
+      "runnerTools_other": "A CLI session gets at most {{max}} runner tools, so these {{count}} tools will be left out: {{names}}."
+    }
   }
 }

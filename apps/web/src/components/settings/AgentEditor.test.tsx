@@ -114,6 +114,20 @@ test("another agent's page leaves the platform skill's box free", async () => {
   expect(screen.queryByText("The Assistant keeps its platform skill.")).toBeNull();
 });
 
+test("a save past a CLI session's limits says, in a whole sentence, what its sessions will leave out", async () => {
+  const shown = { ...agent, builtIn: undefined } as unknown as Agent;
+  fake.agents.update.mockResolvedValue({ ...shown, leftOut: { skills: { max: 50, names: [] }, runnerTools: { max: 20, names: ["Mail", "Search"] } } });
+  const user = mount(shown);
+  const sentence = "A CLI session gets at most 20 runner tools, so these 2 tools will be left out: Mail and Search.";
+  await user.click(await screen.findByRole("button", { name: "Save" }));
+  expect((await screen.findByText(sentence)).getAttribute("role")).toBe("status");
+});
+
+test("the agent page tells the one skill its sessions will leave out", async () => {
+  mount({ ...agent, builtIn: undefined, leftOut: { skills: { max: 50, names: ["writing"] }, runnerTools: { max: 20, names: [] } } } as unknown as Agent);
+  expect((await screen.findByText("A CLI session gets at most 50 skills, so the skill writing will be left out.")).getAttribute("role")).toBe("status");
+});
+
 test.each(["FORBIDDEN", "BAD_REQUEST"])("a %s refusal shows the server's reason", async (code) => {
   fake.agents.update.mockRejectedValue(refused(code, "The Assistant keeps its platform skill"));
   const user = mount(agent);

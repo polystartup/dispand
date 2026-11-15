@@ -5,7 +5,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { agents as agentsTable, agentTools, harnesses, tables as tablesTable, tools, user } from "../db/schema.ts";
 import { PLATFORM_TOOLS } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { asCli, ownerContext, recordingDb } from "../runners/test-support.ts";
 
 async function setup() {
   const context = await ownerContext();
@@ -382,4 +382,49 @@ test("Off survives a missing discovery action while another permission changes",
   await call(router.agents.update, { ...fields, id: agent.id, name: "Renamed" }, { context });
   await context.db.update(tools).set({ actions: listed }).where(eq(tools.id, "tool_gh"));
   expect((await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions.find((a) => a.name === "send")!.permission).toBe("off");
+});
+
+// A trigger created while its agent is being deleted, then started: on Postgres, the delete and
+// the start would deadlock if they locked the trigger and the agent in opposite orders. CI has no
+// Postgres: record the statements and check both lock `triggers` before `agents`.
+test("a trigger created and started during its agent's deletion: the start and the delete lock the trigger before the agent", async () => {
+  // First: it empties the database, which the context below shares.
+  const recording = await recordingDb();
+  const { context, harness } = await setup();
+  const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
+  recording.statements.length = 0;
+  const locked = () =>
+    recording.statements.splice(0).flatMap((q) => {
+      const row = /^select .* from "(\w+)".* for (update|share)/s.exec(q);
+      return row && (row[1] === "triggers" || row[1] === "agents") ? [row[1]] : [];
+    });
+  // Created after the delete read the agent's triggers: the delete never saw it.
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Do it.", config: { kind: "manual", placement: "button" } }, { context: { ...context, db: recording.db } });
+  // One insert, locking nothing first: it can't hold a row while it waits on another.
+  expect(recording.statements.some((q) => q.startsWith('insert into "triggers"'))).toBe(true);
+  expect(locked()).toEqual([]);
+  await recording.db.transaction((tx) => context.engine.createJob(tx, { ownerId: context.ownerId, agentId: agent.id, triggerId: trigger.id, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } }));
+  expect(locked()).toEqual(["triggers", "agents"]);
+  await recording.db.transaction((tx) => context.engine.deleteAgents(tx, context.ownerId, [agent.id]));
+  expect(locked()).toEqual(["triggers", "agents"]);
+  // Once the delete is through, the trigger went with its agent: starting it finds nothing.
+  await expect(call(router.jobs.start, { triggerId: trigger.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("saving an agent past a CLI session's 20 runner tools names the ones that will be left out; a cloud agent gets no warning", async () => {
+  const { context, harness } = await setup();
+  // Named so their order is the name order: "Tool 01" … "Tool 21".
+  const ids = Array.from({ length: 21 }, (_, i) => `tool_${String(i + 1).padStart(2, "0")}`);
+  await context.db.insert(tools).values(ids.map((id, i) => ({ id, ownerId: context.ownerId, name: `Tool ${String(i + 1).padStart(2, "0")}`, kind: "runner" as const, runnerId: harness.runnerId, runnerTool: "fetch" })));
+  const fields = { name: "Busy", harnessId: harness.id, systemPrompt: "Be brief." };
+  const fits = await call(router.agents.create, { ...fields, toolIds: ids.slice(0, 20) }, { context });
+  expect(fits).not.toHaveProperty("leftOut");
+  const past = await call(router.agents.update, { ...fields, id: fits.id, toolIds: ids }, { context });
+  expect(past).toMatchObject({ leftOut: { skills: { max: 50, names: [] }, runnerTools: { max: 20, names: ["Tool 21"] } } });
+  // The agent page reads it too.
+  expect(await call(router.agents.get, { id: fits.id }, { context })).toMatchObject({ leftOut: { skills: { max: 50, names: [] }, runnerTools: { max: 20, names: ["Tool 21"] } } });
+  // A cloud harness gets no runner tool and no CLI session: nothing to warn about.
+  const cloud = await call(router.harnesses.create, { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", model: "m", systemPrompt: "" } as never, { context });
+  const plain = await call(router.agents.create, { ...fields, name: "Cloud", harnessId: cloud.id }, { context });
+  expect(plain).not.toHaveProperty("leftOut");
 });

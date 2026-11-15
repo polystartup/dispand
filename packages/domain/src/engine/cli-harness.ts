@@ -4,7 +4,7 @@ import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
 import { agents, runs, stepRuns } from "../db/schema.ts";
 import { usedOnRunner } from "../skills/runner-access.ts";
-import { runnerServers, sessionTooling } from "./tooling.ts";
+import { MAX_SESSION_SKILLS, runnerServers, sessionTooling } from "./tooling.ts";
 import { exposedName } from "../platform/exposed.ts";
 import { jobTokenOf } from "../platform/token.ts";
 import { jobMemoryFiles } from "../memory/read.ts";
@@ -55,7 +55,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
     // the agent moved to a harness elsewhere since the Job was created, would fail the start.
     const skills: typeof tooling.skills = [];
     for (const skill of tooling.skills) {
-      if (skills.length < 50 && (await usedOnRunner(db, runnerId, skill.packageId))) skills.push(skill);
+      if (skills.length < MAX_SESSION_SKILLS && (await usedOnRunner(db, runnerId, skill.packageId))) skills.push(skill);
     }
     return {
       skills,

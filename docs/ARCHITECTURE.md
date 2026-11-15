@@ -672,7 +672,10 @@
   has it) and one `runner` MCP server per runner tool of the harness's own runner, named by
   `serverName` (lowercase words joined by `_`, never `job` or `dispand`, distinct); they are
   read at each start, so a resume carries them as they are then, and are never stored with the
-  step. HTTP tools never travel. A cloud session gets them through `installedToolCaller`
+  step. A CLI session gets at most 50 skill packages and 20 runner tools (`MAX_SESSION_SKILLS`,
+  `MAX_SESSION_RUNNER_TOOLS`), the first in name order; saving or reading an agent on a CLI
+  harness past either returns `leftOut` (per kind, the limit and the names past it), and the
+  agent page warns with it in a whole sentence. HTTP tools never travel. A cloud session gets them through `installedToolCaller`
   (`tools/cloud.ts`): one tool per action, called on the server through `InstalledTools`, asked
   before each call like any tool that isn't Dispand's own, and checked again at call time
   (a tool taken back, or an action gone, isn't called). `createEngine` combines that caller
@@ -908,7 +911,9 @@
   (`<roots[0]>/runs/<runKey>`; `SessionStart.cwd` has no other mode) through `startClaudeSession`: the Claude Agent SDK's `query` in streaming-input mode,
   running the machine's `claude` with the user's settings only (`settingSources: ["user"]`,
   never the run folder's), resuming only a CLI session the runner recorded for that run key
-  (`sessions.json`). Claude Code and Codex run as the runner machine's user, with that user's
+  (`sessions.json`). It logs one line when a session's CLI starts and one when it ends: the
+  session id, the run key, the harness and the outcome, never a prompt, result or error text.
+  Claude Code and Codex run as the runner machine's user, with that user's
   profile (settings, instructions files, memory, hooks, sign-in), which the session's agent
   sees and uses. A chat whose agent calls `submit_outputs` with no expected values completes
   without an owner confirmation, on both native and cloud harnesses. Workflow chats that hand

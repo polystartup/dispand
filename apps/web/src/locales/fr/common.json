@@ -6,5 +6,13 @@
   },
   "errors": {
     "generic": "Une erreur s’est produite. Réessayez."
+  },
+  "agent": {
+    "leftOut": {
+      "skills_one": "Une session CLI reçoit au plus {{max}} compétences, la compétence {{names}} sera donc laissée de côté.",
+      "skills_other": "Une session CLI reçoit au plus {{max}} compétences, ces {{count}} compétences seront donc laissées de côté : {{names}}.",
+      "runnerTools_one": "Une session CLI reçoit au plus {{max}} outils de runner, l'outil {{names}} sera donc laissé de côté.",
+      "runnerTools_other": "Une session CLI reçoit au plus {{max}} outils de runner, ces {{count}} outils seront donc laissés de côté : {{names}}."
+    }
   }
 }

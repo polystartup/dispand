@@ -224,7 +224,10 @@ the record is in place for when it does.
   reporting errors (Dispand resumes them once the runner is back), writes every event to
   the backlog and exits, within 10 s. It connects (while Dispand is unreachable, events
   wait; past 20,000 of them or 32 MiB, sessions end with an error and none starts until the
-  backlog drains below half) and runs sessions (what the unit starts). Logs: `journalctl --user -u dispand-runner`.
+  backlog drains below half) and runs sessions (what the unit starts). Logs: `journalctl --user -u dispand-runner`;
+  each session logs one line when its CLI starts and one when it ends: its session id, its run
+  key (the run's id, the step's and the start's time), its harness and its outcome (`succeeded`,
+  `failed`, `stopped`, `aborted` or `exited`), never a prompt, result or error text.
 
 ## Development
 
