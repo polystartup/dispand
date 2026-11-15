@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { useFormat } from "../../lib/format.ts";
 import { orpc } from "../../lib/api.ts";
 
 /**
@@ -8,6 +9,7 @@ import { orpc } from "../../lib/api.ts";
  */
 export function PollableActions({ toolId }: { toolId: string }) {
   const { t } = useTranslation("tools");
+  const { list } = useFormat();
   const queryClient = useQueryClient();
   const actions = useQuery(orpc.tools.pollable.queryOptions({ input: { id: toolId } }));
   const save = useMutation(orpc.tools.setPollable.mutationOptions({ onSuccess: (data) => queryClient.setQueryData(orpc.tools.pollable.queryKey({ input: { id: toolId } }), data) }));
@@ -35,7 +37,7 @@ export function PollableActions({ toolId }: { toolId: string }) {
             </label>
             {a.disabled && <p className="mt-1 pl-6 text-[12px] text-muted">{t("pollable.disabled")}</p>}
             {!a.disabled && a.allowed && a.askedBy.length > 0 && (
-              <p className="mt-1 pl-6 text-[12px] text-danger">{t("pollable.asked", { agents: a.askedBy.join(", ") })}</p>
+              <p className="mt-1 pl-6 text-[12px] text-danger">{t("pollable.asked", { agents: list(a.askedBy) })}</p>
             )}
           </li>
         ))}

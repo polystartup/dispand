@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useFormat } from "../../lib/format.ts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { orpc } from "../../lib/api.ts";
@@ -14,6 +15,7 @@ import { errorMessage, type Tool } from "./ToolSheet.tsx";
  */
 export function CatalogSettings({ tool, onSaved }: { tool: Tool; onSaved: (tool: Tool) => void }) {
   const { t } = useTranslation("tools");
+  const { list } = useFormat();
   const catalog = useQuery(orpc.tools.catalog.queryOptions({ input: {} }));
   const entry = catalog.data?.find((e) => e.id === tool.catalogId);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -38,7 +40,7 @@ export function CatalogSettings({ tool, onSaved }: { tool: Tool; onSaved: (tool:
         {t("settings.title")}
       </h2>
       <p role="status" className={`text-[13px] ${tool.signIn === "needed" ? "text-danger" : "text-muted"}`}>
-        {tool.signIn === "needed" ? t("settings.needed", { settings: entry.settings.map((s) => s.label).join(t("catalog.scopesJoin")) }) : t("settings.connected")}
+        {tool.signIn === "needed" ? t("settings.needed", { settings: list(entry.settings.map((s) => s.label)) }) : t("settings.connected")}
       </p>
       <form
         className="space-y-3"

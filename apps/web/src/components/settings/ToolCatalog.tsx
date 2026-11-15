@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Search } from "lucide-react";
 import { useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
+import { useFormat } from "../../lib/format.ts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -80,6 +81,7 @@ export function ToolCatalog({ onClose, onInstalled, onPickRunner }: Props) {
 
 function InstallHttp({ entry, onInstalled }: { entry: Extract<Entry, { kind: "http" }>; onInstalled: (tool: Tool) => void }) {
   const { t } = useTranslation("tools");
+  const { list } = useFormat();
   const [name, setName] = useState(entry.name);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -123,7 +125,7 @@ function InstallHttp({ entry, onInstalled }: { entry: Extract<Entry, { kind: "ht
       ))}
       {entry.oauth && (
         <p className="text-[14px]">
-          {t("catalog.oauth", { scopes: entry.oauth.scopes.map((s) => s.split("/").at(-1)).join(t("catalog.scopesJoin")) })}
+          {t("catalog.oauth", { scopes: list(entry.oauth.scopes.map((s) => s.split("/").at(-1)!)) })}
         </p>
       )}
       <p className="break-all text-[12px] text-faint">{t("catalog.calls", { url: entry.url })}</p>

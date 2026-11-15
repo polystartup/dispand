@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test } from "vitest";
-import { useFormat } from "./format.ts";
+import { formatters, useFormat } from "./format.ts";
 import { createI18n } from "./i18n.ts";
 
 afterEach(cleanup);
@@ -21,4 +21,9 @@ test("with French chosen on an English browser, a date and a number render in Fr
 test("in English, the same date and number render in English", () => {
   render(<I18nextProvider i18n={createI18n("en")}><Sample /></I18nextProvider>);
   expect(screen.getByText(/January/).textContent).toBe("January 15, 2026 | 1,234.5");
+});
+
+test("a list reads as one phrase in the page's language, with three items too", () => {
+  expect(formatters("en").list(["a", "b", "c"])).toBe("a, b, and c");
+  expect(formatters("fr").list(["a", "b", "c"])).toBe("a, b et c");
 });

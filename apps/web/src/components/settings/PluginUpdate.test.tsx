@@ -140,7 +140,7 @@ test("a skill's reworded file names the agents it reaches; a tool's new address 
   render(<UpdatePlan conflicts={[]} changes={changes} names={{}} take={[]} busy={false} onTake={vi.fn()} />);
   expect(screen.getByText(/Clears its sign-in/)).toBeTruthy();
   await userEvent.click(screen.getByText(/1 wording change/));
-  expect(screen.getByText("Reaches Intake, Drafting")).toBeTruthy();
+  expect(screen.getByText("Reaches Intake and Drafting")).toBeTruthy();
 });
 
 test("a skill an agent gains shows what it tells it, file by file", async () => {

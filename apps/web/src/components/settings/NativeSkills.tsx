@@ -54,7 +54,9 @@ export function NativeTargetPicker({ targets, selected, onChange }: { targets: R
 export function NativePluginAction({ harnessId, resource, name, action, onDone }: {
   harnessId: string; resource: Resource; name: string; action: "add" | "remove"; onDone: () => void;
 }) {
-  const { t } = useTranslation("harnesses");
+  const { t, i18n } = useTranslation("harnesses");
+  // The runner's tool names the change in its own words: those we know are translated, the rest shown as they came.
+  const state = (word: string) => (i18n.exists(`harnesses:native.word.${word}`) ? t(`native.word.${word}` as never) : word.replaceAll("_", " "));
   const queryClient = useQueryClient();
   const preview = useQuery({
     queryKey: ["native-plugin-preview", harnessId, resource.kind, resource.id, action],
@@ -80,10 +82,10 @@ export function NativePluginAction({ harnessId, resource, name, action, onDone }
       <p className="text-[13px] text-muted">{resource.kind === "plugin" ? t("native.warning") : t("native.skillsOnly")}</p>
       {action === "remove" && <p className="text-[13px] text-muted">{t("native.removeNote")}</p>}
       {preview.isPending && <p className="text-[13px] text-muted">{t("native.preparing")}</p>}
-      {preview.data?.changes && !apply.isSuccess && <ul className="text-[13px]">{preview.data.changes.map((c, i) => <li key={i}>{t("native.change", { target: c.harness ?? t("native.plugin"), change: c.action.replaceAll("_", " ") })}</li>)}</ul>}
+      {preview.data?.changes && !apply.isSuccess && <ul className="text-[13px]">{preview.data.changes.map((c, i) => <li key={i}>{t("native.change", { target: c.harness ?? t("native.plugin"), change: state(c.action) })}</li>)}</ul>}
       {preview.data?.blocked && <p role="alert" className="text-[13px] text-danger">{t("native.blocked")}</p>}
       {(preview.data?.error || result?.error || error) && <p role="alert" className="text-[13px] text-danger">{result?.error ?? preview.data?.error ?? refusal(error, t("native.failed"))}</p>}
-      {result?.results && <ul aria-label={t("native.results")} className="text-[13px]">{result.results.map((r, i) => <li key={i}>{t("native.change", { target: r.harness ?? t("native.plugin"), change: r.status.replaceAll("_", " ") })}</li>)}</ul>}
+      {result?.results && <ul aria-label={t("native.results")} className="text-[13px]">{result.results.map((r, i) => <li key={i}>{t("native.change", { target: r.harness ?? t("native.plugin"), change: state(r.status) })}</li>)}</ul>}
       {apply.isSuccess && !result?.error && <p role="status" className="text-[13px]">{t("native.done")}</p>}
       <div className="flex gap-2">
         {!apply.isSuccess && !apply.isError && <Button type="button" disabled={!preview.data?.revision || preview.data.blocked || !!preview.data.error || apply.isPending} onClick={() => apply.mutate(preview.data!.revision!)}>{apply.isPending ? t("native.applying") : t(`native.apply_${action}`)}</Button>}

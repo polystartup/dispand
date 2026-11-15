@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { useFormat } from "../../lib/format.ts";
 
 export type RemovalElement = { key: string; kind: "agent" | "skill" | "tool" | "table" | "trigger"; id: string; name: string; reasons: string[]; needs: string[]; keepOnly: string | null };
 export type RemovalChoice = "keep" | "delete";
@@ -80,6 +81,7 @@ function Choice({ element, why, choice, busy, onChange }: { element: RemovalElem
 /** The one screen of a plugin's removal: every element in use with its reasons and its two choices, and what a kept one needs. */
 export function RemovalChoices({ plan, busy, onChange }: { plan: RemovalPlan; busy: boolean; onChange: (key: string, choice: RemovalChoice) => void }) {
   const { t } = useTranslation("plugins");
+  const { list } = useFormat();
   const total = plan.asked.length + plan.needed.length + plan.gone;
   if (total === 0) return <p className="text-[13px] text-muted">{t("removal.nothing")}</p>;
   if (plan.asked.length === 0) return <p className="text-[13px] text-muted">{t("removal.unused", { count: total })}</p>;
@@ -89,7 +91,7 @@ export function RemovalChoices({ plan, busy, onChange }: { plan: RemovalPlan; bu
         <Choice key={e.key} element={e} why={e.reasons} choice={plan.choices[e.key]!} busy={busy} onChange={onChange} />
       ))}
       {plan.needed.map(({ element, by }) => (
-        <Choice key={element.key} element={element} why={[t("removal.neededBy", { names: by.join(", ") })]} choice={plan.choices[element.key]!} busy={busy} onChange={onChange} />
+        <Choice key={element.key} element={element} why={[t("removal.neededBy", { names: list(by) })]} choice={plan.choices[element.key]!} busy={busy} onChange={onChange} />
       ))}
       {plan.gone > 0 && (
         <p className="text-[13px] text-muted">

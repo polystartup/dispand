@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Plus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useFormat } from "../lib/format.ts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Empty, List } from "../components/settings/parts.tsx";
@@ -15,6 +16,7 @@ export const Route = createFileRoute("/_app/settings/skills")({ component: Skill
 
 function Skills() {
   const { t } = useTranslation("skills");
+  const { list } = useFormat();
   const packages = useQuery(orpc.skills.list.queryOptions());
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [sheet, setSheet] = useState<{ pkg?: SkillPackage } | null>(null);
@@ -93,7 +95,7 @@ function Skills() {
                       </li>
                     ))}
                     {p.requiredTools.length > 0 && (
-                      <li className="text-[13px] text-muted">{t("list.requires", { tools: p.requiredTools.map((tool) => tool.name).join(", ") })}</li>
+                      <li className="text-[13px] text-muted">{t("list.requires", { tools: list(p.requiredTools.map((tool) => tool.name)) })}</li>
                     )}
                   </ul>
                 )}

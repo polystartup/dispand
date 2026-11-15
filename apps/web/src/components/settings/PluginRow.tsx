@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
+import { useFormat } from "../../lib/format.ts";
 import { Button } from "@/components/ui/button";
 import { refusal } from "./PluginInstallSheet.tsx";
 import { PluginRemoveSheet } from "./PluginRemoveSheet.tsx";
@@ -14,6 +15,7 @@ type Plugin = Awaited<ReturnType<typeof api.plugins.list>>[number];
 /** Installed components are removed only through the explicit checklist; generated items stay. */
 export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   const { t } = useTranslation("plugins");
+  const { list } = useFormat();
   const queryClient = useQueryClient();
   const refresh = () =>
     Promise.all(
@@ -28,14 +30,14 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
     // What an element's own checks refused is said, not hidden.
     const sha = result.sha.slice(0, 7);
     const item = (f: { name: string; reason: string }) => t("row.failedItem", { name: f.name, reason: f.reason });
-    const done = result.failed?.length ? t("row.updatedExcept", { sha, failed: result.failed.map(item).join("; ") }) : result.sha === p.sha ? t("row.upToDate") : t("row.updated", { sha });
+    const done = result.failed?.length ? t("row.updatedExcept", { sha, failed: list(result.failed.map(item)) }) : result.sha === p.sha ? t("row.upToDate") : t("row.updated", { sha });
     // A native install that didn't move: finished from its harness's workspace skills.
-    const native = result.leftBehind?.length ? t("row.leftBehind", { harnesses: result.leftBehind.map(item).join("; ") }) : "";
-    setNote(native ? `${done} ${native}` : done);
+    const native = result.leftBehind?.length ? t("row.leftBehind", { harnesses: list(result.leftBehind.map(item)) }) : "";
+    setNote(native ? [done, native] : [done]);
   };
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
+  const [note, setNote] = useState<string[] | null>(null);
   const [settingUp, setSettingUp] = useState(false);
   const busy = update.isPending || looking;
   const available = [
@@ -166,13 +168,15 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
       )}
       {p.notImported.length > 0 && (
         <p className="text-[13px] text-faint">
-          {t("row.neverImported", { count: p.notImported.length, components: [...new Set(p.notImported.map((n) => n.component))].join(", ") })}
+          {t("row.neverImported", { count: p.notImported.length, components: list([...new Set(p.notImported.map((n) => n.component))]) })}
         </p>
       )}
       {note && (
-        <p role="status" className="text-[13px] text-muted">
-          {note}
-        </p>
+        <div role="status" className="space-y-1 text-[13px] text-muted">
+          {note.map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+        </div>
       )}
       {error && (
         <p role="alert" className="text-[13px] text-danger">

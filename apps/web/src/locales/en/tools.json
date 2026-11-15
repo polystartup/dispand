@@ -35,7 +35,6 @@
     "name": "Name",
     "settingHint": "{{help}} Stored encrypted; it is never shown again.",
     "oauth": "It signs in with OAuth. Once it is installed, enter your OAuth client's id and secret on its page, then Connect. The sign-in asks for {{scopes}} only.",
-    "scopesJoin": " and ",
     "calls": "Calls {{url}}",
     "install": "Install",
     "runnerSteps": "{{name}} runs on your own machine. Add this under <0>mcpServers</0> in the runner's <1>config.json</1> there, then restart the runner.",

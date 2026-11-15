@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useFormat } from "../../lib/format.ts";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { api } from "../../lib/api.ts";
 import { Check, Section, toggled } from "./PluginInstallSheet.tsx";
@@ -14,13 +15,14 @@ type Offered = { primitives: { name: string; setUp?: boolean }[]; agents: AgentD
 /** What an agent definition's Jobs may do, in words: shown before it is made when no proposal shows it. */
 export function AgentRights({ d }: { d: AgentDefinition }) {
   const { t, i18n } = useTranslation(["plugins", "agents"]);
+  const { list } = useFormat();
   const { bundles = [], tools = [], consults = [], selfLearning = [] } = d;
   const lines = [
-    bundles.length ? t("picks.rights.bundles", { list: bundles.map((b) => (i18n.exists(`agents:rights.${b}.label`) ? t(`agents:rights.${b}.label`) : b)).join(", ") }) : t("picks.rights.noBundles"),
-    d.tables === undefined || d.tables === "all" ? t("picks.rights.allTables") : d.tables.length ? t("picks.rights.tables", { list: d.tables.join(", ") }) : t("picks.rights.noTables"),
-    ...(tools.length ? [t("picks.rights.tools", { list: tools.join(", ") })] : []),
-    ...(consults.length ? [t("picks.rights.consults", { list: consults.map((c) => (c.ask ? t("picks.rights.asks", { agent: c.agent }) : c.agent)).join(", ") })] : []),
-    ...(selfLearning.length ? [t("picks.rights.learns", { list: selfLearning.map((x) => (i18n.exists(`agents:learns.${x}.label`) ? t(`agents:learns.${x}.label`) : x)).join(", ") })] : []),
+    bundles.length ? t("picks.rights.bundles", { list: list(bundles.map((b) => (i18n.exists(`agents:rights.${b}.label`) ? t(`agents:rights.${b}.label`) : b))) }) : t("picks.rights.noBundles"),
+    d.tables === undefined || d.tables === "all" ? t("picks.rights.allTables") : d.tables.length ? t("picks.rights.tables", { list: list(d.tables) }) : t("picks.rights.noTables"),
+    ...(tools.length ? [t("picks.rights.tools", { list: list(tools) })] : []),
+    ...(consults.length ? [t("picks.rights.consults", { list: list(consults.map((c) => (c.ask ? t("picks.rights.asks", { agent: c.agent }) : c.agent))) })] : []),
+    ...(selfLearning.length ? [t("picks.rights.learns", { list: list(selfLearning.map((x) => (i18n.exists(`agents:learns.${x}.label`) ? t(`agents:learns.${x}.label`) : x))) })] : []),
   ];
   return (
     <ul aria-label={t("picks.rights.label", { name: d.name })} className="ml-7 space-y-0.5 text-[12px] text-muted">
@@ -39,6 +41,7 @@ export function AgentRights({ d }: { d: AgentDefinition }) {
  */
 export function useDefinitionPicks(definitions: Offered, harnesses: Harness[] | undefined, rights = false) {
   const { t } = useTranslation("plugins");
+  const { list } = useFormat();
   const { primitives, agents, triggers } = definitions;
   // All ticked: a table made by a run that stopped may still lack its fields, and a run only adds what is missing.
   const [picked, setPicked] = useState(() => new Set(primitives.map((d) => d.name)));
@@ -84,7 +87,7 @@ export function useDefinitionPicks(definitions: Offered, harnesses: Harness[] | 
                   checked={pickedAgents.has(d.name)}
                   onChange={() => setPickedAgents((prev) => toggled(prev, d.name))}
                   label={d.name}
-                  detail={[d.setUp ? t("picks.agentMade") : d.description || t("picks.notSetUp"), !rights && d.selfLearning?.length ? t("picks.learnsInto", { list: d.selfLearning.join(", ") }) : ""].filter(Boolean).join(" · ")}
+                  detail={[d.setUp ? t("picks.agentMade") : d.description || t("picks.notSetUp"), !rights && d.selfLearning?.length ? t("picks.learnsInto", { list: list(d.selfLearning) }) : ""].filter(Boolean).join(" · ")}
                 />
                 {pickedAgents.has(d.name) && !d.setUp && harnesses && harnesses.length > 0 && (
                   <Select value={harnessOf(d) ?? ""} onValueChange={(id) => setChosen((prev) => ({ ...prev, [d.name]: id }))}>

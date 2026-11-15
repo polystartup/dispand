@@ -1,5 +1,6 @@
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
+import { useFormat } from "../../lib/format.ts";
 
 type At = { key: string; kind: "agent" | "tool" | "trigger" | "skill"; id: string; name: string; field: string };
 export type UpdateChange = At & { class: "widening" | "wording" | "silent"; before: unknown; after: unknown; reaches?: string[]; gained?: { name: string; files: { path: string; text: string | null }[] }[] };
@@ -16,14 +17,15 @@ export type NativeInstalls = { harnesses: { id: string; name: string }[]; unchec
 /** Where the plugin is installed natively: each install moves to the new version with the update. */
 export function NativeMoves({ native }: { native: NativeInstalls }) {
   const { t } = useTranslation("plugins");
+  const { list } = useFormat();
   if (!native.harnesses.length && !native.unchecked.length) return null;
   return (
     <section aria-labelledby="update-native" className="space-y-1 text-[13px]">
       <h3 id="update-native" className="font-medium text-muted">
         {t("update.nativeTitle")}
       </h3>
-      {native.harnesses.length > 0 && <p>{t("update.nativeMoves", { harnesses: native.harnesses.map((h) => h.name).join(", ") })}</p>}
-      {native.unchecked.length > 0 && <p className="text-muted">{t("update.nativeStays", { harnesses: native.unchecked.join(", ") })}</p>}
+      {native.harnesses.length > 0 && <p>{t("update.nativeMoves", { harnesses: list(native.harnesses.map((h) => h.name)) })}</p>}
+      {native.unchecked.length > 0 && <p className="text-muted">{t("update.nativeStays", { harnesses: list(native.unchecked) })}</p>}
     </section>
   );
 }
@@ -89,6 +91,7 @@ export function UpdatePlan({
   additions?: UpdateAddition[];
 }) {
   const { t } = useTranslation(["plugins", "messages"]);
+  const { list } = useFormat();
   const assistant = t("messages:agent.assistant.name");
   const of = (kind: UpdateChange["class"]) => changes.filter((c) => c.class === kind);
   const [widening, wording, silent] = [of("widening"), of("wording"), of("silent")];
@@ -104,7 +107,7 @@ export function UpdatePlan({
               <p>
                 <span className="font-medium text-fg">{c.name}</span> <span className="text-faint">{t("update.dotField", { field: label(t, c.field) })}</span>
               </p>
-              {c.reaches && <p className="text-muted">{c.reaches.length ? t("update.reaches", { agents: c.reaches.join(", ") }) : t("update.noAgent")}</p>}
+              {c.reaches && <p className="text-muted">{c.reaches.length ? t("update.reaches", { agents: list(c.reaches) }) : t("update.noAgent")}</p>}
               <Text title={t("update.before")} value={c.old} names={names} />
               <Text title={t("update.yours")} value={c.mine} names={names} />
               <Text title={t("update.now")} value={c.next} names={names} />
@@ -180,7 +183,7 @@ export function UpdatePlan({
                 <p>
                   <span className="font-medium text-fg">{c.name}</span> <span className="text-faint">{t("update.dotField", { field: label(t, c.field) })}</span>
                 </p>
-                {c.reaches && <p className="text-muted">{c.reaches.length ? t("update.reaches", { agents: c.reaches.join(", ") }) : t("update.noAgent")}</p>}
+                {c.reaches && <p className="text-muted">{c.reaches.length ? t("update.reaches", { agents: list(c.reaches) }) : t("update.noAgent")}</p>}
                 <Text title={t("update.wordingBefore")} value={c.before} names={names} />
                 <Text title={t("update.wordingAfter")} value={c.after} names={names} />
               </div>
@@ -229,6 +232,7 @@ export const startingTicks = (tables: UpdateTable[]) => Object.fromEntries(table
  */
 export function TableChanges({ tables, ticked, busy, onTick }: { tables: UpdateTable[]; ticked: Record<string, string[]>; busy: boolean; onTick: (tableId: string, key: string) => void }) {
   const { t } = useTranslation("plugins");
+  const { list } = useFormat();
   return (
     <div className="space-y-3 text-[13px]">
       {tables.map((table) => (
@@ -242,7 +246,7 @@ export function TableChanges({ tables, ticked, busy, onTick }: { tables: UpdateT
                 <span>
                   {says(t, c)}
                   {c.loses ? <span className="block text-danger">{t("update.loses", { count: c.loses })}</span> : null}
-                  {c.stops?.length ? <span className="block text-danger">{t(c.kind === "retype" ? "update.mayStop" : "update.stops", { count: c.stops.length, workflows: c.stops.join(", ") })}</span> : null}
+                  {c.stops?.length ? <span className="block text-danger">{t(c.kind === "retype" ? "update.mayStop" : "update.stops", { count: c.stops.length, workflows: list(c.stops) })}</span> : null}
                   {blocked && <span className="block text-muted">{blocked}</span>}
                 </span>
               </label>

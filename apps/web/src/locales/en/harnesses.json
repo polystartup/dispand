@@ -213,6 +213,13 @@
     "wholePlugin": "{{name}} · whole plugin",
     "noImported": "No imported workspace skills",
     "install": "Install natively",
-    "uninstall": "Uninstall natively"
+    "uninstall": "Uninstall natively",
+    "word": {
+      "add": "Install",
+      "remove": "Uninstall",
+      "already_installed": "Already installed",
+      "installed": "Installed",
+      "removed": "Uninstalled"
+    }
   }
 }

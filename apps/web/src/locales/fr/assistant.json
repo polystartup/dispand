@@ -8,5 +8,5 @@
   "chat": "{{assistant}}",
   "settings": "Réglages de {{assistant}}",
   "settingsFailed": "Impossible de charger les réglages de {{assistant}}.",
-  "saveFailed": "Impossible d'enregistrer les réglages de {{assistant}}. Réessayez."
+  "saveFailed": "Impossible d’enregistrer les réglages de {{assistant}}. Réessayez."
 }
