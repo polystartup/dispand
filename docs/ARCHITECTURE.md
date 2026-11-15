@@ -565,7 +565,8 @@
   before its call, after the call otherwise); and each event of a primitive table, when
   `recordEvent` appends it, in the write's transaction (`event.recorded`, on the row, by the
   person or the Job that wrote it, with the table's id and name, the event's id, the operation
-  and how many fields changed; never a value, and nothing for a workflow step's write): a Job's
+  and how many fields changed; never a value, and nothing for a workflow step's write); and
+  each memory write (`memory.written`, see Memory): a Job's
   write leaves its call's row and this one, whose event id is the one the Jobs it fires name in
   their `job.created`. A runner session's calls of the runner's own MCP
   servers never reach the server: their permission prompts are its Approvals' rows. `audit.list` (owner, or a `configure` Job as
@@ -705,7 +706,10 @@
   author included, and restore a removed entry as it last was. The owner's procedures
   (`memories.*`, not tools) back the workspace memory page under Settings (`MemoryPanel`).
   Every write is a `memory.write` span and `dispand.memory.writes` (scope, operation, result),
-  never a path or a body.
+  never a path or a body, and a `memory.written` Audit row in the write's transaction (by the
+  person or the Job, on the entry, with `scope`, the table or agent, and `operation`: `add`,
+  `update`, `remove`, `accept`, `revert` or `restore`; a person's write included, a refused one
+  none).
   An agent's self-learning switch (`agents.self_learning`: targets among `agent`, `data`,
   `workspace`, empty by default) says where its Jobs may write memory. Setting it is part of
   `agents.create` and `agents.update`, grants a Job reaches only through an approved proposal;

@@ -1,6 +1,7 @@
 import { and, asc, count, desc, eq, isNull, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { agents, memories, memoryRevisions, tables } from "../db/schema.ts";
+import { recordAudit } from "../audit/record.ts";
 import { newId } from "../ids.ts";
 import { meter, tracer } from "../telemetry/index.ts";
 import { MAX_MEMORY_ENTRIES, MEMORY_TYPE_LABELS, MEMORY_TYPES, type MemoryAuthor, MemoryEntryInput, type MemoryEntryFields, type MemoryScope } from "./model.ts";
@@ -19,6 +20,9 @@ export const NOT_FOUND = "Not found";
 
 const traces = tracer("memory");
 const writes = meter("memory").counter("dispand.memory.writes", { description: "Memory writes, by scope, operation and result" });
+
+// Revert, restore and accept are a person's (the owner's procedures only).
+const USER: MemoryAuthor = { type: "user" };
 
 type Op = "add" | "update" | "remove" | "accept" | "revert" | "restore";
 
@@ -42,6 +46,19 @@ function recorded<T extends { id: string } | Refusal>(scope: MemoryScope["scope"
 /** A write refused before it reaches the store (a Job without the scope's target), recorded like any other. */
 export function refuseWrite(scope: MemoryScope["scope"], op: "add" | "update" | "remove", error: string): Promise<Refusal> {
   return recorded(scope, op, async () => ({ error }));
+}
+
+/** The `memory.written` row of a write, in its transaction: who wrote, the entry and its scope, never its path, name or body. */
+function auditWrite(tx: Tx, ownerId: string, where: MemoryScope, memoryId: string, operation: Op, by: MemoryAuthor) {
+  return recordAudit(tx, {
+    ownerId,
+    actor: by.type === "user" ? { type: "user", userId: ownerId } : { type: "job", runId: by.runId },
+    agentId: by.type === "agent" ? by.agentId : null,
+    jobId: by.type === "agent" ? by.runId : null,
+    action: "memory.written",
+    resource: { type: "memory", id: memoryId },
+    details: { memoryId, scope: where.scope, operation, ...(where.scope === "table" ? { tableId: where.tableId } : where.scope === "agent" ? { agentId: where.agentId } : {}) },
+  });
 }
 
 function inScope(ownerId: string, where: MemoryScope) {
@@ -83,9 +100,9 @@ async function full(tx: Tx, ownerId: string, where: MemoryScope): Promise<Refusa
 /**
  * Makes `fields` the entry's next revision (its first when `row` is null), live or removed. A
  * person's revision needs no acceptance and an agent's isn't accepted yet: either way the
- * acceptance is cleared.
+ * acceptance is cleared. `by` is who writes (a revert or a restore keeps the revision's author), audited as `op`.
  */
-async function commit(tx: Tx, ownerId: string, where: MemoryScope, row: MemoryEntry | null, fields: MemoryEntryFields, author: MemoryAuthor, removed: boolean) {
+async function commit(tx: Tx, ownerId: string, where: MemoryScope, row: MemoryEntry | null, fields: MemoryEntryFields, author: MemoryAuthor, removed: boolean, op: Op, by: MemoryAuthor = author) {
   const now = new Date();
   const state = { ...fields, author, acceptedAt: null, removedAt: removed ? now : null, updatedAt: now };
   let id: string;
@@ -108,6 +125,7 @@ async function commit(tx: Tx, ownerId: string, where: MemoryScope, row: MemoryEn
     });
   }
   await tx.insert(memoryRevisions).values({ id: newId("memrev"), memoryId: id, revision, ...fields, removed, author, createdAt: now });
+  await auditWrite(tx, ownerId, where, id, op, by);
   return { id };
 }
 
@@ -137,7 +155,7 @@ export function writeMemory(db: Db | Tx, ownerId: string, where: MemoryScope, en
         const refused = await full(tx, ownerId, where);
         if (refused) return refused;
       }
-      return commit(tx, ownerId, where, row ?? null, fields, author, false);
+      return commit(tx, ownerId, where, row ?? null, fields, author, false, live ? "update" : "add");
     });
   });
 }
@@ -173,7 +191,7 @@ async function onEntry(db: Db | Tx, ownerId: string, id: string, op: Op, write: 
 export function removeMemoryById(db: Db | Tx, ownerId: string, id: string, author: MemoryAuthor) {
   return onEntry(db, ownerId, id, "remove", async (tx, row) => {
     if (row.removedAt) return { error: "This entry is removed already." };
-    return commit(tx, ownerId, scopeOf(row), row, fieldsOf(row), author, true);
+    return commit(tx, ownerId, scopeOf(row), row, fieldsOf(row), author, true, "remove");
   });
 }
 
@@ -182,6 +200,7 @@ export function acceptMemory(db: Db | Tx, ownerId: string, id: string) {
   return onEntry(db, ownerId, id, "accept", async (tx, row) => {
     if (row.removedAt || row.author.type !== "agent") return { error: "Only an agent's entry, not removed, can be accepted." };
     await tx.update(memories).set({ acceptedAt: new Date() }).where(eq(memories.id, row.id));
+    await auditWrite(tx, ownerId, scopeOf(row), row.id, "accept", USER);
     return { id: row.id };
   });
 }
@@ -196,14 +215,14 @@ export function revertMemory(db: Db | Tx, ownerId: string, id: string) {
     const where = scopeOf(row);
     if (row.revision === 1) {
       const [first] = await tx.select().from(memoryRevisions).where(and(eq(memoryRevisions.memoryId, row.id), eq(memoryRevisions.revision, 1)));
-      return commit(tx, ownerId, where, row, fieldsOf(row), first!.author, true);
+      return commit(tx, ownerId, where, row, fieldsOf(row), first!.author, true, "revert", USER);
     }
     const [previous] = await tx.select().from(memoryRevisions).where(and(eq(memoryRevisions.memoryId, row.id), eq(memoryRevisions.revision, row.revision - 1)));
     if (!previous!.removed && row.removedAt) {
       const refused = await full(tx, ownerId, where);
       if (refused) return refused;
     }
-    return commit(tx, ownerId, where, row, fieldsOf(previous!), previous!.author, previous!.removed);
+    return commit(tx, ownerId, where, row, fieldsOf(previous!), previous!.author, previous!.removed, "revert", USER);
   });
 }
 
@@ -221,7 +240,7 @@ export function restoreMemory(db: Db | Tx, ownerId: string, id: string) {
       .orderBy(desc(memoryRevisions.revision))
       .limit(1);
     // Every entry's first revision is live, so there is one.
-    return commit(tx, ownerId, where, row, fieldsOf(last!), last!.author, false);
+    return commit(tx, ownerId, where, row, fieldsOf(last!), last!.author, false, "restore", USER);
   });
 }
 

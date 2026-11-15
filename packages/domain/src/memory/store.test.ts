@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
-import { memories, memoryRevisions } from "../db/schema.ts";
+import { audit, memories, memoryRevisions } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
@@ -171,4 +171,38 @@ test("a write's span and metric carry its scope, operation and result, never its
   expect(points).toContainEqual({ name: "dispand.memory.writes", attributes: { "dispand.memory.scope": "workspace", "dispand.memory.op": "add", "dispand.result": "ok" } });
   expect(points).toContainEqual({ name: "dispand.memory.writes", attributes: { "dispand.memory.scope": "workspace", "dispand.memory.op": "add", "dispand.result": "refused" } });
   expect(await t.all()).not.toContain("sentinel");
+});
+
+test("every memory write is one memory.written row with its actor, a refused one none, and no path, name or body", async () => {
+  const { db, ownerId, agent, table, agentAuthor } = await setup();
+  const rows = async () => (await db.select().from(audit).where(eq(audit.action, "memory.written")).orderBy(audit.id)).map((r) => r);
+  const where = { scope: "table" as const, tableId: table.id };
+  const user: MemoryAuthor = { type: "user" };
+  const e = entry("secret/path.md", "Sentinel body");
+  const added = (await writeMemory(db, ownerId, where, e, user, "add")) as { id: string };
+  await writeMemory(db, ownerId, where, { ...e, body: "Sentinel two" }, agentAuthor, "update");
+  await acceptMemory(db, ownerId, added.id);
+  await revertMemory(db, ownerId, added.id);
+  await removeMemory(db, ownerId, where, "secret/path.md", agentAuthor);
+  await restoreMemory(db, ownerId, added.id);
+  const got = await rows();
+  expect(got.map((r) => [r.details.operation, r.actor.type, r.actorAgentId, r.jobId])).toEqual([
+    ["add", "user", null, null],
+    ["update", "job", agent.id, "run_1"],
+    ["accept", "user", null, null],
+    ["revert", "user", null, null],
+    ["remove", "job", agent.id, "run_1"],
+    ["restore", "user", null, null],
+  ]);
+  for (const r of got) expect(r).toMatchObject({ resourceType: "memory", resourceId: added.id, result: "ok", details: { memoryId: added.id, scope: "table", tableId: table.id } });
+  // A write at the agent's scope names the agent.
+  await writeMemory(db, ownerId, { scope: "agent", agentId: agent.id }, entry("a.md"), user, "add");
+  expect((await rows()).at(-1)!.details).toMatchObject({ scope: "agent", agentId: agent.id });
+  const before = (await rows()).length;
+  await writeMemory(db, ownerId, where, entry("../bad.md"), user, "add");
+  await writeMemory(db, ownerId, where, e, user, "add");
+  await writeMemory(db, ownerId, where, entry("missing.md"), user, "update");
+  expect(await rows()).toHaveLength(before);
+  const text = JSON.stringify(await rows());
+  for (const secret of ["secret/path.md", "Sentinel", "Name of"]) expect(text).not.toContain(secret);
 });
