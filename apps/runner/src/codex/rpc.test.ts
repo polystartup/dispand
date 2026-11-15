@@ -5,6 +5,11 @@ import { fakeCodex as fakeCodexIn } from "../fixtures/fake-codex-bin.ts";
 import { CodexRpc } from "./rpc.ts";
 import { codexRequired, codexStatus } from "./version.ts";
 
+// These tests spawn processes or run sessions and wait on what they do: on a busy machine (CI runs
+// the runner's test files in parallel) that takes over Vitest's default 1 s. The config gives
+// each test 30 s; its waits get most of it.
+const waitFor = <T>(callback: () => T | Promise<T>) => vi.waitFor(callback, { timeout: 20_000 });
+
 const made: string[] = [];
 afterEach(async () => {
   for (const dir of made.splice(0)) await rm(dir, { recursive: true, force: true });
@@ -33,7 +38,7 @@ test.each(["account/chatgptAuthTokens/refresh", "attestation/generate"])("%s is 
   const rpc = await CodexRpc.spawn(codex.path, codex.env, codex.dir);
   const handler = vi.fn(async () => ({ accessToken: "never" }));
   rpc.onServerRequest(handler);
-  await vi.waitFor(async () => expect((await codex.received()).find((m) => m.id === "s0")).toMatchObject({ error: { code: expect.any(Number) } }));
+  await waitFor(async () => expect((await codex.received()).find((m) => m.id === "s0")).toMatchObject({ error: { code: expect.any(Number) } }));
   expect(handler).not.toHaveBeenCalled();
   expect(JSON.stringify(await codex.received())).not.toContain("never");
   await rpc.close();
@@ -42,7 +47,7 @@ test.each(["account/chatgptAuthTokens/refresh", "attestation/generate"])("%s is 
 test("an unknown server request gets -32601", async () => {
   const codex = await fakeCodex({ FAKE_CODEX_SERVER_REQUESTS: JSON.stringify([{ method: "currentTime/read", params: {} }]) });
   const rpc = await CodexRpc.spawn(codex.path, codex.env, codex.dir);
-  await vi.waitFor(async () => expect((await codex.received()).find((m) => m.id === "s0")).toMatchObject({ error: { code: -32601 } }));
+  await waitFor(async () => expect((await codex.received()).find((m) => m.id === "s0")).toMatchObject({ error: { code: -32601 } }));
   await rpc.close();
 });
 
@@ -50,7 +55,7 @@ test("a handled server request gets the handler's result", async () => {
   const codex = await fakeCodex({ FAKE_CODEX_SERVER_REQUESTS: JSON.stringify([{ method: "currentTime/read", params: {} }]) });
   const rpc = await CodexRpc.spawn(codex.path, codex.env, codex.dir);
   rpc.onServerRequest(async (r) => ({ seen: r.method }));
-  await vi.waitFor(async () => expect((await codex.received()).find((m) => m.id === "s0")).toEqual({ id: "s0", result: { seen: "currentTime/read" } }));
+  await waitFor(async () => expect((await codex.received()).find((m) => m.id === "s0")).toEqual({ id: "s0", result: { seen: "currentTime/read" } }));
   await rpc.close();
 });
 
@@ -90,7 +95,7 @@ test("an app-server that doesn't answer in time reports no status and is killed"
     const pidFile = join(codex.dir, "pid");
     expect(await codexStatus(codex.path, { ...codex.env, FAKE_CODEX_PID: pidFile }, 3000)).toBeUndefined();
     const pid = Number(await readFile(pidFile, "utf8"));
-    await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow());
+    await waitFor(() => expect(() => process.kill(pid, 0)).toThrow());
   }
 });
 

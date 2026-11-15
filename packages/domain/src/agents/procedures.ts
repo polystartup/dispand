@@ -189,7 +189,10 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
 async function sessionLeftOut(db: Db | Tx, agentId: string, harnessRunnerId: string | null) {
   if (harnessRunnerId === null) return {};
   const { skills, tools } = await skillsAndTools(db, agentId);
-  const out = leftOut(skills, tools.filter((t) => t.kind === "runner"));
+  // Only the harness's runner's tools reach its sessions (`runnerServers`): one retargeted since doesn't count.
+  const ids = tools.filter((t) => t.kind === "runner").map((t) => t.toolId);
+  const here = new Set(ids.length ? (await db.select({ id: toolsTable.id }).from(toolsTable).where(and(inArray(toolsTable.id, ids), eq(toolsTable.runnerId, harnessRunnerId)))).map((t) => t.id) : []);
+  const out = leftOut(skills, tools.filter((t) => here.has(t.toolId)));
   return out.skills.names.length || out.runnerTools.names.length ? { leftOut: out } : {};
 }
 

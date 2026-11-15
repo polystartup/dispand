@@ -423,6 +423,10 @@ test("saving an agent past a CLI session's 20 runner tools names the ones that w
   expect(past).toMatchObject({ leftOut: { skills: { max: 50, names: [] }, runnerTools: { max: 20, names: ["Tool 21"] } } });
   // The agent page reads it too.
   expect(await call(router.agents.get, { id: fits.id }, { context })).toMatchObject({ leftOut: { skills: { max: 50, names: [] }, runnerTools: { max: 20, names: ["Tool 21"] } } });
+  // A tool moved to another runner since doesn't reach its sessions: it isn't counted.
+  const { runnerId: other } = await call(router.runners.create, { name: "Laptop" }, { context });
+  await context.db.update(tools).set({ runnerId: other }).where(eq(tools.id, ids[0]!));
+  expect(await call(router.agents.get, { id: fits.id }, { context })).not.toHaveProperty("leftOut");
   // A cloud harness gets no runner tool and no CLI session: nothing to warn about.
   const cloud = await call(router.harnesses.create, { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", model: "m", systemPrompt: "" } as never, { context });
   const plain = await call(router.agents.create, { ...fields, name: "Cloud", harnessId: cloud.id }, { context });
