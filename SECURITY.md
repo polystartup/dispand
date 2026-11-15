@@ -743,7 +743,9 @@ changes it updates this file.
   index, 2 MiB per file and 32 MiB and 60 s per read. A skill whose name isn't a skill name, or
   whose files include a path `isSafeRelativePath` refuses, is listed as not imported, and its
   files are never requested. Every other skill goes through `validatePackage`.
-- **Every input is validated** by its procedure's Zod schema; errors don't leak internals.
+- **Every input is validated** by its procedure's Zod schema; errors don't leak internals:
+  anything but an `ORPCError` reaches the page as the generic message (oRPC sends no text, the
+  log only `logError`'s summary), and a server message's values render as text, never markup.
 - **One owner account per install; every row is owner-scoped,** and procedures only return the session owner's rows.
 - **The server's secrets come from its environment** (`deploy/README.md`), never from git,
   logs or client bundles.

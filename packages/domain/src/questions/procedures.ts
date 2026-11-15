@@ -7,6 +7,7 @@ import { agents, questions as questionsTable, runs, stepRuns, triggers, workflow
 import { answerText, EngineError, questionView } from "../engine/engine.ts";
 import { jobAgentNameSql } from "../jobs/agent-name.ts";
 import { proposalView } from "../platform/proposals.ts";
+import { message } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
 import { nodesOf, type WorkflowDef } from "../workflows/model.ts";
 
@@ -32,29 +33,26 @@ async function pendingCount(db: Db, ownerId: string) {
  * from it: it reaches the agent as the owner's own words.
  */
 export function check(payload: QuestionPayload, answer: Answer): Answer {
-  const bad = (message: string): never => {
-    throw new ORPCError("BAD_REQUEST", { message });
-  };
-  if (payload.kind !== answer.kind) return bad("The answer doesn't match the question");
+  if (payload.kind !== answer.kind) throw new ORPCError("BAD_REQUEST", message("questions.answer.mismatch"));
   let delivered = answer;
   if (payload.kind === "choice" && answer.kind === "choice") {
     const answers: Record<string, string | string[]> = {};
     const asked = payload.questions.map((q) => q.question);
-    if (Object.keys(answer.answers).some((k) => !asked.includes(k))) return bad("The answer names a question that wasn't asked");
+    if (Object.keys(answer.answers).some((k) => !asked.includes(k))) throw new ORPCError("BAD_REQUEST", message("questions.answer.notAsked"));
     for (const q of payload.questions) {
       const given = answer.answers[q.question];
       const labels = new Set(q.options.map((o) => o.label));
       // A listed label stays exactly as listed (the runner matches labels exactly); only free text is trimmed.
       const picks = (Array.isArray(given) ? given : given === undefined ? [] : [given]).map((p) => (labels.has(p) ? p : p.trim()));
-      if (picks.length === 0 || picks.some((p) => p === "")) return bad(`Answer “${q.question}”`);
-      if (!q.multiSelect && picks.length > 1) return bad(`“${q.question}” takes one answer`);
-      if (new Set(picks).size !== picks.length) return bad(`“${q.question}” lists the same answer twice`);
+      if (picks.length === 0 || picks.some((p) => p === "")) throw new ORPCError("BAD_REQUEST", message("questions.answer.missing", { question: q.question }));
+      if (!q.multiSelect && picks.length > 1) throw new ORPCError("BAD_REQUEST", message("questions.answer.oneOnly", { question: q.question }));
+      if (new Set(picks).size !== picks.length) throw new ORPCError("BAD_REQUEST", message("questions.answer.duplicate", { question: q.question }));
       answers[q.question] = Array.isArray(given) ? picks : picks[0]!;
     }
     delivered = { kind: "choice", answers };
   }
   if (payload.kind === "permission" && answer.kind === "permission" && answer.decision === "allow-always" && !payload.canAlwaysAllow) {
-    return bad("This permission can't be allowed for good");
+    throw new ORPCError("BAD_REQUEST", message("questions.answer.notForGood"));
   }
   return delivered;
 }
@@ -153,18 +151,19 @@ const answer = owner.input(z.object({ questionId: z.string(), answer: Answer }))
     .select()
     .from(questionsTable)
     .where(and(eq(questionsTable.id, input.questionId), inbox(context.ownerId)));
-  if (!q) throw new ORPCError("NOT_FOUND");
+  if (!q) throw new ORPCError("NOT_FOUND", message("questions.notFound"));
   const delivered = check(q.payload, input.answer);
   // An orphaned question's answer goes as a message (its words, with a prefix), and any question
   // can become orphaned before delivery: the message must fit the protocol too, or it would be lost.
   const asMessage = answerText({ payload: q.payload, answer: delivered });
   if (asMessage.length > TEXT || !storable(asMessage)) {
-    throw new ORPCError("BAD_REQUEST", { message: `The answer is too long (at most about ${TEXT - 100} characters)` });
+    throw new ORPCError("BAD_REQUEST", message("questions.answer.tooLong", { max: TEXT - 100 }));
   }
   // The engine's pending → answered update is the atomic step: a second answer finds nothing pending.
   await context.engine.answer(q.id, delivered, { type: "user", userId: context.ownerId }).catch((err: unknown) => {
-    if (err instanceof EngineError && err.code === "INVALID") throw new ORPCError("BAD_REQUEST", { message: err.message });
-    if (err instanceof EngineError && err.code === "NOT_PENDING") throw new ORPCError("CONFLICT", { message: err.message });
+    // The engine's errors on this path all carry their message's key (`data`).
+    if (err instanceof EngineError && err.code === "INVALID") throw new ORPCError("BAD_REQUEST", { message: err.message, data: err.data });
+    if (err instanceof EngineError && err.code === "NOT_PENDING") throw new ORPCError("CONFLICT", { message: err.message, data: err.data });
     throw err;
   });
 });

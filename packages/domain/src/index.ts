@@ -14,6 +14,7 @@ export { DataEvents, getDataEvents, type DataEvent } from "./data/events.ts";
 export { openAttachment, sweepAttachments, type AttachmentView } from "./data/files.ts";
 export { sweepAudit } from "./audit/sweep.ts";
 export { logError } from "./log.ts";
+export { external, isMessageKey, message, type Message, type MessageKey, type MessageValues } from "./messages/index.ts";
 export { ensureAssistants } from "./agents/builtin.ts";
 export { syncPlatformSkills } from "./assistant/skill.ts";
 export { createMcpConnector, type ToolConnector } from "./tools/mcp.ts";

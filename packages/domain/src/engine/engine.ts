@@ -76,6 +76,7 @@ import { recordAudit, recordAuditAfter } from "../audit/record.ts";
 import type { AuditActor } from "../audit/model.ts";
 import { jobScope, startable } from "../questions/inbox-scope.ts";
 import { INTERACTION } from "../triggers/model.ts";
+import { type Message, message } from "../messages/index.ts";
 
 type RunRow = typeof runs.$inferSelect;
 type StepRow = typeof stepRuns.$inferSelect;
@@ -365,11 +366,15 @@ async function agentHarnesses(db: Db | Tx, ownerId: string, nodes: object[]): Pr
 
 export class EngineError extends Error {
   override name = "EngineError";
+  /** What the page translates, when its text reaches a person (`message()`). */
+  readonly data?: Message;
   constructor(
     readonly code: "NOT_FOUND" | "INVALID" | "CLOSED" | "NOT_PENDING" | "STOPPED",
-    message: string,
+    // shortcut: plain text is left only for the errors the message walk's allow-list names; Task 4 keys them.
+    detail: string | ReturnType<typeof message>,
   ) {
-    super(message);
+    super(typeof detail === "string" ? detail : detail.message);
+    if (typeof detail !== "string") this.data = detail.data;
   }
 }
 
@@ -846,10 +851,10 @@ export class Engine {
     // Any answer may have to go as words (its session lost and resumed): those must fit a message.
     const [asked] = await this.db.select({ payload: questions.payload, kind: questions.kind, ownerId: questions.ownerId, runId: questions.runId, consultId: questions.consultId }).from(questions).where(eq(questions.id, questionId));
     // Nothing answers in a consulted agent's place: only its Job does (`answerConsult`).
-    if (asked?.kind === "consult") throw new EngineError("NOT_FOUND", "Question not found");
+    if (asked?.kind === "consult") throw new EngineError("NOT_FOUND", message("questions.notFound"));
     if (asked) {
       const words = answerText({ payload: asked.payload, answer, answeredBy: by ?? null });
-      if (words.length > TEXT || !storable(words)) throw new EngineError("INVALID", `The answer is too long (at most about ${TEXT - 100} characters)`);
+      if (words.length > TEXT || !storable(words)) throw new EngineError("INVALID", message("questions.answer.tooLong", { max: TEXT - 100 }));
     }
     const out: Out[] = [];
     const settled = await this.db.transaction(async (tx) => {
@@ -860,9 +865,9 @@ export class Engine {
       }
       const [pending] = await tx.select().from(questions).where(and(eq(questions.id, questionId), eq(questions.status, "pending"))).for("update");
       if (!pending) return undefined;
-      if (answer.kind === "permission" && answer.decision === "allow-always" && (pending.remember || (pending.payload.kind === "permission" && pending.payload.toolName.startsWith("mcp__")))) throw new EngineError("INVALID", "Choose a remember scope for this tool permission");
+      if (answer.kind === "permission" && answer.decision === "allow-always" && (pending.remember || (pending.payload.kind === "permission" && pending.payload.toolName.startsWith("mcp__")))) throw new EngineError("INVALID", message("questions.answer.chooseScope"));
       if (answer.kind === "permission" && answer.remember) {
-        if (answer.decision === "allow-always" || !by || !(await remember(tx, { questionId, decision: answer.decision, scope: answer.remember, by }))) throw new EngineError("INVALID", "This permission changed or cannot be remembered: refresh and answer again");
+        if (answer.decision === "allow-always" || !by || !(await remember(tx, { questionId, decision: answer.decision, scope: answer.remember, by }))) throw new EngineError("INVALID", message("questions.answer.cannotRemember"));
       }
       const [q] = await tx
         .update(questions)
@@ -909,7 +914,7 @@ export class Engine {
     });
     const { q, step } = settled ?? {};
     const root = settled && "root" in settled ? settled.root : undefined;
-    if (!q) throw new EngineError("NOT_PENDING", "This question is no longer waiting for an answer");
+    if (!q) throw new EngineError("NOT_PENDING", message("questions.answer.notPending"));
     const decision = q.answer?.kind === "permission" ? q.answer.decision : q.answer?.kind ?? "none";
     counts.counter("dispand.questions.answered").add(1, { "dispand.question.kind": q.kind, "dispand.answer.decision": decision, "dispand.answer.by": q.answeredBy?.type ?? "user" });
     counts.histogram("dispand.question.wait", { unit: "ms", description: "From a question to its answer" }).record(q.answeredAt!.getTime() - q.createdAt.getTime(), { "dispand.question.kind": q.kind });

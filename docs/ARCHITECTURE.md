@@ -1726,5 +1726,20 @@ same keys.
 - **Lint:** `i18next/no-literal-string` fails a user-visible literal (JSX text, `placeholder`,
   `aria-label`, `title`, `alt`) in the folders listed in `eslint.config.js`, the translated
   ones; a folder joins the list when it is translated.
+- **Server messages:** an error whose text reaches a person carries a key of the `messages`
+  files and its values, never a sentence: `new ORPCError(code, message(key, values))` or
+  `new EngineError(code, message(key, values))` (`packages/domain/src/messages/index.ts`;
+  `MessageKey` is every key of `en.json`). Each message is a whole sentence under one key, its
+  values interpolated (`{{name}}`, plural forms by `count`), never assembled from pieces. The
+  error's `message` stays the English sentence, for agents (a tool call's refusal) and the logs.
+  The page's link (`lib/api.ts`, `translateErrors`) translates `data.key` in the page's language
+  (`<html lang>`); text marked `external(text)` (an MCP server's, a plugin's) shows as it came;
+  an internal error, or a key the page doesn't know, shows the generic message. Values are text:
+  React escapes them. An input its Zod schema rejects answers with `validation.<code>` and the
+  field's path and limits (`rpc/context.ts`, `validationKey`). `messages/messages.test.ts` walks
+  the domain for every `new ORPCError(` and `new EngineError(` and fails on one whose message
+  isn't a single `message()` key, external text or a keyed error passed on, unless its file is
+  in the list of the areas still to key, which shrinks to nothing; until then an unkeyed error
+  shows its English text.
 - Agent output, plugin texts and MCP servers' texts are shown as they came. Logs, telemetry and
   the code stay English.

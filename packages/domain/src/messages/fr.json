@@ -3,5 +3,50 @@
     "assistant": {
       "name": "Stem"
     }
+  },
+  "plugins": {
+    "uninstall": {
+      "choose": "Choisissez ce que deviennent les éléments que {{name}} laisserait, puis désinstallez-le à nouveau."
+    }
+  },
+  "questions": {
+    "notFound": "Cette question n’existe pas.",
+    "answer": {
+      "mismatch": "La réponse ne correspond pas à la question.",
+      "notAsked": "La réponse cite une question qui n’a pas été posée.",
+      "missing": "Répondez à « {{question}} ».",
+      "oneOnly": "« {{question}} » n’accepte qu’une réponse.",
+      "duplicate": "« {{question}} » contient deux fois la même réponse.",
+      "notForGood": "Cette autorisation ne peut pas être accordée définitivement.",
+      "tooLong": "La réponse est trop longue (environ {{max}} caractères au plus).",
+      "chooseScope": "Choisissez pour quelle portée retenir cette autorisation d’outil.",
+      "cannotRemember": "Cette autorisation a changé ou ne peut pas être retenue : actualisez et répondez à nouveau.",
+      "notPending": "Cette question n’attend plus de réponse."
+    }
+  },
+  "validation": {
+    "invalid_type": "« {{field}} » n’a pas le bon type.",
+    "too_small": {
+      "string_one": "« {{field}} » demande au moins {{count}} caractère.",
+      "string_other": "« {{field}} » demande au moins {{count}} caractères.",
+      "array_one": "« {{field}} » demande au moins {{count}} élément.",
+      "array_other": "« {{field}} » demande au moins {{count}} éléments.",
+      "number": "« {{field}} » doit valoir au moins {{minimum}}."
+    },
+    "too_big": {
+      "string_one": "« {{field}} » accepte au plus {{count}} caractère.",
+      "string_other": "« {{field}} » accepte au plus {{count}} caractères.",
+      "array_one": "« {{field}} » accepte au plus {{count}} élément.",
+      "array_other": "« {{field}} » accepte au plus {{count}} éléments.",
+      "number": "« {{field}} » doit valoir au plus {{maximum}}."
+    },
+    "invalid_format": "« {{field}} » n’a pas le format attendu.",
+    "not_multiple_of": "« {{field}} » doit être un multiple de {{divisor}}.",
+    "unrecognized_keys": "« {{field}} » contient des champs qu’il n’accepte pas : {{keys}}.",
+    "invalid_union": "« {{field}} » n’est pas valide.",
+    "invalid_key": "« {{field}} » contient une clé qui n’est pas valide.",
+    "invalid_element": "« {{field}} » contient un élément qui n’est pas valide.",
+    "invalid_value": "« {{field}} » doit valoir l’un de : {{values}}.",
+    "custom": "« {{field}} » n’est pas valide."
   }
 }

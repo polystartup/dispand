@@ -3,5 +3,50 @@
     "assistant": {
       "name": "Stem"
     }
+  },
+  "plugins": {
+    "uninstall": {
+      "choose": "Choose what happens to each element {{name}} would leave behind, then uninstall it again."
+    }
+  },
+  "questions": {
+    "notFound": "This question doesn't exist.",
+    "answer": {
+      "mismatch": "The answer doesn't match the question.",
+      "notAsked": "The answer names a question that wasn't asked.",
+      "missing": "Answer “{{question}}”.",
+      "oneOnly": "“{{question}}” takes one answer.",
+      "duplicate": "“{{question}}” lists the same answer twice.",
+      "notForGood": "This permission can't be allowed for good.",
+      "tooLong": "The answer is too long (at most about {{max}} characters).",
+      "chooseScope": "Choose a remember scope for this tool permission.",
+      "cannotRemember": "This permission changed or cannot be remembered: refresh and answer again.",
+      "notPending": "This question is no longer waiting for an answer."
+    }
+  },
+  "validation": {
+    "invalid_type": "“{{field}}” has the wrong type.",
+    "too_small": {
+      "string_one": "“{{field}}” needs at least {{count}} character.",
+      "string_other": "“{{field}}” needs at least {{count}} characters.",
+      "array_one": "“{{field}}” needs at least {{count}} item.",
+      "array_other": "“{{field}}” needs at least {{count}} items.",
+      "number": "“{{field}}” must be at least {{minimum}}."
+    },
+    "too_big": {
+      "string_one": "“{{field}}” takes at most {{count}} character.",
+      "string_other": "“{{field}}” takes at most {{count}} characters.",
+      "array_one": "“{{field}}” takes at most {{count}} item.",
+      "array_other": "“{{field}}” takes at most {{count}} items.",
+      "number": "“{{field}}” must be at most {{maximum}}."
+    },
+    "invalid_format": "“{{field}}” is not in the expected format.",
+    "not_multiple_of": "“{{field}}” must be a multiple of {{divisor}}.",
+    "unrecognized_keys": "“{{field}}” has fields it doesn't take: {{keys}}.",
+    "invalid_union": "“{{field}}” is not valid.",
+    "invalid_key": "“{{field}}” has a key that is not valid.",
+    "invalid_element": "“{{field}}” has an element that is not valid.",
+    "invalid_value": "“{{field}}” must be one of: {{values}}.",
+    "custom": "“{{field}}” is not valid."
   }
 }

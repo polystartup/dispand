@@ -1,0 +1,73 @@
+import { message, router } from "@dispand/domain";
+import { emptyContext } from "@dispand/domain/test-support";
+import { createORPCClient } from "@orpc/client";
+import { RPCLink } from "@orpc/client/fetch";
+import { ORPCError, os, type RouterClient } from "@orpc/server";
+import { RPCHandler } from "@orpc/server/fetch";
+import { renderToString } from "react-dom/server";
+import { expect, test } from "vitest";
+import { handleRpc } from "../server/rpc.ts";
+import type { Language } from "./i18n.ts";
+import { translateErrors } from "./api.ts";
+
+// Procedures that fail as the page's own can: through the server's handler and the page's link.
+const failing = {
+  ...router,
+  fails: {
+    keyed: os.handler(() => {
+      throw new ORPCError("BAD_REQUEST", message("plugins.uninstall.choose", { name: "case-law" }));
+    }),
+    markup: os.handler(() => {
+      throw new ORPCError("BAD_REQUEST", message("plugins.uninstall.choose", { name: "<b>case-law</b>" }));
+    }),
+    unknown: os.handler(() => {
+      throw new ORPCError("BAD_REQUEST", { message: "A key from a newer server", data: { key: "plugins.neverHeardOf" } });
+    }),
+    database: os.handler(() => {
+      throw Object.assign(new Error('duplicate key value violates unique constraint "plugins_name" (secret-row)'), { code: "23505" });
+    }),
+  },
+};
+const handler = new RPCHandler(failing);
+
+async function client(language: Language) {
+  // A Job's context passes `authed`: what fails here is the input, before any handler runs.
+  const app = { ...(await emptyContext()), job: { runId: "run", ownerId: "owner", agentId: "agent" } };
+  const link = new RPCLink({
+    url: "http://localhost:3000/api/rpc",
+    headers: { "x-csrf-token": "orpc" },
+    fetch: (request) => handleRpc(request as Request, app, handler as never),
+    interceptors: [translateErrors(() => language)],
+  });
+  return createORPCClient<RouterClient<typeof failing>>(link);
+}
+
+const refusal = (call: Promise<unknown>) => call.then(() => expect.unreachable(), (err: Error) => err.message);
+
+test("a server message shows in the page's language, with its values", async () => {
+  expect(await refusal((await client("fr")).fails.keyed())).toBe("Choisissez ce que deviennent les éléments que case-law laisserait, puis désinstallez-le à nouveau.");
+  expect(await refusal((await client("en")).fails.keyed())).toBe("Choose what happens to each element case-law would leave behind, then uninstall it again.");
+});
+
+test("an input its Zod schema rejects shows a validation message in French", async () => {
+  const api = await client("fr");
+  expect(await refusal(api.questions.answer({ questionId: 7 } as never))).toBe("« questionId » n’a pas le bon type.");
+  expect(await refusal(api.questions.list({ status: "everything" } as never))).toBe("« status » doit valoir l’un de : pending, all.");
+});
+
+test("a value with markup renders as text", async () => {
+  const shown = renderToString(<p role="alert">{await refusal((await client("en")).fails.markup())}</p>);
+  expect(shown).toContain("each element &lt;b&gt;case-law&lt;/b&gt; would");
+  expect(shown).not.toContain("<b>");
+});
+
+test("a key the page doesn't know shows the generic error, in English when the page is", async () => {
+  expect(await refusal((await client("en")).fails.unknown())).toBe("Something went wrong. Try again.");
+  expect(await refusal((await client("fr")).fails.unknown())).toBe("Une erreur s’est produite. Réessayez.");
+});
+
+test("a raw database error reaches the page as the translated generic message, never its text", async () => {
+  const text = await refusal((await client("fr")).fails.database());
+  expect(text).toBe("Une erreur s’est produite. Réessayez.");
+  expect(text).not.toMatch(/duplicate|secret-row|plugins_name/);
+});

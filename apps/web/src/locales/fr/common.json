@@ -3,5 +3,8 @@
     "cancel": "Annuler",
     "save": "Enregistrer",
     "close": "Fermer"
+  },
+  "errors": {
+    "generic": "Une erreur s’est produite. Réessayez."
   }
 }
