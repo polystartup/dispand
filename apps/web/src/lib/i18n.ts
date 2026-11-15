@@ -1,15 +1,18 @@
+import enMessages from "@dispand/domain/messages/en.json";
+import frMessages from "@dispand/domain/messages/fr.json";
 import { createInstance, type i18n } from "i18next";
 import enCommon from "../locales/en/common.json";
 import enShell from "../locales/en/shell.json";
 import frCommon from "../locales/fr/common.json";
 import frShell from "../locales/fr/shell.json";
 
-// The page's strings, one namespace per area, in English and French (`locales/<language>/`).
-// A key missing in French falls back to English. Server messages will come as their own namespace.
+// The page's strings, one namespace per area, in English and French (`locales/<language>/`), and
+// the `messages` namespace: what the server and the page share (`packages/domain/src/messages/`),
+// the built-in agent's name first. A key missing in French falls back to English.
 
 export const resources = {
-  en: { common: enCommon, shell: enShell },
-  fr: { common: frCommon, shell: frShell },
+  en: { common: enCommon, shell: enShell, messages: enMessages },
+  fr: { common: frCommon, shell: frShell, messages: frMessages },
 } as const;
 
 export type Language = keyof typeof resources;
@@ -46,7 +49,7 @@ export function acceptedLanguages(header: string | null): string[] {
 }
 
 /** The page's language: the one the user saved, else their browser's (`Accept-Language`). */
-export function pageLanguage(saved: Language | null | undefined, acceptLanguage: string | null): Language {
+export function resolveLanguage(saved: Language | null | undefined, acceptLanguage: string | null): Language {
   return saved ?? detectLanguage(acceptedLanguages(acceptLanguage));
 }
 

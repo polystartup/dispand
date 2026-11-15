@@ -1,6 +1,8 @@
-import { ASSISTANT_NAME } from "@dispand/domain/assistant-name";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
+import { I18nextProvider, useTranslation } from "react-i18next";
 import { expect, onTestFinished, test } from "vitest";
-import { acceptedLanguages, createI18n, detectLanguage, pageLanguage, resources } from "./i18n.ts";
+import { acceptedLanguages, createI18n, detectLanguage, resolveLanguage, resources } from "./i18n.ts";
 
 test("the first of English or French in the browser's order wins, else English", () => {
   expect(detectLanguage(["fr-CA", "en"])).toBe("fr");
@@ -19,10 +21,10 @@ test("Accept-Language is ordered by quality, and q=0 is dropped", () => {
 });
 
 test("a saved language wins over the browser's", () => {
-  expect(pageLanguage("fr", "en")).toBe("fr");
-  expect(pageLanguage("en", "fr-FR,fr")).toBe("en");
-  expect(pageLanguage(null, "fr-FR,fr")).toBe("fr");
-  expect(pageLanguage(undefined, null)).toBe("en");
+  expect(resolveLanguage("fr", "en")).toBe("fr");
+  expect(resolveLanguage("en", "fr-FR,fr")).toBe("en");
+  expect(resolveLanguage(null, "fr-FR,fr")).toBe("fr");
+  expect(resolveLanguage(undefined, null)).toBe("en");
 });
 
 test("a key missing in French renders the English text", () => {
@@ -34,11 +36,17 @@ test("a key missing in French renders the English text", () => {
   expect(i18n.t("actions.cancel")).toBe("Annuler");
 });
 
-test("each request gets its own instance: changing one language leaves the others", () => {
+test("two renders at once in different languages share nothing", async () => {
   const fr = createI18n("fr");
   const en = createI18n("en");
-  expect(fr.t("actions.cancel")).toBe("Annuler");
-  expect(en.t("actions.cancel")).toBe("Cancel");
+  const Cancel = () => createElement("p", null, useTranslation().t("actions.cancel"));
+  const page = (i18n: typeof fr) => renderToString(createElement(I18nextProvider, { i18n }, createElement(Cancel)));
+  const [french, english] = await Promise.all([Promise.resolve().then(() => page(fr)), Promise.resolve().then(() => page(en))]);
+  expect([french, english]).toEqual(["<p>Annuler</p>", "<p>Cancel</p>"]);
+  // A language changed for one page (a saved choice) leaves the other's.
+  await fr.changeLanguage("en");
+  await en.changeLanguage("fr");
+  expect([page(fr), page(en)]).toEqual(["<p>Cancel</p>", "<p>Annuler</p>"]);
 });
 
 /** Every key of a resource, plural forms included, as dotted paths. */
@@ -52,8 +60,7 @@ test("French has every English key of each namespace, and nothing more", () => {
   }
 });
 
-test("the built-in agent is named Stem in both languages, the name its prompts use", () => {
-  expect(createI18n("en").t("agent.assistant.name")).toBe("Stem");
-  expect(createI18n("fr").t("agent.assistant.name")).toBe("Stem");
-  expect(resources.en.common.agent.assistant.name).toBe(ASSISTANT_NAME);
+test("the built-in agent is named Stem in both languages, from the messages its prompts read", () => {
+  expect(createI18n("en").t("messages:agent.assistant.name")).toBe("Stem");
+  expect(createI18n("fr").t("messages:agent.assistant.name")).toBe("Stem");
 });

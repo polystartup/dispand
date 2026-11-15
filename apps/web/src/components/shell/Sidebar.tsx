@@ -61,7 +61,7 @@ function Group({ label, children }: { label: string; children: React.ReactNode }
 }
 
 export function Sidebar({ user, onNavigate }: { user: { name: string; email: string; language: Language | null }; onNavigate: () => void }) {
-  const { t } = useTranslation(["shell", "common"]);
+  const { t } = useTranslation(["shell", "messages"]);
   const pages = useQuery(orpc.pages.list.queryOptions());
   return (
     <div className="flex h-full flex-col px-3 pb-3 pt-4">
@@ -77,7 +77,7 @@ export function Sidebar({ user, onNavigate }: { user: { name: string; email: str
 
       <nav aria-label={t("main")} className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex flex-col gap-px">
-          <NavLink to="/assistant" label={t("common:agent.assistant.name")} Icon={MessageCircle} onNavigate={onNavigate} />
+          <NavLink to="/assistant" label={t("messages:agent.assistant.name")} Icon={MessageCircle} onNavigate={onNavigate} />
           <NavLink to="/" label={t("nav.home")} Icon={House} onNavigate={onNavigate} />
           <NavLink to="/audit" label={t("nav.audit")} Icon={ScrollText} onNavigate={onNavigate} />
           <NewPageRow className={`${row} !text-muted`} onNavigate={onNavigate} />

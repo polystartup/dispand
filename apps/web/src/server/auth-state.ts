@@ -1,5 +1,5 @@
 import { getRequestHeaders, setResponseHeader } from "@tanstack/react-start/server";
-import { pageLanguage } from "../lib/i18n.ts";
+import { resolveLanguage } from "../lib/i18n.ts";
 
 /**
  * Setup and session state, used by the route guards (on the server and on navigation), and the
@@ -18,7 +18,7 @@ export async function authState() {
     path: ["auth", "status"],
   });
   const acceptLanguage = headers.get("accept-language");
-  if (needsSetup) return { needsSetup, user: null, language: pageLanguage(null, acceptLanguage) };
+  if (needsSetup) return { needsSetup, user: null, language: resolveLanguage(null, acceptLanguage) };
   const { headers: fresh, response: session } = await auth.api.getSession({ headers, returnHeaders: true });
   // A refreshed session cookie has to reach the browser.
   const cookies = fresh.getSetCookie();
@@ -27,7 +27,7 @@ export async function authState() {
   return {
     needsSetup,
     user: session ? { name: session.user.name, email: session.user.email, language } : null,
-    language: pageLanguage(language, acceptLanguage),
+    language: resolveLanguage(language, acceptLanguage),
   };
 }
 

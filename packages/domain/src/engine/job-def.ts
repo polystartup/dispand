@@ -1,4 +1,4 @@
-import { ASSISTANT_NAME } from "../assistant/name.ts";
+import messages from "../messages/en.json";
 import type { AgentSnapshot } from "../db/schema.ts";
 import { INTERACTION, type TriggerConfig } from "../triggers/model.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
@@ -29,6 +29,9 @@ export const INTERACTION_PROMPT = [
   "- Item: {{trigger.row_id}}",
   "- Kind, and the Job that asked it: {{trigger.after}}",
 ].join("\n");
+
+/** The built-in agent's shown name, in English: what its prompts and the platform skill call it. */
+export const ASSISTANT_NAME = messages.agent.assistant.name;
 
 /** What every Job of the workspace's built-in agent is told first, before the owner's own instructions. */
 export const ASSISTANT_PROMPT = [

@@ -1,4 +1,7 @@
 {
-  "agent": { "assistant": { "name": "Stem" } },
-  "actions": { "cancel": "Annuler", "save": "Enregistrer", "close": "Fermer" }
+  "actions": {
+    "cancel": "Annuler",
+    "save": "Enregistrer",
+    "close": "Fermer"
+  }
 }

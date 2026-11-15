@@ -9,7 +9,8 @@ import { AgentEditor } from "../components/settings/AgentEditor.tsx";
 import { StateTabs } from "../components/settings/Tabs.tsx";
 import { PageHeader } from "../components/Placeholder.tsx";
 import { orpc } from "../lib/api.ts";
-import { qualifiedName } from "@dispand/domain/plugins/names";
+import { useTranslation } from "react-i18next";
+import { shownAgentName } from "../lib/agent-name.ts";
 
 export const Route = createFileRoute("/_app/settings/agents/$id")({ component: EditAgent });
 
@@ -21,6 +22,7 @@ const TABS = [
 ] as const;
 
 function EditAgent() {
+  const { t } = useTranslation("messages");
   const { id } = Route.useParams();
   const agent = useQuery(orpc.agents.get.queryOptions({ input: { id } }));
   const [shown, setShown] = useState<(typeof TABS)[number][0]>("settings");
@@ -28,7 +30,7 @@ function EditAgent() {
   const [resets, setResets] = useState(0);
   return (
     <>
-      <PageHeader title={agent.data ? qualifiedName(agent.data.plugin?.name ?? null, agent.data.name) : "Agent"} subtitle="What this agent does, what makes it work, and the Jobs it did." />
+      <PageHeader title={agent.data ? shownAgentName(t, agent.data) : "Agent"} subtitle="What this agent does, what makes it work, and the Jobs it did." />
       {agent.error && <p role="alert" className="text-[14px] text-danger">Could not load the agent.</p>}
       {agent.data && (
         <>

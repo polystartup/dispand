@@ -3,7 +3,7 @@ import type { Db, Tx } from "../db/client.ts";
 import { skillFiles, skillPackages, user } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
-import { ASSISTANT_NAME } from "./name.ts";
+import { ASSISTANT_NAME } from "../engine/job-def.ts";
 import { type SkillFile, validatePackage } from "../skills/package.ts";
 import { store } from "../skills/procedures.ts";
 import { emitLog, inSpan, tracer } from "../telemetry/index.ts";

@@ -7,7 +7,8 @@ import { AgentSaved } from "../components/settings/AgentEditor.tsx";
 import { Empty, List } from "../components/settings/parts.tsx";
 import { PageHeader } from "../components/Placeholder.tsx";
 import { orpc } from "../lib/api.ts";
-import { qualifiedName } from "@dispand/domain/plugins/names";
+import { useTranslation } from "react-i18next";
+import { shownAgentName } from "../lib/agent-name.ts";
 
 export const Route = createFileRoute("/_app/settings/agents/")({
   // `saved`: an agent was just created, so the list offers the next step.
@@ -16,6 +17,7 @@ export const Route = createFileRoute("/_app/settings/agents/")({
 });
 
 function Agents() {
+  const { t } = useTranslation("messages");
   const { saved } = Route.useSearch();
   const agents = useQuery(orpc.agents.list.queryOptions());
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
@@ -62,7 +64,7 @@ function Agents() {
                 params={{ id: a.id }}
                 className="flex items-center justify-between gap-4 px-5 py-4 transition hover:bg-hover"
               >
-                <span className="truncate text-[15px] font-medium">{qualifiedName(a.plugin?.name ?? null, a.name)}</span>
+                <span className="truncate text-[15px] font-medium">{shownAgentName(t, a)}</span>
                 <span className="truncate text-[13px] text-muted">{harnessName.get(a.harnessId)}</span>
               </Link>
             </li>

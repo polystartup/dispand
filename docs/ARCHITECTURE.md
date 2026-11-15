@@ -623,7 +623,11 @@
   `agents.delete`, `triggers.update`, `triggers.delete` and `createProposal` (for
   `agents_update` and `triggers_*` items, refused when proposed with the reason) call it. Its
   Jobs' system prompt starts with a fixed text (`jobSystemPrompt`, `engine/job-def.ts`), then
-  the owner's instructions. The web's `/assistant` (`components/assistant/AssistantChat.tsx`)
+  the owner's instructions. It stays `assistant` in code and data; what people see is the
+  label `agent.assistant.name` of the `messages` files (`packages/domain/src/messages/`),
+  "Stem" in English and in French, whatever its stored name (`shownAgentName` in the web).
+  Its fixed text and the platform skill (`{{assistant}}`, filled as `skill.ts` bundles it) name
+  it from the English value. The web's `/assistant` (`components/assistant/AssistantChat.tsx`)
   is its chat trigger's `ChatPanel` beside the list of its conversations (`runs.list` with
   `kind: "chat"`, newest first, titled by the first message; a plain list of Jobs, not
   assistant-ui's thread list), the open one held in the URL's `run` (absent: the latest;
@@ -1670,3 +1674,30 @@ Dispand skill id. An unrelated native command with the same invocation keeps pre
 granting access to the unrelated Dispand package or its tools. Exact Codex catalog identities
 also take precedence over compatibility aliases. Protocol 25 covers command discovery and all
 of these identity fields together; the intermediate commits were not distributed as releases.
+
+## English and French
+
+We decided that the page speaks English and French. `i18next` and `react-i18next` hold its
+strings: one namespace per area in `apps/web/src/locales/<language>/` (`common`, `shell`), plus
+`messages`, the files the server and the page share (`packages/domain/src/messages/`). A key
+missing in French shows the English text; `lib/i18n.test.ts` keeps both languages with the
+same keys.
+
+- **One instance per page render:** the root route's `beforeLoad` reads `getAuthState`, which
+  gives the page's language: the signed-in user's saved one (Better Auth's
+  `user.additionalFields.language`, column `user.language`, `"en"`, `"fr"` or null, the
+  validator refusing anything else), else the request's `Accept-Language` ordered by quality
+  with `q=0` dropped (`resolveLanguage`, `detectLanguage`: the first of English or French,
+  otherwise English). The root shell makes its instance in that language (`createI18n`), so the
+  first HTML and `<html lang>` are already in it, and the dehydrated context gives the browser
+  the same language for hydration. Concurrent renders never share an instance.
+- **The choice:** the user menu's Language (`LanguageChoice`, beside the theme) saves
+  `language` through Better Auth's `updateUser` (`lib/auth-call.ts`) and reloads the route
+  context, which switches the instance. "Browser's language" saves null.
+- **Dates and numbers:** `lib/format.ts` formats them in the page's language (`useFormat`),
+  never the browser's default locale.
+- **Lint:** `i18next/no-literal-string` fails a user-visible literal (JSX text, `placeholder`,
+  `aria-label`, `title`, `alt`) in the folders listed in `eslint.config.js`, the translated
+  ones; a folder joins the list when it is translated.
+- Agent output, plugin texts and MCP servers' texts are shown as they came. Logs, telemetry and
+  the code stay English.
