@@ -25,7 +25,11 @@ changes it updates this file.
   place: the Job must still be going, and the tool's bundle (for the memory tools, its own
   rule: `allowed` in `platform/tools.ts`) and every table the call touches must be in the
   Job's snapshot and still on the agent, so a right taken back applies at once
-  and a right added later never reaches a running Job. A call then runs as the Job's owner; that
+  and a right added later never reaches a running Job. One exception, which we decided: a table
+  a Job creates (`tables_create`) joins its agent's tables and that Job's own, where each is a
+  list, in the transaction that makes it, so the Job gains rights on exactly that table and
+  nothing else (no other table, no bundle); a refused create adds nothing, and both rows are
+  locked so concurrent creates each keep theirs. A call then runs as the Job's owner; that
   identity is set only by the authorizing function, never from a request. These calls ask the
   owner no question: the bundles are the permission. `configure` changes fields, not the rows
   under them: a Job can't remove a choice of a field, since that clears the rows that use it.

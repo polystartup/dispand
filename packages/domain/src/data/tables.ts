@@ -10,6 +10,7 @@ import type { WorkflowDef } from "../workflows/model.ts";
 import { StorableText } from "../workflows/model.ts";
 import type { DataEvent } from "./events.ts";
 import { refuseOwnDelete } from "../plugins/overrides.ts";
+import { joinCreatedTable } from "../platform/rights.ts";
 import { type Cell, Choice, convertCells, FIELD_TYPES, type FieldSchema, type FieldType, MAX_CHOICES } from "./fields.ts";
 
 // Tables and their fields. Every schema change locks the table's row `FOR UPDATE` first, so
@@ -152,6 +153,8 @@ const create = owner.input(z.object({ name: Name })).handler(async ({ input, con
         .values({ id: newId("tbl"), ownerId: context.ownerId, name: input.name, ...(element ? { pluginId: element.pluginId, pluginComponent: element.component, definition: element.definition ?? null } : {}) })
         .returning();
       await tx.insert(fieldsTable).values({ id: newId("fld"), ownerId: context.ownerId, tableId: table!.id, name: "Name", type: "text", position: 0 });
+      // Made by a Job: the table joins its rights in the same transaction, or isn't made.
+      if (context.job) await joinCreatedTable(tx, context.job, table!.id);
       return tableView(tx, table!);
     })
     .catch(nameTaken("table", input.name));

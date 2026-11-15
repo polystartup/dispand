@@ -189,7 +189,7 @@ const idOf = (output: unknown): string | null => {
   return typeof id === "string" ? id : null;
 };
 
-function tool(path: string, bundle: Bundle, description: string, rest: Pick<PlatformTool, "tables" | "filter" | "grant" | "direct" | "write" | "shown">): PlatformTool {
+function tool(path: string, bundle: Bundle, description: string, rest: Pick<PlatformTool, "tables" | "filter" | "grant" | "direct" | "write" | "shown" | "available">): PlatformTool {
   // `agents.setToolPermission` is `agents_set_tool_permission`: lower case with `_`, like every tool's name.
   const name = path.replace(".", "_").replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
   const kind = CREATES[name];
@@ -215,6 +215,8 @@ async function pluginRights(app: PlatformApp, job: JobIdentity, input: unknown):
 
 export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("tables.list", "data", "Lists the tables you may work on, with their ids and names.", {
+    // Configuring needs table ids too: `configure` alone lists them.
+    available: (rights) => rights.bundles.includes("data") || rights.bundles.includes("configure"),
     tables: none,
     filter: (output, scope) => (scope === "all" ? output : (output as { id: string }[]).filter((t) => scope.includes(t.id))),
   }),
@@ -229,7 +231,7 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
       return withReferring(db, ownerId, tablesOfRows(db, ownerId, Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []));
     },
   }),
-  tool("tables.create", "configure", "Creates a table. Add its fields next with fields_create.", { tables: none, write: true }),
+  tool("tables.create", "configure", "Creates a table: it joins the tables you may work on. Add its fields next with fields_create.", { tables: none, write: true }),
   tool("tables.rename", "configure", "Renames a table.", { tables: named("id"), write: true }),
   tool("tables.setPrimitive", "configure", "Makes a table primitive (each change of its rows is an event that can start agents' Jobs) or not, and sets its parent table.", {
     tables: async (_db, _ownerId, input) => {

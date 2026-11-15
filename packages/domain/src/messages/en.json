@@ -2,7 +2,8 @@
   "agent": {
     "assistant": {
       "name": "Stem"
-    }
+    },
+    "tablesFull": "This agent already works on {{max}} tables, the most it may have: ask the owner to take one away before you create another."
   },
   "plugins": {
     "uninstall": {

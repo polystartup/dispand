@@ -589,7 +589,8 @@
   `NOT_TOOLS`.
 - **Platform tools:** a Job's session gets some of Dispand's own procedures as tools.
   `platform/tools.ts` is the registry: each tool names its procedure (`rows.create` is the tool
-  `rows_create`), its bundle (`data`: `tables.list`, `tables.get` and the rows procedures;
+  `rows_create`), its bundle (`data`: `tables.list`, `tables.get` and the rows procedures, with
+  `tables.list` given to `configure` too, which needs table ids;
   `configure`: creating and renaming tables, creating, changing and ordering fields), what the
   agent reads about it, and how to find the tables a call touches from its input (a row or a
   field gives its table). Every other procedure is listed there as not a tool, and a test walks
@@ -598,7 +599,10 @@
   its Jobs' snapshot. `callPlatformTool` (`platform/call.ts`) is the one path a call takes: the
   Job must still be going, the tool's bundle and every table touched must be in the Job's
   snapshot and still on the agent (rights shrink with the agent at once and never grow after the
-  Job was created), an id that names nothing is answered like a table out of scope ("Not
+  Job was created, but for a table the Job creates: we decided it joins the agent's `dataTables`
+  and the Job's snapshot tables, where each is a list, in `tables.create`'s own transaction
+  (`joinCreatedTable` in `platform/rights.ts`, both rows locked `FOR UPDATE`, the plugin's agent
+  marked overridden on `dataTables`; refused when the agent already has its 100 tables)), an id that names nothing is answered like a table out of scope ("Not
   found"), and the procedure then runs in process as the Job's owner (`InitialContext.job`,
   which only that function sets; `authed` reads it instead of a session). Refusals and
   procedure errors come back as words, any other failure as "The tool failed". Cloud sessions

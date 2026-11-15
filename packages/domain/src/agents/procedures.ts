@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents as agentsTable, agentSkills, agentSkillToolPermissions, agentTools, harnesses, plugins, skillPackages, tables as tablesTable, tools as toolsTable } from "../db/schema.ts";
 import { MEMORY_TARGETS } from "../memory/model.ts";
-import { BUNDLES, type TableScope } from "../platform/bundles.ts";
+import { BUNDLES, MAX_AGENT_TABLES, type TableScope } from "../platform/bundles.ts";
 import { ModelName } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -66,7 +66,7 @@ export const AgentFields = z.object({
     .transform((t) => [...new Set(t)])
     .optional(),
   /** The tables its Jobs may work on: all, or these. */
-  dataTables: z.union([z.literal("all"), z.array(z.string().max(64)).max(100)]).optional(),
+  dataTables: z.union([z.literal("all"), z.array(z.string().max(64)).max(MAX_AGENT_TABLES)]).optional(),
   /** The agents its Jobs may consult; left out of an update, they stay as they are. */
   consults: Consults.optional(),
 });
