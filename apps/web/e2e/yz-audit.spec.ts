@@ -86,9 +86,9 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
   // The intake Job's turns, by how many tool results it has had; the upkeep Job runs on the runner.
   const turns: Turn[] = [
     { call: { name: "rows_list", args: { tableId: matters.id } } },
-    { call: { name: "rows_create", args: { tableId: matters.id, values: { [field]: AUDIT_SENTINELS.row } } } },
-    { call: { name: "memory_add", args: { scope: "agent", path: "clients/audit.md", name: "A client", description: "Who wrote", type: "fact", body: AUDIT_SENTINELS.memory } } },
-    { call: { name: "Audit_mail_create_draft", args: { thread: "t1", body: AUDIT_SENTINELS.draft } } },
+    { call: { name: "rows_create", args: { tableId: matters.id, values: { [field]: AUDIT_SENTINELS.auditRow } } } },
+    { call: { name: "memory_add", args: { scope: "agent", path: "clients/audit.md", name: "A client", description: "Who wrote", type: "fact", body: AUDIT_SENTINELS.auditMemory } } },
+    { call: { name: "Audit_mail_create_draft", args: { thread: "t1", body: AUDIT_SENTINELS.auditDraft } } },
     { text: "The reply is drafted for your review." },
   ];
   model.script(...turns.map(() => (m: ChatMessage[]) => turns[m.filter((x) => x.role === "tool").length]!));
@@ -102,7 +102,7 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
   });
   try {
     await expect.poll(async () => (await auditRows(page)).some((r) => r.action === "poll.run" && r.resourceId === trigger.id), { timeout: 60_000 }).toBe(true);
-    threads.push({ id: "t1", subject: AUDIT_SENTINELS.mail });
+    threads.push({ id: "t1", subject: AUDIT_SENTINELS.auditMail });
     const jobOf = async () => (await rpc<{ id: string }[]>(page, "runs/list", { triggerId: trigger.id }))[0]?.id;
     await expect.poll(jobOf, { timeout: 120_000 }).toBeTruthy();
     const jobId = (await jobOf())!;
@@ -113,7 +113,7 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
     const question = (await pending())!;
     await rpc(page, "questions/answer", { questionId: question.id, answer: { kind: "permission", decision: "allow" } });
     await expect.poll(async () => (await rpc<{ status: string }>(page, "jobs/get", { id: jobId })).status).toBe("succeeded");
-    expect(drafts).toEqual([{ thread: "t1", body: AUDIT_SENTINELS.draft }]);
+    expect(drafts).toEqual([{ thread: "t1", body: AUDIT_SENTINELS.auditDraft }]);
 
     // 7. The row the Job made fired the upkeep Job, on the runner.
     const { start } = await runner.waitFor("session.start", WAIT_MS);

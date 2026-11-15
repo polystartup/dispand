@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 
 /** Content the Audit acceptance (yz-audit.spec.ts) drives through a Job: zzz-telemetry.spec.ts checks no Audit row or export holds it. */
-export const AUDIT_SENTINELS = { mail: "sentinel-audit-mail-41", row: "sentinel-audit-row-42", memory: "sentinel-audit-memory-43", draft: "sentinel-audit-draft-44" };
+export const AUDIT_SENTINELS = { auditMail: "sentinel-audit-mail-41", auditRow: "sentinel-audit-row-42", auditMemory: "sentinel-audit-memory-43", auditDraft: "sentinel-audit-draft-44" };
 
 export type AuditRow = { action: string; result: string; jobId: string | null; traceId: string | null; resourceType: string; resourceId: string | null; details: Record<string, unknown> };
 

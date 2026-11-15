@@ -567,7 +567,8 @@ export class Engine {
     const def = jobDef({ agent: snapshot, trigger: trigger ?? null, stem });
     const token = this.secrets ? issueJobToken(this.secrets, runId) : undefined;
     // The Job's own span, in the trigger's or the request's trace: all its later work hangs under it (`inJobTrace`).
-    const span = markSpan(traces, "engine.job", { "dispand.job.id": runId, "dispand.agent.id": agentId, "dispand.run.trigger": firing.type });
+    // Under its own id: a consulted Job is made inside its asking Job's work.
+    const span = withJob(runId, () => markSpan(traces, "engine.job", { "dispand.job.id": runId, "dispand.agent.id": agentId, "dispand.run.trigger": firing.type }));
     await tx.insert(runs).values({
       id: runId,
       ownerId,
@@ -587,7 +588,8 @@ export class Engine {
     });
     counts.counter("dispand.runs.created").add(1, { "dispand.run.source": "agent", "dispand.run.trigger": firing.type });
     const creator = creatorOf(ownerId, cause);
-    await recordAudit(tx, {
+    // In the Job's trace, which is a new one when nothing was traced around its creation (a recovery).
+    await inJobTrace(span ?? {}, () => recordAudit(tx, {
       ownerId,
       actor: creator,
       // A consult's row is its asking Job's; any other is filed under the Job's agent.
@@ -604,7 +606,7 @@ export class Engine {
         firing: firing.type,
         ...(cause.kind === "event" ? { eventId: cause.eventId } : {}),
       },
-    });
+    }));
     await tx
       .insert(stepRuns)
       .values(nodesOf(def).map((n) => ({ id: newId("step"), ownerId, runId, nodeId: n.id, harnessId: n.agentId ? snapshot.harnessId : null, status: "pending" as const })));

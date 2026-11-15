@@ -3,7 +3,7 @@ import { currentTraceId, stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { cloudSessions, harnesses, messages, questions, roots, runs, stepRuns } from "../db/schema.ts";
+import { audit, cloudSessions, harnesses, messages, questions, roots, runs, stepRuns } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import type { Engine } from "../engine/engine.ts";
 import { router } from "../rpc/router.ts";
@@ -509,6 +509,9 @@ test("a cloud Job's model turns and tool calls are in its trace, after a restart
   expect(turns).toHaveLength(2);
   for (const turn of turns) expect([turn.spanContext().traceId, turn.parentSpanContext?.spanId]).toEqual([job.traceId, job.spanId]);
   expect(traced).toEqual([job.traceId]);
+  // Made with nothing traced around it, the Job's trace is a new one, and its creation's row is in it.
+  const [created] = await context.db.select().from(audit).where(eq(audit.action, "job.created"));
+  expect(created!.traceId).toBe(job.traceId);
 });
 
 test("a chat with no instructions makes no model call until the owner writes: the first message is the first turn", async () => {
