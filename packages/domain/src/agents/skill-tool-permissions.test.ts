@@ -1,8 +1,8 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { afterEach, expect, test } from "vitest";
-import { agentSkillToolPermissions, plugins, questions, stepRuns, tools } from "../db/schema.ts";
-import { runnerServerName, sessionTooling } from "../engine/tooling.ts";
+import { agentSkillToolPermissions, plugins, questions, runs, stepRuns, tools } from "../db/schema.ts";
+import { runnerServerName, sessionTooling, toolingOf } from "../engine/tooling.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp, type FakeMcp } from "../tools/test-server.ts";
@@ -35,9 +35,11 @@ async function setup() {
   /** What the next Job of `triggerId` gets for the tool: whether the action runs unasked, asks, or is refused. */
   const nextJob = async (toolId = "tool_mail", triggerId = trigger.id) => {
     const { runId: next } = await call(router.jobs.start, { triggerId }, { context });
-    const [s] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, next));
-    const t = (await sessionTooling(context.db, s!.sessionId!)).runnerTools.find((r) => r.id === toolId)!;
-    return !t.actions.some((a) => a.name === ACTION) ? "refused" : t.unasked.includes(ACTION) ? "unasked" : "asks";
+    // What its session gets (`sessionTooling`), read from the Job itself: a session may still wait for a runner slot.
+    const [run] = await context.db.select().from(runs).where(eq(runs.id, next));
+    // A tool whose every action is Off is left out of the Job altogether.
+    const t = (await toolingOf(context.db, run!, run!.agentId!)).runnerTools.find((r) => r.id === toolId);
+    return !t?.actions.some((a) => a.name === ACTION) ? "refused" : t.unasked.includes(ACTION) ? "unasked" : "asks";
   };
   const always = (decision: "allow" | "deny") => remember(context.db, { questionId: "q_tool", decision, scope: "always", by: { type: "user", userId: context.ownerId } });
   return { context, runnerId, harness, packageId, agent, other, otherTrigger, step: step!, subject, nextJob, always };
@@ -85,6 +87,14 @@ test("a save that keeps the package keeps the choice; dropping the package, or t
   await call(router.skills.update, { packageId: s.packageId, name: "triage", description: "Triages mail.", instructions: "x", requiredToolIds: ["tool_mail", "tool_mail_plugin"] }, { context: s.context });
   expect(await s.nextJob()).toBe("asks");
   expect(await s.nextJob("tool_mail_plugin")).toBe("unasked");
+
+  // Chosen for the agent too, its own permissions take over; dropped again, nothing earlier comes back.
+  expect(await rememberAllowedAction(s.context.db, s.context.ownerId, { agentId: s.agent.id, toolId: "tool_mail", action: ACTION })).toBe(true);
+  await call(router.agents.update, { ...base, skillPackageIds: [s.packageId], toolIds: ["tool_mail"] }, { context: s.context });
+  await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: "tool_mail", action: ACTION, permission: "off" }, { context: s.context });
+  expect(await s.nextJob()).toBe("refused");
+  await call(router.agents.update, { ...base, skillPackageIds: [s.packageId], toolIds: [] }, { context: s.context });
+  expect(await s.nextJob()).toBe("asks");
 });
 
 const servers: FakeMcp[] = [];

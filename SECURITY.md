@@ -367,8 +367,9 @@ changes it updates this file.
   the package is the agent's and still requires the tool, and only while the tool's target is
   unchanged (another address, transport or runner tool, an availability change: by an edit, a
   reset to a plugin's value or a plugin update, the tool asks again). Removing the package from
-  the agent, or the tool from the package, deletes its rows; an agent save that keeps the
-  package keeps them. A tool pointed at another address or transport asks for everything
+  the agent, or the tool from the package, deletes its rows, and so does choosing the tool for
+  the agent (its `agent_tools` row takes over, and removing it later revives nothing); an agent
+  save that keeps the package keeps them. The write locks the package and its `agent_skills` row. A tool pointed at another address or transport asks for everything
   again on every agent for enabled actions: the unasked list named the old server's actions. Tools reached by URL and runner tools
   have this list; runner tools use it in Job sessions only. The list changes in three ways, each a person's: the owner on the
   agent's page; an item of a proposal the owner approved (the write is a grant: an agent

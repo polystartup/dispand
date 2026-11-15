@@ -59,8 +59,8 @@ async function writePermission(db: Db | Tx, ownerId: string, to: Change, remembe
  * current target. A row written for another target holds nothing: the tool asks again.
  */
 async function writeSkillPermission(tx: Tx, ownerId: string, to: Change, remembering: boolean): Promise<boolean> {
-  // Locked like `agent_tools` above: a concurrent setup save that drops the package waits.
-  const packages = await packagesRequiring(tx, ownerId, to.agentId, to.toolId).for("update", { of: agentSkills });
+  // Locked like `agent_tools` above: a setup save dropping the package, or a package save dropping the tool, waits.
+  const packages = await packagesRequiring(tx, ownerId, to.agentId, to.toolId).for("update", { of: [agentSkills, skillPackages] });
   if (!packages.length) return false;
   const [tool] = await tx.select().from(tools).where(and(eq(tools.id, to.toolId), eq(tools.ownerId, ownerId), inArray(tools.kind, ["http", "runner"])));
   if (!tool) return false;
