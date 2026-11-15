@@ -187,8 +187,8 @@ test("the lawyer: a fresh install's Assistant sets up the whole workspace from o
   ]);
 
   // The business is in the workspace's memory, written by Stem's Job, not in Stem's instructions; the setup is one generated plugin.
-  const memory = await rpc<{ path: string; type: string; body: string; author: { type: string } }[]>(page, "memories/list", { scope: "workspace" });
-  expect(memory).toEqual([expect.objectContaining({ path: "business.md", type: "business", body: BUSINESS, author: expect.objectContaining({ type: "agent" }) })]);
+  const memory = await rpc<{ entries: { path: string; type: string; body: string; author: { type: string } }[] }>(page, "memories/list", { scope: "workspace" });
+  expect(memory.entries).toEqual([expect.objectContaining({ path: "business.md", type: "business", body: BUSINESS, author: expect.objectContaining({ type: "agent" }) })]);
   const assistant = await rpc<{ systemPrompt: string; selfLearning: string[]; skills: { packageId: string }[] }>(page, "agents/get", { id: ids.assistant });
   expect(assistant.systemPrompt).toBe("");
   expect(assistant.selfLearning).toEqual(["workspace"]);
