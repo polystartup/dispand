@@ -10,6 +10,11 @@ import { fakeCodex } from "../fixtures/fake-codex-bin.ts";
 import { BypassRefused, type HarnessSession } from "../outcome.ts";
 import { type CodexDeps, type CodexSessionStart, PROFILE_REFUSED, startCodexSession } from "./session.ts";
 
+// Each test spawns a fake Codex process and waits on what it sends: on a busy machine (CI runs the
+// runner's test files in parallel, several spawning processes) that takes over Vitest's default 1 s.
+// The config gives each test 30 s; its waits get most of it.
+const waitFor = <T>(callback: () => T | Promise<T>) => vi.waitFor(callback, { timeout: 20_000 });
+
 const made: string[] = [];
 afterEach(async () => {
   for (const dir of made.splice(0)) await rm(dir, { recursive: true, force: true });
@@ -53,8 +58,8 @@ async function run(o: {
   }, { codexPath: codex.path, env: codex.env, secrets: [], ...o.deps });
   const sent = async (method: string) => (await codex.received()).filter((m) => m.method === method);
   /** The runner's reply to server request `id`. */
-  const replyTo = async (id: string) => vi.waitFor(async () => (await codex.received()).find((m) => m.id === id && m.method === undefined)!.result as Record<string, unknown>);
-  const ended = () => vi.waitFor(() => expect(events.some((e) => e.type === "result" || e.type === "error")).toBe(true));
+  const replyTo = async (id: string) => waitFor(async () => (await codex.received()).find((m) => m.id === id && m.method === undefined)!.result as Record<string, unknown>);
+  const ended = () => waitFor(() => expect(events.some((e) => e.type === "result" || e.type === "error")).toBe(true));
   return { dir, cwd, events, session, sent, replyTo, ended, received: codex.received };
 }
 
@@ -450,22 +455,22 @@ test("a non-interactive agent without its outputs is reminded once, then fails",
 
 test("an interrupt cuts the running turn: an interactive session waits for the next message", async () => {
   const s = await run({ turns: [[{ waitInterrupt: true }], [message("Again")]], start: { interactive: true } });
-  await vi.waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(1));
-  await vi.waitFor(() => expect(s.events).toContainEqual({ type: "cli-session", cliSessionId: "thr_1" }));
+  await waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(1));
+  await waitFor(() => expect(s.events).toContainEqual({ type: "cli-session", cliSessionId: "thr_1" }));
   await s.session.interrupt();
-  await vi.waitFor(() => expect(s.events.at(-1)).toEqual({ type: "turn-end" }));
+  await waitFor(() => expect(s.events.at(-1)).toEqual({ type: "turn-end" }));
   expect((await s.sent("turn/interrupt"))[0]!.params).toEqual({ threadId: "thr_1", turnId: "turn_0" });
   s.session.send("Go on");
-  await vi.waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(2));
+  await waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(2));
   s.session.stop("test over");
   await s.session.done;
 });
 
 test("an interrupt before Codex names the turn is sent once it does", async () => {
   const s = await run({ turns: [[{ waitInterrupt: true }]], start: { interactive: true }, env: { FAKE_CODEX_TURN_START_DELAY: "300" } });
-  await vi.waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(1));
+  await waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(1));
   await s.session.interrupt();
-  await vi.waitFor(() => expect(s.events.at(-1)).toEqual({ type: "turn-end" }));
+  await waitFor(() => expect(s.events.at(-1)).toEqual({ type: "turn-end" }));
   expect((await s.sent("turn/interrupt"))[0]!.params).toEqual({ threadId: "thr_1", turnId: "turn_0" });
   s.session.stop("test over");
   await s.session.done;
@@ -475,9 +480,9 @@ test("an interrupt reaches the running turn, not one whose turn/start reply came
   // The fake sends turn 0's reply, turn/started and turn/completed together: "Next" is queued by then.
   const s = await run({ turns: [[], [{ waitInterrupt: true }]], start: { interactive: true }, env: { FAKE_CODEX_BATCH: "1" } });
   s.session.send("Next");
-  await vi.waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(2));
+  await waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(2));
   await s.session.interrupt();
-  await vi.waitFor(async () => expect((await s.sent("turn/interrupt")).map((m) => m.params)).toEqual([{ threadId: "thr_1", turnId: "turn_1" }]));
+  await waitFor(async () => expect((await s.sent("turn/interrupt")).map((m) => m.params)).toEqual([{ threadId: "thr_1", turnId: "turn_1" }]));
   s.session.stop("test over");
   await s.session.done;
 });
@@ -485,7 +490,7 @@ test("an interrupt reaches the running turn, not one whose turn/start reply came
 test("the prompt runs first, even when a message arrives while the thread opens", async () => {
   const s = await run({ turns: [[message("One")], [message("Two")]], start: { interactive: true } });
   s.session.send("And then this");
-  await vi.waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(2));
+  await waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(2));
   expect((await s.sent("turn/start")).map((m) => (m.params as { input: { text: string }[] }).input[0]!.text)).toEqual(["Summarize", "And then this"]);
   s.session.stop("test over");
   await s.session.done;
@@ -493,10 +498,10 @@ test("the prompt runs first, even when a message arrives while the thread opens"
 
 test("a chat with an empty prompt starts no turn: it waits, and the owner's first message is the first turn", async () => {
   const s = await run({ turns: [[message("Hi")]], start: { interactive: true, prompt: "" } });
-  await vi.waitFor(() => expect(s.events).toEqual([{ type: "cli-session", cliSessionId: "thr_1" }, { type: "turn-end" }]));
+  await waitFor(() => expect(s.events).toEqual([{ type: "cli-session", cliSessionId: "thr_1" }, { type: "turn-end" }]));
   expect(await s.sent("turn/start")).toHaveLength(0);
   s.session.send("Hello");
-  await vi.waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(1));
+  await waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(1));
   expect((await s.sent("turn/start")).map((m) => (m.params as { input: { text: string }[] }).input[0]!.text)).toEqual(["Hello"]);
   s.session.stop("test over");
   await s.session.done;
