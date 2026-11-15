@@ -2,7 +2,9 @@
 import type { Answer, QuestionPayload } from "@dispand/runner-protocol";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
+import { createI18n } from "../../lib/i18n.ts";
 import { QuestionForm } from "./QuestionForm.tsx";
 
 afterEach(cleanup);
@@ -89,7 +91,7 @@ test("a checkpoint names its root, Jobs and agents, and answers go on, don't ask
   const onAnswer = vi.fn<(a: Answer) => void>();
   render(<QuestionForm question={{ payload, rootId: "root_1" }} onAnswer={onAnswer} />);
   expect(screen.getByText(/A schedule has led to/).textContent).toContain("100 Jobs");
-  expect(screen.getByText("Agents: Clerk, Auditor")).toBeTruthy();
+  expect(screen.getByText("Agents: Clerk and Auditor")).toBeTruthy();
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: "Go on" }));
   await user.click(screen.getByRole("button", { name: "Don't ask again for this goal" }));
@@ -163,4 +165,16 @@ test("Codex remembers Allow while Deny applies only to the current call", async 
   expect(onAnswer).toHaveBeenLastCalledWith({ kind: "permission", decision: "allow", remember: "always" });
   await user.click(screen.getByRole("button", { name: "Deny" }));
   expect(onAnswer).toHaveBeenLastCalledWith({ kind: "permission", decision: "deny" });
+});
+
+test("a checkpoint is in French, with the date and the agents as the language writes them", async () => {
+  const payload: QuestionPayload = { kind: "permission", toolName: "checkpoint", input: { root: "Un planning", jobs: 1, agents: ["Clerk", "Auditor"], since: "2026-11-11T09:00:00.000Z" }, canAlwaysAllow: true };
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <QuestionForm question={{ payload, rootId: "root_1" }} onAnswer={() => {}} />
+    </I18nextProvider>,
+  );
+  expect(screen.getByText(/Un planning a mené à/).textContent).toMatch(/1 Job depuis 11 nov\. 2026/);
+  expect(screen.getByText("Agents : Clerk et Auditor")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Ne plus demander pour cet objectif" })).toBeTruthy();
 });

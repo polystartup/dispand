@@ -2,6 +2,7 @@ import { MarkdownTextPrimitive, type CodeHeaderProps } from "@assistant-ui/react
 import { useRouter } from "@tanstack/react-router";
 import { type ComponentProps, type ReactNode, useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 // Text an agent wrote, shown formatted. Whatever it holds, the browser is not made to fetch
 // anything from elsewhere: an image shows only when it is one of the app's own files, a link is a
@@ -41,6 +42,7 @@ function AppLink({ href, children }: { href: string; children: ReactNode }) {
 }
 
 function CodeHeader({ language, code }: CodeHeaderProps) {
+  const { t } = useTranslation("chat");
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState(false);
   async function copy() {
@@ -54,19 +56,23 @@ function CodeHeader({ language, code }: CodeHeaderProps) {
   }
   return (
     <div className="mt-3 flex items-center justify-between gap-3 rounded-t-lg border border-line bg-surface px-3 py-2 text-[12px] text-muted">
-      <span className="min-w-0 truncate font-mono">{language || "Code"}</span>
-      <button type="button" onClick={() => void copy()} aria-label="Copy code" className="flex shrink-0 items-center gap-1.5 rounded px-1 hover:text-fg focus-visible:outline-2 focus-visible:outline-accent">
+      <span className="min-w-0 truncate font-mono">{language || t("code")}</span>
+      <button type="button" onClick={() => void copy()} aria-label={t("copyCode")} className="flex shrink-0 items-center gap-1.5 rounded px-1 hover:text-fg focus-visible:outline-2 focus-visible:outline-accent">
         {copied === code ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
-        <span role="status">{error ? "Copy failed; try again" : copied === code ? "Copied" : "Copy code"}</span>
+        <span role="status">{error ? t("copyFailed") : copied === code ? t("copied") : t("copyCode")}</span>
       </button>
     </div>
   );
 }
 
+function Img({ src, alt }: ComponentProps<"img">) {
+  const { t } = useTranslation("chat");
+  return typeof src === "string" && FILE.test(src) ? <img src={src} alt={alt ?? ""} className="my-1 max-h-64 rounded-lg" /> : <span className="text-faint">{alt ? t("imageHidden", { alt }) : t("imageHiddenNoAlt")}</span>;
+}
+
 const components: ComponentProps<typeof MarkdownTextPrimitive>["components"] = {
   CodeHeader,
-  img: ({ src, alt }) =>
-    typeof src === "string" && FILE.test(src) ? <img src={src} alt={alt ?? ""} className="my-1 max-h-64 rounded-lg" /> : <span className="text-faint">[image not shown: {alt || "no description"}]</span>,
+  img: Img,
   a: ({ href, children }) =>
     typeof href === "string" && isAppPath(href) ? (
       <AppLink href={href}>{children}</AppLink>

@@ -2,6 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 
 const fake = vi.hoisted(() => ({ runs: { stop: vi.fn(), list: vi.fn() } }));
@@ -43,4 +44,19 @@ test("StopRun shows nothing for a run that is over, and says why a stop failed",
   await user.click(screen.getByRole("button", { name: "Stop" }));
   await user.click(screen.getByRole("button", { name: "Stop this run" }));
   expect((await screen.findByRole("alert")).textContent).toBe("This run is over");
+});
+
+test("StopRun is in French", async () => {
+  const { createI18n } = await import("../../lib/i18n.ts");
+  const user = userEvent.setup();
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <QueryClientProvider client={new QueryClient()}>
+        <StopRun runId="run_1" status="running" />
+      </QueryClientProvider>
+    </I18nextProvider>,
+  );
+  await user.click(screen.getByRole("button", { name: "Arrêter" }));
+  expect(screen.getByRole("button", { name: "Arrêter cette exécution" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "La laisser continuer" })).toBeTruthy();
 });

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { orpc } from "../../lib/api.ts";
 import { localTimezone } from "../agents/TriggerSheet.tsx";
 
@@ -8,6 +9,7 @@ import { localTimezone } from "../agents/TriggerSheet.tsx";
  * agent page like any trigger.
  */
 export function ReviewSwitch({ triggerId }: { triggerId: string }) {
+  const { t } = useTranslation(["assistant", "messages"]);
   const queryClient = useQueryClient();
   const trigger = useQuery(orpc.triggers.get.queryOptions({ input: { id: triggerId } }));
   const save = useMutation(orpc.triggers.update.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.triggers.key() }) }));
@@ -19,8 +21,8 @@ export function ReviewSwitch({ triggerId }: { triggerId: string }) {
       <label className="flex items-start gap-2 text-[14px]">
         <input type="checkbox" checked={trigger.data!.enabled} disabled={save.isPending} onChange={(e) => toggle(e.target.checked)} className="mt-1 size-4 accent-[var(--accent)]" />
         <span>
-          Weekly review
-          <span className="block text-[12px] text-muted">Every Monday, the Assistant looks for what could be better and asks for each change in your Inbox.</span>
+          {t("review")}
+          <span className="block text-[12px] text-muted">{t("reviewText", { assistant: t("messages:agent.assistant.name") })}</span>
         </span>
       </label>
       {save.error && <p role="alert" className="mt-1 text-[13px] text-danger">{save.error.message}</p>}

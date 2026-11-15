@@ -19,5 +19,24 @@
     "bytes": "{{size}} B",
     "kb": "{{size}} KB",
     "mb": "{{size}} MB"
+  },
+  "loading": "Loading…",
+  "status": {
+    "pending": "pending",
+    "running": "running",
+    "waiting": "waiting",
+    "queued": "queued",
+    "succeeded": "succeeded",
+    "failed": "failed",
+    "skipped": "skipped",
+    "answered": "answered",
+    "expired": "expired",
+    "noAnswer": "no answer",
+    "ended": "ended"
+  },
+  "duration": {
+    "hours": "{{hours}} h {{minutes}} min",
+    "minutes": "{{minutes}} min {{seconds}} s",
+    "seconds": "{{seconds}} s"
   }
 }

@@ -2,6 +2,9 @@ import enMessages from "@dispand/domain/messages/en.json";
 import frMessages from "@dispand/domain/messages/fr.json";
 import { createInstance, type i18n } from "i18next";
 import enAssistant from "../locales/en/assistant.json";
+import enChat from "../locales/en/chat.json";
+import enQuestions from "../locales/en/questions.json";
+import enRuns from "../locales/en/runs.json";
 import enCommon from "../locales/en/common.json";
 import enShell from "../locales/en/shell.json";
 import enAuth from "../locales/en/auth.json";
@@ -12,6 +15,9 @@ import enSkills from "../locales/en/skills.json";
 import enTools from "../locales/en/tools.json";
 import enPlugins from "../locales/en/plugins.json";
 import frAssistant from "../locales/fr/assistant.json";
+import frChat from "../locales/fr/chat.json";
+import frQuestions from "../locales/fr/questions.json";
+import frRuns from "../locales/fr/runs.json";
 import frCommon from "../locales/fr/common.json";
 import frShell from "../locales/fr/shell.json";
 import frAuth from "../locales/fr/auth.json";
@@ -27,8 +33,8 @@ import frPlugins from "../locales/fr/plugins.json";
 // the built-in agent's name first. A key missing in French falls back to English.
 
 export const resources = {
-  en: { common: enCommon, shell: enShell, auth: enAuth, settings: enSettings, agents: enAgents, harnesses: enHarnesses, skills: enSkills, tools: enTools, plugins: enPlugins, assistant: enAssistant, messages: enMessages },
-  fr: { common: frCommon, shell: frShell, auth: frAuth, settings: frSettings, agents: frAgents, harnesses: frHarnesses, skills: frSkills, tools: frTools, plugins: frPlugins, assistant: frAssistant, messages: frMessages },
+  en: { common: enCommon, shell: enShell, auth: enAuth, settings: enSettings, agents: enAgents, harnesses: enHarnesses, skills: enSkills, tools: enTools, plugins: enPlugins, assistant: enAssistant, chat: enChat, questions: enQuestions, runs: enRuns, messages: enMessages },
+  fr: { common: frCommon, shell: frShell, auth: frAuth, settings: frSettings, agents: frAgents, harnesses: frHarnesses, skills: frSkills, tools: frTools, plugins: frPlugins, assistant: frAssistant, chat: frChat, questions: frQuestions, runs: frRuns, messages: frMessages },
 } as const;
 
 export type Language = keyof typeof resources;

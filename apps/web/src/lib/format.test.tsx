@@ -27,3 +27,14 @@ test("a list reads as one phrase in the page's language, with three items too", 
   expect(formatters("en").list(["a", "b", "c"])).toBe("a, b, and c");
   expect(formatters("fr").list(["a", "b", "c"])).toBe("a, b et c");
 });
+
+test("a choice reads with or, and a duration in the page's units", () => {
+  expect(formatters("en").listOr(["a", "b", "c"])).toBe("a, b, or c");
+  expect(formatters("fr").listOr(["a", "b"])).toBe("a ou b");
+  function Elapsed() {
+    const { duration } = useFormat();
+    return <p>{[duration(new Date(0), new Date(5000)), duration(new Date(0), new Date(184000)), duration(new Date(0), new Date(3720000))].join("|")}</p>;
+  }
+  render(<I18nextProvider i18n={createI18n("fr")}><Elapsed /></I18nextProvider>);
+  expect(screen.getByText(/min/).textContent).toBe("5 s|3 min 4 s|1 h 2 min");
+});

@@ -8,7 +8,7 @@ afterEach(cleanup);
 
 test("an agent's tools show the actions approved to run without asking", () => {
   render(<ProposalItems proposal={{ id: "prop_mail", status: "asked", names: { tool_mail: { kind: "tool", name: "Gmail" } }, items: [{ tool: "agents_create", input: { toolIds: ["tool_mail"] }, refs: ["toolIds"], used: false, tools: [{ toolId: "tool_mail", runs: ["search_emails", "read_email", "draft_email"] }] }] }} />);
-  expect(screen.getByText("Runs without asking: search_emails, read_email, draft_email")).toBeTruthy();
+  expect(screen.getByText("Runs without asking: search_emails, read_email, and draft_email")).toBeTruthy();
   expect(screen.getByText("Other enabled actions ask")).toBeTruthy();
 });
 
@@ -35,7 +35,7 @@ test("a proposal shows every write whole: the tool, each value, and long instruc
   const first = within(items[0]!);
   expect(first.getByText("Create an agent")).toBeTruthy();
   expect(first.getByText("Clerk")).toBeTruthy();
-  expect(first.getByText("data, configure")).toBeTruthy();
+  expect(first.getByText("data and configure")).toBeTruthy();
   expect(first.getByText("all")).toBeTruthy();
   expect(items[0]!.textContent).toContain(long);
   expect(within(items[1]!).getByText("Change an agent")).toBeTruthy();
@@ -149,7 +149,7 @@ test("a table-change trigger's config is read in words, its table and fields by 
   );
   const item = screen.getByRole("listitem");
   expect(item.textContent).toContain("A change to the table Clients");
-  expect(item.textContent).toContain("When a row is created, or a row is changed");
+  expect(item.textContent).toContain("When a row is created or a row is changed");
   expect(item.textContent).toContain("A changed row only when one of these changed:City (of the table Clients)");
   expect(within(item).getByRole("alert").textContent).toBe("field_gone: not one of yours");
 });
@@ -259,7 +259,7 @@ test("a trigger's rate cap and concurrency read in words, and a field's choices 
   };
   render(<ProposalItems proposal={setup} />);
   const [field, trigger] = screen.getAllByRole("listitem");
-  expect(field!.textContent).toContain("ChoicesNew, Won");
+  expect(field!.textContent).toContain("ChoicesNew and Won");
   expect(field!.textContent).not.toMatch(/c_new|"label"/);
   expect(trigger!.textContent).toContain("Jobs an hourAt most 30 an hour");
   expect(trigger!.textContent).toContain("Jobs at onceOne at a time");

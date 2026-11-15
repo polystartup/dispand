@@ -2,6 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import "../../test/jsdom-shims.ts";
@@ -12,6 +13,7 @@ vi.mock("../../lib/api.ts", async () => {
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
 const { ChatThread } = await import("./Thread.tsx");
+const { createI18n } = await import("../../lib/i18n.ts");
 
 afterEach(() => {
   cleanup();
@@ -152,4 +154,21 @@ test("a consult shows as a line naming the agent, with no control to answer it",
   expect(await screen.findByText("Consulted Architect")).toBeTruthy();
   update(run([message("m1", "user", "Plan my day", 1)], [consult("answered", { kind: "consult", outcome: "failed", text: "The consulted Job failed" })]));
   expect(await screen.findByText("Architect gave no answer")).toBeTruthy();
+});
+
+test("the thread is in French: the invitation, a consult, an answer and the copy action", () => {
+  fake.agents.list.mockResolvedValue([]);
+  const view = (snap: RunSnapshot) => (
+    <I18nextProvider i18n={createI18n("fr")}>
+      <QueryClientProvider client={new QueryClient()}>
+        <ChatThread run={snap} chatStepId="s_chat" canSend onSend={async () => {}} />
+      </QueryClientProvider>
+    </I18nextProvider>
+  );
+  const { unmount } = render(view(run([])));
+  expect(screen.getByText("Dites bonjour pour commencer.")).toBeTruthy();
+  unmount();
+  render(view(run([message("m1", "assistant", "Bonjour", 1)], [question("q1", 2, { status: "answered", answer: { kind: "choice", answers: { "Who is it for?": ["Me", "You"] } } })])));
+  expect(screen.getByRole("button", { name: "Copier le message" })).toBeTruthy();
+  expect(screen.getByText("Vous avez répondu Me et You")).toBeTruthy();
 });

@@ -1,9 +1,11 @@
 import type { Answer, QuestionPayload } from "@dispand/runner-protocol";
 import { useId, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { CONSULT_LINE, ProposalItems, type ProposalView } from "./ProposalItems.tsx";
+import { useFormat } from "../../lib/format.ts";
+import { ProposalItems, type ProposalView } from "./ProposalItems.tsx";
 
 /** For a call of one of an agent's tools: the tool and the action it is for, in full (the name it is asked under is cut short). */
 export type About = { tool: string; action: string; description: string };
@@ -31,12 +33,13 @@ export type QuestionFormProps = {
 
 /** Renders what an agent asks and hands back the owner's answer. Presentational: sending is the caller's. */
 export function QuestionForm({ question, onAnswer, busy, error }: QuestionFormProps) {
+  const { t } = useTranslation("questions");
   const { payload } = question;
   return (
     <div className="flex flex-col gap-4">
       {question.orphaned && (
         <p className="rounded-lg bg-hover px-3 py-2 text-[13px] text-muted">
-          The agent was restarted since it asked. Your answer will reach it as a message.
+          {t("orphaned")}
         </p>
       )}
       {payload.kind === "choice" && <Choice payload={payload} onAnswer={onAnswer} busy={busy} />}
@@ -56,35 +59,37 @@ export function QuestionForm({ question, onAnswer, busy, error }: QuestionFormPr
 }
 
 /** What a consult's Approval says (`engine/consults.ts`): the agent consulted, by name, and the question whole. */
-export function consultInput(payload: QuestionPayload): { agent: string; question: string } {
+export function consultInput(payload: QuestionPayload): { agent: string | null; question: string } {
   const input = (payload.kind === "permission" ? payload.input : null) as { agent?: unknown; question?: unknown } | null;
-  return { agent: typeof input?.agent === "string" ? input.agent : "an agent", question: typeof input?.question === "string" ? input.question : "" };
+  return { agent: typeof input?.agent === "string" ? input.agent : null, question: typeof input?.question === "string" ? input.question : "" };
 }
 
 /** A consult of an agent whose entry asks before use: no Job of it is made until the owner says yes. */
 function Consult({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { kind: "permission" }>>) {
+  const { t } = useTranslation("questions");
   const c = consultInput(payload);
+  const agent = c.agent ?? t("anAgent");
   const send = (decision: "allow" | "allow-always" | "deny") => onAnswer({ kind: "permission", decision });
   return (
     <div className="flex flex-col gap-3">
       <p className="text-[15px]">
-        The agent wants to consult <span className="font-medium">{c.agent}</span>. A Job of {c.agent} answers this question:
+        <Trans t={t} i18nKey="consult.wants" values={{ agent }} components={[<span className="font-medium" />]} />
       </p>
-      <p aria-label="Question" className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-hover p-3 text-[14px]">
+      <p aria-label={t("question")} className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-hover p-3 text-[14px]">
         {c.question}
       </p>
-      <p className="text-[13px] text-muted">{CONSULT_LINE}</p>
+      <p className="text-[13px] text-muted">{t("consultLine")}</p>
       <div className="flex flex-wrap gap-2">
         <Button disabled={busy} onClick={() => send("allow")}>
-          Allow
+          {t("allow")}
         </Button>
         {payload.canAlwaysAllow && (
           <Button variant="outline" disabled={busy} onClick={() => send("allow-always")}>
-            Don't ask again
+            {t("dontAskAgain")}
           </Button>
         )}
         <Button variant="outline" disabled={busy} onClick={() => send("deny")}>
-          Deny
+          {t("deny")}
         </Button>
       </div>
     </div>
@@ -92,41 +97,47 @@ function Consult({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { ki
 }
 
 /** What a checkpoint's Approval says (`engine/roots.ts`): the root cause, its Jobs, the agents involved and since when. */
-export type CheckpointInput = { root: string; jobs: number; agents: string[]; since: string };
+export type CheckpointInput = { root: string | null; jobs: number; agents: string[]; since: string };
 
 export function checkpointInput(payload: QuestionPayload): CheckpointInput {
   const input = (payload.kind === "permission" ? payload.input : null) as Partial<CheckpointInput> | null;
   return {
-    root: typeof input?.root === "string" ? input.root : "Work of your agents",
+    root: typeof input?.root === "string" ? input.root : null,
     jobs: typeof input?.jobs === "number" ? input.jobs : 0,
     agents: Array.isArray(input?.agents) ? input.agents.filter((a): a is string => typeof a === "string") : [],
     since: typeof input?.since === "string" ? input.since : "",
   };
 }
 
-const since = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
-
 /** A checkpoint (design 6.1): the work from one root cause made this many Jobs; go on, go on for good, or stop it. */
 function Checkpoint({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { kind: "permission" }>>) {
+  const { t } = useTranslation("questions");
+  const format = useFormat();
   const c = checkpointInput(payload);
+  const root = c.root ?? t("checkpoint.defaultRoot");
   const send = (decision: "allow" | "allow-always" | "deny") => onAnswer({ kind: "permission", decision });
   const date = c.since ? new Date(c.since) : null;
   return (
     <div className="flex flex-col gap-3">
       <p className="text-[15px]">
-        {c.root} has led to <span className="font-medium">{c.jobs} Jobs</span>
-        {date && !Number.isNaN(date.getTime()) ? ` since ${since.format(date)}` : ""}. It is paused until you say whether it goes on.
+        <Trans
+          t={t}
+          i18nKey={date && !Number.isNaN(date.getTime()) ? "checkpoint.textSince" : "checkpoint.text"}
+          count={c.jobs}
+          values={{ root, since: date ? format.dateTime(date) : "" }}
+          components={[<span className="font-medium" />]}
+        />
       </p>
-      {c.agents.length > 0 && <p className="text-[13px] text-muted">Agents: {c.agents.join(", ")}</p>}
+      {c.agents.length > 0 && <p className="text-[13px] text-muted">{t("checkpoint.agents", { agents: format.list(c.agents) })}</p>}
       <div className="flex flex-wrap gap-2">
         <Button disabled={busy} onClick={() => send("allow")}>
-          Go on
+          {t("checkpoint.goOn")}
         </Button>
         <Button variant="outline" disabled={busy} onClick={() => send("allow-always")}>
-          Don't ask again for this goal
+          {t("checkpoint.dontAsk")}
         </Button>
         <Button variant="outline" disabled={busy} onClick={() => send("deny")}>
-          Stop this work
+          {t("checkpoint.stop")}
         </Button>
       </div>
     </div>
@@ -142,9 +153,12 @@ export function approvalWords(payload: QuestionPayload): string | null {
 
 type Part<P extends QuestionPayload> = { payload: P; onAnswer: (answer: Answer) => void; busy?: boolean };
 
+const inputType = (multi: boolean) => (multi ? "checkbox" : "radio");
+
 type Pick = { labels: string[]; other: boolean; text: string };
 
 function Choice({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { kind: "choice" }>>) {
+  const { t } = useTranslation("questions");
   const id = useId();
   const [picks, setPicks] = useState<Pick[]>(() => payload.questions.map(() => ({ labels: [], other: false, text: "" })));
   const update = (i: number, patch: Partial<Pick>) => setPicks((all) => all.map((p, j) => (j === i ? { ...p, ...patch } : p)));
@@ -169,7 +183,7 @@ function Choice({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { kin
       {payload.questions.map((q, i) => {
         const p = picks[i]!;
         const name = `${id}-${i}`;
-        const type = q.multiSelect ? "checkbox" : "radio";
+        const type = inputType(q.multiSelect);
         const toggle = (label: string) =>
           update(i, q.multiSelect ? { labels: p.labels.includes(label) ? p.labels.filter((l) => l !== label) : [...p.labels, label] } : { labels: [label], other: false });
         return (
@@ -194,14 +208,14 @@ function Choice({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { kin
               <input
                 type={type}
                 name={name}
-                aria-label="Other"
+                aria-label={t("other")}
                 checked={p.other}
                 onChange={() => update(i, q.multiSelect ? { other: !p.other } : { other: true, labels: [] })}
                 className="size-4 accent-[var(--color-accent)]"
               />
               <Input
-                aria-label={`Other: ${q.question}`}
-                placeholder="Other…"
+                aria-label={t("otherFor", { question: q.question })}
+                placeholder={t("otherPlaceholder")}
                 value={p.text}
                 onChange={(e) => update(i, { text: e.target.value, other: true, ...(q.multiSelect ? {} : { labels: [] }) })}
                 className="h-8"
@@ -212,7 +226,7 @@ function Choice({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { kin
       })}
       <div>
         <Button type="submit" disabled={!ready || busy}>
-          Send answer
+          {t("sendAnswer")}
         </Button>
       </div>
     </form>
@@ -234,6 +248,7 @@ function Permission({
   onAnswer,
   busy,
 }: Part<Extract<QuestionPayload, { kind: "permission" }>> & { about: About | null; proposalId: string | null; proposal: ProposalView | null; offer?: { scopes: ("run" | "always")[]; label: string; decisions?: ("allow" | "deny")[] } }) {
+  const { t } = useTranslation("questions");
   const [scope, setScope] = useState<"run" | "always" | "">("");
   const radio = useId();
   const [message, setMessage] = useState("");
@@ -247,11 +262,7 @@ function Permission({
       <div className="flex flex-col gap-2 text-[15px]">
         {asked !== null && <p className="whitespace-pre-wrap break-words">{asked}</p>}
         <p className="rounded-lg bg-hover px-3 py-2 text-[13px] text-muted">
-          This asks you to approve a proposal: changes to what agents may do.{" "}
-          <a href="/inbox" className="text-accent underline">
-            Read and answer it in the Inbox
-          </a>
-          .
+          <Trans t={t} i18nKey="proposal.inInbox" components={[<a href="/inbox" className="text-accent underline" />]} />
         </p>
       </div>
     );
@@ -262,14 +273,14 @@ function Permission({
     <div className="flex flex-col gap-3">
       {proposal && (
         <>
-          <p className="text-[15px]">The agent asks you to approve these changes. Approving lets it make exactly these, once each.</p>
+          <p className="text-[15px]">{t("proposal.intro")}</p>
           <ProposalItems proposal={proposal} />
-          <p className="text-[13px] text-muted">The agent says:</p>
+          <p className="text-[13px] text-muted">{t("proposal.says")}</p>
         </>
       )}
       {unattached && (
         <p role="alert" className="rounded-lg bg-hover px-3 py-2 text-[13px] text-danger">
-          This request names a proposal that isn't attached to it. Approving approves these words only: no listed change.
+          {t("proposal.unattached")}
         </p>
       )}
       {asked !== null ? (
@@ -279,17 +290,17 @@ function Permission({
           {about ? (
             <div className="text-[15px]">
               <p>
-                The agent wants to use <span className="font-medium">{about.tool}</span>: <code className="rounded bg-hover px-1.5 py-0.5 font-mono text-[13px]">{about.action}</code>
+                <Trans t={t} i18nKey="wantsToUseAction" values={{ tool: about.tool, action: about.action }} components={[<span className="font-medium" />, <code className="rounded bg-hover px-1.5 py-0.5 font-mono text-[13px]" />]} />
               </p>
               {about.description && <p className="mt-1 text-[13px] text-muted">{about.description}</p>}
             </div>
           ) : (
             <p className="text-[15px]">
-              The agent wants to use <code className="rounded bg-hover px-1.5 py-0.5 font-mono text-[13px]">{payload.toolName}</code>.
+              <Trans t={t} i18nKey="wantsToUse" values={{ tool: payload.toolName }} components={[<code className="rounded bg-hover px-1.5 py-0.5 font-mono text-[13px]" />]} />
             </p>
           )}
           {input && (
-            <pre aria-label="Tool input" className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-hover p-3 font-mono text-[12.5px]">
+            <pre aria-label={t("toolInput")} className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-hover p-3 font-mono text-[12.5px]">
               {input}
             </pre>
           )}
@@ -297,10 +308,10 @@ function Permission({
       )}
       {offer && asked === null && !proposalId && (
         <fieldset className="space-y-2 text-[13px]" disabled={busy}>
-          <legend className="mb-2 font-medium">{offer.decisions?.length === 1 && offer.decisions[0] === "allow" ? "Remember Allow" : "Remember this decision"}</legend>
-          {offer.decisions?.length === 1 && offer.decisions[0] === "allow" && <p className="text-muted">Deny applies only to this call.</p>}
+          <legend className="mb-2 font-medium">{offer.decisions?.length === 1 && offer.decisions[0] === "allow" ? t("rememberAllow") : t("rememberDecision")}</legend>
+          {offer.decisions?.length === 1 && offer.decisions[0] === "allow" && <p className="text-muted">{t("denyOnlyCall")}</p>}
           <p className="break-words text-muted">{offer.label}</p>
-          {[["", "Just this call"], ...offer.scopes.map((s) => [s, s === "run" ? "Remember this for this run only" : "Remember this for this and all future runs"])].map(([value, label]) => (
+          {[["", t("justThisCall")], ...offer.scopes.map((s) => [s, s === "run" ? t("rememberRun") : t("rememberAlways")])].map(([value, label]) => (
             <label key={value} className="flex items-start gap-2">
               <input type="radio" name={radio} value={value} checked={scope === value} onChange={() => setScope(value as "" | "run" | "always")} className="mt-0.5 accent-[var(--color-accent)]" />
               <span>{label}</span>
@@ -308,18 +319,18 @@ function Permission({
           ))}
         </fieldset>
       )}
-      <Textarea aria-label="Message to the agent" placeholder="Optional message to the agent" value={message} onChange={(e) => setMessage(e.target.value)} />
+      <Textarea aria-label={t("messageLabel")} placeholder={t("messagePlaceholder")} value={message} onChange={(e) => setMessage(e.target.value)} />
       <div className="flex flex-wrap gap-2">
         <Button disabled={busy} onClick={() => send("allow")}>
-          {asked !== null ? "Approve" : "Allow"}
+          {asked !== null ? t("approve") : t("allow")}
         </Button>
         {payload.canAlwaysAllow && !offer && (
           <Button variant="outline" disabled={busy} onClick={() => send("allow-always")}>
-            Always allow
+            {t("alwaysAllow")}
           </Button>
         )}
         <Button variant="outline" disabled={busy} onClick={() => send("deny")}>
-          Deny
+          {t("deny")}
         </Button>
       </div>
     </div>
@@ -327,11 +338,12 @@ function Permission({
 }
 
 function Confirm({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { kind: "confirm-outputs" }>>) {
+  const { t } = useTranslation("questions");
   const [feedback, setFeedback] = useState("");
   const entries = Object.entries(payload.values);
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-[15px]">The agent has what it needs. Go ahead with these?</p>
+      <p className="text-[15px]">{t("confirm.text")}</p>
       {entries.length > 0 && (
         <dl className="divide-y divide-line overflow-hidden rounded-xl bg-hover text-[14px]">
           {entries.map(([k, v]) => (
@@ -342,17 +354,17 @@ function Confirm({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { ki
           ))}
         </dl>
       )}
-      <Textarea aria-label="Feedback" placeholder="What should change? (for “Not yet”)" value={feedback} onChange={(e) => setFeedback(e.target.value)} />
+      <Textarea aria-label={t("confirm.feedback")} placeholder={t("confirm.placeholder")} value={feedback} onChange={(e) => setFeedback(e.target.value)} />
       <div className="flex flex-wrap gap-2">
         <Button disabled={busy} onClick={() => onAnswer({ kind: "confirm-outputs", confirmed: true })}>
-          Go ahead
+          {t("confirm.goAhead")}
         </Button>
         <Button
           variant="outline"
           disabled={busy}
           onClick={() => onAnswer({ kind: "confirm-outputs", confirmed: false, ...(feedback.trim() ? { feedback: feedback.trim() } : {}) })}
         >
-          Not yet
+          {t("confirm.notYet")}
         </Button>
       </div>
     </div>

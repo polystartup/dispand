@@ -1,8 +1,10 @@
 import { parseList } from "@dispand/domain/workflows/loop";
 import { nodesOf, type LoopStep, type WorkflowDef } from "@dispand/domain/workflows/model";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import { useFormat } from "../../lib/format.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
-import { duration, Status, when } from "../workflow/Runs.tsx";
+import { Status } from "../workflow/Runs.tsx";
 
 type Step = RunSnapshot["steps"][number];
 
@@ -12,6 +14,7 @@ type Step = RunSnapshot["steps"][number];
  * the run's version's (`def`): the workflow may have changed since.
  */
 export function RunSteps({ state, def, agentNames }: { state: RunSnapshot; def: WorkflowDef | undefined; agentNames: Map<string, string> }) {
+  const { t } = useTranslation("runs");
   const nodes = def ? nodesOf(def) : [];
   const order = new Map(nodes.map((n, i) => [n.id, i]));
   // In the order they ran (the definition's order isn't the graph's), steps not started yet last.
@@ -23,7 +26,7 @@ export function RunSteps({ state, def, agentNames }: { state: RunSnapshot; def: 
   const loopOf = (s: Step) => (s.iteration > 0 ? nodes.find((n) => n.id === s.nodeId)?.loopId : undefined);
   const card = (step: Step) => {
     const node = nodes.find((n) => n.id === step.nodeId);
-    return <StepCard step={step} name={node?.name ?? step.nodeId} agent={node?.agentId ? (agentNames.get(node.agentId) ?? "Deleted agent") : null} state={state} />;
+    return <StepCard step={step} name={node?.name ?? step.nodeId} agent={node?.agentId ? (agentNames.get(node.agentId) ?? t("deletedAgent")) : null} state={state} />;
   };
 
   return (
@@ -55,15 +58,16 @@ function iterationCount(loop: LoopStep, step: Step, state: RunSnapshot): number 
 
 /** A loop's body steps by iteration; only the latest is open. */
 function Iterations({ loop, step, body, state, card }: { loop: LoopStep; step: Step; body: Step[]; state: RunSnapshot; card: (step: Step) => ReactNode }) {
+  const { t } = useTranslation("runs");
   const iterations = [...new Set(body.map((s) => s.iteration))].sort((a, b) => a - b);
   const latest = iterations.at(-1);
   const total = iterationCount(loop, step, state);
   return (
-    <ol className="ml-4 mt-3 flex flex-col gap-3 border-l-2 border-line pl-4" aria-label="Iterations">
+    <ol className="ml-4 mt-3 flex flex-col gap-3 border-l-2 border-line pl-4" aria-label={t("iterations")}>
       {iterations.map((i) => (
         <li key={i}>
           <details open={i === latest}>
-            <summary className="cursor-pointer text-[13px] font-medium">{total === null ? `Iteration ${i}` : `Iteration ${i} of ${total}`}</summary>
+            <summary className="cursor-pointer text-[13px] font-medium">{total === null ? t("iteration", { i }) : t("iterationOf", { i, total })}</summary>
             <ol className="mt-3 flex flex-col gap-4">
               {body
                 .filter((s) => s.iteration === i)
@@ -79,6 +83,9 @@ function Iterations({ loop, step, body, state, card }: { loop: LoopStep; step: S
 }
 
 function StepCard({ step, name, agent, state }: { step: Step; name: string; agent: string | null; state: RunSnapshot }) {
+  const { t } = useTranslation("runs");
+  const format = useFormat();
+  const when = format.dateTimeSeconds;
   const transcript = state.messages.filter((m) => m.stepRunId === step.id);
   // A consult shows once, in the page's Consults section.
   const asked = state.questions.filter((q) => q.stepRunId === step.id && q.payload.kind !== "consult");
@@ -91,10 +98,10 @@ function StepCard({ step, name, agent, state }: { step: Step; name: string; agen
         </h2>
         <span className="flex items-center gap-2 text-[13px] text-muted">
           <Status status={step.queuedAt ? "queued" : step.status} />
-          {step.queuedAt && <span>· since {when.format(step.queuedAt)}</span>}
+          {step.queuedAt && <span>· {t("since", { when: when(step.queuedAt) })}</span>}
           {step.startedAt && (
             <span>
-              · {when.format(step.startedAt)} · {step.finishedAt ? duration(step.startedAt, step.finishedAt) : "still going"}
+              · {when(step.startedAt)} · {step.finishedAt ? format.duration(step.startedAt, step.finishedAt) : t("stillGoing")}
             </span>
           )}
         </span>
@@ -102,21 +109,21 @@ function StepCard({ step, name, agent, state }: { step: Step; name: string; agen
       {step.error && <p className="mt-2 whitespace-pre-wrap text-[14px] text-danger">{step.error}</p>}
       <div className="mt-3 flex flex-col gap-2">
         {step.outputs && (
-          <Fold title="Outputs" open>
+          <Fold title={t("outputs")} open>
             <Json value={step.outputs} />
           </Fold>
         )}
         {step.prompt !== null && (
-          <Fold title="Prompt">
+          <Fold title={t("prompt")}>
             <pre className="whitespace-pre-wrap break-words text-[13px]">{step.prompt}</pre>
           </Fold>
         )}
         {transcript.length > 0 && (
-          <Fold title={`Transcript (${transcript.length})`}>
+          <Fold title={t("transcript", { count: transcript.length })}>
             <ol className="flex flex-col gap-2">
               {transcript.map((m) => (
                 <li key={m.id} className="text-[13px]">
-                  <span className="mr-2 font-medium capitalize text-muted">{m.role}</span>
+                  <span className="mr-2 font-medium capitalize text-muted">{t(`role.${m.role}`)}</span>
                   <span className="whitespace-pre-wrap break-words">{m.text}</span>
                 </li>
               ))}
@@ -124,7 +131,7 @@ function StepCard({ step, name, agent, state }: { step: Step; name: string; agen
           </Fold>
         )}
         {asked.length > 0 && (
-          <Fold title={`Questions (${asked.length})`}>
+          <Fold title={t("questions", { count: asked.length })}>
             <ol className="flex flex-col gap-3">
               {asked.map((q) => (
                 <li key={q.id} className="flex flex-col gap-1">
@@ -132,7 +139,7 @@ function StepCard({ step, name, agent, state }: { step: Step; name: string; agen
                   <Json value={q.payload} />
                   {q.answer && (
                     <>
-                      <span className="text-[13px] font-medium text-muted">Answer</span>
+                      <span className="text-[13px] font-medium text-muted">{t("answer")}</span>
                       <Json value={q.answer} />
                     </>
                   )}

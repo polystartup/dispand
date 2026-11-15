@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { Empty, List } from "../settings/parts.tsx";
 import { Tabs } from "../settings/Tabs.tsx";
@@ -44,7 +45,9 @@ export function jobAgent(run: Pick<Run, "agentId" | "deletedAgentName">, names: 
 
 /** A run, step or question status, coloured. */
 export function Status({ status }: { status: string }) {
-  return <span className={cn("text-[13px] font-medium capitalize", tones[status] ?? "text-muted")}>{status}</span>;
+  const { t, i18n } = useTranslation();
+  const word = i18n.exists(`common:status.${status}`) ? t(`status.${status}` as never) : status;
+  return <span className={cn("text-[13px] font-medium capitalize", tones[status] ?? "text-muted")}>{word}</span>;
 }
 
 /** The latest runs of one workflow, or of all of them (named then), newest first. */

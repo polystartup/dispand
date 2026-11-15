@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { addStep, defaultWorkflowDef, type WorkflowDef } from "@dispand/domain/workflows/model";
 import { cleanup, render, screen, within } from "@testing-library/react";
+import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test } from "vitest";
+import { createI18n } from "../../lib/i18n.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import { RunSteps } from "./RunSteps.tsx";
 
@@ -112,4 +114,21 @@ test("a consult is not listed among a step's questions: the Consults section sho
   rerender(withQuestions([consult]));
   expect(screen.queryByText(/Questions \(/)).toBeNull();
   expect(screen.queryByText(/Which plan\?/)).toBeNull();
+});
+
+test("the steps are in French: iterations, status, the running time and the fold titles", () => {
+  seconds = 0;
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <RunSteps
+        state={snapshot([row("s0", "n_brief", 0, { outputs: { items: '["a","b"]' } }), row("s1", "n_each", 0, { status: "running", finishedAt: null }), row("s2", "n_sum", 1, { status: "waiting", finishedAt: null })])}
+        def={workflow()}
+        agentNames={new Map()}
+      />
+    </I18nextProvider>,
+  );
+  expect(screen.getByText("Itération 1 sur 2")).toBeTruthy();
+  expect(screen.getAllByText("Sorties").length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/toujours en cours/).length).toBeGreaterThan(0);
+  expect(screen.getByText("en attente d’une réponse")).toBeTruthy();
 });

@@ -1,0 +1,36 @@
+{
+  "consults": "Consults",
+  "consultedBy": "Consulted by {{agent}}",
+  "consulted": "Consulted {{agent}}",
+  "openJob": "Open its Job",
+  "answer": "Answer",
+  "noAnswerWhy": "Why there is none",
+  "empty": "(empty)",
+  "stop": "Stop",
+  "stopThis": "Stop this run",
+  "keepGoing": "Keep it going",
+  "deletedAgent": "Deleted agent",
+  "iterations": "Iterations",
+  "iteration": "Iteration {{i}}",
+  "iterationOf": "Iteration {{i}} of {{total}}",
+  "since": "since {{when}}",
+  "stillGoing": "still going",
+  "outputs": "Outputs",
+  "prompt": "Prompt",
+  "transcript": "Transcript ({{count}})",
+  "questions": "Questions ({{count}})",
+  "role": {
+    "user": "user",
+    "assistant": "assistant",
+    "tool": "tool"
+  },
+  "page": {
+    "failed": "Could not load this run.",
+    "runs": "Runs",
+    "agent": "Agent",
+    "run": "Run",
+    "version": "Version {{version}}",
+    "started": "Started {{when}}",
+    "took": "took {{duration}}"
+  }
+}

@@ -2,54 +2,65 @@ import type { Answer, QuestionPayload } from "@dispand/runner-protocol";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { type api, orpc } from "../../lib/api.ts";
-import { when } from "../workflow/Runs.tsx";
+import { useFormat } from "../../lib/format.ts";
 import { ProposalItems } from "./ProposalItems.tsx";
 import { type About, approvalWords, checkpointInput, consultInput, QuestionForm } from "./QuestionForm.tsx";
 
 export type InboxEntry = Awaited<ReturnType<typeof api.questions.list>>[number];
 
-/** What was asked, in a line or two, for an item that is done. */
-function askedText(payload: QuestionPayload, about?: About | null, rootId?: string | null, consultId?: string | null): string {
-  if (rootId) {
-    const c = checkpointInput(payload);
-    return `Checkpoint: ${c.root} had led to ${c.jobs} Jobs`;
-  }
-  if (consultId) {
-    const c = consultInput(payload);
-    return `Wanted to consult ${c.agent}: ${c.question}`;
-  }
-  if (payload.kind === "choice") return payload.questions.map((q) => q.question).join(" · ");
-  const words = approvalWords(payload);
-  if (words !== null) return `Asked: ${words}`;
-  if (payload.kind === "permission") {
-    const input = typeof payload.input === "string" ? payload.input : JSON.stringify(payload.input);
-    return `Wanted to use ${about ? `${about.tool}: ${about.action}` : payload.toolName}${input && input !== "{}" ? `: ${input}` : ""}`;
-  }
-  return "Asked to confirm its values";
-}
-
-/** The answer in the owner's words. */
-export function answerLine(answer: Answer, payload?: QuestionPayload, rootId?: string | null): string {
-  if (rootId && answer.kind === "permission") return { allow: "Went on", "allow-always": "Went on, without asking again", deny: "Stopped" }[answer.decision];
-  // An approval asked in words is approved or denied; a tool call is allowed or denied.
-  if (payload && approvalWords(payload) !== null && answer.kind === "permission" && answer.decision !== "deny") return "Approved";
-  if (answer.kind === "choice") {
-    return Object.entries(answer.answers)
-      .map(([question, given]) => `“${question}”: ${Array.isArray(given) ? given.join(", ") : given}`)
-      .join(" · ");
-  }
-  if (answer.kind === "permission") {
-    const scope = answer.remember === "run" ? " for this run" : answer.remember === "always" ? " for this and future runs" : "";
-    if (answer.decision === "deny") return answer.message ? `Denied${scope}: ${answer.message}` : `Denied${scope}`;
-    return answer.decision === "allow-always" ? "Allowed, always" : `Allowed${scope}`;
-  }
-  if (answer.kind === "consult") return answer.outcome === "answered" ? "Answered by the agent consulted" : "No answer";
-  return answer.confirmed ? "Confirmed" : answer.feedback ? `Not confirmed: ${answer.feedback}` : "Not confirmed";
+/** The inbox's lines in the page's language: what was asked, and the answer in the owner's words. */
+function useInboxText() {
+  const { t } = useTranslation("questions");
+  const format = useFormat();
+  const list = (given: string | string[]) => (Array.isArray(given) ? format.list(given) : given);
+  /** What was asked, in a line or two, for an item that is done. */
+  const askedText = (payload: QuestionPayload, about?: About | null, rootId?: string | null, consultId?: string | null): string => {
+    if (rootId) {
+      const c = checkpointInput(payload);
+      return t("asked.checkpoint", { root: c.root ?? t("checkpoint.defaultRoot"), count: c.jobs });
+    }
+    if (consultId) {
+      const c = consultInput(payload);
+      return t("asked.consult", { agent: c.agent ?? t("anAgent"), question: c.question });
+    }
+    if (payload.kind === "choice") return payload.questions.map((q) => q.question).join(" · ");
+    const words = approvalWords(payload);
+    if (words !== null) return t("asked.words", { words });
+    if (payload.kind === "permission") {
+      const input = typeof payload.input === "string" ? payload.input : JSON.stringify(payload.input);
+      const what = about ? `${about.tool}: ${about.action}` : payload.toolName;
+      return input && input !== "{}" ? t("asked.useWith", { what, input }) : t("asked.use", { what });
+    }
+    return t("asked.confirm");
+  };
+  /** The answer in the owner's words. */
+  const answerLine = (answer: Answer, payload?: QuestionPayload, rootId?: string | null): string => {
+    if (rootId && answer.kind === "permission") return t(`answer.checkpoint.${answer.decision}`);
+    // An approval asked in words is approved or denied; a tool call is allowed or denied.
+    if (payload && approvalWords(payload) !== null && answer.kind === "permission" && answer.decision !== "deny") return t("answer.approved");
+    if (answer.kind === "choice") {
+      return Object.entries(answer.answers)
+        .map(([question, given]) => t("answer.choice", { question, answer: list(given) }))
+        .join(" · ");
+    }
+    if (answer.kind === "permission") {
+      const scope = answer.remember ?? "none";
+      if (answer.decision === "deny") return answer.message ? t(`answer.denyMessage.${scope}`, { message: answer.message }) : t(`answer.deny.${scope}`);
+      return answer.decision === "allow-always" ? t("answer.allowAlways") : t(`answer.allow.${scope}`);
+    }
+    if (answer.kind === "consult") return answer.outcome === "answered" ? t("answer.consultAnswered") : t("answer.consultNone");
+    return answer.confirmed ? t("answer.confirmed") : answer.feedback ? t("answer.notConfirmedWith", { feedback: answer.feedback }) : t("answer.notConfirmed");
+  };
+  return { askedText, answerLine };
 }
 
 /** One Question or Approval of the Inbox: answerable while it waits, then shown with its answer, who gave it and when. */
 export function InboxItem({ item }: { item: InboxEntry }) {
+  const { t } = useTranslation("questions");
+  const format = useFormat();
+  const { askedText, answerLine } = useInboxText();
   const queryClient = useQueryClient();
   const [conflict, setConflict] = useState(false);
   const refresh = () => void queryClient.invalidateQueries({ queryKey: orpc.questions.key() });
@@ -65,11 +76,11 @@ export function InboxItem({ item }: { item: InboxEntry }) {
     }),
   );
   // A workflow run's item names its workflow, a Job's its agent and its trigger.
-  const from = (item.workflow ?? item.agent)?.name ?? "Run";
-  const tag = item.kind === "approval" ? "Approval" : "Question";
+  const from = (item.workflow ?? item.agent)?.name ?? t("run");
+  const tag = item.kind === "approval" ? t("approval") : t("question");
   const open = item.status === "pending";
   return (
-    <article aria-label={`${tag} from ${from}`} className="rounded-2xl bg-surface p-5 shadow-card">
+    <article aria-label={item.kind === "approval" ? t("approvalFrom", { from }) : t("questionFrom", { from })} className="rounded-2xl bg-surface p-5 shadow-card">
       <p className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
         <span className="rounded-full bg-hover px-2 py-0.5 text-[12px] font-medium text-fg">{tag}</span>
         <span>{from}</span>
@@ -86,17 +97,17 @@ export function InboxItem({ item }: { item: InboxEntry }) {
         )}
         {item.placement === "chat" && (
           <>
-            <span aria-hidden>·</span> <span className="rounded-full bg-hover px-2 py-0.5 text-[12px]">Asked in a chat</span>
+            <span aria-hidden>·</span> <span className="rounded-full bg-hover px-2 py-0.5 text-[12px]">{t("askedInChat")}</span>
           </>
         )}
         <span aria-hidden>·</span>
         <Link to="/settings/workflows/runs/$runId" params={{ runId: item.run.id }} className="text-accent hover:underline">
-          Open the run
+          {t("openRun")}
         </Link>
       </p>
       {open && conflict ? (
         <p role="status" className="text-[14px] text-muted">
-          This was already answered elsewhere.
+          {t("answeredElsewhere")}
         </p>
       ) : open ? (
         <QuestionForm question={item} busy={answer.isPending} error={answer.error?.message ?? null} onAnswer={(a) => answer.mutate({ questionId: item.id, answer: a })} />
@@ -110,19 +121,19 @@ export function InboxItem({ item }: { item: InboxEntry }) {
               <p className="text-[13px] text-faint">
                 {item.answeredBy?.type === "agent" ? (
                   <>
-                    Answered by the agent {item.answeredBy.name} ·{" "}
+                    {t("answeredByAgent", { name: item.answeredBy.name })} ·{" "}
                     <Link to="/settings/workflows/runs/$runId" params={{ runId: item.answeredBy.runId }} className="text-accent hover:underline">
-                      Open its Job
+                      {t("openJob")}
                     </Link>
                   </>
                 ) : (
-                  <>Answered{item.answeredBy?.type === "user" ? " by you" : ""}</>
+                  <>{item.answeredBy?.type === "user" ? t("answeredByYou") : t("answered")}</>
                 )}
-                {item.answeredAt ? ` · ${when.format(item.answeredAt)}` : ""}
+                {item.answeredAt ? ` · ${format.dateTimeSeconds(item.answeredAt)}` : ""}
               </p>
             </>
           ) : (
-            <p className="text-[13px] text-faint">{item.orphaned ? "Expired: the agent was restarted and asked again." : "Expired: its run ended before an answer."}</p>
+            <p className="text-[13px] text-faint">{item.orphaned ? t("expiredRestarted") : t("expiredEnded")}</p>
           )}
         </div>
       )}

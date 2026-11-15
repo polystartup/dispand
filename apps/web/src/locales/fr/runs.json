@@ -1,0 +1,36 @@
+{
+  "consults": "Consultations",
+  "consultedBy": "Consulté par {{agent}}",
+  "consulted": "Agent consulté : {{agent}}",
+  "openJob": "Ouvrir son Job",
+  "answer": "Réponse",
+  "noAnswerWhy": "Pourquoi il n’y en a pas",
+  "empty": "(vide)",
+  "stop": "Arrêter",
+  "stopThis": "Arrêter cette exécution",
+  "keepGoing": "La laisser continuer",
+  "deletedAgent": "Agent supprimé",
+  "iterations": "Itérations",
+  "iteration": "Itération {{i}}",
+  "iterationOf": "Itération {{i}} sur {{total}}",
+  "since": "depuis {{when}}",
+  "stillGoing": "toujours en cours",
+  "outputs": "Sorties",
+  "prompt": "Prompt",
+  "transcript": "Transcription ({{count}})",
+  "questions": "Questions ({{count}})",
+  "role": {
+    "user": "utilisateur",
+    "assistant": "assistant",
+    "tool": "outil"
+  },
+  "page": {
+    "failed": "Impossible de charger cette exécution.",
+    "runs": "Exécutions",
+    "agent": "Agent",
+    "run": "Exécution",
+    "version": "Version {{version}}",
+    "started": "Démarrée {{when}}",
+    "took": "a duré {{duration}}"
+  }
+}

@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { orpc } from "../../lib/api.ts";
+import { useFormat } from "../../lib/format.ts";
 import { AgentRights } from "../settings/PluginDefinitionPicks.tsx";
 
 type Input = { marketplaceId?: string; entryName?: string; reviewed?: string; skills?: string[]; setup?: { primitives?: string[]; agents?: { name: string; harnessId: string }[]; triggers?: string[] } };
@@ -12,14 +14,17 @@ type Shown = { agents?: Parameters<typeof AgentRights>[0]["d"][] };
  * that read's token, so a plugin changed since installs nothing.
  */
 export function PluginInstallItem({ input, shown }: { input: Input; shown: Shown | undefined }) {
+  const { t } = useTranslation("questions");
+  const format = useFormat();
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   const setup = input.setup ?? {};
   const agents = (setup.agents ?? []).map((a) => ({ ...a, definition: shown?.agents?.find((d) => d.name.toLowerCase() === a.name.toLowerCase()) }));
+  const listed = (items: string[] | undefined) => (items?.length ? format.list(items) : t("plugin.none"));
   const lines: [string, string][] = [
-    ["Plugin", input.entryName ?? ""],
-    ["Skills", (input.skills ?? []).join(", ") || "none"],
-    ["Tables", (setup.primitives ?? []).join(", ") || "none"],
-    ["Triggers", (setup.triggers ?? []).join(", ") || "none"],
+    [t("plugin.plugin"), input.entryName ?? ""],
+    [t("plugin.skills"), listed(input.skills)],
+    [t("plugin.tables"), listed(setup.primitives)],
+    [t("plugin.triggers"), listed(setup.triggers)],
   ];
   return (
     <div className="mt-2 space-y-2 text-[13px]">
@@ -32,16 +37,16 @@ export function PluginInstallItem({ input, shown }: { input: Input; shown: Shown
         ))}
       </dl>
       {agents.length > 0 && (
-        <ul aria-label="Agents it makes" className="space-y-2">
+        <ul aria-label={t("plugin.agents")} className="space-y-2">
           {agents.map((a) => (
             <li key={a.name}>
-              <span className="font-medium">{a.name}</span> <span className="text-muted">on {harnesses.data?.find((h) => h.id === a.harnessId)?.name ?? "a harness"}</span>
-              {a.definition ? <AgentRights d={a.definition} /> : <p className="ml-7 text-[12px] text-danger">What it may do wasn't read: decline, and ask for it to be proposed again.</p>}
+              <span className="font-medium">{a.name}</span> <span className="text-muted">{t("plugin.on", { harness: harnesses.data?.find((h) => h.id === a.harnessId)?.name ?? t("plugin.aHarness") })}</span>
+              {a.definition ? <AgentRights d={a.definition} /> : <p className="ml-7 text-[12px] text-danger">{t("plugin.unread")}</p>}
             </li>
           ))}
         </ul>
       )}
-      <p className="text-muted">Every tool its agents get asks before each action; its servers and native install are yours to add. A plugin changed since it was proposed installs nothing.</p>
+      <p className="text-muted">{t("plugin.note")}</p>
     </div>
   );
 }

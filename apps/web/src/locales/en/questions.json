@@ -1,0 +1,328 @@
+{
+  "run": "Run",
+  "approval": "Approval",
+  "question": "Question",
+  "approvalFrom": "Approval from {{from}}",
+  "questionFrom": "Question from {{from}}",
+  "askedInChat": "Asked in a chat",
+  "openRun": "Open the run",
+  "openJob": "Open its Job",
+  "answeredElsewhere": "This was already answered elsewhere.",
+  "answeredByAgent": "Answered by the agent {{name}}",
+  "answeredByYou": "Answered by you",
+  "answered": "Answered",
+  "expiredRestarted": "Expired: the agent was restarted and asked again.",
+  "expiredEnded": "Expired: its run ended before an answer.",
+  "asked": {
+    "checkpoint_one": "Checkpoint: {{root}} had led to {{count}} Job",
+    "checkpoint_other": "Checkpoint: {{root}} had led to {{count}} Jobs",
+    "consult": "Wanted to consult {{agent}}: {{question}}",
+    "words": "Asked: {{words}}",
+    "useWith": "Wanted to use {{what}}: {{input}}",
+    "use": "Wanted to use {{what}}",
+    "confirm": "Asked to confirm its values"
+  },
+  "answer": {
+    "checkpoint": {
+      "allow": "Went on",
+      "allow-always": "Went on, without asking again",
+      "deny": "Stopped"
+    },
+    "approved": "Approved",
+    "choice": "“{{question}}”: {{answer}}",
+    "deny": {
+      "none": "Denied",
+      "run": "Denied for this run",
+      "always": "Denied for this and future runs"
+    },
+    "denyMessage": {
+      "none": "Denied: {{message}}",
+      "run": "Denied for this run: {{message}}",
+      "always": "Denied for this and future runs: {{message}}"
+    },
+    "allowAlways": "Allowed, always",
+    "allow": {
+      "none": "Allowed",
+      "run": "Allowed for this run",
+      "always": "Allowed for this and future runs"
+    },
+    "consultAnswered": "Answered by the agent consulted",
+    "consultNone": "No answer",
+    "confirmed": "Confirmed",
+    "notConfirmedWith": "Not confirmed: {{feedback}}",
+    "notConfirmed": "Not confirmed"
+  },
+  "orphaned": "The agent was restarted since it asked. Your answer will reach it as a message.",
+  "anAgent": "an agent",
+  "consult": {
+    "wants": "The agent wants to consult <0>{{agent}}</0>. A Job of {{agent}} answers this question:"
+  },
+  "consultLine": "It can steer this agent with its questions, and its answers may quote what it reads in tables this agent can't.",
+  "allow": "Allow",
+  "deny": "Deny",
+  "dontAskAgain": "Don't ask again",
+  "alwaysAllow": "Always allow",
+  "approve": "Approve",
+  "checkpoint": {
+    "defaultRoot": "Work of your agents",
+    "text_one": "{{root}} has led to <0>{{count}} Job</0>. It is paused until you say whether it goes on.",
+    "text_other": "{{root}} has led to <0>{{count}} Jobs</0>. It is paused until you say whether it goes on.",
+    "textSince_one": "{{root}} has led to <0>{{count}} Job</0> since {{since}}. It is paused until you say whether it goes on.",
+    "textSince_other": "{{root}} has led to <0>{{count}} Jobs</0> since {{since}}. It is paused until you say whether it goes on.",
+    "agents": "Agents: {{agents}}",
+    "goOn": "Go on",
+    "dontAsk": "Don't ask again for this goal",
+    "stop": "Stop this work"
+  },
+  "other": "Other",
+  "otherFor": "Other: {{question}}",
+  "otherPlaceholder": "Other…",
+  "sendAnswer": "Send answer",
+  "wantsToUseAction": "The agent wants to use <0>{{tool}}</0>: <1>{{action}}</1>",
+  "wantsToUse": "The agent wants to use <0>{{tool}}</0>.",
+  "toolInput": "Tool input",
+  "rememberAllow": "Remember Allow",
+  "rememberDecision": "Remember this decision",
+  "denyOnlyCall": "Deny applies only to this call.",
+  "justThisCall": "Just this call",
+  "rememberRun": "Remember this for this run only",
+  "rememberAlways": "Remember this for this and all future runs",
+  "messageLabel": "Message to the agent",
+  "messagePlaceholder": "Optional message to the agent",
+  "confirm": {
+    "text": "The agent has what it needs. Go ahead with these?",
+    "feedback": "Feedback",
+    "placeholder": "What should change? (for “Not yet”)",
+    "goAhead": "Go ahead",
+    "notYet": "Not yet"
+  },
+  "plugin": {
+    "none": "none",
+    "plugin": "Plugin",
+    "skills": "Skills",
+    "tables": "Tables",
+    "triggers": "Triggers",
+    "agents": "Agents it makes",
+    "on": "on {{harness}}",
+    "aHarness": "a harness",
+    "unread": "What it may do wasn't read: decline, and ask for it to be proposed again.",
+    "note": "Every tool its agents get asks before each action; its servers and native install are yours to add. A plugin changed since it was proposed installs nothing."
+  },
+  "proposal": {
+    "intro": "The agent asks you to approve these changes. Approving lets it make exactly these, once each.",
+    "says": "The agent says:",
+    "inInbox": "This asks you to approve a proposal: changes to what agents may do. <0>Read and answer it in the Inbox</0>.",
+    "unattached": "This request names a proposal that isn't attached to it. Approving approves these words only: no listed change.",
+    "label": "What is proposed",
+    "none": "none",
+    "nothing": "nothing",
+    "empty": "empty",
+    "yes": "yes",
+    "no": "no",
+    "asksBeforeUse": "(asks before use)",
+    "targets": {
+      "agent": "Its own memory",
+      "data": "Its tables' memory",
+      "workspace": "The workspace's memory"
+    },
+    "workspaceLine": "What it writes steers every agent of the workspace.",
+    "itemRef": {
+      "agent": "the agent item {{n}} creates",
+      "harness": "the harness item {{n}} creates",
+      "tool": "the tool item {{n}} creates",
+      "skill": "the skill item {{n}} creates",
+      "table": "the table item {{n}} creates",
+      "field": "the field item {{n}} creates",
+      "trigger": "the trigger item {{n}} creates",
+      "catalog": "the catalog entry item {{n}} creates",
+      "plugin": "the plugin item {{n}} creates",
+      "thing": "the thing item {{n}} creates"
+    },
+    "itemRefMade": "{{what}}: <0/>",
+    "notYours": "{{id}}: not one of yours",
+    "operations": {
+      "created": "a row is created",
+      "updated": "a row is changed",
+      "deleted": "a row is deleted"
+    },
+    "interactionOperations": {
+      "created": "one is asked",
+      "answered": "one is answered",
+      "expired": "one expires"
+    },
+    "interaction": "A Question or an Approval of another agent's Job",
+    "changeTable": "A change to the table <0/>",
+    "changeRef": "A change to <0/>",
+    "when": "When {{what}}",
+    "whenNothing": "When nothing",
+    "onlyWhen": "A changed row only when one of these changed:",
+    "polls": "Polls <0/>",
+    "parentRequired": "<0/>, which every row must name",
+    "rateCap": "At most {{value}} an hour",
+    "concurrency": {
+      "parallel": "Several at once",
+      "one-at-a-time": "One at a time"
+    },
+    "callsGo": "Calls go to <0>{{host}}</0>",
+    "unreadable": "an address that can't be read",
+    "recorded": "What these items create is recorded in the plugin <0>{{plugin}}</0>.",
+    "refused": "refused",
+    "done": "done",
+    "runsWithout": "Runs without asking: {{runs}}",
+    "othersAsk": "Other enabled actions ask",
+    "titles": {
+      "tables_create": "Create a table",
+      "tables_rename": "Rename a table",
+      "tables_set_primitive": "Make a table primitive, or not",
+      "fields_create": "Add a field to a table",
+      "fields_update": "Change a field",
+      "fields_reorder": "Reorder a table's fields",
+      "agents_create": "Create an agent",
+      "agents_update": "Change an agent",
+      "agents_set_tool_permission": "Set an action to Run, Ask, or Off",
+      "harnesses_set_limit": "Change how many sessions of a harness work at once",
+      "tables_delete": "Delete a table, with its rows",
+      "fields_delete": "Delete a field, with its values",
+      "tools_add": "Add a tool: a server Dispand will call",
+      "tools_add_from_catalog": "Add a tool from the catalog: a server Dispand will call",
+      "tools_delete": "Delete a tool, with its saved headers",
+      "plugins_add_server": "Add a plugin's server as a tool: a server Dispand will call",
+      "triggers_create": "Create a trigger: what starts an agent's Jobs",
+      "triggers_update": "Change a trigger",
+      "triggers_delete": "Delete a trigger",
+      "plugins_install": "Install a plugin, and set up what it defines",
+      "memory_add": "Add an entry to a memory: what later Jobs start from",
+      "memory_update": "Rewrite an entry of a memory: what later Jobs start from"
+    },
+    "labelsOf": {
+      "tables_create": {
+        "name": "Name"
+      },
+      "tables_rename": {
+        "id": "Table",
+        "name": "New name"
+      },
+      "tables_set_primitive": {
+        "id": "Table",
+        "primitive": "Primitive",
+        "parent": "Parent table"
+      },
+      "fields_create": {
+        "tableId": "Table",
+        "name": "Name",
+        "type": "Type",
+        "choices": "Choices",
+        "referencesTableId": "Names rows of"
+      },
+      "fields_update": {
+        "id": "Field",
+        "name": "New name",
+        "choices": "Choices"
+      },
+      "fields_reorder": {
+        "tableId": "Table",
+        "fieldIds": "Fields, in order"
+      },
+      "tables_delete": {
+        "id": "Table"
+      },
+      "fields_delete": {
+        "id": "Field"
+      },
+      "triggers_create": {
+        "id": "Trigger",
+        "agentId": "Agent",
+        "instructions": "What the agent is told",
+        "config": "When it fires",
+        "concurrency": "Jobs at once",
+        "rateCap": "Jobs an hour",
+        "enabled": "On"
+      },
+      "triggers_update": {
+        "id": "Trigger",
+        "agentId": "Agent",
+        "instructions": "What the agent is told",
+        "config": "When it fires",
+        "concurrency": "Jobs at once",
+        "rateCap": "Jobs an hour",
+        "enabled": "On"
+      },
+      "triggers_delete": {
+        "id": "Trigger"
+      },
+      "tools_add": {
+        "name": "Name",
+        "url": "Address",
+        "transport": "Transport"
+      },
+      "tools_add_from_catalog": {
+        "catalogId": "Catalog entry",
+        "name": "Name"
+      },
+      "tools_delete": {
+        "id": "Tool"
+      },
+      "plugins_add_server": {
+        "pluginId": "Plugin",
+        "server": "Server",
+        "url": "Address",
+        "transport": "Transport"
+      },
+      "agents_set_tool_permission": {
+        "agentId": "Agent",
+        "toolId": "Tool",
+        "action": "Action",
+        "permission": "Permission"
+      },
+      "harnesses_set_limit": {
+        "id": "Harness",
+        "maxWorking": "At most at once"
+      },
+      "memory_add": {
+        "scope": "Memory",
+        "tableId": "Table",
+        "path": "Path",
+        "type": "Type",
+        "body": "What it says"
+      },
+      "memory_update": {
+        "scope": "Memory",
+        "tableId": "Table",
+        "path": "Path",
+        "type": "Type",
+        "body": "What it says"
+      }
+    },
+    "labels": {
+      "id": "Agent",
+      "name": "Name",
+      "description": "Description",
+      "harnessId": "Harness",
+      "systemPrompt": "Instructions",
+      "model": "Model",
+      "skillPackageIds": "Skills",
+      "toolIds": "Tools",
+      "bundles": "What its Jobs may do",
+      "dataTables": "Tables",
+      "consults": "May consult",
+      "selfLearning": "Learns"
+    }
+  },
+  "inbox": {
+    "title": "Inbox",
+    "subtitle": "What your agents ask you, and what was answered.",
+    "failed": "Could not load the Inbox.",
+    "emptyTitle": "Nothing waits for you",
+    "emptyText": "When an agent needs an answer or an approval, it shows up here.",
+    "waiting": "Waiting for you",
+    "done": "Done",
+    "browser": {
+      "unsupported": "Browser notifications need HTTPS or localhost. The bell still counts what waits.",
+      "title": "Browser notifications",
+      "granted": "On: this browser tells you when an agent asks.",
+      "denied": "Blocked in this browser's settings.",
+      "default": "Get told when an agent asks, even in another tab.",
+      "turnOn": "Turn on"
+    }
+  }
+}

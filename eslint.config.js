@@ -24,6 +24,9 @@ export default tseslint.config(
       "apps/web/src/routes/login.tsx",
       "apps/web/src/routes/setup.tsx",
       "apps/web/src/routes/_app.settings.{tools,skills,plugins.*,harnesses.*}.tsx",
+      "apps/web/src/components/{chat,assistant,questions,runs}/**/*.tsx",
+      "apps/web/src/routes/_app.{assistant,inbox}.tsx",
+      "apps/web/src/routes/_app.settings.workflows.runs.$runId.tsx",
     ],
     // The Agents and Audit areas' parts in settings/ are translated with their areas.
     ignores: ["**/*.test.tsx", "apps/web/src/components/settings/{AgentEditor,AuditRetention,CliRules,ConsultList,HarnessModelPicker,JobRights,SelfLearning,StemMarks,ToolAsk}.tsx"],

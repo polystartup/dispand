@@ -245,7 +245,7 @@ test("without an Assistant, picking a harness makes it", async () => {
   fake.harnesses.list.mockResolvedValue([{ id: "harness_1", name: "Claude" }]);
   fake.agents.ensureAssistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
   const { user } = mount();
-  const start = await screen.findByRole("button", { name: "Start the Assistant" });
+  const start = await screen.findByRole("button", { name: "Start Stem" });
   expect((start as HTMLButtonElement).disabled).toBe(true);
   await user.selectOptions(screen.getByRole("combobox", { name: "Harness" }), "harness_1");
   await user.click(start);
@@ -258,7 +258,7 @@ test("without an Assistant or a harness, it offers to add one, and the Assistant
   fake.harnesses.list.mockResolvedValue([]);
   fake.runners.list.mockResolvedValue([]);
   const { user } = mount();
-  expect(await screen.findByText("Choose where the Assistant runs")).toBeTruthy();
+  expect(await screen.findByText("Choose where Stem runs")).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Add a harness" }));
   // The harness sheet: a cloud provider and key, or a runner's CLI.
   const sheet = await screen.findByRole("dialog");
@@ -320,4 +320,19 @@ test("the chat names the built-in agent Stem, in French too", async () => {
   expect(await screen.findByRole("region", { name: "Stem" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Options de Stem" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Réglages de Stem" })).toBeTruthy();
+});
+
+test("without an Assistant, the harness choice is in French and names Stem", async () => {
+  fake.agents.assistant.mockResolvedValue(null);
+  fake.harnesses.list.mockResolvedValue([{ id: "harness_1", name: "Claude" }]);
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AssistantChat run={undefined} onOpen={() => {}} />
+      </QueryClientProvider>
+    </I18nextProvider>,
+  );
+  expect(await screen.findByRole("button", { name: "Démarrer Stem" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "Harnais" })).toBeTruthy();
+  expect(screen.getByText(/Choisissez le harnais sur lequel Stem tourne/)).toBeTruthy();
 });

@@ -19,5 +19,24 @@
     "bytes": "{{size}} o",
     "kb": "{{size}} Ko",
     "mb": "{{size}} Mo"
+  },
+  "loading": "Chargement…",
+  "status": {
+    "pending": "en attente",
+    "running": "en cours",
+    "waiting": "en attente d’une réponse",
+    "queued": "en file",
+    "succeeded": "réussi",
+    "failed": "échoué",
+    "skipped": "ignoré",
+    "answered": "répondu",
+    "expired": "expiré",
+    "noAnswer": "sans réponse",
+    "ended": "terminé"
+  },
+  "duration": {
+    "hours": "{{hours}} h {{minutes}} min",
+    "minutes": "{{minutes}} min {{seconds}} s",
+    "seconds": "{{seconds}} s"
   }
 }
