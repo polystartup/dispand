@@ -48,6 +48,9 @@ test("a saved French wins over an English browser, from the first server render 
   try {
     await page.getByRole("button", { name: "Account menu" }).click();
     await page.getByRole("menuitemradio", { name: "Français" }).click();
+    // The menu stays open on a choice (to show a failure), and its own labels switch first.
+    await expect(page.getByRole("menuitemradio", { name: "Français" })).toBeChecked();
+    await page.keyboard.press("Escape");
     await expect(page.getByRole("navigation", { name: "Principal" }).getByText("Paramètres")).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("lang", "fr");
 
