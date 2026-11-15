@@ -106,7 +106,7 @@ test("the lawyer: a fresh install's Assistant sets up the whole workspace from o
   await page.getByRole("option", { name: "scripted-model" }).click();
   await sheet.getByRole("button", { name: "Create harness" }).click();
   await expect(sheet).toHaveCount(0);
-  await page.getByRole("button", { name: "Start the Assistant" }).click();
+  await page.getByRole("button", { name: "Start Stem" }).click();
   const chat = page.getByRole("region", { name: "Stem" });
   await expect(chat.getByText("Describe your business or use case and how you'd like to automate it.")).toBeVisible();
 
