@@ -33,6 +33,8 @@ export const METRICS = {
   "dispand.proposals.applied": ["dispand.result"],
   // A plugin's setup run by its owner (`plugins/setup.ts`): every item made (done), stopped at a refusal, or failed.
   "dispand.plugins.setups": ["dispand.result"],
+  // A plugin's install, update or uninstall (`plugins/procedures.ts`), and how it ended: done or failed.
+  "dispand.plugins.actions": ["dispand.plugin.action", "dispand.result"],
   // An Audit row written (`audit/record.ts`), by its action; `failed`: a write after the fact that didn't go through.
   "dispand.audit.rows": ["dispand.audit.action", "dispand.result"],
   // Audit rows past their owner's retention, deleted by `audit/sweep.ts`.
@@ -71,6 +73,8 @@ export const METRICS = {
   "dispand.attachments.refused": ["dispand.attachment.limit"],
   "dispand.attachments.swept": [],
   "dispand.model.calls": ["dispand.harness.kind", "dispand.result"],
+  // Tokens the provider counted for a cloud model call, by direction (`input`, `output`).
+  "dispand.model.tokens": ["dispand.harness.kind", "dispand.token.direction"],
   "dispand.model.duration": ["dispand.harness.kind", "dispand.result"],
   // The instrumentations' own (`apps/web/telemetry-preload.mjs`): methods, codes and peers, never a path or a query.
   "http.server.request.duration": ["http.request.method", "http.response.status_code", "url.scheme", "network.protocol.version", "error.type"],

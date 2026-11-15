@@ -1,13 +1,15 @@
 import { call } from "@orpc/server";
 import { say } from "../messages/index.ts";
 import { eq } from "drizzle-orm";
-import { expect, test, vi } from "vitest";
+import { expect, onTestFinished, test, vi } from "vitest";
+import { stopTelemetry } from "../telemetry/index.ts";
+import { captureTelemetry } from "../telemetry/testing.ts";
 import * as schema from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp } from "../tools/test-server.ts";
 import { moveNative } from "./native.ts";
-import { installReviewed, lawFirm, lawFirmMarket } from "./test-support.ts";
+import { installReviewed, lawFirm, lawFirmMarket, removePlugin } from "./test-support.ts";
 
 const AGENTS = ["Intake and research", "Drafting", "Matter upkeep"];
 const DRAFTING = "com.dispand/agents/drafting.md";
@@ -504,6 +506,26 @@ test("a field removal names, on the update's screen, the workflows whose data st
     definition.fields = definition.fields.filter((f) => f.name !== "Conclusions");
     publish({ [MATTERS]: JSON.stringify(definition) });
     expect((await preview()).tables[0]!.changes).toMatchObject([{ key: "remove:Conclusions", stops: ["Close matter"] }]);
+  } finally {
+    remove();
+  }
+});
+
+test("install, update and uninstall are one span and one count each, with the plugin's id and never its name", async () => {
+  const t = await captureTelemetry();
+  onTestFinished(() => stopTelemetry());
+  const { ctx, pluginId, remove } = await setUp();
+  try {
+    await call(router.plugins.update, { id: pluginId }, { context: ctx });
+    await expect(call(router.plugins.update, { id: "missing" }, { context: ctx })).rejects.toBeDefined();
+    await removePlugin(ctx, pluginId);
+    const spans = t.spans().filter((x) => /^plugins\.(install|update|uninstall)$/.test(x.name));
+    expect(spans.map((x) => [x.name, x.attributes["dispand.result"]])).toEqual([["plugins.install", "done"], ["plugins.update", "done"], ["plugins.update", "failed"], ["plugins.uninstall", "done"]]);
+    expect(spans[1]!.attributes).toMatchObject({ "dispand.plugin.action": "update", "dispand.plugin.id": pluginId });
+    const actions = (await t.metrics()).filter((m) => m.name === "dispand.plugins.actions").map((m) => m.attributes);
+    expect(actions).toEqual(expect.arrayContaining([{ "dispand.plugin.action": "install", "dispand.result": "done" }, { "dispand.plugin.action": "update", "dispand.result": "failed" }, { "dispand.plugin.action": "uninstall", "dispand.result": "done" }]));
+    const everything = JSON.stringify(spans.map((x) => [x.attributes, x.events]));
+    for (const sentinel of ["acme", "Drafting", "Intake and research", "law"]) expect(everything).not.toContain(sentinel);
   } finally {
     remove();
   }

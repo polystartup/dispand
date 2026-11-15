@@ -16,6 +16,7 @@ export function createChatClient(h: ClientHarness, deps: ClientDeps): ModelClien
           model: h.model,
           messages: [...(system ? [{ role: "system" as const, content: system }] : []), ...toMessages(items)],
           stream: true,
+          stream_options: { include_usage: true },
           ...(tools.length > 0
             ? { tools: tools.map((t) => ({ type: "function" as const, function: { name: t.name, description: t.description, parameters: t.inputSchema } })) }
             : {}),
@@ -27,8 +28,11 @@ export function createChatClient(h: ClientHarness, deps: ClientDeps): ModelClien
       let text = "";
       let refusal = "";
       let finish: string | null = null;
+      let usage: ModelTurn["usage"];
       const calls: { id: string; name: string; arguments: string }[] = [];
       for await (const chunk of stream) {
+        // The last chunk, with no choice, carries the counts.
+        if (chunk.usage) usage = { input: chunk.usage.prompt_tokens, output: chunk.usage.completion_tokens };
         const choice = chunk.choices[0];
         if (!choice) continue;
         const { delta } = choice;
@@ -62,7 +66,7 @@ export function createChatClient(h: ClientHarness, deps: ClientDeps): ModelClien
         : finish === "content_filter" || refusal ? "refusal"
         : present.length > 0 ? "tool_use"
         : "end";
-      return { text, toolCalls: present.map((c) => ({ id: c.id, name: c.name, args: parseArgs(c.arguments) })), raw, stop };
+      return { text, toolCalls: present.map((c) => ({ id: c.id, name: c.name, args: parseArgs(c.arguments) })), raw, stop, ...(usage ? { usage } : {}) };
     },
   };
 }

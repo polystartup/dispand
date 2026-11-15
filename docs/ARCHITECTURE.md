@@ -495,7 +495,11 @@
   (`withJob`). Every procedure runs in a span named after it (`rpc/context.ts`: `rpc.method`,
   `dispand.owner.id`, `dispand.result`) and records `dispand.rpc.duration`; a Job's tool call
   passes the procedure's path. Metric instruments and their allowed attributes are listed in
-  `telemetry/metrics.ts`. Better Auth's own spans go through the same pipeline.
+  `telemetry/metrics.ts`. A cloud model call's span carries the provider's token counts, and
+  `dispand.model.tokens` counts them by direction (`input` includes cached input; a provider that
+  sends none adds none). A plugin's install, update and uninstall each make a `plugins.<action>`
+  span (the plugin's id, `dispand.result`) and count in `dispand.plugins.actions`, never a name or
+  a value. Better Auth's own spans go through the same pipeline.
   `apps/web/telemetry-preload.mjs`, loaded with `node --import` by `pnpm start`, the image and
   the dev server (`NODE_OPTIONS`), registers the HTTP, PostgreSQL and undici instrumentations
   before anything loads; the import hook wraps only `pg` and `http(s)` (wrapping every module

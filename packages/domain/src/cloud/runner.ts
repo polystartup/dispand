@@ -77,6 +77,10 @@ function modelCall(kind: string, sessionId: string, turn: () => Promise<ModelTur
       const done = await turn();
       result = done.stop;
       span.setAttribute("dispand.model.tool_calls", done.toolCalls.length);
+      if (done.usage) {
+        span.setAttributes({ "dispand.model.tokens.input": done.usage.input, "dispand.model.tokens.output": done.usage.output });
+        for (const direction of ["input", "output"] as const) counts.counter("dispand.model.tokens", { unit: "{token}", description: "Tokens the provider counted for a model call" }).add(done.usage[direction], { "dispand.harness.kind": kind, "dispand.token.direction": direction });
+      }
       return done;
     } catch (err) {
       recordError(span, errorKind(err));

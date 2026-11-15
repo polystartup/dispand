@@ -83,5 +83,5 @@ function toTurn(response: OpenAI.Responses.Response): ModelTurn {
     : reason === "content_filter" || refused ? "refusal"
     : toolCalls.length > 0 ? "tool_use"
     : "end";
-  return { text, toolCalls, raw: output, stop };
+  return { text, toolCalls, raw: output, stop, ...(response.usage ? { usage: { input: response.usage.input_tokens, output: response.usage.output_tokens } } : {}) };
 }

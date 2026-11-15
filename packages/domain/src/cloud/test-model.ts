@@ -17,7 +17,7 @@ export function fakeModel(...script: Script[]) {
         const t = await next(input);
         if (t.text) input.onText(t.text);
         const toolCalls = t.toolCalls ?? [];
-        return { text: t.text ?? "", toolCalls, raw: { fake: true }, stop: t.stop ?? (toolCalls.length > 0 ? "tool_use" : "end") };
+        return { text: t.text ?? "", toolCalls, raw: { fake: true }, stop: t.stop ?? (toolCalls.length > 0 ? "tool_use" : "end"), ...(t.usage ? { usage: t.usage } : {}) };
       },
     };
   };

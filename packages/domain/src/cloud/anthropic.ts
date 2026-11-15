@@ -49,7 +49,7 @@ export function createAnthropicClient(h: ClientHarness, deps: ClientDeps): Model
         block.type === "tool_use" ? [{ id: block.id, name: block.name, args: json.has(i) ? parseArgs(json.get(i)!) : block.input }] : [],
       );
       const text = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-      return { text, toolCalls, raw: message.content, stop: stopOf(message.stop_reason) };
+      return { text, toolCalls, raw: message.content, stop: stopOf(message.stop_reason), usage: { input: message.usage.input_tokens + (message.usage.cache_creation_input_tokens ?? 0) + (message.usage.cache_read_input_tokens ?? 0), output: message.usage.output_tokens } };
     },
   };
 }

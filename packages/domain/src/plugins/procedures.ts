@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { lstatSync, realpathSync } from "node:fs";
 import { join, relative } from "node:path";
 import { call, ORPCError } from "@orpc/server";
+import { errorKind } from "../log.ts";
+import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
@@ -57,6 +59,27 @@ import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, PluginError, type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
 
 const owner = base.use(authed);
+
+const traces = tracer("plugins");
+const counts = meter("plugins");
+
+/** An install, update or uninstall in a span and a counter: its action, the plugin's id (none at an install) and how it ended; never a name or a value. */
+function acted<T>(action: "install" | "update" | "uninstall", pluginId: string | undefined, fn: () => Promise<T>): Promise<T> {
+  return traces.startActiveSpan(`plugins.${action}`, { attributes: { "dispand.plugin.action": action, ...(pluginId ? { "dispand.plugin.id": pluginId } : {}) } }, async (span) => {
+    let result = "done";
+    try {
+      return await fn();
+    } catch (err) {
+      result = "failed";
+      recordError(span, errorKind(err));
+      throw err;
+    } finally {
+      span.setAttribute("dispand.result", result);
+      span.end();
+      counts.counter("dispand.plugins.actions").add(1, { "dispand.plugin.action": action, "dispand.result": result });
+    }
+  });
+}
 
 type MarketplaceRow = typeof marketplacesTable.$inferSelect;
 
@@ -355,7 +378,7 @@ const unique = (names: string[]) => [...new Set(names)];
  */
 const install = owner
   .input(InstallInput)
-  .handler(async ({ input, context }) => {
+  .handler(({ input, context }) => acted("install", undefined, async () => {
     const picked = { skills: unique(input.skills), mcpServers: unique(input.mcpServers), agents: unique(input.agents) };
     const setupPicked = !!input.setup && Object.values(input.setup).some((v) => Array.isArray(v) && v.length > 0);
     const nothingPicked = !picked.skills.length && !picked.mcpServers.length && !picked.agents.length && !setupPicked;
@@ -466,7 +489,7 @@ const install = owner
     // From a Job, under its context: its approved item is the owner's approval, and each item's procedure checks it as it does a call of the owner.
     const { outcomes } = await runItemsAsOwner(context, pluginId, items.items);
     return { ...made, setup: { outcomes, waiting: items.waiting } };
-  });
+ }));
 
 type PluginRow = typeof pluginsTable.$inferSelect;
 
@@ -754,7 +777,7 @@ const Choices = z.record(z.string().max(100), z.enum(["keep", "delete"])).refine
  * it loses it. Only what `uninstallPreview` showed is applied (`reviewed`), and the choices are
  * checked as a whole first (`checkChoices`).
  */
-const uninstall = owner.input(Id.extend({ reviewed: z.string().length(64), choices: Choices })).handler(async ({ input, context }) => {
+const uninstall = owner.input(Id.extend({ reviewed: z.string().length(64), choices: Choices })).handler(({ input, context }) => acted("uninstall", input.id, async () => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
   const out = await context.db.transaction(async (tx) => {
     const row = await findPlugin(tx, context.ownerId, input.id, true);
@@ -768,7 +791,7 @@ const uninstall = owner.input(Id.extend({ reviewed: z.string().length(64), choic
   });
   context.engine.settled(out);
   await context.engine.narrowOwnerSessions(context.ownerId, context.db);
-});
+}));
 
 /** The plugin as its marketplace lists it now: the entry's current commit, read. A failed sync keeps the entries. */
 async function latest(context: { db: Db; ownerId: string; gitFileUrls?: boolean }, row: PluginRow) {
@@ -1094,7 +1117,7 @@ async function namesIn(db: Db, ownerId: string, values: unknown): Promise<Record
  * only as `updatePreview` showed it (`reviewed`); one with none applies at once. Each element is
  * written through its own procedure, with its checks; one it refuses is reported, not applied.
  */
-const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(), take: z.array(z.string().max(700)).max(1000).default([]), /** What becomes of each element the new version drops that was asked about. */ choices: Choices.default({}), /** The changes ticked of each table, by their keys. */ tables: z.record(z.string().max(64), z.array(z.string().max(200)).max(200)).default({}), /** The harnesses whose native install the screen said would move. */ native: z.array(z.string().max(64)).max(50).default([]), /** The conflicts handed to Stem ("Let Stem deal with it"): they stay the owner's until it decides. */ stem: z.array(z.string().max(700)).max(1000).default([]) })).handler(async ({ input, context }) => {
+const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(), take: z.array(z.string().max(700)).max(1000).default([]), /** What becomes of each element the new version drops that was asked about. */ choices: Choices.default({}), /** The changes ticked of each table, by their keys. */ tables: z.record(z.string().max(64), z.array(z.string().max(200)).max(200)).default({}), /** The harnesses whose native install the screen said would move. */ native: z.array(z.string().max(64)).max(50).default([]), /** The conflicts handed to Stem ("Let Stem deal with it"): they stay the owner's until it decides. */ stem: z.array(z.string().max(700)).max(1000).default([]) })).handler(({ input, context }) => acted("update", input.id, async () => {
   const row = await findPlugin(context.db, context.ownerId, input.id);
   const shown = await updatePlan(context, row);
   const { contents, url, sha, nativeRoot } = shown;
@@ -1171,7 +1194,7 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
   const leftBehind = await moveNative(context, row.id, input.native);
   const stemJob = assistant ? await handToStem(context, row.id, assistant.agentId, handed) : undefined;
   return { sha, ...(failed.length ? { failed } : {}), ...(leftBehind.length ? { leftBehind } : {}), ...(stemJob ? { stemJob } : {}) };
-});
+}));
 
 /**
  * Hands conflicts to Stem: each kept as a conflict with the two values it is handed off against,

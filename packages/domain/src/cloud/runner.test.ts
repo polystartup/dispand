@@ -486,6 +486,18 @@ test("a model call is a span with the harness's kind, how the turn ended and how
   for (const sentinel of ["sentinel-model-answer", "You work for Dispand.", "Be brief."]) expect(all).not.toContain(sentinel);
 });
 
+test("a model call counts the provider's input and output tokens, by direction, on its span and as a metric", async () => {
+  const model = fakeModel(() => ({ text: "Done.", usage: { input: 25, output: 4 } }));
+  const { engine, workflow } = await setup(buttonStep, { client: model.client });
+  const t = await captureTelemetry();
+  onTestFinished(() => stopTelemetry());
+  await until(engine, await engine.startRun(workflow.id), "succeeded");
+  const [span] = t.spans().filter((x) => x.name === "model.turn");
+  expect(span!.attributes).toMatchObject({ "dispand.model.tokens.input": 25, "dispand.model.tokens.output": 4 });
+  const points = (await t.metrics()).filter((m) => m.name === "dispand.model.tokens").map((m) => m.attributes);
+  expect(points).toEqual(expect.arrayContaining([{ "dispand.harness.kind": "openai-compatible", "dispand.token.direction": "input" }, { "dispand.harness.kind": "openai-compatible", "dispand.token.direction": "output" }]));
+});
+
 test("a cloud Job's model turns and tool calls are in its trace, after a restart too", async () => {
   const traced: (string | undefined)[] = [];
   const tools = fakeTools().tools;

@@ -17,6 +17,8 @@ export type ModelTurn = {
   toolCalls: ToolCall[];
   raw: unknown;
   stop: "end" | "tool_use" | "max_tokens" | "refusal";
+  /** The tokens the provider counted for this call (cached input included); absent when it sent none. */
+  usage?: { input: number; output: number };
 };
 
 export type TurnInput = {
