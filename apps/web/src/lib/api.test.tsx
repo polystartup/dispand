@@ -8,7 +8,7 @@ import { renderToString } from "react-dom/server";
 import { expect, test } from "vitest";
 import { handleRpc } from "../server/rpc.ts";
 import type { Language } from "./i18n.ts";
-import { translateErrors } from "./api.ts";
+import { translated, translateErrors } from "./api.ts";
 
 // Procedures that fail as the page's own can: through the server's handler and the page's link.
 const failing = {
@@ -70,4 +70,9 @@ test("a raw database error reaches the page as the translated generic message, n
   const text = await refusal((await client("fr")).fails.database());
   expect(text).toBe("Une erreur s’est produite. Réessayez.");
   expect(text).not.toMatch(/duplicate|secret-row|plugins_name/);
+});
+
+test("a message with a count takes the plural form of the page's language", () => {
+  const shown = (count: number) => (translated(new ORPCError("BAD_REQUEST", message("validation.too_small.string", { field: "x", count })), "fr") as Error).message;
+  expect([shown(1), shown(3)]).toEqual(["« x » demande au moins 1 caractère.", "« x » demande au moins 3 caractères."]);
 });
