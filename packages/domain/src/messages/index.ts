@@ -24,7 +24,7 @@ export function isMessageKey(text: string): text is MessageKey {
 }
 
 /** The English sentence, with i18next's plural forms (`_one`, `_other` by `count`) and `{{value}}`s. */
-function english(key: MessageKey, values: MessageValues = {}): string {
+export function english(key: MessageKey, values: MessageValues = {}): string {
   const plural = typeof values.count === "number" ? lookup(`${key}_${new Intl.PluralRules("en").select(values.count)}`) : undefined;
   const text = String(plural ?? lookup(key) ?? lookup(`${key}_other`));
   const shown = (value: MessageValues[string] | undefined) => (Array.isArray(value) ? new Intl.ListFormat("en").format(value) : String(value ?? ""));
@@ -52,3 +52,6 @@ export function reasonOf(err: { message: string; data?: unknown }): Text {
   const data = err.data as { key?: unknown } | undefined;
   return typeof data?.key === "string" && isMessageKey(data.key) ? (err.data as Message) : { text: err.message };
 }
+
+/** A `Text` as an English sentence, for an agent: its tool results stay English, never keys. */
+export const sentence = (text: Text): string => ("text" in text ? text.text : english(text.key, text.values));

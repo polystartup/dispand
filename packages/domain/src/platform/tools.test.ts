@@ -3,7 +3,8 @@ import { expect, test } from "vitest";
 import { z } from "zod";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
-import { NOT_TOOLS, PLATFORM_TOOLS, procedureOf, procedurePaths } from "./tools.ts";
+import { say } from "../messages/index.ts";
+import { englishSetup, NOT_TOOLS, PLATFORM_TOOLS, procedureOf, procedurePaths } from "./tools.ts";
 
 const toolPaths = PLATFORM_TOOLS.map((t) => t.path);
 
@@ -135,4 +136,23 @@ test("every tool's input has a JSON Schema an MCP client or a model can read", (
   for (const tool of PLATFORM_TOOLS) {
     expect(z.toJSONSchema(tool.input, { io: "input" }), tool.name).toMatchObject({ type: "object" });
   }
+});
+
+test("plugins_install tells an agent its setup report in English sentences, never keys, and is filtered by that tool", () => {
+  const report = {
+    pluginId: "plugin_1",
+    setup: {
+      outcomes: [{ $item: 0, tool: "tables_create", outcome: "refused", error: say("plugins.setup.noRef") }, { $item: 1, tool: "agents_create", outcome: "refused", error: { text: "As it came" } }, { $item: 2, tool: "x", outcome: "made" }],
+      waiting: [{ definition: "tool:a", reason: say("plugins.setup.waiting.noTool", { tool: "a" }) }],
+    },
+  };
+  expect(PLATFORM_TOOLS.find((t) => t.path === "plugins.install")!.filter).toBe(englishSetup);
+  expect(englishSetup(report)).toEqual({
+    pluginId: "plugin_1",
+    setup: {
+      outcomes: [{ $item: 0, tool: "tables_create", outcome: "refused", error: "It names an item that created nothing." }, { $item: 1, tool: "agents_create", outcome: "refused", error: "As it came" }, { $item: 2, tool: "x", outcome: "made" }],
+      waiting: [{ definition: "tool:a", reason: "“a” isn't added as a tool yet: the agent is made without it." }],
+    },
+  });
+  expect(englishSetup({ pluginId: "plugin_1" })).toEqual({ pluginId: "plugin_1" });
 });

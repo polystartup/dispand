@@ -12,6 +12,7 @@ import { signalsWithin } from "../assistant/review.ts";
 import { AnswerInput, answerQuestion, getQuestion, GetInput, listQuestions, ListInput } from "../questions/inbox.ts";
 import { readMemory, ReadInput, RemoveInput, removeMemoryTool, tablesOf, WriteInput, writeMemoryTool } from "../memory/tools.ts";
 import type { Rights } from "./rights.ts";
+import { sentence, type Text } from "../messages/index.ts";
 import { type Decision, decide } from "../plugins/resolve.ts";
 
 export { BUNDLES, type Bundle, type TableScope } from "./bundles.ts";
@@ -196,6 +197,14 @@ function tool(path: string, bundle: Bundle, description: string, rest: Pick<Plat
   return { path, name, bundle, description, input: procedureOf(router, path)["~orpc"].inputSchema ?? z.object({}), ...rest, ...(kind ? { creates: { kind, id: idOf } } : {}) };
 }
 
+/** The install's setup report for an agent: each waiting reason and refused item's error as its English sentence. */
+export function englishSetup(output: unknown): unknown {
+  const out = output as { setup?: { outcomes: { error?: Text }[]; waiting: { reason: Text }[] } };
+  if (!out.setup) return output;
+  const { outcomes, waiting } = out.setup;
+  return { ...out, setup: { outcomes: outcomes.map((o) => (o.error ? { ...o, error: sentence(o.error) } : o)), waiting: waiting.map((w) => ({ ...w, reason: sentence(w.reason) })) } };
+}
+
 /**
  * What a proposed plugin install's agents may do, read from the plugin now: the owner approves
  * these, and the install's token (checked here and again when it runs) makes them what is made.
@@ -284,7 +293,7 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("plugins.discover", "configure", "Lists what the owner's marketplaces offer (each entry with its marketplace's id), with whether it is installed; a query narrows them by name or description.", { tables: none }),
   tool("plugins.preview", "configure", "Reads a marketplace entry as installing it would: its skills, MCP servers, agents, and definitions (tables, agents with what their Jobs may do, triggers), and the reviewed token an install must carry.", { tables: none }),
   tool("plugins.list", "configure", "Lists the installed plugins with their definitions and which of them are set up.", { tables: none }),
-  tool("plugins.install", "configure", `Installs a marketplace entry: its skills, and with setup the definitions picked (tables, agents each on a harness, triggers), made as the plugin's. Give plugins_preview's reviewed token: an entry changed since is refused. Pick skills and setup only: its MCP servers, agent files and native install are the owner's to add. Every tool its agents get starts on Ask. Only an agent on every table installs. ${NEEDS_PROPOSAL}`, { tables: everyTable, grant: true, shown: pluginRights }),
+  tool("plugins.install", "configure", `Installs a marketplace entry: its skills, and with setup the definitions picked (tables, agents each on a harness, triggers), made as the plugin's. Give plugins_preview's reviewed token: an entry changed since is refused. Pick skills and setup only: its MCP servers, agent files and native install are the owner's to add. Every tool its agents get starts on Ask. Only an agent on every table installs. ${NEEDS_PROPOSAL}`, { tables: everyTable, grant: true, shown: pluginRights, filter: englishSetup }),
 ];
 
 /**
