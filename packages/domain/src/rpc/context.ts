@@ -40,7 +40,7 @@ export type InitialContext = {
    */
   job?: { runId: string; ownerId: string; agentId: string };
   /** Server-owned bindings of a reviewed agent grant; never built from request input. */
-  approvedToolTargets?: { toolId: string; target: string }[];
+  approvedToolTargets?: { toolId: string; target: string; strictTarget?: string }[];
   /**
    * The plugin's element a create makes (`plugins/setup.ts`): the row is the plugin's from its
    * insert, under this name in it. Server-owned; never built from request input.

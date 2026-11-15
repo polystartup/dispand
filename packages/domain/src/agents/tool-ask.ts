@@ -24,6 +24,9 @@ export async function strictPermissionsOf(db: Db | Tx, ownerId: string): Promise
   return row?.strict ?? false;
 }
 
+/** The revision a proposal's frozen lists are bound to: the agent changes with their approval, the tool must not. */
+export const FROZEN_REVISION = -1;
+
 /** A tool's strict target for one agent (and the skill package a choice came with), or null when its last listing failed. */
 export type StrictTargets = (tool: TargetOf & { pluginId: string | null; actionsError: string | null }, packageId?: string) => string | null;
 
@@ -33,12 +36,12 @@ export type StrictTargets = (tool: TargetOf & { pluginId: string | null; actions
  */
 export async function strictTargets(db: Db | Tx, ownerId: string, agentId: string, toolRows: { pluginId: string | null }[], packageIds: string[], revision?: number): Promise<StrictTargets | null> {
   if (!(await strictPermissionsOf(db, ownerId))) return null;
-  const [agent] = await db.select({ revision: agents.revision }).from(agents).where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)));
+  const [agent] = revision === undefined ? await db.select({ revision: agents.revision }).from(agents).where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId))) : [{ revision }];
   const pluginIds = [...new Set(toolRows.flatMap((t) => (t.pluginId ? [t.pluginId] : [])))];
   const commits = new Map(pluginIds.length ? (await db.select({ id: plugins.id, sha: plugins.sha }).from(plugins).where(and(inArray(plugins.id, pluginIds), eq(plugins.ownerId, ownerId)))).map((p) => [p.id, p.sha]) : []);
   const fingerprints = new Map(packageIds.length ? (await db.select({ id: skillPackages.id, fingerprint: skillPackages.fingerprint }).from(skillPackages).where(and(inArray(skillPackages.id, packageIds), eq(skillPackages.ownerId, ownerId)))).map((p) => [p.id, p.fingerprint]) : []);
   return (tool, packageId) =>
-    tool.actionsError !== null || !agent ? null : toolPermissionTarget(tool, { agentRevision: revision ?? agent.revision, pluginCommit: (tool.pluginId && commits.get(tool.pluginId)) ?? null, skillFingerprint: (packageId && fingerprints.get(packageId)) ?? null });
+    tool.actionsError !== null || !agent ? null : toolPermissionTarget(tool, { agentRevision: agent.revision, pluginCommit: (tool.pluginId && commits.get(tool.pluginId)) ?? null, skillFingerprint: (packageId && fingerprints.get(packageId)) ?? null });
 }
 
 /**

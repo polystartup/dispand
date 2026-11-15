@@ -488,7 +488,7 @@ export function runItemsAsOwner(context: InitialContext & { ownerId: string }, p
         if (input !== null) {
           const { procedure, path } = PROCEDURES[item.tool as SetupTool];
           try {
-            const permissions = item.toolPermissions ? resolveRefs(made, item.toolPermissions) as { toolId: string; target: string }[] : undefined;
+            const permissions = item.toolPermissions ? resolveRefs(made, item.toolPermissions) as { toolId: string; target: string; strictTarget?: string }[] : undefined;
             const pluginElement = elementOf(item);
             output = await call(procedure as never, input as never, { context: { ...context, approvedToolTargets: permissions, ...(pluginElement ? { pluginElement } : {}) } as never, path: [...path] });
           } catch (err) {

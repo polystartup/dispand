@@ -400,7 +400,9 @@ changes it updates this file.
   running sessions, as skill edits and plugin updates already do. A future-run answer under strict
   carries the strict target it was offered for (for a tool that comes with skills, each requiring
   package's, its files included) and is refused when it is no longer current. An agent update
-  proposal freezes only the grants that still hold, so its approval can't revive a stale one. A run's own
+  proposal freezes only the grants that still hold, each with the tool's strict target then (the
+  agent's own revision left out, since the approval itself changes it); on approval a list is
+  written only while that target is still current, otherwise the tool keeps what it had and asks. A run's own
   remembered decisions (`runs.remembered`) end with the run and carry no version. Tools reached by URL and runner tools
   have this list; runner tools use it in Job sessions only. The list changes in three ways, each a person's: the owner on the
   agent's page; an item of a proposal the owner approved (the write is a grant: an agent

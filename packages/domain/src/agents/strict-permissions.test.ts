@@ -223,3 +223,25 @@ test("a skill edit narrows the sessions already running", async () => {
   await s.edits.skillFile();
   expect(narrow).toHaveBeenCalledWith(s.context.ownerId, s.context.db);
 });
+
+test("with strict permissions, an approved proposal's frozen list holds only for the tool as it was proposed", async () => {
+  const s = await setup();
+  await s.strict(true);
+  await s.grant();
+  const propose = async () => {
+    const item = await snapshotToolPermissions(s.context.db, s.context.ownerId, [], { tool: "agents_update", input: { id: s.agent.id, ...s.fields } });
+    if (typeof item === "string") throw new Error(item);
+    const permissions = item.toolPermissions as { toolId: string; unasked: string[]; target: string; strictTarget?: string }[];
+    expect(permissions.find((p) => p.toolId === s.echo.id)).toMatchObject({ unasked: ["echo"], strictTarget: expect.any(String) });
+    return permissions;
+  };
+  const approve = async (permissions: Awaited<ReturnType<typeof propose>>) => {
+    await call(router.agents.update, { id: s.agent.id, ...s.fields, toolPermissions: permissions.map(({ toolId, unasked }) => ({ toolId, unasked })) }, { context: { ...s.context, approvedToolTargets: permissions } });
+    return (await s.nextJob()).echo;
+  };
+  expect(await approve(await propose())).toEqual(["echo"]);
+  const proposed = await propose();
+  await s.edits.newAction();
+  expect(await approve(proposed)).toEqual([]);
+  expect(await s.shown()).toBe("ask");
+});

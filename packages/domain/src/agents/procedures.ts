@@ -17,7 +17,7 @@ import { consultsOf, pairProblem, setConsults, type ConsultEntry } from "./consu
 import { lockConsults } from "../engine/consults.ts";
 import { leftOut } from "../engine/tooling.ts";
 import { skillsAndTools } from "./skills-and-tools.ts";
-import { heldUnasked, Permission, setPermission, strictTargets, toolPermissionTarget } from "./tool-ask.ts";
+import { FROZEN_REVISION, heldUnasked, Permission, setPermission, strictTargets, toolPermissionTarget } from "./tool-ask.ts";
 import { effectiveTools } from "./tools.ts";
 import { overriddenAfter, refuseOwnDelete, sameValue } from "../plugins/overrides.ts";
 import { agentValues } from "../plugins/update.ts";
@@ -129,7 +129,7 @@ async function find(db: Db, ownerId: string, id: string) {
  * are locked (shared) so a package or tool can't be deleted while it is being attached. Every
  * runner tool it gets, a skill's required ones included, must run on the harness's runner.
  */
-async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: string[], toolIds: string[], harnessRunnerId: string | null, permissions: { toolId: string; unasked: string[] }[] = [], targets?: { toolId: string; target: string }[]) {
+async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: string[], toolIds: string[], harnessRunnerId: string | null, permissions: { toolId: string; unasked: string[] }[] = [], targets?: { toolId: string; target: string; strictTarget?: string }[]) {
   if (permissions.some((p) => !toolIds.includes(p.toolId))) throw new ORPCError("BAD_REQUEST", { message: "Each tool permission must name a chosen tool" });
   if (new Set(permissions.map((p) => p.toolId)).size !== permissions.length) throw new ORPCError("BAD_REQUEST", { message: "List each tool's permissions once" });
   const pkgs = packageIds.length
@@ -173,12 +173,16 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
   const shadowed = toolIds.length ? await tx.delete(agentSkillToolPermissions).where(and(mine, inArray(agentSkillToolPermissions.toolId, toolIds))).returning() : [];
   // Under strict permissions, lists written now are bound to what the agent and its tools are now; kept ones keep theirs.
   const strict = await strictTargets(tx, ownerId, agentId, found, []);
+  // An approved proposal's list holds only for the tool it was frozen for; otherwise it is as if none was given.
+  const frozen = targets ? await strictTargets(tx, ownerId, agentId, found, [], FROZEN_REVISION) : null;
   if (toolIds.length) {
     await tx.insert(agentTools).values(
       toolIds.map((toolId) => {
         const tool = found.find((t) => t.id === toolId)!;
         const denied = kept.get(toolId)?.denied ?? [...new Set(shadowed.filter((r) => r.toolId === toolId && r.target === toolPermissionTarget(tool)).flatMap((r) => r.denied))];
-        const requested = permissions.find((p) => p.toolId === toolId)?.unasked;
+        const current = frozen?.(tool);
+        const reviewed = !frozen || (current !== null && targets!.find((t) => t.toolId === toolId)?.strictTarget === current);
+        const requested = reviewed ? permissions.find((p) => p.toolId === toolId)?.unasked : undefined;
         if (requested?.some((action) => tool.disabled.includes(action))) throw new ORPCError("BAD_REQUEST", { message: "An action is disabled workspace-wide" });
         const latent = (kept.get(toolId)?.unasked ?? []).filter((action) => tool.disabled.includes(action));
         // An Off carried over from the skill wins over defaults, a proposal's frozen ones included.

@@ -9,7 +9,7 @@ import { newId } from "../ids.ts";
 import { say, type Text } from "../messages/index.ts";
 import { canonical } from "./approvals.ts";
 import { catalogEntry, defaultDisabled, defaultUnasked } from "../tools/catalog.ts";
-import { heldUnasked, strictTargets, toolPermissionTarget } from "../agents/tool-ask.ts";
+import { FROZEN_REVISION, heldUnasked, strictTargets, toolPermissionTarget } from "../agents/tool-ask.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
 import type { JobIdentity, PlatformApp } from "./call.ts";
@@ -160,12 +160,15 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
       }
     }
   }
+  // Under strict permissions, each list holds on approval only for the tool as it is now.
+  const frozen = await strictTargets(db, ownerId, "", found, [], FROZEN_REVISION);
   const toolPermissions = ids.map((toolId) => {
     let defaults: string[] = [];
     let target = "unavailable";
+    let strictTarget: string | null | undefined;
     if (typeof toolId === "string") {
       const tool = found.find((t) => t.id === toolId);
-      if (tool) { defaults = defaultUnasked(tool); target = toolPermissionTarget(tool); }
+      if (tool) { defaults = defaultUnasked(tool); target = toolPermissionTarget(tool); strictTarget = frozen?.(tool); }
     } else {
       const source = prior[toolId.$item];
       if (source?.tool === "tools_add_from_catalog") {
@@ -177,7 +180,7 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
         target = toolPermissionTarget({ kind: "http", url: fields.url, transport: fields.transport ?? "streamable-http" });
       }
     }
-    return { toolId, unasked: (given.find((p) => key(p.toolId) === key(toolId))?.unasked ?? kept.get(key(toolId))?.unasked ?? defaults).filter((name) => !disabledFor(toolId).includes(name)), target };
+    return { toolId, unasked: (given.find((p) => key(p.toolId) === key(toolId))?.unasked ?? kept.get(key(toolId))?.unasked ?? defaults).filter((name) => !disabledFor(toolId).includes(name)), target, ...(strictTarget ? { strictTarget } : {}) };
   });
   if (toolPermissions.some((p) => p.unasked.some((action) => kept.get(key(p.toolId))?.denied.includes(action)))) return "An action is disabled: change its permission explicitly before granting it";
   return { ...item, toolPermissions };
@@ -275,7 +278,7 @@ export async function createProposal(app: PlatformApp, job: JobIdentity, tools: 
 }
 
 /** An item of a proposal, by its index. */
-export type ItemAt = { proposalId: string; index: number; toolPermissions?: { toolId: string; unasked: string[]; target: string }[] };
+export type ItemAt = { proposalId: string; index: number; toolPermissions?: { toolId: string; unasked: string[]; target: string; strictTarget?: string }[] };
 
 /**
  * Uses up one approved write of the Job: an item of one of its approved proposals (or the one
