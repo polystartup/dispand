@@ -4,7 +4,8 @@ import { rememberSecret } from "./telemetry/index.ts";
 /**
  * Seals secrets (API keys, tool headers) before they are stored, with AES-256-GCM and the key
  * from `DISPAND_SECRET_KEY`. The AAD binds a sealed value to its row and field
- * (`secretAad`), so a value copied into another row or column doesn't open.
+ * (`secretAad`), so a value copied into another row or column doesn't open; a tool's header is
+ * bound to the tool's origin too, so it doesn't open once the tool points elsewhere.
  */
 export type SecretBox = {
   /** `v1.<iv>.<ciphertext+tag>`, base64url, with a random 12-byte IV. */
@@ -58,7 +59,8 @@ export function createSecretBox(key: Buffer): SecretBox {
   };
 }
 
-/** The AAD of a secret stored in `table`.`field` of row `rowId`. */
-export function secretAad(table: string, rowId: string, field: string): string {
-  return JSON.stringify([table, rowId, field]);
+/** The AAD of a secret stored in `table`.`field` of row `rowId`, and only sent to `origin` when given. */
+export function secretAad(table: string, rowId: string, field: string, origin?: string): string {
+  // Without an origin, the same text as before origins existed: those secrets still open.
+  return JSON.stringify(origin === undefined ? [table, rowId, field] : [table, rowId, field, origin]);
 }

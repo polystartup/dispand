@@ -4,7 +4,9 @@ import { afterEach, expect, test } from "vitest";
 import { runners, tools, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
-import { toolTarget } from "./procedures.ts";
+import { secretAad, SecretError } from "../secrets.ts";
+import { headerAad, toolTarget } from "./procedures.ts";
+import { resealToolHeaders } from "./reseal.ts";
 import { startFakeMcp, type FakeAction, type FakeMcp } from "./test-server.ts";
 
 const servers: FakeMcp[] = [];
@@ -19,8 +21,8 @@ const echo: FakeAction = {
   call: (args) => ({ content: [{ type: "text", text: String(args.text) }] }),
 };
 
-async function fake(actions: FakeAction[] = [echo]) {
-  const server = await startFakeMcp(actions);
+async function fake(actions: FakeAction[] = [echo], transport: "streamable-http" | "sse" = "streamable-http") {
+  const server = await startFakeMcp(actions, transport);
   servers.push(server);
   return server;
 }
@@ -118,6 +120,61 @@ test("a tool's headers never follow it to another address: a new origin starts w
   const again = await call(router.tools.update, { id: tool.id, url: third.url, headers: { authorization: "Bearer other" } }, { context });
   expect(again.headerNames).toEqual(["authorization"]);
   expect(third.requests.every((h) => h.authorization === "Bearer other")).toBe(true);
+});
+
+test("an sse tool's header is bound to its origin: sealed for one, it doesn't open for another, and a move drops it", async () => {
+  const context = await ownerContext();
+  const first = await fake([echo], "sse");
+  const tool = await call(router.tools.create, { name: "Echo", url: first.url, transport: "sse", headers: { authorization: SECRET } }, { context });
+  expect(first.requests.length).toBeGreaterThan(0);
+  expect(first.requests.every((h) => h.authorization === SECRET)).toBe(true);
+  const second = await fake([echo], "sse");
+  const [row] = await context.db.select().from(tools).where(eq(tools.id, tool.id));
+  const sealed = row!.headersSealed.authorization!;
+  expect(context.secrets.open(sealed, headerAad(tool.id, "authorization", first.url))).toBe(SECRET);
+  expect(() => context.secrets.open(sealed, headerAad(tool.id, "authorization", second.url))).toThrow(SecretError);
+  // Moved to another origin: dropped, and nothing reaches the new server.
+  const moved = await call(router.tools.update, { id: tool.id, url: second.url }, { context });
+  expect(moved.headerNames).toEqual([]);
+  expect(second.requests.length).toBeGreaterThan(0);
+  expect(second.requests.every((h) => h.authorization === undefined)).toBe(true);
+  // Another transport at the same origin drops them too.
+  const again = await call(router.tools.update, { id: tool.id, headers: { authorization: SECRET } }, { context });
+  expect(again.headerNames).toEqual(["authorization"]);
+  const switched = await call(router.tools.update, { id: tool.id, transport: "streamable-http" }, { context });
+  expect(switched.headerNames).toEqual([]);
+});
+
+test("a header still sealed for its old origin is never sent to the tool's new one", async () => {
+  const context = await ownerContext();
+  const first = await fake();
+  const tool = await call(router.tools.create, { name: "Echo", url: first.url, transport: "streamable-http", headers: { authorization: SECRET } }, { context });
+  const second = await fake();
+  // A row whose URL changed without its headers (no procedure does it): the header doesn't open there.
+  await context.db.update(tools).set({ url: second.url }).where(eq(tools.id, tool.id));
+  const [row] = await context.db.select().from(tools).where(eq(tools.id, tool.id));
+  expect(() => toolTarget(row!, context.secrets)).toThrow(SecretError);
+  const refreshed = await call(router.tools.refresh, { id: tool.id }, { context });
+  expect(refreshed.actionsError).toBe("Couldn't list the tool's actions");
+  expect(second.requests).toEqual([]);
+});
+
+test("a header sealed before the re-seal, read after the tool's origin changed, is dropped as before and never sent", async () => {
+  const context = await ownerContext();
+  const first = await fake();
+  const tool = await call(router.tools.create, { name: "Echo", url: first.url, transport: "streamable-http", headers: {} }, { context });
+  // Sealed as before headers were bound to an origin.
+  const legacy = context.secrets.seal(SECRET, secretAad("tools", tool.id, "header:authorization"));
+  await context.db.update(tools).set({ headersSealed: { authorization: legacy }, auth: "headers" }).where(eq(tools.id, tool.id));
+  const second = await fake();
+  const moved = await call(router.tools.update, { id: tool.id, url: second.url }, { context });
+  expect(moved.headerNames).toEqual([]);
+  expect(await resealToolHeaders(context.db, context.secrets)).toEqual({ resealed: 0 });
+  const [row] = await context.db.select().from(tools).where(eq(tools.id, tool.id));
+  expect(toolTarget(row!, context.secrets).headers).toEqual({});
+  await call(router.tools.refresh, { id: tool.id }, { context });
+  expect(second.requests.length).toBeGreaterThan(0);
+  expect(second.requests.every((h) => h.authorization === undefined)).toBe(true);
 });
 
 test("headers go only to https, or plain http on this machine; no credentials in the URL", async () => {

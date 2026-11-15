@@ -768,7 +768,10 @@ changes it updates this file.
   http only to loopback) and can't carry credentials itself. They are for the server they
   were entered for: changing a tool's origin (scheme, host, port) or its transport drops
   every saved header, and only those given with that change are kept, so the owner enters
-  them again for the new address; MCP calls follow a redirect only
+  them again for the new address. The cryptography holds it too: a header's AAD also names
+  the origin of its tool's URL (`headerAad`), so a header left on a tool pointed at another
+  origin doesn't open and is never sent there. Headers sealed before this binding are sealed
+  again once, at server start, with the origin their tool calls then (`tools/reseal.ts`); MCP calls follow a redirect only
   within the tool's origin, and a failure reaches the owner as a short reason made by
   Dispand (host, status), never the server's answer. Whatever the server sends back (action
   names and descriptions, results) has the header values, and each word of them but a scheme

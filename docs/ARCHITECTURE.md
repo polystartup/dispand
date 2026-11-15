@@ -1079,14 +1079,16 @@
   10 MiB per file (the production server takes 11 MiB bodies on `files.upload` only).
 - **Secrets at rest:** `packages/domain/src/secrets.ts` is the one secret box (the tool headers use it too). `createSecretBox(key)`
   seals with AES-256-GCM and a random 12-byte IV into `v1.<iv>.<ciphertext+tag>` (base64url);
-  `seal` and `open` take an AAD, `secretAad(table, rowId, field)`, which binds the value to where
-  it is stored. Every procedure gets the box as `context.secrets`, built once from
+  `seal` and `open` take an AAD, `secretAad(table, rowId, field, origin?)`, which binds the value
+  to where it is stored and, for a tool's header, to the origin it is sent to. Every procedure gets the box as `context.secrets`, built once from
   `ServerConfig.secretKey`. Sealed values never leave the server: views say only whether one
   is set.
 - **Tools (MCP servers):** one `tools` table, MCP connector and Settings → Tools serve agents, sessions and Tool steps,
   with a catalog and runner (stdio) tools. A `tools` row (`packages/domain/src/db/schema.ts`) is
   `kind: "http"`: URL, transport (`streamable-http` or `sse`), headers sealed one by one in
-  `headers_sealed` (name in lower case → sealed value, AAD `headerAad(id, name)`), the actions
+  `headers_sealed` (name in lower case → sealed value, AAD `headerAad(id, name, url)`, which names the URL's origin: a header opens only while its
+  tool calls the origin it was entered for; `resealToolHeaders` (`tools/reseal.ts`) seals again,
+  at server start, a header sealed before that binding, with its tool's origin then), the actions
   of the last listing that succeeded (`ToolAction`: runner-protocol's `McpAction` plus an
   optional `outputSchema`) and `actions_error`, the short reason the last one failed. Names are
   unique case-insensitively per owner. `ToolConnector` (`tools/mcp.ts`, `createMcpConnector`,

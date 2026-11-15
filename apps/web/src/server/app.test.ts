@@ -10,6 +10,7 @@ vi.mock("@dispand/domain", () => ({
   createSecretBox: () => ({}),
   ensureAssistants: async () => {},
   syncPlatformSkills: async () => {},
+  resealToolHeaders: async () => ({ resealed: 0 }),
   createMcpConnector: () => ({}),
   guardedFetch: () => fetch,
   ownAddresses: () => ({}),

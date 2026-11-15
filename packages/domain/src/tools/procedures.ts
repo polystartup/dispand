@@ -22,8 +22,12 @@ const owner = base.use(authed);
 
 type Row = typeof toolsTable.$inferSelect;
 
-/** Where a tool's header `name` is sealed: its AAD names the row and the header. */
-export const headerAad = (toolId: string, name: string) => secretAad("tools", toolId, `header:${name}`);
+/**
+ * Where a tool's header `name` is sealed: its AAD names the row, the header and the origin of the
+ * tool's `url`, so a header opens only while the tool calls the origin it was entered for. A secret
+ * URL's template has the filled URL's origin (a setting goes only in its path or query).
+ */
+export const headerAad = (toolId: string, name: string, url: string) => secretAad("tools", toolId, `header:${name}`, originOf(url));
 /** Where a tool's secret URL is sealed. */
 export const urlAad = (toolId: string) => secretAad("tools", toolId, "url");
 
@@ -138,7 +142,7 @@ function nameTaken(error: unknown, name: string): never {
 /** The tool's target with its headers opened. Server-only: they go to the tool's URL and nowhere else. */
 export function toolTarget(row: Row, secrets: SecretBox): ToolTarget {
   if (row.url === null || row.transport === null) throw new Error(`tool ${row.id} isn't an HTTP tool`);
-  const headers = Object.fromEntries(Object.entries(row.headersSealed).map(([name, sealed]) => [name, secrets.open(sealed, headerAad(row.id, name))]));
+  const headers = Object.fromEntries(Object.entries(row.headersSealed).map(([name, sealed]) => [name, secrets.open(sealed, headerAad(row.id, name, row.url!))]));
   // A catalog entry's sign-in asks for its own scopes, not every one the server supports.
   const entry = row.auth === "oauth" ? catalogEntry(row.catalogId) : undefined;
   const request = entry?.kind === "http" && entry.oauth ? { oauthRequest: entry.oauth } : {};
@@ -272,7 +276,7 @@ export async function insertTool(db: Db | Tx, secrets: SecretBox, ownerId: strin
   if (input.oauth && (Object.keys(headers).length > 0 || input.secretUrl)) bad("A tool that signs in with OAuth has no headers");
   checkTarget(input.secretUrl?.url ?? input.url, Object.keys(headers).length > 0 || input.secretUrl !== undefined || input.oauth === true);
   const id = newId("tool");
-  const headersSealed = Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, secrets.seal(value, headerAad(id, name))]));
+  const headersSealed = Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, secrets.seal(value, headerAad(id, name, input.url))]));
   const [row] = await db
     .insert(toolsTable)
     .values({
@@ -490,7 +494,7 @@ const fillSettings = owner
       throw error;
     }
     checkTarget(entry.url, true);
-    const headersSealed = Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, context.secrets.seal(value, headerAad(current.id, name))]));
+    const headersSealed = Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, context.secrets.seal(value, headerAad(current.id, name, entry.url))]));
     const [row] = await context.db
       .update(toolsTable)
       .set({ headersSealed, auth: authOf(false, headersSealed) })
@@ -573,7 +577,7 @@ const update = owner
     const headersSealed = elsewhere || oauth || input.auth === "none" ? {} : { ...current.headersSealed };
     for (const [name, value] of Object.entries(normalize(input.headers ?? {}))) {
       if (value && (oauth || input.auth === "none")) bad("A tool that signs in with OAuth, or not at all, has no headers");
-      if (value) headersSealed[name] = context.secrets.seal(value, headerAad(current.id, name));
+      if (value) headersSealed[name] = context.secrets.seal(value, headerAad(current.id, name, url));
       else delete headersSealed[name];
     }
     if (Object.keys(headersSealed).length > MAX_HEADERS) bad(`At most ${MAX_HEADERS} headers`);

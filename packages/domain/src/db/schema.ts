@@ -1026,7 +1026,7 @@ export const plugins = pgTable(
 
 /**
  * Tools: MCP servers agents and Tool steps call (`tools/`). `http` tools are called by URL from
- * the server (and by the CLIs), with headers sealed one by one (`headerAad(id, name)`);
+ * the server (and by the CLIs), with headers sealed one by one (`headerAad(id, name, url)`, bound to the URL's origin);
  * `runner` tools add their own columns. Names are unique case-insensitively per owner among its
  * own tools, and within each plugin among that plugin's.
  */

@@ -17,6 +17,7 @@ import {
   ownAddresses,
   platformToolCaller,
   pollCaller,
+  resealToolHeaders,
   startTelemetry,
   stopTelemetry,
   sweepAttachments,
@@ -82,6 +83,8 @@ async function start(): Promise<App> {
   // version adds to it, before anything starts one of its Jobs.
   await syncPlatformSkills(db);
   await ensureAssistants(db);
+  // Headers sealed before they were bound to their tool's origin, sealed again before any tool call.
+  await resealToolHeaders(db, secrets);
   // Before any runner can connect (the upgrade handler waits for this app); cloud sessions go on.
   await engine.recover();
   // Fires what fell due while the app was down (once per schedule, for the latest time), then every 15 s.
