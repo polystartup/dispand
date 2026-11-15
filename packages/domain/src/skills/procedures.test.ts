@@ -116,7 +116,7 @@ test("a plugin's package can't be edited or deleted here", async () => {
   await expect(call(router.skills.update, { ...hello, packageId: "skillpkg_plugin" }, { context })).rejects.toMatchObject({ code: "FORBIDDEN" });
   await expect(call(router.skills.delete, { packageId: "skillpkg_plugin" }, { context })).rejects.toMatchObject({
     code: "FORBIDDEN",
-    message: "It is superpowers's: uninstall the plugin to remove it",
+    data: { key: "plugins.override.forbidden", values: { plugin: "superpowers" } },
   });
 });
 

@@ -19,7 +19,7 @@
       "noSkill": "The plugin has no skill “{{name}}” to import.",
       "noServer": "The plugin has no MCP server “{{name}}” to import.",
       "noAgent": "The plugin has no agent “{{name}}” to import.",
-      "proposed": "A proposed install picks skills and definitions only: MCP servers, agent files and native installation are yours to add.",
+      "proposed": "A proposed install picks skills and definitions only: MCP servers, agent files and native installation are the owner's to add.",
       "pickHarness": "Pick the harness the plugin's agents run on.",
       "harnessNotFound": "This harness doesn't exist.",
       "pickSomething": "Pick at least one skill, MCP server or agent.",

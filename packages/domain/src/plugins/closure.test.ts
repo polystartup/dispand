@@ -89,7 +89,7 @@ test("each kind of change the owner made is a reason to ask", async () => {
     const skill = (await named("law-firm"));
     expect(skill.kind).toBe("skill");
     await call(router.skills.setFile, { packageId: skill.id, path: "legal-research/notes.md", base64: Buffer.from("Mine.").toString("base64") }, { context: ctx });
-    expect((await named("law-firm")).reasons).toEqual(["You changed its files"]);
+    expect((await named("law-firm")).reasons).toEqual([say("plugins.reason.changedFiles")]);
 
     const tool = await named("case-law");
     await call(router.tools.update, { id: tool.id, name: "Case law" }, { context: ctx });
@@ -98,16 +98,16 @@ test("each kind of change the owner made is a reason to ask", async () => {
     // A table: a field of the owner's, rows, or memory.
     const clients = await named("Clients");
     await call(router.fields.create, { tableId: clients.id, name: "Phone", type: "text" }, { context: ctx });
-    expect((await named("Clients")).reasons).toEqual(["You changed its fields"]);
+    expect((await named("Clients")).reasons).toEqual([say("plugins.reason.changedFields")]);
     // A rename of the table itself, or of its first field, is a change too.
     await call(router.tables.rename, { id: clients.id, name: "Customers" }, { context: ctx });
-    expect((await named("Customers")).reasons).toEqual(["You renamed it", "You changed its fields"]);
+    expect((await named("Customers")).reasons).toEqual([say("plugins.reason.renamed"), say("plugins.reason.changedFields")]);
     const research = await named("Research");
     await ctx.db.insert(schema.memories).values({ id: "mem_1", ownerId: ctx.ownerId, scope: "table", tableId: research.id, path: "notes.md", name: "Notes", description: "", type: "reference", body: "x", author: { kind: "user" }, revision: 1 } as never);
-    expect((await named("Research")).reasons).toEqual(["It has memory entries"]);
+    expect((await named("Research")).reasons).toEqual([say("plugins.reason.memory")]);
     const matters = await named("Matters");
     await call(router.rows.create, { tableId: matters.id, values: {} } as never, { context: ctx });
-    expect((await named("Matters")).reasons[0]).toBe("It has 1 row");
+    expect((await named("Matters")).reasons[0]).toEqual(say("plugins.reason.rows", { count: 1 }));
   } finally {
     remove();
   }

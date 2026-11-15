@@ -387,7 +387,7 @@ test("plugin-root server not imported; an HTTP server is installed with its sett
   // A server that needs a setting, or runs on a machine, is added from the plugin's page only.
   const server = (name: string) => ({ pluginId, server: name, url: fx.server.url, transport: "streamable-http" as const });
   await expect(call(router.plugins.addServer, server("tenant"), { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "plugins.server.needsSetting", values: { name: "tenant" } } });
-  await expect(call(router.plugins.addServer, server("fetch"), { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "fetch runs on a runner: add it from the plugin's page" });
+  await expect(call(router.plugins.addServer, server("fetch"), { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "plugins.server.onRunner", values: { name: "fetch" } } });
 
   // The owner may edit it, as an override; it goes only with its plugin.
   await call(router.tools.update, { id: tool!.id, name: "GitHub" }, { context: ctx });
@@ -869,7 +869,7 @@ test("plugin removal previews active use and refuses workflow agents and unrelat
     const preview = await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx });
     expect(preview.elements.find((e) => e.kind === "agent")).toMatchObject({ reasons: [say("plugins.reason.workflowAgent")], keepOnly: say("plugins.reason.workflowAgent") });
     await expect(removePlugin(ctx, pluginId, { remove: agentIds })).rejects.toMatchObject({ code: "BAD_REQUEST", data: say("plugins.reason.workflowAgent") });
-    await expect(call(router.plugins.uninstall, { id: pluginId, reviewed: preview.reviewed, choices: { "tool:unrelated": "delete" } }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Not an element of this plugin" });
+    await expect(call(router.plugins.uninstall, { id: pluginId, reviewed: preview.reviewed, choices: { "tool:unrelated": "delete" } }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "plugins.uninstall.notElement" } });
     expect(await call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).toMatchObject({ plugin: { id: pluginId } });
   } finally { await fx.remove(); }
 });
