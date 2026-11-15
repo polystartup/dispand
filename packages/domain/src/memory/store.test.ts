@@ -198,7 +198,9 @@ test("every memory write is one memory.written row with its actor, a refused one
   // A write at the agent's scope names the agent.
   await writeMemory(db, ownerId, { scope: "agent", agentId: agent.id }, entry("a.md"), user, "add");
   expect((await rows()).at(-1)!.details).toMatchObject({ scope: "agent", agentId: agent.id });
+  for (let i = 0; i < MAX_MEMORY_ENTRIES; i++) await writeMemory(db, ownerId, { scope: "workspace" }, entry(`w${i}.md`), user, "add");
   const before = (await rows()).length;
+  expect(await writeMemory(db, ownerId, { scope: "workspace" }, entry("over.md"), user, "add")).toHaveProperty("error");
   await writeMemory(db, ownerId, where, entry("../bad.md"), user, "add");
   await writeMemory(db, ownerId, where, e, user, "add");
   await writeMemory(db, ownerId, where, entry("missing.md"), user, "update");
