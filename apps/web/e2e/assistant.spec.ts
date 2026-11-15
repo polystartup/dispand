@@ -48,7 +48,7 @@ const ask = (message: string) => (m: Parameters<typeof lastResult>[0]) => ({ cal
 
 /** Approves the proposal shown in the chat, after checking it lists `count` items, each whole. */
 async function approve(page: Page, count: number, texts: string[]) {
-  const chat = page.getByRole("region", { name: "Assistant" });
+  const chat = page.getByRole("region", { name: "Stem" });
   const approved = chat.getByText("You approved it");
   const before = await approved.count();
   await expect(chat.getByRole("button", { name: "Approve" })).toBeVisible();
@@ -103,7 +103,7 @@ test("the lawyer: a fresh install's Assistant sets up the whole workspace from o
   await sheet.getByRole("button", { name: "Create harness" }).click();
   await expect(sheet).toHaveCount(0);
   await page.getByRole("button", { name: "Start the Assistant" }).click();
-  const chat = page.getByRole("region", { name: "Assistant" });
+  const chat = page.getByRole("region", { name: "Stem" });
   await expect(chat.getByText("Describe your business or use case and how you'd like to automate it.")).toBeVisible();
 
   // What the model reads with harnesses_limits and agents_get, known to the script up front.
@@ -250,7 +250,7 @@ test("the studio: a second conversation's setup stops at a name taken, goes on, 
   );
 
   await page.goto("/assistant?run=new");
-  const chat = page.getByRole("region", { name: "Assistant" });
+  const chat = page.getByRole("region", { name: "Stem" });
   const box = chat.getByRole("combobox", { name: "Message", exact: true });
   await box.fill(
     "I run a studio that builds software products. Each product has features; when a feature is created, an agent on my machine should propose its design in the repository and open a pull request; every Monday, review each product's website copy.",
@@ -303,12 +303,12 @@ test("Assistant settings selects the next conversation's harness and model; chat
   const settingsRunner = await FakeRunner.pair(SERVER, created.pairingCode);
   try {
     await rpc(page, "harnesses/create", { name: "Assistant settings CLI", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
-    await page.getByRole("button", { name: "Assistant settings" }).click();
+    await page.getByRole("button", { name: "Stem settings" }).click();
     const sheet = page.getByRole("dialog");
     await sheet.getByRole("group", { name: "Assistant settings CLI", exact: true }).getByRole("button", { name: "Sonnet", exact: true }).click();
     await sheet.getByRole("button", { name: "Save settings" }).click();
     await expect(sheet).toHaveCount(0);
-    const chat = page.getByRole("region", { name: "Assistant", exact: true });
+    const chat = page.getByRole("region", { name: "Stem", exact: true });
     await chat.getByRole("combobox", { name: "Message", exact: true }).fill("Use the selected harness and model.");
     await chat.getByRole("button", { name: "Send", exact: true }).click();
     const { start } = await settingsRunner.waitFor("session.start", WAIT_MS);
@@ -333,7 +333,7 @@ test("Assistant settings selects the next conversation's harness and model; chat
     }
     await page.getByRole("button", { name: "Exit full page" }).click();
     await page.reload();
-    await page.getByRole("button", { name: "Assistant settings" }).click();
+    await page.getByRole("button", { name: "Stem settings" }).click();
     await expect(sheet.getByLabel("Model", { exact: true })).toHaveValue("sonnet");
     await sheet.getByLabel("Model", { exact: true }).fill("");
     await sheet.getByRole("button", { name: "Save settings" }).click();

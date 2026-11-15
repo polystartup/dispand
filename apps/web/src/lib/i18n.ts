@@ -1,8 +1,10 @@
 import enMessages from "@dispand/domain/messages/en.json";
 import frMessages from "@dispand/domain/messages/fr.json";
 import { createInstance, type i18n } from "i18next";
+import enAssistant from "../locales/en/assistant.json";
 import enCommon from "../locales/en/common.json";
 import enShell from "../locales/en/shell.json";
+import frAssistant from "../locales/fr/assistant.json";
 import frCommon from "../locales/fr/common.json";
 import frShell from "../locales/fr/shell.json";
 
@@ -11,8 +13,8 @@ import frShell from "../locales/fr/shell.json";
 // the built-in agent's name first. A key missing in French falls back to English.
 
 export const resources = {
-  en: { common: enCommon, shell: enShell, messages: enMessages },
-  fr: { common: frCommon, shell: frShell, messages: frMessages },
+  en: { common: enCommon, shell: enShell, assistant: enAssistant, messages: enMessages },
+  fr: { common: frCommon, shell: frShell, assistant: frAssistant, messages: frMessages },
 } as const;
 
 export type Language = keyof typeof resources;

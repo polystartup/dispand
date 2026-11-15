@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Lock, X } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HarnessModelPicker } from "./HarnessModelPicker.tsx";
@@ -37,6 +38,7 @@ function refusal(e: unknown, fallback: string): string {
 
 /** Create (no `agent`) or edit an agent. A new agent goes back to the list; both offer the next step. */
 export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agent; defaultHarnessId?: string; /** A field went back to its plugin's value: the form is stale. */ onReset?: () => void }) {
+  const { t } = useTranslation("messages");
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   const packages = useQuery(orpc.skills.list.queryOptions());
   const tools = useQuery(orpc.tools.list.queryOptions());
@@ -116,7 +118,7 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
         }}
       >
         {assistant && (
-          <p className="text-[13px] text-muted">The workspace's Assistant: it can't be deleted. Its name, harness, model and instructions are yours to change.</p>
+          <p className="text-[13px] text-muted">The workspace's built-in agent: it can't be deleted. Its harness, model and instructions are yours to change.</p>
         )}
         {agent?.plugin && (
           <>
@@ -126,7 +128,8 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
         )}
         {reset.error && <p role="alert" className="text-[13px] text-danger">{refusal(reset.error, "Could not reset the field. Try again.")}</p>}
         <FormField label="Name" htmlFor="agent-name">
-          <Input id="agent-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus={!agent} />
+          {/* The built-in agent shows its label; its stored name never changes here. */}
+          <Input id="agent-name" value={assistant ? t("agent.assistant.name") : name} readOnly={assistant} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus={!agent} />
         </FormField>
         <FormField label="Description" htmlFor="agent-description" hint="What it is for and when to consult it: agents that may consult it read this.">
           <Textarea id="agent-description" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} rows={2} />

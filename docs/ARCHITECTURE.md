@@ -625,7 +625,8 @@
   Jobs' system prompt starts with a fixed text (`jobSystemPrompt`, `engine/job-def.ts`), then
   the owner's instructions. It stays `assistant` in code and data; what people see is the
   label `agent.assistant.name` of the `messages` files (`packages/domain/src/messages/`),
-  "Stem" in English and in French, whatever its stored name (`shownAgentName` in the web).
+  "Stem" in English and in French, whatever its stored name (`shownAgentName` in the web, the
+  chat's labels, and its page's Name field, read-only there so the stored name never changes).
   Its fixed text and the platform skill (`{{assistant}}`, filled as `skill.ts` bundles it) name
   it from the English value. The web's `/assistant` (`components/assistant/AssistantChat.tsx`)
   is its chat trigger's `ChatPanel` beside the list of its conversations (`runs.list` with
@@ -1678,7 +1679,8 @@ of these identity fields together; the intermediate commits were not distributed
 ## English and French
 
 We decided that the page speaks English and French. `i18next` and `react-i18next` hold its
-strings: one namespace per area in `apps/web/src/locales/<language>/` (`common`, `shell`), plus
+strings: one namespace per area in `apps/web/src/locales/<language>/` (`common`, `shell`,
+`assistant`), plus
 `messages`, the files the server and the page share (`packages/domain/src/messages/`). A key
 missing in French shows the English text; `lib/i18n.test.ts` keeps both languages with the
 same keys.

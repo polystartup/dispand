@@ -95,6 +95,18 @@ test("the Assistant's page locks its platform skill, with the reason", async () 
   expect((screen.getByRole("checkbox", { name: /writing/ }) as HTMLInputElement).disabled).toBe(false);
 });
 
+test("the built-in agent's page shows its name as Stem, read-only, and saves its stored name unchanged", async () => {
+  fake.agents.update.mockResolvedValue(agent);
+  const user = mount(agent);
+  const name = (await screen.findByLabelText("Name")) as HTMLInputElement;
+  expect(name.value).toBe("Stem");
+  expect(name.readOnly).toBe(true);
+  await user.type(name, " renamed");
+  expect(name.value).toBe("Stem");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(fake.agents.update.mock.calls[0]![0]).toMatchObject({ id: agent.id, name: "Assistant" });
+});
+
 test("another agent's page leaves the platform skill's box free", async () => {
   mount({ ...agent, builtIn: undefined } as unknown as Agent);
   const box = (await screen.findByRole("checkbox", { name: /dispand-platform/ })) as HTMLInputElement;

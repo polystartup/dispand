@@ -1,0 +1,12 @@
+{
+  "loadFailed": "Impossible de charger {{assistant}}.",
+  "conversationsFailed": "Impossible de charger les conversations de {{assistant}}.",
+  "options": "Options de {{assistant}}",
+  "optionsText": "Réglages de {{assistant}}.",
+  "conversations": "Conversations",
+  "conversationsText": "Vos chats avec {{assistant}}.",
+  "chat": "{{assistant}}",
+  "settings": "Réglages de {{assistant}}",
+  "settingsFailed": "Impossible de charger les réglages de {{assistant}}.",
+  "saveFailed": "Impossible d'enregistrer les réglages de {{assistant}}. Réessayez."
+}

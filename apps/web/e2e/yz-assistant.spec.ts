@@ -60,7 +60,7 @@ test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ pa
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Stem" }).click();
   await expect(page).toHaveURL(/\/assistant$/);
 
-  const chat = page.getByRole("region", { name: "Assistant" });
+  const chat = page.getByRole("region", { name: "Stem" });
   await chat.getByRole("combobox", { name: "Message", exact: true }).fill("What fires a Job?");
   await chat.getByRole("button", { name: "Send" }).click();
   const { start } = await runner.waitFor("session.start", WAIT_MS);
@@ -108,7 +108,7 @@ test("a proposal in the Assistant's chat: shown whole, approved from the compose
   test.skip(!runner || !harnessId, "needs the Assistant on the fake runner, from the test above");
   await signIn(page);
   await page.goto("/assistant?run=new");
-  const chat = page.getByRole("region", { name: "Assistant" });
+  const chat = page.getByRole("region", { name: "Stem" });
   const box = chat.getByRole("combobox", { name: "Message", exact: true });
   await box.fill("Let the Assistant box run two sessions at once.");
   await chat.getByRole("button", { name: "Send" }).click();

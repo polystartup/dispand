@@ -1,0 +1,12 @@
+{
+  "loadFailed": "Could not load {{assistant}}.",
+  "conversationsFailed": "Could not load {{assistant}}'s conversations.",
+  "options": "{{assistant}} options",
+  "optionsText": "Settings for {{assistant}}.",
+  "conversations": "Conversations",
+  "conversationsText": "Your chats with {{assistant}}.",
+  "chat": "{{assistant}}",
+  "settings": "{{assistant}} settings",
+  "settingsFailed": "Could not load {{assistant}}'s settings.",
+  "saveFailed": "Could not save {{assistant}}'s settings. Try again."
+}

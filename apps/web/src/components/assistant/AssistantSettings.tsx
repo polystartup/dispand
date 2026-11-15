@@ -2,19 +2,22 @@ import { HarnessModelPicker } from "../settings/HarnessModelPicker.tsx";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
 import { api, orpc } from "../../lib/api.ts";
 import type { Agent } from "../settings/AgentEditor.tsx";
 
 export function AssistantSettings({ agentId }: { agentId: string }) {
+  const { t } = useTranslation(["assistant", "messages"]);
+  const assistantName = t("messages:agent.assistant.name");
   const [open, setOpen] = useState(false);
   const agent = useQuery(orpc.agents.get.queryOptions({ input: { id: agentId } }));
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   const harness = harnesses.data?.find((h) => h.id === agent.data?.harnessId);
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild><Button type="button" variant="ghost" aria-label="Assistant settings" className="max-w-full gap-2 text-muted" onClick={() => setOpen(true)}>
+      <SheetTrigger asChild><Button type="button" variant="ghost" aria-label={t("settings", { assistant: assistantName })} className="max-w-full gap-2 text-muted" onClick={() => setOpen(true)}>
         <span className="truncate">{agent.data?.model ?? harness?.model ?? harness?.name ?? "Choose model"}</span><ChevronDown aria-hidden className="size-4" />
       </Button></SheetTrigger>
       {open && <SettingsSheet agentId={agentId} onClose={() => setOpen(false)} />}
@@ -23,6 +26,8 @@ export function AssistantSettings({ agentId }: { agentId: string }) {
 }
 
 function SettingsSheet({ agentId, onClose }: { agentId: string; onClose: () => void }) {
+  const { t } = useTranslation(["assistant", "messages"]);
+  const assistantName = t("messages:agent.assistant.name");
   const agent = useQuery({ ...orpc.agents.get.queryOptions({ input: { id: agentId } }), refetchOnMount: "always" });
   return (
     <SheetContent side="bottom" className="mx-auto max-h-[90dvh] max-w-lg rounded-t-3xl bg-surface">
@@ -30,12 +35,14 @@ function SettingsSheet({ agentId, onClose }: { agentId: string; onClose: () => v
         <SheetTitle>Harness and model</SheetTitle>
         <SheetDescription>Applies to new conversations. Existing conversations keep their settings.</SheetDescription>
       </SheetHeader>
-      {!agent.isFetchedAfterMount ? <p>Loading…</p> : agent.error ? <p role="alert">Could not load the Assistant settings.</p> : agent.data && <SettingsForm agent={agent.data} onSaved={onClose} />}
+      {!agent.isFetchedAfterMount ? <p>Loading…</p> : agent.error ? <p role="alert">{t("settingsFailed", { assistant: assistantName })}</p> : agent.data && <SettingsForm agent={agent.data} onSaved={onClose} />}
     </SheetContent>
   );
 }
 
 function SettingsForm({ agent, onSaved }: { agent: Agent; onSaved: () => void }) {
+  const { t } = useTranslation(["assistant", "messages"]);
+  const assistantName = t("messages:agent.assistant.name");
   const [harnessId, setHarnessId] = useState(agent.harnessId);
   const [model, setModel] = useState(agent.model ?? "");
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
@@ -64,7 +71,7 @@ function SettingsForm({ agent, onSaved }: { agent: Agent; onSaved: () => void })
   return (
     <form className="min-h-0 space-y-4 overflow-y-auto px-6 pb-6" onSubmit={(e) => { e.preventDefault(); e.stopPropagation(); save.mutate(); }}>
       <HarnessModelPicker harnessId={harnessId} model={model} disabled={save.isPending} onChange={(id, next) => { setHarnessId(id); setModel(next); }} />
-      {save.error && <p role="alert" className="text-[13px] text-danger">{save.error instanceof Error && "code" in save.error && save.error.code === "BAD_REQUEST" ? save.error.message : "Could not save the Assistant settings. Try again."}</p>}
+      {save.error && <p role="alert" className="text-[13px] text-danger">{save.error instanceof Error && "code" in save.error && save.error.code === "BAD_REQUEST" ? save.error.message : t("saveFailed", { assistant: assistantName })}</p>}
       <Button type="submit" disabled={save.isPending || !harness}>Save settings</Button>
     </form>
   );
