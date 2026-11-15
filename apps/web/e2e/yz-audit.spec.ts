@@ -183,14 +183,14 @@ test("a Job's token, its runner's token, a chat message and a Question's own-wor
     const { runId } = await rpc<{ runId: string }>(page, "jobs/start", { triggerId: trigger.id });
     const { start } = await local.waitFor("session.start", WAIT_MS);
     expect(start.jobToken).toBeTruthy();
-    await rpc(page, "runs/sendChat", { runId, text: AUDIT_SENTINELS.chat });
-    expect((await local.waitFor("session.send", WAIT_MS)).text).toBe(AUDIT_SENTINELS.chat);
+    await rpc(page, "runs/sendChat", { runId, text: AUDIT_SENTINELS.chatMessage });
+    expect((await local.waitFor("session.send", WAIT_MS)).text).toBe(AUDIT_SENTINELS.chatMessage);
     const asked = "Which client is it?";
     local.emit(start.sessionId, { type: "question", questionId: "aq_audit", payload: { kind: "choice", questions: [{ question: asked, header: "Client", options: [{ label: "A new one" }], multiSelect: false }] } });
     const pending = async () => (await rpc<{ id: string; runId: string | null }[]>(page, "questions/list", { status: "pending" })).find((q) => q.runId === runId);
     await expect.poll(pending).toBeTruthy();
-    await rpc(page, "questions/answer", { questionId: (await pending())!.id, answer: { kind: "choice", answers: { [asked]: AUDIT_SENTINELS.answer } } });
-    expect((await local.waitFor("session.answer", WAIT_MS)).answer).toEqual({ kind: "choice", answers: { [asked]: AUDIT_SENTINELS.answer } });
+    await rpc(page, "questions/answer", { questionId: (await pending())!.id, answer: { kind: "choice", answers: { [asked]: AUDIT_SENTINELS.ownWordsAnswer } } });
+    expect((await local.waitFor("session.answer", WAIT_MS)).answer).toEqual({ kind: "choice", answers: { [asked]: AUDIT_SENTINELS.ownWordsAnswer } });
     local.emit(start.sessionId, { type: "outputs-accepted", values: {} });
     await expect.poll(async () => (await rpc<{ status: string }>(page, "jobs/get", { id: runId })).status).toBe("succeeded");
 
@@ -200,7 +200,7 @@ test("a Job's token, its runner's token, a chat message and a Question's own-wor
     await page.waitForTimeout(2_000);
     const exported = JSON.stringify(await (await fetch(`${COLLECTOR}/dump`)).json());
     const audited = JSON.stringify(rows);
-    for (const [what, sentinel] of Object.entries({ jobToken: start.jobToken!, runnerToken: local.token, chat: AUDIT_SENTINELS.chat, answer: AUDIT_SENTINELS.answer })) {
+    for (const [what, sentinel] of Object.entries({ jobToken: start.jobToken!, runnerToken: local.token, chat: AUDIT_SENTINELS.chatMessage, answer: AUDIT_SENTINELS.ownWordsAnswer })) {
       expect(audited.includes(sentinel), `${what} found in an Audit row`).toBe(false);
       expect(exported.includes(sentinel), `${what} found in exported telemetry`).toBe(false);
     }
