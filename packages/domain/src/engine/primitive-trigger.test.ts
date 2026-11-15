@@ -176,7 +176,7 @@ test("a primitive trigger watches a primitive table of the owner's, its fields, 
   const make = (agentId: string, config: Record<string, unknown>) =>
     call(router.triggers.create, { agentId, name: "On change", instructions: "Look.", config: { kind: "primitive", tableId: s.clients.id, operations: ["updated"], ...config } as TriggerConfig }, { context: s.context });
   await expect(make(s.clerk.id, { tableId: notes.id })).rejects.toThrow("make the table primitive first");
-  await expect(make(s.clerk.id, { tableId: "tbl_missing" })).rejects.toThrow("Table not found");
+  await expect(make(s.clerk.id, { tableId: "tbl_missing" })).rejects.toThrow("This table doesn't exist.");
   await expect(make(s.clerk.id, { fields: ["fld_missing"] })).rejects.toThrow("A watched field isn't one of the table's");
   const blind = await call(router.agents.create, { name: "Blind", harnessId: s.clerk.harnessId, systemPrompt: "", bundles: ["data"], dataTables: [notes.id] }, { context: s.context });
   await expect(make(blind.id, {})).rejects.toThrow("The agent can't read this table");

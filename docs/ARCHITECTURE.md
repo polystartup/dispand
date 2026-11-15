@@ -1792,7 +1792,9 @@ same keys.
   procedure returns as data (an uninstall's reasons, an update's refusals, a setup's waiting
   definitions, why a cell value doesn't fit its field, a proposal's "of the table X") is a `Text`: `say(key, values)`, or `{ text }` for words that came as they are (a
   plugin's, another area's not yet keyed, `reasonOf(err)`); the page renders it with `useText()`
-  (`lib/message.ts`). An input its Zod schema rejects answers with `validation.<code>` and the
+  (`lib/message.ts`). The same holds for what the workflow editor shows: a workflow issue
+  (`WorkflowIssue.message`), a refused link (`connect`) and a schedule's problem (`cronProblem`) are
+  keyed messages, which the procedures that refuse a save or a start throw as they are. An input its Zod schema rejects answers with `validation.<code>` and the
   field's path and limits (`rpc/context.ts`, `validationKey`). `messages/messages.test.ts` walks
   the domain for every `new ORPCError(` and `new EngineError(` and fails on one whose message
   isn't a single `message()` key, external text or an engine error passed on (`passOn(err)`, typed

@@ -462,7 +462,7 @@ export class Engine {
       .where(and(eq(workflowVersions.workflowId, workflowId), eq(workflowVersions.version, workflow.currentVersion)));
     const def = version!.def;
     const [issue] = await runIssues(tx, workflow.ownerId, def);
-    if (issue) throw new EngineError("INVALID", issue.message);
+    if (issue) throw new EngineError("INVALID", message(issue.message.key, issue.message.values));
     const runId = newId("run");
     await tx.insert(runs).values({ id: runId, ownerId: workflow.ownerId, workflowId, version: workflow.currentVersion, status: "running", trigger, traceId: currentTraceId() ?? null });
     counts.counter("dispand.runs.created").add(1, { "dispand.run.source": "workflow", "dispand.run.trigger": trigger.type });

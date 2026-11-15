@@ -24,6 +24,7 @@ import {
 import { newId } from "../ids.ts";
 import { type AuditEntry, recordAudit, recordAuditAfter } from "../audit/record.ts";
 import { errorKind, logError } from "../log.ts";
+import { say, sentence } from "../messages/index.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { fillLastPoll, itemsOf, MAX_ITEM_BYTES, nextToken, noPolls, type PollCaller } from "../tools/poll.ts";
 import { pollProblem } from "../tools/pollable.ts";
@@ -826,9 +827,9 @@ export class Scheduler {
       .from(workflows)
       .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, workflows.id), eq(workflowVersions.version, workflows.currentVersion)))
       .where(eq(workflows.id, workflowId));
-    const [issue] = current ? await runIssues(tx, ownerId, current.def) : [{ message: "The workflow no longer exists" }];
+    const [issue] = current ? await runIssues(tx, ownerId, current.def) : [{ message: say("workflows.notFound") }];
     if (issue) {
-      await record("refused", { message: issue.message });
+      await record("refused", { message: sentence(issue.message) });
       return { runId: null, result: "refused" };
     }
     const runId = await this.engine.createRun(tx, workflowId, { type: "schedule", scheduledFor: at.toISOString() });

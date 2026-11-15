@@ -6,6 +6,8 @@ import { ORPCError, os, type RouterClient } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { renderToString } from "react-dom/server";
 import { expect, test } from "vitest";
+import { validateWorkflow } from "@dispand/domain/workflows/derive";
+import { cronProblem } from "@dispand/domain/workflows/schedule";
 import { handleRpc } from "../server/rpc.ts";
 import type { Language } from "./i18n.ts";
 import { translated, translateErrors } from "./api.ts";
@@ -19,6 +21,21 @@ const failing = {
     }),
     listed: os.handler(() => {
       throw new ORPCError("CONFLICT", message("plugins.marketplace.removeFirst", { plugins: ["case-law", "tax", "labour"] }));
+    }),
+    trigger: os.handler(() => {
+      throw new ORPCError("BAD_REQUEST", message("triggers.inboxNeeded"));
+    }),
+    schedule: os.handler(() => {
+      const problem = cronProblem("0 0 9 * * *", "Europe/Paris")!;
+      throw new ORPCError("BAD_REQUEST", message(problem.key, problem.values));
+    }),
+    issue: os.handler(() => {
+      const [issue] = validateWorkflow({
+        trigger: { type: "manual", field: { id: "n_go", key: "go", type: "button", label: "Go" } },
+        steps: [{ id: "n_a", key: "a", type: "agent", name: "A", agentId: "agent_1", prompt: "Use {{go.x}}." }],
+        edges: [{ from: "n_go", to: "n_a" }],
+      });
+      throw new ORPCError("BAD_REQUEST", message(issue!.message.key, issue!.message.values));
     }),
     rows: os.handler(() => {
       throw new ORPCError("BAD_REQUEST", message("data.table.parentRowsMissing", { count: 3, parent: "Clients" }));
@@ -67,6 +84,13 @@ test("a tables refusal shows in French, with its plural and the name the person 
   expect(await refusal((await client("fr")).fails.rows())).toBe("3 lignes de cette table n’ont pas de Clients : renseignez-les d’abord.");
   expect(await refusal((await client("fr")).fails.taken())).toBe("Une table s’appelle déjà « Clients ».");
   expect(await refusal((await client("en")).fails.taken())).toBe("A table is already called “Clients”.");
+});
+
+test("a trigger refusal, a schedule's and a workflow's issue show in French, their values kept as typed", async () => {
+  expect(await refusal((await client("fr")).fails.trigger())).toBe("Seul un agent doté de la Boîte de réception peut être lancé par des Questions : donnez-lui d’abord la Boîte de réception.");
+  expect(await refusal((await client("fr")).fails.schedule())).toBe("Utilisez 5 champs : minute heure jour mois jour de la semaine.");
+  expect(await refusal((await client("fr")).fails.issue())).toBe("{{go.x}} : « go » est un bouton, il n’a pas de valeurs");
+  expect(await refusal((await client("en")).fails.issue())).toBe("{{go.x}}: “go” is a button, it has no values");
 });
 
 test("an input its Zod schema rejects shows a validation message in French", async () => {

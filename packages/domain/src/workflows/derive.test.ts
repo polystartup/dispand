@@ -1,6 +1,11 @@
 import { expect, test } from "vitest";
 import { deriveExpectedOutputs, structuralIssues, validateWorkflow } from "./derive.ts";
 import { addStep, renameNode, WorkflowDef, type AgentStep } from "./model.ts";
+import { sentence } from "../messages/index.ts";
+import type { WorkflowIssue } from "./derive.ts";
+
+/** Issues with their messages as English sentences. */
+const said = (issues: WorkflowIssue[]) => issues.map((i) => ({ ...i, message: sentence(i.message) }));
 
 /** Chat "Brief" → step "Plan" → step "Build". */
 function chain(planPrompt: string, buildPrompt: string): WorkflowDef {
@@ -51,20 +56,20 @@ test("derive updates when a reference moves to another node", () => {
 
 test("validate reports a reference to a downstream node", () => {
   const def = chain("Plan {{build.result}}.", "Build it.");
-  expect(validateWorkflow(def)).toEqual([
+  expect(said(validateWorkflow(def))).toEqual([
     { nodeId: "n_plan", message: "{{build.result}}: “build” doesn't run before this step" },
   ]);
-  expect(validateWorkflow(chain("Plan {{nobody.x}}.", "Build it."))).toEqual([
+  expect(said(validateWorkflow(chain("Plan {{nobody.x}}.", "Build it.")))).toEqual([
     { nodeId: "n_plan", message: "{{nobody.x}}: no step is called “nobody”" },
   ]);
-  expect(validateWorkflow(chain("Plan {{brief.idea}}.", "Build {{plan.x}} {{brief.y}}."))).toEqual([]);
+  expect(said(validateWorkflow(chain("Plan {{brief.idea}}.", "Build {{plan.x}} {{brief.y}}.")))).toEqual([]);
 });
 
 test("validate reports cycles and missing agents", () => {
   const def = chain("Plan.", "Build.");
   def.edges.push({ from: "n_build", to: "n_plan" });
   (def.steps[1] as AgentStep).agentId = "";
-  expect(validateWorkflow(def)).toEqual([
+  expect(said(validateWorkflow(def))).toEqual([
     { nodeId: "n_plan", message: "This step is part of a loop" },
     { nodeId: "n_build", message: "Choose an agent" },
     { nodeId: "n_build", message: "This step is part of a loop" },
@@ -99,7 +104,7 @@ test("validate refuses duplicate ids and edges to missing nodes", () => {
   def.steps[1]!.id = "n_plan";
   def.edges.push({ from: "n_ghost", to: "n_chat" }, { from: "n_x", to: "n_y" });
   // The second step took the first one's id: "n_build" is gone, and so is the edge's target.
-  expect(structuralIssues(def)).toEqual([
+  expect(said(structuralIssues(def))).toEqual([
     { nodeId: "n_chat", message: "This step follows a step that doesn't exist" },
     { nodeId: "n_plan", message: "This step leads to a step that doesn't exist" },
     { nodeId: "n_plan", message: "Another step has the same id" },
@@ -115,14 +120,14 @@ test("a Button trigger has no values to reference", () => {
     steps: [{ id: "n_a", key: "a", type: "agent", name: "A", agentId: "agent_1", prompt: "Use {{go.x}}." }],
     edges: [{ from: "n_go", to: "n_a" }],
   };
-  expect(validateWorkflow(def)).toEqual([{ nodeId: "n_a", message: "{{go.x}}: “go” is a button, it has no values" }]);
+  expect(said(validateWorkflow(def))).toEqual([{ nodeId: "n_a", message: "{{go.x}}: “go” is a button, it has no values" }]);
   expect(deriveExpectedOutputs(def)).toEqual({ n_go: [], n_a: [] });
 });
 
 test("a field that can't be an output name is an issue, not an expected output", () => {
   const def = chain("Plan {{brief.1st}} and {{brief.constructor}} and {{brief.idea}}.", "Build.");
   expect(deriveExpectedOutputs(def).n_chat).toEqual([{ name: "idea", type: "string" }]);
-  expect(validateWorkflow(def).map((i) => i.message)).toEqual([
+  expect(validateWorkflow(def).map((i) => sentence(i.message))).toEqual([
     "{{brief.1st}}: “1st” can't name a value (letters, digits and _, not starting with a digit, at most 64, not a reserved name)",
     "{{brief.constructor}}: “constructor” can't name a value (letters, digits and _, not starting with a digit, at most 64, not a reserved name)",
   ]);
@@ -130,7 +135,7 @@ test("a field that can't be an output name is an issue, not an expected output",
 
 test("a step asked for more values than a session takes is an issue", () => {
   const fields = Array.from({ length: 101 }, (_, i) => `{{brief.f${i}}}`).join(" ");
-  const issues = validateWorkflow(chain(fields, "Build."));
+  const issues = said(validateWorkflow(chain(fields, "Build.")));
   expect(issues).toEqual([{ nodeId: "n_chat", message: "Later steps ask this step for 101 values, at most 100" }]);
 });
 
@@ -158,31 +163,31 @@ test("a condition on a chat field adds it to the chat's expected outputs", () =>
     n_plan: [],
     n_build: [],
   });
-  expect(validateWorkflow(gated("approved", "Plan if {{if.matched}}."))).toEqual([]);
+  expect(said(validateWorkflow(gated("approved", "Plan if {{if.matched}}.")))).toEqual([]);
 });
 
 test("a reference to a condition's other field is an issue", () => {
   const def = gated("approved", "Plan {{if.result}}.");
   expect(deriveExpectedOutputs(def).n_if).toEqual([]);
-  expect(validateWorkflow(def)).toEqual([{ nodeId: "n_plan", message: "{{if.result}}: “if” doesn't give “result”" }]);
+  expect(said(validateWorkflow(def))).toEqual([{ nodeId: "n_plan", message: "{{if.result}}: “if” doesn't give “result”" }]);
 });
 
 test("a condition needs an upstream value", () => {
   const none = gated("approved");
   none.steps[0] = { ...none.steps[0]!, value: null } as WorkflowDef["steps"][number];
-  expect(validateWorkflow(none)).toEqual([{ nodeId: "n_if", message: "Choose the value to compare" }]);
+  expect(said(validateWorkflow(none))).toEqual([{ nodeId: "n_if", message: "Choose the value to compare" }]);
   const downstream = gated("approved");
   downstream.steps[0] = { ...downstream.steps[0]!, value: { type: "output", nodeId: "n_build", name: "x" } } as WorkflowDef["steps"][number];
-  expect(validateWorkflow(downstream)).toEqual([{ nodeId: "n_if", message: "{{build.x}}: “build” doesn't run before this step" }]);
+  expect(said(validateWorkflow(downstream))).toEqual([{ nodeId: "n_if", message: "{{build.x}}: “build” doesn't run before this step" }]);
 });
 
 test("an edge out of a condition needs a branch", () => {
   const def = gated("approved");
   def.edges[1] = { from: "n_if", to: "n_plan" };
   def.edges[2] = { from: "n_plan", to: "n_build", branch: "else" };
-  expect(structuralIssues(def)).toEqual([
-    { nodeId: "n_if", message: "Choose Then or Else for this link" },
-    { nodeId: "n_plan", message: "Only a condition has Then and Else" },
+  expect(said(structuralIssues(def))).toEqual([
+    { nodeId: "n_if", message: "Choose Then or Else for this link." },
+    { nodeId: "n_plan", message: "Only a condition has Then and Else." },
   ]);
 });
 
@@ -201,16 +206,16 @@ function scheduled(prompt: string, cron = "0 9 * * 1-5"): WorkflowDef {
 test("a schedule trigger gives scheduled_for and nothing else", () => {
   const def = scheduled("Report for {{every_morning.scheduled_for}}.");
   expect(WorkflowDef.parse(def)).toEqual(def);
-  expect(validateWorkflow(def)).toEqual([]);
+  expect(said(validateWorkflow(def))).toEqual([]);
   expect(deriveExpectedOutputs(def)).toEqual({ n_s: [], n_r: [] });
-  expect(validateWorkflow(scheduled("Report {{every_morning.topic}}."))).toEqual([
+  expect(said(validateWorkflow(scheduled("Report {{every_morning.topic}}.")))).toEqual([
     { nodeId: "n_r", message: "{{every_morning.topic}}: “every_morning” doesn't give “topic”" },
   ]);
 });
 
 test("a schedule that can't be read is an issue on the trigger", () => {
-  expect(validateWorkflow(scheduled("Report.", "0 0 9 * * *"))).toEqual([
-    { nodeId: "n_s", message: "Use 5 fields: minute hour day month weekday" },
+  expect(said(validateWorkflow(scheduled("Report.", "0 0 9 * * *")))).toEqual([
+    { nodeId: "n_s", message: "Use 5 fields: minute hour day month weekday." },
   ]);
 });
 
@@ -240,7 +245,7 @@ function loopDef(fetchPrompt: string, reportPrompt = "Report {{each.results}}.")
 
 test("a body step may reference {{each.item}} and the loop's upstream", () => {
   const def = loopDef("Fetch {{each.item}} ({{each.name}}, {{each.index}}) for {{brief.audience}}.");
-  expect(validateWorkflow(def)).toEqual([]);
+  expect(said(validateWorkflow(def))).toEqual([]);
   expect(deriveExpectedOutputs(def)).toEqual({
     n_chat: [
       { name: "repos", type: "string", description: "A JSON array of the items to loop over" },
@@ -254,13 +259,13 @@ test("a body step may reference {{each.item}} and the loop's upstream", () => {
 });
 
 test("outside the body, a loop gives count and results", () => {
-  expect(validateWorkflow(loopDef("Fetch.", "Report {{each.count}} {{each.results}} {{each.item}}."))).toEqual([
+  expect(said(validateWorkflow(loopDef("Fetch.", "Report {{each.count}} {{each.results}} {{each.item}}.")))).toEqual([
     { nodeId: "n_report", message: "{{each.item}}: “each” doesn't give “item”" },
   ]);
 });
 
 test("outside the body, a reference to a body node is an issue", () => {
-  expect(validateWorkflow(loopDef("Fetch.", "Report {{fetch.title}}."))).toEqual([
+  expect(said(validateWorkflow(loopDef("Fetch.", "Report {{fetch.title}}.")))).toEqual([
     { nodeId: "n_report", message: "{{fetch.title}}: “fetch” runs inside the loop “each”: use {{each.results}}" },
   ]);
 });
@@ -270,7 +275,7 @@ test("a loop needs a list and a body", () => {
   def.steps[0] = { ...def.steps[0], list: null } as WorkflowDef["steps"][number];
   def.steps = def.steps.filter((s) => s.loopId === undefined);
   def.edges = def.edges.filter((e) => e.from !== "n_fetch");
-  expect(validateWorkflow(def)).toEqual([
+  expect(said(validateWorkflow(def))).toEqual([
     { nodeId: "n_each", message: "Choose the list to loop over" },
     { nodeId: "n_each", message: "Add a step inside this loop" },
   ]);
@@ -279,15 +284,27 @@ test("a loop needs a list and a body", () => {
 test("an edge across a loop's edge is an issue", () => {
   const def = loopDef("Fetch.");
   def.edges.push({ from: "n_sum", to: "n_report" });
-  expect(structuralIssues(def)).toEqual([{ nodeId: "n_sum", message: "A link can't cross the edge of a loop" }]);
+  expect(said(structuralIssues(def))).toEqual([{ nodeId: "n_sum", message: "A link can't cross the edge of a loop." }]);
 });
 
 test("a nested loop is an issue, and so is a step in a loop that doesn't exist", () => {
   const def = loopDef("Fetch.");
   def.steps.push({ id: "n_in", key: "inner", type: "loop", name: "Inner", list: null, maxIterations: 5, loopId: "n_each" });
   def.steps.push({ id: "n_lost", key: "lost", type: "agent", name: "Lost", agentId: "agent_1", prompt: "", loopId: "n_report" });
-  expect(structuralIssues(def)).toEqual([
+  expect(said(structuralIssues(def))).toEqual([
     { nodeId: "n_in", message: "Loops can't be nested yet" },
     { nodeId: "n_lost", message: "This step's loop doesn't exist" },
   ]);
+});
+
+test("a repeated key, and a condition's value or a loop's list from a step that doesn't exist, are issues", () => {
+  const twins = chain("Plan.", "Build.");
+  twins.steps[1]!.key = "plan";
+  expect(said(structuralIssues(twins))).toEqual([{ nodeId: "n_build", message: "Another step is also called “plan”" }]);
+  const gone = gated("approved");
+  gone.steps[0] = { ...gone.steps[0]!, value: { type: "output", nodeId: "n_ghost", name: "x" } } as WorkflowDef["steps"][number];
+  expect(said(validateWorkflow(gone))).toEqual([{ nodeId: "n_if", message: "The value to compare comes from a step that doesn't exist" }]);
+  const loop = loopDef("Fetch.");
+  loop.steps[0] = { ...loop.steps[0]!, list: { type: "output", nodeId: "n_ghost", name: "x" } } as WorkflowDef["steps"][number];
+  expect(said(validateWorkflow(loop))).toEqual([{ nodeId: "n_each", message: "The list comes from a step that doesn't exist" }]);
 });

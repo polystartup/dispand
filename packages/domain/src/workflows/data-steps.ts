@@ -1,6 +1,6 @@
 import { OutputField } from "@dispand/runner-protocol";
 import { parseCellText, type FieldSchema } from "../data/fields.ts";
-import { english } from "../messages/index.ts";
+import { type Message, say } from "../messages/index.ts";
 import { FILTER_OPS, filterValue, takesValue, type FilterOp } from "../data/query.ts";
 import type { WorkflowIssue } from "./derive.ts";
 import { agentDriven, dataSources, nodesOf, readsOf, slugify, type DataStep, type Source, type Step, type WorkflowDef } from "./model.ts";
@@ -141,33 +141,33 @@ export function validateDataSteps(def: WorkflowDef, tables: TableSchema[]): Work
   const issues: WorkflowIssue[] = [];
   for (const step of def.steps) {
     if (step.type !== "data") continue;
-    const add = (message: string) => issues.push({ nodeId: step.id, message });
+    const add = (message: Message) => issues.push({ nodeId: step.id, message });
     if (step.tableId === "") {
-      add("Choose a table");
+      add(say("workflows.issue.chooseTable"));
       continue;
     }
     const table = tables.find((t) => t.id === step.tableId);
     if (!table) {
-      add("This step's table no longer exists");
+      add(say("workflows.issue.tableGone"));
       continue;
     }
     const fields = new Map(table.fields.map((f) => [f.id, f]));
-    if (step.action === "update-row" && step.rowId.type === "value" && step.rowId.value.trim() === "") add("Choose the row to update");
+    if (step.action === "update-row" && step.rowId.type === "value" && step.rowId.value.trim() === "") add(say("workflows.issue.chooseRow"));
     if (step.action === "find-rows") {
       for (const filter of step.filters) {
         const field = fields.get(filter.fieldId);
         if (!field) {
-          add(`A field this step filters on no longer exists in ${table.name}`);
+          add(say("workflows.issue.filterFieldGone", { table: table.name }));
           continue;
         }
         if (!(FILTER_OPS[field.type] as readonly FilterOp[]).includes(filter.op)) {
-          add(`“${field.name}” can't be filtered by “${filter.op}”`);
+          add(say("data.query.notFilterable", { field: field.name, op: filter.op }));
           continue;
         }
         if (!takesValue(filter.op) || filter.value?.type === "output") continue;
         const parsed = filterValue(field, { fieldId: field.id, op: filter.op, value: filter.value?.value ?? "" });
-        if (!parsed.ok) add(english(parsed.reason.key, parsed.reason.values));
-        else if (parsed.value === null) add(`“${field.name}”: a value is needed`);
+        if (!parsed.ok) add(parsed.reason);
+        else if (parsed.value === null) add(say("data.query.valueNeeded", { field: field.name }));
       }
       continue;
     }
@@ -175,21 +175,21 @@ export function validateDataSteps(def: WorkflowDef, tables: TableSchema[]): Work
     for (const input of step.inputs) {
       const field = fields.get(input.fieldId);
       if (!field) {
-        add(`A field this step sets no longer exists in ${table.name}`);
+        add(say("workflows.issue.inputFieldGone", { table: table.name }));
         continue;
       }
       if (field.type === "attachment") {
-        add(`“${field.name}” holds files, which a workflow can't set`);
+        add(say("workflows.issue.holdsFiles", { field: field.name }));
         continue;
       }
       if (seen.has(field.id)) {
-        add(`“${field.name}” is set twice`);
+        add(say("workflows.issue.setTwice", { name: field.name }));
         continue;
       }
       seen.add(field.id);
       if (input.source.type !== "value") continue;
       const parsed = parseCellText(field, input.source.value);
-      if (!parsed.ok) add(english(parsed.reason.key, parsed.reason.values));
+      if (!parsed.ok) add(parsed.reason);
     }
   }
   return issues;

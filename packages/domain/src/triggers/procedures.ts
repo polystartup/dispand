@@ -5,6 +5,7 @@ import type { Db, Tx } from "../db/client.ts";
 import { agents, eventFires, fields, plugins, pollItems, polls, tables, triggerFires, triggers as triggersTable } from "../db/schema.ts";
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
+import { external, message } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
 import { pollProblem } from "../tools/pollable.ts";
 import { cronProblem, nextFireAfter } from "../workflows/schedule.ts";
@@ -21,14 +22,14 @@ async function requireAgent(db: Db | Tx, ownerId: string, agentId: string) {
     .select({ id: agents.id, bundles: agents.bundles, dataTables: agents.dataTables })
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)));
-  if (!row) throw new ORPCError("NOT_FOUND", { message: "Agent not found" });
+  if (!row) throw new ORPCError("NOT_FOUND", message("triggers.agentNotFound"));
   return row;
 }
 
 /** A chat starts with the owner's words; a button or a schedule has only its instructions to go on. */
 function checkInstructions(config: TriggerConfig, instructions: string) {
   if (config.kind === "manual" && config.placement === "chat") return;
-  if (!instructions.trim()) throw new ORPCError("BAD_REQUEST", { message: "Say what the agent does when this trigger fires" });
+  if (!instructions.trim()) throw new ORPCError("BAD_REQUEST", message("triggers.instructionsNeeded"));
 }
 
 /**
@@ -40,30 +41,31 @@ function checkInstructions(config: TriggerConfig, instructions: string) {
 async function checkConfig(db: Db | Tx, ownerId: string, agent: Awaited<ReturnType<typeof requireAgent>>, config: TriggerConfig) {
   if (config.kind === "schedule") {
     const problem = cronProblem(config.cron, config.timezone);
-    if (problem) throw new ORPCError("BAD_REQUEST", { message: problem });
+    if (problem) throw new ORPCError("BAD_REQUEST", message(problem.key, problem.values));
   }
   if (config.kind === "poll") {
     const problem = await pollProblem(db, ownerId, agent.id, config.toolId, config.action);
-    if (problem) throw new ORPCError("BAD_REQUEST", { message: problem });
+    // shortcut: the poll refusal is the tools area's unkeyed text, shown as it is until that area keys it.
+    if (problem) throw new ORPCError("BAD_REQUEST", external(problem));
   }
   if (config.kind !== "primitive") return;
   // Questions and Approvals (the built-in `interaction`): only an agent with `inbox` is started by them.
   if (config.tableId === INTERACTION) {
-    if (!agent.bundles.includes("inbox")) throw new ORPCError("BAD_REQUEST", { message: "Only an agent with the Inbox can be started by Questions: give it the Inbox first" });
+    if (!agent.bundles.includes("inbox")) throw new ORPCError("BAD_REQUEST", message("triggers.inboxNeeded"));
     return;
   }
   const [table] = await db
     .select({ primitive: tables.primitive })
     .from(tables)
     .where(and(eq(tables.id, config.tableId), eq(tables.ownerId, ownerId)));
-  if (!table) throw new ORPCError("NOT_FOUND", { message: "Table not found" });
-  if (!table.primitive) throw new ORPCError("BAD_REQUEST", { message: "Only a primitive table's changes start Jobs: make the table primitive first" });
+  if (!table) throw new ORPCError("NOT_FOUND", message("triggers.tableNotFound"));
+  if (!table.primitive) throw new ORPCError("BAD_REQUEST", message("triggers.needsPrimitive"));
   if (config.fields) {
     const found = await db.select({ id: fields.id }).from(fields).where(and(eq(fields.tableId, config.tableId), inArray(fields.id, config.fields)));
-    if (found.length !== new Set(config.fields).size) throw new ORPCError("BAD_REQUEST", { message: "A watched field isn't one of the table's" });
+    if (found.length !== new Set(config.fields).size) throw new ORPCError("BAD_REQUEST", message("triggers.fieldNotInTable"));
   }
   if (!agent.bundles.includes("data") || (agent.dataTables !== "all" && !agent.dataTables.includes(config.tableId))) {
-    throw new ORPCError("BAD_REQUEST", { message: "The agent can't read this table: give it data on the table first" });
+    throw new ORPCError("BAD_REQUEST", message("triggers.cantReadTable"));
   }
 }
 
@@ -183,7 +185,8 @@ async function view(db: Db, row: Row, forJob: boolean) {
 /** Refuses a change of the Assistant's chat (`agents/builtin.ts`), with its reason. */
 async function guard(db: Db | Tx, ownerId: string, agentId: string, change: Extract<AgentChange, { kind: "trigger" }>) {
   const refused = await assistantGuard(db, ownerId, agentId, change);
-  if (refused) throw new ORPCError("FORBIDDEN", { message: refused });
+  // shortcut: the guard's reasons are the agents area's unkeyed text, shown as they are until that area keys them.
+  if (refused) throw new ORPCError("FORBIDDEN", external(refused));
 }
 
 async function find(db: Db, ownerId: string, id: string) {
@@ -191,7 +194,7 @@ async function find(db: Db, ownerId: string, id: string) {
     .select()
     .from(triggersTable)
     .where(and(eq(triggersTable.id, id), eq(triggersTable.ownerId, ownerId)));
-  if (!row) throw new ORPCError("NOT_FOUND");
+  if (!row) throw new ORPCError("NOT_FOUND", message("triggers.notFound"));
   return row;
 }
 
@@ -242,14 +245,14 @@ const update = owner
         .from(triggersTable)
         .where(and(eq(triggersTable.id, input.id), eq(triggersTable.ownerId, context.ownerId)))
         .for("update");
-      if (!previous) throw new ORPCError("NOT_FOUND");
+      if (!previous) throw new ORPCError("NOT_FOUND", message("triggers.notFound"));
       // A write that holds only while a field is as it was read (a Stem decision): checked with the row locked.
       if (context.expectField && !sameValue("trigger", context.expectField.field, (previous as Record<string, unknown>)[context.expectField.field], context.expectField.value)) {
-        throw new ORPCError("CONFLICT", { message: "This field changed meanwhile" });
+        throw new ORPCError("CONFLICT", message("triggers.fieldChanged"));
       }
       await guard(tx, context.ownerId, previous.agentId, { kind: "trigger", triggerId: previous.id, enabled: input.enabled, config: input.config });
       const config = input.config ?? previous.config;
-      if (config.kind !== previous.kind) throw new ORPCError("BAD_REQUEST", { message: "A trigger's kind can't change" });
+      if (config.kind !== previous.kind) throw new ORPCError("BAD_REQUEST", message("triggers.kindFixed"));
       // A primitive or poll trigger can always be turned off, even once what it watches has changed
       // under it: its config is checked when it is turned on again. A schedule's cron is always checked.
       if ((input.enabled ?? previous.enabled) || config.kind === "schedule" || config.kind === "manual") await checkConfig(tx, context.ownerId, await requireAgent(tx, context.ownerId, previous.agentId), config);

@@ -6,6 +6,7 @@ import { Link } from "@tanstack/react-router";
 import { CircleAlert, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useText } from "@/lib/message";
 import { cn } from "@/lib/utils";
 import { FormField } from "../settings/parts.tsx";
 import { AgentPanel } from "./panels/AgentPanel.tsx";
@@ -46,6 +47,7 @@ export function StepPanel({
   onChange: (def: WorkflowDef) => void;
   onClose: () => void;
 }) {
+  const text = useText();
   const node = nodesOf(def).find((n) => n.id === nodeId);
   if (!node) return null;
   const trigger = def.trigger.field;
@@ -81,9 +83,9 @@ export function StepPanel({
       {mine.length > 0 && (
         <ul className="space-y-1.5 rounded-xl bg-danger/8 px-3 py-2.5" aria-label="Issues">
           {mine.map((i) => (
-            <li key={i.message} className="flex gap-2 text-[13px] text-danger">
+            <li key={text(i.message)} className="flex gap-2 text-[13px] text-danger">
               <CircleAlert size={15} className="mt-0.5 shrink-0" aria-hidden />
-              {i.message}
+              {text(i.message)}
             </li>
           ))}
         </ul>

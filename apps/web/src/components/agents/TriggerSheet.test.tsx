@@ -102,7 +102,7 @@ test("TriggerSheet starts a schedule in a timezone schedules accept, whatever th
   const { user } = mount();
   await user.type(screen.getByLabelText("Name"), "Morning mail");
   await user.click(screen.getByRole("radio", { name: "Schedule" }));
-  expect(screen.queryByText("Unknown timezone")).toBeNull();
+  expect(screen.queryByText("Unknown timezone.")).toBeNull();
   await user.click(screen.getByRole("button", { name: "Create trigger" }));
   expect(fake.triggers.create.mock.calls[0]![0]).toMatchObject({ config: { kind: "schedule", timezone: "Europe/Paris" } });
 });
@@ -113,7 +113,7 @@ test("TriggerSheet starts a schedule in a browser's UTC", async () => {
   const { user } = mount();
   await user.type(screen.getByLabelText("Name"), "Morning mail");
   await user.click(screen.getByRole("radio", { name: "Schedule" }));
-  expect(screen.queryByText("Unknown timezone")).toBeNull();
+  expect(screen.queryByText("Unknown timezone.")).toBeNull();
   await user.click(screen.getByRole("button", { name: "Create trigger" }));
   expect(fake.triggers.create.mock.calls[0]![0]).toMatchObject({ config: { kind: "schedule", timezone: "UTC" } });
 });

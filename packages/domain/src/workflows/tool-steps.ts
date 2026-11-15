@@ -1,3 +1,4 @@
+import { type Message, say } from "../messages/index.ts";
 import { actionOutputFields, actionParams, coerceValue } from "../tools/arguments.ts";
 import type { ToolAction } from "../tools/mcp.ts";
 import { nearestAgentNode, outputNameFor, type WiredInput } from "./data-steps.ts";
@@ -81,49 +82,49 @@ export function validateToolSteps(def: WorkflowDef, tools: ToolSchema[]): Workfl
   const issues: WorkflowIssue[] = [];
   for (const step of def.steps) {
     if (step.type !== "tool") continue;
-    const add = (message: string) => issues.push({ nodeId: step.id, message });
+    const add = (message: Message) => issues.push({ nodeId: step.id, message });
     if (step.toolId === "") {
-      add("Choose a tool");
+      add(say("workflows.issue.chooseTool"));
       continue;
     }
     const tool = tools.find((t) => t.id === step.toolId);
     if (!tool) {
-      add("This step's tool no longer exists");
+      add(say("workflows.issue.toolGone"));
       continue;
     }
     if (tool.kind !== "http") {
-      add("Tool steps run HTTP tools; use an agent for runner tools");
+      add(say("workflows.issue.runnerTool"));
       continue;
     }
     if (step.action === "") {
-      add("Choose an action");
+      add(say("workflows.issue.chooseAction"));
       continue;
     }
     if (tool.disabled?.includes(step.action)) {
-      add(`${tool.name}'s action “${step.action}” is disabled workspace-wide`);
+      add(say("workflows.issue.actionDisabled", { tool: tool.name, action: step.action }));
       continue;
     }
     const action = tool.actions.find((a) => a.name === step.action);
     if (!action) {
-      add(`${tool.name} no longer has the action “${step.action}”`);
+      add(say("workflows.issue.actionGone", { tool: tool.name, action: step.action }));
       continue;
     }
     const params = actionParams(action);
     const seen = new Set<string>();
     for (const input of step.inputs) {
       const param = params.find((p) => p.name === input.param);
-      if (!param) add(`“${action.name}” has no parameter “${input.param}”`);
-      else if (seen.has(param.name)) add(`“${param.name}” is set twice`);
+      if (!param) add(say("workflows.issue.noParam", { action: action.name, param: input.param }));
+      else if (seen.has(param.name)) add(say("workflows.issue.setTwice", { name: param.name }));
       else if (input.source.type === "value" && (param.type === "string" || input.source.value.trim() !== "")) {
-        const coerced = coerceValue(param.type, input.source.value);
-        if ("error" in coerced) add(`“${param.name}” ${coerced.error}`);
+        const coerced = coerceValue(param.type, input.source.value, param.name);
+        if ("error" in coerced) add(coerced.error);
       }
       seen.add(input.param);
     }
     for (const param of params) {
       const input = step.inputs.find((i) => i.param === param.name);
       const blank = input?.source.type === "value" && param.type !== "string" && input.source.value.trim() === "";
-      if (param.required && (!input || blank)) add(`“${param.name}” needs a value`);
+      if (param.required && (!input || blank)) add(say("workflows.issue.needsValue", { param: param.name }));
     }
   }
   // A field the action's output schema doesn't name: the reader's issue.
@@ -135,10 +136,10 @@ export function validateToolSteps(def: WorkflowDef, tools: ToolSchema[]): Workfl
       const found = step && actionOf(step, tools);
       const fields = found && actionOutputFields(found.action);
       if (!step || !fields || ref.name === "result" || fields.includes(ref.name)) continue;
-      const name = `{{${step.key}.${ref.name}}}`;
-      if (reported.has(name)) continue;
-      reported.add(name);
-      issues.push({ nodeId: reader.id, message: `${name}: “${step.key}” doesn't give “${ref.name}”` });
+      const reference = `{{${step.key}.${ref.name}}}`;
+      if (reported.has(reference)) continue;
+      reported.add(reference);
+      issues.push({ nodeId: reader.id, message: say("workflows.issue.noGive", { reference, step: step.key, field: ref.name }) });
     }
   }
   return issues;

@@ -263,7 +263,7 @@ test("update with a schedule trigger creates the schedule, back to manual delete
   // A cron that can't fire is refused, the schedule untouched.
   await expect(call(router.workflows.update, { id: wf.id, name: "Ship", def: onSchedule(manual, "0 0 9 * * *") }, { context: ctx })).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "Use 5 fields: minute hour day month weekday",
+    message: "Use 5 fields: minute hour day month weekday.",
   });
   expect((await scheduleOf())!.cron).toBe("30 9 * * *");
 
@@ -317,7 +317,7 @@ test("a Tool step's tool must be the owner's, a tool in use can't go, and start 
   await call(router.workflows.update, { id: workflow.id, name: "Ship", def: def(tool!.id) }, { context });
   await expect(call(router.runs.start, { workflowId: workflow.id }, { context })).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "Fix the workflow first: “name” needs a value",
+    message: "“name” needs a value",
   });
   await expect(call(router.tools.delete, { id: tool!.id }, { context })).rejects.toMatchObject({ code: "CONFLICT", message: "The workflow “Ship” uses this tool" });
   await call(router.workflows.update, { id: workflow.id, name: "Ship", def: workflow.def }, { context });

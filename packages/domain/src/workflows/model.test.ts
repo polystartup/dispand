@@ -1,6 +1,11 @@
 import { expect, test } from "vitest";
 import { structuralIssues } from "./derive.ts";
 import { addStep, connect, defaultWorkflowDef, disconnect, removeStep, WorkflowDef } from "./model.ts";
+import { sentence } from "../messages/index.ts";
+import type { WorkflowIssue } from "./derive.ts";
+
+/** Issues with their messages as English sentences. */
+const said = (issues: WorkflowIssue[]) => issues.map((i) => ({ ...i, message: sentence(i.message) }));
 
 /** Start button → A, plus an unlinked B. */
 function twoSteps(): WorkflowDef {
@@ -39,18 +44,18 @@ test("connect makes a join", () => {
 
 test("connect refuses a loop", () => {
   const def = addStep(twoSteps(), { after: "n_a" }, "n_c", "agent");
-  expect(connect(def, "n_c", "n_a")).toEqual({ refused: "This link would make a loop" });
+  expect(connect(def, "n_c", "n_a")).toEqual({ refused: { key: "workflows.link.wouldLoop" } });
 });
 
 test("connect refuses an edge into the trigger", () => {
-  expect(connect(twoSteps(), "n_b", "n_start")).toEqual({ refused: "Nothing runs before the trigger" });
+  expect(connect(twoSteps(), "n_b", "n_start")).toEqual({ refused: { key: "workflows.link.beforeTrigger" } });
 });
 
 test("connect refuses a step following itself, an existing link and a branch", () => {
   const def = twoSteps();
-  expect(connect(def, "n_a", "n_a")).toEqual({ refused: "A step can't follow itself" });
-  expect(connect(def, "n_start", "n_a")).toEqual({ refused: "These steps are already linked" });
-  expect(connect(def, "n_a", "n_b", "else")).toEqual({ refused: "Only a condition has Then and Else" });
+  expect(connect(def, "n_a", "n_a")).toEqual({ refused: { key: "workflows.link.self" } });
+  expect(connect(def, "n_start", "n_a")).toEqual({ refused: { key: "workflows.link.already" } });
+  expect(connect(def, "n_a", "n_b", "else")).toEqual({ refused: { key: "workflows.link.onlyCondition" } });
 });
 
 test("disconnect keeps the nodes", () => {
@@ -86,14 +91,14 @@ test("a condition inserted on a link leads on through Then, so the workflow stay
     { from: "n_start", to: "n_if" },
     { from: "n_if", to: "n_a", branch: "then" },
   ]);
-  expect(structuralIssues(def)).toEqual([]);
+  expect(said(structuralIssues(def))).toEqual([]);
   // A second condition is "If 2".
   expect(addStep(def, { after: "n_a" }, "n_if2", "condition").steps.at(-1)).toMatchObject({ name: "If 2", key: "if_2" });
 });
 
 test("connect from a condition needs a branch", () => {
   const def = withCondition();
-  expect(connect(def, "n_if", "n_b")).toEqual({ refused: "Choose Then or Else for this link" });
+  expect(connect(def, "n_if", "n_b")).toEqual({ refused: { key: "workflows.link.chooseBranch" } });
   expect(connect(def, "n_if", "n_b", "else")).toEqual({ def: { ...def, edges: [...def.edges, { from: "n_if", to: "n_b", branch: "else" }] } });
 });
 
@@ -136,7 +141,7 @@ test("addStep adds a loop with its defaults, and its body steps inside it", () =
   ]);
   expect(addStep(def, { edge: { from: "n_e", to: "n_f" } }, "n_x", "agent").steps.at(-1)).toMatchObject({ loopId: "n_each" });
   expect(addStep(def, { after: "n_a" }, "n_each2", "loop").steps.at(-1)).toMatchObject({ name: "For each 2", key: "for_each_2" });
-  expect(structuralIssues(def)).toEqual([]);
+  expect(said(structuralIssues(def))).toEqual([]);
 });
 
 test("a nested loop is refused", () => {
@@ -146,9 +151,9 @@ test("a nested loop is refused", () => {
 
 test("an edge from the body to outside is refused", () => {
   const def = withLoop();
-  expect(connect(def, "n_f", "n_a")).toEqual({ refused: "A link can't cross the edge of a loop" });
-  expect(connect(def, "n_each", "n_e")).toEqual({ refused: "A link can't cross the edge of a loop" });
-  expect(connect(def, "n_start", "n_f")).toEqual({ refused: "A link can't cross the edge of a loop" });
+  expect(connect(def, "n_f", "n_a")).toEqual({ refused: { key: "workflows.link.crossesLoop" } });
+  expect(connect(def, "n_each", "n_e")).toEqual({ refused: { key: "workflows.link.crossesLoop" } });
+  expect(connect(def, "n_start", "n_f")).toEqual({ refused: { key: "workflows.link.crossesLoop" } });
 });
 
 test("removing a loop removes its body", () => {

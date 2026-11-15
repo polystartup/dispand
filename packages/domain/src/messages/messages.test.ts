@@ -45,7 +45,7 @@ const UNKEYED: Record<string, number> = {
   "assistant/invoke.ts": 4,
   "audit/procedures.ts": 1,
   // The engine's EngineErrors, all but the Inbox answer's (keyed with the questions area).
-  "engine/engine.ts": 18,
+  "engine/engine.ts": 17,
   "harnesses/procedures.ts": 6,
   "jobs/procedures.ts": 7,
   "memory/procedures.ts": 4,
@@ -56,8 +56,6 @@ const UNKEYED: Record<string, number> = {
   "runners/workspace-plugin.ts": 10,
   "skills/procedures.ts": 13,
   "tools/procedures.ts": 18,
-  "triggers/procedures.ts": 14,
-  "workflows/procedures.ts": 15,
 };
 
 const src = join(import.meta.dirname, "..");

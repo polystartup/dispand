@@ -2,6 +2,11 @@ import { expect, test } from "vitest";
 import { nearestAgentNode, setDataFields, setSource, tableIdsOf, validateDataSteps, type TableSchema } from "./data-steps.ts";
 import { deriveExpectedOutputs, validateWorkflow } from "./derive.ts";
 import { addStep, renameNode, WorkflowDef, type DataStep } from "./model.ts";
+import { sentence } from "../messages/index.ts";
+import type { WorkflowIssue } from "./derive.ts";
+
+/** Issues with their messages as English sentences. */
+const said = (issues: WorkflowIssue[]) => issues.map((i) => ({ ...i, message: sentence(i.message) }));
 
 const projects: TableSchema = {
   id: "t_projects",
@@ -70,7 +75,7 @@ test("data inputs wired to the chat become its expected outputs, with their fiel
     { name: "price", type: "string" },
   ]);
   expect(deriveExpectedOutputs(chatThenData(), [projects])["n_data"]).toEqual([]);
-  expect(validateWorkflow(chatThenData())).toEqual([]);
+  expect(said(validateWorkflow(chatThenData()))).toEqual([]);
 });
 
 test("rewiring an input moves its output from one agent to the other", () => {
@@ -175,28 +180,28 @@ test("a reference to a data step's output is not an expected output", () => {
   const def = addStep(chatThenData(), { after: "n_data" }, "n_next", "agent");
   def.steps[2] = { ...def.steps[2]!, agentId: "agent_1", prompt: "Use {{create_project.row_id}}." } as WorkflowDef["steps"][number];
   expect(deriveExpectedOutputs(def, [projects])["n_data"]).toEqual([]);
-  expect(validateWorkflow(def)).toEqual([]);
+  expect(said(validateWorkflow(def))).toEqual([]);
   def.steps[2] = { ...def.steps[2]!, prompt: "Use {{create_project.nope}}." } as WorkflowDef["steps"][number];
-  expect(validateWorkflow(def)).toEqual([{ nodeId: "n_next", message: "{{create_project.nope}}: “create_project” doesn't give “nope”" }]);
+  expect(said(validateWorkflow(def))).toEqual([{ nodeId: "n_next", message: "{{create_project.nope}}: “create_project” doesn't give “nope”" }]);
 });
 
 test("validate reports a source that isn't upstream, on a button, or a name a data step doesn't give", () => {
   const def = addStep(chatThenData(), { after: "n_data" }, "n_next", "agent");
   def.steps[2] = { ...def.steps[2]!, agentId: "agent_1" } as WorkflowDef["steps"][number];
   const downstream = setSource(def, "n_data", { fieldId: "f_name" }, { type: "output", nodeId: "n_next", name: "x" });
-  expect(validateWorkflow(downstream)).toEqual([{ nodeId: "n_data", message: "{{step_3.x}}: “step_3” doesn't run before this step" }]);
+  expect(said(validateWorkflow(downstream))).toEqual([{ nodeId: "n_data", message: "{{step_3.x}}: “step_3” doesn't run before this step" }]);
   const gone = setSource(def, "n_data", { fieldId: "f_name" }, { type: "output", nodeId: "n_ghost", name: "x" });
-  expect(validateWorkflow(gone)).toEqual([{ nodeId: "n_data", message: "A value comes from a step that doesn't exist" }]);
+  expect(said(validateWorkflow(gone))).toEqual([{ nodeId: "n_data", message: "A value comes from a step that doesn't exist" }]);
   const second = setDataFields(addStep(def, { after: "n_data" }, "n_d2", "data"), "n_d2", projects, ["f_name"]);
   const fromData = setSource(second, "n_d2", { fieldId: "f_name" }, { type: "output", nodeId: "n_data", name: "count" });
-  expect(validateWorkflow(fromData)).toEqual([{ nodeId: "n_d2", message: "{{create_project.count}}: “create_project” doesn't give “count”" }]);
+  expect(said(validateWorkflow(fromData))).toEqual([{ nodeId: "n_d2", message: "{{create_project.count}}: “create_project” doesn't give “count”" }]);
   const button: WorkflowDef = {
     trigger: { type: "manual", field: { id: "n_go", key: "go", type: "button", label: "Go" } },
     steps: [],
     edges: [],
   };
   const fromButton = setSource(setDataFields(addStep(button, { after: "n_go" }, "n_d", "data"), "n_d", projects, ["f_name"]), "n_d", { fieldId: "f_name" }, { type: "output", nodeId: "n_go", name: "x" });
-  expect(validateWorkflow(fromButton)).toEqual([{ nodeId: "n_d", message: "{{go.x}}: “go” is a button, it has no values" }]);
+  expect(said(validateWorkflow(fromButton))).toEqual([{ nodeId: "n_d", message: "{{go.x}}: “go” is a button, it has no values" }]);
 });
 
 test("validateDataSteps reports a deleted field and an attachment field", () => {
@@ -211,20 +216,20 @@ test("validateDataSteps reports a deleted field and an attachment field", () => 
       { fieldId: "f_name", source: { type: "value", value: "b" } },
     ],
   } as DataStep);
-  expect(validateDataSteps(withPhoto, [projects])).toEqual([
+  expect(said(validateDataSteps(withPhoto, [projects]))).toEqual([
     { nodeId: "n_data", message: "A field this step sets no longer exists in Projects" },
     { nodeId: "n_data", message: "“Photo” holds files, which a workflow can't set" },
     { nodeId: "n_data", message: "“Name” is set twice" },
   ]);
-  expect(validateDataSteps(def, [])).toEqual([{ nodeId: "n_data", message: "This step's table no longer exists" }]);
-  expect(validateDataSteps(withStep(def, { ...dataStep(def), tableId: "" }), [])).toEqual([{ nodeId: "n_data", message: "Choose a table" }]);
-  expect(validateDataSteps(def, [projects])).toEqual([]);
+  expect(said(validateDataSteps(def, []))).toEqual([{ nodeId: "n_data", message: "This step's table no longer exists" }]);
+  expect(said(validateDataSteps(withStep(def, { ...dataStep(def), tableId: "" }), []))).toEqual([{ nodeId: "n_data", message: "Choose a table" }]);
+  expect(said(validateDataSteps(def, [projects]))).toEqual([]);
 });
 
 test("validateDataSteps refuses a literal that doesn't fit its field and an op its type doesn't have", () => {
   const def = chatThenData();
   const literal = setSource(def, "n_data", { fieldId: "f_price" }, { type: "value", value: "lots" });
-  expect(validateDataSteps(literal, [projects])).toEqual([{ nodeId: "n_data", message: "“Price”: expected a number, got “lots”." }]);
+  expect(said(validateDataSteps(literal, [projects]))).toEqual([{ nodeId: "n_data", message: "“Price”: expected a number, got “lots”." }]);
   const find = withStep(def, {
     id: "n_data",
     key: "create_project",
@@ -243,21 +248,21 @@ test("validateDataSteps refuses a literal that doesn't fit its field and an op i
     ],
     limit: 20,
   });
-  expect(validateDataSteps(find, [projects])).toEqual([
-    { nodeId: "n_data", message: "“Price” can't be filtered by “contains”" },
-    { nodeId: "n_data", message: "“Price”: a value is needed" },
-    { nodeId: "n_data", message: "“Price”: a value is needed" },
+  expect(said(validateDataSteps(find, [projects]))).toEqual([
+    { nodeId: "n_data", message: "“Price” can't be filtered by “contains”." },
+    { nodeId: "n_data", message: "“Price”: a value is needed." },
+    { nodeId: "n_data", message: "“Price”: a value is needed." },
     { nodeId: "n_data", message: "“Status”: expected one of the field's choices, got “Someday”." },
   ]);
   const update = withStep(def, { ...dataStep(def), action: "update-row", rowId: { type: "value", value: " " } } as DataStep);
-  expect(validateDataSteps(update, [projects])).toEqual([{ nodeId: "n_data", message: "Choose the row to update" }]);
+  expect(said(validateDataSteps(update, [projects]))).toEqual([{ nodeId: "n_data", message: "Choose the row to update" }]);
 });
 
 test("renaming the source node keeps the wiring", () => {
   const def = chatThenData();
   const renamed = renameNode(def, "n_chat", "Project brief");
   expect(deriveExpectedOutputs(renamed, [projects])).toEqual(deriveExpectedOutputs(def, [projects]));
-  expect(validateWorkflow(renameNode(def, "n_data", "Save it"))).toEqual([]);
+  expect(said(validateWorkflow(renameNode(def, "n_data", "Save it")))).toEqual([]);
 });
 
 test("a data step parses, with a find-rows limit of 20 by default and at most 100", () => {
@@ -280,4 +285,9 @@ test("a workflow saved by an earlier version still parses", () => {
     edges: [{ from: "n_chat", to: "n_plan" }],
   };
   expect(WorkflowDef.parse(slice1)).toEqual(slice1);
+});
+
+test("validateDataSteps names the table of a filtered field that is gone", () => {
+  const find = withStep(chatThenData(), { id: "n_data", key: "create_project", type: "data", name: "Find", action: "find-rows", tableId: "t_projects", filters: [{ fieldId: "f_gone", op: "is" }], limit: 20 });
+  expect(said(validateDataSteps(find, [projects]))).toEqual([{ nodeId: "n_data", message: "A field this step filters on no longer exists in Projects" }]);
 });

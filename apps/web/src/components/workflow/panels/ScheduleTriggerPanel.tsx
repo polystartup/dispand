@@ -1,7 +1,9 @@
+import { say } from "@dispand/domain/messages/index.ts";
 import type { ScheduleField } from "@dispand/domain/workflows/model";
 import { cronProblem, fromCron, knownTimezone, nextFires, toCron, type SchedulePreset } from "@dispand/domain/workflows/schedule";
 import { useId, useState, type ReactNode } from "react";
 import { Input } from "@/components/ui/input";
+import { useText } from "@/lib/message";
 import { cn } from "@/lib/utils";
 import { FormField } from "../../settings/parts.tsx";
 import { selectClass } from "../../data/NewFieldPopover.tsx";
@@ -89,8 +91,9 @@ export function ScheduleTriggerPanel({
   // What is typed, kept while it can't be saved.
   const [cron, setCron] = useState(field.cron);
   const [timezone, setTimezone] = useState(field.timezone);
+  const text = useText();
   const cronIssue = kind === "custom" ? cronProblem(cron, field.timezone) : null;
-  const tzIssue = knownTimezone(timezone) ? null : "Unknown timezone";
+  const tzIssue = knownTimezone(timezone) ? null : say("workflows.schedule.unknownTimezone");
 
   function save(patch: Partial<ScheduleField>) {
     const next = { ...field, ...patch };
@@ -194,7 +197,7 @@ export function ScheduleTriggerPanel({
           />
           {cronIssue && (
             <p id={ids.problem} role="alert" className="mt-1.5 text-[13px] text-danger">
-              {cronIssue}
+              {text(cronIssue)}
             </p>
           )}
         </FormField>
@@ -219,7 +222,7 @@ export function ScheduleTriggerPanel({
         </datalist>
         {tzIssue && (
           <p role="alert" className="mt-1.5 text-[13px] text-danger">
-            {tzIssue}
+            {text(tzIssue)}
           </p>
         )}
       </FormField>

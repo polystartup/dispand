@@ -52,7 +52,7 @@ test("a custom cron with 6 fields shows the problem and doesn't call onChange wi
   expect((cron as HTMLInputElement).value).toBe("0 9 * * 1-5");
   await user.clear(cron);
   await user.type(cron, "0 0 9 * * *");
-  expect(screen.getByRole("alert").textContent).toBe("Use 5 fields: minute hour day month weekday");
+  expect(screen.getByRole("alert").textContent).toBe("Use 5 fields: minute hour day month weekday.");
   expect(onChange.mock.calls.map(([f]) => (f as ScheduleField).cron)).not.toContain("0 0 9 * * *");
   await user.clear(cron);
   await user.type(cron, "*/15 9-17 * * 1-5");
@@ -79,7 +79,7 @@ test("an unknown timezone is shown, not saved", async () => {
   const tz = screen.getByLabelText("Timezone");
   await user.clear(tz);
   await user.type(tz, "Mars/Olympus");
-  expect(screen.getByRole("alert").textContent).toBe("Unknown timezone");
+  expect(screen.getByRole("alert").textContent).toBe("Unknown timezone.");
   expect(onChange.mock.calls.map(([f]) => (f as ScheduleField).timezone)).not.toContain("Mars/Olympus");
   await user.clear(tz);
   await user.type(tz, "Asia/Tokyo");

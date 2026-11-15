@@ -1,5 +1,6 @@
 import { OutputField, SHORT } from "@dispand/runner-protocol";
 import { typeHint } from "../data/fields.ts";
+import { type Message, say } from "../messages/index.ts";
 import { actionParams, typeHint as paramHint } from "../tools/arguments.ts";
 import { CONDITION_OUTPUTS } from "./condition.ts";
 import { DATA_OUTPUTS, type TableSchema } from "./data-steps.ts";
@@ -14,7 +15,7 @@ import { references } from "./template.ts";
 
 // Pure: imported by the web editor too (`@dispand/domain/workflows/derive`).
 
-export type WorkflowIssue = { nodeId: string; message: string };
+export type WorkflowIssue = { nodeId: string; message: Message };
 
 /** The most expected outputs a session takes (the protocol's bound). */
 export const MAX_OUTPUTS = 100;
@@ -132,23 +133,23 @@ export function structuralIssues(def: WorkflowDef): WorkflowIssue[] {
   const seenIds = new Set<string>();
   const seenKeys = new Set<string>();
   for (const node of nodes) {
-    const add = (message: string) => issues.push({ nodeId: node.id, message });
-    if (seenIds.has(node.id)) add("Another step has the same id");
+    const add = (message: Message) => issues.push({ nodeId: node.id, message });
+    if (seenIds.has(node.id)) add(say("workflows.issue.sameId"));
     seenIds.add(node.id);
-    if (seenKeys.has(node.key)) add(`Another step is also called “${node.key}”`);
+    if (seenKeys.has(node.key)) add(say("workflows.issue.sameKey", { key: node.key }));
     seenKeys.add(node.key);
-    if (def.edges.some((e) => e.from === node.id && !ids.has(e.to))) add("This step leads to a step that doesn't exist");
-    if (def.edges.some((e) => e.to === node.id && !ids.has(e.from))) add("This step follows a step that doesn't exist");
-    if (upstreamOf(def, node.id).has(node.id)) add("This step is part of a loop");
+    if (def.edges.some((e) => e.from === node.id && !ids.has(e.to))) add(say("workflows.issue.leadsNowhere"));
+    if (def.edges.some((e) => e.to === node.id && !ids.has(e.from))) add(say("workflows.issue.followsNowhere"));
+    if (upstreamOf(def, node.id).has(node.id)) add(say("workflows.issue.inLoop"));
     const problems = new Set(def.edges.filter((e) => e.from === node.id).map((e) => branchProblem(def, e.from, e.branch)));
     for (const problem of problems) if (problem) add(problem);
     const loop = node.loopId === undefined ? undefined : nodes.find((n) => n.id === node.loopId);
-    if (node.loopId !== undefined && loop?.type !== "loop") add("This step's loop doesn't exist");
-    else if (node.loopId !== undefined && node.type === "loop") add("Loops can't be nested yet");
+    if (node.loopId !== undefined && loop?.type !== "loop") add(say("workflows.issue.loopMissing"));
+    else if (node.loopId !== undefined && node.type === "loop") add(say("workflows.issue.nested"));
     const scope = (id: string) => nodes.find((n) => n.id === id)?.loopId;
-    if (def.edges.some((e) => e.from === node.id && ids.has(e.to) && scope(e.to) !== node.loopId)) add("A link can't cross the edge of a loop");
+    if (def.edges.some((e) => e.from === node.id && ids.has(e.to) && scope(e.to) !== node.loopId)) add(say("workflows.link.crossesLoop"));
   }
-  if (def.edges.some((e) => !ids.has(e.from) && !ids.has(e.to))) issues.push({ nodeId: "", message: "A link joins steps that don't exist" });
+  if (def.edges.some((e) => !ids.has(e.from) && !ids.has(e.to))) issues.push({ nodeId: "", message: say("workflows.issue.linkNowhere") });
   return issues;
 }
 
@@ -161,8 +162,8 @@ export function validateWorkflow(def: WorkflowDef): WorkflowIssue[] {
   const structural = structuralIssues(def);
   const issues: WorkflowIssue[] = structural.filter((i) => i.nodeId === "");
   for (const node of nodes) {
-    const add = (message: string) => issues.push({ nodeId: node.id, message });
-    if (node.agentId === "") add("Choose an agent");
+    const add = (message: Message) => issues.push({ nodeId: node.id, message });
+    if (node.agentId === "") add(say("workflows.issue.chooseAgent"));
     const t = def.trigger;
     if (t.type === "schedule" && t.field.id === node.id) {
       const problem = cronProblem(t.field.cron, t.field.timezone);
@@ -172,48 +173,48 @@ export function validateWorkflow(def: WorkflowDef): WorkflowIssue[] {
     const upstream = upstreamOf(def, node.id);
     const reported = new Set<string>();
     const check = (source: WorkflowNode, field: string) => {
-      const name = `{{${source.key}.${field}}}`;
-      if (reported.has(name)) return;
-      reported.add(name);
+      const reference = `{{${source.key}.${field}}}`;
+      if (reported.has(reference)) return;
+      reported.add(reference);
       const gives = sourceFields(def, source.id, node.id);
       const loop = source.loopId === undefined ? undefined : byId.get(source.loopId);
       if (loop && source.loopId !== node.loopId) {
-        add(`${name}: “${source.key}” runs inside the loop “${loop.key}”: use {{${loop.key}.results}}`);
-      } else if (source.id === node.id || !upstream.has(source.id)) add(`${name}: “${source.key}” doesn't run before this step`);
-      else if (source.type === "button") add(`${name}: “${source.key}” is a button, it has no values`);
+        add(say("workflows.issue.insideLoop", { reference, step: source.key, loop: loop.key, results: `{{${loop.key}.results}}` }));
+      } else if (source.id === node.id || !upstream.has(source.id)) add(say("workflows.issue.notBefore", { reference, step: source.key }));
+      else if (source.type === "button") add(say("workflows.issue.isButton", { reference, step: source.key }));
       else if (!isOutputName(field)) {
-        add(`${name}: “${field}” can't name a value (letters, digits and _, not starting with a digit, at most 64, not a reserved name)`);
-      } else if (gives.kind === "fixed" && !gives.fields.includes(field)) add(`${name}: “${source.key}” doesn't give “${field}”`);
+        add(say("workflows.issue.badName", { reference, field }));
+      } else if (gives.kind === "fixed" && !gives.fields.includes(field)) add(say("workflows.issue.noGive", { reference, step: source.key, field }));
     };
     for (const ref of references(node.prompt ?? "")) {
       const source = byKey.get(ref.key);
-      if (source === undefined) add(`{{${ref.key}.${ref.field}}}: no step is called “${ref.key}”`);
+      if (source === undefined) add(say("workflows.issue.noStep", { reference: `{{${ref.key}.${ref.field}}}`, step: ref.key }));
       else check(source, ref.field);
     }
     const step = def.steps.find((s) => s.id === node.id);
     if (step?.type === "condition") {
       const source = step.value ? byId.get(step.value.nodeId) : undefined;
-      if (step.value === null) add("Choose the value to compare");
-      else if (source === undefined) add("The value to compare comes from a step that doesn't exist");
+      if (step.value === null) add(say("workflows.issue.chooseValue"));
+      else if (source === undefined) add(say("workflows.issue.valueGone"));
       else check(source, step.value.name);
     }
     if (step?.type === "loop") {
       const source = step.list ? byId.get(step.list.nodeId) : undefined;
-      if (step.list === null) add("Choose the list to loop over");
-      else if (source === undefined) add("The list comes from a step that doesn't exist");
+      if (step.list === null) add(say("workflows.issue.chooseList"));
+      else if (source === undefined) add(say("workflows.issue.listGone"));
       else check(source, step.list.name);
-      if (!def.steps.some((s) => s.loopId === step.id)) add("Add a step inside this loop");
+      if (!def.steps.some((s) => s.loopId === step.id)) add(say("workflows.issue.emptyLoop"));
     }
     if (step?.type === "data" || step?.type === "tool") {
       for (const { source: ref } of step.type === "data" ? dataSources(step) : step.inputs) {
         if (ref.type !== "output") continue;
         const source = byId.get(ref.nodeId);
-        if (source === undefined) add("A value comes from a step that doesn't exist");
+        if (source === undefined) add(say("workflows.issue.sourceGone"));
         else check(source, ref.name);
       }
     }
     const outputs = expected[node.id]?.length ?? 0;
-    if (outputs > MAX_OUTPUTS) add(`Later steps ask this step for ${outputs} values, at most ${MAX_OUTPUTS}`);
+    if (outputs > MAX_OUTPUTS) add(say("workflows.issue.tooManyOutputs", { outputs, max: MAX_OUTPUTS }));
   }
   return issues;
 }

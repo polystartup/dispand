@@ -17,6 +17,7 @@ import { Bot, CircleAlert, Clock, Database, GitBranch, MessageCircle, MousePoint
 import { useEffect, useMemo, useRef, useState } from "react";
 import { connect, disconnect, loopOf, nodesOf, type AddAt, type ConditionStep, type DataStep, type Edge as WorkflowEdge, type LoopStep, type StepType, type WorkflowDef } from "@dispand/domain/workflows/model";
 import { describeSchedule } from "@dispand/domain/workflows/schedule";
+import { useText } from "@/lib/message";
 import { cn } from "@/lib/utils";
 import { AddStepMenu } from "./AddStepMenu.tsx";
 import { CARD, GROUP, layoutWorkflow } from "./layout.ts";
@@ -177,6 +178,7 @@ export function Canvas({
   onChange: (def: WorkflowDef) => void;
 }) {
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
+  const text = useText();
   const [refusal, setRefusal] = useState<string | null>(null);
   useEffect(() => {
     if (!refusal) return;
@@ -301,7 +303,7 @@ export function Canvas({
           // A condition's links start from its Then or Else handle.
           const branch = sourceHandle === "then" || sourceHandle === "else" ? sourceHandle : undefined;
           const result = connect(def, source, target, branch);
-          if ("refused" in result) setRefusal(result.refused);
+          if ("refused" in result) setRefusal(text(result.refused));
           else onChange(result.def);
         }}
         nodesDraggable={false}

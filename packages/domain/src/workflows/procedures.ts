@@ -15,10 +15,11 @@ import {
   workflows as workflowsTable,
   workflowVersions,
 } from "../db/schema.ts";
-import { EngineError, messageView, questionView, runIssues, runView, stepView, type RunEvent } from "../engine/engine.ts";
+import { EngineError, messageView, passOn, questionView, runIssues, runView, stepView, type RunEvent } from "../engine/engine.ts";
 import { proposalView } from "../platform/proposals.ts";
 import { loadToolSchemas } from "../tools/executor.ts";
 import { newId } from "../ids.ts";
+import { message } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
 import { loadTableSchemas } from "../data/tables.ts";
 import { consultMarks } from "../jobs/consults.ts";
@@ -65,7 +66,7 @@ async function find(db: Db, ownerId: string, id: string) {
     .select()
     .from(workflowsTable)
     .where(and(eq(workflowsTable.id, id), eq(workflowsTable.ownerId, ownerId)));
-  if (!row) throw new ORPCError("NOT_FOUND");
+  if (!row) throw new ORPCError("NOT_FOUND", message("workflows.notFound"));
   return row;
 }
 
@@ -85,19 +86,19 @@ async function requireAgents(db: Db, ownerId: string, def: WorkflowDef) {
     .select({ id: agents.id })
     .from(agents)
     .where(and(eq(agents.ownerId, ownerId), inArray(agents.id, ids)));
-  if (rows.length !== ids.length) throw new ORPCError("NOT_FOUND", { message: "Agent not found" });
+  if (rows.length !== ids.length) throw new ORPCError("NOT_FOUND", message("workflows.agentNotFound"));
 }
 
 /** Every table the definition's data steps name must be one of the owner's. */
 async function requireTables(db: Db, ownerId: string, def: WorkflowDef) {
   const ids = tableIdsOf(def);
-  if ((await loadTableSchemas(db, ownerId, ids)).length !== ids.length) throw new ORPCError("NOT_FOUND", { message: "Table not found" });
+  if ((await loadTableSchemas(db, ownerId, ids)).length !== ids.length) throw new ORPCError("NOT_FOUND", message("workflows.tableNotFound"));
 }
 
 /** Every tool the definition's Tool steps name must be one of the owner's. */
 async function requireTools(db: Db, ownerId: string, def: WorkflowDef) {
   const ids = toolIdsOf(def);
-  if ((await loadToolSchemas(db, ownerId, ids)).length !== ids.length) throw new ORPCError("NOT_FOUND", { message: "Tool not found" });
+  if ((await loadToolSchemas(db, ownerId, ids)).length !== ids.length) throw new ORPCError("NOT_FOUND", message("workflows.toolNotFound"));
 }
 
 /** Whether a workflow's current version, or the version of a run still going, puts the agent to work. */
@@ -136,11 +137,11 @@ const create = owner.input(z.object({ name: Name })).handler(async ({ input, con
 const update = owner.input(z.object({ id: z.string(), name: Name, def: WorkflowDef })).handler(async ({ input, context }) => {
   await find(context.db, context.ownerId, input.id);
   const [broken] = structuralIssues(input.def);
-  if (broken) throw new ORPCError("BAD_REQUEST", { message: broken.message });
+  if (broken) throw new ORPCError("BAD_REQUEST", message(broken.message.key, broken.message.values));
   // A schedule must be able to fire: its next time is computed in the same transaction.
   const trigger = input.def.trigger;
   const scheduleProblem = trigger.type === "schedule" ? cronProblem(trigger.field.cron, trigger.field.timezone) : null;
-  if (scheduleProblem) throw new ORPCError("BAD_REQUEST", { message: scheduleProblem });
+  if (scheduleProblem) throw new ORPCError("BAD_REQUEST", message(scheduleProblem.key, scheduleProblem.values));
   const now = (context.now ?? (() => new Date()))();
   await requireAgents(context.db, context.ownerId, input.def);
   await requireTables(context.db, context.ownerId, input.def);
@@ -204,7 +205,7 @@ const setScheduleEnabled = owner.input(z.object({ id: z.string(), enabled: z.boo
   const now = (context.now ?? (() => new Date()))();
   await context.db.transaction(async (tx) => {
     const [s] = await tx.select().from(schedules).where(eq(schedules.workflowId, input.id)).for("update");
-    if (!s) throw new ORPCError("NOT_FOUND", { message: "This workflow has no schedule" });
+    if (!s) throw new ORPCError("NOT_FOUND", message("workflows.noSchedule"));
     if (s.enabled === input.enabled) return;
     const resumed = input.enabled ? { nextFireAt: nextFireAfter(s.cron, s.timezone, now), lastCheckedAt: now } : {};
     await tx.update(schedules).set({ enabled: input.enabled, ...resumed }).where(eq(schedules.workflowId, input.id));
@@ -221,7 +222,7 @@ const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input,
       .select({ n: count() })
       .from(runsTable)
       .where(and(eq(runsTable.workflowId, input.id), inArray(runsTable.status, ["running", "waiting"])));
-    if (active && active.n > 0) throw new ORPCError("CONFLICT", { message: "A run of this workflow is still going" });
+    if (active && active.n > 0) throw new ORPCError("CONFLICT", message("workflows.runGoing"));
     await tx.delete(workflowsTable).where(eq(workflowsTable.id, input.id));
   });
 });
@@ -239,7 +240,7 @@ const list = owner.handler(async ({ context }) => {
 const get = owner.input(z.object({ id: z.string(), version: z.number().int().min(1).optional() })).handler(async ({ input, context }) => {
   const row = await find(context.db, context.ownerId, input.id);
   const version = input.version ?? row.currentVersion;
-  if (version > row.currentVersion) throw new ORPCError("NOT_FOUND");
+  if (version > row.currentVersion) throw new ORPCError("NOT_FOUND", message("workflows.versionNotFound"));
   return { ...(await withSchedule(context.db, toWorkflow(row, await defOf(context.db, row.id, version)))), version };
 });
 
@@ -252,7 +253,7 @@ async function requireRun(db: Db, ownerId: string, runId: string) {
     .select()
     .from(runsTable)
     .where(and(eq(runsTable.id, runId), eq(runsTable.ownerId, ownerId)));
-  if (!row) throw new ORPCError("NOT_FOUND");
+  if (!row) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
   return row;
 }
 
@@ -284,14 +285,14 @@ async function snapshot(db: Db, ownerId: string, runId: string) {
 export function engineError(err: unknown): never {
   if (!(err instanceof EngineError)) throw err;
   const code = { NOT_FOUND: "NOT_FOUND", INVALID: "BAD_REQUEST", CLOSED: "CONFLICT", NOT_PENDING: "CONFLICT", STOPPED: "CONFLICT" }[err.code];
-  throw new ORPCError(code, { message: err.message });
+  throw new ORPCError(code, passOn(err));
 }
 
 const start = owner.input(z.object({ workflowId: z.string() })).handler(async ({ input, context }) => {
   const workflow = await find(context.db, context.ownerId, input.workflowId);
   const def = await defOf(context.db, workflow.id, workflow.currentVersion);
   const [issue] = await runIssues(context.db, context.ownerId, def);
-  if (issue) throw new ORPCError("BAD_REQUEST", { message: `Fix the workflow first: ${issue.message}` });
+  if (issue) throw new ORPCError("BAD_REQUEST", message(issue.message.key, issue.message.values));
   await requireAgents(context.db, context.ownerId, def);
   const runId = await context.engine.startRun(workflow.id).catch(engineError);
   if (def.trigger.field.type !== "chat") return { runId };
@@ -306,7 +307,7 @@ const sendChat = owner
   .input(z.object({ runId: z.string(), text: StorableText(100_000).trim().min(1), skillId: z.string().max(64).optional() }))
   .handler(async ({ input, context }) => {
     await requireRun(context.db, context.ownerId, input.runId);
-    if (context.job && input.skillId) throw new ORPCError("FORBIDDEN");
+    if (context.job && input.skillId) throw new ORPCError("FORBIDDEN", message("workflows.ownerSkill"));
     await context.engine.sendChat(input.runId, input.text, input.skillId).catch(engineError);
   });
 
@@ -376,7 +377,7 @@ const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agent
       .select({ id: triggers.id })
       .from(triggers)
       .where(and(eq(triggers.id, input.triggerId), eq(triggers.ownerId, context.ownerId)));
-    if (!trigger) throw new ORPCError("NOT_FOUND");
+    if (!trigger) throw new ORPCError("NOT_FOUND", message("workflows.triggerNotFound"));
   }
   if (input.workflowId) await find(context.db, context.ownerId, input.workflowId);
   if (input.agentId) {
@@ -384,7 +385,7 @@ const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agent
       .select({ id: agents.id })
       .from(agents)
       .where(and(eq(agents.id, input.agentId), eq(agents.ownerId, context.ownerId)));
-    if (!agent) throw new ORPCError("NOT_FOUND");
+    if (!agent) throw new ORPCError("NOT_FOUND", message("workflows.agentNotFound"));
   }
   const rows = await context.db
     .select()

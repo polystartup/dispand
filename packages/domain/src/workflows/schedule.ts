@@ -1,4 +1,5 @@
 import { CronExpressionParser } from "cron-parser";
+import { type Message, say } from "../messages/index.ts";
 
 // Pure: imported by the web editor too (`@dispand/domain/workflows/schedule`).
 
@@ -36,17 +37,17 @@ function parse(cron: string, timezone: string, currentDate: Date) {
 }
 
 /** Why `cron` in `timezone` can't be a schedule, for the owner, or null when it can. */
-export function cronProblem(cron: string, timezone: string): string | null {
-  if (cron.trim().split(/\s+/).length !== 5) return "Use 5 fields: minute hour day month weekday";
+export function cronProblem(cron: string, timezone: string): Message | null {
+  if (cron.trim().split(/\s+/).length !== 5) return say("workflows.schedule.fields");
   // cron-parser picks a random minute for each parse of `H`: its fires couldn't be predicted.
-  if (/h/i.test(cron)) return "Use numbers, not H";
-  if (!knownTimezone(timezone)) return "Unknown timezone";
+  if (/h/i.test(cron)) return say("workflows.schedule.noH");
+  if (!knownTimezone(timezone)) return say("workflows.schedule.unknownTimezone");
   try {
     // Parsing alone accepts dates that never come (31 February); finding the next one doesn't.
     parse(cron, timezone, new Date()).next();
     return null;
   } catch (error) {
-    return `This schedule can't be read: ${error instanceof Error ? error.message : String(error)}`;
+    return say("workflows.schedule.unreadable", { reason: error instanceof Error ? error.message : String(error) });
   }
 }
 

@@ -285,7 +285,7 @@ test("a data step can't name another owner's table", async () => {
   const def = chatThenCreate({ ...ids, tableId: "tbl_other" });
   await expect(call(router.workflows.update, { id: workflow.id, name: "Ship", def }, { context })).rejects.toMatchObject({
     code: "NOT_FOUND",
-    message: "Table not found",
+    message: "This table doesn't exist.",
   });
 });
 
@@ -294,7 +294,7 @@ test("runs.start refuses a data step whose field was deleted", async () => {
   await call(router.fields.delete, { id: ids.priceId }, { context });
   await expect(call(router.runs.start, { workflowId: workflow.id }, { context })).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "Fix the workflow first: A field this step sets no longer exists in Projects",
+    message: "A field this step sets no longer exists in Projects",
   });
 });
 
