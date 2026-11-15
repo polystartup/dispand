@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, RefreshCw, X } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -18,7 +19,7 @@ export type Tool = Awaited<ReturnType<typeof api.tools.list>>[number];
 type Action = Tool["actions"][number];
 
 export const transportLabels = { "streamable-http": "Streamable HTTP", sse: "SSE" } as const;
-const signInLabels = { headers: "Headers", oauth: "OAuth sign-in" } as const;
+const SIGN_INS = ["headers", "oauth"] as const;
 
 /** A header row: a stored one (`stored`) shows "Set" until it is replaced or removed. */
 type HeaderRow = { key: number; name: string; value: string; stored: boolean; removed: boolean };
@@ -40,10 +41,12 @@ export function errorMessage(e: unknown, fallback: string): string {
 
 /** "Add MCP server", or the editor of a tool with its actions. Mount it only while open. */
 export function ToolSheet({ tool, onClose, onSaved }: Props) {
+  const { t } = useTranslation("tools");
+  const fieldLabels = t("sheet.field", { returnObjects: true });
   const [name, setName] = useState(tool?.name ?? "");
   const [url, setUrl] = useState(tool?.url ?? "");
   const [transport, setTransport] = useState<keyof typeof transportLabels>(tool?.transport ?? "streamable-http");
-  const [signIn, setSignIn] = useState<keyof typeof signInLabels>(tool?.auth === "oauth" ? "oauth" : "headers");
+  const [signIn, setSignIn] = useState<(typeof SIGN_INS)[number]>(tool?.auth === "oauth" ? "oauth" : "headers");
   const [headers, setHeaders] = useState<HeaderRow[]>(
     tool?.headerNames.map((n, i) => ({ key: i, name: n, value: "", stored: true, removed: false })) ?? [],
   );
@@ -69,7 +72,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
         queryClient.invalidateQueries({ queryKey: orpc.agents.key() }),
       ]);
     },
-    onError: (e) => setError(errorMessage(e, "Could not change the action. Refresh and try again.")),
+    onError: (e) => setError(errorMessage(e, t("sheet.actionFailed"))),
   }));
   const busy = actionEnabled.isPending || create.isPending || update.isPending || del.isPending || refresh.isPending || authorize.isPending;
 
@@ -103,7 +106,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
         : await create.mutateAsync({ name, url: url.trim(), transport, headers: sent, ...(auth ? { auth } : {}) });
       onSaved(saved);
     } catch (e) {
-      setError(errorMessage(e, "Could not save the tool. Check the details and try again."));
+      setError(errorMessage(e, t("sheet.saveFailed")));
     }
   }
 
@@ -113,7 +116,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
     try {
       setCurrent(await refresh.mutateAsync({ id: current.id }));
     } catch {
-      setError("Could not refresh the actions.");
+      setError(t("sheet.refreshFailed"));
     }
   }
 
@@ -125,7 +128,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
       const { url: to } = await authorize.mutateAsync({ id: current.id, ...(client !== undefined ? { client } : {}) });
       window.location.assign(to);
     } catch (e) {
-      const message = errorMessage(e, "Could not start the sign-in.");
+      const message = errorMessage(e, t("sheet.connectFailed"));
       setError(message);
       // The server's authorization server wants a client id it gave the owner: its fields open.
       if (/enter the client id/.test(message)) setAskClient(true);
@@ -140,7 +143,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
       onClose();
     } catch (e) {
       // CONFLICT names the agent or skill that holds the tool.
-      setError(errorMessage(e, "Could not delete the tool."));
+      setError(errorMessage(e, t("sheet.deleteFailed")));
     }
   }
 
@@ -148,19 +151,17 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
     <Sheet open onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="w-full overflow-y-auto bg-surface sm:max-w-lg">
         <SheetHeader className="px-6 pt-6">
-          <SheetTitle className="text-[20px] tracking-tight">{current ? current.name : "Add MCP server"}</SheetTitle>
-          <SheetDescription>
-            An MCP server reached over HTTP. It acts as whatever account its headers, or its sign-in, authorize.
-          </SheetDescription>
+          <SheetTitle className="text-[20px] tracking-tight">{current ? current.name : t("sheet.addMcp")}</SheetTitle>
+          <SheetDescription>{t("sheet.description")}</SheetDescription>
         </SheetHeader>
         <div className="space-y-8 px-6 pb-6">
           {current?.plugin && (
             <>
-              <Overridden plugin={current.plugin.name} overridden={current.overridden} labels={{ name: "Name", url: "URL", transport: "Transport" }} busy={reset.isPending} onReset={(field) => reset.mutate({ kind: "tool", id: current.id, field })} />
-              <StemMarks kind="tool" id={current.id} labels={{ name: "Name", url: "URL", transport: "Transport" }} onResolved={onClose} />
+              <Overridden plugin={current.plugin.name} overridden={current.overridden} labels={fieldLabels} busy={reset.isPending} onReset={(field) => reset.mutate({ kind: "tool", id: current.id, field })} />
+              <StemMarks kind="tool" id={current.id} labels={fieldLabels} onResolved={onClose} />
             </>
           )}
-          {reset.error && <p role="alert" className="text-[13px] text-danger">{errorMessage(reset.error, "Could not reset the field. Try again.")}</p>}
+          {reset.error && <p role="alert" className="text-[13px] text-danger">{errorMessage(reset.error, t("sheet.resetFailed"))}</p>}
           <form
             className="space-y-5"
             onSubmit={(e) => {
@@ -168,21 +169,17 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
               void save();
             }}
           >
-            <FormField label="Name" htmlFor="tool-name">
+            <FormField label={t("sheet.name")} htmlFor="tool-name">
               <Input id="tool-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus={!current} />
             </FormField>
             <FormField
-              label="URL"
+              label={t("sheet.url")}
               htmlFor="tool-url"
-              hint={
-                current?.urlSet && url === current.url
-                  ? "Set: the URL holds a secret, so its template is shown. Type a new URL to replace it."
-                  : "Headers are only sent to an https:// URL."
-              }
+              hint={current?.urlSet && url === current.url ? t("sheet.urlSecret") : t("sheet.urlHint")}
             >
-              <Input id="tool-url" type="url" value={url} onChange={(e) => setUrl(e.target.value)} maxLength={2000} required placeholder="https://example.com/mcp" />
+              <Input id="tool-url" type="url" value={url} onChange={(e) => setUrl(e.target.value)} maxLength={2000} required placeholder={t("sheet.urlPlaceholder")} />
             </FormField>
-            <FormField label="Transport" htmlFor="tool-transport">
+            <FormField label={t("sheet.transport")} htmlFor="tool-transport">
               <Select value={transport} onValueChange={(v) => setTransport(v as keyof typeof transportLabels)}>
                 <SelectTrigger id="tool-transport" className="w-full">
                   <SelectValue />
@@ -197,15 +194,15 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
               </Select>
             </FormField>
 
-            <FormField label="Sign-in" htmlFor="tool-sign-in-kind" hint={signIn === "oauth" ? "You sign in to the server; Dispand keeps the sign-in encrypted and renews it." : undefined}>
-              <Select value={signIn} onValueChange={(v) => setSignIn(v as keyof typeof signInLabels)}>
+            <FormField label={t("sheet.signIn")} htmlFor="tool-sign-in-kind" hint={signIn === "oauth" ? t("sheet.oauthHint") : undefined}>
+              <Select value={signIn} onValueChange={(v) => setSignIn(v as (typeof SIGN_INS)[number])}>
                 <SelectTrigger id="tool-sign-in-kind" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(signInLabels).map(([value, label]) => (
+                  {SIGN_INS.map((value) => (
                     <SelectItem key={value} value={value}>
-                      {label}
+                      {t(`sheet.signInKind.${value}`)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -214,10 +211,10 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
 
             {signIn === "headers" && (
               <fieldset className="space-y-2">
-                <legend className="mb-1.5 text-[13px] font-medium text-muted">Headers</legend>
+                <legend className="mb-1.5 text-[13px] font-medium text-muted">{t("sheet.headers")}</legend>
                 {elsewhere && headers.some((r) => r.stored && !r.removed) && (
                   <p role="status" className="rounded-lg bg-hover px-3 py-2 text-[13px] text-muted">
-                    This is another address: the saved headers are not sent there. Enter again the ones this server needs.
+                    {t("sheet.elsewhere")}
                   </p>
                 )}
                 {headers
@@ -225,21 +222,21 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
                   .map((row) => (
                     <div key={row.key} className="flex items-center gap-2">
                       <Input
-                        aria-label="Header name"
+                        aria-label={t("sheet.headerName")}
                         value={row.name}
                         onChange={(e) => setRow(row.key, { name: e.target.value })}
                         disabled={row.stored}
-                        placeholder="Authorization"
+                        placeholder={t("sheet.headerPlaceholder")}
                         maxLength={100}
                         className="w-2/5"
                       />
                       <Input
-                        aria-label={`Value of ${row.name || "the header"}`}
+                        aria-label={t("sheet.headerValue", { name: row.name || t("sheet.theHeader") })}
                         type="password"
                         autoComplete="off"
                         value={row.value}
                         onChange={(e) => setRow(row.key, { value: e.target.value })}
-                        placeholder={row.stored ? (elsewhere ? "Not kept: enter it again" : "Set: leave empty to keep") : "Bearer …"}
+                        placeholder={row.stored ? (elsewhere ? t("sheet.notKept") : t("sheet.setKeep")) : t("sheet.valuePlaceholder")}
                         maxLength={4000}
                         required={!row.stored}
                       />
@@ -247,7 +244,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
                         type="button"
                         variant="ghost"
                         size="icon"
-                        aria-label={`Remove ${row.name || "header"}`}
+                        aria-label={t("sheet.removeHeader", { name: row.name || t("sheet.header") })}
                         onClick={() => (row.stored ? setRow(row.key, { removed: true }) : setHeaders((rows) => rows.filter((r) => r.key !== row.key)))}
                       >
                         <X />
@@ -264,9 +261,9 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
                     setNextKey((k) => k + 1);
                   }}
                 >
-                  <Plus /> Add header
+                  <Plus /> {t("sheet.addHeader")}
                 </Button>
-                <p className="text-[12px] text-faint">Values are stored encrypted and never shown again.</p>
+                <p className="text-[12px] text-faint">{t("sheet.encrypted")}</p>
               </fieldset>
             )}
 
@@ -277,14 +274,14 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
             )}
             <div className="flex items-center gap-2 pt-1">
               <Button type="submit" disabled={busy || !name.trim() || !url.trim()}>
-                {current ? "Save" : "Add server"}
+                {current ? t("sheet.save") : t("sheet.addServer")}
               </Button>
               <Button type="button" variant="ghost" onClick={onClose}>
-                {current ? "Close" : "Cancel"}
+                {current ? t("sheet.close") : t("sheet.cancel")}
               </Button>
               {current && !current.plugin && (
                 <Button type="button" variant="ghost" className="ml-auto text-danger" disabled={busy} onClick={() => void remove()}>
-                  Delete
+                  {t("sheet.delete")}
                 </Button>
               )}
             </div>
@@ -296,7 +293,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
             // A sign-in is for the saved server: an address or transport not saved yet would get it (and the client entered for it).
             (unsavedTarget ? (
               <p role="status" className="text-[13px] text-muted">
-                Save the new address before connecting: the sign-in is for the server the tool is saved with.
+                {t("sheet.saveAddress")}
               </p>
             ) : (
               <ToolSignIn status={current.oauthStatus} clientId={current.enteredClientId} busy={busy} askClient={askClient} onConnect={(client) => void connect(client)} />
@@ -316,10 +313,10 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
             <section aria-labelledby="tool-actions" className="space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <h2 id="tool-actions" className="text-[15px] font-medium">
-                  Actions ({current.actions.length})
+                  {t("sheet.actions", { count: current.actions.length })}
                 </h2>
                 <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void reload()}>
-                  <RefreshCw /> Refresh
+                  <RefreshCw /> {t("sheet.refresh")}
                 </Button>
               </div>
               {current.actionsError && (
@@ -327,12 +324,12 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
                   {current.actionsError}
                 </p>
               )}
-              <p className="text-[13px] text-muted">Disabling stops an action for agents, polls and workflows. Re-enabling keeps each agent's permissions; CLI sessions need a new session.</p>
+              <p className="text-[13px] text-muted">{t("sheet.actionsNote")}</p>
               <ul className="divide-y divide-line rounded-xl border border-line">
                 {current.actions.map((a) => (
                   <ActionItem key={a.name} action={a} tool={current.name} enabled={!current.disabled.includes(a.name)} busy={busy} onChange={(enabled) => actionEnabled.mutate({ toolId: current.id, action: a.name, enabled })} />
                 ))}
-                {current.actions.length === 0 && <li className="px-4 py-3 text-[13px] text-muted">No action listed.</li>}
+                {current.actions.length === 0 && <li className="px-4 py-3 text-[13px] text-muted">{t("sheet.noAction")}</li>}
               </ul>
             </section>
           )}
@@ -345,24 +342,25 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
 
 /** One action: its name, description and parameters (the top-level properties of its input schema). */
 export function ActionItem({ action, tool, enabled, onChange, busy = false }: { action: Action; tool: string; enabled: boolean; onChange: (enabled: boolean) => void; busy?: boolean }) {
+  const { t } = useTranslation("tools");
   const properties = (action.inputSchema.properties ?? {}) as Record<string, { type?: unknown; description?: unknown }>;
   const required = new Set(Array.isArray(action.inputSchema.required) ? (action.inputSchema.required as string[]) : []);
   return (
     <li className="space-y-1.5 px-4 py-3">
       <label className="flex items-start gap-2">
-        <input type="checkbox" aria-label={`Enable ${tool} ${action.name} workspace-wide`} checked={enabled} disabled={busy} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-[var(--color-accent)]" />
+        <input type="checkbox" aria-label={t("sheet.enable", { tool, action: action.name })} checked={enabled} disabled={busy} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-[var(--color-accent)]" />
         <span className="break-all font-mono text-[13px] font-medium">{action.name}</span>
       </label>
-      {!enabled && <p className="text-[12px] text-muted">Disabled workspace-wide</p>}
+      {!enabled && <p className="text-[12px] text-muted">{t("sheet.disabled")}</p>}
       {action.description && <p className="whitespace-pre-line text-[13px] text-muted">{action.description}</p>}
       {Object.keys(properties).length > 0 && (
         <ul className="space-y-0.5 text-[12.5px]">
           {Object.entries(properties).map(([param, schema]) => (
             <li key={param} className="text-muted">
               <span className="font-mono text-fg">{param}</span>
-              {typeof schema.type === "string" && <span> · {schema.type}</span>}
-              {required.has(param) && <span> · required</span>}
-              {typeof schema.description === "string" && <span> — {schema.description}</span>}
+              {typeof schema.type === "string" && <span>{t("sheet.paramType", { type: schema.type })}</span>}
+              {required.has(param) && <span>{t("sheet.required")}</span>}
+              {typeof schema.description === "string" && <span>{t("sheet.paramDescription", { description: schema.description })}</span>}
             </li>
           ))}
         </ul>

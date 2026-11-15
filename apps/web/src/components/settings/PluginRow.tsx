@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { refusal } from "./PluginInstallSheet.tsx";
 import { PluginRemoveSheet } from "./PluginRemoveSheet.tsx";
@@ -12,6 +13,7 @@ type Plugin = Awaited<ReturnType<typeof api.plugins.list>>[number];
 
 /** Installed components are removed only through the explicit checklist; generated items stay. */
 export function PluginRow({ plugin: p }: { plugin: Plugin }) {
+  const { t } = useTranslation("plugins");
   const queryClient = useQueryClient();
   const refresh = () =>
     Promise.all(
@@ -24,14 +26,12 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   const updated = (result: { sha: string; failed?: { name: string; reason: string }[]; leftBehind?: { name: string; reason: string }[] }) => {
     void refresh();
     // What an element's own checks refused is said, not hidden.
-    const done = result.failed?.length
-      ? `Updated to ${result.sha.slice(0, 7)}, except ${result.failed.map((f) => `${f.name} (${f.reason})`).join("; ")}.`
-      : result.sha === p.sha
-        ? "Already up to date."
-        : `Updated to ${result.sha.slice(0, 7)}.`;
+    const sha = result.sha.slice(0, 7);
+    const item = (f: { name: string; reason: string }) => t("row.failedItem", { name: f.name, reason: f.reason });
+    const done = result.failed?.length ? t("row.updatedExcept", { sha, failed: result.failed.map(item).join("; ") }) : result.sha === p.sha ? t("row.upToDate") : t("row.updated", { sha });
     // A native install that didn't move: finished from its harness's workspace skills.
-    const native = result.leftBehind?.length ? ` The native install on ${result.leftBehind.map((h) => `${h.name} (${h.reason})`).join("; ")} didn't move: install it again from that harness's workspace skills.` : "";
-    setNote(done + native);
+    const native = result.leftBehind?.length ? t("row.leftBehind", { harnesses: result.leftBehind.map(item).join("; ") }) : "";
+    setNote(native ? `${done} ${native}` : done);
   };
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,9 +39,9 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   const [settingUp, setSettingUp] = useState(false);
   const busy = update.isPending || looking;
   const available = [
-    ...p.available.skills.map((s) => `${s.name} (skill)`),
-    ...p.available.mcpServers.map((s) => `${s.name} (MCP server)`),
-    ...p.available.agents.map((a) => `${a.name} (agent)`),
+    ...p.available.skills.map((s) => t("row.availableSkill", { name: s.name })),
+    ...p.available.mcpServers.map((s) => t("row.availableServer", { name: s.name })),
+    ...p.available.agents.map((a) => t("row.availableAgent", { name: a.name })),
   ];
 
   async function run(action: () => Promise<unknown>, fallback: string) {
@@ -61,25 +61,23 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
           <p className="truncate text-[15px] font-medium">{p.name}</p>
           <p className="text-[13px] text-muted">
             {p.sha === null ? (
-              "Generated in this workspace: it lists what approved proposals created, and removing it keeps them"
+              t("row.generated")
             ) : (
-              <>
-                From {p.marketplace} · <span className="font-mono">{p.sha.slice(0, 7)}</span>. Choose what to remove; items you keep stay in your workspace
-              </>
+              <Trans t={t} i18nKey="row.from" values={{ marketplace: p.marketplace, sha: p.sha.slice(0, 7) }} components={[<span className="font-mono" />]} />
             )}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {(p.definitions.primitives.length > 0 || p.definitions.agents.length > 0 || p.available.mcpServers.some((s) => s.type === "http" && s.settings.length === 0)) && (
-            <Button size="sm" variant="ghost" aria-label={`Set up ${p.name}`} disabled={busy} onClick={() => setSettingUp(true)}>
-              Set up
+            <Button size="sm" variant="ghost" aria-label={t("row.setUpLabel", { name: p.name })} disabled={busy} onClick={() => setSettingUp(true)}>
+              {t("row.setUp")}
             </Button>
           )}
           {p.sha !== null && (
             <Button
               size="sm"
               variant="ghost"
-              aria-label={`Update ${p.name}`}
+              aria-label={t("row.updateLabel", { name: p.name })}
               disabled={busy}
               onClick={() =>
                 void run(async () => {
@@ -91,85 +89,84 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
                   } finally {
                     setLooking(false);
                   }
-                }, "Could not update the plugin.")
+                }, t("row.updateFailed"))
               }
             >
-              {update.isPending || looking ? "Updating…" : "Update"}
+              {update.isPending || looking ? t("row.updating") : t("row.update")}
             </Button>
           )}
           <Button
             size="sm"
             variant="ghost"
             className="text-danger"
-            aria-label={`Remove ${p.name}`}
+            aria-label={t("row.removeLabel", { name: p.name })}
             disabled={busy}
             onClick={() => setRemoving(true)}
           >
-            Remove
+            {t("row.remove")}
           </Button>
         </div>
       </div>
       {p.sha !== null && (
         <p className="text-[13px]">
-          <span className="text-muted">Skills: </span>
-          <span className="font-mono">{p.skills.map((s) => s.name).join(", ") || "none"}</span>
+          <span className="text-muted">{t("row.skills")}</span>
+          <span className="font-mono">{p.skills.map((s) => s.name).join(", ") || t("row.none")}</span>
         </p>
       )}
       {(
         [
-          ["Tables", p.tables],
-          ["Fields", p.fields],
+          [t("row.tables"), p.tables],
+          [t("row.fields"), p.fields],
         ] as const
       ).map(([label, named]) =>
         named.length > 0 ? (
           <p key={label} className="text-[13px]">
-            <span className="text-muted">{label}: </span>
+            <span className="text-muted">{label}</span>
             {named.map((n) => n.name).join(", ")}
           </p>
         ) : null,
       )}
       {p.tools.length > 0 && (
         <p className="text-[13px]">
-          <span className="text-muted">Tools: </span>
-          {p.tools.map((t) => t.name).join(", ")}
+          <span className="text-muted">{t("row.tools")}</span>
+          {p.tools.map((tool) => tool.name).join(", ")}
         </p>
       )}
       {p.agents.length > 0 && (
         <p className="text-[13px]">
-          <span className="text-muted">Agents: </span>
+          <span className="text-muted">{t("row.agents")}</span>
           {p.agents.map((a) => a.name).join(", ")}
         </p>
       )}
       {p.triggers.length > 0 && (
         <p className="text-[13px]">
-          <span className="text-muted">Triggers: </span>
-          {p.triggers.map((t) => t.name).join(", ")}
+          <span className="text-muted">{t("row.triggers")}</span>
+          {p.triggers.map((trigger) => trigger.name).join(", ")}
         </p>
       )}
       {(
         [
-          ["Table definitions", p.definitions.primitives],
-          ["Agent definitions", p.definitions.agents],
-          ["Trigger definitions", p.definitions.triggers],
+          [t("row.tableDefs"), p.definitions.primitives],
+          [t("row.agentDefs"), p.definitions.agents],
+          [t("row.triggerDefs"), p.definitions.triggers],
         ] as const
       ).map(([label, defs]) =>
         defs.length > 0 ? (
           <p key={label} className="text-[13px]">
-            <span className="text-muted">{label}: </span>
-            {defs.map((d) => (d.setUp ? `${d.name} (set up)` : d.name)).join(", ")}
+            <span className="text-muted">{label}</span>
+            {defs.map((d) => (d.setUp ? t("row.isSetUp", { name: d.name }) : d.name)).join(", ")}
           </p>
         ) : null,
       )}
       {available.length > 0 && (
         <p className="text-[13px]">
-          <span className="text-muted">Available, not imported: </span>
+          <span className="text-muted">{t("row.available")}</span>
           {available.join(", ")}
         </p>
       )}
       {p.notImported.length > 0 && (
         <p className="text-[13px] text-faint">
-          Never imported: {p.notImported.length} {p.notImported.length === 1 ? "item" : "items"} (
-          {[...new Set(p.notImported.map((n) => n.component))].join(", ")})
+          {t("row.neverImported", { count: p.notImported.length, components: [...new Set(p.notImported.map((n) => n.component))].join(", ") })}
         </p>
       )}
       {note && (

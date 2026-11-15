@@ -14,5 +14,10 @@
       "runnerTools_one": "A CLI session gets at most {{max}} runner tools, so the tool {{names}} will be left out.",
       "runnerTools_other": "A CLI session gets at most {{max}} runner tools, so these {{count}} tools will be left out: {{names}}."
     }
+  },
+  "size": {
+    "bytes": "{{size}} B",
+    "kb": "{{size}} KB",
+    "mb": "{{size}} MB"
   }
 }

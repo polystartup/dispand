@@ -1,18 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { api, orpc } from "../../lib/api.ts";
 import { FormField } from "./parts.tsx";
-import { NativeTargetPicker, nativeWarning, useNativeTargets } from "./NativeSkills.tsx";
+import { NativeTargetPicker, useNativeTargets } from "./NativeSkills.tsx";
 import { useDefinitionPicks } from "./PluginDefinitionPicks.tsx";
 
+/** The plugin pages' tabs; each label is a key of the `plugins` namespace. */
 export const pluginTabs = [
-  { to: "/settings/plugins", label: "Discover" },
-  { to: "/settings/plugins/installed", label: "Installed" },
-];
+  { to: "/settings/plugins", label: "tabs.discover" },
+  { to: "/settings/plugins/installed", label: "tabs.installed" },
+] as const;
 
 /** Why the procedure refused, when it says; else `fallback`. */
 export function refusal(e: unknown, fallback: string): string {
@@ -26,17 +28,6 @@ export function refusal(e: unknown, fallback: string): string {
 }
 
 type Preview = Awaited<ReturnType<typeof api.plugins.preview>>;
-
-const componentLabels: Record<Preview["notImported"][number]["component"], string> = {
-  manifest: "Manifest field",
-  hook: "Hook",
-  command: "Command",
-  bin: "Programs",
-  "mcp-server": "MCP server",
-  skill: "Skill",
-  definition: "Definition",
-  file: "File",
-};
 
 const box = "mt-1 size-4 accent-[var(--color-accent)]";
 
@@ -53,6 +44,7 @@ export function Section({ id, title, children }: { id: string; title: string; ch
 
 /** The install sheet of a plugin: what it brings (skills and agents ticked by default, MCP servers not), and what is never imported. Mount it only while open. */
 export function PluginInstallSheet({ marketplaceId, entryName, onClose }: { marketplaceId: string; entryName: string; onClose: () => void }) {
+  const { t } = useTranslation("plugins");
   const preview = useQuery({ ...orpc.plugins.preview.queryOptions({ input: { marketplaceId, entryName } }), retry: false, staleTime: Infinity });
   // A plugin changed since it was read: read it again, so the owner reviews what is there now.
   const [changed, setChanged] = useState<string | null>(null);
@@ -64,8 +56,8 @@ export function PluginInstallSheet({ marketplaceId, entryName, onClose }: { mark
     <Sheet open onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="w-full overflow-y-auto bg-surface sm:max-w-lg">
         <SheetHeader className="px-6 pt-6">
-          <SheetTitle className="text-[20px] tracking-tight">Install {entryName}</SheetTitle>
-          <SheetDescription>Pick what to bring in. Its skills, tools and agents become Dispand ones. You can choose what to remove when uninstalling.</SheetDescription>
+          <SheetTitle className="text-[20px] tracking-tight">{t("install.title", { name: entryName })}</SheetTitle>
+          <SheetDescription>{t("install.description")}</SheetDescription>
         </SheetHeader>
         <div className="px-6 pb-6">
           {changed && (
@@ -78,10 +70,10 @@ export function PluginInstallSheet({ marketplaceId, entryName, onClose }: { mark
             <InstallForm key={preview.data.reviewed} marketplaceId={marketplaceId} entryName={entryName} preview={preview.data} onClose={onClose} onChanged={reread} />
           ) : preview.error ? (
             <p role="alert" className="text-[13px] text-danger">
-              {refusal(preview.error, "Could not read the plugin.")}
+              {refusal(preview.error, t("install.readFailed"))}
             </p>
           ) : (
-            <p className="text-[13px] text-muted">Reading the plugin…</p>
+            <p className="text-[13px] text-muted">{t("install.reading")}</p>
           )}
         </div>
       </SheetContent>
@@ -121,6 +113,7 @@ function InstallForm({
   onClose: () => void;
   onChanged: (message: string) => void;
 }) {
+  const { t } = useTranslation(["plugins", "harnesses"]);
   const queryClient = useQueryClient();
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   const runners = useQuery(orpc.runners.list.queryOptions());
@@ -139,9 +132,9 @@ function InstallForm({
   const [native, setNative] = useState(preview.nativeAvailable);
   const targets = useNativeTargets(harnesses.data ?? [], runners.data ?? []);
   const [excludedTargets, setExcludedTargets] = useState(() => new Set<string>());
-  const nativeTargets = new Set(targets.filter((t) => t.enabled && !excludedTargets.has(t.harness.id)).map((t) => t.harness.id));
+  const nativeTargets = new Set(targets.filter((target) => target.enabled && !excludedTargets.has(target.harness.id)).map((target) => target.harness.id));
   // Workspace installation is committed once; failed native operations never resubmit it.
-  const [nativeProgress, setNativeProgress] = useState<{ id: string; name: string; status: "Installing…" | "Installed" | "Failed"; error?: string }[] | null>(null);
+  const [nativeProgress, setNativeProgress] = useState<{ id: string; name: string; status: "installing" | "installed" | "failed"; error?: string }[] | null>(null);
   // Server name → `${VAR}` → value. Sent only for the ticked servers, never shown again.
   const [settings, setSettings] = useState<Record<string, Record<string, string>>>({});
   const [error, setError] = useState<string | null>(null);
@@ -168,8 +161,8 @@ function InstallForm({
       });
       // What the setup didn't make: an item refused, or a definition left waiting. The plugin is installed, and Set up goes on from there.
       const notes = [
-        ...(result.setup?.outcomes ?? []).filter((o) => o.outcome === "refused").map((o) => `Setting it up stopped: ${o.error ?? "an item was refused"}`),
-        ...(result.setup?.waiting ?? []).map((w) => `${w.definition}: ${w.reason}`),
+        ...(result.setup?.outcomes ?? []).filter((o) => o.outcome === "refused").map((o) => (o.error ? t("install.setupStopped", { error: o.error }) : t("install.setupRefused"))),
+        ...(result.setup?.waiting ?? []).map((w) => t("install.waiting", { definition: w.definition, reason: w.reason })),
       ];
       setSetupNotes(notes);
       if (!native || !nativeTargets.size) {
@@ -177,7 +170,7 @@ function InstallForm({
         return;
       }
       const selected = (harnesses.data ?? []).flatMap((h) => h.type === "cli" && nativeTargets.has(h.id) ? [h] : []);
-      setNativeProgress(selected.map((h) => ({ id: h.id, name: h.name, status: "Installing…" })));
+      setNativeProgress(selected.map((h) => ({ id: h.id, name: h.name, status: "installing" })));
       const groups = new Map<string, typeof selected>();
       for (const h of selected) groups.set(h.runnerId, [...(groups.get(h.runnerId) ?? []), h]);
       await Promise.all([...groups.values()].map(async (group) => {
@@ -187,19 +180,19 @@ function InstallForm({
           report = await api.runners.workspacePlugin({ ...request, dryRun: true });
           if (report.revision && !report.blocked && !report.error) report = await api.runners.workspacePlugin({ ...request, dryRun: false, revision: report.revision });
         } catch (e) {
-          report = { ...report, error: refusal(e, "Native installation failed. Check Harness inventory before retrying; some changes may have completed.") };
+          report = { ...report, error: refusal(e, t("install.nativeFailed")) };
         }
         setNativeProgress((progress) => progress!.map((row) => {
           const h = group.find((h) => h.id === row.id);
           if (!h) return row;
           const outcome = report.results?.find((r) => r.harness === h.kind);
           const installed = outcome?.status === "installed" || outcome?.status === "already_installed";
-          return { ...row, status: installed ? "Installed" : "Failed", error: installed ? undefined : report.error ?? "Native installation did not complete. Check Harness inventory before retrying." };
+          return { ...row, status: installed ? "installed" : "failed", error: installed ? undefined : report.error ?? t("install.nativeIncomplete") };
         }));
         await queryClient.invalidateQueries({ queryKey: ["native-plugins", group[0]!.runnerId] });
       }));
     } catch (e) {
-      const message = refusal(e, "Could not install the plugin.");
+      const message = refusal(e, t("install.failed"));
       if (typeof e === "object" && e !== null && "code" in e && e.code === "CONFLICT") onChanged(message);
       else setError(message);
     }
@@ -211,24 +204,24 @@ function InstallForm({
   if (nativeProgress || setupNotes.length) {
     return (
       <div className="space-y-4">
-        <p className="text-[13px]">Installed in the workspace.</p>
+        <p className="text-[13px]">{t("install.done")}</p>
         {setupNotes.length > 0 && (
           <div className="space-y-1 text-[13px]">
-            <p>Not made yet: open Set up on the plugin to go on.</p>
-            <ul aria-label="Not made yet" className="space-y-1 text-muted">
+            <p>{t("install.notMade")}</p>
+            <ul aria-label={t("install.notMadeLabel")} className="space-y-1 text-muted">
               {setupNotes.map((note) => (
                 <li key={note}>{note}</li>
               ))}
             </ul>
           </div>
         )}
-        <ul aria-label="Native installations" className="space-y-2 text-[13px]">
+        <ul aria-label={t("install.nativeList")} className="space-y-2 text-[13px]">
           {(nativeProgress ?? []).map((row) => <li key={row.id} className="rounded-lg border border-line p-3">
-            <div className="flex items-center justify-between gap-3"><span>{row.name}</span><span role="status" aria-label={`${row.name}: ${row.status}`}>{row.status}</span></div>
+            <div className="flex items-center justify-between gap-3"><span>{row.name}</span><span role="status" aria-label={t("install.rowStatus", { name: row.name, status: t(`install.status.${row.status}`) })}>{t(`install.status.${row.status}`)}</span></div>
             {row.error && <p role="alert" className="mt-1 text-danger">{row.error}</p>}
           </li>)}
         </ul>
-        <Button type="button" disabled={!!nativeProgress?.some((row) => row.status === "Installing…")} onClick={onClose}>Done</Button>
+        <Button type="button" disabled={!!nativeProgress?.some((row) => row.status === "installing")} onClick={onClose}>{t("install.close")}</Button>
       </div>
     );
   }
@@ -240,9 +233,9 @@ function InstallForm({
         void submit();
       }}
     >
-      <Section id="install-skills" title="Skills">
+      <Section id="install-skills" title={t("install.skills")}>
         {preview.skills.length === 0 ? (
-          <p className="text-[13px] text-faint">No skill to import.</p>
+          <p className="text-[13px] text-faint">{t("install.noSkill")}</p>
         ) : (
           <ul className="space-y-1">
             {preview.skills.map((s) => (
@@ -254,18 +247,18 @@ function InstallForm({
         )}
       </Section>
 
-      <Section id="install-native" title="Native installation (optional)">
-        <Check checked={native} disabled={!preview.nativeAvailable} onChange={() => setNative((value) => !value)} label="Install the complete native plugin" detail={preview.nativeAvailable ? "Install on the selected harnesses and keep workspace copies for fallback." : "This source provides workspace skills, without a complete native plugin."} />
+      <Section id="install-native" title={t("install.native")}>
+        <Check checked={native} disabled={!preview.nativeAvailable} onChange={() => setNative((value) => !value)} label={t("install.nativeLabel")} detail={preview.nativeAvailable ? t("install.nativeDetail") : t("install.nativeUnavailable")} />
         {native && <>
-          <p className="text-[13px] text-muted">{nativeWarning}</p>
+          <p className="text-[13px] text-muted">{t("harnesses:native.warning")}</p>
           <NativeTargetPicker targets={targets} selected={nativeTargets} onChange={(id) => setExcludedTargets((prev) => toggled(prev, id))} />
-          {(harnesses.error || runners.error) && <p role="alert" className="text-[13px] text-danger">Could not load native targets.</p>}
+          {(harnesses.error || runners.error) && <p role="alert" className="text-[13px] text-danger">{t("install.targetsFailed")}</p>}
         </>}
       </Section>
 
       {preview.mcpServers.length > 0 && (
-        <Section id="install-tools" title="MCP servers">
-          <p className="text-[12px] text-faint">Each becomes a tool that calls the URL shown. Its settings go there, stored encrypted and never shown again.</p>
+        <Section id="install-tools" title={t("install.servers")}>
+          <p className="text-[12px] text-faint">{t("install.serversNote")}</p>
           <ul className="space-y-1">
             {preview.mcpServers.map((s) =>
               s.type === "http" ? (
@@ -274,7 +267,7 @@ function InstallForm({
                     checked={servers.has(s.name)}
                     onChange={() => setServers((prev) => toggled(prev, s.name))}
                     label={s.name}
-                    detail={s.url ?? "MCP server over HTTP"}
+                    detail={s.url ?? t("install.httpServer")}
                   />
                   {servers.has(s.name) &&
                     s.settings.map((name) => (
@@ -298,7 +291,7 @@ function InstallForm({
                     <input type="checkbox" disabled checked={false} onChange={() => undefined} className={box} />
                     <span>
                       <span className="block text-[13px] font-medium">{s.name}</span>
-                      <span className="block text-[13px] text-muted">Runs a command on a machine: not yet supported</span>
+                      <span className="block text-[13px] text-muted">{t("install.commandServer")}</span>
                     </span>
                   </label>
                 </li>
@@ -309,19 +302,19 @@ function InstallForm({
       )}
 
       {preview.agents.length > 0 && (
-        <Section id="install-agents" title="Agents">
+        <Section id="install-agents" title={t("install.agents")}>
           <ul className="space-y-1">
             {preview.agents.map((a) => (
               <li key={a.name}>
-                <Check checked={agents.has(a.name)} onChange={() => setAgents((prev) => toggled(prev, a.name))} label={a.name} detail={a.description || "Agent"} />
+                <Check checked={agents.has(a.name)} onChange={() => setAgents((prev) => toggled(prev, a.name))} label={a.name} detail={a.description || t("install.agent")} />
               </li>
             ))}
           </ul>
           {agents.size > 0 && (
-            <FormField label="Harness" htmlFor="install-harness" hint="The agents run there, with the plugin's skills and tools you import.">
+            <FormField label={t("install.harness")} htmlFor="install-harness" hint={t("install.harnessHint")}>
               <Select value={harnessId} onValueChange={setHarnessId}>
                 <SelectTrigger id="install-harness" className="w-full">
-                  <SelectValue placeholder="Pick a harness" />
+                  <SelectValue placeholder={t("install.pickHarness")} />
                 </SelectTrigger>
                 <SelectContent>
                   {harnesses.data?.map((h) => (
@@ -333,24 +326,24 @@ function InstallForm({
               </Select>
             </FormField>
           )}
-          {agents.size > 0 && harnesses.data?.length === 0 && <p className="text-[13px] text-faint">Add a harness first to import agents.</p>}
+          {agents.size > 0 && harnesses.data?.length === 0 && <p className="text-[13px] text-faint">{t("install.harnessFirst")}</p>}
         </Section>
       )}
 
       {defined > 0 && (
         <>
-          <p className="text-[12px] text-faint">{definitions.description ?? "What the plugin can set up in your workspace."} What you tick is made with the install, as the plugin's; the rest can be set up later from the plugin.</p>
+          <p className="text-[12px] text-faint">{definitions.description ? t("install.definitions", { description: definitions.description }) : t("install.definitionsDefault")}</p>
           {definitionPicks.sections}
         </>
       )}
 
       {preview.notImported.length > 0 && (
-        <Section id="install-not-imported" title="Not imported">
-          <p className="text-[12px] text-faint">Dispand never brings in what would run code you haven't approved, nor files a skill can't hold.</p>
+        <Section id="install-not-imported" title={t("install.notImported")}>
+          <p className="text-[12px] text-faint">{t("install.notImportedNote")}</p>
           <ul className="divide-y divide-line rounded-xl border border-line">
             {preview.notImported.map((n, i) => (
               <li key={i} className="px-3 py-2 text-[13px]">
-                <span className="text-muted">{componentLabels[n.component]} </span>
+                <span className="text-muted">{t(`component.${n.component}`)} </span>
                 <span className="break-all font-mono">{n.name}</span>
                 <span className="block text-faint">{n.reason}</span>
               </li>
@@ -366,10 +359,10 @@ function InstallForm({
       )}
       <div className="flex items-center gap-2">
         <Button type="submit" disabled={install.isPending || (picked === 0 && defined === 0 && !native) || (agents.size > 0 && !harnessId) || (native && nativeTargets.size === 0)}>
-          {install.isPending ? "Installing…" : "Install"}
+          {install.isPending ? t("install.installing") : t("install.submit")}
         </Button>
         <Button type="button" variant="ghost" onClick={onClose}>
-          Cancel
+          {t("install.cancel")}
         </Button>
       </div>
     </form>

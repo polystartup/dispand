@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { TFunction } from "i18next";
 import { useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ProposalItems } from "../questions/ProposalItems.tsx";
@@ -11,14 +13,12 @@ type Plugin = Awaited<ReturnType<typeof api.plugins.list>>[number];
 type Outcome = Awaited<ReturnType<typeof api.plugins.setUp>>["outcomes"][number];
 
 /** What an item is made from, in words: `primitive:Matters` is the table Matters. */
-function madeFrom(o: Outcome): string {
-  if (o.from?.startsWith("primitive:")) return `Table ${o.from.slice("primitive:".length)}`;
-  if (o.from?.startsWith("field:")) return `Field ${o.from.slice("field:".length)}`;
-  if (o.from?.startsWith("agent:")) return `Agent ${o.from.slice("agent:".length)}`;
-  return o.tool === "tables_set_primitive" ? "Primitive table and parent" : o.tool;
+function madeFrom(t: TFunction<"plugins">, o: Outcome): string {
+  if (o.from?.startsWith("primitive:")) return t("setup.table", { name: o.from.slice("primitive:".length) });
+  if (o.from?.startsWith("field:")) return t("setup.field", { name: o.from.slice("field:".length) });
+  if (o.from?.startsWith("agent:")) return t("setup.agent", { name: o.from.slice("agent:".length) });
+  return o.tool === "tables_set_primitive" ? t("setup.primitive") : o.tool;
 }
-
-const OUTCOMES: Record<Outcome["outcome"], string> = { made: "made", refused: "refused", "not made": "not made" };
 
 /**
  * Sets a workspace up from a plugin's definitions: the owner ticks its tables and agents (each on a
@@ -26,6 +26,7 @@ const OUTCOMES: Record<Outcome["outcome"], string> = { made: "made", refused: "r
  * A run that stops keeps what it made; setting up again resumes. Mount it only while open.
  */
 export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose: () => void }) {
+  const { t } = useTranslation("plugins");
   const queryClient = useQueryClient();
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   const definitions = useDefinitionPicks(plugin.definitions, harnesses.data);
@@ -50,7 +51,7 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
     try {
       setOutcomes((await setUp.mutateAsync({ id: plugin.id, pick, reviewed: preview.data.reviewed })).outcomes);
     } catch (e) {
-      setError(refusal(e, "Could not set the plugin up."));
+      setError(refusal(e, t("setup.failed")));
     }
   }
 
@@ -59,58 +60,58 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
     <Sheet open onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="w-full overflow-y-auto bg-surface sm:max-w-lg">
         <SheetHeader className="px-6 pt-6">
-          <SheetTitle className="text-[20px] tracking-tight">Set up {plugin.name}</SheetTitle>
-          <SheetDescription>Pick the tables, agents and triggers to make from the plugin. They are the plugin's, listed under its name: what you change of them is yours and kept, and a table's rows are always yours.</SheetDescription>
+          <SheetTitle className="text-[20px] tracking-tight">{t("setup.title", { name: plugin.name })}</SheetTitle>
+          <SheetDescription>{t("setup.description")}</SheetDescription>
         </SheetHeader>
         <div className="space-y-6 px-6 pb-6">
           {outcomes ? (
-            <Section id="setup-outcomes" title="What was made">
+            <Section id="setup-outcomes" title={t("setup.made")}>
               {outcomes.length === 0 ? (
-                <p className="text-[13px] text-muted">Everything picked was set up already.</p>
+                <p className="text-[13px] text-muted">{t("setup.allDone")}</p>
               ) : (
                 <ol className="space-y-1 text-[13px]">
                   {outcomes.map((o) => (
                     <li key={o.$item}>
-                      {madeFrom(o)}: <span className={o.outcome === "refused" ? "text-danger" : o.outcome === "made" ? "" : "text-faint"}>{OUTCOMES[o.outcome]}</span>
+                      <Trans t={t} i18nKey="setup.line" values={{ item: madeFrom(t, o), outcome: t(`setup.outcome.${o.outcome}`) }} components={[<span className={o.outcome === "refused" ? "text-danger" : o.outcome === "made" ? "" : "text-faint"} />]} />
                       {o.error && <span className="block text-danger">{o.error}</span>}
                     </li>
                   ))}
                 </ol>
               )}
-              {outcomes.some((o) => o.outcome === "refused") && <p className="text-[13px] text-muted">What was made stays. Fix what stopped it, then set up again: it goes on from there.</p>}
+              {outcomes.some((o) => o.outcome === "refused") && <p className="text-[13px] text-muted">{t("setup.stopped")}</p>}
               <Button type="button" variant="ghost" onClick={onClose}>
-                Close
+                {t("setup.close")}
               </Button>
             </Section>
           ) : (
             <>
               {definitions.sections}
               {servers.length > 0 && (
-                <Section id="setup-servers" title="Tools">
+                <Section id="setup-servers" title={t("setup.tools")}>
                   <ul className="space-y-2">
                     {servers.map((s) => (
                       <li key={s.name}>
-                        <Check checked={pickedServers.has(s.name)} onChange={() => setPickedServers((prev) => toggled(prev, s.name))} label={s.name} detail={`A server Dispand will call: ${s.url ?? ""}`} />
+                        <Check checked={pickedServers.has(s.name)} onChange={() => setPickedServers((prev) => toggled(prev, s.name))} label={s.name} detail={t("setup.server", { url: s.url ?? "" })} />
                       </li>
                     ))}
                   </ul>
                 </Section>
               )}
               {any && (
-                <Section id="setup-items" title="What will be made">
+                <Section id="setup-items" title={t("setup.willMake")}>
                   {preview.error ? (
                     <p role="alert" className="text-[13px] text-danger">
-                      {refusal(preview.error, "Could not read what would be made.")}
+                      {refusal(preview.error, t("setup.previewFailed"))}
                     </p>
                   ) : !preview.data ? (
-                    <p className="text-[13px] text-muted">Reading the definitions…</p>
+                    <p className="text-[13px] text-muted">{t("setup.reading")}</p>
                   ) : items.length === 0 ? (
-                    <p className="text-[13px] text-muted">Nothing: what you picked is set up already.</p>
+                    <p className="text-[13px] text-muted">{t("setup.nothing")}</p>
                   ) : (
                     <ProposalItems proposal={{ id: "", status: "draft", items, names: preview.data.names }} />
                   )}
                   {preview.data && preview.data.waiting.length > 0 && (
-                    <ul aria-label="Not made" className="space-y-1 text-[13px]">
+                    <ul aria-label={t("setup.notMade")} className="space-y-1 text-[13px]">
                       {preview.data.waiting.map((w, i) => (
                         <li key={i}>
                           <span className="font-medium">{w.definition}</span> <span className="text-muted">{w.reason}</span>
@@ -127,10 +128,10 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
               )}
               <div className="flex items-center gap-2">
                 <Button type="button" disabled={setUp.isPending || preview.isFetching || items.length === 0} onClick={() => void submit()}>
-                  {setUp.isPending ? "Setting up…" : "Set up"}
+                  {setUp.isPending ? t("setup.settingUp") : t("setup.submit")}
                 </Button>
                 <Button type="button" variant="ghost" onClick={onClose}>
-                  Cancel
+                  {t("setup.cancel")}
                 </Button>
               </div>
             </>

@@ -1,5 +1,6 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AuthCard, Field, FormError, SubmitButton } from "../components/auth/AuthCard.tsx";
 import { api } from "../lib/api.ts";
 import { signIn } from "../lib/auth-call.ts";
@@ -13,12 +14,13 @@ export const Route = createFileRoute("/setup")({
 });
 
 function Setup() {
+  const { t } = useTranslation("auth");
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   return (
-    <AuthCard title="Welcome to Dispand" subtitle="Create the owner account to get started.">
+    <AuthCard title={t("setup.title")} subtitle={t("setup.subtitle")}>
       <form
         method="post"
         className="space-y-4"
@@ -44,19 +46,19 @@ function Setup() {
             // The owner exists once setup succeeded: retrying would be refused, so go sign in.
             if (created) await navigate({ to: "/login" });
             else {
-              setError("Could not create the account. Check the details and try again.");
+              setError(t("setup.failed"));
               setBusy(false);
             }
           }
         }}
       >
-        <Field label="Name" name="name" autoComplete="name" required autoFocus />
-        <Field label="Email" name="email" type="email" autoComplete="email" required />
-        <Field label="Password" name="password" type="password" autoComplete="new-password" minLength={8} maxLength={128} required />
-        <Field label="Setup code" name="setupCode" autoComplete="off" required />
-        <p className="-mt-2 text-[13px] text-muted">Find it in the server's settings as DISPAND_SETUP_CODE.</p>
+        <Field label={t("setup.name")} name="name" autoComplete="name" required autoFocus />
+        <Field label={t("setup.email")} name="email" type="email" autoComplete="email" required />
+        <Field label={t("setup.password")} name="password" type="password" autoComplete="new-password" minLength={8} maxLength={128} required />
+        <Field label={t("setup.code")} name="setupCode" autoComplete="off" required />
+        <p className="-mt-2 text-[13px] text-muted">{t("setup.codeHint")}</p>
         <FormError message={error} />
-        <SubmitButton busy={busy}>Create account</SubmitButton>
+        <SubmitButton busy={busy}>{t("setup.submit")}</SubmitButton>
       </form>
     </AuthCard>
   );

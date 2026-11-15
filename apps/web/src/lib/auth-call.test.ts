@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
+import { createI18n } from "./i18n.ts";
 import { AuthCallError, authCall, authErrorMessage } from "./auth-call.ts";
 
 test("authCall returns the data when the call succeeds", async () => {
@@ -20,11 +21,14 @@ test("authCall throws when the call rejects, without exposing the cause", async 
   expect(error).toMatchObject({ status: 0, message: "Authentication request failed" });
 });
 
-test("authErrorMessage maps statuses to client-safe text", () => {
-  expect(authErrorMessage(new AuthCallError(401))).toBe("Wrong email or password.");
-  expect(authErrorMessage(new AuthCallError(429))).toMatch(/Too many/);
-  expect(authErrorMessage(new AuthCallError(500))).toBe("Something went wrong. Try again.");
-  expect(authErrorMessage(new Error("anything"))).toMatch(/reach the server/);
+test("authErrorMessage maps statuses to client-safe text, in the page's language", () => {
+  const en = createI18n("en").getFixedT(null, "auth");
+  const fr = createI18n("fr").getFixedT(null, "auth");
+  expect(authErrorMessage(en, new AuthCallError(401))).toBe("Wrong email or password.");
+  expect(authErrorMessage(en, new AuthCallError(429))).toMatch(/Too many/);
+  expect(authErrorMessage(en, new AuthCallError(500))).toBe("Something went wrong. Try again.");
+  expect(authErrorMessage(en, new Error("anything"))).toMatch(/reach the server/);
+  expect(authErrorMessage(fr, new AuthCallError(401))).toBe("E-mail ou mot de passe incorrect.");
 });
 
 test("the Better Auth client is only used inside auth-call.ts", () => {

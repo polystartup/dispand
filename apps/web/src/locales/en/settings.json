@@ -1,0 +1,23 @@
+{
+  "tabs": "Tabs",
+  "status": {
+    "online": "Online",
+    "offline": "Offline",
+    "outdated": "Needs an update"
+  },
+  "outdatedRunner": {
+    "text": "The runner {{name}} needs an update before it can connect. Run this on its machine (its pairing and settings are kept):",
+    "command": "Update command for {{name}}"
+  },
+  "memory": {
+    "title": "Memory",
+    "subtitle": "What every agent of the workspace reads when its Jobs start."
+  },
+  "overridden": {
+    "text": "It is {{plugin}}'s. An update of the plugin replaces what you haven't changed, and it goes when the plugin is uninstalled.",
+    "yours": "<0>{{label}}</0>: yours, kept through updates",
+    "resetLabel": "Reset {{label}} to the plugin's",
+    "reset": "Reset to the plugin's"
+  },
+  "loading": "Loading…"
+}

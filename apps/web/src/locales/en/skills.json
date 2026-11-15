@@ -1,0 +1,62 @@
+{
+  "list": {
+    "create": "Create skill",
+    "title": "Skills",
+    "subtitle": "Reusable know-how for your agents.",
+    "failed": "Could not load the skills.",
+    "emptyTitle": "No skill yet",
+    "emptyText": "A skill is instructions, and the files they use, that an agent follows when a task calls for them.",
+    "builtIn": "Built in · ",
+    "pluginOwned": "{{plugin}}'s · ",
+    "count_one": "{{count}} skill",
+    "count_other": "{{count}} skills",
+    "readOnly": "Read-only",
+    "filesLabel": "Files of {{name}}",
+    "files": "Files",
+    "editLabel": "Edit {{name}}",
+    "edit": "Edit",
+    "requires": "Requires {{tools}}"
+  },
+  "files": {
+    "resetLabel": "Reset {{path}} to the plugin's",
+    "reset": "Reset",
+    "yours": {
+      "changed": "Yours: changed",
+      "added": "Yours: added"
+    },
+    "editLabel": "Edit {{path}}",
+    "edit": "Edit",
+    "removeLabel": "Remove {{path}}",
+    "remove": "Remove",
+    "removed": "Removed by you"
+  },
+  "editor": {
+    "edit": "Edit skill",
+    "create": "Create skill",
+    "description": "Instructions an agent follows when the task calls for them, with any files they use.",
+    "failed": "Could not load the skill.",
+    "loading": "Loading…",
+    "tooBig": "{{path}} is larger than 2 MB.",
+    "packageTooBig": "A skill's files are at most 8 MB in all.",
+    "saveFailed": "Could not save the skill. Check the details and try again.",
+    "deleteFailed": "Could not delete the skill.",
+    "name": "Name",
+    "nameHint": "Lowercase letters, digits and hyphens: how agents call the skill.",
+    "descriptionLabel": "Description",
+    "descriptionHint": "When to use it: agents read this to decide.",
+    "instructions": "Instructions",
+    "instructionsHint": "Markdown. Saved as the skill's SKILL.md, after its name and description.",
+    "files": "Files",
+    "noFiles": "No files. Add scripts, templates or references the instructions mention.",
+    "removeFile": "Remove {{path}}",
+    "addFiles": "Add files",
+    "replaceFiles": "Replace files",
+    "removeAll": "Remove all files",
+    "keepFiles": "Keep the saved files",
+    "tools": "Required tools",
+    "noTools": "None. Once you add tools, a skill can require them: agents with the skill get them too.",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete"
+  }
+}

@@ -1,0 +1,168 @@
+{
+  "list": {
+    "title": "Agents",
+    "subtitle": "Définissez ce que fait chaque agent et quel harnais l'exécute.",
+    "new": "Nouvel agent",
+    "agentsFailed": "Impossible de charger les agents.",
+    "harnessesFailed": "Impossible de charger les harnais.",
+    "emptyTitle": "Aucun agent pour l'instant",
+    "emptyText": "Un agent est un prompt système sur un harnais. Les workflows mettent les agents au travail.",
+    "harnessFirst": "Ajoutez d'abord un harnais"
+  },
+  "new": {
+    "title": "Nouvel agent",
+    "subtitle": "Donnez-lui une tâche et un harnais sur lequel tourner."
+  },
+  "page": {
+    "fallbackTitle": "Agent",
+    "subtitle": "Ce que fait cet agent, ce qui le fait travailler, et les Jobs qu'il a faits.",
+    "failed": "Impossible de charger l'agent.",
+    "tabs": "Agent",
+    "tab": {
+      "settings": "Paramètres",
+      "triggers": "Déclencheurs",
+      "jobs": "Jobs",
+      "memory": "Mémoire"
+    }
+  },
+  "fields": {
+    "name": "Nom",
+    "description": "Description",
+    "systemPrompt": "Instructions",
+    "bundles": "Ce que ses Jobs peuvent faire",
+    "dataTables": "Tables",
+    "selfLearning": "Apprend",
+    "skillPackageIds": "Compétences",
+    "toolIds": "Outils",
+    "consults": "Peut consulter"
+  },
+  "editor": {
+    "noHarnessTitle": "Ajoutez d'abord un harnais",
+    "noHarnessText": "Un agent tourne sur un harnais : connectez-en un avant de créer l'agent.",
+    "toHarnesses": "Aller aux harnais",
+    "saveFailed": "Impossible d'enregistrer l'agent. Vérifiez les détails et réessayez.",
+    "builtIn": "{{assistant}} est l'agent intégré de l'espace de travail : il ne peut pas être supprimé. Son nom, son harnais, son modèle et ses instructions sont à vous de les changer.",
+    "resetFailed": "Impossible de rétablir le champ. Réessayez.",
+    "name": "Nom",
+    "description": "Description",
+    "descriptionHint": "À quoi il sert et quand le consulter : les agents qui peuvent le consulter lisent ceci.",
+    "skills": "Compétences",
+    "noSkills": "Aucune compétence pour l'instant. <0>Ajoutez-en une</0> ou installez un plugin qui en apporte.",
+    "fromPlugin": "Du plugin {{plugin}}.",
+    "keepsSkill": "{{assistant}} garde sa compétence de plateforme.",
+    "skillsFailed": "Impossible de charger les compétences. Rechargez la page pour réessayer.",
+    "tools": "Outils",
+    "noTools": "Aucun outil.",
+    "fromSkill": "de la compétence {{skills}}",
+    "removeTool": "Retirer {{name}}",
+    "saveToChoose": "Enregistrez l'agent pour choisir lesquelles de ses actions demandent avant usage.",
+    "addTool": "Ajouter un outil",
+    "noMcp": "<0>Ajoutez un serveur MCP</0> pour donner des outils aux agents.",
+    "toolsFailed": "Impossible de charger les outils. Rechargez la page pour réessayer.",
+    "cliRulesFailed": "Impossible de charger les permissions CLI mémorisées. Rechargez la page pour réessayer.",
+    "cliRuleRemoveFailed": "Impossible de retirer la permission CLI. Réessayez.",
+    "rightsLocked": "{{assistant}} travaille toujours sur les données et modifie les tables, sur toutes les tables.",
+    "systemPrompt": "Prompt système",
+    "systemPromptHint": "Ce qu'est cet agent et comment il travaille. Envoyé au début de chaque session.",
+    "save": "Enregistrer",
+    "create": "Créer l'agent",
+    "back": "Retour aux agents",
+    "saved": "Agent enregistré.",
+    "nextWorkflow": "Configurer un workflow manuel"
+  },
+  "consults": {
+    "title": "Peut consulter",
+    "line": "Il peut orienter cet agent par ses questions, et ses réponses peuvent citer ce qu'il lit dans des tables auxquelles cet agent n'a pas accès.",
+    "none": "Aucun agent.",
+    "ask": "Demander avant usage",
+    "askLabel": "Demander avant de consulter {{name}}",
+    "remove": "Retirer {{name}}",
+    "inactive": "Inactif : l'un des deux modifie l'espace de travail et l'autre non, ils ne peuvent donc pas se consulter.",
+    "add": "Ajouter un agent à consulter"
+  },
+  "toolAsk": {
+    "none": "Aucune action listée.",
+    "summary_single_one": "{{actions}} action, {{count}} demande avant usage",
+    "summary_single_other": "{{actions}} action, {{count}} demandent avant usage",
+    "summary_many_one": "{{actions}} actions, {{count}} demande avant usage",
+    "summary_many_other": "{{actions}} actions, {{count}} demandent avant usage",
+    "summaryOff_single_one": "{{actions}} action, {{count}} demande avant usage, {{off}} à l'arrêt",
+    "summaryOff_single_other": "{{actions}} action, {{count}} demandent avant usage, {{off}} à l'arrêt",
+    "summaryOff_many_one": "{{actions}} actions, {{count}} demande avant usage, {{off}} à l'arrêt",
+    "summaryOff_many_other": "{{actions}} actions, {{count}} demandent avant usage, {{off}} à l'arrêt",
+    "group": "Actions de {{tool}}",
+    "enable": "Activer {{tool}} {{action}}",
+    "readOnly": "lecture seule, selon l'outil",
+    "ask": "Demander avant usage",
+    "askLabel": "Demander avant {{tool}} {{action}}",
+    "note": "Les actions désactivées s'arrêtent immédiatement. Les actions réactivées sont disponibles dans une nouvelle session CLI."
+  },
+  "cliRules": {
+    "title": "Permissions CLI mémorisées",
+    "note": "Retirer une règle prend effet quand cet agent démarre sa prochaine session.",
+    "none": "Aucune permission CLI mémorisée.",
+    "allow": "Autoriser",
+    "deny": "Refuser",
+    "rule": "{{cli}} · {{decision}}",
+    "removeLabel": "Retirer {{cli}} {{decision}} {{rule}}",
+    "remove": "Retirer"
+  },
+  "rights": {
+    "title": "Ce que ses Jobs peuvent faire",
+    "data": {
+      "label": "Travailler sur les données",
+      "text": "Ses Jobs peuvent lire, ajouter, modifier et supprimer des lignes."
+    },
+    "configure": {
+      "label": "Modifier les tables et les champs",
+      "text": "Ses Jobs peuvent créer des tables, changer leur nom, et ajouter, modifier et ordonner leurs champs. La suppression reste à vous."
+    },
+    "inbox": {
+      "label": "Répondre aux Questions",
+      "text": "Ses Jobs peuvent être lancés par les Questions que les Jobs d'autres agents posent sur ses tables. Les Approbations, et les Questions des Jobs qui modifient les tables, restent à vous."
+    },
+    "allTables": "Toutes les tables",
+    "someTables": "Seulement ces tables",
+    "deletedTable": "Une table supprimée",
+    "noTable": "Aucune table pour l'instant."
+  },
+  "learns": {
+    "title": "Apprend",
+    "agent": {
+      "label": "Sa propre mémoire",
+      "text": "Ses Jobs gardent ce qu'ils apprennent pour ses prochains Jobs."
+    },
+    "data": {
+      "label": "La mémoire de ses tables",
+      "text": "Ses Jobs gardent ce qu'ils apprennent sur les tables où ils travaillent, pour chaque agent qui y travaille. Nécessite « Travailler sur les données »."
+    },
+    "workspace": {
+      "label": "La mémoire de l'espace de travail",
+      "text": "Ce qu'il écrit oriente chaque agent de l'espace de travail."
+    }
+  },
+  "model": {
+    "find": "Trouver un modèle",
+    "findPlaceholder": "Trouver un modèle…",
+    "harness": "Harnais",
+    "pickHarness": "Choisir un harnais",
+    "harnessesFailed": "Impossible de charger les harnais.",
+    "model": "Modèle",
+    "modelHint": "Saisissez un identifiant de modèle ou un alias CLI, ou laissez vide pour le modèle par défaut du harnais ({{model}}). Changer de harnais efface le modèle choisi.",
+    "cliDefault": "Défaut du CLI",
+    "default": "Par défaut",
+    "listFailed": "Impossible de lister les modèles. Vous pouvez saisir un modèle ci-dessous."
+  },
+  "stem": {
+    "label": "Changements du plugin",
+    "looking": "· Le plugin a changé ceci : {{assistant}} s'en occupe",
+    "approval": "· {{assistant}} propose une valeur : la vôtre reste tant que vous ne l'acceptez pas",
+    "open": "· Le plugin a changé ceci",
+    "accept": "Accepter celle de {{assistant}}",
+    "keepMine": "Garder la mienne",
+    "compare": "La vôtre et celle du plugin",
+    "takePlugin": "Prendre celle du plugin",
+    "delegate": "Laisser {{assistant}} s'en occuper",
+    "failed": "Impossible d'enregistrer votre choix."
+  }
+}

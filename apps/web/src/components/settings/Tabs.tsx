@@ -1,13 +1,15 @@
 import { Link } from "@tanstack/react-router";
 import { Tabs as TabsPrimitive } from "radix-ui";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 const tab = "-mb-px border-b-2 px-1 pb-2.5 text-[14px] transition";
 
 /** Route-based tabs at the top of a settings page: each tab is a link, the current one is marked. */
-export function Tabs({ tabs }: { tabs: { to: string; label: string }[] }) {
+export function Tabs({ tabs }: { tabs: readonly { to: string; label: string }[] }) {
+  const { t } = useTranslation("settings");
   return (
-    <nav aria-label="Tabs" className="mb-6 flex gap-5 border-b border-line">
+    <nav aria-label={t("tabs")} className="mb-6 flex gap-5 border-b border-line">
       {tabs.map((t) => (
         <Link
           key={t.to}

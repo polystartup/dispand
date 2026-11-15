@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 export type RemovalElement = { key: string; kind: "agent" | "skill" | "tool" | "table" | "trigger"; id: string; name: string; reasons: string[]; needs: string[]; keepOnly: string | null };
 export type RemovalChoice = "keep" | "delete";
 export type RemovalPlan = {
@@ -40,21 +42,16 @@ export function removalPlan(elements: RemovalElement[], state: Record<string, Re
   return { asked, needed, gone: elements.length - shown.length, choices: Object.fromEntries(shown.map((e) => [e.key, choiceOf(e)])) };
 }
 
-const KINDS = { agent: "Agent", skill: "Skill package", tool: "Tool", table: "Table", trigger: "Trigger" };
-/** What deleting one takes with it, said before the choice. */
-const LOSES = {
-  agent: "Deleting it removes its triggers and stops its Jobs; their history stays.",
-  skill: "Deleting it removes its files and takes it off the agents that use it.",
-  tool: "Deleting it removes its saved headers and sign-in, and takes it off the agents and skills that use it.",
-  table: "Deleting it removes its rows and its memory.",
-  trigger: "Deleting it stops it starting Jobs; what it started stays.",
-};
+const CHOICES = ["keep", "delete"] as const;
 
+// Each kind is named by `plugins:removal.kind.<kind>`, and what deleting one takes with it, said
+// before the choice, by `removal.loses.<kind>`.
 function Choice({ element, why, choice, busy, onChange }: { element: RemovalElement; why: string[]; choice: RemovalChoice; busy: boolean; onChange: (key: string, choice: RemovalChoice) => void }) {
+  const { t } = useTranslation("plugins");
   return (
     <fieldset aria-label={element.name} className="space-y-1.5 rounded-xl border border-border p-3 text-[13px]">
       <p>
-        <span className="font-medium text-fg">{element.name}</span> <span className="text-faint">· {KINDS[element.kind]}</span>
+        <span className="font-medium text-fg">{element.name}</span> <span className="text-faint">{t("removal.kindOf", { kind: t(`removal.kind.${element.kind}`) })}</span>
       </p>
       <ul className="text-muted">
         {why.map((reason) => (
@@ -62,18 +59,18 @@ function Choice({ element, why, choice, busy, onChange }: { element: RemovalElem
         ))}
       </ul>
       {element.keepOnly ? (
-        <p className="text-muted">It stays, as yours.</p>
+        <p className="text-muted">{t("removal.stays")}</p>
       ) : (
         <>
           <div className="flex gap-4">
-            {(["keep", "delete"] as const).map((value) => (
+            {CHOICES.map((value) => (
               <label key={value} className="flex items-center gap-2">
                 <input type="radio" name={`removal-${element.key}`} className="size-4 accent-[var(--color-accent)]" checked={choice === value} disabled={busy} onChange={() => onChange(element.key, value)} />
-                {value === "keep" ? "Keep as yours" : "Delete"}
+                {value === "keep" ? t("removal.keep") : t("removal.delete")}
               </label>
             ))}
           </div>
-          {choice === "delete" && <p className="text-danger">{LOSES[element.kind]}</p>}
+          {choice === "delete" && <p className="text-danger">{t(`removal.loses.${element.kind}`)}</p>}
         </>
       )}
     </fieldset>
@@ -82,20 +79,21 @@ function Choice({ element, why, choice, busy, onChange }: { element: RemovalElem
 
 /** The one screen of a plugin's removal: every element in use with its reasons and its two choices, and what a kept one needs. */
 export function RemovalChoices({ plan, busy, onChange }: { plan: RemovalPlan; busy: boolean; onChange: (key: string, choice: RemovalChoice) => void }) {
+  const { t } = useTranslation("plugins");
   const total = plan.asked.length + plan.needed.length + plan.gone;
-  if (total === 0) return <p className="text-[13px] text-muted">Nothing in your workspace is the plugin's own: removing it removes nothing else.</p>;
-  if (plan.asked.length === 0) return <p className="text-[13px] text-muted">Nothing of it is in use: its {total} {total === 1 ? "element goes" : "elements go"} with it.</p>;
+  if (total === 0) return <p className="text-[13px] text-muted">{t("removal.nothing")}</p>;
+  if (plan.asked.length === 0) return <p className="text-[13px] text-muted">{t("removal.unused", { count: total })}</p>;
   return (
     <div className="space-y-3">
       {plan.asked.map((e) => (
         <Choice key={e.key} element={e} why={e.reasons} choice={plan.choices[e.key]!} busy={busy} onChange={onChange} />
       ))}
       {plan.needed.map(({ element, by }) => (
-        <Choice key={element.key} element={element} why={[`Needed by ${by.join(", ")} if you keep it`]} choice={plan.choices[element.key]!} busy={busy} onChange={onChange} />
+        <Choice key={element.key} element={element} why={[t("removal.neededBy", { names: by.join(", ") })]} choice={plan.choices[element.key]!} busy={busy} onChange={onChange} />
       ))}
       {plan.gone > 0 && (
         <p className="text-[13px] text-muted">
-          {plan.gone} other {plan.gone === 1 ? "element goes" : "elements go"} with the plugin.
+          {t("removal.others", { count: plan.gone })}
         </p>
       )}
     </div>

@@ -1,0 +1,168 @@
+{
+  "list": {
+    "title": "Agents",
+    "subtitle": "Define what each agent does and which harness runs it.",
+    "new": "New agent",
+    "agentsFailed": "Could not load the agents.",
+    "harnessesFailed": "Could not load the harnesses.",
+    "emptyTitle": "No agent yet",
+    "emptyText": "An agent is a system prompt on a harness. Workflows put agents to work.",
+    "harnessFirst": "Add a harness first"
+  },
+  "new": {
+    "title": "New agent",
+    "subtitle": "Give it a job and a harness to run on."
+  },
+  "page": {
+    "fallbackTitle": "Agent",
+    "subtitle": "What this agent does, what makes it work, and the Jobs it did.",
+    "failed": "Could not load the agent.",
+    "tabs": "Agent",
+    "tab": {
+      "settings": "Settings",
+      "triggers": "Triggers",
+      "jobs": "Jobs",
+      "memory": "Memory"
+    }
+  },
+  "fields": {
+    "name": "Name",
+    "description": "Description",
+    "systemPrompt": "Instructions",
+    "bundles": "What its Jobs may do",
+    "dataTables": "Tables",
+    "selfLearning": "Learns",
+    "skillPackageIds": "Skills",
+    "toolIds": "Tools",
+    "consults": "May consult"
+  },
+  "editor": {
+    "noHarnessTitle": "Add a harness first",
+    "noHarnessText": "An agent runs on a harness, so connect one before creating the agent.",
+    "toHarnesses": "Go to harnesses",
+    "saveFailed": "Could not save the agent. Check the details and try again.",
+    "builtIn": "{{assistant}} is the workspace's built-in agent: it can't be deleted. Its name, harness, model and instructions are yours to change.",
+    "resetFailed": "Could not reset the field. Try again.",
+    "name": "Name",
+    "description": "Description",
+    "descriptionHint": "What it is for and when to consult it: agents that may consult it read this.",
+    "skills": "Skills",
+    "noSkills": "No skills yet. <0>Add one</0> or install a plugin that brings some.",
+    "fromPlugin": "From the plugin {{plugin}}.",
+    "keepsSkill": "{{assistant}} keeps its platform skill.",
+    "skillsFailed": "Could not load the skills. Reload the page to try again.",
+    "tools": "Tools",
+    "noTools": "No tools.",
+    "fromSkill": "from skill {{skills}}",
+    "removeTool": "Remove {{name}}",
+    "saveToChoose": "Save the agent to choose which of its actions ask before use.",
+    "addTool": "Add a tool",
+    "noMcp": "<0>Add an MCP server</0> to give agents tools.",
+    "toolsFailed": "Could not load the tools. Reload the page to try again.",
+    "cliRulesFailed": "Could not load remembered CLI permissions. Reload the page to try again.",
+    "cliRuleRemoveFailed": "Could not remove the CLI permission. Try again.",
+    "rightsLocked": "{{assistant}} always works on data and changes tables, on every table.",
+    "systemPrompt": "System prompt",
+    "systemPromptHint": "What this agent is and how it works. Sent at the start of every session.",
+    "save": "Save",
+    "create": "Create agent",
+    "back": "Back to agents",
+    "saved": "Agent saved.",
+    "nextWorkflow": "Configure a manual workflow"
+  },
+  "consults": {
+    "title": "May consult",
+    "line": "It can steer this agent with its questions, and its answers may quote what it reads in tables this agent can't.",
+    "none": "No agents.",
+    "ask": "Ask before use",
+    "askLabel": "Ask before consulting {{name}}",
+    "remove": "Remove {{name}}",
+    "inactive": "Inactive: one of the two changes the workspace and the other doesn't, so they can't consult each other.",
+    "add": "Add an agent to consult"
+  },
+  "toolAsk": {
+    "none": "No actions listed.",
+    "summary_single_one": "{{actions}} action, {{count}} asks before use",
+    "summary_single_other": "{{actions}} action, {{count}} ask before use",
+    "summary_many_one": "{{actions}} actions, {{count}} asks before use",
+    "summary_many_other": "{{actions}} actions, {{count}} ask before use",
+    "summaryOff_single_one": "{{actions}} action, {{count}} asks before use, {{off}} off",
+    "summaryOff_single_other": "{{actions}} action, {{count}} ask before use, {{off}} off",
+    "summaryOff_many_one": "{{actions}} actions, {{count}} asks before use, {{off}} off",
+    "summaryOff_many_other": "{{actions}} actions, {{count}} ask before use, {{off}} off",
+    "group": "Actions of {{tool}}",
+    "enable": "Enable {{tool}} {{action}}",
+    "readOnly": "read-only, according to the tool",
+    "ask": "Ask before use",
+    "askLabel": "Ask before {{tool}} {{action}}",
+    "note": "Disabled actions stop immediately. Re-enabled actions are available in a new CLI session."
+  },
+  "cliRules": {
+    "title": "Remembered CLI permissions",
+    "note": "Removing a rule takes effect when this agent starts its next session.",
+    "none": "No remembered CLI permissions.",
+    "allow": "Allow",
+    "deny": "Deny",
+    "rule": "{{cli}} · {{decision}}",
+    "removeLabel": "Remove {{cli}} {{decision}} {{rule}}",
+    "remove": "Remove"
+  },
+  "rights": {
+    "title": "What its Jobs may do",
+    "data": {
+      "label": "Work on data",
+      "text": "Its Jobs can read, add, change and delete rows."
+    },
+    "configure": {
+      "label": "Change tables and fields",
+      "text": "Its Jobs can create tables, change what they are called, and add, change and order their fields. Deleting stays yours."
+    },
+    "inbox": {
+      "label": "Answer Questions",
+      "text": "Its Jobs can be started by Questions other agents' Jobs ask on its tables. Approvals, and Questions of Jobs that change tables, stay yours."
+    },
+    "allTables": "All tables",
+    "someTables": "Only these tables",
+    "deletedTable": "A deleted table",
+    "noTable": "No table yet."
+  },
+  "learns": {
+    "title": "Learns",
+    "agent": {
+      "label": "Its own memory",
+      "text": "Its Jobs keep what they learn for its next Jobs."
+    },
+    "data": {
+      "label": "Its tables' memory",
+      "text": "Its Jobs keep what they learn about the tables they work on, for every agent working on them. Needs “Work on data”."
+    },
+    "workspace": {
+      "label": "The workspace's memory",
+      "text": "What it writes steers every agent of the workspace."
+    }
+  },
+  "model": {
+    "find": "Find a model",
+    "findPlaceholder": "Find a model…",
+    "harness": "Harness",
+    "pickHarness": "Pick a harness",
+    "harnessesFailed": "Could not load the harnesses.",
+    "model": "Model",
+    "modelHint": "Enter a model id or CLI alias, or leave empty for the harness default ({{model}}). Changing the harness clears the model override.",
+    "cliDefault": "CLI default",
+    "default": "Default",
+    "listFailed": "Could not list models. You can enter a model below."
+  },
+  "stem": {
+    "label": "Plugin changes",
+    "looking": "· Plugin changed this: {{assistant}} is looking",
+    "approval": "· {{assistant}} suggests a value: yours stays until you accept it",
+    "open": "· Plugin changed this",
+    "accept": "Accept {{assistant}}'s",
+    "keepMine": "Keep mine",
+    "compare": "Yours and the plugin's",
+    "takePlugin": "Take the plugin's",
+    "delegate": "Let {{assistant}} deal with it",
+    "failed": "Could not record your choice."
+  }
+}

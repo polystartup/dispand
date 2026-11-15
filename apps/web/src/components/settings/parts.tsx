@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
 /** The shared look of a settings list: one rounded card of rows. */
@@ -16,28 +17,26 @@ export function Empty({ title, text, children }: { title: string; text: string; 
   );
 }
 
-const statusLabels = { online: "Online", offline: "Offline", outdated: "Needs an update" };
-
-export function StatusDot({ status }: { status: keyof typeof statusLabels }) {
+export function StatusDot({ status }: { status: "online" | "offline" | "outdated" }) {
+  const { t } = useTranslation("settings");
   return (
     <span className="inline-flex items-center gap-1.5 text-[13px] text-muted">
       <span aria-hidden className={cn("size-2 rounded-full", status === "online" ? "bg-[#30d158]" : status === "outdated" ? "bg-danger" : "bg-faint")} />
-      {statusLabels[status]}
+      {t(`status.${status}`)}
     </span>
   );
 }
 
 /** For each runner too old to connect: the command that updates it on its machine. */
 export function OutdatedRunners({ runners }: { runners: { id: string; name: string; status: string; updateCommand?: string; runnerUpdate?: string }[] }) {
+  const { t } = useTranslation("settings");
   return runners
     .filter((r) => r.status === "outdated" && !["available", "updating", "current"].includes(r.runnerUpdate ?? ""))
     .map((r) => (
       <section key={r.id} role="status" className="mb-4 space-y-2 rounded-xl border border-line p-4">
-        <p className="text-[14px]">
-          The runner {r.name} needs an update before it can connect. Run this on its machine (its pairing and settings are kept):
-        </p>
+        <p className="text-[14px]">{t("outdatedRunner.text", { name: r.name })}</p>
         <pre
-          aria-label={`Update command for ${r.name}`}
+          aria-label={t("outdatedRunner.command", { name: r.name })}
           className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg border border-line bg-bg p-3 font-mono text-[12.5px]"
         >
           {r.updateCommand}

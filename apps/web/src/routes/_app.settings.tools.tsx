@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LayoutGrid, Plus, RefreshCw, Server } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Empty, List } from "../components/settings/parts.tsx";
@@ -17,6 +18,7 @@ import { qualifiedName } from "@dispand/domain/plugins/names";
 export const Route = createFileRoute("/_app/settings/tools")({ component: Tools, validateSearch: z.object({ tool: z.string().max(100).optional() }) });
 
 function Tools() {
+  const { t } = useTranslation("tools");
   const tools = useQuery(orpc.tools.list.queryOptions());
   // `n` remounts the sheet with what the server saved. `runner`: a runner tool's sheet.
   const [sheet, setSheet] = useState<{ tool?: Tool; n: number; runner?: boolean; suggested?: { name: string; runnerTool: string; catalogId?: string } } | null>(null);
@@ -26,7 +28,7 @@ function Tools() {
   const { tool: back } = Route.useSearch();
   const navigate = Route.useNavigate();
   useEffect(() => {
-    const tool = back ? tools.data?.find((t) => t.id === back) : undefined;
+    const tool = back ? tools.data?.find((row) => row.id === back) : undefined;
     if (!back || !tools.data) return;
     // A tool made since the list was cached (by an agent's proposal): wait for the fresh list.
     if (!tool && tools.isFetching) return;
@@ -37,13 +39,13 @@ function Tools() {
   const add = (
     <div className="flex flex-wrap gap-2">
       <Button onClick={() => setBrowsing(true)}>
-        <LayoutGrid /> Browse catalog
+        <LayoutGrid /> {t("list.browse")}
       </Button>
       <Button variant="ghost" onClick={() => setSheet({ n: 0 })}>
-        <Plus /> Add MCP server
+        <Plus /> {t("list.addMcp")}
       </Button>
       <Button variant="ghost" onClick={() => setSheet({ n: 0, runner: true })}>
-        <Server /> Add runner tool
+        <Server /> {t("list.addRunner")}
       </Button>
     </div>
   );
@@ -51,50 +53,52 @@ function Tools() {
   return (
     <>
       <div className="flex items-start justify-between gap-4">
-        <PageHeader title="Tools" subtitle="MCP servers your agents and workflows may call." />
+        <PageHeader title={t("list.title")} subtitle={t("list.subtitle")} />
         {tools.data && tools.data.length > 0 && add}
       </div>
 
       {tools.error && !tools.data && (
         <p role="alert" className="text-[14px] text-danger">
-          Could not load the tools.
+          {t("list.failed")}
         </p>
       )}
       {tools.data?.length === 0 && (
-        <Empty title="No tool yet" text="Pick one from the catalog, or add an MCP server by its URL with the headers it needs (such as a token). Its actions are listed for you.">
+        <Empty title={t("list.emptyTitle")} text={t("list.emptyText")}>
           {add}
         </Empty>
       )}
       {tools.data && tools.data.length > 0 && (
         <List>
-          {tools.data.map((t) => (
-            <li key={t.id} className="flex items-center gap-2 pr-3">
+          {tools.data.map((tool) => (
+            <li key={tool.id} className="flex items-center gap-2 pr-3">
               <button
                 type="button"
-                onClick={() => setSheet({ tool: t, n: 0, runner: t.kind === "runner" })}
+                onClick={() => setSheet({ tool, n: 0, runner: tool.kind === "runner" })}
                 className="flex min-w-0 flex-1 items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-hover"
               >
                 <span className="min-w-0">
-                  <span className="block truncate text-[15px] font-medium">{qualifiedName(t.plugin?.name ?? null, t.name)}</span>
+                  <span className="block truncate text-[15px] font-medium">{qualifiedName(tool.plugin?.name ?? null, tool.name)}</span>
                   <span className="block truncate text-[13px] text-muted">
-                    {t.kind === "runner" ? `Runner · ${t.runnerTool ?? "not on a runner yet"}` : `MCP · ${t.urlSet ? "secret URL" : hostOf(t.url ?? "")}`} ·{" "}
-                    {t.actions.length === 1 ? "1 action" : `${t.actions.length} actions`}
+                    {t("list.line", {
+                      where: tool.kind === "runner" ? (tool.runnerTool ? t("list.runner", { tool: tool.runnerTool }) : t("list.noRunner")) : tool.urlSet ? t("list.secretUrl") : t("list.mcp", { host: hostOf(tool.url ?? "") }),
+                      actions: t("list.actions", { count: tool.actions.length }),
+                    })}
                   </span>
-                  {t.oauthStatus === "authorize" && <span className="block truncate text-[13px] text-muted">Not connected yet</span>}
-                  {t.signIn === "needed" && t.auth !== "oauth" && <span className="block truncate text-[13px] text-danger">Needs sign-in: enter its settings</span>}
-                  {t.oauthStatus === "reauthorize" && <span className="block truncate text-[13px] text-danger">Re-authorize: its sign-in stopped working</span>}
-                  {t.actionsError && t.oauthStatus !== "reauthorize" && <span className="block truncate text-[13px] text-danger">{t.actionsError}</span>}
+                  {tool.oauthStatus === "authorize" && <span className="block truncate text-[13px] text-muted">{t("list.notConnected")}</span>}
+                  {tool.signIn === "needed" && tool.auth !== "oauth" && <span className="block truncate text-[13px] text-danger">{t("list.needsSignIn")}</span>}
+                  {tool.oauthStatus === "reauthorize" && <span className="block truncate text-[13px] text-danger">{t("list.reauthorize")}</span>}
+                  {tool.actionsError && tool.oauthStatus !== "reauthorize" && <span className="block truncate text-[13px] text-danger">{tool.actionsError}</span>}
                 </span>
               </button>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                aria-label={`Refresh ${t.name}`}
-                disabled={refresh.isPending && refresh.variables?.id === t.id}
-                onClick={() => refresh.mutate({ id: t.id })}
+                aria-label={t("list.refresh", { name: tool.name })}
+                disabled={refresh.isPending && refresh.variables?.id === tool.id}
+                onClick={() => refresh.mutate({ id: tool.id })}
               >
-                <RefreshCw className={refresh.isPending && refresh.variables?.id === t.id ? "animate-spin" : undefined} />
+                <RefreshCw className={refresh.isPending && refresh.variables?.id === tool.id ? "animate-spin" : undefined} />
               </Button>
             </li>
           ))}

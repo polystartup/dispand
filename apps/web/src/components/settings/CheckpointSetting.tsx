@@ -1,14 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { orpc } from "../../lib/api.ts";
+import { useFormat } from "../../lib/format.ts";
 
 /**
  * The workspace's checkpoint (design 6.1): how many Jobs of one root cause (a message, a
  * schedule, a change) go before you are asked whether that work goes on. Nothing is cut.
  */
 export function CheckpointSetting() {
+  const { t } = useTranslation("harnesses");
+  const format = useFormat();
   const queryClient = useQueryClient();
   const current = useQuery(orpc.workspace.checkpoint.queryOptions());
   // What is typed, while editing; otherwise the field follows the setting (another tab, an approved proposal).
@@ -21,11 +25,9 @@ export function CheckpointSetting() {
   return (
     <section aria-labelledby="checkpoint" className="mt-8">
       <h2 id="checkpoint" className="text-[17px] font-medium tracking-tight">
-        Checkpoint
+        {t("checkpoint.title")}
       </h2>
-      <p className="mb-3 text-[13px] text-muted">
-        After this many Jobs from one cause (your message, a schedule, a change to a table), that work pauses and the Inbox asks whether it goes on. Raising it lets agents spend more before you are asked.
-      </p>
+      <p className="mb-3 text-[13px] text-muted">{t("checkpoint.text")}</p>
       <form
         className="flex flex-wrap items-center gap-2 rounded-2xl bg-surface px-5 py-4 shadow-card"
         onSubmit={(e) => {
@@ -34,7 +36,7 @@ export function CheckpointSetting() {
         }}
       >
         <label htmlFor="checkpoint-jobs" className="text-[13px] text-muted">
-          Ask every
+          {t("checkpoint.before")}
         </label>
         <Input
           id="checkpoint-jobs"
@@ -46,13 +48,13 @@ export function CheckpointSetting() {
           aria-invalid={!valid}
           className="w-28"
         />
-        <span className="text-[13px] text-muted">Jobs</span>
+        <span className="text-[13px] text-muted">{t("checkpoint.after")}</span>
         <Button type="submit" variant="outline" disabled={!valid || n === current.data.checkpoint || save.isPending}>
-          Save
+          {t("checkpoint.save")}
         </Button>
         {!valid && (
           <p role="alert" className="w-full text-[13px] text-danger">
-            A whole number from 1 to 100,000
+            {t("checkpoint.range", { min: format.number(1), max: format.number(100_000) })}
           </p>
         )}
         {save.error && (

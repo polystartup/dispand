@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import type { Auth } from "@dispand/domain";
 import { inferAdditionalFields } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
@@ -28,12 +29,12 @@ export async function authCall<T>(call: () => Promise<Result<T>>): Promise<T | n
   return result.data;
 }
 
-/** Client-safe message for a failed auth call. */
-export function authErrorMessage(error: unknown, invalidCredentials = "Wrong email or password."): string {
+/** Client-safe message for a failed auth call, in the page's language. */
+export function authErrorMessage(t: TFunction<"auth">, error: unknown): string {
   const status = error instanceof AuthCallError ? error.status : 0;
-  if (status === 401 || status === 400) return invalidCredentials;
-  if (status === 429) return "Too many attempts. Wait a moment and try again.";
-  return status === 0 ? "Could not reach the server. Try again." : "Something went wrong. Try again.";
+  if (status === 401 || status === 400) return t("error.invalid");
+  if (status === 429) return t("error.tooMany");
+  return t(status === 0 ? "error.unreachable" : "error.other");
 }
 
 export const signIn = (email: string, password: string) => authCall(() => authClient.signIn.email({ email, password }));

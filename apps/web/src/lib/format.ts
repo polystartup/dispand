@@ -17,7 +17,14 @@ export function formatters(language: string) {
   };
 }
 
-/** The formatters of the page's current language. */
+/** The formatters of the page's current language, and a file size in its units. */
 export function useFormat() {
-  return formatters(useTranslation().i18n.language);
+  const { t, i18n } = useTranslation();
+  const format = formatters(i18n.language);
+  const size = (bytes: number) => {
+    if (bytes < 1024) return t("size.bytes", { size: format.number(bytes) });
+    if (bytes < 1024 * 1024) return t("size.kb", { size: format.number(bytes / 1024, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) });
+    return t("size.mb", { size: format.number(bytes / 1024 / 1024, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) });
+  };
+  return { ...format, size };
 }
