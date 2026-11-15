@@ -55,10 +55,12 @@ export async function rightsOf(db: Db | Tx, job: JobIdentity): Promise<Rights | 
 /**
  * A table the Job just created, in `tx`, joins its agent's tables and the Job's own, where each is
  * a list ("all" has it already): we decided a limited agent keeps what it makes. Only this table,
- * nothing else. Both rows are locked first, so two Jobs creating tables at once each add theirs.
+ * nothing else. Both rows are locked first (the run, then the agent, as remembering a permission
+ * does), so two Jobs creating tables at once each add theirs.
  * On a plugin's agent, the tables become the owner's override.
  */
 export async function joinCreatedTable(tx: Tx, job: JobIdentity, tableId: string): Promise<void> {
+  const [run] = await tx.select({ snapshot: runs.snapshot }).from(runs).where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId))).for("update");
   const [agent] = await tx.select().from(agents).where(and(eq(agents.id, job.agentId), eq(agents.ownerId, job.ownerId))).for("update");
   let joined = false;
   if (agent && agent.dataTables !== "all") {
@@ -68,7 +70,6 @@ export async function joinCreatedTable(tx: Tx, job: JobIdentity, tableId: string
     await tx.update(agents).set({ dataTables, overridden: overriddenAfter("agent", agent, { dataTables }) }).where(eq(agents.id, agent.id));
     joined = true;
   }
-  const [run] = await tx.select({ snapshot: runs.snapshot }).from(runs).where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId))).for("update");
   const tables = run?.snapshot?.tables;
   if (Array.isArray(tables)) {
     await tx.update(runs).set({ snapshot: { ...run!.snapshot!, tables: [...tables, tableId] } }).where(eq(runs.id, job.runId));
