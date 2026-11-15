@@ -11,7 +11,8 @@ type Singular<K extends string> = K extends `${infer Base}_${"zero" | "one" | "t
 
 /** A server message's key: every sentence of `en.json`, a plural's forms under one key. */
 export type MessageKey = Singular<Leaves<typeof en>>;
-export type MessageValues = Record<string, string | number>;
+/** A list value reads as the language writes a list ("A, B and C"): the page formats it, the English sentence here. */
+export type MessageValues = Record<string, string | number | string[]>;
 /** An error's data when its text reaches a person: what to translate, with what. */
 export type Message = { key: MessageKey; values?: MessageValues };
 
@@ -26,7 +27,8 @@ export function isMessageKey(text: string): text is MessageKey {
 function english(key: MessageKey, values: MessageValues = {}): string {
   const plural = typeof values.count === "number" ? lookup(`${key}_${new Intl.PluralRules("en").select(values.count)}`) : undefined;
   const text = String(plural ?? lookup(key) ?? lookup(`${key}_other`));
-  return text.replace(/{{(\w+)}}/g, (_, name: string) => String(values[name] ?? ""));
+  const shown = (value: MessageValues[string] | undefined) => (Array.isArray(value) ? new Intl.ListFormat("en").format(value) : String(value ?? ""));
+  return text.replace(/{{(\w+)}}/g, (_, name: string) => shown(values[name]));
 }
 
 /** An error's options for a message to a person: `new ORPCError(code, message(key, values))`. */
@@ -34,7 +36,19 @@ export function message(key: MessageKey, values?: MessageValues): { message: str
   return { message: english(key, values), data: values ? { key, values } : { key } };
 }
 
+/** A message as data a procedure returns, for the page to translate: `say(key, values)`. */
+export const say = (key: MessageKey, values?: MessageValues): Message => message(key, values).data;
+
 /** An error's options for text the page shows as it came: an MCP server's or a plugin's own words. */
 export function external(text: string): { message: string; data: { external: true } } {
   return { message: text, data: { external: true } };
+}
+
+/** Person-facing text a procedure returns as data: a message, or words shown as they came (a plugin's, an MCP server's, another area's not yet keyed). */
+export type Text = Message | { text: string };
+
+/** Why a call failed, as data: the keyed message it carried, else its words as they came. */
+export function reasonOf(err: { message: string; data?: unknown }): Text {
+  const data = err.data as { key?: unknown } | undefined;
+  return typeof data?.key === "string" && isMessageKey(data.key) ? (err.data as Message) : { text: err.message };
 }

@@ -3,6 +3,7 @@ import { call, ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { harnesses, runners } from "../db/schema.ts";
 import { newId } from "../ids.ts";
+import { reasonOf, say, type Text } from "../messages/index.ts";
 import type { InitialContext } from "../rpc/context.ts";
 import { RunnerRequestFailed } from "../runners/hub.ts";
 import { workspacePlugin } from "../runners/workspace-plugin.ts";
@@ -11,11 +12,20 @@ import { workspacePlugin } from "../runners/workspace-plugin.ts";
 // commit, as its owner installed it, with nothing of theirs to keep (the native copy is never
 // overridden). Each move goes through the same native operations a person uses, preview first.
 
-class StepFailed extends Error {}
+/** A native step that didn't go through: why, for the owner. */
+class StepFailed extends Error {
+  constructor(readonly why: Text) {
+    super("native step failed");
+  }
+}
 
 type Context = InitialContext & { ownerId: string };
 /** The harnesses holding the plugin natively, enabled, and what stays as it is: a runner that couldn't be asked, an install disabled or mid-change. */
-export type NativeInstalls = { harnesses: { id: string; name: string }[]; unchecked: string[] };
+export type NativeInstalls = {
+  harnesses: { id: string; name: string }[];
+  /** `disabled`: an install its owner disabled or that is mid-change, named by its harness; else a runner that couldn't be asked. */
+  unchecked: { name: string; disabled?: true }[];
+};
 
 /**
  * Where Dispand installed the plugin natively (`dispand-<plugin id>`): asked of each online runner.
@@ -33,7 +43,7 @@ export async function nativeInstalls(context: Context, pluginId: string): Promis
   for (const runnerId of [...new Set(cli.map((h) => h.runnerId))]) {
     const mine = cli.filter((h) => h.runnerId === runnerId);
     if (!context.hub.isOnline(runnerId)) {
-      found.unchecked.push(mine[0]!.runnerName);
+      found.unchecked.push({ name: mine[0]!.runnerName });
       continue;
     }
     const report = await context.hub
@@ -44,7 +54,7 @@ export async function nativeInstalls(context: Context, pluginId: string): Promis
         throw err;
       });
     if (report.error) {
-      found.unchecked.push(mine[0]!.runnerName);
+      found.unchecked.push({ name: mine[0]!.runnerName });
       continue;
     }
     // Harnesses of one kind on a runner share its native account: the first one names it.
@@ -52,7 +62,7 @@ export async function nativeInstalls(context: Context, pluginId: string): Promis
       const harness = mine.find((h) => h.kind === binding.harness);
       if (!harness || found.harnesses.some((h) => h.id === harness.id)) continue;
       if (binding.installed && binding.enabled === true && !binding.pending) found.harnesses.push({ id: harness.id, name: harness.name });
-      else found.unchecked.push(`${harness.name} (disabled or changing there)`);
+      else found.unchecked.push({ name: harness.name, disabled: true });
     }
   }
   return found;
@@ -64,21 +74,21 @@ export async function nativeInstalls(context: Context, pluginId: string): Promis
  * shown harness where that fails, or that can't be asked now, and one holding it that wasn't
  * shown, are returned, with why.
  */
-export async function moveNative(context: Context, pluginId: string, shown: string[]): Promise<{ name: string; reason: string }[]> {
+export async function moveNative(context: Context, pluginId: string, shown: string[]): Promise<{ name: string; reason: Text }[]> {
   const installs = await nativeInstalls(context, pluginId);
-  const leftBehind: { name: string; reason: string }[] = installs.harnesses.filter((h) => !shown.includes(h.id)).map((h) => ({ name: h.name, reason: "it wasn't on the update's screen" }));
+  const leftBehind: { name: string; reason: Text }[] = installs.harnesses.filter((h) => !shown.includes(h.id)).map((h) => ({ name: h.name, reason: say("plugins.update.notShown") }));
   const gone = shown.filter((id) => !installs.harnesses.some((h) => h.id === id));
   if (gone.length) {
     for (const h of await context.db.select({ name: harnesses.name }).from(harnesses).where(and(inArray(harnesses.id, gone), eq(harnesses.ownerId, context.ownerId)))) {
-      leftBehind.push({ name: h.name, reason: "its runner couldn't be asked, or the install changed since" });
+      leftBehind.push({ name: h.name, reason: say("plugins.update.unreachable") });
     }
   }
   const step = async (harnessId: string, action: "add" | "remove") => {
     const request = { harnessIds: [harnessId], resource: { kind: "plugin" as const, id: pluginId }, action };
     const plan = await call(workspacePlugin, { ...request, dryRun: true }, { context });
-    if (plan.error || plan.blocked || !plan.revision) throw new StepFailed(plan.error ?? "the native preview was blocked");
+    if (plan.error || plan.blocked || !plan.revision) throw new StepFailed(plan.error ? { text: plan.error } : say("plugins.update.nativeBlocked"));
     const result = await call(workspacePlugin, { ...request, dryRun: false, revision: plan.revision }, { context });
-    if (result.error || result.results?.some((r) => r.status === "failed")) throw new StepFailed(result.error ?? "the native step failed");
+    if (result.error || result.results?.some((r) => r.status === "failed")) throw new StepFailed(result.error ? { text: result.error } : say("plugins.update.nativeFailed"));
   };
   for (const harness of installs.harnesses.filter((h) => shown.includes(h.id))) {
     try {
@@ -86,7 +96,7 @@ export async function moveNative(context: Context, pluginId: string, shown: stri
       await step(harness.id, "add");
     } catch (err) {
       if (!(err instanceof ORPCError) && !(err instanceof StepFailed)) throw err;
-      leftBehind.push({ name: harness.name, reason: err.message });
+      leftBehind.push({ name: harness.name, reason: err instanceof StepFailed ? err.why : reasonOf(err) });
     }
   }
   return leftBehind;

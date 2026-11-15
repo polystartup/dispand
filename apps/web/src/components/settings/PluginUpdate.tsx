@@ -1,18 +1,20 @@
 import type { TFunction } from "i18next";
+import type { Text as Said } from "@dispand/domain";
 import { useTranslation } from "react-i18next";
+import { useText } from "../../lib/message.ts";
 import { useFormat } from "../../lib/format.ts";
 
 type At = { key: string; kind: "agent" | "tool" | "trigger" | "skill"; id: string; name: string; field: string };
 export type UpdateChange = At & { class: "widening" | "wording" | "silent"; before: unknown; after: unknown; reaches?: string[]; gained?: { name: string; files: { path: string; text: string | null }[] }[] };
 export type UpdateConflict = At & { old: unknown; mine: unknown; next: unknown; reaches?: string[] };
-export type UpdateAddition = { key: string; kind: "primitive" | "agent" | "trigger" | "server"; name: string; detail: string };
+export type UpdateAddition = { key: string; kind: "primitive" | "agent" | "trigger" | "server"; name: string; detail: Said };
 type Names = Record<string, string>;
 
 /** Whether an update stops on its screen: a field of the owner's the plugin changed, a change that gives more, or a change of wording. */
 export const needsReview = (plan: { conflicts: UpdateConflict[]; changes: UpdateChange[]; additions?: UpdateAddition[]; removals?: unknown[]; tables?: unknown[]; native?: NativeInstalls }) =>
   plan.conflicts.length > 0 || plan.changes.some((c) => c.class !== "silent") || (plan.additions?.length ?? 0) > 0 || (plan.removals?.length ?? 0) > 0 || (plan.tables?.length ?? 0) > 0 || (plan.native?.harnesses.length ?? 0) > 0;
 
-export type NativeInstalls = { harnesses: { id: string; name: string }[]; unchecked: string[] };
+export type NativeInstalls = { harnesses: { id: string; name: string }[]; unchecked: { name: string; disabled?: true }[] };
 
 /** Where the plugin is installed natively: each install moves to the new version with the update. */
 export function NativeMoves({ native }: { native: NativeInstalls }) {
@@ -25,7 +27,7 @@ export function NativeMoves({ native }: { native: NativeInstalls }) {
         {t("update.nativeTitle")}
       </h3>
       {native.harnesses.length > 0 && <p>{t("update.nativeMoves", { harnesses: list(native.harnesses.map((h) => h.name)) })}</p>}
-      {native.unchecked.length > 0 && <p className="text-muted">{t("update.nativeStays", { harnesses: list(native.unchecked) })}</p>}
+      {native.unchecked.length > 0 && <p className="text-muted">{t("update.nativeStays", { harnesses: list(native.unchecked.map((u) => (u.disabled ? t("update.disabledThere", { name: u.name }) : u.name))) })}</p>}
     </section>
   );
 }
@@ -92,6 +94,7 @@ export function UpdatePlan({
 }) {
   const { t } = useTranslation(["plugins", "messages"]);
   const { list } = useFormat();
+  const text = useText();
   const assistant = t("messages:agent.assistant.name");
   const of = (kind: UpdateChange["class"]) => changes.filter((c) => c.class === kind);
   const [widening, wording, silent] = [of("widening"), of("wording"), of("silent")];
@@ -166,7 +169,7 @@ export function UpdatePlan({
             {additions.map((a) => (
               <li key={a.key}>
                 <span className="font-medium text-fg">{a.name}</span> <span className="text-faint">{t("update.dotKind", { kind: t(`update.added.${a.kind}`) })}</span>
-                {a.detail && <span className="block text-muted">{a.detail}</span>}
+                {text(a.detail) && <span className="block text-muted">{text(a.detail)}</span>}
               </li>
             ))}
           </ul>
@@ -216,7 +219,7 @@ export function ReleaseNotes({ notes }: { notes: UpdateReleaseNotes }) {
   );
 }
 
-export type UpdateTableChange = { key: string; kind: "add" | "remove" | "retype" | "choices" | "move" | "primitive" | "parent"; field?: string; ticked: boolean; loses?: number; stale?: string; waiting?: string; stops?: string[] };
+export type UpdateTableChange = { key: string; kind: "add" | "remove" | "retype" | "choices" | "move" | "primitive" | "parent"; field?: string; ticked: boolean; loses?: number; stale?: Said; waiting?: string; stops?: string[] };
 export type UpdateTable = { tableId: string; name: string; changes: UpdateTableChange[] };
 
 /** What a table change does, in words. */
@@ -233,13 +236,14 @@ export const startingTicks = (tables: UpdateTable[]) => Object.fromEntries(table
 export function TableChanges({ tables, ticked, busy, onTick }: { tables: UpdateTable[]; ticked: Record<string, string[]>; busy: boolean; onTick: (tableId: string, key: string) => void }) {
   const { t } = useTranslation("plugins");
   const { list } = useFormat();
+  const text = useText();
   return (
     <div className="space-y-3 text-[13px]">
       {tables.map((table) => (
         <fieldset key={table.tableId} aria-label={table.name} className="space-y-1.5 rounded-xl border border-border p-3">
           <p className="font-medium text-fg">{table.name}</p>
           {table.changes.map((c) => {
-            const blocked = c.stale ?? (c.waiting ? t("update.waits", { table: c.waiting }) : undefined);
+            const blocked = c.stale ? text(c.stale) : (c.waiting ? t("update.waits", { table: c.waiting }) : undefined);
             return (
               <label key={c.key} className="flex items-start gap-2">
                 <input type="checkbox" className="mt-0.5 size-4 accent-[var(--color-accent)]" checked={(ticked[table.tableId] ?? []).includes(c.key)} disabled={busy || blocked !== undefined} onChange={() => onTick(table.tableId, c.key)} />

@@ -3,6 +3,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { NativeMoves, needsReview, UpdatePlan, type UpdateAddition, type UpdateChange, type UpdateConflict } from "./PluginUpdate.tsx";
+import { say } from "@dispand/domain/messages/index.ts";
 
 afterEach(cleanup);
 
@@ -52,15 +53,15 @@ test("what an agent gains and where a tool's calls go are listed by name; wordin
 });
 
 const additions: UpdateAddition[] = [
-  { key: "primitive:Invoices", kind: "primitive", name: "Invoices", detail: "A table with 1 field" },
-  { key: "agent:Billing", kind: "agent", name: "Billing", detail: "Prepares invoices." },
+  { key: "primitive:Invoices", kind: "primitive", name: "Invoices", detail: say("plugins.update.tableCount", { count: 1 }) },
+  { key: "agent:Billing", kind: "agent", name: "Billing", detail: { text: "Prepares invoices." } },
 ];
 
 test("what a version adds is named, with where it gets made: the update has no box to tick for it", () => {
   expect(needsReview({ conflicts: [], changes: [], additions })).toBe(true);
   render(<UpdatePlan conflicts={[]} changes={[]} names={{}} take={[]} busy={false} onTake={() => {}} additions={additions} />);
   const added = screen.getByRole("list", { name: "New in this version" });
-  expect(within(added).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Invoices · TableA table with 1 field", "Billing · AgentPrepares invoices."]);
+  expect(within(added).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Invoices · TableA table with 1 field.", "Billing · AgentPrepares invoices."]);
   expect(screen.queryByRole("checkbox")).toBeNull();
   expect(screen.getByText(/Set up opens afterwards/)).toBeTruthy();
 });
@@ -88,14 +89,14 @@ test("a table's changes are boxes with their starting ticks; one that can't appl
       changes: [
         { key: "add:Fee", kind: "add" as const, field: "Fee", ticked: true },
         { key: "remove:Conclusions", kind: "remove" as const, field: "Conclusions", ticked: false, loses: 42, stops: ["Close matter"] },
-        { key: "retype:Stage", kind: "retype" as const, field: "Stage", ticked: false, stale: "You changed this field" },
+        { key: "retype:Stage", kind: "retype" as const, field: "Stage", ticked: false, stale: say("plugins.table.ownerField") },
         { key: "add:Invoice", kind: "add" as const, field: "Invoice", ticked: false, waiting: "Invoices" },
       ],
     },
   ];
   expect(needsReview({ conflicts: [], changes: [], tables })).toBe(true);
   expect(needsReview({ conflicts: [], changes: [], native: { harnesses: [{ id: "h_1", name: "Claude Code" }], unchecked: [] } })).toBe(true);
-  expect(needsReview({ conflicts: [], changes: [], native: { harnesses: [], unchecked: ["Laptop"] } })).toBe(false);
+  expect(needsReview({ conflicts: [], changes: [], native: { harnesses: [], unchecked: [{ name: "Laptop" }] } })).toBe(false);
   render(<TableChanges tables={tables} ticked={{ tbl_1: ["add:Fee"] }} busy={false} onTick={tick} />);
   const table = screen.getByRole("group", { name: "Matters" });
   expect((within(table).getByRole("checkbox", { name: /Add the field Fee/ }) as HTMLInputElement).checked).toBe(true);
@@ -104,7 +105,7 @@ test("a table's changes are boxes with their starting ticks; one that can't appl
   expect(removal.checked).toBe(false);
   expect(removal.closest("label")!.textContent).toContain("removes the values of 42 rows");
   expect((within(table).getByRole("checkbox", { name: /Change the type of Stage/ }) as HTMLInputElement).disabled).toBe(true);
-  expect(table.textContent).toContain("You changed this field");
+  expect(table.textContent).toContain("You changed this field.");
   expect(table.textContent).toContain("Waits for the table Invoices");
   expect(startingTicks(tables)).toEqual({ tbl_1: ["add:Fee"] });
   await userEvent.click(removal);
@@ -112,7 +113,7 @@ test("a table's changes are boxes with their starting ticks; one that can't appl
 });
 
 test("the native installs an update moves are named, and a runner that couldn't be asked is said", () => {
-  render(<NativeMoves native={{ harnesses: [{ id: "h_1", name: "Claude Code" }], unchecked: ["Laptop"] }} />);
+  render(<NativeMoves native={{ harnesses: [{ id: "h_1", name: "Claude Code" }], unchecked: [{ name: "Laptop" }] }} />);
   expect(screen.getByText(/Moves to the new version on Claude Code/)).toBeTruthy();
   expect(screen.getByText(/Stays as it is on Laptop/)).toBeTruthy();
 });

@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
+import { type Message, say } from "@dispand/domain/messages/index.ts";
 
 const fake = vi.hoisted(() => ({ plugins: { uninstallPreview: vi.fn(), uninstall: vi.fn() }, runners: { list: vi.fn(), plugins: vi.fn(), workspacePlugin: vi.fn() }, harnesses: { list: vi.fn() }, skills: {}, tools: {}, agents: {}, triggers: {}, jobs: {}, tables: {} }));
 vi.mock("../../lib/api.ts", async () => {
@@ -12,7 +13,7 @@ vi.mock("../../lib/api.ts", async () => {
 const { PluginRemoveSheet } = await import("./PluginRemoveSheet.tsx");
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
-const element = (kind: "agent" | "skill" | "tool", id: string, name: string, more: { reasons?: string[]; needs?: string[]; keepOnly?: string | null } = {}) => ({ key: `${kind}:${id}`, kind, id, name, reasons: [] as string[], needs: [] as string[], keepOnly: null as string | null, ...more });
+const element = (kind: "agent" | "skill" | "tool", id: string, name: string, more: { reasons?: Message[]; needs?: string[]; keepOnly?: Message | null } = {}) => ({ key: `${kind}:${id}`, kind, id, name, reasons: [] as Message[], needs: [] as string[], keepOnly: null as Message | null, ...more });
 const preview = { elements: [element("agent", "a1", "Writer"), element("skill", "s1", "Writing skills"), element("tool", "t1", "Document search")], reviewed: "r".repeat(64), nativeName: "dispand-plugin_1", sourceKey: "pinned-source" };;
 
 async function mount(data = preview, native = false) {
@@ -40,7 +41,7 @@ test("a plugin nothing uses is removed whole, with no question and no choice to 
 });
 
 test("an agent in use starts kept with what it needs, and the choices made are what is sent", async () => {
-  const writer = element("agent", "a1", "Writer", { reasons: ["It has a Job running or waiting"], needs: ["skill:s1", "tool:t1"] });
+  const writer = element("agent", "a1", "Writer", { reasons: [say("plugins.reason.job")], needs: ["skill:s1", "tool:t1"] });
   await mount({ ...preview, elements: [writer, preview.elements[1]!, preview.elements[2]!] });
   expect(screen.getByRole("group", { name: "Writer" }).textContent).toContain("It has a Job running or waiting");
   expect(screen.getByRole("group", { name: "Writing skills" }).textContent).toContain("Needed by Writer if you keep it");
@@ -92,7 +93,7 @@ test("a cached removal preview shows no choice before fresh usage is loaded", as
   fake.runners.list.mockResolvedValue([]);
   render(<QueryClientProvider client={client}><PluginRemoveSheet id="plugin_1" name="Writing kit" onClose={vi.fn()} /></QueryClientProvider>);
   expect(screen.queryByText(/Nothing of it is in use/)).toBeNull();
-  finish({ ...preview, elements: [element("agent", "a1", "Writer", { reasons: ["A workflow uses this agent"], keepOnly: "A workflow uses this agent" }), preview.elements[1]!, preview.elements[2]!] });
+  finish({ ...preview, elements: [element("agent", "a1", "Writer", { reasons: [say("plugins.reason.workflowAgent")], keepOnly: say("plugins.reason.workflowAgent") }), preview.elements[1]!, preview.elements[2]!] });
   const agent = await screen.findByRole("group", { name: "Writer" });
   expect(agent.textContent).toContain("It stays, as yours.");
   expect(within(agent).queryByRole("radio")).toBeNull();

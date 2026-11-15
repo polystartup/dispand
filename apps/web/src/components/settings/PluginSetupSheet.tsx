@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
+import { useText } from "../../lib/message.ts";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ProposalItems } from "../questions/ProposalItems.tsx";
@@ -27,6 +28,7 @@ function madeFrom(t: TFunction<"plugins">, o: Outcome): string {
  */
 export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose: () => void }) {
   const { t } = useTranslation("plugins");
+  const text = useText();
   const queryClient = useQueryClient();
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   const definitions = useDefinitionPicks(plugin.definitions, harnesses.data);
@@ -73,7 +75,7 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
                   {outcomes.map((o) => (
                     <li key={o.$item}>
                       <Trans t={t} i18nKey="setup.line" values={{ item: madeFrom(t, o), outcome: t(`setup.outcome.${o.outcome}`) }} components={[<span className={o.outcome === "refused" ? "text-danger" : o.outcome === "made" ? "" : "text-faint"} />]} />
-                      {o.error && <span className="block text-danger">{o.error}</span>}
+                      {o.error && <span className="block text-danger">{text(o.error)}</span>}
                     </li>
                   ))}
                 </ol>
@@ -114,7 +116,7 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
                     <ul aria-label={t("setup.notMade")} className="space-y-1 text-[13px]">
                       {preview.data.waiting.map((w, i) => (
                         <li key={i}>
-                          <span className="font-medium">{w.definition}</span> <span className="text-muted">{w.reason}</span>
+                          <span className="font-medium">{w.definition}</span> <span className="text-muted">{text(w.reason)}</span>
                         </li>
                       ))}
                     </ul>

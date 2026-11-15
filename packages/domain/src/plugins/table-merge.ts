@@ -1,3 +1,4 @@
+import { type Message, say } from "../messages/index.ts";
 import type { PrimitiveDefinition } from "./definitions.ts";
 
 // A plugin's table belongs to both sides: the plugin defines fields, the owner adds their own and
@@ -22,7 +23,7 @@ export type TableChange = {
   /** The rows whose values it would take away. */
   loses?: number;
   /** Why it can't be applied: the owner changed what it would change, or it isn't an operation this screen has. */
-  stale?: string;
+  stale?: Message;
   /** The table it names that isn't there yet: offered again once it is. */
   waiting?: string;
   /** The workflows a removal or a type change stops: their data steps name the field. */
@@ -36,8 +37,8 @@ const find = (fields: Field[], name: string) => fields.find((f) => lower(f.name)
 const choiceKeys = (choices: { id: string; label: string }[] | undefined) => (choices ?? []).map((c) => `${c.id}\u0000${c.label}`);
 const sameChoices = (a: { id: string; label: string }[] | undefined, b: { id: string; label: string }[] | undefined) => choiceKeys(a).join("\n") === choiceKeys(b).join("\n");
 
-const OWNER_FIELD = "You changed this field";
-const UNSUPPORTED = "It can't be applied here: change the field by hand";
+const OWNER_FIELD = say("plugins.table.ownerField");
+const UNSUPPORTED = say("plugins.table.unsupported");
 
 /**
  * The differences between `kept` (the definition the table was last merged with) and `next`,
@@ -57,7 +58,7 @@ export function tableChanges(kept: PrimitiveDefinition, next: PrimitiveDefinitio
   for (const f of next.fields.filter((f) => !find(kept.fields, f.name))) {
     const at = { key: `add:${f.name}`, kind: "add" as const, field: f.name };
     if (f.references && !tableExists(f.references)) changes.push({ ...at, ticked: false, waiting: f.references });
-    else if (actual.fields.some((a) => lower(a.name) === lower(f.name))) changes.push({ ...at, ticked: false, stale: "A field of yours is called so" });
+    else if (actual.fields.some((a) => lower(a.name) === lower(f.name))) changes.push({ ...at, ticked: false, stale: say("plugins.table.ownField") });
     else changes.push({ ...at, ticked: true });
   }
   for (const f of kept.fields.filter((f) => !find(next.fields, f.name))) {
@@ -85,9 +86,9 @@ export function tableChanges(kept: PrimitiveDefinition, next: PrimitiveDefinitio
   if (order(kept.fields).join("\n") !== order(next.fields).join("\n")) {
     const actualOrder = actual.fields.flatMap((f) => (f.pluginField !== null && both(f.pluginField) ? [lower(f.pluginField)] : []));
     const moved = actualOrder.join("\n") !== order(kept.fields).filter((n) => mine(n)).join("\n");
-    changes.push({ key: "move", kind: "move", ticked: !moved, ...(moved ? { stale: "You changed the order" } : {}) });
+    changes.push({ key: "move", kind: "move", ticked: !moved, ...(moved ? { stale: say("plugins.table.order") } : {}) });
   }
-  if (kept.primitive !== next.primitive) changes.push({ key: "primitive", kind: "primitive", ticked: false, ...(actual.primitive !== kept.primitive ? { stale: "You changed it" } : {}) });
+  if (kept.primitive !== next.primitive) changes.push({ key: "primitive", kind: "primitive", ticked: false, ...(actual.primitive !== kept.primitive ? { stale: say("plugins.table.changed") } : {}) });
   const parent = (p: { field: string; required: boolean } | null | undefined) => (p ? `${lower(p.field)}:${p.required}` : "");
   if (parent(kept.parent) !== parent(next.parent)) {
     const actualParent = actual.parentField === null ? null : { field: actual.fields.find((f) => f.name === actual.parentField)?.pluginField ?? actual.parentField, required: actual.parentRequired };
@@ -96,7 +97,7 @@ export function tableChanges(kept: PrimitiveDefinition, next: PrimitiveDefinitio
       key: "parent",
       kind: "parent",
       ticked: false,
-      ...(parent(actualParent) !== parent(kept.parent) ? { stale: "You changed it" } : references && !tableExists(references) ? { waiting: references } : {}),
+      ...(parent(actualParent) !== parent(kept.parent) ? { stale: say("plugins.table.changed") } : references && !tableExists(references) ? { waiting: references } : {}),
     });
   }
   return changes;

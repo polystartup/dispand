@@ -11,6 +11,7 @@ import { ownerContext } from "../runners/test-support.ts";
 import { BUILT_IN_MARKETPLACES } from "./marketplace.ts";
 import { marketplaceUrl, packageName } from "./procedures.ts";
 import { fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd, updatePlugin, installReviewed } from "./test-support.ts";
+import { say } from "../messages/index.ts";
 import { toolTarget } from "../tools/procedures.ts";
 import { addStep } from "../workflows/model.ts";
 import { rememberAllowedAction } from "../agents/tool-ask.ts";
@@ -201,7 +202,7 @@ test("uninstall removes the plugin's skill package when no agent uses it, else k
   const [pkg] = await call(router.skills.list, undefined, { context: ctx });
   expect(pkg).toMatchObject({ plugin: { id: second.pluginId } });
   const agent = await call(router.agents.create, { name: "Writer", harnessId: h.id, systemPrompt: "", skillPackageIds: [pkg!.packageId] }, { context: ctx });
-  expect((await call(router.plugins.uninstallPreview, { id: second.pluginId }, { context: ctx })).elements[0]!.reasons).toEqual(["The agent “Writer” uses it"]);
+  expect((await call(router.plugins.uninstallPreview, { id: second.pluginId }, { context: ctx })).elements[0]!.reasons).toEqual([say("plugins.reason.agentUses", { agent: "Writer" })]);
   await removePlugin(ctx, second.pluginId, "used");
   expect(await call(router.plugins.list, undefined, { context: ctx })).toEqual([]);
   const [kept] = await call(router.skills.list, undefined, { context: ctx });
@@ -368,7 +369,7 @@ test("plugin-root server not imported; an HTTP server is installed with its sett
   await expect(call(router.plugins.install, { ...ref, reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["local"] }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   await expect(call(router.plugins.install, { ...ref, reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["github"] }, { context: ctx })).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "The MCP server github needs GITHUB_TOKEN",
+    data: { key: "plugins.component.needsSetting", values: { server: "github", name: "GITHUB_TOKEN" } },
   });
   // Runner tools can't be installed from a plugin.
   await expect(call(router.plugins.install, { ...ref, reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["fetch"] }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
@@ -385,7 +386,7 @@ test("plugin-root server not imported; an HTTP server is installed with its sett
   expect(installed).toMatchObject({ tools: [{ id: tool!.id, name: "github" }], available: { mcpServers: [{ name: "tenant" }, { name: "fetch" }] } });
   // A server that needs a setting, or runs on a machine, is added from the plugin's page only.
   const server = (name: string) => ({ pluginId, server: name, url: fx.server.url, transport: "streamable-http" as const });
-  await expect(call(router.plugins.addServer, server("tenant"), { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "tenant's URL needs a setting: add it from the plugin's page" });
+  await expect(call(router.plugins.addServer, server("tenant"), { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "plugins.server.needsSetting", values: { name: "tenant" } } });
   await expect(call(router.plugins.addServer, server("fetch"), { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "fetch runs on a runner: add it from the plugin's page" });
 
   // The owner may edit it, as an override; it goes only with its plugin.
@@ -450,7 +451,7 @@ test("a placeholder in the URL makes the whole URL a secret; a plugin's tool may
   // Only characters a URL keeps as they are, so the redaction finds it.
   await expect(
     call(router.plugins.install, { marketplaceId: market.id, entryName: "github", reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["tenant"], settings: { tenant: { TENANT: "a/b" } } }, { context: ctx }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "A setting of the MCP server tenant's URL may hold only letters, digits and . _ ~ -" });
+  ).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "plugins.component.settingCharacters", values: { server: "tenant" } } });
   // Renaming keeps the secret URL; a new URL replaces it.
   expect(await call(router.tools.update, { id: tool.id, name: "T2", url: tool.url! }, { context: ctx })).toMatchObject({ urlSet: true });
   expect(await call(router.tools.update, { id: tool.id, url: fx.server.url }, { context: ctx })).toMatchObject({ urlSet: false, url: fx.server.url });
@@ -464,7 +465,7 @@ test("a setting in a URL's host is refused: only a path or query keeps it as wri
   const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
   await expect(
     call(router.plugins.install, { marketplaceId: market.id, entryName: "t", reviewed: await reviewed(ctx, market.id, "t"), mcpServers: ["tenant"], settings: { tenant: { TENANT: "Acme-S3cret" } } }, { context: ctx }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "The MCP server tenant's URL needs a setting in its host: not supported" });
+  ).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "plugins.component.settingInHost", values: { server: "tenant" } } });
   expect(await call(router.tools.list, undefined, { context: ctx })).toEqual([]);
   plugin.remove();
   repo.remove();
@@ -701,7 +702,7 @@ test("a plugin with neither definitions nor a pick installs nothing", async () =
   const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
   await expect(installReviewed(ctx, { marketplaceId: market.id, entryName: "superpowers" })).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "Pick at least one skill, MCP server or agent",
+    data: { key: "plugins.install.pickSomething" },
   });
   plugin.remove();
   repo.remove();
@@ -866,8 +867,8 @@ test("plugin removal previews active use and refuses workflow agents and unrelat
     Object.assign(def.steps[0]!, { agentId: agentIds[0], prompt: "Review." });
     await call(router.workflows.update, { id: wf.id, name: "Review", def }, { context: ctx });
     const preview = await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx });
-    expect(preview.elements.find((e) => e.kind === "agent")).toMatchObject({ reasons: ["A workflow uses this agent"], keepOnly: "A workflow uses this agent" });
-    await expect(removePlugin(ctx, pluginId, { remove: agentIds })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "A workflow uses this agent" });
+    expect(preview.elements.find((e) => e.kind === "agent")).toMatchObject({ reasons: [say("plugins.reason.workflowAgent")], keepOnly: say("plugins.reason.workflowAgent") });
+    await expect(removePlugin(ctx, pluginId, { remove: agentIds })).rejects.toMatchObject({ code: "BAD_REQUEST", data: say("plugins.reason.workflowAgent") });
     await expect(call(router.plugins.uninstall, { id: pluginId, reviewed: preview.reviewed, choices: { "tool:unrelated": "delete" } }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Not an element of this plugin" });
     expect(await call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).toMatchObject({ plugin: { id: pluginId } });
   } finally { await fx.remove(); }
@@ -906,7 +907,7 @@ test("removal leaves active agents unticked in preview and preserves Jobs when e
     const [step] = await ctx.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
     const messageId = newId("msg");
     await ctx.db.insert(messages).values({ id: messageId, ownerId: ctx.ownerId, runId, stepRunId: step!.id, role: "assistant", text: "Work already done" });
-    expect((await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx })).elements.find((e) => e.kind === "agent")!.reasons).toContain("It has a Job running or waiting");
+    expect((await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx })).elements.find((e) => e.kind === "agent")!.reasons).toContainEqual(say("plugins.reason.job"));
     await removePlugin(ctx, pluginId, { remove: [...[], ...[], ...agentIds] });
     const [job] = await ctx.db.select().from(runsTable).where(eq(runsTable.id, runId));
     expect(job).toMatchObject({ agentId: null, agentName: "reviewer", status: "failed" });
@@ -1005,7 +1006,7 @@ test("an update of the plugin replaces what the owner left alone and keeps an ov
 
 test("a plugin's agent or tool can't be deleted on its own, and shares no name space with the owner's", async () => {
   const { ctx, fx, agent, tool } = await withElements();
-  const refusal = { code: "FORBIDDEN", message: "It is github's: uninstall the plugin to remove it" };
+  const refusal = { code: "FORBIDDEN", data: { key: "plugins.override.forbidden", values: { plugin: "github" } } };
   await expect(call(router.agents.delete, { id: (await agent()).id }, { context: ctx })).rejects.toMatchObject(refusal);
   await expect(call(router.tools.delete, { id: (await tool()).id }, { context: ctx })).rejects.toMatchObject(refusal);
   // A local tool may be called as the plugin's is; a rename of the plugin's can't take a name twice inside the plugin.
@@ -1035,7 +1036,7 @@ test("a tool whose plugin address needs a setting can't be reset to it: the sett
   await call(router.tools.update, { id: toolIds[0]!, url: fx.server.url }, { context: ctx });
   await expect(call(router.plugins.resetOverride, { kind: "tool", id: toolIds[0]!, field: "url" }, { context: ctx })).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "The plugin's address needs a setting: update the plugin, or uninstall and install it again, to enter it",
+    data: { key: "plugins.override.needsSetting" },
   });
   expect(await call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).toMatchObject({ url: fx.server.url, overridden: ["url"] });
   await fx.remove();
@@ -1103,7 +1104,7 @@ test("a change that would leave a plugin's skill invalid is refused, and its pac
   await expect(call(router.skills.setFile, { packageId, path: "../escape.md", base64: b64("x") }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   await expect(call(router.skills.setFile, { packageId, path: "pdf/SKILL.md", base64: b64("no frontmatter") }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   expect(await text("pdf/SKILL.md")).toContain("name: pdf");
-  await expect(call(router.skills.delete, { packageId }, { context: ctx })).rejects.toMatchObject({ code: "FORBIDDEN", message: "It is document-skills's: uninstall the plugin to remove it" });
+  await expect(call(router.skills.delete, { packageId }, { context: ctx })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "plugins.override.forbidden", values: { plugin: "document-skills" } } });
   // The owner's own package is edited from its form, not file by file.
   const mine = await call(router.skills.create, { name: "mine", description: "Mine.", instructions: "Do it.", requiredToolIds: [] }, { context: ctx });
   await expect(call(router.skills.setFile, { packageId: mine.packageId, path: "mine/x.md", base64: b64("x") }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });

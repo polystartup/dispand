@@ -4,6 +4,7 @@ import type { Tx } from "../db/client.ts";
 import { skillPackages } from "../db/schema.ts";
 import { Headers, Url, type ToolFields } from "../tools/procedures.ts";
 import type { PluginMcpServer } from "./read-plugin.ts";
+import { message, type MessageKey, type MessageValues } from "../messages/index.ts";
 
 /**
  * What a value filling a URL placeholder may hold: characters a URL's path and query keep as
@@ -37,8 +38,8 @@ const PLACEHOLDER = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g;
 
 export const hasPlaceholder = (text: string) => text.search(PLACEHOLDER) !== -1;
 
-function bad(message: string): never {
-  throw new ORPCError("BAD_REQUEST", { message });
+function bad(key: MessageKey, values?: MessageValues): never {
+  throw new ORPCError("BAD_REQUEST", message(key, values));
 }
 
 /**
@@ -52,7 +53,7 @@ function fill(text: string, values: Record<string, string>, server: string, used
       used.push(value);
       return value;
     }
-    if (fallback === undefined) bad(`The MCP server ${server} needs ${name}`);
+    if (fallback === undefined) bad("plugins.component.needsSetting", { server, name });
     return fallback;
   });
 }
@@ -67,16 +68,16 @@ const cut = (s: string, max: number) => [...s].slice(0, max).join("");
  */
 export function httpTool(server: Extract<PluginMcpServer, { type: "http" }>, values: Record<string, string>, pluginId: string): Omit<ToolFields, "name"> {
   // The form's limit first: everything after reads the whole URL.
-  if (server.url.length > 2000) bad(`The MCP server ${server.name}'s URL is longer than 2,000 characters`);
+  if (server.url.length > 2000) bad("plugins.component.urlTooLong", { server: server.name });
   const secret = hasPlaceholder(server.url);
   // Only a path or query is kept as it is written: a host is lower-cased (and may be encoded).
-  if (secret && !placeholdersInPathOrQuery(server.url)) bad(`The MCP server ${server.name}'s URL needs a setting in its host: not supported`);
+  if (secret && !placeholdersInPathOrQuery(server.url)) bad("plugins.component.settingInHost", { server: server.name });
   const urlSecrets: string[] = [];
   const url = fill(server.url, values, server.name, urlSecrets);
-  if (!urlSecrets.every((v) => URL_SECRET.test(v))) bad(`A setting of the MCP server ${server.name}'s URL may hold only letters, digits and . _ ~ -`);
-  if (!Url.safeParse(url).success) bad(`The MCP server ${server.name}'s URL isn't an http(s) URL`);
+  if (!urlSecrets.every((v) => URL_SECRET.test(v))) bad("plugins.component.settingCharacters", { server: server.name });
+  if (!Url.safeParse(url).success) bad("plugins.component.notHttp", { server: server.name });
   const headers = Headers.safeParse(Object.fromEntries(Object.entries(server.headers).map(([name, value]) => [name, fill(value, values, server.name)])));
-  if (!headers.success) bad(`The MCP server ${server.name}'s headers aren't valid`);
+  if (!headers.success) bad("plugins.component.badHeaders", { server: server.name });
   return {
     url: secret ? server.url : url,
     ...(secret ? { secretUrl: { url, secrets: urlSecrets } } : {}),

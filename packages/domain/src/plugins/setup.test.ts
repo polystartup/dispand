@@ -6,6 +6,7 @@ import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import type { SetupPick } from "./setup.ts";
 import { fixtureRepo, installReviewed, lawFirmMarket, removePlugin } from "./test-support.ts";
+import { say } from "../messages/index.ts";
 import { catalogEntry } from "../tools/catalog.ts";
 import { type FakeAction, startFakeMcp } from "../tools/test-server.ts";
 
@@ -108,7 +109,7 @@ test("what a setup makes is the plugin's: named inside it, beside the owner's ow
   expect(edited.overridden).toEqual(["systemPrompt"]);
 
   // Neither goes on its own.
-  const refusal = { code: "FORBIDDEN", message: "It is law-firm's: uninstall the plugin to remove it" };
+  const refusal = { code: "FORBIDDEN", data: { key: "plugins.override.forbidden", values: { plugin: "law-firm" } } };
   await expect(call(router.tables.delete, { id: matters.id }, { context: ctx })).rejects.toMatchObject(refusal);
   await call(router.tables.delete, { id: own.id }, { context: ctx });
   remove();
@@ -157,8 +158,8 @@ test("a resumed run binds to recorded rows by id, makes again what is gone, and 
 
 test("a primitive needs the plugin's tables it names picked or made before", async () => {
   const { ctx, pluginId, remove } = await installed();
-  await expect(setUp(ctx, pluginId, { primitives: ["Matters"] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "“Matters” names the table “Clients” of this plugin: pick it too" });
-  await expect(setUp(ctx, pluginId, { primitives: ["Billing"] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "“Billing” isn't a table definition of this plugin" });
+  await expect(setUp(ctx, pluginId, { primitives: ["Matters"] })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "plugins.setup.pickTable", values: { table: "Matters", name: "Clients" } } });
+  await expect(setUp(ctx, pluginId, { primitives: ["Billing"] })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "plugins.setup.notTable", values: { name: "Billing" } } });
   expect(await call(router.tables.list, undefined, { context: ctx })).toEqual([]);
   // Once Clients is set up, Matters alone names it by id.
   await setUp(ctx, pluginId, { primitives: ["Clients"] });
@@ -190,8 +191,8 @@ test("a field naming a table of the workspace gets that table's id, or waits for
   const waiting = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
   expect(waiting.items.map((i) => i.tool)).toEqual(["tables_create"]);
   expect(waiting.waiting).toEqual([
-    { definition: "field:Notes.Contact", reason: "No table of the workspace is called “Contacts”" },
-    { definition: "field:Notes.Name", reason: "Every table has a Name field already: this one isn't added" },
+    { definition: "field:Notes.Contact", reason: say("plugins.setup.waiting.noWorkspaceTable", { table: "Contacts" }) },
+    { definition: "field:Notes.Name", reason: say("plugins.setup.waiting.nameField") },
   ]);
 
   const contacts = await call(router.tables.create, { name: "contacts" }, { context: ctx });
@@ -278,7 +279,7 @@ test("an agent on a table the pick leaves out gets the workspace table of that n
   const pick = { agents: [{ name: "Matter upkeep", harnessId }] };
   const waiting = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
   expect(waiting.items).toEqual([]);
-  expect(waiting.waiting).toEqual([{ definition: "agent:Matter upkeep", reason: "No table “Matters” is set up or in the workspace: pick it too, or make it" }]);
+  expect(waiting.waiting).toEqual([{ definition: "agent:Matter upkeep", reason: say("plugins.setup.waiting.noTable", { table: "Matters" }) }]);
 
   const matters = await call(router.tables.create, { name: "matters" }, { context: ctx });
   const ready = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
@@ -324,7 +325,7 @@ test("a consult between an agent that changes the workspace and one that doesn't
   const { outcomes } = await setUp(ctx, pluginId, pick);
   expect(outcomes).toEqual([
     { $item: 0, tool: "agents_create", from: "agent:Helper", outcome: "made", id: expect.any(String) },
-    { $item: 1, tool: "agents_create", from: "agent:Builder", outcome: "refused", error: "Builder changes the workspace and Helper doesn't: an agent that changes the workspace and one that doesn't never consult each other" },
+    { $item: 1, tool: "agents_create", from: "agent:Builder", outcome: "refused", error: { text: "Builder changes the workspace and Helper doesn't: an agent that changes the workspace and one that doesn't never consult each other" } },
   ]);
   expect((await call(router.agents.list, undefined, { context: ctx })).map((a) => a.name)).toEqual(["Helper"]);
   plugin.remove();
@@ -420,7 +421,7 @@ test("the fixture's triggers are set up on its agents as the plugin's: its table
     expect((await call(router.triggers.update, { id: changed.id, enabled: false }, { context: ctx })).overridden).toEqual(["instructions"]);
     expect(await call(router.plugins.resetOverride, { kind: "trigger", id: changed.id, field: "instructions" }, { context: ctx })).toEqual({ overridden: [] });
     expect(await call(router.triggers.get, { id: changed.id }, { context: ctx })).toMatchObject({ instructions: "Update the conclusions.", enabled: false });
-    await expect(call(router.triggers.delete, { id: changed.id }, { context: ctx })).rejects.toMatchObject({ code: "FORBIDDEN", message: "It is law-firm's: uninstall the plugin to remove it" });
+    await expect(call(router.triggers.delete, { id: changed.id }, { context: ctx })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "plugins.override.forbidden", values: { plugin: "law-firm" } } });
     // The owner's own trigger on the plugin's agent is theirs to delete.
     const own = await call(router.triggers.create, { agentId: upkeep.id, name: "By hand", instructions: "Tidy up.", config: { kind: "manual", placement: "button" } }, { context: ctx });
     expect(own.overridden).toEqual([]);
@@ -435,7 +436,7 @@ test("a trigger waits for its agent, and for a table its agent may not work on",
   try {
     const alone = await call(router.plugins.setupPreview, { id: pluginId, pick: { triggers: ["Matter changed"] } }, { context: ctx });
     expect(alone.items).toEqual([]);
-    expect(alone.waiting).toEqual([{ definition: "trigger:Matter changed", reason: "Its agent “Matter upkeep” isn't set up: pick it too" }]);
+    expect(alone.waiting).toEqual([{ definition: "trigger:Matter changed", reason: say("plugins.setup.waiting.noAgent", { agent: "Matter upkeep" }) }]);
     await expect(call(router.plugins.setupPreview, { id: pluginId, pick: { triggers: ["Nope"] } }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   } finally {
     remove();
@@ -451,7 +452,7 @@ test("a poll its tool wouldn't let run is listed as waiting, even when its agent
     await call(router.tools.setActionEnabled, { toolId: gmail.id, action: "search_threads", enabled: false }, { context: ctx });
     const pick = { ...ALL, agents: AGENTS.map((name) => ({ name, harnessId })), triggers: TRIGGERS };
     const preview = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
-    expect(preview.waiting).toContainEqual({ definition: "trigger:New client email", reason: "This action is disabled workspace-wide" });
+    expect(preview.waiting).toContainEqual({ definition: "trigger:New client email", reason: { text: "This action is disabled workspace-wide" } });
     const { outcomes } = await setUp(ctx, pluginId, pick);
     expect(outcomes.filter((o) => o.outcome !== "made")).toEqual([]);
     expect((await ctx.db.select({ name: triggersTable.name }).from(triggersTable)).map((t) => t.name).sort()).toEqual(["Matter changed", "Research recorded"]);
@@ -495,9 +496,9 @@ test("a setup run from the install gives every tool on Ask and adds no server th
     const entry = { marketplaceId: market.id, entryName: "law-firm" };
     const { reviewed } = await call(router.plugins.preview, entry, { context: ctx });
     const result = await call(router.plugins.install, { ...entry, reviewed, setup: { ...ALL, agents: AGENTS.map((name) => ({ name, harnessId })), triggers: ["New client email", "Matter changed"] } }, { context: ctx });
-    expect(result.setup?.waiting).toContainEqual({ definition: "tool:case-law", reason: expect.stringContaining("wasn't ticked with the install") });
+    expect(result.setup?.waiting).toContainEqual({ definition: "tool:case-law", reason: say("plugins.setup.waiting.notTicked") });
     // A poll runs its action unasked, which the install doesn't grant: it waits, and the setup goes on past it.
-    expect(result.setup?.waiting).toContainEqual({ definition: "trigger:New client email", reason: expect.stringContaining("doesn't grant") });
+    expect(result.setup?.waiting).toContainEqual({ definition: "trigger:New client email", reason: say("plugins.setup.waiting.pollUnasked", { action: expect.any(String), agent: expect.any(String) }) });
     expect(result.setup?.outcomes.every((o) => o.outcome === "made")).toBe(true);
     expect((await ctx.db.select({ name: triggersTable.name }).from(triggersTable)).map((t) => t.name)).toEqual(["Matter changed"]);
     expect(await ctx.db.select().from(toolsTable).where(eq(toolsTable.pluginComponent, "case-law"))).toEqual([]);

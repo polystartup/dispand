@@ -1,4 +1,5 @@
 import { call } from "@orpc/server";
+import { say } from "../messages/index.ts";
 import { eq } from "drizzle-orm";
 import { expect, test, vi } from "vitest";
 import * as schema from "../db/schema.ts";
@@ -182,7 +183,7 @@ test("what a new version adds is named on the update's screen, made by none of i
     publish({ "com.dispand/agents/billing.md": NEW_AGENT, "com.dispand/primitives/invoices.json": NEW_TABLE, "com.dispand/triggers/invoice-due.json": NEW_TRIGGER });
     const shown = await preview();
     expect(shown.additions.map((a) => a.key).sort()).toEqual(["agent:Billing", "primitive:Invoices", "trigger:Invoice due"]);
-    expect(shown.additions.find((a) => a.kind === "agent")).toMatchObject({ name: "Billing", detail: "Prepares each matter's invoice." });
+    expect(shown.additions.find((a) => a.kind === "agent")).toMatchObject({ name: "Billing", detail: { text: "Prepares each matter's invoice." } });
     // What it names is what the owner saw: without the screen's token, nothing is applied.
     await expect(call(router.plugins.update, { id: pluginId }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
     // The update makes nothing new: it has no way to be told to.
@@ -222,7 +223,7 @@ test("what a new version drops goes with the update when nothing uses it, and is
     const shown = await preview();
     expect(shown.removals.map((r) => [r.kind, r.name, r.reasons]).sort()).toEqual([
       ["agent", "Matter upkeep", []],
-      ["table", "Research", ["It has 1 row"]],
+      ["table", "Research", [say("plugins.reason.rows", { count: 1 })]],
       ["trigger", "Research recorded", []],
     ]);
     // The table has a row: without a choice for it, nothing is applied.
@@ -248,7 +249,7 @@ test("a trigger a new version drops while its agent stays is asked about when th
     await call(router.triggers.update, { id: trigger!.id, instructions: "Mine." }, { context: ctx });
     publish({}, [CHANGED]);
     const shown = await preview();
-    expect(shown.removals).toMatchObject([{ kind: "trigger", name: "Matter changed", reasons: ["You changed it"] }]);
+    expect(shown.removals).toMatchObject([{ kind: "trigger", name: "Matter changed", reasons: [say("plugins.reason.changed")] }]);
     await expect(call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, choices: { [shown.removals[0]!.key]: "keep" } }, { context: ctx });
     expect((await ctx.db.select().from(schema.triggers).where(eq(schema.triggers.id, trigger!.id)))[0]).toMatchObject({ pluginId: null, instructions: "Mine.", overridden: [] });
@@ -387,7 +388,7 @@ test("an update names the harnesses holding the plugin natively and moves each i
     // Native installs need an https source: this one, as the update writes it, gets one.
     await ctx.db.update(schema.plugins).set({ url: "https://example.com/law-firm.git", sha: "a".repeat(40), entryName: "law-firm", nativeRoot: "." }).where(eq(schema.plugins.id, pluginId));
     // Only what the screen showed moves.
-    expect(await moveNative(ctx, pluginId, [])).toMatchObject([{ name: "Claude Code", reason: "it wasn't on the update's screen" }]);
+    expect(await moveNative(ctx, pluginId, [])).toMatchObject([{ name: "Claude Code", reason: say("plugins.update.notShown") }]);
     expect(operations).toEqual([]);
     expect(await moveNative(ctx, pluginId, ["h_native"])).toEqual([]);
     expect(operations).toEqual(["remove preview", "remove", "add preview", "add"]);
@@ -404,7 +405,7 @@ test("an offline runner is named as unchecked; a native step that fails leaves t
     await ctx.db.insert(schema.harnesses).values({ id: "h_offline", ownerId: ctx.ownerId, name: "Codex", runnerId: offline, kind: "codex", permissionMode: "default" });
     publish({ [DRAFTING]: edited(files[DRAFTING]!, "Draft", "Write") });
     const shown = await preview();
-    expect(shown.native.unchecked).toEqual(["Laptop"]);
+    expect(shown.native.unchecked).toEqual([{ name: "Laptop" }]);
     // Moving a native install needs the screen's token, whatever else the update holds.
     await expect(call(router.plugins.update, { id: pluginId, native: ["h_native"] }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
     // The fixture's source is a local folder, which can't be installed natively: the add is refused.
@@ -425,7 +426,7 @@ test("a native install its owner disabled isn't moved: it is named as staying, a
     const operations = await nativeRunner(ctx, pluginId, undefined, false);
     publish({ [DRAFTING]: edited(files[DRAFTING]!, "Draft", "Write") });
     const shown = await preview();
-    expect(shown.native).toEqual({ harnesses: [], unchecked: ["Claude Code (disabled or changing there)"] });
+    expect(shown.native).toEqual({ harnesses: [], unchecked: [{ name: "Claude Code", disabled: true }] });
     await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, native: ["h_native"] }, { context: ctx });
     expect(operations).toEqual([]);
   } finally {

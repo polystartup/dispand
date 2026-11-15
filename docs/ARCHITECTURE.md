@@ -1748,7 +1748,11 @@ same keys.
   The page's link (`lib/api.ts`, `translateErrors`) translates `data.key` in the page's language
   (`<html lang>`); text marked `external(text)` (an MCP server's, a plugin's) shows as it came;
   an internal error, or a key the page doesn't know, shows the generic message. Values are text:
-  React escapes them. An input its Zod schema rejects answers with `validation.<code>` and the
+  React escapes them; a list value is formatted by the page (`Intl.ListFormat`). Person-facing text a
+  procedure returns as data (an uninstall's reasons, an update's refusals, a setup's waiting
+  definitions) is a `Text`: `say(key, values)`, or `{ text }` for words that came as they are (a
+  plugin's, another area's not yet keyed, `reasonOf(err)`); the page renders it with `useText()`
+  (`lib/message.ts`). An input its Zod schema rejects answers with `validation.<code>` and the
   field's path and limits (`rpc/context.ts`, `validationKey`). `messages/messages.test.ts` walks
   the domain for every `new ORPCError(` and `new EngineError(` and fails on one whose message
   isn't a single `message()` key, external text or an engine error passed on (`passOn(err)`, typed

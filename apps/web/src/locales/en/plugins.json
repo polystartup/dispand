@@ -249,6 +249,7 @@
   "update": {
     "nativeTitle": "Native installs",
     "nativeMoves": "Moves to the new version on {{harnesses}}: its hooks, commands and servers there run as the new version's.",
+    "disabledThere": "{{name}} (disabled or changing there)",
     "nativeStays": "Stays as it is on {{harnesses}}: an install there keeps the old version until you move it from its harness.",
     "added": {
       "primitive": "Table",

@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
+import { say } from "@dispand/domain/messages/index.ts";
 
 const fake = vi.hoisted(() => ({ plugins: { preview: vi.fn(), install: vi.fn() }, harnesses: { list: vi.fn() }, runners: { list: vi.fn(), plugins: vi.fn() }, skills: {}, tools: {}, agents: {} }));
 vi.mock("../../lib/api.ts", async () => {
@@ -51,7 +52,7 @@ test("what the setup didn't make is listed after the install, which stays open o
   fake.harnesses.list.mockResolvedValue([{ id: "h_1", name: "Claude API", type: "cloud" }]);
   fake.runners.list.mockResolvedValue([]);
   fake.plugins.preview.mockResolvedValue({ skills: [], mcpServers: [], agents: [], definitions: { primitives: [], agents: [drafting], triggers: [] }, notImported: [], reviewed: "r".repeat(64), nativeAvailable: false });
-  fake.plugins.install.mockResolvedValue({ pluginId: "plugin_1", toolIds: [], agentIds: [], setup: { outcomes: [], waiting: [{ definition: "tool:case-law", reason: "It wasn't ticked with the install" }] } });
+  fake.plugins.install.mockResolvedValue({ pluginId: "plugin_1", toolIds: [], agentIds: [], setup: { outcomes: [], waiting: [{ definition: "tool:case-law", reason: say("plugins.setup.waiting.notTicked") }] } });
   const onClose = vi.fn();
   render(
     <QueryClientProvider client={new QueryClient()}>

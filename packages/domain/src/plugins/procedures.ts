@@ -26,6 +26,7 @@ import {
 } from "../db/schema.ts";
 import { pluginNativeKey } from "../skills/native.ts";
 import { newId } from "../ids.ts";
+import { external, message, reasonOf, say, type Text } from "../messages/index.ts";
 import { lockConsults } from "../engine/consults.ts";
 import { authed, base, type InitialContext } from "../rpc/context.ts";
 import { MAX_DESCRIPTION, PackageError, SKILL_NAME, validatePackage } from "../skills/package.ts";
@@ -67,7 +68,7 @@ export async function seedMarketplaces(tx: Tx, ownerId: string): Promise<void> {
 /** A failure the owner can act on (a fetch, a marketplace or a plugin that isn't readable): BAD_REQUEST with its words. */
 function asBadRequest(e: unknown): never {
   if (e instanceof GitError || e instanceof MarketplaceError || e instanceof PluginError || e instanceof PackageError || e instanceof WellKnownError) {
-    throw new ORPCError("BAD_REQUEST", { message: e.message });
+    throw new ORPCError("BAD_REQUEST", external(e.message));
   }
   throw e;
 }
@@ -125,7 +126,7 @@ function lstatOrNull(path: string) {
 /** Fetches an entry's plugin (from its own repository, or its marketplace's for a relative path) and reads it. */
 async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry, allowFile: boolean): Promise<{ contents: PluginContents; url: string; sha: string; nativeRoot?: string; changelog?: string | null }> {
   const { source } = entry;
-  if (source.type === "unsupported") throw new ORPCError("BAD_REQUEST", { message: source.reason });
+  if (source.type === "unsupported") throw new ORPCError("BAD_REQUEST", external(source.reason));
   if (source.type === "well-known") return { ...(await readWellKnownSkills(source.url)), url: source.url };
   const url = source.type === "git" ? source.url : market.url;
   const checkout = await fetchGit(url, source.type === "git" ? { ref: source.ref, sha: source.sha, allowFile } : { allowFile });
@@ -160,13 +161,13 @@ async function findMarketplace(db: Db | Tx, ownerId: string, id: string): Promis
     .select()
     .from(marketplacesTable)
     .where(and(eq(marketplacesTable.id, id), eq(marketplacesTable.ownerId, ownerId)));
-  if (!row) throw new ORPCError("NOT_FOUND", { message: "Marketplace not found" });
+  if (!row) throw new ORPCError("NOT_FOUND", message("plugins.marketplace.notFound"));
   return row;
 }
 
 function findEntry(market: MarketplaceRow, entryName: string): MarketplaceEntry {
   const entry = market.entries.find((e) => e.name === entryName);
-  if (!entry) throw new ORPCError("NOT_FOUND", { message: `${market.name} doesn't list a plugin called “${entryName}”` });
+  if (!entry) throw new ORPCError("NOT_FOUND", message("plugins.marketplace.noPlugin", { marketplace: market.name, plugin: entryName }));
   return entry;
 }
 
@@ -226,7 +227,7 @@ const addMarketplace = owner.input(AddInput).handler(async ({ input, context }) 
     await context.db.insert(marketplacesTable).values({ id, ownerId: context.ownerId, name, url, kind, entries, syncedAt: new Date() });
   } catch (err) {
     const e = err as { code?: unknown; cause?: { code?: unknown } };
-    if (e.code === "23505" || e.cause?.code === "23505") throw new ORPCError("CONFLICT", { message: "This marketplace is already added" });
+    if (e.code === "23505" || e.cause?.code === "23505") throw new ORPCError("CONFLICT", message("plugins.marketplace.duplicate"));
     throw err;
   }
   return marketplaceView(await findMarketplace(context.db, context.ownerId, id));
@@ -235,10 +236,10 @@ const addMarketplace = owner.input(AddInput).handler(async ({ input, context }) 
 const removeMarketplace = owner.input(Id).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
     const row = await findMarketplace(tx, context.ownerId, input.id);
-    if (row.builtIn) throw new ORPCError("FORBIDDEN", { message: "Built-in marketplaces can't be removed" });
+    if (row.builtIn) throw new ORPCError("FORBIDDEN", message("plugins.marketplace.builtIn"));
     const installed = await tx.select({ name: pluginsTable.name }).from(pluginsTable).where(eq(pluginsTable.marketplaceId, row.id));
     if (installed.length > 0) {
-      throw new ORPCError("CONFLICT", { message: `Remove its plugins first: ${installed.map((p) => p.name).join(", ")}` });
+      throw new ORPCError("CONFLICT", message("plugins.marketplace.removeFirst", { plugins: installed.map((p) => p.name) }));
     }
     await tx.delete(marketplacesTable).where(eq(marketplacesTable.id, row.id));
   });
@@ -304,7 +305,7 @@ function validated(files: Parameters<typeof validatePackage>[0]) {
 function chosenSkills(contents: PluginContents, names: string[]) {
   const chosen = names.map((name) => {
     const skill = contents.skills.find((s) => s.name === name);
-    if (!skill) throw new ORPCError("BAD_REQUEST", { message: `The plugin has no skill “${name}” to import` });
+    if (!skill) throw new ORPCError("BAD_REQUEST", message("plugins.install.noSkill", { name }));
     return skill;
   });
   const files = chosen.flatMap((s) => s.files);
@@ -362,15 +363,15 @@ const install = owner
     // From a Job's approved item: bound to the commit shown, skills and the setup only. A server
     // (its address, its settings), an agent file (its tools' default grants) and a native install are the owner's to give.
     if (context.job && (input.nativeInstall || Object.keys(input.settings).length || picked.mcpServers.length || picked.agents.length)) {
-      throw new ORPCError("FORBIDDEN", { message: "A proposed install picks skills and definitions only: MCP servers, agent files and native installation are the owner's to add" });
+      throw new ORPCError("FORBIDDEN", message("plugins.install.proposed"));
     }
-    if (picked.agents.length && !harnessId) throw new ORPCError("BAD_REQUEST", { message: "Pick the harness the plugin's agents run on" });
+    if (picked.agents.length && !harnessId) throw new ORPCError("BAD_REQUEST", message("plugins.install.pickHarness"));
     if (picked.agents.length && harnessId) {
       const [harness] = await context.db
         .select({ id: harnesses.id })
         .from(harnesses)
         .where(and(eq(harnesses.id, harnessId), eq(harnesses.ownerId, context.ownerId)));
-      if (!harness) throw new ORPCError("NOT_FOUND", { message: "Harness not found" });
+      if (!harness) throw new ORPCError("NOT_FOUND", message("plugins.install.harnessNotFound"));
     }
     const market = await findMarketplace(context.db, context.ownerId, input.marketplaceId);
     const entry = findEntry(market, input.entryName);
@@ -378,24 +379,24 @@ const install = owner
     // A plugin with definitions is worth installing for them alone: they are registered, and set up later.
     const { agents: agentDefs, primitives, triggers } = contents.definitions;
     if (nothingPicked && !input.nativeInstall && !agentDefs.length && !primitives.length && !triggers.length) {
-      throw new ORPCError("BAD_REQUEST", { message: "Pick at least one skill, MCP server or agent" });
+      throw new ORPCError("BAD_REQUEST", message("plugins.install.pickSomething"));
     }
     // Whatever it picks: its skills' files and its agents' instructions are what the owner saw too.
     if (reviewToken(sha, contents) !== input.reviewed) {
-      throw new ORPCError("CONFLICT", { message: `${entry.name} changed since you reviewed it: look at it again before installing` });
+      throw new ORPCError("CONFLICT", message("plugins.install.changed", { plugin: entry.name }));
     }
     const chosen = picked.skills.length ? chosenSkills(contents, picked.skills) : null;
     const pluginId = newId("plugin");
     const servers = picked.mcpServers.map((serverName) => {
       const server = contents.mcpServers.find((s) => s.name === serverName);
-      if (!server) throw new ORPCError("BAD_REQUEST", { message: `The plugin has no MCP server “${serverName}” to import` });
+      if (!server) throw new ORPCError("BAD_REQUEST", message("plugins.install.noServer", { name: serverName }));
       // Runner tools (stdio servers) come with the runner's MCP servers.
-      if (server.type !== "http") throw new ORPCError("BAD_REQUEST", { message: `The MCP server ${serverName} runs a command on a machine: not yet supported` });
+      if (server.type !== "http") throw new ORPCError("BAD_REQUEST", message("plugins.install.serverOnMachine", { name: serverName }));
       return { name: server.name, fields: httpTool(server, input.settings[server.name] ?? {}, pluginId) };
     });
     const agents = picked.agents.map((agentName) => {
       const agent = contents.agents.find((a) => a.name === agentName);
-      if (!agent) throw new ORPCError("BAD_REQUEST", { message: `The plugin has no agent “${agentName}” to import` });
+      if (!agent) throw new ORPCError("BAD_REQUEST", message("plugins.install.noAgent", { name: agentName }));
       return agent;
     });
     const name = packageName(entry.name);
@@ -448,14 +449,13 @@ const install = owner
           agentIds.push(id);
         }
         // What the setup would make, checked before anything is kept: a pick it can't make refuses the install.
-        const setup = setupPicked ? await setupItems(tx, context.ownerId, pluginId, input.setup!, true) : null;
-        if (setup && "error" in setup) throw new ORPCError("BAD_REQUEST", { message: setup.error });
+        if (setupPicked) await setupItems(tx, context.ownerId, pluginId, input.setup!, true);
         return { tools, agentIds };
       });
     } catch (err) {
       const broken = uniqueConstraint(err);
-      if (broken === "skill_packages_owner_name") throw new ORPCError("CONFLICT", { message: `A skill is already called “${name}”` });
-      if (broken !== null) throw new ORPCError("CONFLICT", { message: `${entry.name} is already installed` });
+      if (broken === "skill_packages_owner_name") throw new ORPCError("CONFLICT", message("plugins.install.skillTaken", { name }));
+      if (broken !== null) throw new ORPCError("CONFLICT", message("plugins.install.installed", { plugin: entry.name }));
       throw err;
     }
     for (const tool of created.tools) await refreshActions(context.db, context.secrets, context.tools, tool);
@@ -463,7 +463,6 @@ const install = owner
     if (!setupPicked) return { ...made, setup: undefined };
     // Set up as `setUp` does, from the definitions the token covers: an item refused leaves the plugin installed, and Set up goes on from there.
     const items = await setupItems(context.db, context.ownerId, pluginId, input.setup!, true);
-    if ("error" in items) throw new ORPCError("BAD_REQUEST", { message: items.error });
     // From a Job, under its context: its approved item is the owner's approval, and each item's procedure checks it as it does a call of the owner.
     const { outcomes } = await runItemsAsOwner(context, pluginId, items.items);
     return { ...made, setup: { outcomes, waiting: items.waiting } };
@@ -477,7 +476,7 @@ async function findPlugin(db: Db | Tx, ownerId: string, id: string, lock = false
     .from(pluginsTable)
     .where(and(eq(pluginsTable.id, id), eq(pluginsTable.ownerId, ownerId)));
   const [row] = lock ? await query.for("update") : await query;
-  if (!row) throw new ORPCError("NOT_FOUND", { message: "Plugin not found" });
+  if (!row) throw new ORPCError("NOT_FOUND", message("plugins.notFound"));
   return row;
 }
 
@@ -660,7 +659,7 @@ const removalReview = (elements: Element[]) => createHash("sha256").update(canon
  * elements it needs if kept. `reviewed` binds the removal to this list.
  */
 const uninstallPreview = owner.input(Id).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN", { message: "Plugin removal requires an owner session" });
+  if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
   const row = await findPlugin(context.db, context.ownerId, input.id);
   const elements = await inUse(context.db, context.ownerId, row.id);
   return { elements, reviewed: removalReview(elements), nativeName: `dispand-${row.id}`, sourceKey: pluginNativeKey(row) ?? null };
@@ -756,14 +755,13 @@ const Choices = z.record(z.string().max(100), z.enum(["keep", "delete"])).refine
  * checked as a whole first (`checkChoices`).
  */
 const uninstall = owner.input(Id.extend({ reviewed: z.string().length(64), choices: Choices })).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN", { message: "Plugin removal requires an owner session" });
+  if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
   const out = await context.db.transaction(async (tx) => {
     const row = await findPlugin(tx, context.ownerId, input.id, true);
     await lockElements(tx, context.ownerId, row.id);
     const elements = await inUse(tx, context.ownerId, row.id);
-    if (removalReview(elements) !== input.reviewed) throw new ORPCError("CONFLICT", { message: `${row.name} changed since you looked: look at what would be removed again` });
-    const problem = checkChoices(elements, input.choices);
-    if (problem) throw new ORPCError("BAD_REQUEST", { message: problem });
+    if (removalReview(elements) !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.uninstall.changed", { plugin: row.name }));
+    checkChoices(elements, input.choices);
     const out = await removeElements(tx, context.ownerId, context.engine, row, elements, input.choices);
     await tx.delete(pluginsTable).where(eq(pluginsTable.id, row.id));
     return out;
@@ -775,12 +773,12 @@ const uninstall = owner.input(Id.extend({ reviewed: z.string().length(64), choic
 /** The plugin as its marketplace lists it now: the entry's current commit, read. A failed sync keeps the entries. */
 async function latest(context: { db: Db; ownerId: string; gitFileUrls?: boolean }, row: PluginRow) {
   if (row.source === "generated" || !row.marketplaceId || !row.entryName) {
-    throw new ORPCError("BAD_REQUEST", { message: `${row.name} was generated in this workspace: there is nothing to update it from` });
+    throw new ORPCError("BAD_REQUEST", message("plugins.update.generated", { plugin: row.name }));
   }
   const allowFile = !!context.gitFileUrls;
   const market = await syncMarketplace(context.db, await findMarketplace(context.db, context.ownerId, row.marketplaceId), allowFile);
   const entry = market.entries.find((e) => e.name === row.entryName);
-  if (!entry) throw new ORPCError("BAD_REQUEST", { message: `${market.name} no longer lists ${row.name}` });
+  if (!entry) throw new ORPCError("BAD_REQUEST", message("plugins.update.unlisted", { marketplace: market.name, plugin: row.name }));
   return readEntry(market, entry, allowFile).catch(asBadRequest);
 }
 
@@ -815,7 +813,7 @@ async function skillPlan(db: Db | Tx, row: PluginRow, contents: PluginContents, 
   if (!pkg) return null;
   const current = await db.select({ name: skillsTable.name }).from(skillsTable).where(eq(skillsTable.packageId, pkg.id));
   const kept = current.map((s) => s.name).filter((name) => contents.skills.some((s) => s.name === name));
-  if (kept.length === 0) throw new ORPCError("BAD_REQUEST", { message: `None of ${row.name}'s imported skills is left upstream: remove the plugin instead` });
+  if (kept.length === 0) throw new ORPCError("BAD_REQUEST", message("plugins.update.nothingLeft", { plugin: row.name }));
   const next = chosenSkills(contents, kept).files;
   const mine = await db.select({ path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(eq(skillFiles.packageId, pkg.id));
   const old = await db.select({ path: skillFileUpstream.path, content: skillFileUpstream.content }).from(skillFileUpstream).where(eq(skillFileUpstream.packageId, pkg.id));
@@ -839,7 +837,7 @@ async function skillPlan(db: Db | Tx, row: PluginRow, contents: PluginContents, 
   return { packageId: pkg.id, files, next, changes, conflicts };
 }
 
-type Addition = { key: string; kind: "primitive" | "agent" | "trigger" | "server"; name: string; detail: string };
+type Addition = { key: string; kind: "primitive" | "agent" | "trigger" | "server"; name: string; detail: Text };
 
 /**
  * What this version of the plugin defines that the one installed didn't: named on the update's
@@ -851,10 +849,10 @@ function additionsOf(row: PluginRow, contents: PluginContents): Addition[] {
     now.filter((n) => !before.some((b) => (typeof b === "string" ? b : b.name).toLowerCase() === n.name.toLowerCase()));
   const had = row.definitions;
   return [
-    ...fresh(contents.definitions.primitives, had.primitives).map((d) => ({ key: `primitive:${d.name}`, kind: "primitive" as const, name: d.name, detail: `A table with ${d.fields.length} ${d.fields.length === 1 ? "field" : "fields"}` })),
-    ...fresh(contents.definitions.agents, had.agents).map((d) => ({ key: `agent:${d.name}`, kind: "agent" as const, name: d.name, detail: d.description })),
-    ...fresh(contents.definitions.triggers, had.triggers).map((d) => ({ key: `trigger:${d.name}`, kind: "trigger" as const, name: d.name, detail: `Starts Jobs of ${d.agent}` })),
-    ...fresh(contents.mcpServers.filter((s) => s.type === "http"), row.components.mcpServers).map((s) => ({ key: `server:${s.name}`, kind: "server" as const, name: s.name, detail: s.type === "http" ? s.url : "" })),
+    ...fresh(contents.definitions.primitives, had.primitives).map((d) => ({ key: `primitive:${d.name}`, kind: "primitive" as const, name: d.name, detail: say("plugins.update.tableCount", { count: d.fields.length }) })),
+    ...fresh(contents.definitions.agents, had.agents).map((d) => ({ key: `agent:${d.name}`, kind: "agent" as const, name: d.name, detail: { text: d.description } })),
+    ...fresh(contents.definitions.triggers, had.triggers).map((d) => ({ key: `trigger:${d.name}`, kind: "trigger" as const, name: d.name, detail: say("plugins.update.startsJobs", { agent: d.agent }) })),
+    ...fresh(contents.mcpServers.filter((s) => s.type === "http"), row.components.mcpServers).map((s) => ({ key: `server:${s.name}`, kind: "server" as const, name: s.name, detail: { text: s.type === "http" ? s.url : "" } })),
   ];
 }
 
@@ -978,7 +976,7 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
  * operation a person would use, then keeps the new definition as the one the table was merged
  * with, but for what waits for a table that isn't there yet: offered again by the next update.
  */
-async function applyTable(context: InitialContext & { ownerId: string }, row: PluginRow, plan: TablePlan, ticked: string[], failed: { name: string; reason: string }[]) {
+async function applyTable(context: InitialContext & { ownerId: string }, row: PluginRow, plan: TablePlan, ticked: string[], failed: { name: string; reason: Text }[]) {
   const lower = (s: string | null) => (s ?? "").toLowerCase();
   // The keys of the changes that failed: their part of the definition stays as it was, so the next update offers them again.
   const refused = new Set<string>();
@@ -988,7 +986,7 @@ async function applyTable(context: InitialContext & { ownerId: string }, row: Pl
     } catch (err) {
       if (!(err instanceof ORPCError)) throw err;
       refused.add(key);
-      failed.push({ name: plan.name, reason: err.message });
+      failed.push({ name: plan.name, reason: reasonOf(err) });
       return undefined;
     }
   };
@@ -1025,7 +1023,7 @@ async function applyTable(context: InitialContext & { ownerId: string }, row: Pl
     if (isTicked("parent") && !parentTicked) {
       // Both stay offered: the parent can apply once its field is added.
       refused.add("parent").add(`add:${wanted!.field}`);
-      failed.push({ name: plan.name, reason: `Its parent field ${wanted!.field} isn't there: tick its addition too` });
+      failed.push({ name: plan.name, reason: say("plugins.update.parentMissing", { field: wanted!.field }) });
     }
     const current = table!.parentFieldId ? await context.db.select({ referencesTableId: fieldsTable.referencesTableId }).from(fieldsTable).where(eq(fieldsTable.id, table!.parentFieldId)).then((r) => r[0]) : undefined;
     const parent = parentTicked
@@ -1037,7 +1035,7 @@ async function applyTable(context: InitialContext & { ownerId: string }, row: Pl
       const [after] = await context.db.select({ parentFieldId: tablesTable.parentFieldId }).from(tablesTable).where(eq(tablesTable.id, plan.tableId));
       if (parentTicked && wantedField && after?.parentFieldId !== wantedField.id) {
         refused.add("parent");
-        failed.push({ name: plan.name, reason: `Its parent is another field naming the same table: make ${wanted!.field} the parent by hand` });
+        failed.push({ name: plan.name, reason: say("plugins.update.parentOther", { field: wanted!.field }) });
       }
     }
   }
@@ -1101,18 +1099,18 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
   const shown = await updatePlan(context, row);
   const { contents, url, sha, nativeRoot } = shown;
   if ((input.native.length || shown.conflicts.length || shown.additions.length || shown.removals.length || shown.tables.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
-    throw new ORPCError("CONFLICT", { message: `Look at what updating ${row.name} changes before it is applied` });
+    throw new ORPCError("CONFLICT", message("plugins.update.review", { plugin: row.name }));
   }
   for (const [tableId, keys] of Object.entries(input.tables)) {
     const plan = shown.tables.find((t) => t.tableId === tableId);
-    if (!plan || keys.some((k) => !plan.changes.some((c) => c.key === k && !c.stale && !c.waiting))) throw new ORPCError("BAD_REQUEST", { message: "Not a change of this table that can be applied" });
+    if (!plan || keys.some((k) => !plan.changes.some((c) => c.key === k && !c.stale && !c.waiting))) throw new ORPCError("BAD_REQUEST", message("plugins.update.notApplicable"));
   }
-  if (input.take.some((key) => !shown.conflicts.some((c) => c.key === key))) throw new ORPCError("BAD_REQUEST", { message: "Not a field in conflict" });
+  if (input.take.some((key) => !shown.conflicts.some((c) => c.key === key))) throw new ORPCError("BAD_REQUEST", message("plugins.update.notConflict"));
   // Handed to Stem: a field of an agent, tool or trigger in conflict, not also taken; the Assistant decides it.
   const handed = shown.conflicts.filter((c) => input.stem.includes(c.key));
-  if (handed.length !== input.stem.length || handed.some((c) => c.kind === "skill" || input.take.includes(c.key))) throw new ORPCError("BAD_REQUEST", { message: "Stem decides fields of agents, tools and triggers in conflict, that you didn't take" });
+  if (handed.length !== input.stem.length || handed.some((c) => c.kind === "skill" || input.take.includes(c.key))) throw new ORPCError("BAD_REQUEST", message("plugins.update.stemScope"));
   const assistant = handed.length ? await findAssistant(context.db, context.ownerId) : null;
-  if (handed.length && !assistant) throw new ORPCError("BAD_REQUEST", { message: "Set the Assistant up first: Stem is the Assistant" });
+  if (handed.length && !assistant) throw new ORPCError("BAD_REQUEST", message("plugins.update.assistantFirst"));
   const elements = (await elementPlans(context.db, context.ownerId, row, contents, input.take)).filter((e) => !shown.leaving.has(`${e.kind}:${e.id}`));
   const out = await context.db.transaction(async (tx) => {
     await findPlugin(tx, context.ownerId, row.id, true);
@@ -1121,11 +1119,10 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
     if (shown.leaving.size) {
       await lockElements(tx, context.ownerId, row.id);
       const removals = await inUse(tx, context.ownerId, row.id, shown.leaving, shown.after);
-      if (canonical(removals) !== canonical(shown.removals)) throw new ORPCError("CONFLICT", { message: `${row.name} changed since you looked: look at what updating it changes again` });
-      const problem = checkChoices(removals, input.choices);
-      if (problem) throw new ORPCError("BAD_REQUEST", { message: problem });
+      if (canonical(removals) !== canonical(shown.removals)) throw new ORPCError("CONFLICT", message("plugins.update.changed", { plugin: row.name }));
+      checkChoices(removals, input.choices);
       out = await removeElements(tx, context.ownerId, context.engine, row, removals, input.choices);
-    } else if (Object.keys(input.choices).length) throw new ORPCError("BAD_REQUEST", { message: "Not an element of this plugin" });
+    } else if (Object.keys(input.choices).length) throw new ORPCError("BAD_REQUEST", message("plugins.uninstall.notElement"));
     const skill = await skillPlan(tx, row, contents, input.take, true);
     if (skill) {
       const { skills } = validated(skill.files);
@@ -1145,7 +1142,7 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
   });
   context.engine.settled(out);
   // Tools first: an agent's new list may name one at its new address.
-  const failed: { name: string; reason: string }[] = [];
+  const failed: { name: string; reason: Text }[] = [];
   for (const kind of ["tool", "agent", "trigger"] as const) {
     for (const e of elements.filter((e) => e.kind === kind && Object.keys(e.plan.set).length)) {
       const procedure = kind === "tool" ? toolProcedures.update : kind === "agent" ? agentProcedures.update : triggerProcedures.update;
@@ -1164,7 +1161,7 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
         if (!(err instanceof ORPCError)) throw err;
         // Refused: what was underneath stays, so the next update offers the change again.
         await context.db.update(table).set({ upstream: e.previous }).where(eq(table.id, e.id));
-        failed.push({ name: e.name, reason: err.message });
+        failed.push({ name: e.name, reason: reasonOf(err) });
       }
     }
   }
@@ -1203,7 +1200,6 @@ const setupReview = (items: unknown) => createHash("sha256").update(canonical(it
 /** The items `setUp` would make now, in words as a proposal shows them, and what can't be made yet. */
 const setupPreview = owner.input(SetupInput).handler(async ({ input, context }) => {
   const setup = await setupItems(context.db, context.ownerId, input.id, input.pick);
-  if ("error" in setup) throw new ORPCError("BAD_REQUEST", { message: setup.error });
   return { ...(await itemsView(context.db, context.ownerId, setup.items)), waiting: setup.waiting, reviewed: setupReview(setup.items) };
 });
 
@@ -1213,8 +1209,7 @@ const setupPreview = owner.input(SetupInput).handler(async ({ input, context }) 
  */
 const setUp = owner.input(SetupInput.extend({ reviewed: z.string().length(64) })).handler(async ({ input, context }) => {
   const setup = await setupItems(context.db, context.ownerId, input.id, input.pick);
-  if ("error" in setup) throw new ORPCError("BAD_REQUEST", { message: setup.error });
-  if (setupReview(setup.items) !== input.reviewed) throw new ORPCError("CONFLICT", { message: "The setup changed since you reviewed it: look at the updated list before setting it up" });
+  if (setupReview(setup.items) !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.setup.changed"));
   const { outcomes } = await runItemsAsOwner(context, input.id, setup.items);
   return { outcomes, waiting: setup.waiting };
 });
@@ -1227,23 +1222,23 @@ const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool", "tri
   const { kind, id, field } = input;
   if (kind === "skill") {
     // A skill's fields are its files: `file:<path>`.
-    if (!field.startsWith("file:")) throw new ORPCError("BAD_REQUEST", { message: "Not a field a plugin sets" });
+    if (!field.startsWith("file:")) throw new ORPCError("BAD_REQUEST", message("plugins.override.notField"));
     await context.db.transaction((tx) => resetFile(tx, context.ownerId, id, field.slice("file:".length)));
     await context.engine.narrowOwnerSessions(context.ownerId, context.db);
     return { overridden: [] };
   }
-  if (!(ELEMENT_FIELDS[kind].overridable as readonly string[]).includes(field)) throw new ORPCError("BAD_REQUEST", { message: "Not a field a plugin sets" });
+  if (!(ELEMENT_FIELDS[kind].overridable as readonly string[]).includes(field)) throw new ORPCError("BAD_REQUEST", message("plugins.override.notField"));
   const table = kind === "agent" ? agentsTable : kind === "tool" ? toolsTable : triggersTable;
   const [row] = await context.db
     .select({ upstream: table.upstream })
     .from(table)
     .where(and(eq(table.id, id), eq(table.ownerId, context.ownerId)));
-  if (!row) throw new ORPCError("NOT_FOUND");
-  if (!row.upstream || !(field in row.upstream)) throw new ORPCError("BAD_REQUEST", { message: "No plugin's value to go back to" });
+  if (!row) throw new ORPCError("NOT_FOUND", message("plugins.override.notFound"));
+  if (!row.upstream || !(field in row.upstream)) throw new ORPCError("BAD_REQUEST", message("plugins.override.noValue"));
   const value = { [field]: row.upstream[field] };
   // The setting that filled it was sealed with the address the override replaced.
   if (kind === "tool" && field === "url" && hasPlaceholder(String(value.url))) {
-    throw new ORPCError("BAD_REQUEST", { message: "The plugin's address needs a setting: update the plugin, or uninstall and install it again, to enter it" });
+    throw new ORPCError("BAD_REQUEST", message("plugins.override.needsSetting"));
   }
   return writeFields(context, kind, id, value);
 });
@@ -1253,7 +1248,7 @@ const ElementRef = z.object({ kind: z.enum(["agent", "tool", "trigger"]), id: z.
 
 /** The conflicts of one of a plugin's elements: with Stem, waiting for the owner's Approval, or theirs again. */
 const conflicts = owner.input(ElementRef).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN");
+  if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
   const rows = await context.db
     .select()
     .from(pluginConflicts)
@@ -1275,22 +1270,23 @@ async function conflictView(db: Db, r: typeof pluginConflicts.$inferSelect) {
  * theirs again, keep their value, take the plugin's, or hand it to Stem once more.
  */
 const resolveConflict = owner.input(z.object({ id: z.string().max(64), choice: z.enum(["accept", "decline", "mine", "plugin", "stem"]), reviewed: z.string().length(64) })).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN");
+  if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
   // Decided on the values the page showed: one that changed since (another update, an edit) is shown again.
   const [row] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, input.id), eq(pluginConflicts.ownerId, context.ownerId)));
-  if (!row) throw new ORPCError("NOT_FOUND");
-  if ((await conflictView(context.db, row)).reviewed !== input.reviewed) throw new ORPCError("CONFLICT", { message: "This field changed since you looked: look at it again" });
+  if (!row) throw new ORPCError("NOT_FOUND", message("plugins.override.conflictNotFound"));
+  if ((await conflictView(context.db, row)).reviewed !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
   const actor = { type: "user" as const, userId: context.ownerId };
   if (input.choice === "accept" || input.choice === "decline") {
-    if ((await answerConflict(context, actor, input.id, input.choice === "accept")) === "gone") throw new ORPCError("NOT_FOUND");
+    if ((await answerConflict(context, actor, input.id, input.choice === "accept")) === "gone") throw new ORPCError("NOT_FOUND", message("plugins.override.conflictNotFound"));
   } else if (input.choice === "mine" || input.choice === "plugin") {
     await ownerChoice(context, actor, input.id, input.choice);
   } else {
     const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, input.id), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "open")));
-    if (!c) throw new ORPCError("NOT_FOUND");
+    if (!c) throw new ORPCError("NOT_FOUND", message("plugins.override.conflictNotFound"));
     const now = await fieldNow(context.db, c);
     const assistant = await findAssistant(context.db, context.ownerId);
-    if (!now || !assistant) throw new ORPCError("BAD_REQUEST", { message: !now ? "It is no longer the plugin's" : "Set the Assistant up first: Stem is the Assistant" });
+    if (!now) throw new ORPCError("BAD_REQUEST", message("plugins.override.notPlugins"));
+    if (!assistant) throw new ORPCError("BAD_REQUEST", message("plugins.update.assistantFirst"));
     const table = c.kind === "agent" ? agentsTable : c.kind === "tool" ? toolsTable : triggersTable;
     const [element] = await context.db.select({ name: table.name }).from(table).where(eq(table.id, c.elementId));
     // Handed off again against the values as they are now.

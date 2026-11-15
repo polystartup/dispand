@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { say } from "../messages/index.ts";
 import type { PrimitiveDefinition } from "./definitions.ts";
 import { type ActualTable, tableChanges } from "./table-merge.ts";
 
@@ -61,12 +62,12 @@ test("a field renamed upstream reads as one added and one removed: nothing is lo
 
 test("a change to something the owner changed is stale and can't be applied; one the owner already removed is nothing", () => {
   const retyped: ActualTable = { ...actual, fields: actual.fields.map((f) => (f.name === "Conclusions" ? { ...f, type: "text" } : f)) };
-  expect(kinds(next((d) => (d.fields[1]!.type = "rich-text" as never)), retyped)).toEqual([{ kind: "retype", field: "Conclusions", ticked: false, stale: "You changed this field" }]);
+  expect(kinds(next((d) => (d.fields[1]!.type = "rich-text" as never)), retyped)).toEqual([{ kind: "retype", field: "Conclusions", ticked: false, stale: say("plugins.table.ownerField") }]);
   const gone: ActualTable = { ...actual, fields: actual.fields.filter((f) => f.name !== "Conclusions") };
   expect(kinds(next((d) => (d.fields = d.fields.filter((f) => f.name !== "Conclusions"))), gone)).toEqual([]);
   // A field of the owner's already has the name: the plugin's can't be added beside it.
   const named: ActualTable = { ...actual, fields: [...actual.fields, { id: "f9", name: "fee", type: "text", choices: [], pluginField: null }] };
-  expect(kinds(next((d) => d.fields.push({ name: "Fee", type: "number" })), named)).toEqual([{ kind: "add", field: "Fee", ticked: false, stale: "A field of yours is called so" }]);
+  expect(kinds(next((d) => d.fields.push({ name: "Fee", type: "number" })), named)).toEqual([{ kind: "add", field: "Fee", ticked: false, stale: say("plugins.table.ownField") }]);
 });
 
 test("a change naming a table that doesn't exist yet waits for it", () => {
@@ -79,14 +80,14 @@ test("a choice that keeps its label under a new id is a replacement: unticked, a
 
 test("whatever the owner changed is stale for every kind of change: a removal, a move, the primitive flag, the parent", () => {
   const retyped: ActualTable = { ...actual, fields: actual.fields.map((f) => (f.name === "Conclusions" ? { ...f, type: "text" } : f)) };
-  expect(kinds(next((d) => (d.fields = d.fields.filter((f) => f.name !== "Conclusions"))), retyped)).toEqual([{ kind: "remove", field: "Conclusions", ticked: false, stale: "You changed this field" }]);
+  expect(kinds(next((d) => (d.fields = d.fields.filter((f) => f.name !== "Conclusions"))), retyped)).toEqual([{ kind: "remove", field: "Conclusions", ticked: false, stale: say("plugins.table.ownerField") }]);
   const reordered: ActualTable = { ...actual, fields: [actual.fields[0]!, actual.fields[2]!, actual.fields[1]!, actual.fields[3]!] };
-  expect(kinds(next((d) => d.fields.reverse()), reordered)).toEqual([{ kind: "move", field: undefined, ticked: false, stale: "You changed the order" }]);
+  expect(kinds(next((d) => d.fields.reverse()), reordered)).toEqual([{ kind: "move", field: undefined, ticked: false, stale: say("plugins.table.order") }]);
   const noParent: ActualTable = { ...actual, parentField: null };
-  expect(kinds(next((d) => (d.parent = { field: "Clients", required: true })), noParent)).toEqual([{ kind: "parent", field: undefined, ticked: false, stale: "You changed it" }]);
+  expect(kinds(next((d) => (d.parent = { field: "Clients", required: true })), noParent)).toEqual([{ kind: "parent", field: undefined, ticked: false, stale: say("plugins.table.changed") }]);
 });
 
 test("changing what a reference field names isn't offered as something that can be applied here", () => {
-  expect(kinds(next((d) => (d.fields[0]!.references = "Matters")))).toEqual([{ kind: "retype", field: "Clients", ticked: false, stale: "It can't be applied here: change the field by hand" }]);
-  expect(kinds(next((d) => (d.fields[1] = { name: "Conclusions", type: "reference", references: "Clients" })))).toEqual([{ kind: "retype", field: "Conclusions", ticked: false, stale: "It can't be applied here: change the field by hand" }]);
+  expect(kinds(next((d) => (d.fields[0]!.references = "Matters")))).toEqual([{ kind: "retype", field: "Clients", ticked: false, stale: say("plugins.table.unsupported") }]);
+  expect(kinds(next((d) => (d.fields[1] = { name: "Conclusions", type: "reference", references: "Clients" })))).toEqual([{ kind: "retype", field: "Conclusions", ticked: false, stale: say("plugins.table.unsupported") }]);
 });

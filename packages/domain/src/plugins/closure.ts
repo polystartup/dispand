@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/server";
 import { and, count, eq, inArray, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { Db, Tx } from "../db/client.ts";
@@ -19,6 +20,7 @@ import {
   widgets,
 } from "../db/schema.ts";
 import { tableInUse } from "../data/tables.ts";
+import { message, type Message, type MessageKey, type MessageValues, say } from "../messages/index.ts";
 import { filesOverridden } from "../skills/runner-access.ts";
 import { agentInUse } from "../workflows/procedures.ts";
 
@@ -81,15 +83,14 @@ export type Element = {
   id: string;
   name: string;
   /** Why it is asked about; empty, it goes with the plugin unless something kept needs it. */
-  reasons: string[];
+  reasons: Message[];
   /** The plugin's other elements it uses: kept, it needs a stated choice for each. */
   needs: string[];
   /** Why it can only be kept (a workflow uses it), or null. */
-  keepOnly: string | null;
+  keepOnly: Message | null;
 };
 
 const key = (kind: ElementKind, id: string) => `${kind}:${id}`;
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
 /**
  * A plugin's elements that leave, each with why their removal asks about it and what it needs.
@@ -128,21 +129,21 @@ export async function inUse(db: Db | Tx, ownerId: string, pluginId: string, leav
   const staying = allTriggers.filter((t) => !ids.agent.has(t.agentId) && !triggerRows.some((r) => r.id === t.id));
 
   for (const a of agentRows) {
-    const reasons: string[] = [];
-    let keepOnly: string | null = null;
-    if (a.overridden.length) reasons.push("You changed it");
+    const reasons: Message[] = [];
+    let keepOnly: Message | null = null;
+    if (a.overridden.length) reasons.push(say("plugins.reason.changed"));
     const own = allTriggers.filter((t) => t.agentId === a.id);
-    for (const t of own.filter((t) => t.pluginId === pluginId && t.overridden.length)) reasons.push(`You changed its trigger “${t.name}”`);
-    for (const t of own.filter((t) => t.pluginId !== pluginId)) reasons.push(`It has a trigger of yours, “${t.name}”`);
-    for (const t of own.filter((t) => widgetRows.some((w) => w.triggerId === t.id))) reasons.push(`A dashboard starts its trigger “${t.name}”`);
+    for (const t of own.filter((t) => t.pluginId === pluginId && t.overridden.length)) reasons.push(say("plugins.reason.changedTrigger", { name: t.name }));
+    for (const t of own.filter((t) => t.pluginId !== pluginId)) reasons.push(say("plugins.reason.ownTrigger", { name: t.name }));
+    for (const t of own.filter((t) => widgetRows.some((w) => w.triggerId === t.id))) reasons.push(say("plugins.reason.dashboardTrigger", { name: t.name }));
     const [job] = await db.select({ id: runs.id }).from(runs).where(and(eq(runs.agentId, a.id), inArray(runs.status, ["running", "waiting"]))).limit(1);
-    if (job) reasons.push("It has a Job running or waiting");
+    if (job) reasons.push(say("plugins.reason.job"));
     const [memory] = await db.select({ n: count() }).from(memories).where(eq(memories.agentId, a.id));
-    if (memory!.n) reasons.push("It has memory entries");
+    if (memory!.n) reasons.push(say("plugins.reason.memory"));
     const consulting = otherIds.length ? await db.select({ agentId: agentConsults.agentId }).from(agentConsults).where(and(eq(agentConsults.consultedId, a.id), inArray(agentConsults.agentId, otherIds))) : [];
-    for (const c of usersAfter(consulting, "consults", (v) => listed(v, a.id))) reasons.push(`The agent “${nameOf.get(c.agentId)}” may consult it`);
+    for (const c of usersAfter(consulting, "consults", (v) => listed(v, a.id))) reasons.push(say("plugins.reason.consulted", { agent: nameOf.get(c.agentId)! }));
     if (await agentInUse(db, ownerId, a.id)) {
-      keepOnly = "A workflow uses this agent";
+      keepOnly = say("plugins.reason.workflowAgent");
       reasons.push(keepOnly);
     }
     const skillsUsed = await db.select({ id: agentSkills.packageId }).from(agentSkills).where(eq(agentSkills.agentId, a.id));
@@ -158,22 +159,22 @@ export async function inUse(db: Db | Tx, ownerId: string, pluginId: string, leav
   }
 
   for (const s of skillRows) {
-    const reasons: string[] = [];
-    if (await filesOverridden(db as Db, s.id)) reasons.push("You changed its files");
+    const reasons: Message[] = [];
+    if (await filesOverridden(db as Db, s.id)) reasons.push(say("plugins.reason.changedFiles"));
     const users = otherIds.length ? await db.select({ agentId: agentSkills.agentId }).from(agentSkills).where(and(eq(agentSkills.packageId, s.id), inArray(agentSkills.agentId, otherIds))) : [];
-    for (const u of usersAfter(users, "skillPackageIds", (v) => listed(v, s.id))) reasons.push(`The agent “${nameOf.get(u.agentId)}” uses it`);
+    for (const u of usersAfter(users, "skillPackageIds", (v) => listed(v, s.id))) reasons.push(say("plugins.reason.agentUses", { agent: nameOf.get(u.agentId)! }));
     elements.push({ key: key("skill", s.id), kind: "skill", id: s.id, name: s.name, reasons, needs: s.requiredToolIds.filter((id) => ids.tool.has(id)).map((id) => key("tool", id)), keepOnly: null });
   }
 
   const otherSkills = (await db.select({ id: skillPackages.id, name: skillPackages.name, requiredToolIds: skillPackages.requiredToolIds }).from(skillPackages).where(eq(skillPackages.ownerId, ownerId))).filter((p) => !ids.skill.has(p.id));
   for (const t of toolRows) {
-    const reasons: string[] = [];
-    let keepOnly: string | null = null;
-    if (t.overridden.length) reasons.push("You changed it");
+    const reasons: Message[] = [];
+    let keepOnly: Message | null = null;
+    if (t.overridden.length) reasons.push(say("plugins.reason.changed"));
     const users = otherIds.length ? await db.select({ agentId: agentTools.agentId }).from(agentTools).where(and(eq(agentTools.toolId, t.id), inArray(agentTools.agentId, otherIds))) : [];
-    for (const u of usersAfter(users, "toolIds", (v) => listed(v, t.id))) reasons.push(`The agent “${nameOf.get(u.agentId)}” uses it`);
-    for (const s of otherSkills.filter((s) => s.requiredToolIds.includes(t.id))) reasons.push(`The skill “${s.name}” requires it`);
-    for (const tr of staying.filter((tr) => pollTool(tr) === t.id)) reasons.push(`The trigger “${tr.name}” polls it`);
+    for (const u of usersAfter(users, "toolIds", (v) => listed(v, t.id))) reasons.push(say("plugins.reason.agentUses", { agent: nameOf.get(u.agentId)! }));
+    for (const s of otherSkills.filter((s) => s.requiredToolIds.includes(t.id))) reasons.push(say("plugins.reason.skillRequires", { skill: s.name }));
+    for (const tr of staying.filter((tr) => pollTool(tr) === t.id)) reasons.push(say("plugins.reason.triggerPolls", { trigger: tr.name }));
     // A Tool step of a workflow's current version, or of the version a run still going is on (as `toolHolder` reads it).
     const [workflow] = await db
       .execute(
@@ -184,7 +185,7 @@ export async function inUse(db: Db | Tx, ownerId: string, pluginId: string, leav
       )
       .then((r) => (r as unknown as { rows: unknown[] }).rows);
     if (workflow) {
-      keepOnly = "A workflow uses this tool";
+      keepOnly = say("plugins.reason.workflowTool");
       reasons.push(keepOnly);
     }
     elements.push({ key: key("tool", t.id), kind: "tool", id: t.id, name: t.name, reasons, needs: [], keepOnly });
@@ -195,13 +196,13 @@ export async function inUse(db: Db | Tx, ownerId: string, pluginId: string, leav
     ? await db.select({ to: fields.referencesTableId, from: fields.tableId, field: fields.name, table: tables.name }).from(fields).innerJoin(tables, eq(tables.id, fields.tableId)).where(inArray(fields.referencesTableId, tableIds))
     : [];
   for (const t of tableRows) {
-    const reasons: string[] = [];
-    let keepOnly: string | null = null;
+    const reasons: Message[] = [];
+    let keepOnly: Message | null = null;
     const [n] = await db.select({ n: count() }).from(rows).where(eq(rows.tableId, t.id));
-    if (n!.n) reasons.push(`It has ${plural(n!.n, "row")}`);
+    if (n!.n) reasons.push(say("plugins.reason.rows", { count: n!.n }));
     const [memory] = await db.select({ n: count() }).from(memories).where(eq(memories.tableId, t.id));
-    if (memory!.n) reasons.push("It has memory entries");
-    if (t.pluginComponent !== null && t.name !== t.pluginComponent) reasons.push("You renamed it");
+    if (memory!.n) reasons.push(say("plugins.reason.memory"));
+    if (t.pluginComponent !== null && t.name !== t.pluginComponent) reasons.push(say("plugins.reason.renamed"));
     const own = await db.select({ name: fields.name, type: fields.type, choices: fields.choices, pluginField: fields.pluginField, position: fields.position }).from(fields).where(eq(fields.tableId, t.id));
     // Its structure against the definition it was made from: a field of the owner's, one of the plugin's gone or changed.
     const defined = t.definition?.fields.filter((f) => f.name.toLowerCase() !== "name") ?? [];
@@ -211,18 +212,18 @@ export async function inUse(db: Db | Tx, ownerId: string, pluginId: string, leav
       own.some((f) => (f.position === 0 ? f.name !== "Name" : !defined.some((d) => d.name === f.pluginField && d.name === f.name && d.type === f.type && sameChoices(f.choices, d.choices)))) ||
       own.filter((f) => f.pluginField !== null).length !== defined.length ||
       (t.definition !== null && t.definition.primitive !== t.primitive);
-    if (changed) reasons.push("You changed its fields");
+    if (changed) reasons.push(say("plugins.reason.changedFields"));
     // As for any table: one whose rows a field of a table that stays names can't go before that field.
     for (const r of referring.filter((r) => r.to === t.id && !ids.table.has(r.from))) {
-      reasons.push(`The field “${r.field}” of your table “${r.table}” names its rows`);
-      keepOnly = `The field “${r.field}” of your table “${r.table}” names its rows: delete that field first to delete this table`;
+      reasons.push(say("plugins.reason.fieldNames", { field: r.field, table: r.table }));
+      keepOnly = say("plugins.reason.fieldNamesFirst", { field: r.field, table: r.table });
     }
     const tablesOf = (a: (typeof others)[number]) => (after.get(a.id)?.dataTables ?? a.dataTables) as unknown;
-    for (const a of others.filter((a) => listed(tablesOf(a), t.id))) reasons.push(`The agent “${a.name}” works on it`);
-    for (const tr of staying.filter((tr) => watched(tr) === t.id)) reasons.push(`The trigger “${tr.name}” watches it`);
-    if (widgetRows.some((w) => w.tableId === t.id)) reasons.push("A dashboard shows it");
+    for (const a of others.filter((a) => listed(tablesOf(a), t.id))) reasons.push(say("plugins.reason.agentWorks", { agent: a.name }));
+    for (const tr of staying.filter((tr) => watched(tr) === t.id)) reasons.push(say("plugins.reason.triggerWatches", { trigger: tr.name }));
+    if (widgetRows.some((w) => w.tableId === t.id)) reasons.push(say("plugins.reason.dashboardShows"));
     if (await tableInUse(db, ownerId, t.id)) {
-      keepOnly = "A workflow uses this table";
+      keepOnly = say("plugins.reason.workflowTable");
       reasons.push(keepOnly);
     }
     const needs = referring.filter((r) => r.from === t.id && r.to !== t.id && r.to !== null && ids.table.has(r.to)).map((r) => key("table", r.to!));
@@ -230,14 +231,14 @@ export async function inUse(db: Db | Tx, ownerId: string, pluginId: string, leav
   }
   // A trigger the update drops while its agent stays: asked about under the same three rules.
   for (const t of triggerRows) {
-    const reasons: string[] = [];
-    if (t.overridden.length) reasons.push("You changed it");
+    const reasons: Message[] = [];
+    if (t.overridden.length) reasons.push(say("plugins.reason.changed"));
     const [job] = await db.select({ id: runs.id }).from(runs).where(and(eq(runs.triggerId, t.id), inArray(runs.status, ["running", "waiting"]))).limit(1);
-    if (job) reasons.push("A Job it started is running or waiting");
+    if (job) reasons.push(say("plugins.reason.triggerJob"));
     const [held] = await db.select({ n: count() }).from(eventFires).where(and(eq(eventFires.triggerId, t.id), eq(eventFires.status, "deferred")));
     const [items] = await db.select({ n: count() }).from(pollItems).where(and(eq(pollItems.triggerId, t.id), eq(pollItems.status, "deferred")));
-    if (held!.n + items!.n) reasons.push(`It has ${plural(held!.n + items!.n, "change")} held back for its turn`);
-    if (widgetRows.some((w) => w.triggerId === t.id)) reasons.push("A dashboard starts it");
+    if (held!.n + items!.n) reasons.push(say("plugins.reason.held", { count: held!.n + items!.n }));
+    if (widgetRows.some((w) => w.triggerId === t.id)) reasons.push(say("plugins.reason.dashboardStarts"));
     const needs = [pollTool(t), watched(t)].flatMap((id) => (id && ids.tool.has(id) ? [key("tool", id)] : id && ids.table.has(id) ? [key("table", id)] : []));
     elements.push({ key: key("trigger", t.id), kind: "trigger", id: t.id, name: t.name, reasons, needs, keepOnly: null });
   }
@@ -245,23 +246,25 @@ export async function inUse(db: Db | Tx, ownerId: string, pluginId: string, leav
 }
 
 /**
- * Why a set of choices can't be applied, or null: every element asked about has a choice, one
+ * Refuses a set of choices that can't be applied: every element asked about has a choice, one
  * that can only be kept isn't deleted, and what a kept element needs has a stated choice too, so
  * nothing a kept element uses is removed without its owner having said so.
  */
-export function checkChoices(elements: Element[], choices: Record<string, "keep" | "delete">): string | null {
+export function checkChoices(elements: Element[], choices: Record<string, "keep" | "delete">): void {
+  const refuse = (key: MessageKey, values?: MessageValues): never => {
+    throw new ORPCError("BAD_REQUEST", message(key, values));
+  };
   const byKey = new Map(elements.map((e) => [e.key, e]));
-  if (Object.keys(choices).some((k) => !byKey.has(k))) return "Not an element of this plugin";
+  if (Object.keys(choices).some((k) => !byKey.has(k))) refuse("plugins.uninstall.notElement");
   for (const e of elements) {
-    if (e.reasons.length && choices[e.key] === undefined) return `Choose what becomes of ${e.name}`;
-    if (e.keepOnly && choices[e.key] !== "keep") return e.keepOnly;
+    if (e.reasons.length && choices[e.key] === undefined) refuse("plugins.uninstall.needChoice", { name: e.name });
+    if (e.keepOnly && choices[e.key] !== "keep") refuse(e.keepOnly.key, e.keepOnly.values);
   }
   for (const e of elements.filter((e) => choices[e.key] === "keep")) {
     const missing = e.needs.find((n) => choices[n] === undefined);
-    if (missing) return `Choose what becomes of ${byKey.get(missing)!.name}, which ${e.name} needs`;
+    if (missing) refuse("plugins.uninstall.needNeeded", { needed: byKey.get(missing)!.name, name: e.name });
     // A table whose field names another table's rows can't outlive it.
     const gone = e.kind === "table" ? e.needs.find((n) => choices[n] === "delete") : undefined;
-    if (gone) return `${e.name} names the rows of ${byKey.get(gone)!.name}: keep both, or delete both`;
+    if (gone) refuse("plugins.uninstall.keepBoth", { name: e.name, other: byKey.get(gone)!.name });
   }
-  return null;
 }

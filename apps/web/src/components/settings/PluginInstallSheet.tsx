@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useText } from "../../lib/message.ts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -114,6 +115,7 @@ function InstallForm({
   onChanged: (message: string) => void;
 }) {
   const { t } = useTranslation(["plugins", "harnesses"]);
+  const text = useText();
   const queryClient = useQueryClient();
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   const runners = useQuery(orpc.runners.list.queryOptions());
@@ -161,8 +163,8 @@ function InstallForm({
       });
       // What the setup didn't make: an item refused, or a definition left waiting. The plugin is installed, and Set up goes on from there.
       const notes = [
-        ...(result.setup?.outcomes ?? []).filter((o) => o.outcome === "refused").map((o) => (o.error ? t("install.setupStopped", { error: o.error }) : t("install.setupRefused"))),
-        ...(result.setup?.waiting ?? []).map((w) => t("install.waiting", { definition: w.definition, reason: w.reason })),
+        ...(result.setup?.outcomes ?? []).filter((o) => o.outcome === "refused").map((o) => (o.error ? t("install.setupStopped", { error: text(o.error) }) : t("install.setupRefused"))),
+        ...(result.setup?.waiting ?? []).map((w) => t("install.waiting", { definition: w.definition, reason: text(w.reason) })),
       ];
       setSetupNotes(notes);
       if (!native || !nativeTargets.size) {

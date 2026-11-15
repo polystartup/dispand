@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { plugins } from "../db/schema.ts";
 import { canonical } from "../platform/approvals.ts";
+import { message } from "../messages/index.ts";
 
 // A plugin's element keeps the plugin's values of its fields beside the ones in effect
 // (`upstream`), and the fields its owner changed (`overridden`). Every write of such an element
@@ -84,7 +85,7 @@ export function rebase(kind: ElementKind, element: Overrides, current: Record<st
 export async function refuseOwnDelete(db: Db | Tx, pluginId: string | null): Promise<void> {
   if (pluginId === null) return;
   const [plugin] = await db.select({ name: plugins.name }).from(plugins).where(eq(plugins.id, pluginId));
-  if (plugin) throw new ORPCError("FORBIDDEN", { message: `It is ${plugin.name}'s: uninstall the plugin to remove it` });
+  if (plugin) throw new ORPCError("FORBIDDEN", message("plugins.override.forbidden", { plugin: plugin.name }));
 }
 
 export { qualifiedName } from "./names.ts";

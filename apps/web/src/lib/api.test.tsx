@@ -17,6 +17,9 @@ const failing = {
     keyed: os.handler(() => {
       throw new ORPCError("BAD_REQUEST", message("plugins.uninstall.choose", { name: "case-law" }));
     }),
+    listed: os.handler(() => {
+      throw new ORPCError("CONFLICT", message("plugins.marketplace.removeFirst", { plugins: ["case-law", "tax", "labour"] }));
+    }),
     markup: os.handler(() => {
       throw new ORPCError("BAD_REQUEST", message("plugins.uninstall.choose", { name: "<b>case-law</b>" }));
     }),
@@ -47,6 +50,11 @@ const refusal = (call: Promise<unknown>) => call.then(() => expect.unreachable()
 test("a server message shows in the page's language, with its values", async () => {
   expect(await refusal((await client("fr")).fails.keyed())).toBe("Choisissez ce que deviennent les éléments que case-law laisserait, puis désinstallez-le à nouveau.");
   expect(await refusal((await client("en")).fails.keyed())).toBe("Choose what happens to each element case-law would leave behind, then uninstall it again.");
+});
+
+test("a plugins refusal shows in French, its list of plugins written as French lists are", async () => {
+  expect(await refusal((await client("fr")).fails.listed())).toBe("Retirez d’abord ses plugins : case-law, tax et labour.");
+  expect(await refusal((await client("en")).fails.listed())).toBe("Remove its plugins first: case-law, tax, and labour.");
 });
 
 test("an input its Zod schema rejects shows a validation message in French", async () => {

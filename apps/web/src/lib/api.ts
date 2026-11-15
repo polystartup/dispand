@@ -3,9 +3,10 @@ import { createORPCClient, ORPCError } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { SimpleCsrfProtectionLinkPlugin } from "@orpc/client/plugins";
 import type { RouterClient } from "@orpc/server";
-import type { Router } from "@dispand/domain";
+import type { Message, Router } from "@dispand/domain";
 import type { i18n } from "i18next";
 import { createI18n, type Language } from "./i18n.ts";
+import { messageText } from "./message.ts";
 
 const translators = new Map<Language, i18n>();
 const translator = (language: Language) => translators.get(language) ?? translators.set(language, createI18n(language)).get(language)!;
@@ -18,15 +19,12 @@ const translator = (language: Language) => translators.get(language) ?? translat
  */
 export function translated(error: unknown, language: Language): unknown {
   if (!(error instanceof ORPCError)) return error;
-  const data = (error.data ?? {}) as { key?: unknown; values?: Record<string, unknown>; external?: unknown };
+  const data = (error.data ?? {}) as { key?: unknown; values?: Message["values"]; external?: unknown };
   if (data.external === true) return error;
   const t = translator(language);
-  const key = typeof data.key === "string" ? `messages:${data.key}` : undefined;
-  // Values go under `replace`, so none can stand for one of i18next's options; `count` picks a plural form.
-  const options = { replace: data.values, ...(typeof data.values?.count === "number" && { count: data.values.count }) };
-  if (key && t.exists(key, options)) error.message = t.t(key as never, options);
   // shortcut: an error without a key keeps its English text until Task 4 has keyed every procedure; then every one is generic.
-  else if (key || error.code === "INTERNAL_SERVER_ERROR") error.message = t.t("errors.generic");
+  if (typeof data.key === "string") error.message = messageText(t, data as Message);
+  else if (error.code === "INTERNAL_SERVER_ERROR") error.message = t.t("errors.generic");
   return error;
 }
 

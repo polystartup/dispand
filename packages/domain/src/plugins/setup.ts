@@ -7,6 +7,7 @@ import { agents as agentsTable, fields as fieldsTable, plugins, skillPackages, s
 import { agents } from "../agents/procedures.ts";
 import { fields, tables } from "../data/tables.ts";
 import { logError } from "../log.ts";
+import { message, type MessageKey, type MessageValues, reasonOf, say, type Text } from "../messages/index.ts";
 import { CREATES, parseWithRefs, recordCreated, resolveRefs, snapshotToolPermissions } from "../platform/proposals.ts";
 import type { InitialContext } from "../rpc/context.ts";
 import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
@@ -43,7 +44,11 @@ export const SetupPick = z.object({
 export type SetupPick = z.infer<typeof SetupPick>;
 
 /** A definition that can't be made yet, and why. */
-export type Waiting = { definition: string; reason: string };
+export type Waiting = { definition: string; reason: Text };
+
+function refuse(key: MessageKey, values?: MessageValues): never {
+  throw new ORPCError("BAD_REQUEST", message(key, values));
+}
 
 /** The procedures a setup's items call, by tool name, and each one's path for its span. */
 const PROCEDURES = {
@@ -71,12 +76,12 @@ type Ref = string | { $item: number };
  * its definition: it has no link to the plugin, so an update of the plugin never rewrites it. Each
  * item is parsed with its procedure's input, as a proposal's is.
  */
-export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string, pick: SetupPick, fromInstall = false): Promise<{ items: ProposalItem[]; waiting: Waiting[] } | { error: string }> {
+export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string, pick: SetupPick, fromInstall = false): Promise<{ items: ProposalItem[]; waiting: Waiting[] }> {
   const [plugin] = await db
     .select({ definitions: plugins.definitions, created: plugins.created, components: plugins.components })
     .from(plugins)
     .where(and(eq(plugins.id, pluginId), eq(plugins.ownerId, ownerId)));
-  if (!plugin) return { error: "Plugin not found" };
+  if (!plugin) throw new ORPCError("NOT_FOUND", message("plugins.notFound"));
   const { primitives } = plugin.definitions;
   const from = plugin.created.from ?? {};
   const waiting: Waiting[] = [];
@@ -84,7 +89,7 @@ export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string,
   const picked: PrimitiveDefinition[] = [];
   for (const name of pick.primitives ?? []) {
     const definition = primitives.find((p) => same(p.name, name));
-    if (!definition) return { error: `“${name}” isn't a table definition of this plugin` };
+    if (!definition) refuse("plugins.setup.notTable", { name });
     if (!picked.includes(definition)) picked.push(definition);
   }
 
@@ -116,8 +121,7 @@ export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string,
       items.push({ tool: "tables_create", input: { name: p.name }, from: `primitive:${p.name}` });
     }
   }
-  const pluginTable = (name: string, by: PrimitiveDefinition): Ref | { error: string } =>
-    tableOf.get(name.toLowerCase()) ?? { error: `“${by.name}” names the table “${name}” of this plugin: pick it too` };
+  const pluginTable = (name: string, by: PrimitiveDefinition): Ref => tableOf.get(name.toLowerCase()) ?? refuse("plugins.setup.pickTable", { table: by.name, name });
 
   // Tables of the workspace a field names, by name: those that aren't the plugin's own.
   const outside = [...new Set(picked.flatMap((p) => p.fields.flatMap((f) => (f.references && !primitives.some((d) => same(d.name, f.references!)) ? [f.references.toLowerCase()] : []))))];
@@ -137,19 +141,17 @@ export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string,
       if (typeof table === "string" && fieldRows.some((r) => r.id === from[key] && r.tableId === table)) continue;
       // Every table is made with its Name field.
       if (same(f.name, "Name")) {
-        waiting.push({ definition: key, reason: "Every table has a Name field already: this one isn't added" });
+        waiting.push({ definition: key, reason: say("plugins.setup.waiting.nameField") });
         continue;
       }
       let references: Ref | undefined;
       if (f.references !== undefined) {
         if (primitives.some((d) => same(d.name, f.references!))) {
-          const ref = pluginTable(f.references, p);
-          if (typeof ref === "object" && "error" in ref) return ref;
-          references = ref;
+          references = pluginTable(f.references, p);
         } else {
           references = workspace.find((t) => same(t.name, f.references!))?.id;
           if (!references) {
-            waiting.push({ definition: key, reason: `No table of the workspace is called “${f.references}”` });
+            waiting.push({ definition: key, reason: say("plugins.setup.waiting.noWorkspaceTable", { table: f.references }) });
             continue;
           }
         }
@@ -167,25 +169,22 @@ export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string,
     let parent: { tableId: Ref; required: boolean } | undefined;
     if (p.parent) {
       const field = p.fields.find((f) => same(f.name, p.parent!.field))!;
-      const ref = pluginTable(field.references!, p);
-      if (typeof ref === "object" && "error" in ref) return ref;
-      parent = { tableId: ref, required: p.parent.required };
+      parent = { tableId: pluginTable(field.references!, p), required: p.parent.required };
     }
     items.push({ tool: "tables_set_primitive", input: { id: tableOf.get(p.name.toLowerCase())!, primitive: p.primitive, ...(parent ? { parent } : {}) } });
   }
 
   const agentItems = await agentSetup(db, ownerId, pluginId, plugin.definitions, plugin.components.mcpServers, from, pick, tableOf, items, fromInstall);
-  if ("error" in agentItems) return agentItems;
   items.push(...agentItems.items);
   waiting.push(...agentItems.waiting);
 
   // Parsed as each procedure takes it, references standing for ids, as a proposal's items are.
   for (const [i, item] of items.entries()) {
     const parsed = parseWithRefs(PROCEDURES[item.tool as SetupTool].procedure["~orpc"].inputSchema!, item.input);
-    if ("error" in parsed) return { error: `Item ${i + 1} (${item.tool}): ${parsed.error}` };
+    if ("error" in parsed) refuse("plugins.setup.item", { number: i + 1, tool: item.tool, reason: parsed.error });
     item.input = parsed.data;
     const prepared = await snapshotToolPermissions(db, ownerId, items.slice(0, i), item);
-    if (typeof prepared === "string") return { error: `Item ${i + 1} (${item.tool}): ${prepared}` };
+    if (typeof prepared === "string") refuse("plugins.setup.item", { number: i + 1, tool: item.tool, reason: prepared });
     items[i] = prepared;
   }
   return { items, waiting };
@@ -214,19 +213,19 @@ async function agentSetup(
   prior: ProposalItem[],
   // Run from the install, which shows no items: no server it didn't tick is added, and every tool given starts on Ask.
   fromInstall: boolean,
-): Promise<{ items: ProposalItem[]; waiting: Waiting[] } | { error: string }> {
+): Promise<{ items: ProposalItem[]; waiting: Waiting[] }> {
   const first = prior.length;
   const picked: { definition: AgentDefinition; harnessId: string }[] = [];
   for (const p of pick.agents ?? []) {
     const definition = definitions.find((d) => same(d.name, p.name));
-    if (!definition) return { error: `“${p.name}” isn't an agent definition of this plugin` };
+    if (!definition) refuse("plugins.setup.notAgent", { name: p.name });
     if (!picked.some((a) => a.definition === definition)) picked.push({ definition, harnessId: p.harnessId });
   }
-  for (const p of pick.servers ?? []) if (!servers.some((s) => s.name === p.name)) return { error: `“${p.name}” isn't an MCP server of this plugin` };
+  for (const p of pick.servers ?? []) if (!servers.some((s) => s.name === p.name)) refuse("plugins.setup.notServer", { name: p.name });
   const triggers: TriggerDefinition[] = [];
   for (const name of pick.triggers ?? []) {
     const definition = triggerDefinitions.find((t) => same(t.name, name));
-    if (!definition) return { error: `“${name}” isn't a trigger definition of this plugin` };
+    if (!definition) refuse("plugins.setup.notTrigger", { name });
     if (!triggers.includes(definition)) triggers.push(definition);
   }
   if (!picked.length && !pick.servers?.length && !triggers.length) return { items: [], waiting: [] };
@@ -301,7 +300,7 @@ async function agentSetup(
     if (id !== null) {
       const entry = catalogEntry(id);
       if (entry?.kind !== "http") {
-        waiting.push({ definition, reason: entry ? `${entry.name} runs on the owner's machine: add it in Settings → Tools` : "It isn't in the catalog" });
+        waiting.push({ definition, reason: entry ? say("plugins.setup.waiting.onMachine", { name: entry.name }) : say("plugins.setup.waiting.notInCatalog") });
         continue;
       }
       toolOf.set(name, { $item: first + items.length });
@@ -311,8 +310,8 @@ async function agentSetup(
     const server = servers.find((s) => s.name === name);
     if (!server) continue;
     const reason = fromInstall
-      ? "It wasn't ticked with the install: add it from Set up, where its address is shown"
-      : server.type !== "http" ? "It runs on a runner: add it from that runner's own MCP servers (Settings → Tools → Add runner tool), or install the plugin natively on a runner's harness" : server.settings.length ? "Its URL needs a setting: add it from the plugin's page" : !server.transport ? "Update the plugin to add it" : null;
+      ? say("plugins.setup.waiting.notTicked")
+      : server.type !== "http" ? say("plugins.setup.waiting.onRunner") : server.settings.length ? say("plugins.setup.waiting.needsSetting") : !server.transport ? say("plugins.setup.waiting.updateToAdd") : null;
     if (reason) {
       waiting.push({ definition, reason });
       continue;
@@ -328,23 +327,23 @@ async function agentSetup(
     if (Array.isArray(d.tables)) {
       const missing = d.tables.filter((n) => tableNamed(n) === undefined);
       if (missing.length) {
-        waiting.push({ definition: key, reason: `No table “${missing[0]}” is set up or in the workspace: pick it too, or make it` });
+        waiting.push({ definition: key, reason: say("plugins.setup.waiting.noTable", { table: missing[0]! }) });
         continue;
       }
       dataTables = d.tables.map((n) => tableNamed(n)!);
     }
-    for (const s of d.skills.filter((s) => !installed.includes(s))) waiting.push({ definition: key, reason: `Its skill “${s}” wasn't installed with the plugin: the agent is made without it` });
+    for (const s of d.skills.filter((s) => !installed.includes(s))) waiting.push({ definition: key, reason: say("plugins.setup.waiting.noSkill", { skill: s }) });
     const toolIds: Ref[] = [];
     for (const t of new Set(d.tools)) {
       const tool = toolOf.get(t);
       if (tool && !toolIds.some((id) => canonicalRef(id) === canonicalRef(tool))) toolIds.push(tool);
-      else waiting.push({ definition: key, reason: `“${t}” isn't added as a tool yet: the agent is made without it` });
+      else waiting.push({ definition: key, reason: say("plugins.setup.waiting.noTool", { tool: t }) });
     }
     const consults: { agentId: Ref; ask: boolean }[] = [];
     for (const c of d.consults) {
       const agent = agentOf.get(c.agent.toLowerCase());
       if (agent) consults.push({ agentId: agent, ask: c.ask });
-      else waiting.push({ definition: key, reason: `It consults “${c.agent}”, which isn't set up yet: pick it too, or set it up again afterwards` });
+      else waiting.push({ definition: key, reason: say("plugins.setup.waiting.noConsult", { agent: c.agent }) });
     }
     agentOf.set(d.name.toLowerCase(), { $item: first + items.length });
     const input = {
@@ -374,10 +373,10 @@ async function agentSetup(
   for (const t of triggers) {
     const key = `trigger:${t.name}`;
     if (triggerRows.some((r) => r.id === from[key])) continue;
-    const wait = (reason: string) => waiting.push({ definition: key, reason });
+    const wait = (reason: Text) => waiting.push({ definition: key, reason });
     const agentId = agentOf.get(t.agent.toLowerCase());
     if (!agentId) {
-      wait(`Its agent “${t.agent}” isn't set up: pick it too`);
+      wait(say("plugins.setup.waiting.noAgent", { agent: t.agent }));
       continue;
     }
     let config: Record<string, unknown>;
@@ -385,7 +384,7 @@ async function agentSetup(
       const { table, fields, ...rest } = t.config;
       const tableId = table === INTERACTION ? INTERACTION : tableNamed(table);
       if (tableId === undefined) {
-        wait(`No table “${table}” is set up or in the workspace: pick it too, or make it`);
+        wait(say("plugins.setup.waiting.noTable", { table }));
         continue;
       }
       const fieldIds: Ref[] = [];
@@ -403,7 +402,7 @@ async function agentSetup(
         return null;
       })();
       if (missing !== null) {
-        wait(`Its field “${missing}” isn't there yet: set it up again afterwards`);
+        wait(say("plugins.setup.waiting.noField", { field: missing }));
         continue;
       }
       config = { ...rest, tableId, ...(fields ? { fields: fieldIds } : {}) };
@@ -412,17 +411,17 @@ async function agentSetup(
       const name = server ?? `catalog:${catalog}`;
       const toolId = toolOf.get(name);
       if (toolId === undefined) {
-        wait(`“${name}” isn't added as a tool yet`);
+        wait(say("plugins.setup.waiting.noPollTool", { tool: name }));
         continue;
       }
       // A server added by this setup lists its actions only once it is added (and signed in): its poll comes afterwards.
       if (typeof toolId !== "string" && server !== undefined) {
-        wait(`“${name}” is added by this setup: set the trigger up once it lists its actions`);
+        wait(say("plugins.setup.waiting.addedBySetup", { tool: name }));
         continue;
       }
       // An agent the install makes asks before every action: a poll, which runs its action unasked, would be refused.
       if (fromInstall && typeof agentId !== "string") {
-        wait(`Its poll runs “${t.config.action}” unasked, which the install doesn't grant: let ${t.agent} run it, then set the trigger up`);
+        wait(say("plugins.setup.waiting.pollUnasked", { action: t.config.action, agent: t.agent }));
         continue;
       }
       // What `triggers.create` would refuse, said now: the setup doesn't stop on it.
@@ -433,7 +432,7 @@ async function agentSetup(
             ? await pollProblem(db, ownerId, agentId, toolId, t.config.action)
             : await toolPollProblem(db, ownerId, toolId, t.config.action, () => definitions.some((d) => same(d.name, t.agent) && d.tools.includes(name)));
         if (problem) {
-          wait(problem);
+          wait({ text: problem });
           continue;
         }
       }
@@ -446,7 +445,7 @@ async function agentSetup(
 }
 
 /** How each item of a setup ended. */
-export type ItemOutcome = { $item: number; tool: string; from?: string; outcome: "made" | "refused" | "not made"; id?: string; error?: string };
+export type ItemOutcome = { $item: number; tool: string; from?: string; outcome: "made" | "refused" | "not made"; id?: string; error?: Text };
 
 const traces = tracer("plugins");
 const counts = meter("plugins");
@@ -484,7 +483,7 @@ export function runItemsAsOwner(context: InitialContext & { ownerId: string }, p
           continue;
         }
         const input = resolveRefs(made, { ...(item.input as object), ...(item.toolPermissions ? { toolPermissions: item.toolPermissions } : {}) });
-        let error: string | null = input === null ? "It names an item that created nothing" : null;
+        let error: Text | null = input === null ? say("plugins.setup.noRef") : null;
         let output: unknown;
         if (input !== null) {
           const { procedure, path } = PROCEDURES[item.tool as SetupTool];
@@ -493,10 +492,10 @@ export function runItemsAsOwner(context: InitialContext & { ownerId: string }, p
             const pluginElement = elementOf(item);
             output = await call(procedure as never, input as never, { context: { ...context, approvedToolTargets: permissions, ...(pluginElement ? { pluginElement } : {}) } as never, path: [...path] });
           } catch (err) {
-            if (err instanceof ORPCError) error = err.code === "NOT_FOUND" ? "Not found" : err.message;
+            if (err instanceof ORPCError) error = err.code === "NOT_FOUND" ? say("plugins.setup.notFound") : reasonOf(err);
             else {
               logError("plugin setup item failed", err, { ref: `${pluginId}:${item.tool}` });
-              error = "It failed";
+              error = say("plugins.setup.failed");
             }
           }
         }

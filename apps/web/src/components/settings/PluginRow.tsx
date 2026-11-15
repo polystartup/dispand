@@ -1,7 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
+import type { Text } from "@dispand/domain";
 import { useFormat } from "../../lib/format.ts";
+import { useText } from "../../lib/message.ts";
 import { Button } from "@/components/ui/button";
 import { refusal } from "./PluginInstallSheet.tsx";
 import { PluginRemoveSheet } from "./PluginRemoveSheet.tsx";
@@ -16,6 +18,7 @@ type Plugin = Awaited<ReturnType<typeof api.plugins.list>>[number];
 export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   const { t } = useTranslation("plugins");
   const { list } = useFormat();
+  const text = useText();
   const queryClient = useQueryClient();
   const refresh = () =>
     Promise.all(
@@ -25,11 +28,11 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   // An update that needs the owner's eyes: what it would change, shown before it is applied.
   const [reviewing, setReviewing] = useState<UpdatePreview | null>(null);
   const [looking, setLooking] = useState(false);
-  const updated = (result: { sha: string; failed?: { name: string; reason: string }[]; leftBehind?: { name: string; reason: string }[] }) => {
+  const updated = (result: { sha: string; failed?: { name: string; reason: Text }[]; leftBehind?: { name: string; reason: Text }[] }) => {
     void refresh();
     // What an element's own checks refused is said, not hidden.
     const sha = result.sha.slice(0, 7);
-    const item = (f: { name: string; reason: string }) => t("row.failedItem", { name: f.name, reason: f.reason });
+    const item = (f: { name: string; reason: Text }) => t("row.failedItem", { name: f.name, reason: text(f.reason) });
     const done = result.failed?.length ? t("row.updatedExcept", { sha, failed: list(result.failed.map(item)) }) : result.sha === p.sha ? t("row.upToDate") : t("row.updated", { sha });
     // A native install that didn't move: finished from its harness's workspace skills.
     const native = result.leftBehind?.length ? t("row.leftBehind", { harnesses: list(result.leftBehind.map(item)) }) : "";

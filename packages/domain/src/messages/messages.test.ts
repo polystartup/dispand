@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/server";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import ts from "typescript";
@@ -5,7 +6,7 @@ import { expect, test } from "vitest";
 import { validationKey } from "../rpc/context.ts";
 import en from "./en.json";
 import fr from "./fr.json";
-import { external, isMessageKey, message } from "./index.ts";
+import { external, isMessageKey, message, reasonOf } from "./index.ts";
 
 /** Every key of a resource, plural forms included, as dotted paths. */
 const keys = (value: unknown, prefix = ""): string[] =>
@@ -18,6 +19,9 @@ test("French has every English server message, and nothing more", () => {
 test("a message carries its key and values, and its English sentence for agents and logs", () => {
   expect(message("questions.answer.missing", { question: "Who?" })).toEqual({ message: "Answer “Who?”.", data: { key: "questions.answer.missing", values: { question: "Who?" } } });
   expect(message("questions.notFound")).toEqual({ message: "This question doesn't exist.", data: { key: "questions.notFound" } });
+  expect(message("plugins.marketplace.removeFirst", { plugins: ["law", "tax"] }).message).toBe("Remove its plugins first: law and tax.");
+  expect(reasonOf(new ORPCError("CONFLICT", message("plugins.notFound")))).toEqual({ key: "plugins.notFound" });
+  expect(reasonOf(new ORPCError("CONFLICT", { message: "Plain words" }))).toEqual({ text: "Plain words" });
   expect(external("The server said <no>")).toEqual({ message: "The server said <no>", data: { external: true } });
   expect([isMessageKey("validation.too_small.string"), isMessageKey("questions"), isMessageKey("The chat is over")]).toEqual([true, false, false]);
 });
@@ -49,10 +53,6 @@ const UNKEYED: Record<string, number> = {
   "jobs/procedures.ts": 7,
   "memory/procedures.ts": 4,
   "pages/procedures.ts": 13,
-  "plugins/components.ts": 1,
-  "plugins/overrides.ts": 1,
-  "plugins/procedures.ts": 51,
-  "plugins/servers.ts": 6,
   "rpc/context.ts": 1,
   "rpc/router.ts": 3,
   "runners/procedures.ts": 10,

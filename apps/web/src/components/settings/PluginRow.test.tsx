@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
+import { say } from "@dispand/domain/messages/index.ts";
 
 const fake = vi.hoisted(() => ({ plugins: { update: vi.fn(), updatePreview: vi.fn(), uninstall: vi.fn(), uninstallPreview: vi.fn(), setupPreview: vi.fn(), setUp: vi.fn() }, runners: { list: vi.fn(), plugins: vi.fn(), workspacePlugin: vi.fn() }, harnesses: { list: vi.fn() }, triggers: {}, jobs: {}, skills: {}, tools: {}, agents: {}, tables: {} }));
 vi.mock("../../lib/api.ts", async () => {
@@ -134,7 +135,7 @@ test("an update that rewords an agent or meets the owner's own change stops on i
     reviewed: "r".repeat(64),
   });
   fake.harnesses.list.mockResolvedValue([]);
-  fake.plugins.update.mockResolvedValue({ sha: "b".repeat(40), failed: [{ name: "Intake", reason: "Harness not found" }] });
+  fake.plugins.update.mockResolvedValue({ sha: "b".repeat(40), failed: [{ name: "Intake", reason: { text: "Harness not found" } }] });
   mount(installed);
   await userEvent.click(screen.getByRole("button", { name: "Update law-firm" }));
   const dialog = await screen.findByRole("dialog");
@@ -148,7 +149,7 @@ test("an update that rewords an agent or meets the owner's own change stops on i
 });
 
 test("after an update that adds elements, Set up opens: they are made from there, not by the update", async () => {
-  fake.plugins.updatePreview.mockResolvedValue({ sha: "b".repeat(40), conflicts: [], changes: [], additions: [{ key: "agent:Billing", kind: "agent", name: "Billing", detail: "Prepares invoices." }], removals: [], tables: [], releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null }, native: { harnesses: [], unchecked: [] }, names: {}, reviewed: "r".repeat(64) });
+  fake.plugins.updatePreview.mockResolvedValue({ sha: "b".repeat(40), conflicts: [], changes: [], additions: [{ key: "agent:Billing", kind: "agent", name: "Billing", detail: { text: "Prepares invoices." } }], removals: [], tables: [], releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null }, native: { harnesses: [], unchecked: [] }, names: {}, reviewed: "r".repeat(64) });
   fake.plugins.update.mockResolvedValue({ sha: "b".repeat(40) });
   fake.harnesses.list.mockResolvedValue([]);
   mount(installed);
@@ -166,7 +167,7 @@ test("what a new version drops is on the update's screen with the removal's choi
     changes: [],
     additions: [],
     removals: [
-      { key: "table:t1", kind: "table", id: "t1", name: "Research", reasons: ["It has 1 row"], needs: [], keepOnly: null },
+      { key: "table:t1", kind: "table", id: "t1", name: "Research", reasons: [say("plugins.reason.rows", { count: 1 })], needs: [], keepOnly: null },
       { key: "agent:a1", kind: "agent", id: "a1", name: "Matter upkeep", reasons: [], needs: [], keepOnly: null },
     ],
     tables: [],
