@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { agentConsults, runs, stepRuns } from "../db/schema.ts";
+import { agentConsults, audit, runs, stepRuns } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
@@ -81,6 +81,13 @@ test("a cloud Job consults an agent listed in its consult tool and goes on with 
   const exported = await telemetry.all();
   expect(exported).not.toContain("sentinel-consult-question-41");
   expect(exported).not.toContain("sentinel-consult-answer-42");
+  // Audited, the consult's rows name the Jobs and how it ended, never its question or its answer.
+  const rows = await s.context.db.select().from(audit);
+  expect(rows.filter((r) => r.action.startsWith("consult.")).map((r) => [r.action, r.details])).toEqual([
+    ["consult.asked", { agentId: s.expert.id }],
+    ["consult.ended", expect.objectContaining({ consultedJobId: consultedId, outcome: "answered" })],
+  ]);
+  expect(JSON.stringify(rows)).not.toMatch(/sentinel-consult-(question-41|answer-42)/);
 });
 
 test("a consulted Job, which expects no outputs, is offered no submit_outputs and answers with its last message", async () => {

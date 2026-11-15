@@ -32,7 +32,8 @@ async function signIn(page: Page) {
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/$/);
+  // Home, or the Assistant while no Assistant is set up (when this spec runs without the ones before it).
+  await expect(page).toHaveURL(/\/(assistant)?$/);
 }
 
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
@@ -168,5 +169,42 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
     await page.screenshot({ path: test.info().outputPath("audit-job.png"), fullPage: true });
   } finally {
     await rpc(page, "triggers/delete", { id: trigger.id });
+  }
+});
+
+test("a Job's token, its runner's token, a chat message and a Question's own-words answer reach no Audit row and no telemetry", async ({ page }) => {
+  await signIn(page);
+  const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Audit chat box" });
+  const local = await FakeRunner.pair(SERVER, created.pairingCode);
+  try {
+    const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Claude on Audit chat box", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
+    const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Audit chat partner", harnessId: harness.id, systemPrompt: "" });
+    const trigger = await rpc<{ id: string }>(page, "triggers/create", { agentId: agent.id, name: "Audit chat", instructions: "", config: { kind: "manual", placement: "chat" } });
+    const { runId } = await rpc<{ runId: string }>(page, "jobs/start", { triggerId: trigger.id });
+    const { start } = await local.waitFor("session.start", WAIT_MS);
+    expect(start.jobToken).toBeTruthy();
+    await rpc(page, "runs/sendChat", { runId, text: AUDIT_SENTINELS.chat });
+    expect((await local.waitFor("session.send", WAIT_MS)).text).toBe(AUDIT_SENTINELS.chat);
+    const asked = "Which client is it?";
+    local.emit(start.sessionId, { type: "question", questionId: "aq_audit", payload: { kind: "choice", questions: [{ question: asked, header: "Client", options: [{ label: "A new one" }], multiSelect: false }] } });
+    const pending = async () => (await rpc<{ id: string; runId: string | null }[]>(page, "questions/list", { status: "pending" })).find((q) => q.runId === runId);
+    await expect.poll(pending).toBeTruthy();
+    await rpc(page, "questions/answer", { questionId: (await pending())!.id, answer: { kind: "choice", answers: { [asked]: AUDIT_SENTINELS.answer } } });
+    expect((await local.waitFor("session.answer", WAIT_MS)).answer).toEqual({ kind: "choice", answers: { [asked]: AUDIT_SENTINELS.answer } });
+    local.emit(start.sessionId, { type: "outputs-accepted", values: {} });
+    await expect.poll(async () => (await rpc<{ status: string }>(page, "jobs/get", { id: runId })).status).toBe("succeeded");
+
+    const rows = await auditRows(page);
+    expect(rows.filter((r) => r.jobId === runId).map((r) => r.action)).toEqual(expect.arrayContaining(["job.created", "question.asked", "question.answered", "job.finished"]));
+    // The tokens exist for this run only: checked here, against the rows and what the collector got so far.
+    await page.waitForTimeout(2_000);
+    const exported = JSON.stringify(await (await fetch(`${COLLECTOR}/dump`)).json());
+    const audited = JSON.stringify(rows);
+    for (const [what, sentinel] of Object.entries({ jobToken: start.jobToken!, runnerToken: local.token, chat: AUDIT_SENTINELS.chat, answer: AUDIT_SENTINELS.answer })) {
+      expect(audited.includes(sentinel), `${what} found in an Audit row`).toBe(false);
+      expect(exported.includes(sentinel), `${what} found in exported telemetry`).toBe(false);
+    }
+  } finally {
+    local.close();
   }
 });
