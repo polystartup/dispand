@@ -5,7 +5,7 @@ import { mcpActionName, parseRule, type QuestionPayload } from "@dispand/runner-
 import { exposedName } from "../platform/exposed.ts";
 import { runnerServerName, sessionTooling } from "../engine/tooling.ts";
 import { meter, tracer } from "../telemetry/index.ts";
-import { rememberAllowedAction, setPermission, toolPermissionTarget } from "./tool-ask.ts";
+import { packagesRequiring, rememberAllowedAction, setPermission, toolPermissionTarget } from "./tool-ask.ts";
 
 /** A server-resolved tool action, bound to the target for which permission was requested. */
 export type ToolSubject = { kind: "tool"; agentId: string; toolId: string; action: string; target: string };
@@ -106,9 +106,11 @@ export async function offerForQuestion(db: Db | Tx, input: { ownerId: string; se
   const { tool, action } = candidates[0]!;
   const [row] = await db.select().from(tools).where(and(eq(tools.id, tool.id), eq(tools.ownerId, input.ownerId)));
   if (!row) return null;
+  // Future runs are remembered for a tool the agent chose, or one its own skill packages give it.
   const [chosen] = await db.select({ id: agentTools.toolId }).from(agentTools).where(and(eq(agentTools.agentId, tooling.agentId), eq(agentTools.toolId, tool.id)));
+  const [withSkill] = chosen ? [] : await packagesRequiring(db, input.ownerId, tooling.agentId, tool.id);
   return {
-    remember: { scopes: run.source === "agent" && run.agentId === tooling.agentId && chosen ? ["run", "always"] : ["run"], subject: { kind: "tool", agentId: tooling.agentId, toolId: tool.id, action: action.name, target: toolPermissionTarget(row) } },
+    remember: { scopes: run.source === "agent" && run.agentId === tooling.agentId && (chosen || withSkill) ? ["run", "always"] : ["run"], subject: { kind: "tool", agentId: tooling.agentId, toolId: tool.id, action: action.name, target: toolPermissionTarget(row) } },
     about: { tool: row.name, toolId: row.id, action: action.name, description: action.description },
   };
 }

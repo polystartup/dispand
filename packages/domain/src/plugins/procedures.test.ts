@@ -13,6 +13,8 @@ import { marketplaceUrl, packageName } from "./procedures.ts";
 import { fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd, updatePlugin, installReviewed } from "./test-support.ts";
 import { toolTarget } from "../tools/procedures.ts";
 import { addStep } from "../workflows/model.ts";
+import { rememberAllowedAction } from "../agents/tool-ask.ts";
+import { toolingOf } from "../engine/tooling.ts";
 import { type FakeAction, startFakeMcp } from "../tools/test-server.ts";
 
 /** The owner's context, allowed to use `file://` fixture repositories. */
@@ -596,6 +598,23 @@ test("update refreshes imported agents' prompts and tools' URLs; a saved token s
   expect(await call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).toMatchObject({ url: elsewhere.url, headerNames: [] });
   expect(elsewhere.requests.every((r) => r.authorization === undefined)).toBe(true);
   await elsewhere.close();
+  await fx.remove();
+});
+
+test("a plugin update that moves a skill's tool makes the choice remembered for it ask again", async () => {
+  const ctx = await context();
+  const fx = await toolPlugin();
+  const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
+  const h = await harness(ctx);
+  const { pluginId, toolIds } = await call(router.plugins.install, { marketplaceId: market.id, entryName: "github", reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["github"], settings: { github: { GITHUB_TOKEN: TOKEN } } }, { context: ctx });
+  const { packageId } = await call(router.skills.create, { name: "triage", description: "Triages.", instructions: "x", requiredToolIds: toolIds }, { context: ctx });
+  const agent = await call(router.agents.create, { name: "Clerk", harnessId: h.id, systemPrompt: "", skillPackageIds: [packageId] }, { context: ctx });
+  const unasked = async () => (await toolingOf(ctx.db, { ownerId: ctx.ownerId, snapshot: null }, agent.id)).httpTools[0]!.unasked;
+  expect(await rememberAllowedAction(ctx.db, ctx.ownerId, { agentId: agent.id, toolId: toolIds[0]!, action: "echo" })).toBe(true);
+  expect(await unasked()).toEqual(["echo"]);
+  fx.plugin.commit({ ".mcp.json": JSON.stringify({ github: { type: "http", url: fx.server.url.replace(/\/mcp$/, "/v2/mcp"), headers: { Authorization: "Bearer ${GITHUB_TOKEN}" } } }) });
+  await updatePlugin(ctx, pluginId);
+  expect(await unasked()).toEqual([]);
   await fx.remove();
 });
 

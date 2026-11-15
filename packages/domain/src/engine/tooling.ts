@@ -5,7 +5,7 @@ import type { RememberedPermissions } from "../agents/remember.ts";
 import { toolPermissionTarget } from "../agents/tool-ask.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import type { Db } from "../db/client.ts";
-import { agents, agentTools, runs, stepRuns, tools, workflowVersions, type AgentSnapshot } from "../db/schema.ts";
+import { agents, agentSkillToolPermissions, agentTools, runs, stepRuns, tools, workflowVersions, type AgentSnapshot } from "../db/schema.ts";
 import { nodesOf } from "../workflows/model.ts";
 
 // What a session's agent gives it: its skill packages and its tools. For a Job, what its
@@ -53,15 +53,19 @@ export async function toolingOf(db: Db, run: { ownerId: string; snapshot: AgentS
     : [];
   rows.sort((a, b) => a.name.localeCompare(b.name));
   const chosen = await db.select({ toolId: agentTools.toolId, unasked: agentTools.unasked, denied: agentTools.denied }).from(agentTools).where(eq(agentTools.agentId, agentId));
+  // A tool it didn't choose: what was remembered for it with the packages that give it, for its current target.
+  const packageIds = now.skills.filter((s) => !snapshot || snapshot.skills.some((k) => k.packageId === s.packageId)).map((s) => s.packageId);
+  const withSkills = packageIds.length ? await db.select().from(agentSkillToolPermissions).where(and(eq(agentSkillToolPermissions.agentId, agentId), inArray(agentSkillToolPermissions.skillPackageId, packageIds))) : [];
   const permitted = rows.map((tool) => {
-    const mine = chosen.find((c) => c.toolId === tool.id);
     const target = toolPermissionTarget(tool);
+    const fromSkills = withSkills.filter((r) => r.toolId === tool.id && r.target === target);
+    const mine = chosen.find((c) => c.toolId === tool.id) ?? (fromSkills.length ? { unasked: fromSkills.flatMap((r) => r.unasked), denied: fromSkills.flatMap((r) => r.denied) } : undefined);
     const matches = (s: RememberedPermissions["allow"][number]): s is Extract<RememberedPermissions["allow"][number], { kind: "tool" }> => s.kind === "tool" && s.agentId === agentId && s.toolId === tool.id && s.target === target;
     const allowed = (run.remembered?.allow ?? []).filter(matches).map((s) => s.action).filter((name) => tool.actions.some((a) => a.name === name));
     const refused = (run.remembered?.deny ?? []).filter(matches).map((s) => s.action);
     const denied = [...new Set([...tool.disabled, ...(mine?.denied ?? []), ...refused])];
     const runUnasked = allowed.filter((name) => !denied.includes(name));
-    return { ...tool, actions: tool.actions.filter((a) => !denied.includes(a.name)), unasked: [...new Set([...(mine?.unasked ?? []), ...runUnasked])].filter((name) => !denied.includes(name)), denied, runUnasked, chosen: mine !== undefined };
+    return { ...tool, actions: tool.actions.filter((a) => !denied.includes(a.name)), unasked: [...new Set([...(mine?.unasked ?? []), ...runUnasked])].filter((name) => !denied.includes(name)), denied, runUnasked, chosen: chosen.some((c) => c.toolId === tool.id) };
   });
   return {
     skills,

@@ -1244,6 +1244,30 @@ export const agentTools = pgTable(
 );
 
 /**
+ * The same two lists as `agent_tools`, for a tool the agent gets only with a skill package
+ * (`agents/tool-ask.ts`). A row holds while its package is the agent's and still requires the
+ * tool, and only for the tool's `target` (`toolPermissionTarget`) it was written for.
+ */
+export const agentSkillToolPermissions = pgTable(
+  "agent_skill_tool_permissions",
+  {
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    skillPackageId: text("skill_package_id")
+      .notNull()
+      .references(() => skillPackages.id, { onDelete: "cascade" }),
+    toolId: text("tool_id")
+      .notNull()
+      .references(() => tools.id, { onDelete: "cascade" }),
+    target: text("target").notNull(),
+    unasked: jsonb("unasked").$type<string[]>().notNull().default([]),
+    denied: jsonb("denied").$type<string[]>().notNull().default([]),
+  },
+  (t) => [primaryKey({ columns: [t.agentId, t.skillPackageId, t.toolId] }), index("agent_skill_tool_permissions_package_idx").on(t.skillPackageId), index("agent_skill_tool_permissions_tool_idx").on(t.toolId)],
+);
+
+/**
  * Audit (design 6.8): one row per thing an agent's work did or met, written only by
  * `audit/record.ts`. A row names what was touched (ids, names, counts, kinds), never its content.
  * `job_id` has no foreign key: a row outlives its Job.

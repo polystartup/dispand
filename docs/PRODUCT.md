@@ -91,8 +91,8 @@ Status: Prototype
     and the others ask (for a tool from the catalog, the actions its entry lets run start without
     asking, and every other one asks, whatever the tool says); after that only the owner changes it, action by action, on the
     agent's page (under each tool) or through the memory choices on an approval of that action.
-    A tool approval offers Just this call, Remember this for this run only, and, for a chosen
-    tool in a Job, Remember this for this and all future runs. A run-only choice leaves the
+    A tool approval offers Just this call, Remember this for this run only, and, for a tool the agent
+    chose or gets with one of its skills, in a Job, Remember this for this and all future runs. A run-only choice leaves the
     agent's settings unchanged; a future-run Allow sets Run and a future-run Deny sets Off.
     Workflow sessions offer run-only memory. The agent page also lists saved native CLI rules,
     showing the CLI, Allow/Deny decision and rule. Each can be removed there; removal takes

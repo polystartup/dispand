@@ -1,9 +1,9 @@
 import { ORPCError } from "@orpc/server";
 import { MAX_CLI_RULE_LENGTH } from "@dispand/runner-protocol";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agents as agentsTable, agentSkills, agentTools, harnesses, plugins, skillPackages, tables as tablesTable, tools as toolsTable } from "../db/schema.ts";
+import { agents as agentsTable, agentSkills, agentSkillToolPermissions, agentTools, harnesses, plugins, skillPackages, tables as tablesTable, tools as toolsTable } from "../db/schema.ts";
 import { MEMORY_TARGETS } from "../memory/model.ts";
 import { BUNDLES, type TableScope } from "../platform/bundles.ts";
 import { ModelName } from "../harnesses/procedures.ts";
@@ -166,6 +166,8 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
   // entry's, or the actions its server calls read-only. Only here are those read: later, they change nothing by themselves.
   const kept = new Map((await tx.delete(agentTools).where(eq(agentTools.agentId, agentId)).returning()).map((t) => [t.toolId, t]));
   if (packageIds.length) await tx.insert(agentSkills).values(packageIds.map((packageId) => ({ agentId, packageId })));
+  // What was remembered for a package's tools goes with the package.
+  await tx.delete(agentSkillToolPermissions).where(and(eq(agentSkillToolPermissions.agentId, agentId), ...(packageIds.length ? [notInArray(agentSkillToolPermissions.skillPackageId, packageIds)] : [])));
   if (toolIds.length) {
     await tx.insert(agentTools).values(
       toolIds.map((toolId) => {

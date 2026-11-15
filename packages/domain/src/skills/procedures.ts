@@ -1,10 +1,10 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agentUsingPackage } from "../agents/usage.ts";
 import { PLATFORM_SKILL } from "../assistant/skill.ts";
-import { plugins, skillFiles, skillFileUpstream, skillPackages, skills as skillsTable, tools as toolsTable } from "../db/schema.ts";
+import { agentSkillToolPermissions, plugins, skillFiles, skillFileUpstream, skillPackages, skills as skillsTable, tools as toolsTable } from "../db/schema.ts";
 import { refuseOwnDelete } from "../plugins/overrides.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -236,6 +236,8 @@ const update = owner.input(Fields.extend(PackageId.shape)).handler(async ({ inpu
         .update(skillPackages)
         .set({ name: fields.name, description: fields.description, requiredToolIds: fields.requiredToolIds, updatedAt: sql`now()` })
         .where(eq(skillPackages.id, packageId));
+      // What agents remembered for a tool goes when the package stops requiring it.
+      await tx.delete(agentSkillToolPermissions).where(and(eq(agentSkillToolPermissions.skillPackageId, packageId), ...(fields.requiredToolIds.length ? [notInArray(agentSkillToolPermissions.toolId, fields.requiredToolIds)] : [])));
       await store(tx, packageId, files, skills);
     })
     .catch(nameTaken(fields.name));

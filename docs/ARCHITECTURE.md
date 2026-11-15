@@ -698,7 +698,10 @@
   the list is filled from the actions' `readOnly` (the server's `readOnlyHint`, kept at
   listing), or for a catalog tool from its entry's `unasked` alone (`defaultUnasked`), when `agents.create` or `agents.update` adds the tool, kept as it is for a tool
   the agent already had, and changed by `agents.setToolPermission` only (`agents.toolAsk` reads it;
-  changing permissions is a proposal-only platform grant). A Job's session start names those actions (`unasked`, their
+  changing permissions is a proposal-only platform grant). For a tool the agent has only through
+  its skill packages, a future-run answer goes to `agent_skill_tool_permissions` (migration
+  0078; `writePermission` in `agents/tool-ask.ts`), read by `toolingOf` where the agent has no
+  `agent_tools` row, and only for the tool's current `toolPermissionTarget`. A Job's session start names those actions (`unasked`, their
   exposed names, at most 500; protocol 7), and the runner lets `mcp__job_tools__<name>` run
   without a question for them (the Claude permission hook or Codex elicitation): the CLI
   prompts for the others. A scoped owner answer carries `remember` (protocol 20), after the
@@ -775,7 +778,8 @@
   0042; null: the actions the server marks read-only) says which of a tool's actions a poll may
   call, and `isPollable` adds that no agent holding the tool must ask before using it (the
   action is in every holder's `agent_tools.unasked`; an agent that has the tool only through a
-  skill's required tools asks before every action). `tools.pollable` and `tools.setPollable`
+  skill's required tools asks before every action, unless a future-run answer was kept for it
+  in `agent_skill_tool_permissions`, which polls don't read). `tools.pollable` and `tools.setPollable`
   are the owner's (never platform tools); the tool sheets show each action's state and why one
   isn't polled. Polls check `isPollable` when a trigger is made and at every dispatch.
 - **Proposals** (`platform/proposals.ts`, table `proposals`, migration 0034). Agent items save

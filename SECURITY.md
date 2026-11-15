@@ -342,7 +342,7 @@ changes it updates this file.
   Workflow questions cannot persist a future-run choice. The answer transaction validates the
   offered scope before marking the question answered; remembered allows consume that approval,
   so revoking the grant cannot leave a spare single-call approval. The UI defaults to Just this
-  call, offers run-only memory, and offers future-run memory only for a Job's chosen agent tool.
+  call, offers run-only memory, and offers future-run memory only for a tool the Job's agent chose or gets with one of its own skill packages.
   Allow + future-run selects Run; Deny + future-run selects Off. Agent answers cannot remember.
   Legacy Always is refused for MCP tool questions. Undelivered positive answers are checked
   again before they may populate a runner's local cache.
@@ -360,7 +360,15 @@ changes it updates this file.
   server or runner tool is no longer its entry). That hint is the
   server's claim and is read only then: a server that later calls another action read-only
   gains nothing, an action that appears later asks, and a tool that only comes with a skill
-  asks for everything. A tool pointed at another address or transport asks for everything
+  asks for everything until a future-run answer changes it. That answer is kept in
+  `agent_skill_tool_permissions`, one row per agent, skill package requiring the tool and tool
+  id, with the tool's `toolPermissionTarget` it was written for: a row applies only to that
+  agent, to that tool id (a same-named tool of a plugin or of the owner is another tool), while
+  the package is the agent's and still requires the tool, and only while the tool's target is
+  unchanged (another address, transport or runner tool, an availability change: by an edit, a
+  reset to a plugin's value or a plugin update, the tool asks again). Removing the package from
+  the agent, or the tool from the package, deletes its rows; an agent save that keeps the
+  package keeps them. A tool pointed at another address or transport asks for everything
   again on every agent for enabled actions: the unasked list named the old server's actions. Tools reached by URL and runner tools
   have this list; runner tools use it in Job sessions only. The list changes in three ways, each a person's: the owner on the
   agent's page; an item of a proposal the owner approved (the write is a grant: an agent
