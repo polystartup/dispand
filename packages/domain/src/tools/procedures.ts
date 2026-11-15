@@ -317,10 +317,12 @@ const toolColumn = (field: string) => (field === "url" ? toolsTable.url : field 
 /** Points the tool at a new (plain) URL, under the same rules as `update`; its actions are listed again afterwards. */
 export async function retarget(db: Db | Tx, row: Row, url: string, transport: ToolTransport): Promise<Row> {
   if (!Url.safeParse(url).success) bad("Not an http(s) URL");
-  checkTarget(url, Object.keys(row.headersSealed).length > 0 || row.auth === "oauth");
+  // As in `update`: another origin or transport starts without the headers.
+  const headersSealed = originOf(url) !== originOf(row.url!) || transport !== row.transport ? {} : row.headersSealed;
+  checkTarget(url, Object.keys(headersSealed).length > 0 || row.auth === "oauth");
   const [updated] = await db
     .update(toolsTable)
-    .set({ url, urlSealed: null, transport, permissionRevision: sql`${toolsTable.permissionRevision} + 1`, actions: [], refreshedAt: null, ...(row.auth === "oauth" ? { ...NO_OAUTH, oauthStatus: "authorize" as const } : {}) })
+    .set({ url, urlSealed: null, transport, headersSealed, auth: authOf(row.auth === "oauth", headersSealed), permissionRevision: sql`${toolsTable.permissionRevision} + 1`, actions: [], refreshedAt: null, ...(row.auth === "oauth" ? { ...NO_OAUTH, oauthStatus: "authorize" as const } : {}) })
     .where(and(eq(toolsTable.id, row.id), eq(toolsTable.ownerId, row.ownerId)))
     .returning();
   if (!updated) throw new ORPCError("NOT_FOUND");

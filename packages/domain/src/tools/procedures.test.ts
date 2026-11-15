@@ -5,7 +5,7 @@ import { runners, tools, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { secretAad, SecretError } from "../secrets.ts";
-import { headerAad, toolTarget } from "./procedures.ts";
+import { headerAad, retarget, toolTarget } from "./procedures.ts";
 import { resealToolHeaders } from "./reseal.ts";
 import { startFakeMcp, type FakeAction, type FakeMcp } from "./test-server.ts";
 
@@ -143,6 +143,18 @@ test("an sse tool's header is bound to its origin: sealed for one, it doesn't op
   expect(again.headerNames).toEqual(["authorization"]);
   const switched = await call(router.tools.update, { id: tool.id, transport: "streamable-http" }, { context });
   expect(switched.headerNames).toEqual([]);
+});
+
+test("retarget keeps the headers at the same origin and drops them at another", async () => {
+  const context = await ownerContext();
+  const first = await fake();
+  const tool = await call(router.tools.create, { name: "Echo", url: first.url, transport: "streamable-http", headers: { authorization: SECRET } }, { context });
+  const [row] = await context.db.select().from(tools).where(eq(tools.id, tool.id));
+  const samePlace = await retarget(context.db, row!, `${first.url}?v=2`, "streamable-http");
+  expect(toolTarget(samePlace, context.secrets).headers).toEqual({ authorization: SECRET });
+  const second = await fake();
+  const moved = await retarget(context.db, samePlace, second.url, "streamable-http");
+  expect(moved).toMatchObject({ headersSealed: {}, auth: "none" });
 });
 
 test("a header still sealed for its old origin is never sent to the tool's new one", async () => {

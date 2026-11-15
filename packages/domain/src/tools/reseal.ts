@@ -1,4 +1,4 @@
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { tools as toolsTable } from "../db/schema.ts";
 import { errorKind, logError } from "../log.ts";
@@ -33,8 +33,12 @@ export async function resealToolHeaders(db: Db, secrets: SecretBox): Promise<{ r
       }
       if (!changed) continue;
       try {
-        // Only while the tool still calls the URL read above: the origin it is sealed for.
-        const updated = await db.update(toolsTable).set({ headersSealed }).where(and(eq(toolsTable.id, row.id), eq(toolsTable.url, url))).returning({ id: toolsTable.id });
+        // Only while the tool still calls the URL read above (the origin it is sealed for) with the headers read: another instance's change wins.
+        const updated = await db
+          .update(toolsTable)
+          .set({ headersSealed })
+          .where(and(eq(toolsTable.id, row.id), eq(toolsTable.url, url), sql`${toolsTable.headersSealed} = ${JSON.stringify(row.headersSealed)}::jsonb`))
+          .returning({ id: toolsTable.id });
         if (updated.length) resealed += changed;
       } catch (err) {
         logError("tools.reseal failed", err, { ref: row.id });
