@@ -366,3 +366,33 @@ test("one tick that fires a schedule trigger is one trace: the tick, the fire, t
   expect(points).toContainEqual({ name: "dispand.scheduler.lag", attributes: { "dispand.fire.kind": "trigger" } });
   expect(points).toContainEqual({ name: "dispand.runs.created", attributes: { "dispand.run.source": "agent", "dispand.run.trigger": "schedule" } });
 });
+
+test("a Job a tick created, started after a restart, is still one trace: its session, its events and its end hang under its engine.job span", async () => {
+  const { context, runnerId, time, scheduler, engine, jobsOf } = await triggerSetup();
+  const t = await captureTelemetry();
+  onTestFinished(() => stopTelemetry());
+  time.set("2026-11-05T11:00:10+01:00");
+  // The tick creates the Job, then the process stops before its session starts.
+  vi.spyOn(engine, "continueRun").mockResolvedValue(undefined as never);
+  const [runId] = await scheduler.tick();
+  const tick = t.spans().find((s) => s.name === "scheduler.tick")!.spanContext();
+  const job = t.spans().find((s) => s.name === "engine.job")!;
+  expect(job.spanContext().traceId).toBe(tick.traceId);
+  expect(job.attributes).toMatchObject({ "dispand.job.id": runId });
+  expect((await jobsOf())[0]).toMatchObject({ traceId: tick.traceId, spanId: job.spanContext().spanId });
+
+  const restarted = new FakeAdapter();
+  const again = new Engine(context.db, restarted);
+  onTestFinished(() => again.stop());
+  await again.recover();
+  const sessionId = restarted.starts[0]!.start.sessionId;
+  await again.onHarnessEvent(sessionId, { type: "result", text: "Reported." }, { runnerId, seq: 1 });
+  const session = t.spans().find((s) => s.name === "engine.session.start")!;
+  const event = t.spans().find((s) => s.name === "engine.event")!;
+  for (const span of [session, event]) {
+    expect(span.spanContext().traceId).toBe(tick.traceId);
+    expect(span.parentSpanContext?.spanId).toBe(job.spanContext().spanId);
+  }
+  const ended = await context.db.select().from(audit).where(eq(audit.jobId, runId!));
+  expect(ended.map((r) => [r.action, r.traceId])).toEqual(expect.arrayContaining([["job.created", tick.traceId], ["job.finished", tick.traceId]]));
+});

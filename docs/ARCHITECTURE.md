@@ -503,7 +503,14 @@
   hooked. `telemetry-requests.mjs` lists the requests that make no span. PGlite has no
   instrumentation: installs on it get no database spans. Each scheduler tick is the root of its own trace
   (`scheduler.tick`, one `scheduler.fire` per due schedule or trigger with its kind, result
-  and lag); a run stores the trace it was created in (`runs.trace_id`, migration 0036). The
+  and lag); a run stores the trace it was created in (`runs.trace_id`, migration 0036). A Job is
+  one trace: creating it starts and ends an `engine.job` span in the trigger's or the request's
+  trace and stores its id (`runs.span_id`, migration 0077), and `inJobTrace` makes every later
+  span of the Job its child, linked to the span that was active (a runner message, a request, a
+  restart): its session starts, its runner events, its end, its cloud sessions' model turns and
+  tool calls, and its CLI sessions' calls to the Job and tools endpoints. We decided on a parent
+  rather than links alone because what a Job did, from its trigger to its tool calls, is then
+  read as one trace, and the Audit rows written in that work carry its id. The
   engine traces each session start (`engine.session.start`, inside the Job for a Job) and
   each runner event but text deltas (`engine.event`, which are only counted), and counts runs
   created and finished (with their duration), questions opened and answered (with their

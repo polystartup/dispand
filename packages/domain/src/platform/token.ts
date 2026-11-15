@@ -34,11 +34,11 @@ export async function jobOfToken(db: Db, token: string): Promise<JobIdentity | n
   if (!token.startsWith("dj_")) return null;
   const hash = hashOf(token);
   const [run] = await db
-    .select({ id: runs.id, ownerId: runs.ownerId, agentId: runs.agentId, tokenHash: runs.tokenHash })
+    .select({ id: runs.id, ownerId: runs.ownerId, agentId: runs.agentId, tokenHash: runs.tokenHash, traceId: runs.traceId, spanId: runs.spanId })
     .from(runs)
     .where(and(eq(runs.tokenHash, hash), eq(runs.source, "agent"), inArray(runs.status, ["running", "waiting"])));
   if (!run?.agentId || !run.tokenHash) return null;
   // The lookup is by hash; the comparison itself takes the same time whatever the stored value.
   if (!timingSafeEqual(Buffer.from(run.tokenHash), Buffer.from(hash))) return null;
-  return { runId: run.id, ownerId: run.ownerId, agentId: run.agentId };
+  return { runId: run.id, ownerId: run.ownerId, agentId: run.agentId, traceId: run.traceId, spanId: run.spanId };
 }

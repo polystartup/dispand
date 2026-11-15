@@ -330,6 +330,8 @@ export const runs = pgTable(
     error: text("error"),
     // The trace the run was created in (a scheduler tick, a request): to find its telemetry.
     traceId: text("trace_id"),
+    // A Job's `engine.job` span, in that trace: every later span of the Job is its child (`inJobTrace`).
+    spanId: text("span_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     finishedAt: timestamp("finished_at"),
   },

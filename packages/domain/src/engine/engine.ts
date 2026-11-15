@@ -55,7 +55,7 @@ import { CLOUD_SOURCE, type CliHarness, type ConsultTarget, type Harness, type H
 import { runDataStep } from "./data-step.ts";
 import { sessionTooling } from "./tooling.ts";
 import { runnerGrantCurrent, stopAsking } from "../platform/exposed.ts";
-import { annotate, currentTraceId, meter, recordError, spanEvent, tracer, withJob } from "../telemetry/index.ts";
+import { annotate, currentTraceId, inJobTrace, markSpan, meter, recordError, spanEvent, tracer, withJob } from "../telemetry/index.ts";
 import { CONSULT, REQUEST_APPROVAL } from "../cloud/builtins.ts";
 import { attachProposal, settleProposal } from "../platform/proposals.ts";
 import { issueJobToken } from "../platform/token.ts";
@@ -566,6 +566,8 @@ export class Engine {
     };
     const def = jobDef({ agent: snapshot, trigger: trigger ?? null, stem });
     const token = this.secrets ? issueJobToken(this.secrets, runId) : undefined;
+    // The Job's own span, in the trigger's or the request's trace: all its later work hangs under it (`inJobTrace`).
+    const span = markSpan(traces, "engine.job", { "dispand.job.id": runId, "dispand.agent.id": agentId, "dispand.run.trigger": firing.type });
     await tx.insert(runs).values({
       id: runId,
       ownerId,
@@ -580,7 +582,8 @@ export class Engine {
       rootId,
       status: "running",
       trigger: firing,
-      traceId: currentTraceId() ?? null,
+      traceId: span?.traceId ?? null,
+      spanId: span?.spanId ?? null,
     });
     counts.counter("dispand.runs.created").add(1, { "dispand.run.source": "agent", "dispand.run.trigger": firing.type });
     const creator = creatorOf(ownerId, cause);
@@ -1362,7 +1365,9 @@ export class Engine {
     counts.counter("dispand.harness.events").add(1, { "dispand.event.type": event.type });
     // Words stream as many small events: those are counted, the others traced one by one.
     if (event.type === "text") return this.applyEvent(sessionId, event, from);
-    return traces.startActiveSpan("engine.event", { attributes: { "dispand.event.type": event.type, "dispand.session.id": sessionId, "dispand.runner.id": from.runnerId } }, async (span) => {
+    // In its Job's trace: the runner message's own span is linked from it.
+    const [job] = await this.db.select({ traceId: runs.traceId, spanId: runs.spanId }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId)).where(eq(stepRuns.sessionId, sessionId));
+    return inJobTrace(job ?? {}, () => traces.startActiveSpan("engine.event", { attributes: { "dispand.event.type": event.type, "dispand.session.id": sessionId, "dispand.runner.id": from.runnerId } }, async (span) => {
       try {
         await this.applyEvent(sessionId, event, from);
       } catch (err) {
@@ -1371,7 +1376,7 @@ export class Engine {
       } finally {
         span.end();
       }
-    });
+    }));
   }
 
   private async applyEvent(sessionId: string, event: HarnessEvent, from: { runnerId: string; seq: number }): Promise<void> {
@@ -2101,7 +2106,7 @@ export class Engine {
           span.end();
         }
       });
-    return run.source === "agent" ? withJob(run.id, traced) : traced();
+    return run.source === "agent" ? inJobTrace(run, () => withJob(run.id, traced)) : traced();
   }
 
   private async openSession(run: RunRow, def: WorkflowDef, steps: StepRow[], node: WorkflowNode, step: StepRow) {
@@ -2468,7 +2473,7 @@ export class Engine {
       counts.counter("dispand.runs.finished").add(1, attributes);
       counts.histogram("dispand.run.duration", { unit: "ms", description: "From a run's creation to its end" }).record(row.finishedAt!.getTime() - row.createdAt.getTime(), attributes);
       if (row.source === "agent") {
-        await recordAudit(tx, {
+        await inJobTrace(row, () => recordAudit(tx, {
           ownerId: row.ownerId,
           actor: { type: "job", runId: row.id },
           agentId: row.agentId,
@@ -2477,7 +2482,7 @@ export class Engine {
           resource: { type: "job", id: row.id },
           result: status === "succeeded" ? "ok" : "failed",
           ...(status === "failed" ? { details: { reason: stop ?? (error === STOPPED ? "stopped" : "failed") } } : {}),
-        });
+        }));
       }
       await this.answerConsult(tx, row, out);
       // A Stem Job's conflicts it didn't decide are the owner's again, however it ended.

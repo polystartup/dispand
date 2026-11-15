@@ -1,13 +1,13 @@
 import { type Answer, type HarnessEvent, ID, type QuestionPayload, SHORT, TEXT } from "@dispand/runner-protocol";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
-import { cloudSessions, stepRuns } from "../db/schema.ts";
+import { cloudSessions, runs, stepRuns } from "../db/schema.ts";
 import { answerText } from "../engine/engine.ts";
 import type { AgentAnswerer, CloudHarness, HarnessAdapter, StartParams } from "../engine/harness.ts";
 import { loadCloudHarness } from "../harnesses/cloud.ts";
 import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
-import { meter, recordError, tracer } from "../telemetry/index.ts";
+import { inJobTrace, meter, recordError, tracer } from "../telemetry/index.ts";
 import { SecretError, type SecretBox } from "../secrets.ts";
 import {
   ASK_USER,
@@ -344,11 +344,17 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
 
   private async drive(id: string) {
     for (;;) {
-      const [row] = await this.db.select().from(cloudSessions).where(eq(cloudSessions.id, id));
+      // Each turn in its Job's trace, whatever woke the session (a start, an answer, a restart).
+      const [found] = await this.db
+        .select({ row: cloudSessions, traceId: runs.traceId, spanId: runs.spanId })
+        .from(cloudSessions)
+        .leftJoin(stepRuns, eq(stepRuns.id, cloudSessions.stepRunId))
+        .leftJoin(runs, eq(runs.id, stepRuns.runId))
+        .where(eq(cloudSessions.id, id));
+      const row = found?.row;
       if (row?.status !== "running") return;
       const call = nextCall(row.items);
-      if (call) await this.handleCall(row, call);
-      else await this.modelCall(row);
+      await inJobTrace(found!, () => (call ? this.handleCall(row, call) : this.modelCall(row)));
     }
   }
 

@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { annotate, emitLog, exportersFromEnv, inSpan, meter, rememberSecret, startTelemetry, stopTelemetry, tracer, withJob } from "./index.ts";
+import { annotate, currentTraceId, emitLog, exportersFromEnv, inJobTrace, inSpan, meter, rememberSecret, startTelemetry, stopTelemetry, tracer, withJob } from "./index.ts";
 import { captureTelemetry } from "./testing.ts";
 
 afterEach(() => stopTelemetry());
@@ -68,4 +68,32 @@ test("a tracer or an instrument taken before telemetry starts (when modules load
   histogram.record(1, { "rpc.method": "x", "dispand.result": "ok" });
   expect(t.spans().map((s) => s.name)).toEqual(["late"]);
   expect((await t.metrics()).map((m) => m.name)).toEqual(["dispand.rpc.duration"]);
+});
+
+test("in a Job's trace, a span is a child of the Job's stored span and links the caller's; a run without one is left as it is", async () => {
+  const t = await captureTelemetry();
+  const job = { traceId: "0af7651916cd43dd8448eb211c80319c", spanId: "b7ad6b7169203331" };
+  let seen: string | undefined;
+  tracer("test").startActiveSpan("caller", (caller) => {
+    inJobTrace(job, () => {
+      seen = currentTraceId();
+      tracer("test").startActiveSpan("work", (work) => {
+        tracer("test").startSpan("inner").end();
+        work.end();
+      });
+    });
+    inJobTrace({ traceId: null, spanId: null }, () => tracer("test").startSpan("workflow").end());
+    caller.end();
+  });
+  const byName = Object.fromEntries(t.spans().map((s) => [s.name, s]));
+  const caller = byName.caller!.spanContext();
+  expect(seen).toBe(job.traceId);
+  expect(byName.work!.spanContext().traceId).toBe(job.traceId);
+  expect(byName.work!.parentSpanContext?.spanId).toBe(job.spanId);
+  expect(byName.work!.links.map((l) => [l.context.traceId, l.context.spanId])).toEqual([[caller.traceId, caller.spanId]]);
+  // Only the spans started right under the Job's link the caller.
+  expect(byName.inner!.spanContext().traceId).toBe(job.traceId);
+  expect(byName.inner!.links).toEqual([]);
+  expect(byName.workflow!.spanContext().traceId).toBe(caller.traceId);
+  expect(byName.workflow!.links).toEqual([]);
 });
