@@ -1,8 +1,11 @@
+import type { Auth } from "@dispand/domain";
+import { inferAdditionalFields } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
+import type { Language } from "./i18n.ts";
 
 // The only place the Better Auth client is used (`auth-call.test.ts` enforces it): its calls
 // resolve with `{ error }` on HTTP failures instead of rejecting, which is easy to ignore.
-const authClient = createAuthClient();
+const authClient = createAuthClient({ plugins: [inferAdditionalFields<Auth>()] });
 
 /** Failure of an auth call, with nothing but a status the UI can map to a message (0: no response). */
 export class AuthCallError extends Error {
@@ -36,3 +39,6 @@ export function authErrorMessage(error: unknown, invalidCredentials = "Wrong ema
 export const signIn = (email: string, password: string) => authCall(() => authClient.signIn.email({ email, password }));
 
 export const signOut = () => authCall(() => authClient.signOut());
+
+/** Saves the user's page language; null follows the browser's. */
+export const saveLanguage = (language: Language | null) => authCall(() => authClient.updateUser({ language }));

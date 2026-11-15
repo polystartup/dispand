@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { z } from "zod";
 import type { Db } from "./db/client.ts";
 import * as schema from "./db/schema.ts";
 
@@ -21,6 +22,9 @@ export function createAuth(db: Db, opts: AuthOptions) {
     baseURL: opts.baseURL,
     secret: opts.secret,
     database: drizzleAdapter(db, { provider: "pg", schema }),
+    // The page language the user chose; null (unset) follows the browser's. Better Auth doesn't
+    // check an enum's values on its own: the validator does.
+    user: { additionalFields: { language: { type: ["en", "fr"], required: false, input: true, validator: { input: z.enum(["en", "fr"]).nullable() } } } },
     emailAndPassword: { enabled: true, disableSignUp: true },
     rateLimit: { enabled: opts.rateLimit },
     trustedOrigins: [opts.baseURL],

@@ -2,11 +2,10 @@ import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { AuthCard, Field, FormError, SubmitButton } from "../components/auth/AuthCard.tsx";
 import { authErrorMessage, signIn } from "../lib/auth-call.ts";
-import { getAuthState } from "../server/session.ts";
 
 export const Route = createFileRoute("/login")({
-  beforeLoad: async () => {
-    const { needsSetup, user } = await getAuthState();
+  beforeLoad: ({ context }) => {
+    const { needsSetup, user } = context.auth;
     if (needsSetup) throw redirect({ to: "/setup" });
     if (user) throw redirect({ to: "/" });
   },

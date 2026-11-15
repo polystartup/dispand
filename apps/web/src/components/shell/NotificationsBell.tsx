@@ -2,6 +2,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Bell } from "lucide-react";
 import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import type { i18n as I18n } from "i18next";
 import { api, orpc } from "../../lib/api.ts";
 import { takeNew } from "../../lib/new-questions.ts";
 
@@ -22,10 +24,10 @@ export function notificationPermission(): NotificationPermission | "unsupported"
   }
 }
 
-function notify(fresh: number) {
+function notify(i18n: I18n, fresh: number) {
   try {
     if (notificationPermission() !== "granted") return;
-    new Notification("Dispand", { body: fresh === 1 ? "An agent has a question for you." : `${fresh} agents have questions for you.`, tag: "dispand-questions" });
+    new Notification("Dispand", { body: i18n.t("shell:inbox.notification", { count: fresh }), tag: "dispand-questions" });
   } catch {
     // A browser that refuses (some mobile ones need a service worker): the badge still tells.
   }
@@ -36,6 +38,8 @@ const STREAM_DELAY_MS = 1500;
 /** Keeps the pending count current from the server stream (once, in the app shell). */
 export function usePendingQuestionsStream() {
   const queryClient = useQueryClient();
+  // The instance, not `t`: a notification is written in the language of the moment it shows.
+  const { i18n } = useTranslation();
   useEffect(() => {
     const stop = new AbortController();
     let seen: Set<string> | null = null;
@@ -51,7 +55,7 @@ export function usePendingQuestionsStream() {
             const items = await api.questions.list({ status: "pending" });
             const taken: { seen: Set<string>; fresh: unknown[] } = takeNew(seen, items);
             seen = taken.seen;
-            if (taken.fresh.length > 0) notify(taken.fresh.length);
+            if (taken.fresh.length > 0) notify(i18n, taken.fresh.length);
             // A count request still in flight read the database earlier: it must not land after this.
             await queryClient.cancelQueries({ queryKey: orpc.questions.count.queryKey() });
             queryClient.setQueryData(orpc.questions.count.queryKey(), { count });
@@ -64,10 +68,11 @@ export function usePendingQuestionsStream() {
       }
     })();
     return () => stop.abort();
-  }, [queryClient]);
+  }, [queryClient, i18n]);
 }
 
 export function NotificationsBell({ onNavigate }: { onNavigate: () => void }) {
+  const { t } = useTranslation("shell");
   const { data, error } = useQuery(orpc.questions.count.queryOptions());
   const pending = data?.count ?? 0;
   // Without a count, say so rather than look like nothing waits.
@@ -81,8 +86,8 @@ export function NotificationsBell({ onNavigate }: { onNavigate: () => void }) {
         onNavigate();
         void navigate({ to: "/inbox" });
       }}
-      aria-label={unknown ? "Inbox (couldn't load what's waiting)" : pending > 0 ? `Inbox, ${pending} waiting` : "Inbox"}
-      title={unknown ? "Couldn't load what's waiting" : undefined}
+      aria-label={unknown ? t("inbox.unknownLabel") : pending > 0 ? t("inbox.waiting", { count: pending }) : t("inbox.label")}
+      title={unknown ? t("inbox.unknown") : undefined}
       className="relative grid size-8 place-items-center rounded-lg text-muted transition hover:bg-hover hover:text-fg"
     >
       <Bell size={17} aria-hidden />

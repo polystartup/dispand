@@ -3,11 +3,10 @@ import { useState } from "react";
 import { AuthCard, Field, FormError, SubmitButton } from "../components/auth/AuthCard.tsx";
 import { api } from "../lib/api.ts";
 import { signIn } from "../lib/auth-call.ts";
-import { getAuthState } from "../server/session.ts";
 
 export const Route = createFileRoute("/setup")({
-  beforeLoad: async () => {
-    const { needsSetup } = await getAuthState();
+  beforeLoad: ({ context }) => {
+    const { needsSetup } = context.auth;
     if (!needsSetup) throw redirect({ to: "/login" });
   },
   component: Setup,

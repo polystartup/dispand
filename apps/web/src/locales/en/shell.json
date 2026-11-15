@@ -1,0 +1,53 @@
+{
+  "openMenu": "Open menu",
+  "menu": "Menu",
+  "navigation": "Navigation",
+  "sidebar": "Sidebar",
+  "main": "Main",
+  "nav": {
+    "home": "Home",
+    "audit": "Audit",
+    "settings": "Settings",
+    "harnesses": "Harnesses",
+    "agents": "Agents",
+    "skills": "Skills",
+    "tools": "Tools",
+    "plugins": "Plugins",
+    "data": "Data",
+    "memory": "Memory",
+    "workflows": "Workflows",
+    "help": "Help"
+  },
+  "newPage": {
+    "button": "New page",
+    "titleLabel": "New page title",
+    "placeholder": "Page title",
+    "failed": "Could not create the page."
+  },
+  "inbox": {
+    "label": "Inbox",
+    "waiting": "Inbox, {{count}} waiting",
+    "unknownLabel": "Inbox (couldn't load what's waiting)",
+    "unknown": "Couldn't load what's waiting",
+    "notification_one": "An agent has a question for you.",
+    "notification_other": "{{count}} agents have questions for you."
+  },
+  "account": {
+    "menu": "Account menu",
+    "signOut": "Sign out",
+    "signOutFailed": "Could not sign out. Try again."
+  },
+  "theme": {
+    "label": "Theme",
+    "system": "System",
+    "light": "Light",
+    "dark": "Dark"
+  },
+  "language": {
+    "label": "Language",
+    "browser": "Browser's language",
+    "en": "English",
+    "fr": "Français",
+    "failed": "Could not save the language. Try again."
+  }
+}

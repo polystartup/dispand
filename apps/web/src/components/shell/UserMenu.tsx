@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronsUpDown, LogOut } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,18 +10,21 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { authErrorMessage, signOut } from "../../lib/auth-call.ts";
+import { signOut } from "../../lib/auth-call.ts";
+import type { Language } from "../../lib/i18n.ts";
+import { LanguageChoice } from "./LanguageChoice.tsx";
 import { ThemeToggle } from "./ThemeToggle.tsx";
 
-/** Signed-in user at the bottom of the sidebar: theme override and sign out. */
-export function UserMenu({ user }: { user: { name: string; email: string } }) {
+/** Signed-in user at the bottom of the sidebar: theme and language overrides, and sign out. */
+export function UserMenu({ user }: { user: { name: string; email: string; language: Language | null } }) {
+  const { t } = useTranslation("shell");
   const navigate = useNavigate();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState(false);
 
   return (
-    <DropdownMenu onOpenChange={() => setError(null)}>
+    <DropdownMenu onOpenChange={() => setError(false)}>
       <DropdownMenuTrigger
-        aria-label="Account menu"
+        aria-label={t("account.menu")}
         className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition hover:bg-hover data-[state=open]:bg-hover"
       >
         <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-[13px] font-semibold text-accent-foreground">
@@ -37,24 +41,26 @@ export function UserMenu({ user }: { user: { name: string; email: string } }) {
         <DropdownMenuSeparator />
         <ThemeToggle />
         <DropdownMenuSeparator />
+        <LanguageChoice saved={user.language} />
+        <DropdownMenuSeparator />
         <DropdownMenuItem
           onSelect={async (event) => {
             event.preventDefault(); // stay open to show a failure, and to retry
-            setError(null);
+            setError(false);
             try {
               await signOut();
-            } catch (error) {
-              setError(authErrorMessage(error));
+            } catch {
+              setError(true);
               return;
             }
             await navigate({ to: "/login" });
           }}
         >
-          <LogOut aria-hidden /> Sign out
+          <LogOut aria-hidden /> {t("account.signOut")}
         </DropdownMenuItem>
         {error && (
           <p role="alert" className="px-2 pt-1 text-xs text-destructive">
-            {error}
+            {t("account.signOutFailed")}
           </p>
         )}
       </DropdownMenuContent>

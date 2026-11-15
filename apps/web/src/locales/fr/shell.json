@@ -1,0 +1,53 @@
+{
+  "openMenu": "Ouvrir le menu",
+  "menu": "Menu",
+  "navigation": "Navigation",
+  "sidebar": "Barre latérale",
+  "main": "Principal",
+  "nav": {
+    "home": "Accueil",
+    "audit": "Audit",
+    "settings": "Paramètres",
+    "harnesses": "Harnais",
+    "agents": "Agents",
+    "skills": "Compétences",
+    "tools": "Outils",
+    "plugins": "Plugins",
+    "data": "Données",
+    "memory": "Mémoire",
+    "workflows": "Workflows",
+    "help": "Aide"
+  },
+  "newPage": {
+    "button": "Nouvelle page",
+    "titleLabel": "Titre de la nouvelle page",
+    "placeholder": "Titre de la page",
+    "failed": "Impossible de créer la page."
+  },
+  "inbox": {
+    "label": "Boîte de réception",
+    "waiting": "Boîte de réception, {{count}} en attente",
+    "unknownLabel": "Boîte de réception (impossible de charger ce qui attend)",
+    "unknown": "Impossible de charger ce qui attend",
+    "notification_one": "Un agent a une question pour vous.",
+    "notification_other": "{{count}} agents ont des questions pour vous."
+  },
+  "account": {
+    "menu": "Menu du compte",
+    "signOut": "Se déconnecter",
+    "signOutFailed": "Impossible de se déconnecter. Réessayez."
+  },
+  "theme": {
+    "label": "Thème",
+    "system": "Système",
+    "light": "Clair",
+    "dark": "Sombre"
+  },
+  "language": {
+    "label": "Langue",
+    "browser": "Langue du navigateur",
+    "en": "English",
+    "fr": "Français",
+    "failed": "Impossible d'enregistrer la langue. Réessayez."
+  }
+}

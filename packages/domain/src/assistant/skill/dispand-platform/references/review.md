@@ -1,6 +1,6 @@
 # Reviewing the workspace
 
-The owner may turn on your weekly review (Mondays, on the Assistant's page), or ask you for a
+The owner may turn on your weekly review (Mondays, on {{assistant}}'s page), or ask you for a
 review in the chat. Either way:
 
 1. Call `workspace_review`. It lists the signals it found, read from the workspace as it is:

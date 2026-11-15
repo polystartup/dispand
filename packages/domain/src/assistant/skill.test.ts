@@ -15,6 +15,7 @@ import type { RunnerHub } from "../runners/hub.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
 import { PLATFORM_SKILL, PLATFORM_SKILL_FILES, syncPlatformSkill, syncPlatformSkills } from "./skill.ts";
+import { ASSISTANT_NAME } from "./name.ts";
 
 const text = (content: Uint8Array) => new TextDecoder().decode(content);
 
@@ -43,6 +44,12 @@ test("the build's files are a valid package of one skill, and name only tools Di
   const named = Object.values(build).flatMap((md) => [...md.matchAll(/`([a-z]+(?:_[a-z]+)+|propose)`/g)].map((m) => m[1]!));
   expect(named.length).toBeGreaterThan(10);
   expect(named.filter((n) => !names.has(n))).toEqual([]);
+});
+
+test("the skill names the built-in agent by its shown name, never as the Assistant", () => {
+  const text = Object.values(build).join("\n");
+  expect(build[`${PLATFORM_SKILL}/references/concepts.md`]).toContain(`## ${ASSISTANT_NAME}\n\n${ASSISTANT_NAME} is the workspace's built-in agent`);
+  expect(text).not.toMatch(/\{\{assistant\}\}|the Assistant/);
 });
 
 test("the skill tells the Assistant to give times in the owner's time zone, never in UTC", () => {

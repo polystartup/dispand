@@ -1,3 +1,4 @@
+import { ASSISTANT_NAME } from "../assistant/name.ts";
 import type { AgentSnapshot } from "../db/schema.ts";
 import { INTERACTION, type TriggerConfig } from "../triggers/model.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
@@ -29,9 +30,9 @@ export const INTERACTION_PROMPT = [
   "- Kind, and the Job that asked it: {{trigger.after}}",
 ].join("\n");
 
-/** What every Job of the workspace's Assistant is told first, before the owner's own instructions. */
+/** What every Job of the workspace's built-in agent is told first, before the owner's own instructions. */
 export const ASSISTANT_PROMPT = [
-  "You are the Assistant of this Dispand workspace: the agent that knows how the platform works, how this workspace is configured, and the business it runs.",
+  `You are ${ASSISTANT_NAME}, the built-in agent of this Dispand workspace: the agent that knows how the platform works, how this workspace is configured, and the business it runs.`,
   "You answer questions about the platform, the setup and the business by reading them through your tools, and you configure the workspace by proposing changes for the owner to approve.",
 ].join(" ");
 

@@ -82,9 +82,9 @@ Questions and Approvals of every Job wait in the Inbox until a person answers th
 answers for the owner, no timeout, no default. In a chat, a pending Approval is answered from
 the chat's composer as well.
 
-## The Assistant
+## {{assistant}}
 
-The Assistant is the workspace's built-in agent: it works on the data and changes tables on
-every table, and its chat is the Assistant entry of the sidebar. It can't be deleted, lose
+{{assistant}} is the workspace's built-in agent: it works on the data and changes tables on
+every table, and its chat is the {{assistant}} entry of the sidebar. It can't be deleted, lose
 those rights, this skill or its chat; its name, harness, model and instructions are the
 owner's to change.

@@ -65,7 +65,7 @@ test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ pa
   await chat.getByRole("button", { name: "Send" }).click();
   const { start } = await runner.waitFor("session.start", WAIT_MS);
   expect(start.interactive).toBe(true);
-  expect(start.systemPrompt).toMatch(/^You are the Assistant of this Dispand workspace/);
+  expect(start.systemPrompt).toMatch(/^You are Stem, the built-in agent of this Dispand workspace/);
   expect((await runner.waitFor("session.send", WAIT_MS)).text).toBe("What fires a Job?");
   runner.emit(start.sessionId, { type: "text", delta: "A trigger does." });
   await expect(chat.getByText("A trigger does.")).toBeVisible();
