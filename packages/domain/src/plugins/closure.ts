@@ -38,6 +38,10 @@ import { agentInUse } from "../workflows/procedures.ts";
 export const REFERENCES: Record<string, "part" | "history" | "content" | "needs"> = {
   "agent_consults.agent_id": "part",
   "agent_consults.consulted_id": "needs",
+  // A permission remembered for a package's tool: the agent's, gone with any of the three, which `agent_skills` and `required_tool_ids` already tie.
+  "agent_skill_tool_permissions.agent_id": "part",
+  "agent_skill_tool_permissions.skill_package_id": "part",
+  "agent_skill_tool_permissions.tool_id": "part",
   "agent_skills.agent_id": "part",
   "agent_skills.package_id": "needs",
   "agent_tools.agent_id": "part",
