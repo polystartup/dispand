@@ -205,8 +205,8 @@ async function agentChangeOf(db: Db, ownerId: string, tool: string, input: unkno
 const everyString = (value: unknown, ok: (s: string) => boolean): boolean =>
   typeof value === "string" ? ok(value) : Array.isArray(value) ? value.every((v) => everyString(v, ok)) : value !== null && typeof value === "object" ? Object.entries(value).every(([k, v]) => ok(k) && everyString(v, ok)) : true;
 
-/** Whether a tool's call may be an item: a configuration write. */
-export const proposable = (tool: PlatformTool): boolean => tool.bundle === "configure" && (tool.grant === true || tool.write === true);
+/** Whether a tool's call may be an item: a configuration write, or a memory write (`bundle: null`). */
+export const proposable = (tool: PlatformTool): boolean => (tool.bundle === "configure" || tool.bundle === null) && (tool.grant === true || tool.write === true);
 
 /**
  * Stores the writes a Job's agent proposes, as a draft. Each must be a configuration write the
@@ -448,6 +448,8 @@ const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
   tools_delete: { id: "tool" },
   tools_add_from_catalog: { catalogId: "catalog" },
   plugins_add_server: { pluginId: "plugin" },
+  memory_add: { tableId: "table" },
+  memory_update: { tableId: "table" },
 };
 
 /** What each creating tool creates (its output's `id`): what `{ "$item": n }` may name, and how a reference reads: "the table item 2 creates". */

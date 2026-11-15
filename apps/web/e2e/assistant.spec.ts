@@ -14,6 +14,10 @@ test.describe.configure({ mode: "serial", timeout: 180_000 });
 const DESCRIPTION =
   "I am a lawyer. When a client emails me, I'd like the research done and a reply drafted for me to review. If the email is about one of our cases, add its attachments to the case and update the case's conclusions. I only want to answer the important questions and review the finished work.";
 
+/** The description, rewritten as how this business works: what the setup keeps in the workspace's memory. */
+const BUSINESS =
+  "A law firm. Clients write by email: each new email is researched and a reply drafted for the lawyer to review. An email about a case adds its attachments to the case and updates the case's conclusions. The lawyer answers only the important questions and reviews finished work.";
+
 let model: FakeModel | undefined;
 let research: FakeMcp | undefined;
 let runner: FakeRunner | undefined;
@@ -131,7 +135,7 @@ test("the lawyer: a fresh install's Assistant sets up the whole workspace from o
     },
     /* 14 */ { tool: "triggers_create", input: { agentId: { $item: 10 }, name: "Research recorded", instructions: "Draft the reply.", config: { kind: "primitive", tableId: { $item: 5 }, operations: ["created"] } } },
     /* 15 */ { tool: "triggers_create", input: { agentId: { $item: 11 }, name: "Matter changed", instructions: "Update the conclusions.", config: { kind: "primitive", tableId: { $item: 2 }, operations: ["updated"] } } },
-    /* 16 */ { tool: "agents_update", input: { id: ids.assistant, name: "Assistant", harnessId: ids.cloud, systemPrompt: `How this firm works: ${DESCRIPTION}`, skillPackageIds: [ids.platformSkill], toolIds: [] } },
+    /* 16 */ { tool: "memory_add", input: { scope: "workspace", path: "business.md", name: "How this firm works", description: "A law firm: client emails researched, replies drafted for review, matters kept up to date", type: "business", body: BUSINESS } },
   ];
   model.script(
     use("propose", { items, plugin: "Law firm" }, "Ok, let me set this up in Dispand."),
@@ -144,7 +148,7 @@ test("the lawyer: a fresh install's Assistant sets up the whole workspace from o
   // 2. The description; the proposal is one Approval in the chat, every item shown.
   await chat.getByRole("combobox", { name: "Message", exact: true }).fill(DESCRIPTION);
   await chat.getByRole("button", { name: "Send" }).click();
-  await approve(page, items.length, ["Clients", "Matters", "Research", "Gmail", "Case law", "Intake and research", "Drafting", "Matter upkeep", "New client email", "Do you want to modify anything", "Runs without asking:", "Other enabled actions ask"]);
+  await approve(page, items.length, ["Clients", "Matters", "Research", "Gmail", "Case law", "Intake and research", "Drafting", "Matter upkeep", "New client email", "Add an entry to a memory", "How this firm works", "Do you want to modify anything", "Runs without asking:", "Other enabled actions ask"]);
 
   // 4. The last message links to the mail tool's page, which says it needs a sign-in.
   const link = chat.getByRole("button", { name: "Gmail", exact: true });
@@ -182,10 +186,15 @@ test("the lawyer: a fresh install's Assistant sets up the whole workspace from o
     ["Research recorded", "primitive"],
   ]);
 
-  // The description is kept in the Assistant's instructions, and the setup is one generated plugin.
-  const assistant = await rpc<{ systemPrompt: string; skills: { packageId: string }[] }>(page, "agents/get", { id: ids.assistant });
-  expect(assistant.systemPrompt).toContain(DESCRIPTION);
+  // The business is in the workspace's memory, written by Stem's Job, not in Stem's instructions; the setup is one generated plugin.
+  const memory = await rpc<{ path: string; type: string; body: string; author: { type: string } }[]>(page, "memories/list", { scope: "workspace" });
+  expect(memory).toEqual([expect.objectContaining({ path: "business.md", type: "business", body: BUSINESS, author: expect.objectContaining({ type: "agent" }) })]);
+  const assistant = await rpc<{ systemPrompt: string; selfLearning: string[]; skills: { packageId: string }[] }>(page, "agents/get", { id: ids.assistant });
+  expect(assistant.systemPrompt).toBe("");
+  expect(assistant.selfLearning).toEqual(["workspace"]);
   expect(assistant.skills.map((s) => s.packageId)).toEqual([ids.platformSkill]);
+  await page.goto("/settings/memory");
+  await expect(page.getByRole("main").getByText("How this firm works")).toBeVisible();
   await page.goto("/settings/plugins/installed");
   await expect(page.getByText("Generated: Law firm")).toBeVisible();
 });

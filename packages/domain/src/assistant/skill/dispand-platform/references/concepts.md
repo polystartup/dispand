@@ -86,5 +86,6 @@ the chat's composer as well.
 
 {{assistant}} is the workspace's built-in agent: it works on the data and changes tables on
 every table, and its chat is the {{assistant}} entry of the sidebar. It can't be deleted, lose
-those rights, this skill or its chat; its name, harness, model and instructions are the
-owner's to change.
+those rights, this skill or its chat; its name, harness, model, instructions and learning are
+the owner's to change. It keeps the business in the workspace's memory
+([memory.md](memory.md)).

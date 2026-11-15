@@ -254,7 +254,11 @@ changes it updates this file.
   through `memory/store.ts`, which checks the entry and its path (`isMemoryPath`: never a file
   a CLI loads as instructions) and keeps each revision with its author: the agent, its Job and
   whether it had `configure`. `memory_add` never replaces an entry and `memory_update` never
-  creates one, and the owner can revert or restore any write.
+  creates one, and the owner can revert or restore any write. A memory write may also be an
+  item of a proposal, refused when proposed outside the Job's targets; an approval never widens
+  them. The built-in agent writes the workspace's memory by default (its `workspace` target,
+  which the owner may untick), so what it learns steers every agent's Jobs: the business it
+  writes on day one is an item the owner approves.
 - **Memory steers the agents that work on data, never one that configures until a person
   accepts it.** A Job's session start gets, after its agent's instructions, the memory it reads
   (`memory/read.ts`, read whenever a start is sent, first, again or resumed, with the Job's

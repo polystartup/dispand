@@ -135,12 +135,16 @@ async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, i
       });
     }
     if (tool === APPLY) return done(await applyProposal(app, job, (parsed.data as { proposalId: string }).proposalId));
-    if (tool.run) return done(await tool.run(app, job, parsed.data, rights));
     // What changes what agents may do: only as a person approved it for this Job, and once. Any
     // other write uses a matching item too, so what it creates is what later items name.
     taken = at || tool.grant || tool.write ? await takeItem(app.db, job, tool.name, parsed.data, at) : null;
     seen.taken = taken;
     if (!taken && at) return refuse("item-used", ITEM_USED);
+    if (tool.run) {
+      const result = await tool.run(app, job, parsed.data, rights);
+      if (taken) await recordOutcome(app.db, taken, result.ok ? {} : { failed: true });
+      return done(result);
+    }
     if (!taken && tool.grant && !(await tool.direct?.(app.db, job, parsed.data))) return refuse("needs-proposal", NEEDS_PROPOSAL);
     const approvedInput = taken?.toolPermissions ? { ...(parsed.data as object), toolPermissions: taken.toolPermissions } : parsed.data;
     const output = await call(procedureOf(router, tool.path) as never, approvedInput as never, {

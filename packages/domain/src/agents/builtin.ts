@@ -112,7 +112,7 @@ export async function ensureAssistant(db: Db, ownerId: string, harnessId: string
       const own = and(eq(agents.ownerId, ownerId), eq(agents.builtIn, "assistant"));
       const [made] = await tx
         .insert(agents)
-        .values({ id: newId("agent"), ownerId, name: "Assistant", harnessId, systemPrompt: "", bundles: ASSISTANT_BUNDLES, dataTables: "all", builtIn: "assistant" })
+        .values({ id: newId("agent"), ownerId, name: "Assistant", harnessId, systemPrompt: "", bundles: ASSISTANT_BUNDLES, dataTables: "all", selfLearning: ["workspace"], builtIn: "assistant" })
         .onConflictDoNothing()
         .returning({ id: agents.id });
       const [agent] = made ? [made] : await tx.select({ id: agents.id }).from(agents).where(own);

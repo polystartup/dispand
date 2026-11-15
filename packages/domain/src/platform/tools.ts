@@ -10,7 +10,7 @@ import { ApplyInput, CREATES, ProposeInput, type ProposalName } from "./proposal
 import type { JobIdentity, PlatformApp, ToolResult } from "./call.ts";
 import { signalsWithin } from "../assistant/review.ts";
 import { AnswerInput, answerQuestion, getQuestion, GetInput, listQuestions, ListInput } from "../questions/inbox.ts";
-import { readMemory, ReadInput, RemoveInput, removeMemoryTool, tablesOf, WriteInput, writeMemoryTool } from "../memory/tools.ts";
+import { readMemory, ReadInput, refuseProposedWrite, RemoveInput, removeMemoryTool, tablesOf, WriteInput, writeMemoryTool } from "../memory/tools.ts";
 import type { Rights } from "./rights.ts";
 import { sentence, type Text } from "../messages/index.ts";
 import { type Decision, decide } from "../plugins/resolve.ts";
@@ -50,8 +50,9 @@ export type PlatformTool = {
   /** A grant call that needs no proposal all the same: checked on its parsed input, before it runs. */
   direct?(db: Db, job: JobIdentity, input: unknown): Promise<boolean>;
   /**
-   * A configuration write that needs no proposal but may be listed in one, so a whole setup is
-   * approved at once. A grant is a write too. Reads are neither, and are never proposal items.
+   * A configuration write, or a memory write within the Job's targets, that needs no proposal but
+   * may be listed in one, so a whole setup is approved at once. A grant is a write too. Reads are
+   * neither, and are never proposal items.
    */
   write?: true;
   /** What the call creates: its kind, and its id read from the output. An item may name it with `{ "$item": n }`. */
@@ -410,6 +411,9 @@ export const MEMORY_TOOLS: PlatformTool[] = [
       "Adds an entry to a memory you may write (your agent's, a table's you work on, or the workspace's, as your self-learning allows): one fact the Jobs that come next need, at a path that has no entry yet. Memory is not a log.",
     input: WriteInput,
     tables: tableOfScope,
+    // Within its targets it needs no proposal, but may be an item of one (the day-one setup's business).
+    write: true,
+    shown: (app, job, input) => refuseProposedWrite(app, job, input as never),
     run: (app, job, input, rights) => writeMemoryTool(app, job, input as never, rights, "add"),
   },
   {
@@ -420,6 +424,8 @@ export const MEMORY_TOOLS: PlatformTool[] = [
     description: "Rewrites the entry at a path of a memory you may write: give every field, as it should read now.",
     input: WriteInput,
     tables: tableOfScope,
+    write: true,
+    shown: (app, job, input) => refuseProposedWrite(app, job, input as never),
     run: (app, job, input, rights) => writeMemoryTool(app, job, input as never, rights, "update"),
   },
   {

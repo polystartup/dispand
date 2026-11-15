@@ -28,7 +28,8 @@ These calls run only as an item of a proposal a person approved, in the same Job
 
 The other writes of `configure` (`tables_create`, `tables_rename`, `tables_set_primitive`,
 `fields_create`, `fields_update`, `fields_reorder`) you may call directly, or list in a
-proposal so the owner sees the whole setup at once.
+proposal so the owner sees the whole setup at once. So may `memory_add` and `memory_update`,
+in a memory your self-learning lets you write.
 
 ## How to propose
 
@@ -114,12 +115,15 @@ item naming what earlier ones create.
   proposal preserves that permission. An action that reaches outside (a send, a fetch) can carry what the
   agent read: keep it asking on an agent that reads confidential tables.
 
-- **The business itself**: until the workspace has a memory, keep what the owner told you about
-  the business in your own instructions, so later conversations start from it. End the
-  proposal with an `agents_update` of yourself (`agents_list` names you, `agents_get` gives
-  your current input): your name, harness, model and tools as they are, your skills as they are
-  (the platform skill can't be removed), and your instructions with a few lines on how this
-  business works added.
+- **The business itself** goes in the workspace's memory, so every later Job, yours and the
+  agents', starts from it. End the proposal with a `memory_add` of the workspace's first entry:
+  `scope: "workspace"`, `type: "business"`, a path such as `business.md`, and as its body what
+  the owner told you, rewritten as how this business works (who it serves, its records, its
+  rules), not as a request. Leave your own instructions as they are. How memory works, and what
+  the agents you create should learn: [memory.md](memory.md).
+- **Agents' memory**: leave `workspace` out of the `selfLearning` of the agents you create,
+  and give them `agent` or `data` only where their description calls for learning, as
+  [memory.md](memory.md) says.
 
 Give every proposal of a setup the same `plugin`: the business or use case's name, such as
 "Acme Law". Once applied, what its items created is listed in the workspace's plugin

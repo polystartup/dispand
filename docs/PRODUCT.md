@@ -15,7 +15,8 @@ Status: Prototype
   layout or the Agent Plugins standard's, whose Dispand extension also defines tables, agents
   and triggers a workspace can be set up from. The **Assistant**, a
   built-in agent at the top of the sidebar, is a chat with an agent that may work on the data
-  and configure the workspace.
+  and configure the workspace, and keeps what it learns about the business in the workspace's
+  memory (the owner may turn that off on its page).
 - **For whom:** a single owner per install who wants to hand recurring business work to AI
   agents, whatever the business: a law firm, a software studio, a shop.
 - **Direction:** agents own their triggers (data events, polled services, schedules, manual

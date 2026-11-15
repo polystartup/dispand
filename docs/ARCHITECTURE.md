@@ -627,12 +627,18 @@
   'assistant'` (migration 0048; a partial unique index keeps one per owner). No procedure's
   input carries `built_in`: `ensureAssistant` (`agents/builtin.ts`, behind the owner's
   `agents.ensureAssistant`, not a tool) makes it on the harness the owner picks, with `data`
-  and `configure` on all tables, the platform skill and a chat trigger, and gives the one there
-  is otherwise; it runs at server start for every Assistant, so what a version adds reaches
+  and `configure` on all tables, the `workspace` self-learning target, the platform skill and a
+  chat trigger, and gives the one there is otherwise; it runs at server start for every Assistant, so what a version adds reaches
   existing ones. `assistantGuard` is the one check of what may change on it (its bundles, its
   tables, its platform skill, its chat): `agents.update`,
   `agents.delete`, `triggers.update`, `triggers.delete` and `createProposal` (for
-  `agents_update` and `triggers_*` items, refused when proposed with the reason) call it. Its
+  `agents_update` and `triggers_*` items, refused when proposed with the reason) call it. We
+  decided its self-learning isn't one of those: the owner may untick `workspace` on its page.
+  It keeps the business in the workspace's memory: the platform skill's day-one proposal ends
+  with a `memory_add` of the business (`type: "business"`) in place of a change of its own
+  instructions, and an install from before gets the target once (migration 0080, on Assistants
+  whose `self_learning` was empty); a description already in its instructions stays there until
+  the owner approves the move it proposes. Its
   Jobs' system prompt starts with a fixed text (`jobSystemPrompt`, `engine/job-def.ts`), then
   the owner's instructions. It stays `assistant` in code and data; what people see is the
   label `agent.assistant.name` of the `messages` files (`packages/domain/src/messages/`),
@@ -810,13 +816,16 @@
   tool with no router path (`PROPOSE`, handled in `callPlatformTool`), stores a draft through
   `createProposal`: configuration writes of the Job's bundles only (`grant` tools, and the
   others marked `write`: `tables.create`, `tables.rename`, `tables.setPrimitive`,
-  `fields.create`, `fields.update`, `fields.reorder`), inputs parsed by the tool's schema
+  `fields.create`, `fields.update`, `fields.reorder`, and the memory writes `memory_add` and
+  `memory_update`, refused when proposed outside the Job's self-learning targets through their
+  `shown`), inputs parsed by the tool's schema
   and stored as parsed, storable text, at most 60 items and 64 KiB. An input may hold
   `{ "$item": n }` where an id goes, `n` an earlier item whose tool creates something
   (`CREATES`: `tables_create`, `fields_create`, `agents_create`, `triggers_create`,
   `tools_add`); it is parsed with a random placeholder id in its place (also checked against
   the Job's tables, so a Job limited to some tables can't name a table it creates) and stored
-  as the reference. A `write` call matching an unused item uses it too, and a call made as an
+  as the reference. A `write` call matching an unused item uses it too (a tool with a `run`,
+  such as `memory_add`, takes it before it runs), and a call made as an
   item is `pending` from when it is taken until its call ends, then records on it the id its
   output carries (`createdId`) or, when the procedure refused it, `failed`; `takeItem` compares a call with an item's input whose references are replaced
   by those `createdId`s (an item naming one with none can't match). `proposal_apply`

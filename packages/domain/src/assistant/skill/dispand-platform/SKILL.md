@@ -20,6 +20,8 @@ command:
   fires on.
 - [references/setup.md](references/setup.md): bundles, what needs a proposal, and how to
   propose a whole setup.
+- [references/memory.md](references/memory.md): the workspace's, the tables' and the agents'
+  memory, what belongs there, and what the agents you create should learn.
 - [references/review.md](references/review.md): reviewing the workspace for what could be
   better (`workspace_review`), one proposal per signal.
 

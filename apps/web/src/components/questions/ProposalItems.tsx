@@ -39,6 +39,8 @@ const TITLES: Record<string, string> = {
   triggers_update: "Change a trigger",
   triggers_delete: "Delete a trigger",
   plugins_install: "Install a plugin, and set up what it defines",
+  memory_add: "Add an entry to a memory: what later Jobs start from",
+  memory_update: "Rewrite an entry of a memory: what later Jobs start from",
 };
 /** What a key is called, by tool where one name isn't enough. */
 const LABELS_OF: Record<string, Record<string, string>> = {
@@ -59,6 +61,8 @@ const LABELS_OF: Record<string, Record<string, string>> = {
   plugins_add_server: { pluginId: "Plugin", server: "Server", url: "Address", transport: "Transport" },
   agents_set_tool_permission: { agentId: "Agent", toolId: "Tool", action: "Action", permission: "Permission" },
   harnesses_set_limit: { id: "Harness", maxWorking: "At most at once" },
+  memory_add: { scope: "Memory", tableId: "Table", path: "Path", type: "Type", body: "What it says" },
+  memory_update: { scope: "Memory", tableId: "Table", path: "Path", type: "Type", body: "What it says" },
 };
 /** A trigger's `concurrency` in words. */
 const CONCURRENCY: Record<string, string> = { parallel: "Several at once", "one-at-a-time": "One at a time" };

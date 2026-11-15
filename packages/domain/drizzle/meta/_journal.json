@@ -561,6 +561,13 @@
       "when": 1794777418677,
       "tag": "0079_files_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1794777478677,
+      "tag": "0080_stem_workspace_memory",
+      "breakpoints": true
     }
   ]
 }
