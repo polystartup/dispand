@@ -830,7 +830,9 @@
   (`cloud/builtins.ts`); on a runner it is a tool of the runner's own `dispand` server (Claude
   Code) or a dynamic tool (Codex), which asks the owner itself (`requestApproval` in
   `apps/runner/src/outcome.ts`) in every permission mode, bypass included, and is never
-  allowed for the session. On Claude Code, the other tool calls of a turn that asks for an
+  allowed for the session. We decided a subagent asks the agent that started it, which decides
+  whether to ask the person: on Codex, a `request_approval` call from a subagent's thread asks
+  nobody and fails with a text telling it to return its question to that agent. On Claude Code, the other tool calls of a turn that asks for an
   approval wait for the answer (from the moment the CLI is about to call the tool), and aren't
   run after a "no"; a cloud session refuses them the same way.
 - **Stopping a run:** `runs.stop` (`Engine.stopRun`) fails every step of the run still open

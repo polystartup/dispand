@@ -40,6 +40,7 @@ export type CodexDeps = {
 };
 
 const SUBMIT_OUTPUTS = "submit_outputs";
+const SUBAGENT_ASKS_PARENT = "You are a subagent: you can't ask the person. Return your question to the agent that started you; it decides whether to ask them.";
 export const PROFILE_REFUSED = "Codex didn't apply Dispand's permission profile: remove sandbox_mode from ~/.codex/config.toml";
 
 const isObject = (v: unknown): v is Record<string, JsonValue> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -314,6 +315,10 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
           const asked = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? (p.arguments as Record<string, unknown>) : {};
           const outcome = await requestApproval(ask, asked, signal);
           return { contentItems: [{ type: "inputText", text: outcome.text }], success: outcome.ok };
+        }
+        // We decided a subagent asks the agent that started it, which decides whether to ask the person.
+        if (p.tool === REQUEST_APPROVAL && p.namespace === null) {
+          return { contentItems: [{ type: "inputText", text: SUBAGENT_ASKS_PARENT }], success: false };
         }
         // Dispand answers it with the consulted agent's Job (or why there is none): the owner isn't asked.
         if (p.tool === CONSULT && consults.length > 0 && p.namespace === null && p.threadId === threadId) {

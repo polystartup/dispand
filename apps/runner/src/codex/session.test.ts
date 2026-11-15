@@ -628,6 +628,30 @@ test("request_approval on Codex asks the owner in the agent's words and answers 
   expect(await s.replyTo("r2")).toMatchObject({ success: false });
 });
 
+test("request_approval from a Codex subagent is sent back to the agent that started it, and asks nobody", async () => {
+  const call = (callId: string, tool: string, threadId: string, args: Record<string, unknown>) => ({ request: "item/tool/call", params: { threadId, turnId: "$TURN", callId, namespace: null, tool, arguments: args } });
+  const s = await run({
+    start: { consults: [{ agentId: "agt_arch", name: "Architect", description: "Owns the schema." }] },
+    turns: [
+      [
+        call("c1", "request_approval", "thr_sub", { message: "Send this draft?" }),
+        call("c2", "request_approval", "$THREAD", { message: "Send this draft?" }),
+        call("c3", "consult", "thr_sub", { agent: "agt_arch", question: "Hi?" }),
+        call("c4", "submit_outputs", "thr_sub", {}),
+        message("Done"),
+      ],
+    ],
+    answer: () => ({ kind: "permission", decision: "allow" }),
+  });
+  await s.ended();
+  expect(await s.replyTo("r0")).toEqual({ contentItems: [{ type: "inputText", text: "You are a subagent: you can't ask the person. Return your question to the agent that started you; it decides whether to ask them." }], success: false });
+  // The main thread still asks the person; consult and submit_outputs stay main-thread only.
+  expect(questions(s.events).map((q) => q.payload)).toEqual([{ kind: "permission", toolName: "request_approval", input: { message: "Send this draft?" }, canAlwaysAllow: false }]);
+  expect(await s.replyTo("r1")).toEqual({ contentItems: [{ type: "inputText", text: "Approved." }], success: true });
+  expect(await s.replyTo("r2")).toEqual({ contentItems: [{ type: "inputText", text: "unknown tool consult" }], success: false });
+  expect(await s.replyTo("r3")).toEqual({ contentItems: [{ type: "inputText", text: "unknown tool submit_outputs" }], success: false });
+});
+
 test("consult on Codex lists the start's agents, asks Dispand, and answers with the agent's answer or why there is none", async () => {
   const consult = (callId: string, args: Record<string, unknown>) => request("item/tool/call", { callId, namespace: null, tool: "consult", arguments: args });
   const answers: Answer[] = [
