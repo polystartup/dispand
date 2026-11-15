@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq, sql } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
-import { agents, agentTools, fields as fieldsTable, plugins as pluginsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, user } from "../db/schema.ts";
+import { agents, agentTools, audit, fields as fieldsTable, plugins as pluginsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { lawFirm, lawFirmMarket, removePlugin } from "../plugins/test-support.ts";
@@ -40,7 +40,7 @@ async function setup(bundles: Bundle[] = ["configure"]) {
   const settle = (proposalId: string, status: "asked" | "approved" | "declined") => context.db.update(proposals).set({ status }).where(eq(proposals.id, proposalId));
   const idOf = (result: unknown) => (result as { output: { proposalId: string } }).output.proposalId;
   const newAgent = { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief.", skillPackageIds: [], toolIds: [], bundles: ["data"], dataTables: "all" };
-  return { context, harness, agent, base, job, start, tool, propose, settle, idOf, newAgent, ask, answer, statusOf };
+  return { context, harness, agent, trigger, base, job, start, tool, propose, settle, idOf, newAgent, ask, answer, statusOf };
 }
 
 const NEEDS = /needs the owner's approval/;
@@ -228,6 +228,42 @@ test("an approval doesn't bring back a right taken since, nor skip the procedure
   // The agent loses `configure`: its approved item is of no use.
   await call(router.agents.update, { ...s.base, id: s.agent.id, bundles: [] }, { context: s.context });
   expect(await s.tool("agents_create", s.newAgent)).toMatchObject({ ok: false, error: "This agent may not use agents_create" });
+});
+
+test("an agent turns its own trigger off directly; turning it on, any other change, or another agent's trigger needs a proposal", async () => {
+  const s = await setup();
+  const enabledOf = async (id: string) => (await call(router.triggers.get, { id }, { context: s.context })).enabled;
+  // Turned off directly, audited as the call it is, with no proposal item.
+  expect(await s.tool("triggers_update", { id: s.trigger.id, enabled: false })).toMatchObject({ ok: true, output: { enabled: false } });
+  expect(await enabledOf(s.trigger.id)).toBe(false);
+  const rows = await s.context.db.select().from(audit).where(eq(audit.jobId, s.job.runId));
+  const calls = rows.filter((r) => r.action === "platform.call" && (r.details as { tool?: string }).tool === "triggers_update");
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ result: "ok", resourceType: "trigger", resourceId: s.trigger.id });
+  expect(calls[0]!.details).not.toHaveProperty("proposalId");
+  // Back on, its name changed, or off along with another field: only through a proposal.
+  expect(((await s.tool("triggers_update", { id: s.trigger.id, enabled: true })) as { error: string }).error).toMatch(NEEDS);
+  expect(((await s.tool("triggers_update", { id: s.trigger.id, name: "Renamed" })) as { error: string }).error).toMatch(NEEDS);
+  expect(((await s.tool("triggers_update", { id: s.trigger.id, enabled: false, instructions: "Other." })) as { error: string }).error).toMatch(NEEDS);
+  const on = s.idOf(await s.propose([{ tool: "triggers_update", input: { id: s.trigger.id, enabled: true } }]));
+  await s.settle(on, "approved");
+  expect(await s.tool("triggers_update", { id: s.trigger.id, enabled: true })).toMatchObject({ ok: true, output: { enabled: true } });
+  // A schedule's interval changes only through a proposal.
+  const daily = await call(router.triggers.create, { agentId: s.agent.id, name: "Daily", instructions: "Work.", config: { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" } }, { context: s.context });
+  const hourly = { id: daily.id, config: { kind: "schedule", cron: "0 * * * *", timezone: "UTC" } };
+  expect(((await s.tool("triggers_update", hourly)) as { error: string }).error).toMatch(NEEDS);
+  expect(((await s.tool("triggers_update", { ...hourly, enabled: false })) as { error: string }).error).toMatch(NEEDS);
+  const every = s.idOf(await s.propose([{ tool: "triggers_update", input: hourly }]));
+  await s.settle(every, "approved");
+  expect(await s.tool("triggers_update", hourly)).toMatchObject({ ok: true, output: { config: { cron: "0 * * * *" } } });
+  // Another agent's trigger: only through a proposal.
+  const other = await call(router.agents.create, { ...s.base, name: "Other", bundles: [] }, { context: s.context });
+  const theirs = await call(router.triggers.create, { agentId: other.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: s.context });
+  expect(((await s.tool("triggers_update", { id: theirs.id, enabled: false })) as { error: string }).error).toMatch(NEEDS);
+  expect(await enabledOf(theirs.id)).toBe(true);
+  const off = s.idOf(await s.propose([{ tool: "triggers_update", input: { id: theirs.id, enabled: false } }]));
+  await s.settle(off, "approved");
+  expect(await s.tool("triggers_update", { id: theirs.id, enabled: false })).toMatchObject({ ok: true, output: { enabled: false } });
 });
 
 test("every tool marked as a grant is refused without a proposal", async () => {

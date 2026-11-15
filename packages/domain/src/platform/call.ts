@@ -141,7 +141,7 @@ async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, i
     taken = at || tool.grant || tool.write ? await takeItem(app.db, job, tool.name, parsed.data, at) : null;
     seen.taken = taken;
     if (!taken && at) return refuse("item-used", ITEM_USED);
-    if (!taken && tool.grant) return refuse("needs-proposal", NEEDS_PROPOSAL);
+    if (!taken && tool.grant && !(await tool.direct?.(app.db, job, parsed.data))) return refuse("needs-proposal", NEEDS_PROPOSAL);
     const approvedInput = taken?.toolPermissions ? { ...(parsed.data as object), toolPermissions: taken.toolPermissions } : parsed.data;
     const output = await call(procedureOf(router, tool.path) as never, approvedInput as never, {
       context: { ...app, job, approvedToolTargets: taken?.toolPermissions?.map((p) => ({ toolId: p.toolId, target: p.target })), headers: new Headers(), resHeaders: new Headers() } as never,

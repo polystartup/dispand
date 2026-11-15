@@ -18,7 +18,8 @@ A call outside the Job's bundles or tables is refused.
 These calls run only as an item of a proposal a person approved, in the same Job:
 
 - `agents_create`, `agents_update`, `agents_set_tool_permission`;
-- `triggers_create`, `triggers_update`, `triggers_delete`;
+- `triggers_create`, `triggers_update`, `triggers_delete`; except one thing: `triggers_update`
+  with only `enabled: false`, on a trigger of your own agent, runs at once;
 - `tools_add_from_catalog` (a catalog entry's id, and a name if you want another), `tools_add`
   (a name, a URL and a transport), `tools_delete`: neither takes a credential;
 - `tables_delete`, `fields_delete` (they can't be undone);

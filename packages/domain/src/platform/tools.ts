@@ -46,6 +46,8 @@ export type PlatformTool = {
    * approved for that Job (`platform/proposals.ts`), checked in `callPlatformTool`.
    */
   grant?: true;
+  /** A grant call that needs no proposal all the same: checked on its parsed input, before it runs. */
+  direct?(db: Db, job: JobIdentity, input: unknown): Promise<boolean>;
   /**
    * A configuration write that needs no proposal but may be listed in one, so a whole setup is
    * approved at once. A grant is a write too. Reads are neither, and are never proposal items.
@@ -102,6 +104,16 @@ async function triggerTables(db: Db, ownerId: string, input: unknown): Promise<(
   const id = str(input, "id");
   const [current] = id ? await db.select({ config: triggers.config }).from(triggers).where(and(eq(triggers.id, id), eq(triggers.ownerId, ownerId))) : [];
   return [...watchedBy((input as { config?: unknown })?.config), ...watchedBy(current?.config)];
+}
+/**
+ * Turning off a trigger of the Job's own agent, and nothing else, needs no proposal: it only
+ * takes away what that agent does. Turning one on, any other field, another agent's: a grant.
+ */
+async function ownTriggerOff(db: Db, job: JobIdentity, input: unknown): Promise<boolean> {
+  const { id, enabled, ...rest } = input as { id: string; enabled?: boolean };
+  if (enabled !== false || Object.values(rest).some((v) => v !== undefined)) return false;
+  const [row] = await db.select({ agentId: triggers.agentId }).from(triggers).where(and(eq(triggers.id, id), eq(triggers.ownerId, job.ownerId)));
+  return row?.agentId === job.agentId;
 }
 const named = (key: string) => async (_db: Db, _ownerId: string, input: unknown) => [str(input, key)];
 
@@ -177,7 +189,7 @@ const idOf = (output: unknown): string | null => {
   return typeof id === "string" ? id : null;
 };
 
-function tool(path: string, bundle: Bundle, description: string, rest: Pick<PlatformTool, "tables" | "filter" | "grant" | "write" | "shown">): PlatformTool {
+function tool(path: string, bundle: Bundle, description: string, rest: Pick<PlatformTool, "tables" | "filter" | "grant" | "direct" | "write" | "shown">): PlatformTool {
   // `agents.setToolPermission` is `agents_set_tool_permission`: lower case with `_`, like every tool's name.
   const name = path.replace(".", "_").replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
   const kind = CREATES[name];
@@ -247,7 +259,7 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("triggers.list", "configure", "Lists an agent's triggers: what starts its Jobs (a button, a chat, a schedule), with their instructions.", { tables: none }),
   tool("triggers.get", "configure", "Gives one trigger by its id.", { tables: none }),
   tool("triggers.create", "configure", `Creates a trigger for an agent: what starts a Job and what the agent is told then. ${NEEDS_PROPOSAL}`, { tables: async (_db, _ownerId, input) => watchedBy((input as { config?: unknown })?.config), grant: true }),
-  tool("triggers.update", "configure", `Changes a trigger: its name, instructions, schedule, or whether it is on. ${NEEDS_PROPOSAL}`, { tables: triggerTables, grant: true }),
+  tool("triggers.update", "configure", `Changes a trigger: its name, instructions, schedule, or whether it is on. ${NEEDS_PROPOSAL} Except: a call with only its id and enabled: false, on a trigger of your own agent, runs at once.`, { tables: triggerTables, grant: true, direct: ownTriggerOff }),
   tool("triggers.delete", "configure", `Deletes a trigger. ${NEEDS_PROPOSAL}`, { tables: triggerTables, grant: true }),
   tool("jobs.list", "configure", "Lists the latest Jobs, newest first, of one agent or trigger or with one status if given: what made each, how it went, when, and the ids of its Questions and Approvals still waiting.", { tables: none }),
   tool("jobs.get", "configure", "Gives one Job with its transcript (a page of its messages, oldest first, and how many there are) and its Questions and Approvals with their answers. Only an agent on every table reads it.", { tables: wholeWorkspace }),

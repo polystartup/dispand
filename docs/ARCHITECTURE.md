@@ -779,7 +779,10 @@
   a tool's name is its path in lower case with `_`) is refused by `callPlatformTool`
   unless `takeItem` uses up a matching item of an approved proposal of the Job: one
   transaction that locks the Job's approved proposals and marks the first unused item with
-  that tool and canonically equal input (`canonical`, `platform/approvals.ts`). `propose`, a
+  that tool and canonically equal input (`canonical`, `platform/approvals.ts`). Without an
+  item, a grant still runs when its `direct` check passes: only `triggers.update` has one
+  (`ownTriggerOff`: the parsed input is `id` and `enabled: false` alone, on a trigger of the
+  owner's whose agent is the Job's). `propose`, a
   tool with no router path (`PROPOSE`, handled in `callPlatformTool`), stores a draft through
   `createProposal`: configuration writes of the Job's bundles only (`grant` tools, and the
   others marked `write`: `tables.create`, `tables.rename`, `tables.setPrimitive`,

@@ -216,7 +216,11 @@ changes it updates this file.
 - **What can't be undone, what removes a question and what starts Jobs are grants too.**
   Deleting a table or a field, changing an action's asking flag, and creating, changing or
   deleting a trigger (what starts an agent's Jobs, and what the agent is told then) are in the registry with the same mark as
-  creating or changing an agent, so the same gate refuses them without an approved item. An
+  creating or changing an agent, so the same gate refuses them without an approved item. One
+  exception, which we decided because it only takes away what the agent does: a call that
+  only turns off (`enabled: false`, no other field) a trigger of the Job's own agent runs
+  without an item, checked on its parsed input against the trigger's stored agent, and leaves
+  the same Audit row as any call; turning a trigger on stays a grant. An
   item is also checked against the Job's tables when it is proposed, like any call: a Job
   limited to some tables can't put another table's deletion in front of the owner.
 - **A Question reaches another agent only within what it may read.** Asking, answering and
