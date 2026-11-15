@@ -19,7 +19,7 @@ test("fresh app asks for setup, shows the shell, and signs out to login", async 
   for (const name of ["Stem", "Harnesses", "Agents", "Skills", "Tools", "Data", "Workflows", "Help"]) {
     await expect(sidebar.getByRole("link", { name })).toBeVisible();
   }
-  await expect(page.getByText("Choose where the Assistant runs")).toBeVisible();
+  await expect(page.getByText("Choose where Stem runs")).toBeVisible();
 
   await page.getByRole("link", { name: "Skills" }).click();
   await expect(page).toHaveURL(/\/settings\/skills$/);
