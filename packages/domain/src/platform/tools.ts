@@ -548,6 +548,9 @@ export const NOT_TOOLS: string[] = [
   // How many files the install keeps: it guards the machine's disk against agents' tool results.
   "workspace.filesLimit",
   "workspace.setFilesLimit",
+  // Strict permissions: turning them off widens what agents run unasked, so it is the owner's only.
+  "workspace.strictPermissions",
+  "workspace.setStrictPermissions",
   // The owner's memory pages; agents have their own memory tools, gated by their targets.
   "memories.list",
   "memories.get",

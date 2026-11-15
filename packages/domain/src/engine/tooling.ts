@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { JOB_SERVER_NAME, JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
 import { and, eq, inArray } from "drizzle-orm";
 import type { RememberedPermissions } from "../agents/remember.ts";
-import { toolPermissionTarget } from "../agents/tool-ask.ts";
+import { heldUnasked, strictTargets, toolPermissionTarget } from "../agents/tool-ask.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import type { Db } from "../db/client.ts";
 import { agents, agentSkillToolPermissions, agentTools, runs, stepRuns, tools, workflowVersions, type AgentSnapshot } from "../db/schema.ts";
@@ -52,14 +52,18 @@ export async function toolingOf(db: Db, run: { ownerId: string; snapshot: AgentS
         .where(and(inArray(tools.id, toolIds), eq(tools.ownerId, run.ownerId)))
     : [];
   rows.sort((a, b) => a.name.localeCompare(b.name));
-  const chosen = await db.select({ toolId: agentTools.toolId, unasked: agentTools.unasked, denied: agentTools.denied }).from(agentTools).where(eq(agentTools.agentId, agentId));
+  const chosen = await db.select({ toolId: agentTools.toolId, unasked: agentTools.unasked, denied: agentTools.denied, strictTarget: agentTools.strictTarget }).from(agentTools).where(eq(agentTools.agentId, agentId));
   // A tool it didn't choose: what was remembered for it with the packages that give it, for its current target.
   const packageIds = now.skills.filter((s) => !snapshot || snapshot.skills.some((k) => k.packageId === s.packageId)).map((s) => s.packageId);
   const withSkills = packageIds.length ? await db.select().from(agentSkillToolPermissions).where(and(eq(agentSkillToolPermissions.agentId, agentId), inArray(agentSkillToolPermissions.skillPackageId, packageIds))) : [];
+  const strict = await strictTargets(db, run.ownerId, agentId, rows, packageIds);
   const permitted = rows.map((tool) => {
     const target = toolPermissionTarget(tool);
     const fromSkills = withSkills.filter((r) => r.toolId === tool.id && r.target === target);
-    const mine = chosen.find((c) => c.toolId === tool.id) ?? (fromSkills.length ? { unasked: fromSkills.flatMap((r) => r.unasked), denied: fromSkills.flatMap((r) => r.denied) } : undefined);
+    const own = chosen.find((c) => c.toolId === tool.id);
+    const mine = own
+      ? { unasked: heldUnasked(strict, own, tool), denied: own.denied }
+      : fromSkills.length ? { unasked: fromSkills.flatMap((r) => heldUnasked(strict, r, tool, r.skillPackageId)), denied: fromSkills.flatMap((r) => r.denied) } : undefined;
     const matches = (s: RememberedPermissions["allow"][number]): s is Extract<RememberedPermissions["allow"][number], { kind: "tool" }> => s.kind === "tool" && s.agentId === agentId && s.toolId === tool.id && s.target === target;
     const allowed = (run.remembered?.allow ?? []).filter(matches).map((s) => s.action).filter((name) => tool.actions.some((a) => a.name === name));
     const refused = (run.remembered?.deny ?? []).filter(matches).map((s) => s.action);

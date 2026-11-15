@@ -2,11 +2,50 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import type { Db, Tx } from "../db/client.ts";
-import { agents, agentSkills, agentSkillToolPermissions, agentTools, skillPackages, tools } from "../db/schema.ts";
+import { agents, agentSkills, agentSkillToolPermissions, agentTools, plugins, skillPackages, tools, workspaceSettings } from "../db/schema.ts";
+import type { ToolAction } from "../tools/mcp.ts";
 
-/** Server-owned binding of a reviewed grant; discovery, renames and credential headers do not retarget a tool. */
-export function toolPermissionTarget(tool: { kind: string; url?: string | null; urlSealed?: string | null; transport?: string | null; runnerId?: string | null; runnerTool?: string | null; permissionRevision?: number }): string {
-  return createHash("sha256").update(JSON.stringify([tool.kind, tool.url ?? null, tool.urlSealed ?? null, tool.transport ?? null, tool.runnerId ?? null, tool.runnerTool ?? null, tool.permissionRevision ?? 0])).digest("hex");
+type TargetOf = { kind: string; url?: string | null; urlSealed?: string | null; transport?: string | null; runnerId?: string | null; runnerTool?: string | null; permissionRevision?: number; actions?: ToolAction[] };
+/** What strict permissions also bind a choice to, beside the tool's listed actions. */
+type Versions = { agentRevision: number; pluginCommit: string | null; skillFingerprint: string | null };
+
+/**
+ * Server-owned binding of a reviewed grant; discovery, renames and credential headers do not retarget a tool.
+ * With `versions` (strict permissions), it also covers the listed actions' names and schemas and those versions.
+ */
+export function toolPermissionTarget(tool: TargetOf, versions?: Versions): string {
+  const base = [tool.kind, tool.url ?? null, tool.urlSealed ?? null, tool.transport ?? null, tool.runnerId ?? null, tool.runnerTool ?? null, tool.permissionRevision ?? 0];
+  const listed = versions && (tool.actions ?? []).map((a) => [a.name, a.inputSchema ?? null, a.outputSchema ?? null]).sort(([a], [b]) => String(a).localeCompare(String(b)));
+  return createHash("sha256").update(JSON.stringify(versions ? [...base, listed, versions.pluginCommit, versions.skillFingerprint, versions.agentRevision] : base)).digest("hex");
+}
+
+export async function strictPermissionsOf(db: Db | Tx, ownerId: string): Promise<boolean> {
+  const [row] = await db.select({ strict: workspaceSettings.strictPermissions }).from(workspaceSettings).where(eq(workspaceSettings.ownerId, ownerId));
+  return row?.strict ?? false;
+}
+
+/** A tool's strict target for one agent (and the skill package a choice came with), or null when its last listing failed. */
+export type StrictTargets = (tool: TargetOf & { pluginId: string | null; actionsError: string | null }, packageId?: string) => string | null;
+
+/** Under strict permissions, what the agent's choices are bound to; null without strict permissions. */
+export async function strictTargets(db: Db | Tx, ownerId: string, agentId: string, toolRows: { pluginId: string | null }[], packageIds: string[]): Promise<StrictTargets | null> {
+  if (!(await strictPermissionsOf(db, ownerId))) return null;
+  const [agent] = await db.select({ revision: agents.revision }).from(agents).where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)));
+  const pluginIds = [...new Set(toolRows.flatMap((t) => (t.pluginId ? [t.pluginId] : [])))];
+  const commits = new Map(pluginIds.length ? (await db.select({ id: plugins.id, sha: plugins.sha }).from(plugins).where(and(inArray(plugins.id, pluginIds), eq(plugins.ownerId, ownerId)))).map((p) => [p.id, p.sha]) : []);
+  const fingerprints = new Map(packageIds.length ? (await db.select({ id: skillPackages.id, fingerprint: skillPackages.fingerprint }).from(skillPackages).where(and(inArray(skillPackages.id, packageIds), eq(skillPackages.ownerId, ownerId)))).map((p) => [p.id, p.fingerprint]) : []);
+  return (tool, packageId) =>
+    tool.actionsError !== null || !agent ? null : toolPermissionTarget(tool, { agentRevision: agent.revision, pluginCommit: (tool.pluginId && commits.get(tool.pluginId)) ?? null, skillFingerprint: (packageId && fingerprints.get(packageId)) ?? null });
+}
+
+/**
+ * The one rule for a stored choice's grants: without strict permissions they hold; with them,
+ * only for the strict target they were written for. A stale choice asks again; its Off stays.
+ */
+export function heldUnasked(strict: StrictTargets | null, row: { unasked: string[]; strictTarget: string | null }, tool: Parameters<StrictTargets>[0], packageId?: string): string[] {
+  if (!strict) return row.unasked;
+  const current = strict(tool, packageId);
+  return current !== null && current === row.strictTarget ? row.unasked : [];
 }
 
 export const Permission = z.enum(["run", "ask", "off"]);
@@ -39,17 +78,20 @@ export function packagesRequiring(db: Db | Tx, ownerId: string, agentId: string,
 /** Owner changes may enable an action; remembering a pending approval must not re-enable it. */
 async function writePermission(db: Db | Tx, ownerId: string, to: Change, remembering: boolean): Promise<boolean> {
   return db.transaction(async (tx) => {
-    const [row] = await tx
-      .select({ actions: tools.actions, unasked: agentTools.unasked, denied: agentTools.denied, disabled: tools.disabled })
+    const [found] = await tx
+      .select({ tool: tools, unasked: agentTools.unasked, denied: agentTools.denied, strictTarget: agentTools.strictTarget })
       .from(agentTools)
       .innerJoin(agents, eq(agents.id, agentTools.agentId))
       .innerJoin(tools, eq(tools.id, agentTools.toolId))
       .where(and(eq(agentTools.agentId, to.agentId), eq(agentTools.toolId, to.toolId), eq(agents.ownerId, ownerId), eq(tools.ownerId, ownerId), inArray(tools.kind, ["http", "runner"])))
       .for("update", { of: agentTools });
-    if (!row) return writeSkillPermission(tx, ownerId, to, remembering);
-    const lists = changed(row, to, remembering);
+    if (!found) return writeSkillPermission(tx, ownerId, to, remembering);
+    const { tool } = found;
+    const strict = await strictTargets(tx, ownerId, to.agentId, [tool], []);
+    // A stale choice's grants don't ride along with this one.
+    const lists = changed({ actions: tool.actions, disabled: tool.disabled, denied: found.denied, unasked: heldUnasked(strict, found, tool) }, to, remembering);
     if (!lists) return false;
-    await tx.update(agentTools).set(lists).where(and(eq(agentTools.agentId, to.agentId), eq(agentTools.toolId, to.toolId)));
+    await tx.update(agentTools).set({ ...lists, strictTarget: strict?.(tool) ?? null }).where(and(eq(agentTools.agentId, to.agentId), eq(agentTools.toolId, to.toolId)));
     return true;
   });
 }
@@ -65,13 +107,16 @@ async function writeSkillPermission(tx: Tx, ownerId: string, to: Change, remembe
   const [tool] = await tx.select().from(tools).where(and(eq(tools.id, to.toolId), eq(tools.ownerId, ownerId), inArray(tools.kind, ["http", "runner"])));
   if (!tool) return false;
   const target = toolPermissionTarget(tool);
-  const saved = (await tx.select().from(agentSkillToolPermissions).where(and(eq(agentSkillToolPermissions.agentId, to.agentId), eq(agentSkillToolPermissions.toolId, to.toolId), inArray(agentSkillToolPermissions.skillPackageId, packages.map((p) => p.id))))).filter((r) => r.target === target);
-  const lists = changed({ actions: tool.actions, disabled: tool.disabled, unasked: [...new Set(saved.flatMap((r) => r.unasked))], denied: [...new Set(saved.flatMap((r) => r.denied))] }, to, remembering);
+  const ids = packages.map((p) => p.id);
+  const strict = await strictTargets(tx, ownerId, to.agentId, [tool], ids);
+  const saved = (await tx.select().from(agentSkillToolPermissions).where(and(eq(agentSkillToolPermissions.agentId, to.agentId), eq(agentSkillToolPermissions.toolId, to.toolId), inArray(agentSkillToolPermissions.skillPackageId, ids)))).filter((r) => r.target === target);
+  const lists = changed({ actions: tool.actions, disabled: tool.disabled, unasked: [...new Set(saved.flatMap((r) => heldUnasked(strict, r, tool, r.skillPackageId)))], denied: [...new Set(saved.flatMap((r) => r.denied))] }, to, remembering);
   if (!lists) return false;
+  // Each package's row is bound to its own skill fingerprint under strict permissions.
   await tx
     .insert(agentSkillToolPermissions)
-    .values(packages.map((p) => ({ agentId: to.agentId, skillPackageId: p.id, toolId: to.toolId, target, ...lists })))
-    .onConflictDoUpdate({ target: [agentSkillToolPermissions.agentId, agentSkillToolPermissions.skillPackageId, agentSkillToolPermissions.toolId], set: { target, ...lists } });
+    .values(ids.map((id) => ({ agentId: to.agentId, skillPackageId: id, toolId: to.toolId, target, ...lists, strictTarget: strict?.(tool, id) ?? null })))
+    .onConflictDoUpdate({ target: [agentSkillToolPermissions.agentId, agentSkillToolPermissions.skillPackageId, agentSkillToolPermissions.toolId], set: { target, ...lists, strictTarget: sql`excluded.strict_target` } });
   return true;
 }
 

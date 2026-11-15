@@ -568,6 +568,13 @@
       "when": 1794777478677,
       "tag": "0080_stem_workspace_memory",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1794784255755,
+      "tag": "0081_strict_permissions",
+      "breakpoints": true
     }
   ]
 }

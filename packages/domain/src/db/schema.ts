@@ -162,6 +162,8 @@ export const agents = pgTable("agents", {
   overridden: jsonb("overridden").$type<string[]>().notNull().default([]),
   // `"assistant"`: the workspace's Assistant (`agents/builtin.ts`), one per owner. No input sets it.
   builtIn: text("built_in").$type<"assistant">(),
+  // Raised by every configuration write (`agents.update`): strict permissions bind remembered choices to it.
+  revision: integer("revision").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [uniqueIndex("agents_one_assistant_idx").on(t.ownerId).where(sql`${t.builtIn} = 'assistant'`)]);
 
@@ -295,6 +297,8 @@ export const workspaceSettings = pgTable(
     auditRetentionDays: integer("audit_retention_days").notNull().default(90),
     // How many MiB of files the whole install keeps (`data/files.ts` `keepJobFiles`); one owner per install.
     filesLimitMib: integer("files_limit_mib").notNull().default(10240),
+    // Strict permissions (design 6.6): remembered choices also hold only for the versions they were given for (`agents/tool-ask.ts`).
+    strictPermissions: boolean("strict_permissions").notNull().default(false),
   },
   (t) => [
     check("workspace_settings_checkpoint_range", sql`${t.checkpoint} between 1 and 100000`),
@@ -1110,6 +1114,8 @@ export const skillPackages = pgTable(
     /** Tools an agent gets, locked, with this package. */
     requiredToolIds: jsonb("required_tool_ids").$type<string[]>().notNull().default([]),
     builtIn: boolean("built_in").notNull().default(false),
+    // A hash of its files, set with them (`store`); null until they are next written.
+    fingerprint: text("fingerprint"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -1242,6 +1248,8 @@ export const agentTools = pgTable(
     // then changed by a person only: taking an action off the asking ones is a grant.
     unasked: jsonb("unasked").$type<string[]>().notNull().default([]),
     denied: jsonb("denied").$type<string[]>().notNull().default([]),
+    // The strict target (`toolPermissionTarget` with versions) `unasked` was written for under strict permissions; null when written without.
+    strictTarget: text("strict_target"),
   },
   (t) => [primaryKey({ columns: [t.agentId, t.toolId] }), index("agent_tools_tool_idx").on(t.toolId)],
 );
@@ -1266,6 +1274,7 @@ export const agentSkillToolPermissions = pgTable(
     target: text("target").notNull(),
     unasked: jsonb("unasked").$type<string[]>().notNull().default([]),
     denied: jsonb("denied").$type<string[]>().notNull().default([]),
+    strictTarget: text("strict_target"),
   },
   (t) => [primaryKey({ columns: [t.agentId, t.skillPackageId, t.toolId] }), index("agent_skill_tool_permissions_package_idx").on(t.skillPackageId), index("agent_skill_tool_permissions_tool_idx").on(t.toolId)],
 );

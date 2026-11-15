@@ -1,4 +1,5 @@
 import { ORPCError } from "@orpc/server";
+import { createHash } from "node:crypto";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
@@ -69,6 +70,10 @@ function checked(files: SkillFile[]) {
 
 /** Stores the package's skills and files in place of its current ones. */
 export async function store(tx: Tx, packageId: string, files: SkillFile[], skills: { name: string; description: string }[]) {
+  // What strict permissions bind a choice that came with the package to (`agents/tool-ask.ts`).
+  const hash = createHash("sha256");
+  for (const f of [...files].sort((a, b) => a.path.localeCompare(b.path))) hash.update(`${f.path}\0${f.content.length}\0`).update(f.content);
+  await tx.update(skillPackages).set({ fingerprint: hash.digest("hex") }).where(eq(skillPackages.id, packageId));
   await tx.delete(skillFiles).where(eq(skillFiles.packageId, packageId));
   await tx.delete(skillsTable).where(eq(skillsTable.packageId, packageId));
   await tx.insert(skillsTable).values(skills.map((s) => ({ id: newId("skill"), packageId, ...s })));

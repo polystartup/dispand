@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { reviewSignals } from "../assistant/review.ts";
 import { DEFAULT_RETENTION_DAYS } from "../audit/sweep.ts";
+import { strictPermissionsOf } from "../agents/tool-ask.ts";
 import { agents, triggers, workspaceSettings } from "../db/schema.ts";
 import { checkpointOf } from "../engine/roots.ts";
 import { filesLimitOf } from "../data/files.ts";
@@ -69,6 +70,23 @@ const setFilesLimit = owner.input(z.object({ mib: FilesLimitMib })).handler(asyn
   return { mib: input.mib };
 });
 
+/** Whether strict permissions are on (design 6.6; off until set). */
+const strictPermissions = owner.handler(async ({ context }) => ({ strict: await strictPermissionsOf(context.db, context.ownerId) }));
+
+/**
+ * Turns strict permissions on or off: on, a remembered choice holds only while its tool's
+ * actions, its plugin's commit, its skill's files and its agent's configuration are as they were
+ * when it was given (`agents/tool-ask.ts`); off, only its tool's address and transport count.
+ * The owner's only: turning it off widens what agents may run unasked, so no tool or proposal can ask for it (`NOT_TOOLS`).
+ */
+const setStrictPermissions = owner.input(z.object({ strict: z.boolean() })).handler(async ({ input, context }) => {
+  await context.db
+    .insert(workspaceSettings)
+    .values({ ownerId: context.ownerId, strictPermissions: input.strict })
+    .onConflictDoUpdate({ target: workspaceSettings.ownerId, set: { strictPermissions: input.strict } });
+  return { strict: input.strict };
+});
+
 /**
  * What could be better in the workspace (`assistant/review.ts`). Hours are read in the time zone
  * of the Assistant's review, which is the owner's once they turned it on.
@@ -83,4 +101,4 @@ const review = owner.handler(async ({ context }) => {
   return reviewSignals(context.db, context.ownerId, (context.now ?? (() => new Date()))(), timezone);
 });
 
-export const workspace = { checkpoint, setCheckpoint, auditRetention, setAuditRetention, filesLimit, setFilesLimit, review };
+export const workspace = { checkpoint, setCheckpoint, auditRetention, setAuditRetention, filesLimit, setFilesLimit, strictPermissions, setStrictPermissions, review };

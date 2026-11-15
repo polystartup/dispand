@@ -166,6 +166,12 @@
     "save": "Save",
     "range": "A whole number from {{min}} to {{max}}"
   },
+  "strict": {
+    "title": "Permissions",
+    "label": "Enable strict permissions",
+    "off": "Off, a choice remembered for future runs (an approval kept for all future runs, an action an agent runs without asking) holds until its tool is moved to another address or transport.",
+    "on": "On, it also holds only while the tool lists the same actions with the same schemas, its plugin stays at the same commit, its skill’s files and its agent’s configuration are unchanged, and the tool answers its listing: otherwise it asks again. Turning it on makes the choices remembered while it was off ask again."
+  },
   "limits": {
     "status": "{{working}} working · {{queued}} waiting",
     "atOnce": "At most at once",

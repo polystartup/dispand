@@ -712,7 +712,11 @@
   changing permissions is a proposal-only platform grant). For a tool the agent has only through
   its skill packages, a future-run answer goes to `agent_skill_tool_permissions` (migration
   0078; `writePermission` in `agents/tool-ask.ts`), read by `toolingOf` where the agent has no
-  `agent_tools` row, and only for the tool's current `toolPermissionTarget`. A Job's session start names those actions (`unasked`, their
+  `agent_tools` row, and only for the tool's current `toolPermissionTarget`. With the workspace's
+  strict permissions on (`workspace.setStrictPermissions`, migration 0081), each of those lists
+  holds only while its `strict_target` (the target with the tool's listed actions and schemas, its
+  plugin's commit, the package's `fingerprint` and the agent's `revision`) still matches
+  (`heldUnasked`, used by `toolingOf`, `writePermission` and `agents.toolAsk`). A Job's session start names those actions (`unasked`, their
   exposed names, at most 500; protocol 7), and the runner lets `mcp__job_tools__<name>` run
   without a question for them (the Claude permission hook or Codex elicitation): the CLI
   prompts for the others. A scoped owner answer carries `remember` (protocol 20), after the

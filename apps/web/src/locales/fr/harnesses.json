@@ -166,6 +166,12 @@
     "save": "Enregistrer",
     "range": "Un nombre entier de {{min}} à {{max}}"
   },
+  "strict": {
+    "title": "Autorisations",
+    "label": "Activer les autorisations strictes",
+    "off": "Désactivées, un choix mémorisé pour les exécutions futures (une approbation gardée pour toutes les exécutions futures, une action qu’un agent exécute sans demander) vaut tant que son outil n’est pas déplacé vers une autre adresse ou un autre transport.",
+    "on": "Activées, il ne vaut en plus que tant que l’outil liste les mêmes actions avec les mêmes schémas, que son plugin reste au même commit, que les fichiers de sa compétence et la configuration de son agent n’ont pas changé, et que l’outil répond à sa liste : sinon la question vous est reposée. Les activer fait reposer la question pour les choix mémorisés pendant qu’elles étaient désactivées."
+  },
   "limits": {
     "status": "{{working}} en cours · {{queued}} en attente",
     "atOnce": "Au plus en même temps",
