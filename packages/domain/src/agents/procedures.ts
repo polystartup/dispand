@@ -173,7 +173,7 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
   const shadowed = toolIds.length ? await tx.delete(agentSkillToolPermissions).where(and(mine, inArray(agentSkillToolPermissions.toolId, toolIds))).returning() : [];
   // Under strict permissions, lists written now are bound to what the agent and its tools are now; kept ones keep theirs.
   const strict = await strictTargets(tx, ownerId, agentId, found, []);
-  // An approved proposal's list holds only for the tool it was frozen for; otherwise it is as if none was given.
+  // An approved proposal's list holds only for the tool it was frozen for.
   const frozen = targets ? await strictTargets(tx, ownerId, agentId, found, [], FROZEN_REVISION) : null;
   if (toolIds.length) {
     await tx.insert(agentTools).values(
@@ -182,7 +182,9 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
         const denied = kept.get(toolId)?.denied ?? [...new Set(shadowed.filter((r) => r.toolId === toolId && r.target === toolPermissionTarget(tool)).flatMap((r) => r.denied))];
         const current = frozen?.(tool);
         const reviewed = !frozen || (current !== null && targets!.find((t) => t.toolId === toolId)?.strictTarget === current);
-        const requested = reviewed ? permissions.find((p) => p.toolId === toolId)?.unasked : undefined;
+        // Unverified: a tool it had keeps its list (asking under strict), one it gains asks for everything, never its fresh defaults.
+        const given = permissions.find((p) => p.toolId === toolId)?.unasked;
+        const requested = reviewed || !given ? given : kept.has(toolId) ? undefined : [];
         if (requested?.some((action) => tool.disabled.includes(action))) throw new ORPCError("BAD_REQUEST", { message: "An action is disabled workspace-wide" });
         const latent = (kept.get(toolId)?.unasked ?? []).filter((action) => tool.disabled.includes(action));
         // An Off carried over from the skill wins over defaults, a proposal's frozen ones included.

@@ -245,3 +245,21 @@ test("with strict permissions, an approved proposal's frozen list holds only for
   expect(await approve(proposed)).toEqual([]);
   expect(await s.shown()).toBe("ask");
 });
+
+test("with strict permissions, a tool an approved proposal adds asks for everything when it changed since, never taking its defaults", async () => {
+  const s = await setup();
+  const readOnly = await startFakeMcp([{ name: "look", inputSchema: { type: "object" }, annotations: { readOnlyHint: true }, call: () => ({ content: [] }) }]);
+  servers.push(readOnly);
+  const looker = await call(router.tools.create, { name: "Look", url: readOnly.url, transport: "streamable-http", headers: {} }, { context: s.context });
+  await s.strict(true);
+  const input = { id: s.agent.id, ...s.fields, toolIds: [s.echo.id, looker.id], toolPermissions: [{ toolId: looker.id, unasked: [] }] };
+  const item = await snapshotToolPermissions(s.context.db, s.context.ownerId, [], { tool: "agents_update", input });
+  if (typeof item === "string") throw new Error(item);
+  const permissions = item.toolPermissions as { toolId: string; unasked: string[]; target: string; strictTarget?: string }[];
+  await s.edits.newAction();
+  await s.context.db.update(tools).set({ actions: [{ name: "look", description: "", inputSchema: { type: "object", properties: { q: { type: "string" } } }, readOnly: true }] }).where(eq(tools.id, looker.id));
+  await call(router.agents.update, { ...input, toolPermissions: permissions.map(({ toolId, unasked }) => ({ toolId, unasked })) }, { context: { ...s.context, approvedToolTargets: permissions } });
+  const { runId } = await s.startJob();
+  const [run] = await s.context.db.select().from(runs).where(eq(runs.id, runId));
+  expect((await toolingOf(s.context.db, run!, s.agent.id)).httpTools.find((t) => t.id === looker.id)!.unasked).toEqual([]);
+});
