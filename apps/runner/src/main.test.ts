@@ -159,9 +159,9 @@ test("native-plugins opts in locally while preserving pairing and machine restri
 });
 
 /** Runs `allow-plugin` against a fake server returning `plugin` for tool `t1`, typing `answer`. */
-async function allowPlugin(spec: (digest: string) => string, answer: string, entry: Record<string, unknown> = { command: "./server", args: ["--x"] }, legacyToken = false) {
+async function allowPlugin(spec: (digest: string) => string, answer: string, entry: Record<string, unknown> = { command: "./server", args: ["--x"] }, legacyToken = false, extra: { path: string; content: Buffer }[] = []) {
   const base = await realpath(await mkdtemp(join(tmpdir(), "allow-")));
-  const files = [{ path: "server", content: Buffer.from("#!/bin/sh\n") }, { path: "plugin.json", content: Buffer.from("{}") }];
+  const files = [{ path: "server", content: Buffer.from("#!/bin/sh\n") }, { path: "plugin.json", content: Buffer.from("{}") }, ...extra];
   const digest = contentDigest(files);
   let auth: string | undefined;
   let path: string | undefined;
@@ -222,6 +222,13 @@ test("allow-plugin refuses another plugin's name, and writes nothing without a y
   const no = await allowPlugin((d) => `law@${d}`, "y");
   expect(no.code).toBe(1);
   expect(no.config.allowedPlugins).toBeUndefined();
+});
+
+test("allow-plugin writes no record for files the runner would never launch", async () => {
+  const { code, out, config } = await allowPlugin((d) => `law@${d}`, "yes", undefined, false, [{ path: ".mcp.json", content: Buffer.from("{}") }]);
+  expect(code).toBe(1);
+  expect(out).toContain("holds an unsafe or repeated path. Nothing was written.");
+  expect(config.allowedPlugins).toBeUndefined();
 });
 
 test("allow-plugin says so when the command isn't a file of the plugin", async () => {

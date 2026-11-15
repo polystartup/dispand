@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
+import type { z } from "zod";
+import type { PluginEntry as Entry } from "./config.ts";
 
-/** A plugin's stdio launch entry, as its `mcp.json` writes it. */
-export type PluginEntry = { command: string; args?: string[]; env?: Record<string, string>; cwd?: string };
+export type PluginEntry = z.infer<typeof Entry>;
 
 /**
  * A plugin's content digest: `sha256:` and the hex SHA-256 of, for each file sorted by its

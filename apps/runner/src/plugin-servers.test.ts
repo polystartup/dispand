@@ -68,7 +68,7 @@ test("refuses a changed env value", async () => {
 });
 
 test("refuses a record of another name", async () => {
-  await expect(pluginLaunch(allowed(), state, "other", files(), entry)).rejects.toThrow(/No record on this runner allows the plugin other/);
+  await expect(pluginLaunch(allowed(), state, "other", files(), entry)).rejects.toThrow(/No record on this runner allows the plugin "other"/);
 });
 
 test("expands only in args, env values and cwd: a variable in command or an env key stays as written", async () => {

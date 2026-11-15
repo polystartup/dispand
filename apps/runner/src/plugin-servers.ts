@@ -31,6 +31,17 @@ function refuse(reason: string): never {
   throw new PluginRefused(reason);
 }
 
+/** Refuses (`PluginRefused`) a name or file set this runner never materializes: `allow-plugin` checks it too, so no record is written for one. */
+export function checkPluginFiles(name: string, files: { path: string; content: Buffer }[]): void {
+  if (name.length > 64 || !PLUGIN_NAME.test(name)) refuse(`The plugin name ${JSON.stringify(name)} can't be used on this runner.`);
+  if (files.length > MAX_FILES || files.reduce((n, f) => n + f.content.length, 0) > MAX_BYTES) refuse(`The plugin ${name} is too large for this runner.`);
+  const paths = new Set<string>();
+  for (const file of files) {
+    if (!isSafeRelativePath(file.path) || paths.has(file.path)) refuse(`The plugin ${name} holds an unsafe or repeated path.`);
+    paths.add(file.path);
+  }
+}
+
 /**
  * Writes `files` read-only under `<stateDir>/plugins/<name>/<hex digest>/`, outside every root and
  * the machine's config, and returns that folder. The folder is named by the digest of what is
@@ -38,13 +49,7 @@ function refuse(reason: string): never {
  * shortcut: folders of older digests stay on disk; remove them when a plugin's record changes, if disk use matters.
  */
 export async function materializePlugin(stateDir: string, name: string, files: { path: string; content: Buffer }[]): Promise<string> {
-  if (name.length > 64 || !PLUGIN_NAME.test(name)) refuse(`The plugin name ${name} can't be used on this runner.`);
-  if (files.length > MAX_FILES || files.reduce((n, f) => n + f.content.length, 0) > MAX_BYTES) refuse(`The plugin ${name} is too large for this runner.`);
-  const paths = new Set<string>();
-  for (const file of files) {
-    if (!isSafeRelativePath(file.path) || paths.has(file.path)) refuse(`The plugin ${name} holds an unsafe or repeated path.`);
-    paths.add(file.path);
-  }
+  checkPluginFiles(name, files);
   const parent = join(stateDir, "plugins", name);
   // The hex part only: a `:` in the root would split PATH-like values a server builds from it.
   const dir = join(parent, contentDigest(files).slice("sha256:".length));
@@ -99,7 +104,7 @@ export async function materializePlugin(stateDir: string, name: string, files: {
  */
 export async function pluginLaunch(config: Pick<RunnerConfig, "allowedPlugins">, stateDir: string, name: string, files: { path: string; content: Buffer }[], entry: PluginEntry): Promise<Launch> {
   const record = config.allowedPlugins?.find((r) => r.name === name);
-  if (!record) refuse(`No record on this runner allows the plugin ${name}: run dispand-runner allow-plugin on that machine.`);
+  if (!record) refuse(`No record on this runner allows the plugin ${JSON.stringify(name)}: run dispand-runner allow-plugin on that machine.`);
   const digest = contentDigest(files);
   if (digest !== record.digest) refuse(`The files of the plugin ${name} have the digest ${digest}, not ${record.digest} that this runner allowed.`);
   if (canonicalEntry(entry) !== canonicalEntry(record.entry)) refuse(`The launch entry of the plugin ${name} isn't the one this runner allowed.`);

@@ -11,6 +11,7 @@ import pkg from "../package.json" with { type: "json" };
 import { createInterface } from "node:readline/promises";
 import { z } from "zod";
 import { canonicalEntry, contentDigest } from "./plugin-digest.ts";
+import { checkPluginFiles } from "./plugin-servers.ts";
 import { claudeEnv, codexEnv, configDir, loadConfig, PLUGIN_NAME, PluginEntry, loadToken, machineConfigPaths, preparePairing, type RunnerConfig, runnerStateDir, serverUrl, stateDir } from "./config.ts";
 import { callTool, credentialValues, discoverTool } from "./mcp.ts";
 import { codexDenied } from "./boundary.ts";
@@ -141,6 +142,12 @@ async function allowPlugin(args: string[]) {
   }
   if (parsed.name !== name) fail(`tool ${toolId} runs the plugin ${parsed.name}, not ${name}: nothing was written`);
   const files = parsed.files.map((f) => ({ path: f.path, content: Buffer.from(f.base64, "base64") }));
+  // The runner would refuse to launch these files whatever the record: write none for them.
+  try {
+    checkPluginFiles(name, files);
+  } catch (err) {
+    fail(`${(err as Error).message} Nothing was written.`);
+  }
   const digest = contentDigest(files);
   if (digest !== typed) fail(`the files Dispand sent for ${name} have the digest ${digest}, not ${typed}: nothing was written`);
   const command = parsed.entry.command;
