@@ -70,12 +70,14 @@ test("a cloud Job consults an agent listed in its consult tool and goes on with 
   expect(metrics).toContainEqual({ name: "dispand.consults.asked", attributes: {} });
   expect(metrics).toContainEqual({ name: "dispand.consults.ended", attributes: { "dispand.consult.outcome": "answered" } });
   expect(metrics).toContainEqual({ name: "dispand.consult.wait", attributes: { "dispand.consult.outcome": "answered" } });
-  // The consulted Job's session starts inside the span of the asking Job's consult.
+  // The consulted Job's session starts under its own Job's span, made inside the span of the asking Job's consult.
   const [consultedId] = (await s.context.db.select({ id: runs.id }).from(runs).where(eq(runs.agentId, s.expert.id))).map((r) => r.id);
   const spans = telemetry.spans();
+  const parentOf = (span: (typeof spans)[number]) => spans.find((x) => x.spanContext().spanId === span.parentSpanContext?.spanId);
   const started = spans.find((x) => x.name === "engine.session.start" && x.attributes["dispand.run.id"] === consultedId)!;
-  const parent = spans.find((x) => x.spanContext().spanId === started.parentSpanContext?.spanId);
-  expect(parent?.attributes["dispand.job.id"]).toBe(runId);
+  const job = parentOf(started)!;
+  expect([job.name, job.attributes["dispand.job.id"]]).toEqual(["engine.job", consultedId]);
+  expect(parentOf(job)?.attributes["dispand.job.id"]).toBe(runId);
   const exported = await telemetry.all();
   expect(exported).not.toContain("sentinel-consult-question-41");
   expect(exported).not.toContain("sentinel-consult-answer-42");
