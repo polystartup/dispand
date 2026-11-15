@@ -159,7 +159,7 @@ test("native-plugins opts in locally while preserving pairing and machine restri
 });
 
 /** Runs `allow-plugin` against a fake server returning `plugin` for tool `t1`, typing `answer`. */
-async function allowPlugin(spec: (digest: string) => string, answer: string, entry: Record<string, unknown> = { command: "./server", args: ["--x"] }) {
+async function allowPlugin(spec: (digest: string) => string, answer: string, entry: Record<string, unknown> = { command: "./server", args: ["--x"] }, legacyToken = false) {
   const base = await realpath(await mkdtemp(join(tmpdir(), "allow-")));
   const files = [{ path: "server", content: Buffer.from("#!/bin/sh\n") }, { path: "plugin.json", content: Buffer.from("{}") }];
   const digest = contentDigest(files);
@@ -174,7 +174,8 @@ async function allowPlugin(spec: (digest: string) => string, answer: string, ent
   try {
     const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     await mkdir(join(base, "config"));
-    await writeFile(join(base, "config", "config.json"), JSON.stringify({ server: url, roots: [join(base, "root")], token: "tok", runnerId: "r" }));
+    await writeFile(join(base, "config", "config.json"), JSON.stringify({ server: url, roots: [join(base, "root")], ...(legacyToken ? {} : { token: "tok" }), runnerId: "r" }));
+    if (legacyToken) await writeFile(join(base, "config", "token"), "tok\n");
     const child = spawn(process.execPath, ["src/main.ts", "allow-plugin", "--config", join(base, "config"), "t1", spec(digest)], { env: { ...process.env, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: "" } });
     let out = "";
     child.stdout.on("data", (d: Buffer) => (out += d));
@@ -198,6 +199,12 @@ test("allow-plugin writes the record after a typed yes, from the files it fetche
   expect(out).not.toContain("not what it downloads");
   expect(config).toMatchObject({ token: "tok", allowedPlugins: [{ name: "law", digest, entry: { command: "./server", args: ["--x"] } }] });
   expect(mode.toString(8)).toBe("600");
+});
+
+test("allow-plugin keeps an older runner's token, moved from its token file into the config it rewrites", async () => {
+  const { code, config } = await allowPlugin((d) => `law@${d}`, "yes", undefined, true);
+  expect(code).toBe(0);
+  expect(config).toMatchObject({ token: "tok", allowedPlugins: [{ name: "law" }] });
 });
 
 test("allow-plugin refuses a digest that differs from the fetched files", async () => {

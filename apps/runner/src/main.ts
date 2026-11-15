@@ -120,8 +120,9 @@ async function allowPlugin(args: string[]) {
   if (!toolId || toolId.length > ID || extra.length || name.length > 64 || !PLUGIN_NAME.test(name) || !/^sha256:[0-9a-f]{64}$/.test(typed)) fail(USAGE);
   const dir = values.config ? resolve(values.config) : configDir();
   const path = join(dir, "config.json");
-  const config = loadConfig(path, codexEnv(claudeEnv()));
+  // The token first: an older runner's separate token file moves into config.json, which this command then rewrites.
   const token = loadToken(dir);
+  const config = loadConfig(path, codexEnv(claudeEnv()));
   let res: Response;
   try {
     res = await fetch(`${config.server}/runner/plugins/${encodeURIComponent(toolId)}`, { headers: { authorization: `Bearer ${token}` }, redirect: "error", signal: AbortSignal.timeout(30_000) });
