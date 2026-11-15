@@ -190,7 +190,7 @@ test("a Job can add or relabel a field's choices, never remove one: removing cle
   const status = await call(router.fields.create, { tableId: t1.id, name: "Status", type: "single-select", choices }, { context });
   await call(router.rows.update, { id: r1.id, values: { [status.id]: "closed" } }, { context });
 
-  const refusal = { ok: false, error: "Removing a choice clears the rows that use it: only the owner does that" };
+  const refusal = { ok: false, error: "Removing a choice clears the rows that use it: only the owner does that." };
   expect(await tool("fields_update", { id: status.id, choices: [choices[0]] })).toEqual(refusal);
   expect(await tool("fields_update", { id: status.id, choices: [] })).toEqual(refusal);
   expect(await call(router.rows.get, { id: r1.id }, { context })).toMatchObject({ values: { [status.id]: "closed" } });

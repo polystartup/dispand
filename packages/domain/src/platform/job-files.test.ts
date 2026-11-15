@@ -3,6 +3,7 @@ import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { say } from "../messages/index.ts";
 import { afterEach, expect, onTestFinished, test } from "vitest";
 import { MAX_FILE_BYTES, sweepAttachments } from "../data/files.ts";
 import { writeRow } from "../data/rows.ts";
@@ -136,14 +137,14 @@ test("writeRow refuses another Job's file, a Job's file written by a person, and
   await first.callTool("mail_get_mail");
   const [image, pdf] = await ownedBy(s, first.runId);
   const second = await s.job();
-  expect(await s.write([image!.id], { type: "job", runId: second.runId })).toEqual({ problem: "“Scan”: no such file" });
-  expect(await s.write([image!.id], { type: "user", userId: s.context.ownerId })).toEqual({ problem: "“Scan”: no such file" });
+  expect(await s.write([image!.id], { type: "job", runId: second.runId })).toEqual({ problem: say("data.row.noFile", { field: "Scan" }) });
+  expect(await s.write([image!.id], { type: "user", userId: s.context.ownerId })).toEqual({ problem: say("data.row.noFile", { field: "Scan" }) });
   // The first Job places the PDF in another table; it can't move it to this one.
   const other = await call(router.tables.create, { name: "Archive" }, { context: s.context });
   const file = await call(router.fields.create, { tableId: other.id, name: "File", type: "attachment" }, { context: s.context });
   const placed = await s.context.db.transaction((tx) => writeRow(tx, { ownerId: s.context.ownerId, tableId: other.id, values: { [file.id]: [pdf!.id] }, actor: { type: "job", runId: first.runId } }));
   expect(placed).toHaveProperty("row");
-  expect(await s.write([pdf!.id], { type: "job", runId: first.runId })).toEqual({ problem: "“Scan”: no such file" });
+  expect(await s.write([pdf!.id], { type: "job", runId: first.runId })).toEqual({ problem: say("data.row.noFile", { field: "Scan" }) });
   // Still unclaimed, still the first Job's.
   expect((await ownedBy(s, first.runId)).map((a) => [a.id, a.tableId])).toEqual([
     [image!.id, null],

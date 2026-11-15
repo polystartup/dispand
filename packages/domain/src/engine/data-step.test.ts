@@ -107,8 +107,8 @@ test("an output that doesn't fit its field fails the step and writes no row", as
   const runId = await engine.startRun(workflow.id);
   await emit(adapter.starts[0]!.start.sessionId, { type: "outputs-accepted", values: { name: "X", price: "lots" } });
   const { run, steps } = await runOf(engine, runId);
-  expect(steps["n_data"]).toMatchObject({ status: "failed", error: "“Price”: expected a number, got “lots”" });
-  expect(run).toMatchObject({ status: "failed", error: "“Price”: expected a number, got “lots”" });
+  expect(steps["n_data"]).toMatchObject({ status: "failed", error: "“Price”: expected a number, got “lots”." });
+  expect(run).toMatchObject({ status: "failed", error: "“Price”: expected a number, got “lots”." });
   expect((await call(router.rows.list, { tableId: ids.tableId }, { context })).total).toBe(0);
 });
 
@@ -302,7 +302,7 @@ test("table delete refused while a workflow uses it", async () => {
   const { context, workflow, ids } = await setup(chatThenCreate);
   await expect(call(router.tables.delete, { id: ids.tableId }, { context })).rejects.toMatchObject({
     code: "CONFLICT",
-    message: "A workflow uses this table",
+    message: "A workflow uses this table.",
   });
   const def = { ...chatThenCreate(ids), steps: [], edges: [] };
   await call(router.workflows.update, { id: workflow.id, name: "Ship", def }, { context });

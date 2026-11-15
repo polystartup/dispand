@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
 import { attachments, rows as rowsTable, runs, tables as tablesTable, workspaceSettings, type EventActor } from "../db/schema.ts";
 import { newId } from "../ids.ts";
+import { message } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
 import { meter } from "../telemetry/index.ts";
 import type { ToolResult } from "../tools/mcp.ts";
@@ -68,8 +69,8 @@ const upload = owner.input(z.object({ tableId: z.string().max(64), file: z.file(
     .select({ id: tablesTable.id })
     .from(tablesTable)
     .where(and(eq(tablesTable.id, input.tableId), eq(tablesTable.ownerId, context.ownerId)));
-  if (!table) throw new ORPCError("NOT_FOUND");
-  if (input.file.size > MAX_FILE_BYTES) throw new ORPCError("BAD_REQUEST", { message: "Files are at most 10 MiB" });
+  if (!table) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
+  if (input.file.size > MAX_FILE_BYTES) throw new ORPCError("BAD_REQUEST", message("data.file.tooLarge"));
   const row = await storeAttachment(context.db, context.filesDir, { ownerId: context.ownerId, tableId: table.id, name: input.file.name, bytes: new Uint8Array(await input.file.arrayBuffer()) });
   counts.counter("dispand.attachments.stored").add(1, { "dispand.attachment.source": "upload" });
   return attachmentView(row);

@@ -1,5 +1,6 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
+import { say } from "../messages/index.ts";
 import { expect, test } from "vitest";
 import { fields, rows, tables, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
@@ -48,7 +49,7 @@ test("table and field names are unique case-insensitively", async () => {
   const table = await call(router.tables.create, { name: "Projects" }, { context });
   await expect(call(router.tables.create, { name: "PROJECTS" }, { context })).rejects.toMatchObject({
     code: "CONFLICT",
-    message: "A table is already called “PROJECTS”",
+    message: "A table is already called “PROJECTS”.", data: say("data.table.nameTaken", { name: "PROJECTS" }),
   });
   const other = await call(router.tables.create, { name: "Ideas" }, { context });
   await expect(call(router.tables.rename, { id: other.id, name: "projects" }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
@@ -57,7 +58,7 @@ test("table and field names are unique case-insensitively", async () => {
 
   await expect(call(router.fields.create, { tableId: table.id, name: "name", type: "number" }, { context })).rejects.toMatchObject({
     code: "CONFLICT",
-    message: "A field is already called “name”",
+    message: "A field is already called “name”.",
   });
   const price = await call(router.fields.create, { tableId: table.id, name: "Price", type: "number" }, { context });
   await expect(call(router.fields.update, { id: price.id, name: "NAME" }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
@@ -118,7 +119,7 @@ test("the last field can't be deleted", async () => {
   const table = await call(router.tables.create, { name: "Projects" }, { context });
   await expect(call(router.fields.delete, { id: table.fields[0]!.id }, { context })).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "A table keeps at least one field",
+    message: "A table keeps at least one field.", data: say("data.table.lastField"),
   });
   expect((await call(router.tables.get, { id: table.id }, { context })).fields).toHaveLength(1);
 });

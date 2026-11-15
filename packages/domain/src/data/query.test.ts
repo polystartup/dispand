@@ -1,3 +1,4 @@
+import { say } from "../messages/index.ts";
 import { expect, test } from "vitest";
 import type { FieldSchema } from "./fields.ts";
 import { FILTER_OPS, queryProblem, RowQuery } from "./query.ts";
@@ -15,15 +16,15 @@ test("ops follow the field type", () => {
   expect(q({ filters: [{ fieldId: "f_price", op: "contains", value: "1" }] })).not.toBeNull();
   expect(q({ filters: [{ fieldId: "f_done", op: "checked" }] })).toBeNull();
   expect(q({ filters: [{ fieldId: "f_logo", op: "is", value: "x" }] })).not.toBeNull();
-  expect(q({ filters: [{ fieldId: "f_gone", op: "empty" }] })).toBe("A filter or sort uses a field that no longer exists");
+  expect(q({ filters: [{ fieldId: "f_gone", op: "empty" }] })).toEqual(say("data.query.fieldGone"));
   expect(q({ sort: [{ fieldId: "f_gone", dir: "asc" }] })).not.toBeNull();
   expect(q({ sort: [{ fieldId: "f_logo", dir: "asc" }] })).not.toBeNull();
   expect(q({ sort: [{ fieldId: "f_price", dir: "desc" }] })).toBeNull();
 });
 
 test("a filter value is parsed with its field", () => {
-  expect(q({ filters: [{ fieldId: "f_price", op: ">", value: "lots" }] })).toBe("“Price”: expected a number, got “lots”");
-  expect(q({ filters: [{ fieldId: "f_price", op: ">" }] })).toBe("“Price”: a value is needed");
+  expect(q({ filters: [{ fieldId: "f_price", op: ">", value: "lots" }] })).toEqual(say("data.cell.got.number", { field: "Price", value: "lots" }));
+  expect(q({ filters: [{ fieldId: "f_price", op: ">" }] })).toEqual(say("data.query.valueNeeded", { field: "Price" }));
   expect(q({ filters: [{ fieldId: "f_price", op: ">", value: " 1,5 " }] })).toBeNull();
   // "contains" takes any text, even on a URL field.
   expect(q({ filters: [{ fieldId: "f_site", op: "contains", value: "example" }] })).toBeNull();

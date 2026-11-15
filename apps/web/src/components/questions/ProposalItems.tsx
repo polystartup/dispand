@@ -1,3 +1,5 @@
+import type { Text } from "@dispand/domain";
+import { useText } from "../../lib/message.ts";
 import { TARGET_TEXT, WORKSPACE_LINE } from "../settings/SelfLearning.tsx";
 import { PluginInstallItem } from "./PluginInstallItem.tsx";
 
@@ -11,7 +13,7 @@ export type ProposalView = {
    * `createdId`; `failed` when its call was refused.
    */
   items: { tool: string; input: unknown; used: boolean; refs: string[]; creates?: string | null; createdId?: string | null; failed?: boolean; tools?: { toolId: string | { $item: number }; runs: string[] }[]; shown?: unknown }[];
-  names: Record<string, { kind: string; name: string; detail?: string }>;
+  names: Record<string, { kind: string; name: string; detail?: Text }>;
   /** The generated plugin ("Generated: <business name>") that records what the items create. */
   plugin?: string | null;
 };
@@ -134,6 +136,7 @@ function Id({ value, items, names }: { value: unknown; items: Items; names: Prop
 }
 
 function Ref({ id, names }: { id: string; names: ProposalView["names"] }) {
+  const text = useText();
   const found = names[id];
   if (!found) {
     return (
@@ -145,7 +148,7 @@ function Ref({ id, names }: { id: string; names: ProposalView["names"] }) {
   return (
     <span>
       {found.name}
-      {found.detail ? ` (${found.detail})` : ""} <span className="font-mono text-[12px] text-faint">{id}</span>
+      {found.detail ? ` (${text(found.detail)})` : ""} <span className="font-mono text-[12px] text-faint">{id}</span>
     </span>
   );
 }

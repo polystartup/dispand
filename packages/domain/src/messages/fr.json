@@ -164,6 +164,69 @@
       "notPending": "Cette question n’attend plus de réponse."
     }
   },
+  "data": {
+    "table": {
+      "notFound": "Cette table n’existe pas.",
+      "nameTaken": "Une table s’appelle déjà « {{name}} ».",
+      "usedByWorkflow": "Un workflow utilise cette table.",
+      "referredBy": "Le champ « {{field}} » de la table « {{table}} » fait référence à cette table : supprimez-le d’abord.",
+      "parentNeedsPrimitive": "Seule une table primitive a un parent.",
+      "ownParent": "Une table ne peut pas être son propre parent.",
+      "fieldLimit": "Une table a au plus {{max}} champs.",
+      "parentRowsMissing_one": "{{count}} ligne de cette table n’a pas de {{parent}} : renseignez-la d’abord.",
+      "parentRowsMissing_other": "{{count}} lignes de cette table n’ont pas de {{parent}} : renseignez-les d’abord.",
+      "listEveryField": "Listez chaque champ de la table une seule fois.",
+      "lastField": "Une table garde au moins un champ."
+    },
+    "field": {
+      "notFound": "Ce champ n’existe pas.",
+      "nameTaken": "Un champ s’appelle déjà « {{name}} ».",
+      "choicesOnlySelect": "Seul un champ à choix unique a des choix.",
+      "referenceOnly": "Seul un champ de référence nomme la table dont il contient les lignes, et il doit en nommer une.",
+      "choiceRemoval": "Retirer un choix vide les lignes qui l’utilisent : seul le propriétaire peut le faire.",
+      "retypeToReference": "Créez plutôt un champ de référence : il nomme la table à laquelle il renvoie.",
+      "isParent": "« {{field}} » est le parent de la table : changez d’abord le parent.",
+      "ofTable": "de la table {{table}}"
+    },
+    "row": {
+      "notFound": "Cette ligne n’existe pas.",
+      "noField": "Cette table n’a pas de champ « {{id}} ».",
+      "noFile": "« {{field}} » nomme un fichier qui n’existe pas.",
+      "parentRequired": "Chaque ligne doit avoir une valeur dans « {{field}} ».",
+      "noRow": "« {{field}} » nomme une ligne qui n’existe pas.",
+      "notFiles": "Ce champ ne contient pas de fichiers.",
+      "children_one": "{{count}} ligne de « {{table}} » en dépend : supprimez-la ou déplacez-la d’abord.",
+      "children_other": "{{count}} lignes de « {{table}} » en dépendent : supprimez-les ou déplacez-les d’abord."
+    },
+    "file": {
+      "tooLarge": "Les fichiers font au plus 10 Mio."
+    },
+    "cell": {
+      "tooLong": "« {{field}} » accepte au plus {{max}} caractères, et la valeur en compte {{length}}.",
+      "unstorable": "« {{field}} » contient un caractère que Dispand ne peut pas enregistrer (NUL ou un demi-substitut isolé).",
+      "noFilesFromText": "Les fichiers de « {{field}} » ne peuvent pas venir d’un texte.",
+      "got": {
+        "number": "« {{field}} » : un nombre était attendu, pas « {{value}} ».",
+        "checkbox": "« {{field}} » : vrai ou faux était attendu, pas « {{value}} ».",
+        "date": "« {{field}} » : une date AAAA-MM-JJ était attendue, pas « {{value}} ».",
+        "url": "« {{field}} » : une URL http(s) était attendue, pas « {{value}} ».",
+        "choice": "« {{field}} » : un des choix du champ était attendu, pas « {{value}} ».",
+        "rowId": "« {{field}} » : l’identifiant d’une ligne était attendu, pas « {{value}} »."
+      },
+      "expected": {
+        "url": "« {{field}} » demande une URL http(s).",
+        "date": "« {{field}} » demande une date AAAA-MM-JJ.",
+        "choice": "« {{field}} » demande un des choix du champ.",
+        "rowId": "« {{field}} » demande l’identifiant d’une ligne."
+      }
+    },
+    "query": {
+      "fieldGone": "Un filtre ou un tri utilise un champ qui n’existe plus.",
+      "notFilterable": "« {{field}} » ne peut pas être filtré par « {{op}} ».",
+      "valueNeeded": "« {{field}} » : une valeur est nécessaire.",
+      "notSortable": "« {{field}} » contient des fichiers et ne peut pas être trié."
+    }
+  },
   "validation": {
     "invalid_type": "« {{field}} » n’a pas le bon type.",
     "too_small": {

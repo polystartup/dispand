@@ -20,6 +20,12 @@ const failing = {
     listed: os.handler(() => {
       throw new ORPCError("CONFLICT", message("plugins.marketplace.removeFirst", { plugins: ["case-law", "tax", "labour"] }));
     }),
+    rows: os.handler(() => {
+      throw new ORPCError("BAD_REQUEST", message("data.table.parentRowsMissing", { count: 3, parent: "Clients" }));
+    }),
+    taken: os.handler(() => {
+      throw new ORPCError("CONFLICT", message("data.table.nameTaken", { name: "Clients" }));
+    }),
     markup: os.handler(() => {
       throw new ORPCError("BAD_REQUEST", message("plugins.uninstall.choose", { name: "<b>case-law</b>" }));
     }),
@@ -55,6 +61,12 @@ test("a server message shows in the page's language, with its values", async () 
 test("a plugins refusal shows in French, its list of plugins written as French lists are", async () => {
   expect(await refusal((await client("fr")).fails.listed())).toBe("Retirez d’abord ses plugins : case-law, tax et labour.");
   expect(await refusal((await client("en")).fails.listed())).toBe("Remove its plugins first: case-law, tax, and labour.");
+});
+
+test("a tables refusal shows in French, with its plural and the name the person typed", async () => {
+  expect(await refusal((await client("fr")).fails.rows())).toBe("3 lignes de cette table n’ont pas de Clients : renseignez-les d’abord.");
+  expect(await refusal((await client("fr")).fails.taken())).toBe("Une table s’appelle déjà « Clients ».");
+  expect(await refusal((await client("en")).fails.taken())).toBe("A table is already called “Clients”.");
 });
 
 test("an input its Zod schema rejects shows a validation message in French", async () => {

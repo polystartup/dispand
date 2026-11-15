@@ -1,5 +1,6 @@
 import { OutputField } from "@dispand/runner-protocol";
 import { parseCellText, type FieldSchema } from "../data/fields.ts";
+import { english } from "../messages/index.ts";
 import { FILTER_OPS, filterValue, takesValue, type FilterOp } from "../data/query.ts";
 import type { WorkflowIssue } from "./derive.ts";
 import { agentDriven, dataSources, nodesOf, readsOf, slugify, type DataStep, type Source, type Step, type WorkflowDef } from "./model.ts";
@@ -165,7 +166,7 @@ export function validateDataSteps(def: WorkflowDef, tables: TableSchema[]): Work
         }
         if (!takesValue(filter.op) || filter.value?.type === "output") continue;
         const parsed = filterValue(field, { fieldId: field.id, op: filter.op, value: filter.value?.value ?? "" });
-        if (!parsed.ok) add(`“${field.name}”: ${parsed.reason}`);
+        if (!parsed.ok) add(english(parsed.reason.key, parsed.reason.values));
         else if (parsed.value === null) add(`“${field.name}”: a value is needed`);
       }
       continue;
@@ -188,7 +189,7 @@ export function validateDataSteps(def: WorkflowDef, tables: TableSchema[]): Work
       seen.add(field.id);
       if (input.source.type !== "value") continue;
       const parsed = parseCellText(field, input.source.value);
-      if (!parsed.ok) add(`“${field.name}”: ${parsed.reason}`);
+      if (!parsed.ok) add(english(parsed.reason.key, parsed.reason.values));
     }
   }
   return issues;

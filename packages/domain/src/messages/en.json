@@ -164,6 +164,69 @@
       "notPending": "This question is no longer waiting for an answer."
     }
   },
+  "data": {
+    "table": {
+      "notFound": "This table doesn't exist.",
+      "nameTaken": "A table is already called “{{name}}”.",
+      "usedByWorkflow": "A workflow uses this table.",
+      "referredBy": "The field “{{field}}” of the table “{{table}}” refers to this table: delete it first.",
+      "parentNeedsPrimitive": "Only a primitive table has a parent.",
+      "ownParent": "A table can't be its own parent.",
+      "fieldLimit": "A table has at most {{max}} fields.",
+      "parentRowsMissing_one": "{{count}} row of this table has no {{parent}}: fill it first.",
+      "parentRowsMissing_other": "{{count}} rows of this table have no {{parent}}: fill them first.",
+      "listEveryField": "List every field of the table once.",
+      "lastField": "A table keeps at least one field."
+    },
+    "field": {
+      "notFound": "This field doesn't exist.",
+      "nameTaken": "A field is already called “{{name}}”.",
+      "choicesOnlySelect": "Only a single select has choices.",
+      "referenceOnly": "A reference field, and only it, names the table whose rows it holds.",
+      "choiceRemoval": "Removing a choice clears the rows that use it: only the owner does that.",
+      "retypeToReference": "Create a reference field instead: it names the table it refers to.",
+      "isParent": "“{{field}}” is the table's parent: change the parent first.",
+      "ofTable": "of the table {{table}}"
+    },
+    "row": {
+      "notFound": "This row doesn't exist.",
+      "noField": "This table has no field “{{id}}”.",
+      "noFile": "“{{field}}” names a file that doesn't exist.",
+      "parentRequired": "Every row needs a value in “{{field}}”.",
+      "noRow": "“{{field}}” names a row that doesn't exist.",
+      "notFiles": "This field doesn't hold files.",
+      "children_one": "{{count}} row of “{{table}}” belongs to it: delete or move it first.",
+      "children_other": "{{count}} rows of “{{table}}” belong to it: delete or move them first."
+    },
+    "file": {
+      "tooLarge": "Files are at most 10 MiB."
+    },
+    "cell": {
+      "tooLong": "“{{field}}” takes at most {{max}} characters, and this is {{length}}.",
+      "unstorable": "“{{field}}” contains a character Dispand can't store (NUL or a lone surrogate).",
+      "noFilesFromText": "Files can't be set from text in “{{field}}”.",
+      "got": {
+        "number": "“{{field}}”: expected a number, got “{{value}}”.",
+        "checkbox": "“{{field}}”: expected true or false, got “{{value}}”.",
+        "date": "“{{field}}”: expected a date, YYYY-MM-DD, got “{{value}}”.",
+        "url": "“{{field}}”: expected an http(s) URL, got “{{value}}”.",
+        "choice": "“{{field}}”: expected one of the field's choices, got “{{value}}”.",
+        "rowId": "“{{field}}”: expected the id of a row, got “{{value}}”."
+      },
+      "expected": {
+        "url": "“{{field}}” needs an http(s) URL.",
+        "date": "“{{field}}” needs a date, YYYY-MM-DD.",
+        "choice": "“{{field}}” needs one of the field's choices.",
+        "rowId": "“{{field}}” needs the id of a row."
+      }
+    },
+    "query": {
+      "fieldGone": "A filter or sort uses a field that no longer exists.",
+      "notFilterable": "“{{field}}” can't be filtered by “{{op}}”.",
+      "valueNeeded": "“{{field}}”: a value is needed.",
+      "notSortable": "“{{field}}” holds files and can't be sorted."
+    }
+  },
   "validation": {
     "invalid_type": "“{{field}}” has the wrong type.",
     "too_small": {

@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { say } from "../messages/index.ts";
 import { type Cell, cellSchema, cellText, convertCells, type FieldSchema, parseCellText, typeHint } from "./fields.ts";
 
 const field = (type: FieldSchema["type"], choices: FieldSchema["choices"] = []): FieldSchema => ({ id: `f_${type}`, name: type, type, choices });
@@ -20,7 +21,7 @@ const ids = () => {
 
 test("parseCellText accepts what an agent writes and refuses what doesn't fit", () => {
   expect(parseCellText(num, " 1 234,5 ")).toEqual({ ok: true, value: 1234.5 });
-  expect(parseCellText(num, "lots")).toEqual({ ok: false, reason: "expected a number, got “lots”" });
+  expect(parseCellText(num, "lots")).toEqual({ ok: false, reason: say("data.cell.got.number", { field: "number", value: "lots" }) });
   expect(parseCellText(num, "1e999").ok).toBe(false);
   expect(parseCellText(date, "2026-02-30").ok).toBe(false);
   expect(parseCellText(date, "2026-11-04T23:30:00+01:00")).toEqual({ ok: true, value: "2026-11-04" });
@@ -116,5 +117,5 @@ test("typeHint lists the choices and stays within its bound", () => {
   const emoji = { ...status, choices: Array.from({ length: 100 }, (_, i) => ({ id: `c_${i}`, label: "😀".repeat(50) })) };
   expect(typeHint(emoji).isWellFormed()).toBe(true);
   const reason = parseCellText(num, `a${"😀".repeat(100)}`);
-  expect(!reason.ok && reason.reason.isWellFormed()).toBe(true);
+  expect(!reason.ok && String(reason.reason.values?.value).isWellFormed()).toBe(true);
 });

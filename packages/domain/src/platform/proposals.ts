@@ -6,6 +6,7 @@ import type { Db } from "../db/client.ts";
 import { agents, agentTools, type CREATED_KINDS, fields, harnesses, plugins, proposals, runners, skillPackages, tables, tools as toolsTable, triggers, type PluginCreated, type ProposalItem } from "../db/schema.ts";
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
+import { say, type Text } from "../messages/index.ts";
 import { canonical } from "./approvals.ts";
 import { catalogEntry, defaultDisabled, defaultUnasked } from "../tools/catalog.ts";
 import { toolPermissionTarget } from "../agents/tool-ask.ts";
@@ -423,7 +424,7 @@ export async function settleProposal(db: Db | Tx, questionId: string, approved: 
     .where(and(eq(proposals.questionId, questionId), eq(proposals.status, "asked")));
 }
 
-export type ProposalName = { kind: "agent" | "harness" | "tool" | "skill" | "table" | "field" | "trigger" | "catalog" | "plugin"; name: string; detail?: string };
+export type ProposalName = { kind: "agent" | "harness" | "tool" | "skill" | "table" | "field" | "trigger" | "catalog" | "plugin"; name: string; detail?: Text };
 
 /**
  * For each tool that can be proposed: the keys of its input that hold ids, and of what. Only
@@ -519,7 +520,7 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
   // A catalog entry, by its name and where its tool's calls go.
   for (const id of wanted.get("catalog") ?? []) {
     const entry = catalogEntry(id);
-    if (entry) names[id] = { kind: "catalog", name: entry.name, detail: entry.kind === "http" ? entry.url : "on a runner" };
+    if (entry) names[id] = { kind: "catalog", name: entry.name, detail: { text: entry.kind === "http" ? entry.url : "on a runner" } };
   }
   const found = async <T extends { id: string }>(kind: ProposalName["kind"], load: (ids: string[]) => Promise<T[]>, name: (row: T) => Omit<ProposalName, "kind">) => {
     const ids = [...(wanted.get(kind) ?? [])];
@@ -538,12 +539,12 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
         .from(harnesses)
         .leftJoin(runners, eq(runners.id, harnesses.runnerId))
         .where(and(inArray(harnesses.id, w), eq(harnesses.ownerId, ownerId))),
-    (r) => ({ name: r.name, detail: [r.kind, r.runner ? `on ${r.runner}` : null, r.permissionMode ? `permission mode ${r.permissionMode}` : null].filter(Boolean).join(", ") }),
+    (r) => ({ name: r.name, detail: { text: [r.kind, r.runner ? `on ${r.runner}` : null, r.permissionMode ? `permission mode ${r.permissionMode}` : null].filter(Boolean).join(", ") } }),
   );
   await found(
     "tool",
     (w) => db.select({ id: toolsTable.id, name: toolsTable.name, kind: toolsTable.kind, url: toolsTable.url }).from(toolsTable).where(and(inArray(toolsTable.id, w), eq(toolsTable.ownerId, ownerId))),
-    (r) => ({ name: r.name, detail: r.kind === "http" ? (r.url ?? "") : "on a runner" }),
+    (r) => ({ name: r.name, detail: { text: r.kind === "http" ? (r.url ?? "") : "on a runner" } }),
   );
   await found(
     "plugin",
@@ -568,7 +569,7 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
         .from(fields)
         .innerJoin(tables, eq(tables.id, fields.tableId))
         .where(and(inArray(fields.id, w), eq(fields.ownerId, ownerId))),
-    (r) => ({ name: r.name, detail: `of the table ${r.table}` }),
+    (r) => ({ name: r.name, detail: say("data.field.ofTable", { table: r.table }) }),
   );
   await found(
     "trigger",
@@ -578,7 +579,7 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
         .from(triggers)
         .innerJoin(agents, eq(agents.id, triggers.agentId))
         .where(and(inArray(triggers.id, w), eq(triggers.ownerId, ownerId))),
-    (r) => ({ name: r.name, detail: `of the agent ${r.agent}` }),
+    (r) => ({ name: r.name, detail: { text: `of the agent ${r.agent}` } }),
   );
   return {
     items: items.map(({ tool, input, usedAt, createdId, failed, toolPermissions, shown }) => ({

@@ -1,5 +1,6 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
+import { say } from "../messages/index.ts";
 import { expect, test } from "vitest";
 import { fields, rows, tables, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
@@ -198,7 +199,7 @@ test("list refuses a page over 500 and a query with an unknown field", async () 
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   await expect(
     call(router.rows.list, { tableId: table.id, query: { filters: [{ fieldId: price.id, op: ">", value: "lots" }], sort: [] } }, { context }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "“Price”: expected a number, got “lots”" });
+  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "“Price”: expected a number, got “lots”.", data: say("data.cell.got.number", { field: "Price", value: "lots" }) });
 });
 
 test("delete refuses ids of another table or owner", async () => {

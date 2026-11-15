@@ -2,6 +2,7 @@ import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { readdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { say } from "../messages/index.ts";
 import { expect, test } from "vitest";
 import { attachments, rows, tables, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
@@ -61,7 +62,7 @@ test("upload over 10 MiB is refused", async () => {
   const { table } = await projects(context);
   await expect(upload(context, table.id, new Uint8Array(MAX_FILE_BYTES + 1), "big.bin")).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "Files are at most 10 MiB",
+    message: "Files are at most 10 MiB.", data: say("data.file.tooLarge"),
   });
   expect(await context.db.select().from(attachments)).toEqual([]);
 });
@@ -74,8 +75,8 @@ test("a cell can only hold attachments of its own table and owner", async () => 
   const elsewhere = await upload(context, other.id, PNG, "b.png");
   const write = (ids: string[]) => context.db.transaction((tx) => writeRow(tx, { ownerId: context.ownerId, tableId: table.id, values: { [logo.id]: ids }, actor: { type: "user", userId: context.ownerId } }));
   expect(await write([mine.id])).toMatchObject({ row: { values: { [logo.id]: [mine.id] } } });
-  expect(await write([mine.id, elsewhere.id])).toEqual({ problem: "“Logo”: no such file" });
-  expect(await write(["att_missing"])).toEqual({ problem: "“Logo”: no such file" });
+  expect(await write([mine.id, elsewhere.id])).toEqual({ problem: say("data.row.noFile", { field: "Logo" }) });
+  expect(await write(["att_missing"])).toEqual({ problem: say("data.row.noFile", { field: "Logo" }) });
 });
 
 test("list and get return the attachments of the cells they show", async () => {
@@ -161,7 +162,7 @@ test("editFiles adds and removes against the cell as stored, so one change never
   // Only this table's files, and only a files field.
   const other = await call(router.tables.create, { name: "Other" }, { context });
   const elsewhere = await upload(context, other.id, PNG, "x.png");
-  await expect(edit({ add: [elsewhere.id] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "“Logo”: no such file" });
+  await expect(edit({ add: [elsewhere.id] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "“Logo” names a file that doesn't exist.", data: say("data.row.noFile", { field: "Logo" }) });
   await expect(call(router.rows.editFiles, { id: row.id, fieldId: table.fields[0]!.id, add: [a.id], remove: [] }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });
 

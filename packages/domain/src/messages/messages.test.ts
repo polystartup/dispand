@@ -44,9 +44,6 @@ const UNKEYED: Record<string, number> = {
   "assistant/commands.ts": 3,
   "assistant/invoke.ts": 4,
   "audit/procedures.ts": 1,
-  "data/files.ts": 2,
-  "data/rows.ts": 8,
-  "data/tables.ts": 20,
   // The engine's EngineErrors, all but the Inbox answer's (keyed with the questions area).
   "engine/engine.ts": 18,
   "harnesses/procedures.ts": 6,

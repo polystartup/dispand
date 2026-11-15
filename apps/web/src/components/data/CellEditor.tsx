@@ -1,6 +1,7 @@
 import { type Cell, cellText, type FieldSchema, parseCellText } from "@dispand/domain/data/fields";
 import { Check } from "lucide-react";
 import { type KeyboardEvent, useRef, useState } from "react";
+import { useText } from "../../lib/message.ts";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { orpc } from "../../lib/api.ts";
@@ -40,6 +41,7 @@ export function CellEditor({ field, value, onCommit, onCancel, inline = true, in
 
 function TextEditor({ field, value, onCommit, onCancel, inline, initialText }: Props) {
   const [text, setText] = useState(() => initialText ?? cellText(field, value));
+  const reasonText = useText();
   const [problem, setProblem] = useState<string | null>(null);
   const long = field.type === "long-text";
   // Set once the editor committed or cancelled, so the blur that follows doesn't do it again.
@@ -52,7 +54,7 @@ function TextEditor({ field, value, onCommit, onCancel, inline, initialText }: P
     if (!inline && !edited.current) return;
     const parsed = parseCellText(field, text);
     if (!parsed.ok) {
-      setProblem(parsed.reason);
+      setProblem(reasonText(parsed.reason));
       return;
     }
     done.current = true;
@@ -100,7 +102,7 @@ function TextEditor({ field, value, onCommit, onCancel, inline, initialText }: P
       const parsed = parseCellText(field, text);
       if (parsed.ok) commit();
       else if (inline) cancel();
-      else setProblem(parsed.reason);
+      else setProblem(reasonText(parsed.reason));
     },
     onChange: (e: { target: { value: string } }) => {
       done.current = false;

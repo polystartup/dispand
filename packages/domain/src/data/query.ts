@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type Message, say } from "../messages/index.ts";
 import { StorableText } from "../text.ts";
 import { type Cell, type FieldSchema, type FieldType, parseCellText } from "./fields.ts";
 
@@ -39,7 +40,7 @@ export type RowQuery = z.infer<typeof RowQuery>;
  * The filter's value as a cell of its field. `contains` and `not-contains` take any text (a part
  * of a URL isn't a URL); every other op parses the value with the field's rules.
  */
-export function filterValue(field: FieldSchema, filter: Filter): { ok: true; value: Cell } | { ok: false; reason: string } {
+export function filterValue(field: FieldSchema, filter: Filter): { ok: true; value: Cell } | { ok: false; reason: Message } {
   const text = filter.value ?? "";
   if (filter.op === "contains" || filter.op === "not-contains") {
     return { ok: true, value: text.trim() === "" ? null : text };
@@ -48,22 +49,22 @@ export function filterValue(field: FieldSchema, filter: Filter): { ok: true; val
 }
 
 /** Why the query can't run on these fields, for the owner; null when it can. */
-export function queryProblem(query: RowQuery, fields: FieldSchema[]): string | null {
+export function queryProblem(query: RowQuery, fields: FieldSchema[]): Message | null {
   const byId = new Map(fields.map((f) => [f.id, f]));
-  const gone = "A filter or sort uses a field that no longer exists";
+  const gone = say("data.query.fieldGone");
   for (const filter of query.filters) {
     const field = byId.get(filter.fieldId);
     if (!field) return gone;
-    if (!(FILTER_OPS[field.type] as readonly FilterOp[]).includes(filter.op)) return `“${field.name}” can't be filtered by “${filter.op}”`;
+    if (!(FILTER_OPS[field.type] as readonly FilterOp[]).includes(filter.op)) return say("data.query.notFilterable", { field: field.name, op: filter.op });
     if (!takesValue(filter.op)) continue;
     const parsed = filterValue(field, filter);
-    if (!parsed.ok) return `“${field.name}”: ${parsed.reason}`;
-    if (parsed.value === null) return `“${field.name}”: a value is needed`;
+    if (!parsed.ok) return parsed.reason;
+    if (parsed.value === null) return say("data.query.valueNeeded", { field: field.name });
   }
   for (const sort of query.sort) {
     const field = byId.get(sort.fieldId);
     if (!field) return gone;
-    if (field.type === "attachment") return `“${field.name}” holds files and can't be sorted`;
+    if (field.type === "attachment") return say("data.query.notSortable", { field: field.name });
   }
   return null;
 }

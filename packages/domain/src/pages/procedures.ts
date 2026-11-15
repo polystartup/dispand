@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { fields as fieldsTable, pages as pagesTable, tables as tablesTable, triggers, widgets as widgetsTable, workflows, workflowVersions } from "../db/schema.ts";
 import { queryProblem } from "../data/query.ts";
+import { english } from "../messages/index.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { StorableText } from "../text.ts";
@@ -135,7 +136,7 @@ async function checkConfig(db: Db, ownerId: string, tableId: string, config: Gri
   }
   if ("sort" in config && config.sort) {
     const problem = queryProblem({ filters: [], sort: [config.sort] }, fields);
-    if (problem) throw bad(problem);
+    if (problem) throw bad(english(problem.key, problem.values));
   }
   return table;
 }

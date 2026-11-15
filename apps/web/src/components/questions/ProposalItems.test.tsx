@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { say } from "@dispand/domain";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { ProposalItems, type ProposalView } from "./ProposalItems.tsx";
@@ -20,8 +21,8 @@ const proposal: ProposalView = {
     { tool: "agents_update", used: true, refs: ["id", "harnessId", "toolIds", "skillPackageIds", "dataTables"], input: { id: "agent_1", name: "Builder", harnessId: "harness_1", systemPrompt: "New.", dataTables: ["table_1"] } },
   ],
   names: {
-    harness_1: { kind: "harness", name: "Claude", detail: "claude-code, on Workstation, permission mode default" },
-    tool_1: { kind: "tool", name: "Mail", detail: "https://mail.example.com/mcp" },
+    harness_1: { kind: "harness", name: "Claude", detail: { text: "claude-code, on Workstation, permission mode default" } },
+    tool_1: { kind: "tool", name: "Mail", detail: { text: "https://mail.example.com/mcp" } },
     agent_1: { kind: "agent", name: "Builder" },
     table_1: { kind: "table", name: "Clients" },
   },
@@ -62,7 +63,7 @@ test("deletions and asking flags read as what they do, with names; a value that 
       { tool: "fields_delete", used: false, refs: ["id"], input: { id: "field_1" } },
       { tool: "agents_set_tool_permission", used: false, refs: ["agentId", "toolId"], input: { agentId: "agent_1", toolId: "tool_x", action: "table_1", permission: "run" } },
     ],
-    names: { table_1: { kind: "table", name: "Clients" }, field_1: { kind: "field", name: "Phone", detail: "of the table Clients" }, agent_1: { kind: "agent", name: "Builder" } },
+    names: { table_1: { kind: "table", name: "Clients" }, field_1: { kind: "field", name: "Phone", detail: say("data.field.ofTable", { table: "Clients" }) }, agent_1: { kind: "agent", name: "Builder" } },
   };
   render(<ProposalItems proposal={more} />);
   const [table, field, flag] = screen.getAllByRole("listitem");
@@ -142,7 +143,7 @@ test("a table-change trigger's config is read in words, its table and fields by 
             input: { agentId: "agent_1", name: "On change", config: { kind: "primitive", tableId: "table_1", operations: ["created", "updated"], fields: ["field_1", "field_gone"] } },
           },
         ],
-        names: { agent_1: { kind: "agent", name: "Builder" }, table_1: { kind: "table", name: "Clients" }, field_1: { kind: "field", name: "City", detail: "of the table Clients" } },
+        names: { agent_1: { kind: "agent", name: "Builder" }, table_1: { kind: "table", name: "Clients" }, field_1: { kind: "field", name: "City", detail: say("data.field.ofTable", { table: "Clients" }) } },
       }}
     />,
   );

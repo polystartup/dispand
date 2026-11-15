@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import type { Tx } from "../db/client.ts";
 import { type EventActor, rows as rowsTable, tables as tablesTable } from "../db/schema.ts";
 import { type Cell, cellText, parseCellText } from "../data/fields.ts";
+import { english } from "../messages/index.ts";
 import { FILTER_OPS, type Filter, type FilterOp, filterValue, takesValue } from "../data/query.ts";
 import { orderOf, whereOf, writeRow } from "../data/rows.ts";
 import { loadTableSchemas } from "../data/tables.ts";
@@ -44,7 +45,7 @@ export async function runDataStep(
       const filter: Filter = { fieldId: field.id, op: f.op, ...(f.value ? { value: resolve(f.value) } : {}) };
       if (takesValue(f.op)) {
         const parsed = filterValue(field, filter);
-        if (!parsed.ok) return { error: `“${field.name}”: ${parsed.reason}` };
+        if (!parsed.ok) return { error: english(parsed.reason.key, parsed.reason.values) };
         if (parsed.value === null) return { error: `“${field.name}”: a value is needed` };
       }
       filters.push(filter);
@@ -71,7 +72,7 @@ export async function runDataStep(
     // Retyped to files since the run started: an empty value would clear the files.
     if (field.type === "attachment") return { error: `“${field.name}” holds files, which a workflow can't set` };
     const parsed = parseCellText(field, resolve(i.source));
-    if (!parsed.ok) return { error: `“${field.name}”: ${parsed.reason}` };
+    if (!parsed.ok) return { error: english(parsed.reason.key, parsed.reason.values) };
     cells[field.id] = parsed.value;
   }
   let rowId: string | undefined;
@@ -82,7 +83,7 @@ export async function runDataStep(
   const result = await writeRow(tx, { ownerId, tableId: table.id, ...(rowId ? { rowId } : {}), values: cells, actor: input.actor });
   if ("problem" in result) {
     if (rowId && result.notFound) return { error: `row “${rowId.length > 100 ? `${Array.from(rowId).slice(0, 100).join("")}…` : rowId}” is not in ${table.name}` };
-    return { error: result.problem };
+    return { error: english(result.problem.key, result.problem.values) };
   }
   return { outputs: { row_id: result.row.id }, changed: { tableId: table.id, rowIds: [result.row.id] } };
 }
