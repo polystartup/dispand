@@ -140,6 +140,7 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
     one("platform.call", (r) => r.details.tool === "rows_list" && r.details.tableId === matters.id);
     one("platform.call", (r) => r.details.tool === "rows_create" && r.details.tableId === matters.id && r.result === "ok");
     one("platform.call", (r) => r.details.tool === "memory_add" && r.result === "ok");
+    one("memory.written", (r) => r.details.scope === "agent" && r.details.operation === "add" && r.details.agentId === intake.id && r.resourceType === "memory");
     one("question.asked", (r) => r.details.questionKind === "approval");
     one("question.answered", (r) => r.details.decision === "allow" && r.details.answeredBy === "person");
     one("tool.call", (r) => r.details.toolId === tool.id && r.details.action === "create_draft" && r.result === "ok");
@@ -152,7 +153,7 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
 
     // One trace: the Job's creation, its session, its model turns, its Dispand and tool calls.
     const traceId = one("job.created").traceId!;
-    for (const action of ["job.started", "platform.call", "tool.call", "job.finished"]) for (const r of mine.filter((x) => x.action === action)) expect(r.traceId, action).toBe(traceId);
+    for (const action of ["job.started", "platform.call", "memory.written", "tool.call", "job.finished"]) for (const r of mine.filter((x) => x.action === action)) expect(r.traceId, action).toBe(traceId);
     await expect
       .poll(async () => {
         const names = await spansOf(traceId);

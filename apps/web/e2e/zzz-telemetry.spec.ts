@@ -90,7 +90,7 @@ test("telemetry exported during the whole suite holds no secret and no content",
   }
   // Every Audit row, read back as the owner reads it: the suite's Jobs left some, so the check isn't vacuous.
   const rows = await auditRows(page);
-  expect(rows.map((r) => r.action)).toEqual(expect.arrayContaining(["job.created", "platform.call", "tool.call", "poll.run", "event.recorded", "question.answered"]));
+  expect(rows.map((r) => r.action)).toEqual(expect.arrayContaining(["job.created", "platform.call", "tool.call", "poll.run", "event.recorded", "question.answered", "memory.written"]));
   const audited = JSON.stringify(rows);
   for (const [what, sentinel] of Object.entries(sentinels)) {
     expect(audited.includes(sentinel), `${what} found in an Audit row`).toBe(false);
