@@ -346,7 +346,8 @@ test("token absent from state dir: a session's MCP servers reach the CLI, and no
   expect(Object.keys(fake.calls[0]!.mcpServers!)).toEqual(["dispand"]);
   expect(fake.servers[0]).toMatchObject({
     github: { type: "http", url: "https://api.example.test/mcp", headers: { authorization: "Bearer s3cret" } },
-    local: { type: "stdio", command: "/bin/sh", args: expect.arrayContaining(["echo-mcp"]), env: {} },
+    // Behind the runner's proxy, which gets the server's command in its spec.
+    local: { type: "stdio", command: process.execPath, args: expect.arrayContaining(["mcp-proxy"]), env: { DISPAND_PROXY: expect.stringContaining('"command":"echo-mcp"') } },
   });
   expect(Object.keys(fake.servers[0]!).at(-1)).toBe("dispand");
   // A failed start too.

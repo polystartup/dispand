@@ -128,7 +128,8 @@ export function runProxy(spec: ProxySpec, token: string | undefined, input: Read
     const response = msg && msg.method === undefined && msg.id !== undefined && calls.delete(JSON.stringify(msg.id));
     written = written.then(async () => {
       const out = response && typeof msg.result === "object" && msg.result !== null ? JSON.stringify({ ...msg, result: await withoutFiles(msg.result as Json, keep!) }) : line;
-      output.write(`${out}\n`);
+      // Written out before the next: the proxy exits once the last line is through.
+      await new Promise<void>((done) => output.write(`${out}\n`, () => done()));
     });
   });
   return new Promise((resolve) => {

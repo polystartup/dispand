@@ -319,7 +319,7 @@ else if (command === "mcp-proxy") {
   } catch {
     fail("mcp-proxy is started by a session, with its spec");
   }
-  // Its server gone, the proxy goes too, whatever the CLI still holds open (pipes write synchronously on Linux).
+  // Its server gone and every line written out, the proxy goes too, whatever the CLI still holds open.
   process.exit(await runProxy(spec, process.env[PROXY_TOKEN]));
 }
 else if (command === "native-plugins") {
