@@ -100,9 +100,9 @@ export function orderOf(fields: FieldSchema[], sort: Sort[]): SQL[] {
 
 type Written = { row: RowView } | { problem: Message; notFound?: true };
 
-/** A rejected value as the message of its first issue: a refinement's message is already the key, the others are `validation.*` of the field. */
-function cellProblem(field: FieldSchema, issue: { code: string; message: string; path: PropertyKey[] } | undefined): Message {
-  if (issue?.code === "custom" && isMessageKey(issue.message)) return say(issue.message, { field: field.name });
+/** A rejected value as the message of its first issue: a refinement's or a pattern's message is already the key, the others are `validation.*` of the field. */
+export function cellProblem(field: FieldSchema, issue: { code: string; message: string; path: PropertyKey[] } | undefined): Message {
+  if (issue && isMessageKey(issue.message)) return say(issue.message, { field: field.name });
   return validationKey({ ...(issue ?? { code: "custom" }), path: [field.name] });
 }
 
