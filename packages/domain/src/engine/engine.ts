@@ -378,6 +378,9 @@ export class EngineError extends Error {
   }
 }
 
+/** A keyed engine error's options, passed on as a procedure's error: `new ORPCError(code, passOn(err))`. */
+export const passOn = (err: EngineError) => ({ message: err.message, data: err.data });
+
 /**
  * Runs workflows (spec 7.4). Runs, step runs, transcripts and questions are rows, so a run
  * survives restarts and can wait days. Harness events arrive through `onHarnessEvent`, which only

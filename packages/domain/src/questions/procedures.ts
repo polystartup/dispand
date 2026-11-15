@@ -4,7 +4,7 @@ import { and, count, desc, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents, questions as questionsTable, runs, stepRuns, triggers, workflows, workflowVersions } from "../db/schema.ts";
-import { answerText, EngineError, questionView } from "../engine/engine.ts";
+import { answerText, EngineError, passOn, questionView } from "../engine/engine.ts";
 import { jobAgentNameSql } from "../jobs/agent-name.ts";
 import { proposalView } from "../platform/proposals.ts";
 import { message } from "../messages/index.ts";
@@ -162,8 +162,8 @@ const answer = owner.input(z.object({ questionId: z.string(), answer: Answer }))
   // The engine's pending → answered update is the atomic step: a second answer finds nothing pending.
   await context.engine.answer(q.id, delivered, { type: "user", userId: context.ownerId }).catch((err: unknown) => {
     // The engine's errors on this path all carry their message's key (`data`).
-    if (err instanceof EngineError && err.code === "INVALID") throw new ORPCError("BAD_REQUEST", { message: err.message, data: err.data });
-    if (err instanceof EngineError && err.code === "NOT_PENDING") throw new ORPCError("CONFLICT", { message: err.message, data: err.data });
+    if (err instanceof EngineError && err.code === "INVALID") throw new ORPCError("BAD_REQUEST", passOn(err));
+    if (err instanceof EngineError && err.code === "NOT_PENDING") throw new ORPCError("CONFLICT", passOn(err));
     throw err;
   });
 });

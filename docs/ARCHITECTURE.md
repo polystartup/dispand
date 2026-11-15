@@ -1738,8 +1738,8 @@ same keys.
   React escapes them. An input its Zod schema rejects answers with `validation.<code>` and the
   field's path and limits (`rpc/context.ts`, `validationKey`). `messages/messages.test.ts` walks
   the domain for every `new ORPCError(` and `new EngineError(` and fails on one whose message
-  isn't a single `message()` key, external text or an error passed on (`{ message: e.message, data:
-  e.data }`, valid only once the `EngineError`s it passes on are keyed: the walk can't tell), unless its file is
+  isn't a single `message()` key, external text or an engine error passed on (`passOn(err)`, typed
+  `EngineError`: valid once the engine errors it passes on are keyed), unless its file is
   in the list of the areas still to key, which shrinks to nothing; until then an unkeyed error
   shows its English text.
 - Agent output, plugin texts and MCP servers' texts are shown as they came. Logs, telemetry and

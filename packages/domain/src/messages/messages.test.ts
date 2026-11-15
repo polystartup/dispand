@@ -71,14 +71,11 @@ const files = (dir: string): string[] =>
 const whole = (node: ts.Expression | undefined) => !!node && !ts.isTemplateExpression(node) && !ts.isBinaryExpression(node);
 const callTo = (node: ts.Expression, name: string): node is ts.CallExpression => ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === name;
 
-/** Whether an error's options are a single `message()` key, text marked as external, or a keyed error passed on (`{ message: e.message, data: e.data }`). */
+/** Whether an error's options are a single `message()` key, text marked as external, or a keyed engine error passed on (`passOn(err)`, typed `EngineError`). */
 function keyed(options: ts.Expression | undefined): boolean {
   if (!options) return false;
   if (callTo(options, "message") || callTo(options, "external")) return whole(options.arguments[0]);
-  if (!ts.isObjectLiteralExpression(options) || options.properties.length !== 2) return false;
-  const passed = options.properties.map((p) => (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && ts.isPropertyAccessExpression(p.initializer) && p.name.text === p.initializer.name.text ? `${p.name.text}:${p.initializer.expression.getText()}` : ""));
-  const of = passed[0]?.split(":")[1];
-  return !!of && passed.sort().join() === `data:${of},message:${of}`;
+  return callTo(options, "passOn") && options.arguments.length === 1 && ts.isIdentifier(options.arguments[0]!);
 }
 
 /** Every `new ORPCError(` and `new EngineError(` of a file whose options aren't keyed. */
@@ -108,7 +105,8 @@ test("the walk judges the message's form, not where it comes from", () => {
   expect(judge('new ORPCError("BAD_REQUEST", message("questions.answer.missing", { question }))')).toBe(true);
   expect(judge('new ORPCError("BAD_REQUEST", message(key, values))')).toBe(true);
   expect(judge('new ORPCError("BAD_REQUEST", external(serverText))')).toBe(true);
-  expect(judge('new ORPCError("CONFLICT", { message: err.message, data: err.data })')).toBe(true);
+  expect(judge('new ORPCError("CONFLICT", passOn(err))')).toBe(true);
+  expect(judge('new ORPCError("CONFLICT", { message: err.message, data: err.data })')).toBe(false);
   expect(judge('new ORPCError("NOT_FOUND")')).toBe(false);
   expect(judge('new ORPCError("BAD_REQUEST", { message: "Plain text" })')).toBe(false);
   expect(judge('new ORPCError("BAD_REQUEST", { message: `Answer ${q}` })')).toBe(false);
@@ -118,7 +116,8 @@ test("the walk judges the message's form, not where it comes from", () => {
   expect(judge('new ORPCError("BAD_REQUEST", message(`questions.${part}`))')).toBe(false);
   expect(judge('new ORPCError("BAD_REQUEST", message("questions." + part))')).toBe(false);
   expect(judge('new ORPCError("BAD_REQUEST", external("From " + server))')).toBe(false);
-  expect(judge('new ORPCError("CONFLICT", { message: err.message, data: other.data })')).toBe(false);
+  expect(judge('new ORPCError("BAD_REQUEST", { message: message("a").message + message("b").message, data: message("a").data })')).toBe(false);
+  expect(judge('new ORPCError("BAD_REQUEST", message("questions.notFound") + message("questions.answer.mismatch"))')).toBe(false);
   expect(judge('new EngineError("INVALID", "The chat is over")')).toBe(false);
   expect(judge('new EngineError("INVALID", message("questions.answer.chooseScope"))')).toBe(true);
 });
