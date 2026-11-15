@@ -11,8 +11,6 @@ export function formatters(language: string) {
       new Intl.DateTimeFormat(language, options).format(new Date(date)),
     date: (date: Date | number | string, options: Intl.DateTimeFormatOptions = { dateStyle: "medium" }) => new Intl.DateTimeFormat(language, options).format(new Date(date)),
     time: (date: Date | number | string, options: Intl.DateTimeFormatOptions = { timeStyle: "short" }) => new Intl.DateTimeFormat(language, options).format(new Date(date)),
-    /** A list as one phrase ("a, b and c"; French "a, b et c"), whatever its length. */
-    list: (items: string[]) => new Intl.ListFormat(language, { style: "long", type: "conjunction" }).format(items),
     number: (value: number, options?: Intl.NumberFormatOptions) => new Intl.NumberFormat(language, options).format(value),
     /** Names joined as the language writes a list: "A, B and C". */
     list: (items: string[]) => new Intl.ListFormat(language, { type: "conjunction" }).format(items),
