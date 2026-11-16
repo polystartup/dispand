@@ -58,15 +58,16 @@ export async function tablePlan(db: Db | Tx, ownerId: string, t: typeof tablesTa
  * operation a person would use, and gives the definition an update keeps as the one the table
  * was merged with: the new one, but for what waits for a table that isn't there yet or failed,
  * offered again by the next update. `held`: changes waiting for the owner's Approval, which stay
- * as they were in that definition too.
+ * as they were in that definition too. `expected`: for a change the owner approved with the values
+ * it removes, those values, which its field operation checks under the table's lock.
  */
-export async function applyTable(context: InitialContext & { ownerId: string }, row: { id: string }, plan: TablePlan, ticked: string[], failed: { name: string; reason: Text }[], held: string[] = []): Promise<PrimitiveDefinition> {
+export async function applyTable(context: InitialContext & { ownerId: string }, row: { id: string }, plan: TablePlan, ticked: string[], failed: { name: string; reason: Text }[], held: string[] = [], expected: Record<string, [string, unknown][]> = {}): Promise<PrimitiveDefinition> {
   const lower = (s: string | null) => (s ?? "").toLowerCase();
   // The keys of the changes that failed: their part of the definition stays as it was, so the next update offers them again.
   const refused = new Set<string>();
   const run = async (key: string, path: string[], procedure: unknown, input: object, element?: { pluginId: string; component: string }): Promise<unknown> => {
     try {
-      return await call(procedure as never, input as never, { context: { ...context, ...(element ? { pluginElement: element } : {}) } as never, path });
+      return await call(procedure as never, input as never, { context: { ...context, ...(element ? { pluginElement: element } : {}), ...(expected[key] ? { expectValues: expected[key] } : {}) } as never, path });
     } catch (err) {
       if (!(err instanceof ORPCError)) throw err;
       refused.add(key);

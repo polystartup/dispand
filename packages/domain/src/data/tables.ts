@@ -5,6 +5,7 @@ import type { Db, Tx } from "../db/client.ts";
 import { attachments, fields as fieldsTable, rows as rowsTable, runs, tables as tablesTable, workflows, workflowVersions } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
+import { canonical } from "../platform/approvals.ts";
 import { authed, base } from "../rpc/context.ts";
 import { tableIdsOf, type TableSchema } from "../workflows/data-steps.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
@@ -63,6 +64,17 @@ async function lockTable(tx: Tx, ownerId: string, id: string) {
     .for("update");
   if (!table) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
   return table;
+}
+
+/**
+ * With `expectValues` (an approved change that removes values): the field's values must be those,
+ * read under the table's lock, which a row's write takes shared, so none lands in between.
+ */
+async function checkValues(tx: Tx, context: { expectValues?: [string, unknown][] }, field: FieldRow) {
+  if (!context.expectValues) return;
+  const rows = await tx.select({ id: rowsTable.id, values: rowsTable.values }).from(rowsTable).where(eq(rowsTable.tableId, field.tableId)).orderBy(asc(rowsTable.id));
+  const now = rows.flatMap((r) => (r.values[field.id] === undefined || r.values[field.id] === null ? [] : [[r.id, r.values[field.id]]]));
+  if (canonical(now) !== canonical(context.expectValues)) throw new ORPCError("CONFLICT", message("plugins.table.valuesChanged"));
 }
 
 /** Locks the field's table, then reads the field again (it may have gone meanwhile). */
@@ -328,6 +340,7 @@ const updateField = owner
     const { field, cleared } = await context.db
       .transaction(async (tx) => {
         const field = await lockField(tx, context.ownerId, input.id);
+        await checkValues(tx, context, field);
         let cleared: string[] = [];
         if (input.choices) {
           if (field.type !== "single-select") throw new ORPCError("BAD_REQUEST", message("data.field.choicesOnlySelect"));
@@ -398,6 +411,7 @@ const retype = owner
     const result = await context.db.transaction(async (tx) => {
       const field = await lockField(tx, context.ownerId, input.id);
       await refuseIfParent(tx, field);
+      await checkValues(tx, context, field);
       const stored = await tx
         .select({ id: rowsTable.id, values: rowsTable.values })
         .from(rowsTable)
@@ -443,6 +457,7 @@ const removeField = owner.input(z.object({ id: z.string() })).handler(async ({ i
   const tableId = await context.db.transaction(async (tx) => {
     const field = await lockField(tx, context.ownerId, input.id);
     await refuseIfParent(tx, field);
+    await checkValues(tx, context, field);
     const rest = (await fieldsOf(tx, field.tableId)).filter((f) => f.id !== field.id);
     if (rest.length === 0) throw new ORPCError("BAD_REQUEST", message("data.table.lastField"));
     await tx.delete(fieldsTable).where(eq(fieldsTable.id, field.id));

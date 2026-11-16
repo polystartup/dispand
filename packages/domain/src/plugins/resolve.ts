@@ -2,15 +2,19 @@ import { ORPCError } from "@orpc/server";
 import { createHash } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { agents as agentsTable, pluginConflicts, plugins as pluginsTable, questions, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
+import { agents as agentsTable, pluginConflicts, plugins as pluginsTable, questions, rows as rowsTable, tables as tablesTable, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
 import type { AuditActor } from "../audit/model.ts";
 import { recordAudit } from "../audit/record.ts";
 import { recordInteraction } from "../engine/interactions.ts";
+import { message } from "../messages/index.ts";
 import { newId } from "../ids.ts";
 import { canonical } from "../platform/approvals.ts";
 import type { InitialContext } from "../rpc/context.ts";
 import { meter } from "../telemetry/index.ts";
 import { type ElementKind, sameValue } from "./overrides.ts";
+import type { PrimitiveDefinition } from "./definitions.ts";
+import { applyTable, tablePlan, tablesOf } from "./table-apply.ts";
+import type { TableChange } from "./table-merge.ts";
 import { agentValues } from "./update.ts";
 import { writeFields } from "./write-field.ts";
 
@@ -22,6 +26,13 @@ import { writeFields } from "./write-field.ts";
 // Inbox per Stem Job (so per update), made when the Job ends, whose items are the conflicts of
 // that Job waiting in `approval`, each answered on its own (`answerConflict`). Any conflict kept
 // in `plugin_conflicts` with the Job's `runId` is an item of it.
+//
+// A table is handed off whole (`kind: "table"`, field `changes`): Stem decides which of the
+// changes the update showed apply. A change that removes values waits for the Approval with the
+// values it would remove; one the table no longer allows by then is skipped. A table conflict is
+// never the owner's to decide on its own: when Stem doesn't decide it, it is dropped, and the
+// definition the table keeps as merged still lacks its changes, so the next update offers them
+// again as the checklist.
 
 const counts = meter("plugins");
 
@@ -30,12 +41,14 @@ export const PLUGIN_UPDATE = "plugin_update";
 
 type Context = InitialContext & { ownerId: string };
 export type Decision = { kind: "reset" } | { kind: "merge"; value: unknown };
-/** How a decision ended: made, waiting for the owner's Approval, the owner's again, or about nothing any more. */
-export type DecisionOutcome = "applied" | "approval" | "reopened" | "gone";
+/** How a decision ended: made, waiting for the owner's Approval, the owner's again, about nothing any more, or refused (a table change key the update didn't show). */
+export type DecisionOutcome = "applied" | "approval" | "reopened" | "gone" | "refused";
 type Conflict = typeof pluginConflicts.$inferSelect;
 
 /** The field's value in effect and the plugin's, on the conflict's element; null when the element is gone or no longer the plugin's. */
 export async function fieldNow(db: Db | Tx, c: Conflict): Promise<{ value: unknown; plugin: unknown } | null> {
+  // A table's conflict is read as it was handed off (`tableNow` reads the table).
+  if (c.kind === "table") return null;
   if (c.kind === "agent") {
     const [agent] = await db.select().from(agentsTable).where(and(eq(agentsTable.id, c.elementId), eq(agentsTable.ownerId, c.ownerId), eq(agentsTable.pluginId, c.pluginId)));
     if (!agent?.upstream) return null;
@@ -69,7 +82,7 @@ async function audit(context: Context, actor: AuditActor, c: Conflict, decision:
 async function fresh(db: Db | Tx, c: Conflict): Promise<{ plugin: unknown } | "gone" | "stale"> {
   const now = await fieldNow(db, c);
   if (!now) return "gone";
-  const kind = c.kind;
+  const kind = c.kind as ElementKind;
   return sameValue(kind, c.field, now.value, c.mine) && sameValue(kind, c.field, now.plugin, c.next) ? { plugin: now.plugin } : "stale";
 }
 
@@ -88,7 +101,7 @@ async function apply(context: Context, c: Conflict, value: unknown, mine?: unkno
     if (gained.length) extra = { toolPermissions: gained.map((toolId) => ({ toolId, unasked: [] })) };
   }
   try {
-    await writeFields(mine === undefined ? context : { ...context, expectField: { field: c.field, value: mine } }, c.kind, c.elementId, { [c.field]: value, ...extra });
+    await writeFields(mine === undefined ? context : { ...context, expectField: { field: c.field, value: mine } }, c.kind as ElementKind, c.elementId, { [c.field]: value, ...extra });
     return true;
   } catch (err) {
     if (mine !== undefined && err instanceof ORPCError && err.code === "CONFLICT") return false;
@@ -114,6 +127,7 @@ export async function decide(context: Context, actor: AuditActor, conflictId: st
     .from(pluginConflicts)
     .where(and(eq(pluginConflicts.id, conflictId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "stem"), ...(runId ? [eq(pluginConflicts.runId, runId)] : [])));
   if (!c) return "gone";
+  if (c.kind === "table") return decideTable(context, actor, c, decision);
   const state = await fresh(context.db, c);
   if (state === "gone") {
     await context.db.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
@@ -127,7 +141,7 @@ export async function decide(context: Context, actor: AuditActor, conflictId: st
     return "reopened";
   }
   const value = decision.kind === "reset" ? state.plugin : decision.value;
-  if (!within(c.kind, c.field, value, c.mine, c.next)) {
+  if (!within(c.kind as ElementKind, c.field, value, c.mine, c.next)) {
     if (!(await context.db.update(pluginConflicts).set({ status: "approval", merged: value }).where(held).returning({ id: pluginConflicts.id })).length) return "gone";
     await audit(context, actor, c, "approval", c.runId);
     return "approval";
@@ -156,6 +170,7 @@ export async function answerConflict(context: Context, actor: AuditActor, confli
 }
 
 async function answerOne(context: Context, actor: AuditActor, c: Conflict, approved: boolean): Promise<"applied" | "kept" | "reopened" | "gone"> {
+  if (c.kind === "table") return answerTable(context, actor, c, approved);
   const state = await fresh(context.db, c);
   if (state === "stale") {
     await context.db.update(pluginConflicts).set({ status: "open", merged: null }).where(eq(pluginConflicts.id, c.id));
@@ -203,6 +218,8 @@ export async function forgetConflicts(tx: Db | Tx, elementIds: string[]): Promis
  * it (and a push goes, once). It stays when the Job is over: no session waits on it.
  */
 export async function closeStemJob(tx: Tx, runId: string): Promise<typeof questions.$inferSelect | null> {
+  // A table Stem didn't decide is dropped: its changes stay out of the table's definition, offered by the next update.
+  await tx.delete(pluginConflicts).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "stem"), eq(pluginConflicts.kind, "table")));
   await tx.update(pluginConflicts).set({ status: "open" }).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "stem")));
   const [waiting] = await tx.select({ ownerId: pluginConflicts.ownerId, pluginId: pluginConflicts.pluginId }).from(pluginConflicts).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "approval"))).limit(1);
   if (!waiting) return null;
@@ -271,9 +288,112 @@ export async function approvalView(db: Db, ownerId: string, q: { runId: string; 
     .orderBy(asc(pluginConflicts.createdAt), asc(pluginConflicts.id));
   const items = [];
   for (const r of rows) {
-    const table = r.kind === "agent" ? agentsTable : r.kind === "tool" ? toolsTable : triggersTable;
+    const table = r.kind === "agent" ? agentsTable : r.kind === "tool" ? toolsTable : r.kind === "table" ? tablesTable : triggersTable;
     const [element] = await db.select({ name: table.name }).from(table).where(and(eq(table.id, r.elementId), eq(table.ownerId, ownerId)));
     items.push({ ...(await conflictView(db, r)), kind: r.kind, elementId: r.elementId, name: element?.name ?? null });
   }
   return { plugin: plugin ?? null, items };
+}
+
+/** The field a table's conflict is kept under: one per table. */
+export const TABLE_FIELD = "changes";
+
+/** What a table's conflict keeps of the update's screen: the plugin's definition and the changes shown against the table then. */
+export type HandedTable = { definition: PrimitiveDefinition; changes: TableChange[] };
+/** What waits in the Approval: the changes that remove values, and the values each would remove (each row's id with its value), as read when Stem decided. */
+type HeldTable = { keys: string[]; values: Record<string, [string, unknown][]> };
+
+/** A change that takes values away: a field removed, retyped, or losing choices. Never applied without the owner's Approval. */
+const removesValues = (c: TableChange) => c.kind === "remove" || c.kind === "retype" || (c.kind === "choices" && !c.ticked);
+
+/**
+ * The table's changes as they stand now, from the definition it keeps as merged to the plugin's
+ * one it was handed off against; null when the table is gone, no longer the plugin's, or an
+ * update merged it again since (another definition on either side).
+ */
+async function tableNow(db: Db | Tx, c: Conflict) {
+  const [t] = await db.select().from(tablesTable).where(and(eq(tablesTable.id, c.elementId), eq(tablesTable.ownerId, c.ownerId), eq(tablesTable.pluginId, c.pluginId)));
+  const handed = c.next as HandedTable;
+  if (!t?.definition || canonical(t.definition) !== canonical(c.old)) return null;
+  const [plugin] = await db.select({ definitions: pluginsTable.definitions }).from(pluginsTable).where(eq(pluginsTable.id, c.pluginId));
+  const next = plugin?.definitions?.primitives.find((d) => d.name.toLowerCase() === (t.pluginComponent ?? "").toLowerCase());
+  if (!next || canonical(next) !== canonical(handed.definition)) return null;
+  const { tableExists } = await tablesOf(db, c.ownerId, { id: c.pluginId });
+  return tablePlan(db, c.ownerId, t, () => t.definition!, next, tableExists);
+}
+
+/** Each row's value of the table's field, by row id; empty cells left out. */
+async function valuesOf(db: Db | Tx, tableId: string, fieldId: string | undefined): Promise<[string, unknown][]> {
+  if (!fieldId) return [];
+  const rows = await db.select({ id: rowsTable.id, values: rowsTable.values }).from(rowsTable).where(eq(rowsTable.tableId, tableId)).orderBy(asc(rowsTable.id));
+  return rows.flatMap((r) => (r.values[fieldId] === undefined || r.values[fieldId] === null ? [] : [[r.id, r.values[fieldId]] as [string, unknown]]));
+}
+
+const fieldIdOf = (plan: NonNullable<Awaited<ReturnType<typeof tableNow>>>, change: TableChange | undefined) => plan.fields.find((f) => change?.field && f.pluginField?.toLowerCase() === change.field.toLowerCase())?.id;
+
+/**
+ * Stem's decision on a table: the change keys to apply (a reset: every one the update showed as
+ * applicable). A key the update didn't show refuses the whole decision. A change the table no
+ * longer allows is skipped; one that removes values waits for the owner's Approval, with the
+ * values it would remove; the rest apply now. What Stem left out counts as declined, as an
+ * unticked box does.
+ */
+async function decideTable(context: Context, actor: AuditActor, c: Conflict, decision: Decision): Promise<DecisionOutcome> {
+  const shown = (c.next as HandedTable).changes.filter((ch) => !ch.stale && !ch.waiting).map((ch) => ch.key);
+  const keys = decision.kind === "reset" ? shown : decision.value;
+  if (!Array.isArray(keys) || keys.some((k) => typeof k !== "string" || !shown.includes(k))) return "refused";
+  const held = and(eq(pluginConflicts.id, c.id), eq(pluginConflicts.status, "stem"));
+  const plan = await tableNow(context.db, c);
+  if (!plan) {
+    await context.db.delete(pluginConflicts).where(held);
+    return "gone";
+  }
+  const fresh = plan.changes.filter((ch) => keys.includes(ch.key) && !ch.stale && !ch.waiting);
+  const waiting = fresh.filter(removesValues).map((ch) => ch.key);
+  const values: HeldTable["values"] = {};
+  for (const key of waiting) values[key] = await valuesOf(context.db, plan.tableId, fieldIdOf(plan, plan.changes.find((ch) => ch.key === key)));
+  // Claimed first: a Job stopped meanwhile gave the table back (`closeStemJob`), and nothing of it applies.
+  const claimed = waiting.length
+    ? await context.db.update(pluginConflicts).set({ status: "approval", merged: { keys: waiting, values } satisfies HeldTable }).where(held).returning({ id: pluginConflicts.id })
+    : await context.db.delete(pluginConflicts).where(held).returning({ id: pluginConflicts.id });
+  if (!claimed.length) return "gone";
+  const definition = await applyTable(context, { id: c.pluginId }, plan, fresh.filter((ch) => !waiting.includes(ch.key)).map((ch) => ch.key), [], waiting);
+  await context.db.update(tablesTable).set({ definition }).where(eq(tablesTable.id, plan.tableId));
+  // The Approval's answer reads the table against the definition it keeps from now on.
+  if (waiting.length) await context.db.update(pluginConflicts).set({ old: definition }).where(eq(pluginConflicts.id, c.id));
+  await audit(context, actor, c, waiting.length ? "approval" : decision.kind, c.runId);
+  return waiting.length ? "approval" : "applied";
+}
+
+/**
+ * The owner's answer to a table's changes that remove values. On a yes, the values are read
+ * again: any difference from what was stored applies nothing, stores the values now and asks
+ * again (CONFLICT). Else each change applies through its field operation, which reads the values
+ * once more under the table's lock (a row's write takes it shared, so none lands in between) and
+ * refuses on a difference: such a change stays out of the table's definition, offered again. On
+ * a no they are declined, as an unticked box: the definition the table keeps takes them, and the
+ * plugin's row still offers each with "Apply".
+ */
+async function answerTable(context: Context, actor: AuditActor, c: Conflict, approved: boolean): Promise<"applied" | "kept" | "gone"> {
+  const held = c.merged as HeldTable;
+  const plan = await tableNow(context.db, c);
+  if (!plan) {
+    await context.db.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
+    return "gone";
+  }
+  let keys: string[] = [];
+  if (approved) {
+    const now: HeldTable["values"] = {};
+    for (const key of held.keys) now[key] = await valuesOf(context.db, plan.tableId, fieldIdOf(plan, plan.changes.find((ch) => ch.key === key)));
+    if (canonical(now) !== canonical(held.values)) {
+      await context.db.update(pluginConflicts).set({ merged: { keys: held.keys, values: now } satisfies HeldTable }).where(eq(pluginConflicts.id, c.id));
+      throw new ORPCError("CONFLICT", message("plugins.table.valuesChanged"));
+    }
+    keys = plan.changes.filter((ch) => held.keys.includes(ch.key) && !ch.stale && !ch.waiting).map((ch) => ch.key);
+  }
+  const definition = await applyTable(context, { id: c.pluginId }, plan, keys, [], [], held.values);
+  await context.db.update(tablesTable).set({ definition }).where(eq(tablesTable.id, plan.tableId));
+  await context.db.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
+  await audit(context, actor, c, approved ? "approved" : "declined", c.runId);
+  return approved ? "applied" : "kept";
 }

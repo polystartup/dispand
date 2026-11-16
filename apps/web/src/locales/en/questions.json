@@ -432,6 +432,9 @@
     "askedUnnamed": "{{assistant}} merged values for a plugin’s update.",
     "answered": "You answered each value.",
     "expired": "Nothing waits any more: a later change took these values back to the element’s page.",
-    "failed": "Could not record your answer."
+    "failed": "Could not record your answer.",
+    "removes_one": "It removes this value, of {{count}} row:",
+    "removes_other": "It removes these values, of {{count}} rows:",
+    "removesNone": "No row holds a value there now."
   }
 }

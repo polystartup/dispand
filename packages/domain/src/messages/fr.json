@@ -129,7 +129,7 @@
       "changed": "{{plugin}} a changé depuis votre relecture : relisez ce que sa mise à jour change.",
       "notApplicable": "Ce n’est pas un changement de cette table qui puisse être appliqué.",
       "notConflict": "Ce n’est pas un champ en conflit.",
-      "stemScope": "Stem décide des champs d’agents, d’outils et de déclencheurs en conflit que vous n’avez pas repris.",
+      "stemScope": "Stem décide des champs d’agents, d’outils et de déclencheurs en conflit que vous n’avez pas repris, et des tables dont vous n’avez rien coché.",
       "assistantFirst": "Configurez d’abord l’Assistant : Stem est l’Assistant.",
       "notShown": "Il n’était pas sur l’écran de la mise à jour.",
       "unreachable": "Son runner n’a pas pu être interrogé, ou l’installation a changé depuis.",
@@ -148,7 +148,8 @@
       "unsupported": "Cela ne peut pas être appliqué ici : modifiez le champ à la main.",
       "order": "Vous avez changé l’ordre.",
       "changed": "Vous l’avez modifié.",
-      "changedSince": "{{plugin}} ou sa table a changé depuis votre dernière consultation : regardez à nouveau le changement."
+      "changedSince": "{{plugin}} ou sa table a changé depuis votre dernière consultation : regardez à nouveau le changement.",
+      "valuesChanged": "Des valeurs de cette table ont changé depuis la décision de Stem : regardez à nouveau ce que ses changements retireraient."
     },
     "override": {
       "forbidden": "Il appartient à {{plugin}} : désinstallez le plugin pour le retirer.",

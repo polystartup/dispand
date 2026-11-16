@@ -188,7 +188,12 @@ changes it updates this file.
   owner's Approval: one Approval in the Inbox per update, each value answered on its own by the
   owner (never by an agent, never whole), applied only while the field still holds the owner's
   value it was decided on, else that value is the owner's to decide again; a tool it gives an
-  agent starts with every action on Ask. On a runner it runs
+  agent starts with every action on Ask. A plugin's table handed to it is decided as a list of
+  the change keys the update showed (any other key refuses the whole decision); a change that
+  removes values never applies without the owner's yes on that Approval, which shows the values
+  it removes, and it applies only while the field still holds exactly those values, checked
+  under the table's lock that every row write takes (any difference asks again). The Job is
+  given the changes' keys and counts, never a row's value. On a runner it runs
   as a restricted session (protocol 26; on Codex, protocol 29), on Claude Code or Codex: the runner itself gives it no skill, memory or consult, no MCP
   server but the Job's own, and no way to the shell, files or network, whatever the start holds. On Claude Code: no
   built-in tool (nor the CLI's server-side advisor, switched off in its environment) and none of the user's settings. On

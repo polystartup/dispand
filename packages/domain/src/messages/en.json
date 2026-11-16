@@ -129,7 +129,7 @@
       "changed": "{{plugin}} changed since you looked: look at what updating it changes again.",
       "notApplicable": "This is not a change of this table that can be applied.",
       "notConflict": "This is not a field in conflict.",
-      "stemScope": "Stem decides fields of agents, tools and triggers in conflict, that you didn't take.",
+      "stemScope": "Stem decides the fields of agents, tools and triggers in conflict that you didn't take, and the tables you ticked nothing of.",
       "assistantFirst": "Set the Assistant up first: Stem is the Assistant.",
       "notShown": "It wasn't on the update's screen.",
       "unreachable": "Its runner couldn't be asked, or the install changed since.",
@@ -148,7 +148,8 @@
       "unsupported": "It can't be applied here: change the field by hand.",
       "order": "You changed the order.",
       "changed": "You changed it.",
-      "changedSince": "{{plugin}} or its table changed since you looked: look at the change again."
+      "changedSince": "{{plugin}} or its table changed since you looked: look at the change again.",
+      "valuesChanged": "Values of this table changed since Stem decided: look at what its changes would remove again."
     },
     "override": {
       "forbidden": "It is {{plugin}}'s: uninstall the plugin to remove it.",

@@ -1199,7 +1199,7 @@ export const pluginConflicts = pgTable(
     pluginId: text("plugin_id")
       .notNull()
       .references(() => plugins.id, { onDelete: "cascade" }),
-    kind: text("kind").$type<"agent" | "tool" | "trigger">().notNull(),
+    kind: text("kind").$type<"agent" | "tool" | "trigger" | "table">().notNull(),
     elementId: text("element_id").notNull(),
     field: text("field").notNull(),
     old: jsonb("old"),

@@ -22,6 +22,7 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
   const plan = removalPlan(preview.removals, removing);
   // Each table's changes, ticked as they start.
   const [ticked, setTicked] = useState(() => startingTicks(preview.tables));
+  const fieldsToStem = stem.filter((k) => !k.startsWith("table:")).length;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,7 +30,9 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
     setBusy(true);
     setError(null);
     try {
-      onUpdated(await api.plugins.update({ id, reviewed: preview.reviewed, take, choices: plan.choices, tables: ticked, native: preview.native.harnesses.map((h) => h.id), stem }));
+      // A table handed to Stem sends no ticks: Stem picks its changes.
+      const tables = Object.fromEntries(Object.entries(ticked).filter(([tableId]) => !stem.includes(`table:${tableId}`)));
+      onUpdated(await api.plugins.update({ id, reviewed: preview.reviewed, take, choices: plan.choices, tables, native: preview.native.harnesses.map((h) => h.id), stem }));
       onClose();
     } catch (e) {
       setError(refusal(e, t("update.failed")));
@@ -58,7 +61,7 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
             stem={stem}
             onStem={(key, handed) => setStem((prev) => (handed ? [...prev.filter((k) => k !== key), key] : prev.filter((k) => k !== key)))}
           />
-          {stem.length > 0 && <p className="text-[13px] text-muted">{t("update.stem", { count: stem.length, assistant: t("messages:agent.assistant.name") })}</p>}
+          {fieldsToStem > 0 && <p className="text-[13px] text-muted">{t("update.stem", { count: fieldsToStem, assistant: t("messages:agent.assistant.name") })}</p>}
           {preview.tables.length > 0 && (
             <section aria-labelledby="update-tables" className="space-y-2">
               <h3 id="update-tables" className="text-[13px] font-medium text-muted">
@@ -69,6 +72,8 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
                 ticked={ticked}
                 busy={busy}
                 onTick={(tableId, key) => setTicked((prev) => ({ ...prev, [tableId]: (prev[tableId] ?? []).includes(key) ? prev[tableId]!.filter((k) => k !== key) : [...(prev[tableId] ?? []), key] }))}
+                stem={stem}
+                onStem={(tableId, handed) => setStem((prev) => (handed ? [...prev.filter((k) => k !== `table:${tableId}`), `table:${tableId}`] : prev.filter((k) => k !== `table:${tableId}`)))}
               />
             </section>
           )}

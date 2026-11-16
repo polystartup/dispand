@@ -432,6 +432,9 @@
     "askedUnnamed": "{{assistant}} a fusionné des valeurs pour la mise à jour d’un plugin.",
     "answered": "Vous avez répondu à chaque valeur.",
     "expired": "Plus rien n’attend : un changement ultérieur a renvoyé ces valeurs sur la page de l’élément.",
-    "failed": "Impossible d’enregistrer votre réponse."
+    "failed": "Impossible d’enregistrer votre réponse.",
+    "removes_one": "Il retire cette valeur, de {{count}} ligne :",
+    "removes_other": "Il retire ces valeurs, de {{count}} lignes :",
+    "removesNone": "Aucune ligne n’y a de valeur pour l’instant."
   }
 }

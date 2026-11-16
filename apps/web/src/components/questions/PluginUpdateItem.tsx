@@ -3,13 +3,39 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { orpc } from "../../lib/api.ts";
 import { refusal } from "../settings/PluginInstallSheet.tsx";
+import { says, type UpdateTableChange } from "../settings/PluginUpdate.tsx";
 import type { InboxEntry } from "./InboxItem.tsx";
 
 /** A value as plain text: a text as it is, anything else as JSON. */
 const shown = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value, null, 2));
 
+type Item = NonNullable<InboxEntry["update"]>["items"][number];
+
+/** A table's changes Stem picked that remove values, each with the values it would remove, as plain text. */
+function TableRemovals({ item }: { item: Item }) {
+  const { t } = useTranslation(["questions", "plugins"]);
+  const { t: tp } = useTranslation("plugins");
+  const held = item.merged as { keys: string[]; values: Record<string, [string, unknown][]> };
+  const changes = (item.next as { changes: UpdateTableChange[] }).changes.filter((c) => held.keys.includes(c.key));
+  return (
+    <ul className="space-y-2">
+      {changes.map((c) => {
+        const values = held.values[c.key] ?? [];
+        return (
+          <li key={c.key} className="space-y-1">
+            <p>{says(tp, c)}</p>
+            <p className="text-danger">{values.length ? t("update.removes", { count: values.length }) : t("update.removesNone")}</p>
+            {values.length > 0 && <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-2 text-[12px]">{values.map(([, v]) => shown(v)).join("\n")}</pre>}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 /**
- * A plugin update's Approval: each value Stem merged for it, answered on its own. A yes applies
+ * A plugin update's Approval: each value Stem merged for it, answered on its own; for a table,
+ * its changes that remove values, with those values. A yes applies
  * it while the field is still as the owner had it; a no keeps theirs. Until answered, theirs stays.
  */
 export function PluginUpdateItem({ update }: { update: NonNullable<InboxEntry["update"]> }) {
@@ -28,12 +54,18 @@ export function PluginUpdateItem({ update }: { update: NonNullable<InboxEntry["u
             <p>
               <span className="font-medium text-fg">{c.name ?? c.kind}</span> <span className="text-faint">{t("plugins:update.dotField", { field: field(c.field) })}</span>
             </p>
-            <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-2 text-[12px]">{shown(c.merged)}</pre>
-            <details>
-              <summary className="cursor-pointer text-muted">{t("agents:stem.compare")}</summary>
-              <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-2 text-[12px]">{shown(c.mine)}</pre>
-              <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-2 text-[12px]">{shown(c.next)}</pre>
-            </details>
+            {c.kind === "table" ? (
+              <TableRemovals item={c} />
+            ) : (
+              <>
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-2 text-[12px]">{shown(c.merged)}</pre>
+                <details>
+                  <summary className="cursor-pointer text-muted">{t("agents:stem.compare")}</summary>
+                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-2 text-[12px]">{shown(c.mine)}</pre>
+                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-2 text-[12px]">{shown(c.next)}</pre>
+                </details>
+              </>
+            )}
             <div className="flex gap-2">
               <Button type="button" size="sm" disabled={answer.isPending} onClick={() => answer.mutate({ id: c.id, choice: "accept", reviewed: c.reviewed })}>
                 {t("agents:stem.accept", { assistant })}

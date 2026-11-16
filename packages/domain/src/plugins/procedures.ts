@@ -51,7 +51,7 @@ import { canonical } from "../platform/approvals.ts";
 import { runItemsAsOwner, SetupPick, setupItems } from "./setup.ts";
 import { addServer } from "./servers.ts";
 import { writeFields } from "./write-field.ts";
-import { answerConflict, approvalOf, conflictView, fieldNow, forgetConflicts, ownerChoice, reopenChanged, settleApprovals } from "./resolve.ts";
+import { answerConflict, approvalOf, conflictView, fieldNow, forgetConflicts, type HandedTable, ownerChoice, reopenChanged, settleApprovals, TABLE_FIELD } from "./resolve.ts";
 import { findAssistant } from "../agents/builtin.ts";
 import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, PluginError, type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
@@ -1076,7 +1076,7 @@ async function namesIn(db: Db, ownerId: string, values: unknown): Promise<Record
  * only as `updatePreview` showed it (`reviewed`); one with none applies at once. Each element is
  * written through its own procedure, with its checks; one it refuses is reported, not applied.
  */
-const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(), take: z.array(z.string().max(700)).max(1000).default([]), /** What becomes of each element the new version drops that was asked about. */ choices: Choices.default({}), /** The changes ticked of each table, by their keys. */ tables: z.record(z.string().max(64), z.array(z.string().max(200)).max(200)).default({}), /** The harnesses whose native install the screen said would move. */ native: z.array(z.string().max(64)).max(50).default([]), /** The conflicts handed to Stem ("Let Stem deal with it"): they stay the owner's until it decides. */ stem: z.array(z.string().max(700)).max(1000).default([]) })).handler(({ input, context }) => acted("update", input.id, async () => {
+const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(), take: z.array(z.string().max(700)).max(1000).default([]), /** What becomes of each element the new version drops that was asked about. */ choices: Choices.default({}), /** The changes ticked of each table, by their keys. */ tables: z.record(z.string().max(64), z.array(z.string().max(200)).max(200)).default({}), /** The harnesses whose native install the screen said would move. */ native: z.array(z.string().max(64)).max(50).default([]), /** The conflicts handed to Stem ("Let Stem deal with it"), and its tables as `table:<id>`: they stay the owner's until it decides. */ stem: z.array(z.string().max(700)).max(1000).default([]) })).handler(({ input, context }) => acted("update", input.id, async () => {
   const row = await findPlugin(context.db, context.ownerId, input.id);
   const shown = await updatePlan(context, row);
   const { contents, files, url, sha, nativeRoot } = shown;
@@ -1090,9 +1090,12 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
   if (input.take.some((key) => !shown.conflicts.some((c) => c.key === key))) throw new ORPCError("BAD_REQUEST", message("plugins.update.notConflict"));
   // Handed to Stem: a field of an agent, tool or trigger in conflict, not also taken; the Assistant decides it.
   const handed = shown.conflicts.filter((c) => input.stem.includes(c.key));
-  if (handed.length !== input.stem.length || handed.some((c) => c.kind === "skill" || input.take.includes(c.key))) throw new ORPCError("BAD_REQUEST", message("plugins.update.stemScope"));
-  const assistant = handed.length ? await findAssistant(context.db, context.ownerId) : null;
-  if (handed.length && !assistant) throw new ORPCError("BAD_REQUEST", message("plugins.update.assistantFirst"));
+  // A table shown with changes, none of them ticked: Stem decides which apply.
+  const handedTables = shown.tables.filter((t) => t.changes.length && input.stem.includes(`table:${t.tableId}`));
+  if (handed.length + handedTables.length !== input.stem.length || handed.some((c) => c.kind === "skill" || input.take.includes(c.key)) || handedTables.some((t) => input.tables[t.tableId]?.length)) throw new ORPCError("BAD_REQUEST", message("plugins.update.stemScope"));
+  const toStem = handed.length + handedTables.length > 0;
+  const assistant = toStem ? await findAssistant(context.db, context.ownerId) : null;
+  if (toStem && !assistant) throw new ORPCError("BAD_REQUEST", message("plugins.update.assistantFirst"));
   const elements = (await elementPlans(context.db, context.ownerId, row, contents, input.take)).filter((e) => !shown.leaving.has(`${e.kind}:${e.id}`));
   const out = await context.db.transaction(async (tx) => {
     await findPlugin(tx, context.ownerId, row.id, true);
@@ -1112,7 +1115,8 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
       await store(tx, skill.packageId, skill.files, skills);
       await storeUpstream(tx, skill.packageId, skill.next);
     }
-    // A field whose plugin value changes: a decision Stem was asked for on it no longer stands.
+    // A field whose plugin value changes, or a table merged again: a decision Stem was asked for on it no longer stands.
+    await forgetConflicts(tx, shown.tables.map((t) => t.tableId));
     for (const e of elements) await reopenChanged(tx, e.kind, e.id, Object.keys(e.plan.upstream).filter((f) => !sameValue(e.kind, f, e.previous?.[f], e.plan.upstream[f])));
     // An element with nothing to write (its owner's values stay) only gets the plugin's new values underneath.
     for (const e of elements.filter((e) => Object.keys(e.plan.set).length === 0)) await tx.update(tableOf(e.kind)).set({ upstream: e.plan.upstream }).where(eq(tableOf(e.kind).id, e.id));
@@ -1147,7 +1151,8 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
       }
     }
   }
-  for (const plan of shown.tables) {
+  // A table handed to Stem keeps the definition it was merged with until Stem decides: what it doesn't decide is offered again.
+  for (const plan of shown.tables.filter((t) => !handedTables.includes(t))) {
     const definition = await applyTable(context, row, plan, input.tables[plan.tableId] ?? [], failed);
     await context.db.update(tablesTable).set({ definition }).where(eq(tablesTable.id, plan.tableId));
   }
@@ -1156,25 +1161,38 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
   context.engine.questionChanges.publish("changed", true);
   // The native installs shown follow, at the commit the screen's token covers: what can't (or a Job, which may not touch them) is left behind, the update stays.
   const leftBehind = await moveNative(context, row.id, input.native);
-  const stemJob = assistant ? await handToStem(context, row.id, assistant.agentId, handed) : undefined;
+  const stemJob = assistant ? await handToStem(context, row.id, assistant.agentId, handed, handedTables) : undefined;
   return { sha, ...(failed.length ? { failed } : {}), ...(leftBehind.length ? { leftBehind } : {}), ...(stemJob ? { stemJob } : {}) };
 }));
 
 /**
- * Hands conflicts to Stem: each kept as a conflict with the two values it is handed off against,
- * and one Job of the Assistant, limited to `plugin_decide`, given them as data. A later hand-off
- * of the same field replaces the earlier one.
+ * Hands conflicts to Stem: each kept as a conflict with the two values it is handed off against
+ * (a table: the definition it was merged with, its structure then, and the plugin's definition
+ * with the changes shown), and one Job of the Assistant, limited to `plugin_decide`, given them
+ * as data. A later hand-off of the same field replaces the earlier one.
  */
-async function handToStem(context: InitialContext & { ownerId: string }, pluginId: string, agentId: string, handed: ShownConflict[]): Promise<string> {
+async function handToStem(context: InitialContext & { ownerId: string }, pluginId: string, agentId: string, handed: ShownConflict[], tables: TablePlan[] = []): Promise<string> {
   const runId = await context.db.transaction(async (tx) => {
-    const rows = handed.map((c) => ({ id: newId("conflict"), ownerId: context.ownerId, pluginId, kind: c.kind as "agent" | "tool" | "trigger", elementId: c.id, field: c.field, old: c.old, mine: c.mine, next: c.next, status: "stem" as const }));
+    const rows = [
+      ...handed.map((c) => ({ id: newId("conflict"), ownerId: context.ownerId, pluginId, kind: c.kind as "agent" | "tool" | "trigger" | "table", elementId: c.id, field: c.field, old: c.old, mine: c.mine, next: c.next, status: "stem" as const })),
+      ...tables.map((t) => ({ id: newId("conflict"), ownerId: context.ownerId, pluginId, kind: "table" as const, elementId: t.tableId, field: TABLE_FIELD, old: t.kept, mine: t.fields, next: { definition: t.next, changes: t.changes } satisfies HandedTable, status: "stem" as const })),
+    ];
     // A field waiting in an earlier update's Approval leaves it.
     const replaced = [];
     for (const r of rows) replaced.push(...(await tx.delete(pluginConflicts).where(and(eq(pluginConflicts.kind, r.kind), eq(pluginConflicts.elementId, r.elementId), eq(pluginConflicts.field, r.field))).returning({ runId: pluginConflicts.runId })));
     await settleApprovals(tx, replaced.map((r) => r.runId));
     await tx.insert(pluginConflicts).values(rows);
     // The values as data, each with the id plugin_decide takes.
-    const data = rows.map((r, i) => ({ id: r.id, element: `${handed[i]!.name} (${r.kind})`, field: r.field, plugin_before: r.old, owner_now: r.mine, plugin_new: r.next }));
+    const data = [
+      ...handed.map((c, i) => ({ id: rows[i]!.id, element: `${c.name} (${c.kind})`, field: c.field, plugin_before: c.old, owner_now: c.mine, plugin_new: c.next })),
+      // A table's changes by key, with how many rows each would take values from: never a row's value.
+      ...tables.map((t, i) => ({
+        id: rows[handed.length + i]!.id,
+        element: `${t.name} (table)`,
+        field: TABLE_FIELD,
+        changes: t.changes.map((c) => ({ key: c.key, kind: c.kind, ...(c.field ? { field: c.field } : {}), applicable: !c.stale && !c.waiting, ...(c.loses ? { rows_losing_values: c.loses } : {}) })),
+      })),
+    ];
     const id = await context.engine.createJob(tx, { ownerId: context.ownerId, agentId, cause: { kind: "stem", pluginId, depth: 0 }, firing: { type: "stem", pluginId, outputs: { conflicts: JSON.stringify(data, null, 2) } } });
     await tx.update(pluginConflicts).set({ runId: id }).where(inArray(pluginConflicts.id, rows.map((r) => r.id)));
     return id;
@@ -1275,7 +1293,7 @@ const resolveConflict = owner.input(z.object({ id: z.string().max(64), choice: z
     const table = c.kind === "agent" ? agentsTable : c.kind === "tool" ? toolsTable : triggersTable;
     const [element] = await context.db.select({ name: table.name }).from(table).where(eq(table.id, c.elementId));
     // Handed off again against the values as they are now.
-    await handToStem(context, c.pluginId, assistant.agentId, [{ key: `${c.kind}:${c.elementId}:${c.field}`, kind: c.kind, id: c.elementId, name: element?.name ?? c.kind, field: c.field, old: c.old, mine: now.value, next: now.plugin }]);
+    await handToStem(context, c.pluginId, assistant.agentId, [{ key: `${c.kind}:${c.elementId}:${c.field}`, kind: c.kind as UpdatableKind, id: c.elementId, name: element?.name ?? c.kind, field: c.field, old: c.old, mine: now.value, next: now.plugin }]);
   }
   await context.engine.narrowOwnerSessions(context.ownerId, context.db);
   return { ok: true };

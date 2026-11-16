@@ -231,10 +231,12 @@ export const startingTicks = (tables: UpdateTable[]) => Object.fromEntries(table
 /**
  * The changes of each of the plugin's tables, as boxes: what adds starts ticked, what takes values
  * away doesn't and says how many rows, and one that can't apply (the owner changed it, or it waits
- * for a table not made yet) says why and can't be ticked.
+ * for a table not made yet) says why and can't be ticked. With `onStem`, a table can be handed to
+ * Stem instead: its boxes are then left to it.
  */
-export function TableChanges({ tables, ticked, busy, onTick }: { tables: UpdateTable[]; ticked: Record<string, string[]>; busy: boolean; onTick: (tableId: string, key: string) => void }) {
-  const { t } = useTranslation("plugins");
+export function TableChanges({ tables, ticked, busy, onTick, stem = [], onStem }: { tables: UpdateTable[]; ticked: Record<string, string[]>; busy: boolean; onTick: (tableId: string, key: string) => void; /** The tables handed to Stem, as `table:<id>`. */ stem?: string[]; onStem?: (tableId: string, handed: boolean) => void }) {
+  const { t } = useTranslation(["plugins", "messages"]);
+  const assistant = t("messages:agent.assistant.name");
   const { list } = useFormat();
   const text = useText();
   return (
@@ -242,11 +244,21 @@ export function TableChanges({ tables, ticked, busy, onTick }: { tables: UpdateT
       {tables.map((table) => (
         <fieldset key={table.tableId} aria-label={table.name} className="space-y-1.5 rounded-xl border border-border p-3">
           <p className="font-medium text-fg">{table.name}</p>
+          {onStem && (
+            <label className="flex items-start gap-2">
+              <input type="checkbox" className="mt-0.5 size-4 accent-[var(--color-accent)]" checked={stem.includes(`table:${table.tableId}`)} disabled={busy} onChange={(e) => onStem(table.tableId, e.target.checked)} />
+              <span>
+                {t("update.delegate", { assistant })}
+                {stem.includes(`table:${table.tableId}`) && <span className="block text-muted">{t("update.stemTable", { assistant })}</span>}
+              </span>
+            </label>
+          )}
           {table.changes.map((c) => {
             const blocked = c.stale ? text(c.stale) : (c.waiting ? t("update.waits", { table: c.waiting }) : undefined);
+            const handed = stem.includes(`table:${table.tableId}`);
             return (
               <label key={c.key} className="flex items-start gap-2">
-                <input type="checkbox" className="mt-0.5 size-4 accent-[var(--color-accent)]" checked={(ticked[table.tableId] ?? []).includes(c.key)} disabled={busy || blocked !== undefined} onChange={() => onTick(table.tableId, c.key)} />
+                <input type="checkbox" className="mt-0.5 size-4 accent-[var(--color-accent)]" checked={!handed && (ticked[table.tableId] ?? []).includes(c.key)} disabled={busy || handed || blocked !== undefined} onChange={() => onTick(table.tableId, c.key)} />
                 <span>
                   {says(t, c)}
                   {c.loses ? <span className="block text-danger">{t("update.loses", { count: c.loses })}</span> : null}

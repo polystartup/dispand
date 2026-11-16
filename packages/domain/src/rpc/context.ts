@@ -52,6 +52,12 @@ export type InitialContext = {
    * CONFLICT otherwise. Server-owned; never built from request input.
    */
   expectField?: { field: string; value: unknown };
+  /**
+   * A field change that removes values holds only while the field still has these values (each
+   * row's id with its value, empty cells left out), as the owner approved them
+   * (`plugins/resolve.ts`): checked under the table's lock, CONFLICT otherwise. Server-owned.
+   */
+  expectValues?: [string, unknown][];
   headers: Headers;
   /** Headers the web server adds to the response (refreshed session cookies). */
   resHeaders: Headers;

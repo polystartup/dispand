@@ -1711,7 +1711,37 @@ for the owner in the update's Approval, in the Inbox, which the page links to (`
 the Job ended) and where each value is accepted or declined (`plugins.resolveConflict`,
 `answerConflict`, with the same check); or it is theirs again, with the three choices of the update's screen (keep
 theirs, take the plugin's, or hand it to Stem once more against the values as they are now). Not
-yet built: tables' and skill files' conflicts.
+yet built: skill files' conflicts.
+
+A plugin's table can be handed to Stem too, whole: on the update's screen its "Let Stem deal with
+it" box leaves its change boxes to Stem (`stem` takes `table:<id>`, refused with ticks for that
+table). The update applies nothing of it and leaves its `definition` as it was merged, and
+`handToStem` keeps one conflict for it (`kind: "table"`, field `changes`, no migration: `kind` is
+plain text): `old` the definition it was merged with, `mine` its fields then, `next` the plugin's
+definition with the changes shown. The Job is given each change by key with its kind, field,
+whether it applies and how many rows would lose values, never a row's value. `plugin_decide`
+takes a list of keys (a reset: every applicable one); any key the screen didn't show as
+applicable refuses the whole decision, which applies nothing. `decideTable` plans the table again
+(`plugins/table-apply.ts`, shared with the update and the plugin row's Apply) from the
+definition it keeps to the plugin's current one, which must still be the two the conflict holds
+(else an update merged it again and the conflict is gone); a key whose change is stale by now is
+skipped. A change that removes values (a field removed or retyped, choices dropped), whatever the
+row count, waits in the update's Approval with the values it would remove (`merged`: each row's
+id and value of that field); the rest apply now through the field operations, and the definition
+the table keeps takes what Stem decided and declined, but keeps what waits as it was. What Stem
+leaves out counts as declined, as an unticked box. On the Approval's yes, `answerTable` reads the
+values again: any difference stores the values now and asks again (CONFLICT, the item shown
+anew); else each change runs through its field operation with `context.expectValues`
+(server-owned), which `fields.delete`, `fields.retype` and `fields.update` check after locking
+the table `for update`, the lock a row's write takes `for share`, so a write racing the apply
+waits for it, and one that landed first refuses that change, which then stays out of the
+definition and is offered again. A no declines them as an unticked box; the plugin's row still
+offers each with Apply. A table conflict is never `open`: when the Job ends without deciding it
+(`closeStemJob`), it is dropped, and since the definition still lacks its changes, the next update
+offers them again as the checklist, with their loss as it is then. Every update that plans a
+table drops its pending conflict (`forgetConflicts`), so an old decision never applies onto a
+table merged since. The element pages have no Stem mark for tables: the update's Approval is
+where a table's decision waits.
 
 Native support currently requires `plugins.native_root = '.'`, recorded from the resolved Git
 checkout when importing or updating. Legacy rows have null until updated. Nested imports are

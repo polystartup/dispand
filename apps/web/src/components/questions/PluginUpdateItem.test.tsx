@@ -73,3 +73,16 @@ test("a refused answer says why; once done, the item says which update it was fo
   expect(screen.getByText("Stem merged values for the update of law-firm.")).toBeTruthy();
   expect(screen.getByText("You answered each value.")).toBeTruthy();
 });
+
+test("a table's item shows each change Stem picked that removes values, with the values it removes, as plain text", async () => {
+  fake.plugins.resolveConflict.mockResolvedValue({ ok: true });
+  const table = { id: "c3", kind: "table", elementId: "tbl_1", name: "Matters", field: "changes", status: "approval", mine: [], next: { definition: {}, changes: [{ key: "add:Fee", kind: "add", field: "Fee", ticked: true }, { key: "remove:Conclusions", kind: "remove", field: "Conclusions", ticked: false, loses: 1 }] }, merged: { keys: ["remove:Conclusions"], values: { "remove:Conclusions": [["row_1", "<b>Settled.</b>"]] } }, reviewed: "r_c3" };
+  mount(item("pending", [table]));
+  const li = screen.getByRole("listitem", { name: "Matters: Changes" });
+  expect(within(li).getByText("Remove the field Conclusions")).toBeTruthy();
+  expect(within(li).queryByText(/Add the field Fee/)).toBeNull();
+  expect(within(li).getByText(/It removes this value, of 1 row/)).toBeTruthy();
+  expect(within(li).getByText("<b>Settled.</b>")).toBeTruthy();
+  await userEvent.click(within(li).getByRole("button", { name: "Accept Stem's" }));
+  expect(fake.plugins.resolveConflict).toHaveBeenCalledWith(expect.objectContaining({ id: "c3", choice: "accept", reviewed: "r_c3" }), expect.anything());
+});

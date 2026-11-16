@@ -289,7 +289,8 @@
       "instructions": "Ce qu’on dit à l’agent",
       "config": "Quand il se déclenche",
       "concurrency": "Jobs simultanés",
-      "rateCap": "Jobs par heure"
+      "rateCap": "Jobs par heure",
+      "changes": "Changements"
     },
     "none": "aucun",
     "asksFirst": "{{agent}} (demande d’abord)",
@@ -346,7 +347,8 @@
     "removals": "Plus dans cette version",
     "updating": "Mise à jour…",
     "submit": "Mettre à jour",
-    "cancel": "Annuler"
+    "cancel": "Annuler",
+    "stemTable": "{{assistant}} choisit lesquels de ces changements s’appliquent après la mise à jour. Celui qui retire des valeurs attend votre approbation ; ce qu’il écarte est refusé, comme une case non cochée."
   },
   "skillSheet": {
     "notText": "{{path}} n’est pas du texte : il peut être retiré, pas modifié ici",

@@ -409,13 +409,15 @@ export const PLUGIN_DECIDE: PlatformTool = {
   name: "plugin_decide",
   bundle: null,
   available: () => false,
-  description: "Decides one field the owner handed you, by its conflict id: reset to take the plugin's new value, or merge with the value to keep. A value that is neither the owner's nor the plugin's, or that changes an agent's rights (its bundles, tables, tools, skills, self-learning or consults), waits for the owner's approval.",
+  description:
+    "Decides one field the owner handed you, by its conflict id: reset to take the plugin's new value, or merge with the value to keep. A value that is neither the owner's nor the plugin's, or that changes an agent's rights (its bundles, tables, tools, skills, self-learning or consults), waits for the owner's approval. For a table (field `changes`), merge with the list of change keys to apply, among those listed as applicable (reset applies them all); a change that removes values waits for the owner's approval, and the others are declined.",
   input: DecideInput,
   tables: none,
   run: async (app, job, input) => {
     const { conflictId, decision } = DecideInput.parse(input);
     const context = { ...app, job, ownerId: job.ownerId, headers: new Headers(), resHeaders: new Headers() };
     const outcome = await decide(context, { type: "job", runId: job.runId }, conflictId, decision as Decision, job.runId);
+    if (outcome === "refused") return { ok: false, error: "Not a list of change keys shown as applicable for this table: nothing was applied" };
     return outcome === "gone" ? { ok: false, error: "Not a field handed to this Job" } : { ok: true, output: { outcome } };
   },
 };
