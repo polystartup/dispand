@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormField } from "./parts.tsx";
@@ -16,11 +17,8 @@ type Props = {
   onConnect: (client?: { clientId: string; clientSecret?: string } | null) => void;
 };
 
-const said: Record<OAuthStatus, { text: string; tone: string; action: string }> = {
-  authorize: { text: "Not connected yet: sign in to the server to list its actions.", tone: "text-muted", action: "Connect" },
-  connected: { text: "Connected.", tone: "text-muted", action: "Re-authorize" },
-  reauthorize: { text: "The sign-in stopped working: its calls fail until you sign in again.", tone: "text-danger", action: "Re-authorize" },
-};
+// Each status's text and action: `tools:signIn.<status>.text` and `.action`.
+const tones: Record<OAuthStatus, string> = { authorize: "text-muted", connected: "text-muted", reauthorize: "text-danger" };
 
 /**
  * An OAuth tool's sign-in: where it stands, Connect or Re-authorize, and the client id and secret
@@ -28,11 +26,12 @@ const said: Record<OAuthStatus, { text: string; tone: string; action: string }> 
  * registration.
  */
 export function ToolSignIn({ status, clientId, busy, askClient, onConnect }: Props) {
+  const { t } = useTranslation("tools");
   const [unfolded, setOpen] = useState(clientId !== null);
   const open = unfolded || askClient === true;
   const [id, setId] = useState(clientId ?? "");
   const [secret, setSecret] = useState("");
-  const { text, tone, action } = said[status];
+  const tone = tones[status];
 
   function connect() {
     const entered = id.trim();
@@ -46,27 +45,27 @@ export function ToolSignIn({ status, clientId, busy, askClient, onConnect }: Pro
   return (
     <section aria-labelledby="tool-sign-in" className="space-y-3">
       <h2 id="tool-sign-in" className="text-[15px] font-medium">
-        Sign-in
+        {t("signIn.title")}
       </h2>
       <p role="status" className={`text-[13px] ${tone}`}>
-        {text}
+        {t(`signIn.${status}.text`)}
       </p>
       {open ? (
         <div className="space-y-3">
-          <FormField label="Client id" htmlFor="tool-client-id" hint="Only for a server that gave you one: most need none.">
+          <FormField label={t("signIn.clientId")} htmlFor="tool-client-id" hint={t("signIn.clientIdHint")}>
             <Input id="tool-client-id" value={id} onChange={(e) => setId(e.target.value)} maxLength={500} autoComplete="off" />
           </FormField>
-          <FormField label="Client secret" htmlFor="tool-client-secret" hint={clientId ? "Set: leave empty to keep." : "If the server gave one."}>
+          <FormField label={t("signIn.clientSecret")} htmlFor="tool-client-secret" hint={clientId ? t("signIn.secretSet") : t("signIn.secretHint")}>
             <Input id="tool-client-secret" type="password" value={secret} onChange={(e) => setSecret(e.target.value)} maxLength={2000} autoComplete="off" />
           </FormField>
         </div>
       ) : (
         <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(true)}>
-          Enter a client id
+          {t("signIn.enterClient")}
         </Button>
       )}
       <Button type="button" disabled={busy} onClick={connect}>
-        {action}
+        {t(`signIn.${status}.action`)}
       </Button>
     </section>
   );

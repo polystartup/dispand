@@ -9,3 +9,6 @@ export type Bundle = (typeof BUNDLES)[number];
 
 /** The tables a Job may work on: all of the owner's, or these. */
 export type TableScope = "all" | string[];
+
+/** The most tables an agent's list may name. */
+export const MAX_AGENT_TABLES = 100;

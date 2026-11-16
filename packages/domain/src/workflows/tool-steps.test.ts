@@ -3,6 +3,11 @@ import type { ToolAction } from "../tools/mcp.ts";
 import { deriveExpectedOutputs, validateWorkflow } from "./derive.ts";
 import { addStep, ToolStep, type WorkflowDef } from "./model.ts";
 import { pickAction, pickTool, setToolSource, toolIdsOf, validateToolSteps, type ToolSchema } from "./tool-steps.ts";
+import { sentence } from "../messages/index.ts";
+import type { WorkflowIssue } from "./derive.ts";
+
+/** Issues with their messages as English sentences. */
+const said = (issues: WorkflowIssue[]) => issues.map((i) => ({ ...i, message: sentence(i.message) }));
 
 const createRepository: ToolAction = {
   name: "create_repository",
@@ -44,8 +49,8 @@ test("picking an action wires its required parameter to the chat", () => {
   expect(toolStep(def)).toMatchObject({ toolId: "tool_gh", action: "create_repository", inputs: [{ param: "name", source: { type: "output", nodeId: "n_chat", name: "name" } }] });
   // The chat's expected outputs gain `name`, with the parameter's description (tour step 18).
   expect(deriveExpectedOutputs(def, [], [github]).n_chat).toEqual([{ name: "name", type: "string", description: "Repository name" }]);
-  expect(validateToolSteps(def, [github])).toEqual([]);
-  expect(validateWorkflow(def)).toEqual([]);
+  expect(said(validateToolSteps(def, [github]))).toEqual([]);
+  expect(said(validateWorkflow(def))).toEqual([]);
 });
 
 test("rewiring the parameter to an agent step moves the field", () => {
@@ -77,7 +82,7 @@ test("picking another action drops the inputs it doesn't have; another tool star
 });
 
 test("validateToolSteps reports what keeps a Tool step from running", () => {
-  const issues = (def: WorkflowDef, tools: ToolSchema[] = [github]) => validateToolSteps(def, tools).map((i) => i.message);
+  const issues = (def: WorkflowDef, tools: ToolSchema[] = [github]) => validateToolSteps(def, tools).map((i) => sentence(i.message));
   expect(issues(chatThenTool())).toEqual(["Choose a tool"]);
   expect(issues(pickTool(chatThenTool(), "n_tool", "tool_gh"))).toEqual(["Choose an action"]);
   expect(issues(picked(), [])).toEqual(["This step's tool no longer exists"]);
@@ -98,15 +103,15 @@ test("a reference to a tool's result is allowed, to a field its output schema do
     steps: [...base.steps, { id: "n_note", key: "note", type: "agent", name: "Note", agentId: "agent_1", prompt: "{{github.result}} {{github.html_url}} {{github.ssh_url}}" }],
     edges: [...base.edges, { from: "n_tool", to: "n_note" }],
   };
-  expect(validateToolSteps(def, [withSchema])).toEqual([{ nodeId: "n_note", message: "{{github.ssh_url}}: “github” doesn't give “ssh_url”" }]);
+  expect(said(validateToolSteps(def, [withSchema]))).toEqual([{ nodeId: "n_note", message: "{{github.ssh_url}}: “github” doesn't give “ssh_url”" }]);
   // Without an output schema, the fields are only known once the tool answers.
-  expect(validateToolSteps(def, [github])).toEqual([]);
-  expect(validateWorkflow(def)).toEqual([]);
+  expect(said(validateToolSteps(def, [github]))).toEqual([]);
+  expect(said(validateWorkflow(def))).toEqual([]);
 });
 
 test("a tool parameter wired to a step that doesn't run before it is an issue", () => {
   const def = setToolSource(picked(), "n_tool", "name", { type: "output", nodeId: "n_tool", name: "x" });
-  expect(validateWorkflow(def).map((i) => i.message)).toEqual(["{{github.x}}: “github” doesn't run before this step"]);
+  expect(validateWorkflow(def).map((i) => sentence(i.message))).toEqual(["{{github.x}}: “github” doesn't run before this step"]);
 });
 
 test("toolIdsOf lists each picked tool once", () => {
@@ -121,4 +126,8 @@ test("a Tool step's strings must be storable", () => {
   expect(ToolStep.safeParse({ ...step, inputs: [{ param: "p\u0000", source: { type: "value", value: "" } }] }).success).toBe(false);
   expect(ToolStep.safeParse({ ...step, inputs: [{ param: "", source: { type: "value", value: "" } }] }).success).toBe(false);
   expect(ToolStep.safeParse(step).success).toBe(true);
+});
+
+test("an action the owner disabled workspace-wide is an issue", () => {
+  expect(validateToolSteps(picked(), [{ ...github, disabled: ["create_repository"] }]).map((i) => sentence(i.message))).toEqual(["GitHub's action “create_repository” is disabled workspace-wide"]);
 });

@@ -1,0 +1,42 @@
+{
+  "actions": {
+    "cancel": "Annuler",
+    "save": "Enregistrer",
+    "close": "Fermer"
+  },
+  "errors": {
+    "generic": "Une erreur s’est produite. Réessayez."
+  },
+  "agent": {
+    "leftOut": {
+      "skills_one": "Une session CLI reçoit au plus {{max}} compétences, la compétence {{names}} sera donc laissée de côté.",
+      "skills_other": "Une session CLI reçoit au plus {{max}} compétences, ces {{count}} compétences seront donc laissées de côté : {{names}}.",
+      "runnerTools_one": "Une session CLI reçoit au plus {{max}} outils de runner, l’outil {{names}} sera donc laissé de côté.",
+      "runnerTools_other": "Une session CLI reçoit au plus {{max}} outils de runner, ces {{count}} outils seront donc laissés de côté : {{names}}."
+    }
+  },
+  "size": {
+    "bytes": "{{size}} o",
+    "kb": "{{size}} Ko",
+    "mb": "{{size}} Mo"
+  },
+  "loading": "Chargement…",
+  "status": {
+    "pending": "en attente",
+    "running": "en cours",
+    "waiting": "en attente d’une réponse",
+    "queued": "en file",
+    "succeeded": "réussi",
+    "failed": "échoué",
+    "skipped": "ignoré",
+    "answered": "répondu",
+    "expired": "expiré",
+    "noAnswer": "sans réponse",
+    "ended": "terminé"
+  },
+  "duration": {
+    "hours": "{{hours}} h {{minutes}} min",
+    "minutes": "{{minutes}} min {{seconds}} s",
+    "seconds": "{{seconds}} s"
+  }
+}

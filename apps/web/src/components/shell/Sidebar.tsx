@@ -16,21 +16,23 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { orpc } from "../../lib/api.ts";
+import type { Language } from "../../lib/i18n.ts";
 import { NewPageRow } from "./NewPageRow.tsx";
 import { NotificationsBell } from "./NotificationsBell.tsx";
 import { UserMenu } from "./UserMenu.tsx";
 
-const settings: { to: string; label: string; Icon: LucideIcon }[] = [
-  { to: "/settings/harnesses", label: "Harnesses", Icon: Cpu },
-  { to: "/settings/agents", label: "Agents", Icon: Bot },
-  { to: "/settings/skills", label: "Skills", Icon: Sparkles },
-  { to: "/settings/tools", label: "Tools", Icon: Wrench },
-  { to: "/settings/plugins", label: "Plugins", Icon: Puzzle },
-  { to: "/settings/data", label: "Data", Icon: Database },
-  { to: "/settings/memory", label: "Memory", Icon: Brain },
-  { to: "/settings/workflows", label: "Workflows", Icon: Workflow },
-];
+const settings = [
+  { to: "/settings/harnesses", label: "nav.harnesses", Icon: Cpu },
+  { to: "/settings/agents", label: "nav.agents", Icon: Bot },
+  { to: "/settings/skills", label: "nav.skills", Icon: Sparkles },
+  { to: "/settings/tools", label: "nav.tools", Icon: Wrench },
+  { to: "/settings/plugins", label: "nav.plugins", Icon: Puzzle },
+  { to: "/settings/data", label: "nav.data", Icon: Database },
+  { to: "/settings/memory", label: "nav.memory", Icon: Brain },
+  { to: "/settings/workflows", label: "nav.workflows", Icon: Workflow },
+] as const;
 
 const row =
   "flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-[14px] text-fg transition hover:bg-hover";
@@ -58,7 +60,8 @@ function Group({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function Sidebar({ user, onNavigate }: { user: { name: string; email: string }; onNavigate: () => void }) {
+export function Sidebar({ user, onNavigate }: { user: { name: string; email: string; language: Language | null }; onNavigate: () => void }) {
+  const { t } = useTranslation(["shell", "messages"]);
   const pages = useQuery(orpc.pages.list.queryOptions());
   return (
     <div className="flex h-full flex-col px-3 pb-3 pt-4">
@@ -72,11 +75,11 @@ export function Sidebar({ user, onNavigate }: { user: { name: string; email: str
         <NotificationsBell onNavigate={onNavigate} />
       </div>
 
-      <nav aria-label="Main" className="min-h-0 flex-1 overflow-y-auto">
+      <nav aria-label={t("main")} className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex flex-col gap-px">
-          <NavLink to="/assistant" label="Assistant" Icon={MessageCircle} onNavigate={onNavigate} />
-          <NavLink to="/" label="Home" Icon={House} onNavigate={onNavigate} />
-          <NavLink to="/audit" label="Audit" Icon={ScrollText} onNavigate={onNavigate} />
+          <NavLink to="/assistant" label={t("messages:agent.assistant.name")} Icon={MessageCircle} onNavigate={onNavigate} />
+          <NavLink to="/" label={t("nav.home")} Icon={House} onNavigate={onNavigate} />
+          <NavLink to="/audit" label={t("nav.audit")} Icon={ScrollText} onNavigate={onNavigate} />
           <NewPageRow className={`${row} !text-muted`} onNavigate={onNavigate} />
           {pages.data
             ?.filter((p) => p.kind === "page")
@@ -84,13 +87,13 @@ export function Sidebar({ user, onNavigate }: { user: { name: string; email: str
               <NavLink key={p.id} to={`/p/${p.id}`} label={p.title} Icon={FileText} onNavigate={onNavigate} />
             ))}
         </div>
-        <Group label="Settings">
+        <Group label={t("nav.settings")}>
           {settings.map((s) => (
-            <NavLink key={s.to} {...s} onNavigate={onNavigate} />
+            <NavLink key={s.to} to={s.to} label={t(s.label)} Icon={s.Icon} onNavigate={onNavigate} />
           ))}
         </Group>
         <div className="mt-6">
-          <NavLink to="/help" label="Help" Icon={CircleHelp} onNavigate={onNavigate} />
+          <NavLink to="/help" label={t("nav.help")} Icon={CircleHelp} onNavigate={onNavigate} />
         </div>
       </nav>
 

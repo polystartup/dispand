@@ -1,12 +1,15 @@
 import { call } from "@orpc/server";
+import { say } from "../messages/index.ts";
 import { eq } from "drizzle-orm";
-import { expect, test, vi } from "vitest";
+import { expect, onTestFinished, test, vi } from "vitest";
+import { stopTelemetry } from "../telemetry/index.ts";
+import { captureTelemetry } from "../telemetry/testing.ts";
 import * as schema from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp } from "../tools/test-server.ts";
 import { moveNative } from "./native.ts";
-import { installReviewed, lawFirm, lawFirmMarket } from "./test-support.ts";
+import { installReviewed, lawFirm, lawFirmMarket, removePlugin } from "./test-support.ts";
 
 const AGENTS = ["Intake and research", "Drafting", "Matter upkeep"];
 const DRAFTING = "com.dispand/agents/drafting.md";
@@ -182,7 +185,7 @@ test("what a new version adds is named on the update's screen, made by none of i
     publish({ "com.dispand/agents/billing.md": NEW_AGENT, "com.dispand/primitives/invoices.json": NEW_TABLE, "com.dispand/triggers/invoice-due.json": NEW_TRIGGER });
     const shown = await preview();
     expect(shown.additions.map((a) => a.key).sort()).toEqual(["agent:Billing", "primitive:Invoices", "trigger:Invoice due"]);
-    expect(shown.additions.find((a) => a.kind === "agent")).toMatchObject({ name: "Billing", detail: "Prepares each matter's invoice." });
+    expect(shown.additions.find((a) => a.kind === "agent")).toMatchObject({ name: "Billing", detail: { text: "Prepares each matter's invoice." } });
     // What it names is what the owner saw: without the screen's token, nothing is applied.
     await expect(call(router.plugins.update, { id: pluginId }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
     // The update makes nothing new: it has no way to be told to.
@@ -222,7 +225,7 @@ test("what a new version drops goes with the update when nothing uses it, and is
     const shown = await preview();
     expect(shown.removals.map((r) => [r.kind, r.name, r.reasons]).sort()).toEqual([
       ["agent", "Matter upkeep", []],
-      ["table", "Research", ["It has 1 row"]],
+      ["table", "Research", [say("plugins.reason.rows", { count: 1 })]],
       ["trigger", "Research recorded", []],
     ]);
     // The table has a row: without a choice for it, nothing is applied.
@@ -248,7 +251,7 @@ test("a trigger a new version drops while its agent stays is asked about when th
     await call(router.triggers.update, { id: trigger!.id, instructions: "Mine." }, { context: ctx });
     publish({}, [CHANGED]);
     const shown = await preview();
-    expect(shown.removals).toMatchObject([{ kind: "trigger", name: "Matter changed", reasons: ["You changed it"] }]);
+    expect(shown.removals).toMatchObject([{ kind: "trigger", name: "Matter changed", reasons: [say("plugins.reason.changed")] }]);
     await expect(call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, choices: { [shown.removals[0]!.key]: "keep" } }, { context: ctx });
     expect((await ctx.db.select().from(schema.triggers).where(eq(schema.triggers.id, trigger!.id)))[0]).toMatchObject({ pluginId: null, instructions: "Mine.", overridden: [] });
@@ -387,7 +390,7 @@ test("an update names the harnesses holding the plugin natively and moves each i
     // Native installs need an https source: this one, as the update writes it, gets one.
     await ctx.db.update(schema.plugins).set({ url: "https://example.com/law-firm.git", sha: "a".repeat(40), entryName: "law-firm", nativeRoot: "." }).where(eq(schema.plugins.id, pluginId));
     // Only what the screen showed moves.
-    expect(await moveNative(ctx, pluginId, [])).toMatchObject([{ name: "Claude Code", reason: "it wasn't on the update's screen" }]);
+    expect(await moveNative(ctx, pluginId, [])).toMatchObject([{ name: "Claude Code", reason: say("plugins.update.notShown") }]);
     expect(operations).toEqual([]);
     expect(await moveNative(ctx, pluginId, ["h_native"])).toEqual([]);
     expect(operations).toEqual(["remove preview", "remove", "add preview", "add"]);
@@ -404,7 +407,7 @@ test("an offline runner is named as unchecked; a native step that fails leaves t
     await ctx.db.insert(schema.harnesses).values({ id: "h_offline", ownerId: ctx.ownerId, name: "Codex", runnerId: offline, kind: "codex", permissionMode: "default" });
     publish({ [DRAFTING]: edited(files[DRAFTING]!, "Draft", "Write") });
     const shown = await preview();
-    expect(shown.native.unchecked).toEqual(["Laptop"]);
+    expect(shown.native.unchecked).toEqual([{ name: "Laptop" }]);
     // Moving a native install needs the screen's token, whatever else the update holds.
     await expect(call(router.plugins.update, { id: pluginId, native: ["h_native"] }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
     // The fixture's source is a local folder, which can't be installed natively: the add is refused.
@@ -425,7 +428,7 @@ test("a native install its owner disabled isn't moved: it is named as staying, a
     const operations = await nativeRunner(ctx, pluginId, undefined, false);
     publish({ [DRAFTING]: edited(files[DRAFTING]!, "Draft", "Write") });
     const shown = await preview();
-    expect(shown.native).toEqual({ harnesses: [], unchecked: ["Claude Code (disabled or changing there)"] });
+    expect(shown.native).toEqual({ harnesses: [], unchecked: [{ name: "Claude Code", disabled: true }] });
     await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, native: ["h_native"] }, { context: ctx });
     expect(operations).toEqual([]);
   } finally {
@@ -505,5 +508,119 @@ test("a field removal names, on the update's screen, the workflows whose data st
     expect((await preview()).tables[0]!.changes).toMatchObject([{ key: "remove:Conclusions", stops: ["Close matter"] }]);
   } finally {
     remove();
+  }
+});
+
+test("install, update and uninstall are one span and one count each, with the plugin's id and never its name", async () => {
+  const t = await captureTelemetry();
+  onTestFinished(() => stopTelemetry());
+  const { ctx, pluginId, remove } = await setUp();
+  try {
+    await call(router.plugins.update, { id: pluginId }, { context: ctx });
+    await expect(call(router.plugins.update, { id: "missing" }, { context: ctx })).rejects.toBeDefined();
+    await removePlugin(ctx, pluginId);
+    const spans = t.spans().filter((x) => /^plugins\.(install|update|uninstall)$/.test(x.name));
+    expect(spans.map((x) => [x.name, x.attributes["dispand.result"]])).toEqual([["plugins.install", "done"], ["plugins.update", "done"], ["plugins.update", "failed"], ["plugins.uninstall", "done"]]);
+    expect(spans[1]!.attributes).toMatchObject({ "dispand.plugin.action": "update", "dispand.plugin.id": pluginId });
+    const actions = (await t.metrics()).filter((m) => m.name === "dispand.plugins.actions").map((m) => m.attributes);
+    expect(actions).toEqual(expect.arrayContaining([{ "dispand.plugin.action": "install", "dispand.result": "done" }, { "dispand.plugin.action": "update", "dispand.result": "failed" }, { "dispand.plugin.action": "uninstall", "dispand.result": "done" }]));
+    const everything = JSON.stringify(spans.map((x) => [x.attributes, x.events]));
+    for (const sentinel of ["acme", "Drafting", "Intake and research", "law"]) expect(everything).not.toContain(sentinel);
+  } finally {
+    remove();
+  }
+});
+
+/** Matters published with a field added and one removed, and updated with neither ticked. */
+async function declined(s: Awaited<ReturnType<typeof setUp>>) {
+  const [matters] = await s.ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Matters"));
+  const definition = JSON.parse(s.files[MATTERS]!) as { fields: { name: string; type: string }[] };
+  definition.fields = [...definition.fields.filter((f) => f.name !== "Conclusions"), { name: "Fee", type: "number" }];
+  s.publish({ [MATTERS]: JSON.stringify(definition) });
+  await call(router.plugins.update, { id: s.pluginId, reviewed: (await s.preview()).reviewed }, { context: s.ctx });
+  const shown = () => call(router.plugins.tableChanges, { id: s.pluginId }, { context: s.ctx });
+  return { matters: matters!, definition, shown };
+}
+
+test("a table change declined in an update shows on the plugin's row, and Apply makes it as the update would", async () => {
+  const s = await setUp();
+  try {
+    const { matters, shown } = await declined(s);
+    const row = await shown();
+    // Only what was declined: the tables as set up match their definitions.
+    expect(row).toEqual([
+      {
+        tableId: matters.id,
+        name: "Matters",
+        changes: [
+          { key: "add:Fee", kind: "add", field: "Fee", ticked: true, reviewed: expect.stringMatching(/^[0-9a-f]{64}$/) },
+          { key: "remove:Conclusions", kind: "remove", field: "Conclusions", ticked: false, reviewed: expect.stringMatching(/^[0-9a-f]{64}$/) },
+        ],
+      },
+    ]);
+    const fee = row[0]!.changes[0]!;
+    expect(await call(router.plugins.applyTableChange, { id: s.pluginId, tableId: matters.id, key: fee.key, reviewed: fee.reviewed }, { context: s.ctx })).toEqual({});
+    const fields = await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters.id));
+    expect(fields.find((f) => f.name === "Fee")).toMatchObject({ type: "number", pluginField: "Fee" });
+    // Recorded as the update records a field it adds.
+    const [plugin] = await s.ctx.db.select({ created: schema.plugins.created }).from(schema.plugins).where(eq(schema.plugins.id, s.pluginId));
+    expect(plugin!.created.from).toMatchObject({ "field:Matters.Fee": fields.find((f) => f.name === "Fee")!.id });
+    expect((await shown())[0]!.changes.map((c) => c.key)).toEqual(["remove:Conclusions"]);
+    // The update's screen still has nothing to offer: the definition kept is the plugin's.
+    expect((await s.preview()).tables).toEqual([]);
+  } finally {
+    s.remove();
+  }
+});
+
+test("Apply's token covers the table and the plugin's version: one read before a table edit, or before an update changing that table, is refused", async () => {
+  const s = await setUp();
+  try {
+    const { matters, definition, shown } = await declined(s);
+    const tokenOf = async (key: string) => (await shown())[0]!.changes.find((c) => c.key === key)!.reviewed;
+    const apply = (key: string, reviewed: string) => call(router.plugins.applyTableChange, { id: s.pluginId, tableId: matters.id, key, reviewed }, { context: s.ctx });
+
+    const beforeEdit = await tokenOf("add:Fee");
+    await call(router.fields.create, { tableId: matters.id, name: "Notes", type: "text" }, { context: s.ctx });
+    await expect(apply("add:Fee", beforeEdit)).rejects.toMatchObject({ code: "CONFLICT", data: { key: "plugins.table.changedSince" } });
+
+    const beforeUpdate = await tokenOf("add:Fee");
+    // The new version makes the fee a long text: the same key, another change.
+    s.publish({ [MATTERS]: JSON.stringify({ ...definition, fields: definition.fields.map((f) => (f.name === "Fee" ? { ...f, type: "long-text" } : f)) }) });
+    await call(router.plugins.update, { id: s.pluginId, reviewed: (await s.preview()).reviewed }, { context: s.ctx });
+    await expect(apply("add:Fee", beforeUpdate)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect((await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters.id))).some((f) => f.name === "Fee")).toBe(false);
+
+    await apply("add:Fee", await tokenOf("add:Fee"));
+    expect((await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters.id))).find((f) => f.name === "Fee")).toMatchObject({ type: "long-text" });
+  } finally {
+    s.remove();
+  }
+});
+
+test("an order the owner changed shows as a move Apply restores, unless a plugin field is first: the first field stays first", async () => {
+  const s = await setUp();
+  try {
+    const [matters] = await s.ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Matters"));
+    const shown = () => call(router.plugins.tableChanges, { id: s.pluginId }, { context: s.ctx });
+    const byName = async () => Object.fromEntries((await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters!.id))).map((f) => [f.name, f.id]));
+    const ids = await byName();
+    const order = async (names: string[]) => call(router.fields.reorder, { tableId: matters!.id, fieldIds: names.map((n) => ids[n]!) }, { context: s.ctx });
+
+    await order(["Conclusions", "Name", "Clients"]);
+    const [blocked] = (await shown())[0]!.changes;
+    expect(blocked).toMatchObject({ key: "move", stale: say("plugins.table.order") });
+    await expect(call(router.plugins.applyTableChange, { id: s.pluginId, tableId: matters!.id, key: "move", reviewed: blocked!.reviewed }, { context: s.ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    await order(["Name", "Conclusions", "Clients"]);
+    const [move] = (await shown())[0]!.changes;
+    expect(move).toMatchObject({ key: "move", ticked: true });
+    expect(move!.stale).toBeUndefined();
+    await call(router.plugins.applyTableChange, { id: s.pluginId, tableId: matters!.id, key: "move", reviewed: move!.reviewed }, { context: s.ctx });
+    const now = await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters!.id)).orderBy(schema.fields.position);
+    expect(now.map((f) => f.name)).toEqual(["Name", "Clients", "Conclusions"]);
+    expect(await shown()).toEqual([]);
+  } finally {
+    s.remove();
   }
 });

@@ -10,6 +10,7 @@ import { authed, base } from "../rpc/context.ts";
 import type { SecretBox } from "../secrets.ts";
 import { StorableText } from "../workflows/model.ts";
 import { apiKeyAad, CLOUD_KINDS, loadCloudHarness, type CloudKind } from "./cloud.ts";
+import { message, type MessageKey, type MessageValues } from "../messages/index.ts";
 
 const owner = base.use(authed);
 
@@ -79,21 +80,21 @@ export function isLoopback(url: URL): boolean {
   return host === "localhost" || host === "[::1]" || /^127\.\d+\.\d+\.\d+$/.test(host);
 }
 
-function bad(message: string): never {
-  throw new ORPCError("BAD_REQUEST", { message });
+function bad(key: MessageKey, values?: MessageValues): never {
+  throw new ORPCError("BAD_REQUEST", message(key, values));
 }
 
 /** The rules the schema can't say alone. `hasKey`: whether the harness will hold a key. */
 function checkCloud(kind: CloudKind, baseUrl: string | undefined, hasKey: boolean) {
-  if (kind === "openai-compatible" && !baseUrl) bad("An OpenAI-compatible provider needs a base URL");
-  if (kind !== "openai-compatible" && !hasKey) bad("An API key is required");
+  if (kind === "openai-compatible" && !baseUrl) bad("harness.cloud.needsBaseUrl");
+  if (kind !== "openai-compatible" && !hasKey) bad("harness.cloud.needsKey");
   if (hasKey && baseUrl && new URL(baseUrl).protocol === "http:" && !isLoopback(new URL(baseUrl))) {
-    bad("A key is only sent to an https:// base URL");
+    bad("harness.cloud.keyHttps");
   }
 }
 
 function cloudValues(fields: CloudFields, id: string, secrets: SecretBox, keptSealed: string | null) {
-  if (fields.temperature !== undefined && fields.kind !== "openai-compatible") bad("Temperature is only for OpenAI-compatible providers");
+  if (fields.temperature !== undefined && fields.kind !== "openai-compatible") bad("harness.cloud.temperature");
   const sealed = fields.apiKey === undefined ? keptSealed : fields.apiKey === "" ? null : secrets.seal(fields.apiKey, apiKeyAad(id));
   checkCloud(fields.kind, fields.baseUrl, sealed !== null);
   return {
@@ -117,7 +118,7 @@ async function requireRunner(db: Db, ownerId: string, runnerId: string) {
     .select({ id: runners.id })
     .from(runners)
     .where(and(eq(runners.id, runnerId), eq(runners.ownerId, ownerId), isNull(runners.revokedAt)));
-  if (!row) throw new ORPCError("NOT_FOUND", { message: "Runner not found" });
+  if (!row) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
 }
 
 async function find(db: Db, ownerId: string, id: string) {
@@ -125,7 +126,7 @@ async function find(db: Db, ownerId: string, id: string) {
     .select()
     .from(harnessesTable)
     .where(and(eq(harnessesTable.id, id), eq(harnessesTable.ownerId, ownerId)));
-  if (!row) throw new ORPCError("NOT_FOUND");
+  if (!row) throw new ORPCError("NOT_FOUND", message("agent.harnessNotFound"));
   return row;
 }
 
@@ -151,7 +152,7 @@ const update = owner
   .handler(async ({ input, context }) => {
     const { id, ...fields } = input;
     const current = await find(context.db, context.ownerId, id);
-    if ((fields.type ?? "cli") !== current.type) bad("A harness can't change between CLI and cloud");
+    if ((fields.type ?? "cli") !== current.type) bad("harness.kindFixed");
     let values;
     if (fields.type === "cloud") {
       values = cloudValues(fields, id, context.secrets, current.apiKeySealed);
@@ -171,7 +172,7 @@ const update = owner
 const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   await find(context.db, context.ownerId, input.id);
   const [used] = await context.db.select({ n: count() }).from(agents).where(eq(agents.harnessId, input.id));
-  if (used && used.n > 0) throw new ORPCError("CONFLICT", { message: "An agent uses this harness" });
+  if (used && used.n > 0) throw new ORPCError("CONFLICT", message("harness.usedByAgent"));
   await context.db.delete(harnessesTable).where(eq(harnessesTable.id, input.id));
 });
 
@@ -207,7 +208,7 @@ const models = owner
           if (reply.error || !reply.models) throw new Error("Model discovery failed");
           return reply.models;
         } catch {
-          throw new ORPCError("BAD_REQUEST", { message: "Could not list models. Check that the runner is connected and signed in, or enter a model ID." });
+          throw new ORPCError("BAD_REQUEST", message("harness.modelsUnavailable"));
         }
     };
     if ("runnerId" in input) {
@@ -224,15 +225,15 @@ const models = owner
     } else {
       target = { kind: input.kind, ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}), ...(input.apiKey ? { apiKey: input.apiKey } : {}) };
     }
-    if (target.kind === "openai-compatible" && !target.baseUrl) bad("An OpenAI-compatible provider needs a base URL");
+    if (target.kind === "openai-compatible" && !target.baseUrl) bad("harness.cloud.needsBaseUrl");
     if (target.apiKey && target.baseUrl && new URL(target.baseUrl).protocol === "http:" && !isLoopback(new URL(target.baseUrl))) {
-      bad("A key is only sent to an https:// base URL");
+      bad("harness.cloud.keyHttps");
     }
     try {
       return await listModels(target.kind, target.baseUrl, target.apiKey);
     } catch (error) {
-      if (error instanceof ModelListError) bad(error.message);
-      throw new ORPCError("INTERNAL_SERVER_ERROR");
+      if (error instanceof ModelListError) throw new ORPCError("BAD_REQUEST", message(error.say.key, error.say.values));
+      throw new ORPCError("INTERNAL_SERVER_ERROR", message("harness.modelsFailed"));
     }
   });
 

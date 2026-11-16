@@ -6,9 +6,10 @@ import type { Db } from "../db/client.ts";
 import { agents, agentTools, type CREATED_KINDS, fields, harnesses, plugins, proposals, runners, skillPackages, tables, tools as toolsTable, triggers, type PluginCreated, type ProposalItem } from "../db/schema.ts";
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
+import { english, isMessageKey, type MessageValues, say, sentence, type Text } from "../messages/index.ts";
 import { canonical } from "./approvals.ts";
 import { catalogEntry, defaultDisabled, defaultUnasked } from "../tools/catalog.ts";
-import { toolPermissionTarget } from "../agents/tool-ask.ts";
+import { FROZEN_REVISION, heldUnasked, strictTargets, toolPermissionTarget } from "../agents/tool-ask.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
 import type { JobIdentity, PlatformApp } from "./call.ts";
@@ -46,7 +47,8 @@ export const ProposeInput = z.object({
 export const ApplyInput = z.object({ proposalId: z.string().describe("The id propose gave you, of a proposal the owner approved") });
 
 /** A Zod error in the words a direct call gives: each problem, at its path. */
-export const issues = (error: z.ZodError): string => error.issues.map((e) => `${e.path.join(".") || "input"}: ${e.message}`).join("; ");
+/** A refinement's message may be a key (`params` its values): an agent reads it as its English sentence. */
+export const issues = (error: z.ZodError): string => error.issues.map((e) => `${e.path.join(".") || "input"}: ${isMessageKey(e.message) ? english(e.message, e.code === "custom" ? (e.params as MessageValues | undefined) : undefined) : e.message}`).join("; ");
 
 /** `{ "$item": n }`: what item `n` of the same proposal created. */
 type ItemRef = { $item: number };
@@ -137,8 +139,10 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
   let kept = new Map<string, { unasked: string[]; denied: string[] }>();
   if (item.tool === "agents_update") {
     if (typeof input.id === "string") {
-      const rows = await db.select({ toolId: agentTools.toolId, unasked: agentTools.unasked, denied: agentTools.denied }).from(agentTools).innerJoin(agents, eq(agents.id, agentTools.agentId)).where(and(eq(agents.id, input.id), eq(agents.ownerId, ownerId)));
-      kept = new Map(rows.map((p) => [key(p.toolId), { unasked: p.unasked, denied: p.denied }]));
+      const rows = await db.select({ tool: toolsTable, unasked: agentTools.unasked, denied: agentTools.denied, strictTarget: agentTools.strictTarget }).from(agentTools).innerJoin(agents, eq(agents.id, agentTools.agentId)).innerJoin(toolsTable, eq(toolsTable.id, agentTools.toolId)).where(and(eq(agents.id, input.id), eq(agents.ownerId, ownerId)));
+      // Only the grants that still hold: a frozen list is written as a fresh choice on approval.
+      const strict = await strictTargets(db, ownerId, input.id, rows.map((r) => r.tool), []);
+      kept = new Map(rows.map((p) => [key(p.tool.id), { unasked: heldUnasked(strict, p, p.tool), denied: p.denied }]));
     }
     for (const [index, previous] of prior.entries()) {
       const fields = previous.input as { id?: Ref; agentId?: Ref; toolId?: Ref; action?: string; permission?: string };
@@ -157,12 +161,15 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
       }
     }
   }
+  // Under strict permissions, each list holds on approval only for the tool as it is now.
+  const frozen = await strictTargets(db, ownerId, "", found, [], FROZEN_REVISION);
   const toolPermissions = ids.map((toolId) => {
     let defaults: string[] = [];
     let target = "unavailable";
+    let strictTarget: string | null | undefined;
     if (typeof toolId === "string") {
       const tool = found.find((t) => t.id === toolId);
-      if (tool) { defaults = defaultUnasked(tool); target = toolPermissionTarget(tool); }
+      if (tool) { defaults = defaultUnasked(tool); target = toolPermissionTarget(tool); strictTarget = frozen?.(tool); }
     } else {
       const source = prior[toolId.$item];
       if (source?.tool === "tools_add_from_catalog") {
@@ -174,7 +181,7 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
         target = toolPermissionTarget({ kind: "http", url: fields.url, transport: fields.transport ?? "streamable-http" });
       }
     }
-    return { toolId, unasked: (given.find((p) => key(p.toolId) === key(toolId))?.unasked ?? kept.get(key(toolId))?.unasked ?? defaults).filter((name) => !disabledFor(toolId).includes(name)), target };
+    return { toolId, unasked: (given.find((p) => key(p.toolId) === key(toolId))?.unasked ?? kept.get(key(toolId))?.unasked ?? defaults).filter((name) => !disabledFor(toolId).includes(name)), target, ...(strictTarget ? { strictTarget } : {}) };
   });
   if (toolPermissions.some((p) => p.unasked.some((action) => kept.get(key(p.toolId))?.denied.includes(action)))) return "An action is disabled: change its permission explicitly before granting it";
   return { ...item, toolPermissions };
@@ -192,6 +199,7 @@ async function agentChangeOf(db: Db, ownerId: string, tool: string, input: unkno
     config?: TriggerConfig;
   };
   if (tool === "agents_update") return [id, { kind: "update", bundles, dataTables, skillPackageIds }];
+  if (tool === "agents_delete") return [id, { kind: "delete" }];
   if (tool !== "triggers_update" && tool !== "triggers_delete") return null;
   const [trigger] = await db
     .select({ agentId: triggers.agentId })
@@ -204,8 +212,8 @@ async function agentChangeOf(db: Db, ownerId: string, tool: string, input: unkno
 const everyString = (value: unknown, ok: (s: string) => boolean): boolean =>
   typeof value === "string" ? ok(value) : Array.isArray(value) ? value.every((v) => everyString(v, ok)) : value !== null && typeof value === "object" ? Object.entries(value).every(([k, v]) => ok(k) && everyString(v, ok)) : true;
 
-/** Whether a tool's call may be an item: a configuration write. */
-export const proposable = (tool: PlatformTool): boolean => tool.bundle === "configure" && (tool.grant === true || tool.write === true);
+/** Whether a tool's call may be an item: a configuration write, or a memory write (`bundle: null`). */
+export const proposable = (tool: PlatformTool): boolean => (tool.bundle === "configure" || tool.bundle === null) && (tool.grant === true || tool.write === true);
 
 /**
  * Stores the writes a Job's agent proposes, as a draft. Each must be a configuration write the
@@ -254,7 +262,7 @@ export async function createProposal(app: PlatformApp, job: JobIdentity, tools: 
     // What the Assistant can't lose is refused now, with the reason, not after a person approved it.
     const change = await agentChangeOf(db, job.ownerId, tool.name, given.data);
     const refused = change && (await assistantGuard(db, job.ownerId, change[0], change[1]));
-    if (refused) return { error: `${at}: ${refused}` };
+    if (refused) return { error: `${at}: ${sentence(refused)}` };
     const kept = restoreRefs(given.data, placeholders);
     // A reference stands only where its text was kept whole: an id, not inside another text.
     if (!everyString(kept, (s) => !s.includes(nonce))) return { error: `${at}: a reference stands only where an id goes` };
@@ -272,7 +280,7 @@ export async function createProposal(app: PlatformApp, job: JobIdentity, tools: 
 }
 
 /** An item of a proposal, by its index. */
-export type ItemAt = { proposalId: string; index: number; toolPermissions?: { toolId: string; unasked: string[]; target: string }[] };
+export type ItemAt = { proposalId: string; index: number; toolPermissions?: { toolId: string; unasked: string[]; target: string; strictTarget?: string }[] };
 
 /**
  * Uses up one approved write of the Job: an item of one of its approved proposals (or the one
@@ -423,7 +431,11 @@ export async function settleProposal(db: Db | Tx, questionId: string, approved: 
     .where(and(eq(proposals.questionId, questionId), eq(proposals.status, "asked")));
 }
 
-export type ProposalName = { kind: "agent" | "harness" | "tool" | "skill" | "table" | "field" | "trigger" | "catalog" | "plugin"; name: string; detail?: string };
+/** What a harness is, for a proposal: its kind, where it runs and its permission mode, as whole sentences by what is known. */
+export const harnessDetail = (kind: string, runner: string | null, mode: string | null): Text =>
+  runner ? say(mode ? "harness.detail.both" : "harness.detail.onRunner", { kind, runner, mode: mode ?? "" }) : mode ? say("harness.detail.mode", { kind, mode }) : { text: kind };
+
+export type ProposalName = { kind: "agent" | "harness" | "tool" | "skill" | "table" | "field" | "trigger" | "catalog" | "plugin"; name: string; detail?: Text };
 
 /**
  * For each tool that can be proposed: the keys of its input that hold ids, and of what. Only
@@ -432,6 +444,7 @@ export type ProposalName = { kind: "agent" | "harness" | "tool" | "skill" | "tab
 const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
   agents_create: { harnessId: "harness", toolIds: "tool", skillPackageIds: "skill", dataTables: "table" },
   agents_update: { id: "agent", harnessId: "harness", toolIds: "tool", skillPackageIds: "skill", dataTables: "table" },
+  agents_delete: { id: "agent" },
   agents_set_tool_permission: { agentId: "agent", toolId: "tool" },
   harnesses_set_limit: { id: "harness" },
   tables_rename: { id: "table" },
@@ -441,12 +454,15 @@ const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
   fields_update: { id: "field" },
   fields_reorder: { tableId: "table", fieldIds: "field" },
   fields_delete: { id: "field" },
+  fields_retype: { id: "field" },
   triggers_create: { agentId: "agent" },
   triggers_update: { id: "trigger" },
   triggers_delete: { id: "trigger" },
   tools_delete: { id: "tool" },
   tools_add_from_catalog: { catalogId: "catalog" },
   plugins_add_server: { pluginId: "plugin" },
+  memory_add: { tableId: "table" },
+  memory_update: { tableId: "table" },
 };
 
 /** What each creating tool creates (its output's `id`): what `{ "$item": n }` may name, and how a reference reads: "the table item 2 creates". */
@@ -519,7 +535,7 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
   // A catalog entry, by its name and where its tool's calls go.
   for (const id of wanted.get("catalog") ?? []) {
     const entry = catalogEntry(id);
-    if (entry) names[id] = { kind: "catalog", name: entry.name, detail: entry.kind === "http" ? entry.url : "on a runner" };
+    if (entry) names[id] = { kind: "catalog", name: entry.name, detail: entry.kind === "http" ? { text: entry.url } : say("tools.onRunner") };
   }
   const found = async <T extends { id: string }>(kind: ProposalName["kind"], load: (ids: string[]) => Promise<T[]>, name: (row: T) => Omit<ProposalName, "kind">) => {
     const ids = [...(wanted.get(kind) ?? [])];
@@ -538,12 +554,12 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
         .from(harnesses)
         .leftJoin(runners, eq(runners.id, harnesses.runnerId))
         .where(and(inArray(harnesses.id, w), eq(harnesses.ownerId, ownerId))),
-    (r) => ({ name: r.name, detail: [r.kind, r.runner ? `on ${r.runner}` : null, r.permissionMode ? `permission mode ${r.permissionMode}` : null].filter(Boolean).join(", ") }),
+    (r) => ({ name: r.name, detail: harnessDetail(r.kind, r.runner, r.permissionMode) }),
   );
   await found(
     "tool",
     (w) => db.select({ id: toolsTable.id, name: toolsTable.name, kind: toolsTable.kind, url: toolsTable.url }).from(toolsTable).where(and(inArray(toolsTable.id, w), eq(toolsTable.ownerId, ownerId))),
-    (r) => ({ name: r.name, detail: r.kind === "http" ? (r.url ?? "") : "on a runner" }),
+    (r) => ({ name: r.name, detail: r.kind === "http" ? { text: r.url ?? "" } : say("tools.onRunner") }),
   );
   await found(
     "plugin",
@@ -568,7 +584,7 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
         .from(fields)
         .innerJoin(tables, eq(tables.id, fields.tableId))
         .where(and(inArray(fields.id, w), eq(fields.ownerId, ownerId))),
-    (r) => ({ name: r.name, detail: `of the table ${r.table}` }),
+    (r) => ({ name: r.name, detail: say("data.field.ofTable", { table: r.table }) }),
   );
   await found(
     "trigger",
@@ -578,7 +594,7 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
         .from(triggers)
         .innerJoin(agents, eq(agents.id, triggers.agentId))
         .where(and(inArray(triggers.id, w), eq(triggers.ownerId, ownerId))),
-    (r) => ({ name: r.name, detail: `of the agent ${r.agent}` }),
+    (r) => ({ name: r.name, detail: say("agent.ofAgent", { agent: r.agent }) }),
   );
   return {
     items: items.map(({ tool, input, usedAt, createdId, failed, toolPermissions, shown }) => ({

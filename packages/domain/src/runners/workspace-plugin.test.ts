@@ -90,7 +90,9 @@ test("uninstall reuses a differently named Skillshare binding only by the verifi
   expect(existing.results).toEqual([{ name: "already-managed", harness: "codex", status: "already_installed" }]);
   expect(request).toHaveBeenCalledTimes(1);
   enabled = false;
-  expect(await call(router.runners.workspacePlugin, base, { context })).toMatchObject({ blocked: true, error: expect.stringContaining("disabled") });
+  const blocked = await call(router.runners.workspacePlugin, base, { context });
+  expect(blocked).toMatchObject({ blocked: true });
+  expect(blocked).not.toHaveProperty("error");
   expect(request).toHaveBeenCalledTimes(2);
   enabled = true;
   await call(router.runners.workspacePlugin, { ...base, action: "remove" }, { context });

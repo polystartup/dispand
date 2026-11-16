@@ -1,12 +1,14 @@
 import type { Cell, FieldSchema } from "@dispand/domain/data/fields";
 import { Check } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 /** A cell as the grid shows it, read-only. */
 export function CellView({ field, value, references = {} }: { field: FieldSchema; value: Cell; references?: Record<string, { label: string }> }) {
+  const { t } = useTranslation("data");
   if (value === null || value === "" || (Array.isArray(value) && value.length === 0)) return null;
   switch (field.type) {
     case "checkbox":
-      return value === true ? <Check size={16} aria-label="Checked" className="text-accent" /> : null;
+      return value === true ? <Check size={16} aria-label={t("cell.checked")} className="text-accent" /> : null;
     case "number":
       return <span className="block text-right tabular-nums">{String(value)}</span>;
     case "url":
@@ -21,7 +23,7 @@ export function CellView({ field, value, references = {} }: { field: FieldSchema
     }
     case "attachment": {
       const n = Array.isArray(value) ? value.length : 0;
-      return <span className="text-muted">{n === 1 ? "1 file" : `${n} files`}</span>;
+      return <span className="text-muted">{t("files.count", { count: n })}</span>;
     }
     case "reference": {
       // The row's first field; its id when that isn't known (a row deleted meanwhile).

@@ -27,16 +27,22 @@ export const METRICS = {
   "dispand.consults.asked": [],
   "dispand.consults.ended": ["dispand.consult.outcome"],
   "dispand.consult.wait": ["dispand.consult.outcome"],
+  // A Web Push to one device (`push/sender.ts`): sent, gone (404 or 410: its subscription deleted) or failed (tried again).
+  "dispand.push.sent": ["dispand.result"],
   // The `inbox` bundle's tools (`questions/inbox.ts`).
   "dispand.inbox.calls": ["dispand.inbox.tool", "dispand.result"],
   // `proposal_apply` (`platform/call.ts`): every item made (done), some refused by an earlier call (partial), stopped at a refusal or at an item still being made, or refused at once.
   "dispand.proposals.applied": ["dispand.result"],
   // A plugin's setup run by its owner (`plugins/setup.ts`): every item made (done), stopped at a refusal, or failed.
   "dispand.plugins.setups": ["dispand.result"],
+  // A plugin's install, update, uninstall or table change applied from its row (`plugins/procedures.ts`), and how it ended: done or failed.
+  "dispand.plugins.actions": ["dispand.plugin.action", "dispand.result"],
   // An Audit row written (`audit/record.ts`), by its action; `failed`: a write after the fact that didn't go through.
   "dispand.audit.rows": ["dispand.audit.action", "dispand.result"],
   // Audit rows past their owner's retention, deleted by `audit/sweep.ts`.
   "dispand.audit.swept": [],
+  // Tool headers sealed again with their tool's origin at server start (`tools/reseal.ts`).
+  "dispand.tools.resealed": [],
   // A memory write (`memory/store.ts`): its scope, operation and result, never a path or a body.
   "dispand.memory.writes": ["dispand.memory.scope", "dispand.memory.op", "dispand.result"],
   // A Job's `memory_read` (`memory/tools.ts`): its scope and result.
@@ -65,9 +71,12 @@ export const METRICS = {
   // A step of an OAuth tool's sign-in (`authorize`, `callback`, `refresh`) and how it ended.
   "dispand.tool.oauth": ["dispand.oauth.step", "dispand.result"],
   "dispand.attachments.stored": ["dispand.attachment.source"],
-  "dispand.attachments.refused": [],
+  // Files of a tool result kept none of (all or none), by the limit it passed: `result`, `job` or `install`.
+  "dispand.attachments.refused": ["dispand.attachment.limit"],
   "dispand.attachments.swept": [],
   "dispand.model.calls": ["dispand.harness.kind", "dispand.result"],
+  // Tokens the provider counted for a cloud model call, by direction (`input`, `output`).
+  "dispand.model.tokens": ["dispand.harness.kind", "dispand.token.direction"],
   "dispand.model.duration": ["dispand.harness.kind", "dispand.result"],
   // The instrumentations' own (`apps/web/telemetry-preload.mjs`): methods, codes and peers, never a path or a query.
   "http.server.request.duration": ["http.request.method", "http.response.status_code", "url.scheme", "network.protocol.version", "error.type"],

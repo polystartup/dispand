@@ -7,20 +7,21 @@ import { z } from "zod";
 import { agents, harnesses, runs, skillPackages, skills, skillFiles, plugins, stepRuns } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
+import { message } from "../messages/index.ts";
 
 export type CommandEntry = { name: string; description: string; source: "harness" | "dispand"; skillId?: string };
 
 /** The native catalog plus skills installed in this workspace, without duplicate invocations. */
 export const assistantCommands = base.use(authed).input(z.object({ agentId: z.string(), runId: z.string().optional() })).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN");
+  if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
   const [agent] = await context.db.select().from(agents).where(and(eq(agents.id, input.agentId), eq(agents.ownerId, context.ownerId), eq(agents.builtIn, "assistant")));
-  if (!agent) throw new ORPCError("NOT_FOUND");
+  if (!agent) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
   const [saved] = await context.db.select().from(harnesses).where(and(eq(harnesses.id, agent.harnessId), eq(harnesses.ownerId, context.ownerId)));
   let target = saved?.type === "cli" ? { runnerId: saved.runnerId!, kind: saved.kind as "codex" | "claude-code" } : null;
   let sessionId: string | undefined;
   if (input.runId) {
     const [run] = await context.db.select().from(runs).where(and(eq(runs.id, input.runId), eq(runs.ownerId, context.ownerId), eq(runs.agentId, agent.id)));
-    if (!run) throw new ORPCError("NOT_FOUND");
+    if (!run) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
     const steps = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, run.id));
     const step = steps.find((s) => s.start?.interactive);
     const historical = run.snapshot ? (await context.db.select().from(harnesses).where(and(eq(harnesses.id, run.snapshot.harnessId), eq(harnesses.ownerId, context.ownerId))))[0] : undefined;

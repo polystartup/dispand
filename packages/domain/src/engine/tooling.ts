@@ -2,10 +2,10 @@ import { createHash } from "node:crypto";
 import { JOB_SERVER_NAME, JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
 import { and, eq, inArray } from "drizzle-orm";
 import type { RememberedPermissions } from "../agents/remember.ts";
-import { toolPermissionTarget } from "../agents/tool-ask.ts";
+import { heldUnasked, strictTargets, toolPermissionTarget } from "../agents/tool-ask.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import type { Db } from "../db/client.ts";
-import { agents, agentTools, runs, stepRuns, tools, workflowVersions, type AgentSnapshot } from "../db/schema.ts";
+import { agents, agentSkillToolPermissions, agentTools, runs, stepRuns, tools, workflowVersions, type AgentSnapshot } from "../db/schema.ts";
 import { nodesOf } from "../workflows/model.ts";
 
 // What a session's agent gives it: its skill packages and its tools. For a Job, what its
@@ -52,16 +52,24 @@ export async function toolingOf(db: Db, run: { ownerId: string; snapshot: AgentS
         .where(and(inArray(tools.id, toolIds), eq(tools.ownerId, run.ownerId)))
     : [];
   rows.sort((a, b) => a.name.localeCompare(b.name));
-  const chosen = await db.select({ toolId: agentTools.toolId, unasked: agentTools.unasked, denied: agentTools.denied }).from(agentTools).where(eq(agentTools.agentId, agentId));
+  const chosen = await db.select({ toolId: agentTools.toolId, unasked: agentTools.unasked, denied: agentTools.denied, strictTarget: agentTools.strictTarget }).from(agentTools).where(eq(agentTools.agentId, agentId));
+  // A tool it didn't choose: what was remembered for it with the packages that give it, for its current target.
+  const packageIds = now.skills.filter((s) => !snapshot || snapshot.skills.some((k) => k.packageId === s.packageId)).map((s) => s.packageId);
+  const withSkills = packageIds.length ? await db.select().from(agentSkillToolPermissions).where(and(eq(agentSkillToolPermissions.agentId, agentId), inArray(agentSkillToolPermissions.skillPackageId, packageIds))) : [];
+  const strict = await strictTargets(db, run.ownerId, agentId, rows, packageIds, snapshot?.revision);
   const permitted = rows.map((tool) => {
-    const mine = chosen.find((c) => c.toolId === tool.id);
     const target = toolPermissionTarget(tool);
+    const fromSkills = withSkills.filter((r) => r.toolId === tool.id && r.target === target);
+    const own = chosen.find((c) => c.toolId === tool.id);
+    const mine = own
+      ? { unasked: heldUnasked(strict, own, tool), denied: own.denied }
+      : fromSkills.length ? { unasked: fromSkills.flatMap((r) => heldUnasked(strict, r, tool, r.skillPackageId)), denied: fromSkills.flatMap((r) => r.denied) } : undefined;
     const matches = (s: RememberedPermissions["allow"][number]): s is Extract<RememberedPermissions["allow"][number], { kind: "tool" }> => s.kind === "tool" && s.agentId === agentId && s.toolId === tool.id && s.target === target;
     const allowed = (run.remembered?.allow ?? []).filter(matches).map((s) => s.action).filter((name) => tool.actions.some((a) => a.name === name));
     const refused = (run.remembered?.deny ?? []).filter(matches).map((s) => s.action);
     const denied = [...new Set([...tool.disabled, ...(mine?.denied ?? []), ...refused])];
     const runUnasked = allowed.filter((name) => !denied.includes(name));
-    return { ...tool, actions: tool.actions.filter((a) => !denied.includes(a.name)), unasked: [...new Set([...(mine?.unasked ?? []), ...runUnasked])].filter((name) => !denied.includes(name)), denied, runUnasked, chosen: mine !== undefined };
+    return { ...tool, actions: tool.actions.filter((a) => !denied.includes(a.name)), unasked: [...new Set([...(mine?.unasked ?? []), ...runUnasked])].filter((name) => !denied.includes(name)), denied, runUnasked, chosen: chosen.some((c) => c.toolId === tool.id) };
   });
   return {
     skills,
@@ -107,10 +115,25 @@ export function runnerServerName(tool: { id: string; runnerId: string; tool: str
   return `tool_${createHash("sha256").update(JSON.stringify([tool.id, tool.runnerId, tool.tool])).digest("hex").slice(0, 24)}`;
 }
 
+/** The most skill packages and runner tools a CLI session gets: the ones past these, in name order, are left out. */
+export const MAX_SESSION_SKILLS = 50;
+export const MAX_SESSION_RUNNER_TOOLS = 20;
+
+/**
+ * What a CLI session of an agent with these skills and runner tools (each in name order, as
+ * sessions get them) leaves out: per kind, the limit and the names past it.
+ */
+export function leftOut(skills: { name: string }[], runnerTools: { name: string }[]) {
+  return {
+    skills: { max: MAX_SESSION_SKILLS, names: skills.filter((s) => SKILL_NAME.test(s.name)).slice(MAX_SESSION_SKILLS).map((s) => s.name) },
+    runnerTools: { max: MAX_SESSION_RUNNER_TOOLS, names: runnerTools.slice(MAX_SESSION_RUNNER_TOOLS).map((t) => t.name) },
+  };
+}
+
 export function runnerServers(tooling: Pick<Tooling, "runnerTools">, runnerId: string): (Tooling["runnerTools"][number] & { server: string })[] {
   return tooling.runnerTools
     .filter((t) => t.runnerId === runnerId)
-    .slice(0, 20)
+    .slice(0, MAX_SESSION_RUNNER_TOOLS)
     .map((t) => ({ ...t, server: runnerServerName(t) }));
 }
 

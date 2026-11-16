@@ -3,18 +3,19 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { removalPlan, RemovalChoices, type RemovalElement } from "./PluginRemoval.tsx";
+import { say } from "@dispand/domain/messages/index.ts";
 
 afterEach(cleanup);
 
 const el = (key: string, more: Partial<RemovalElement> = {}): RemovalElement => ({ key, kind: key.split(":")[0] as RemovalElement["kind"], id: key, name: key.split(":")[1]!, reasons: [], needs: [], keepOnly: null, ...more });
 const elements = [
-  el("agent:Drafting", { reasons: ["You changed it"], needs: ["agent:Intake"] }),
+  el("agent:Drafting", { reasons: [say("plugins.reason.changed")], needs: ["agent:Intake"] }),
   el("agent:Intake", { needs: ["skill:research", "tool:case-law"] }),
   el("skill:research"),
   el("tool:case-law"),
   el("agent:Upkeep"),
-  el("table:Matters", { reasons: ["It has 3 rows"] }),
-  el("agent:Flow", { reasons: ["A workflow uses this agent"], keepOnly: "A workflow uses this agent" }),
+  el("table:Matters", { reasons: [say("plugins.reason.rows", { count: 3 })] }),
+  el("agent:Flow", { reasons: [say("plugins.reason.workflowAgent")], keepOnly: say("plugins.reason.workflowAgent") }),
 ];
 
 test("what is asked about starts kept, with all a kept element needs; the rest goes with the plugin", () => {

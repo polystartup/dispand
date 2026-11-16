@@ -60,3 +60,11 @@ test("a key that isn't 32 bytes is refused", () => {
 test("aad parts can't run into each other", () => {
   expect(secretAad("a", "b.c", "d")).not.toBe(secretAad("a.b", "c", "d"));
 });
+
+test("an origin binds a secret to it, and without one the AAD is the same as before origins", () => {
+  expect(secretAad("tools", "t1", "header:x")).toBe('["tools","t1","header:x"]');
+  const sealed = box.seal(plain, secretAad("tools", "t1", "header:x", "https://a.example"));
+  expect(box.open(sealed, secretAad("tools", "t1", "header:x", "https://a.example"))).toBe(plain);
+  expect(() => box.open(sealed, secretAad("tools", "t1", "header:x", "https://b.example"))).toThrow(SecretError);
+  expect(() => box.open(sealed, secretAad("tools", "t1", "header:x"))).toThrow(SecretError);
+});

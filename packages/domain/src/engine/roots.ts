@@ -5,6 +5,7 @@ import { agents, questions, roots, runs, stepRuns, workspaceSettings, type RootK
 import { recordAudit } from "../audit/record.ts";
 import { newId } from "../ids.ts";
 import { jobAgentNameSql } from "../jobs/agent-name.ts";
+import { english } from "../messages/index.ts";
 import { meter, spanEvent } from "../telemetry/index.ts";
 import { recordInteraction } from "./interactions.ts";
 
@@ -22,7 +23,7 @@ export const CHECKPOINT = "checkpoint";
 export const DEFAULT_CHECKPOINT = 100;
 
 /** Why no Job of a declined root is made. */
-export const ROOT_STOPPED = "Stopped at a checkpoint";
+export const ROOT_STOPPED = english("engine.stoppedAtCheckpoint");
 
 /** The most agents a checkpoint's Approval names. */
 const MAX_AGENTS = 20;
@@ -45,15 +46,6 @@ export async function rootGoing(db: Db | Tx, runId: string): Promise<boolean> {
   return !row || row.state === "going";
 }
 
-/** What a root's Approval says it is, by kind. */
-const ABOUT: Record<RootKind, string> = {
-  user: "A start by you",
-  chat: "Your message in a chat",
-  schedule: "A schedule",
-  event: "A change to a table",
-  poll: "An item found by a poll",
-};
-
 /**
  * The root reached its checkpoint with the Job `reachedBy` (its row is locked by the caller): it
  * pauses and one Approval asks a person, on that Job (in the chat, for a chat message), naming
@@ -75,7 +67,7 @@ export async function pause(tx: Tx, root: typeof roots.$inferSelect, jobs: numbe
   const payload: QuestionPayload = {
     kind: "permission",
     toolName: CHECKPOINT,
-    input: { root: ABOUT[root.kind], jobs, agents: involved.flatMap((a) => (a.name ? [a.name] : [])), since: root.createdAt.toISOString() },
+    input: { rootKind: root.kind, jobs, agents: involved.flatMap((a) => (a.name ? [a.name] : [])), since: root.createdAt.toISOString() },
     canAlwaysAllow: true,
   };
   const id = newId("q");

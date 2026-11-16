@@ -1,8 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import { startFakeMcp } from "../../../packages/domain/src/tools/test-server.ts";
+import { AUDIT_SENTINELS, auditRows } from "./audit.ts";
 
 // Last of "main": after every other spec has run, with sentinel secrets and content of its own,
-// nothing Dispand exported to its collector holds a secret or a business's content.
+// nothing Dispand exported to its collector, and no Audit row, holds a secret or a business's
+// content (with those yz-audit.spec.ts drove through a Job).
 
 const COLLECTOR = "http://127.0.0.1:3199";
 
@@ -40,8 +42,11 @@ test("telemetry exported during the whole suite holds no secret and no content",
     },
   ]);
   let toolId: string;
+  let pairingCode: string;
   try {
     await signIn(page);
+    // A runner's pairing code.
+    ({ pairingCode } = await rpc<{ pairingCode: string }>(page, "runners/create", { name: "Telemetry sentinels" }));
     // A tool with a secret in its header, its path and its query: listing its actions calls it.
     ({ id: toolId } = await rpc<{ id: string }>(page, "tools/create", {
       name: "Sentinel",
@@ -79,7 +84,15 @@ test("telemetry exported during the whole suite holds no secret and no content",
   expect(exported).toContain("tool.call");
   expect(exported).toContain("dispand.tool.calls");
   expect(exported).toContain("dispand.rpc.duration");
-  for (const [what, sentinel] of Object.entries({ ...SENTINELS, answer: "sentinel-tool-answer-35" })) {
+  const sentinels = { ...SENTINELS, ...AUDIT_SENTINELS, pairingCode, answer: "sentinel-tool-answer-35" };
+  for (const [what, sentinel] of Object.entries(sentinels)) {
     expect(exported.includes(sentinel), `${what} found in exported telemetry`).toBe(false);
+  }
+  // Every Audit row, read back as the owner reads it: the suite's Jobs left some, so the check isn't vacuous.
+  const rows = await auditRows(page);
+  expect(rows.map((r) => r.action)).toEqual(expect.arrayContaining(["job.created", "platform.call", "tool.call", "poll.run", "event.recorded", "question.answered", "memory.written"]));
+  const audited = JSON.stringify(rows);
+  for (const [what, sentinel] of Object.entries(sentinels)) {
+    expect(audited.includes(sentinel), `${what} found in an Audit row`).toBe(false);
   }
 });

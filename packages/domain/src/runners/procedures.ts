@@ -8,6 +8,7 @@ import { newId } from "../ids.ts";
 import { RunnerRequestFailed } from "./hub.ts";
 import { createRunner, revokeRunner } from "./pairing.ts";
 import { workspacePlugin, workspaceSkills } from "./workspace-plugin.ts";
+import { message } from "../messages/index.ts";
 
 const owner = base.use(authed);
 
@@ -53,7 +54,7 @@ const update = owner.input(z.object({ runnerId: z.string(), name: Name })).handl
     .set({ name: input.name })
     .where(and(eq(runnersTable.id, input.runnerId), eq(runnersTable.ownerId, context.ownerId), isNull(runnersTable.revokedAt)))
     .returning({ id: runnersTable.id });
-  if (!row) throw new ORPCError("NOT_FOUND");
+  if (!row) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
 });
 
 const revoke = owner.input(z.object({ runnerId: z.string() })).handler(async ({ input, context }) => {
@@ -61,37 +62,37 @@ const revoke = owner.input(z.object({ runnerId: z.string() })).handler(async ({ 
     .select({ n: count() })
     .from(harnesses)
     .where(and(eq(harnesses.runnerId, input.runnerId), eq(harnesses.ownerId, context.ownerId)));
-  if (used && used.n > 0) throw new ORPCError("CONFLICT", { message: "A harness uses this runner" });
-  if (!(await revokeRunner(context.db, context.ownerId, input.runnerId))) throw new ORPCError("NOT_FOUND");
+  if (used && used.n > 0) throw new ORPCError("CONFLICT", message("runners.usedByHarness"));
+  if (!(await revokeRunner(context.db, context.ownerId, input.runnerId))) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
   context.hub.disconnect(input.runnerId);
   // Its open sessions can't come back: fail them rather than leave their runs waiting.
   await context.engine.runnerRevoked(input.runnerId);
 });
 
 const plugins = owner.input(z.object({ runnerId: z.string(), operation: PluginOperation })).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN", { message: "Native installation requires an owner session" });
+  if (context.job) throw new ORPCError("FORBIDDEN", message("runners.nativeOwnerOnly"));
   const [runner] = await context.db.select({ id: runnersTable.id }).from(runnersTable)
     .where(and(eq(runnersTable.id, input.runnerId), eq(runnersTable.ownerId, context.ownerId), isNull(runnersTable.revokedAt)));
-  if (!runner) throw new ORPCError("NOT_FOUND");
+  if (!runner) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
   if ("targets" in input.operation) {
     const available = await context.db.select({ kind: harnesses.kind }).from(harnesses)
       .where(and(eq(harnesses.runnerId, runner.id), eq(harnesses.ownerId, context.ownerId), eq(harnesses.type, "cli")));
-    if (input.operation.targets.some((h) => !available.some((a) => a.kind === h))) throw new ORPCError("BAD_REQUEST", { message: "Each target needs a CLI harness on this runner" });
+    if (input.operation.targets.some((h) => !available.some((a) => a.kind === h))) throw new ORPCError("BAD_REQUEST", message("runners.targetNeedsHarness"));
   }
   try {
     return (await context.hub.plugins(runner.id, { type: "plugin.request", requestId: newId("req"), operation: input.operation })).report;
   } catch (error) {
     if (!(error instanceof RunnerRequestFailed)) throw error;
-    throw new ORPCError("CONFLICT", { message: "Runner unavailable or operation timed out. Refresh inventory before retrying; native changes may have completed." });
+    throw new ORPCError("CONFLICT", message("runners.unavailable"));
   }
 });
 
 const installUpdate = owner.input(z.object({ runnerId: z.string() })).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN");
+  if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
   const [runner] = await context.db.select({ id: runnersTable.id }).from(runnersTable)
     .where(and(eq(runnersTable.id, input.runnerId), eq(runnersTable.ownerId, context.ownerId), isNull(runnersTable.revokedAt)));
-  if (!runner) throw new ORPCError("NOT_FOUND");
-  if (!context.hub.updates.request(runner.id)) throw new ORPCError("CONFLICT", { message: "No update available or runner unreachable" });
+  if (!runner) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
+  if (!context.hub.updates.request(runner.id)) throw new ORPCError("CONFLICT", message("runners.noUpdate"));
 });
 
 export const runners = { create, list, update, revoke, plugins, workspacePlugin, workspaceSkills, installUpdate };

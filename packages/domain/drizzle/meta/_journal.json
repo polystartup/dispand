@@ -533,6 +533,62 @@
       "when": 1794653413289,
       "tag": "0075_plugin_conflicts",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1794753228543,
+      "tag": "0076_user_language",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1794763517311,
+      "tag": "0077_job_span",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1794769002179,
+      "tag": "0078_skill_tool_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1794777418677,
+      "tag": "0079_files_limit",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1794777478677,
+      "tag": "0080_stem_workspace_memory",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1794784255755,
+      "tag": "0081_strict_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1794789964331,
+      "tag": "0082_push_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1794805978816,
+      "tag": "0083_chat_attachments",
+      "breakpoints": true
     }
   ]
 }

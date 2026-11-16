@@ -95,7 +95,7 @@ test("empty states, then a runner pairs, a harness goes online and an agent is c
   await expect(page).toHaveURL(/\/assistant$/);
   await page.waitForLoadState("networkidle");
   await page.getByRole("combobox", { name: "Harness" }).selectOption({ label: "Claude on Workstation" });
-  await page.getByRole("button", { name: "Start the Assistant" }).click();
+  await page.getByRole("button", { name: "Start Stem" }).click();
   await expect(page.getByText("Describe your business or use case and how you'd like to automate it.")).toBeVisible();
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Welcome, Ada" })).toBeVisible();

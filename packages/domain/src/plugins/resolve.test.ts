@@ -8,6 +8,9 @@ import { captureTelemetry } from "../telemetry/testing.ts";
 import { answerApproval, answerConflict, decide, reopenChanged } from "./resolve.ts";
 import { lawFirmMarket } from "./test-support.ts";
 import { writeFields } from "./write-field.ts";
+import { rememberAllowedAction } from "../agents/tool-ask.ts";
+import { toolingOf } from "../engine/tooling.ts";
+import { startFakeMcp } from "../tools/test-server.ts";
 
 const OWNER = { type: "user" as const, userId: "" };
 
@@ -136,6 +139,30 @@ test("a tool an agent gains through a decision starts with every action on Ask",
     const [grant] = await s.ctx.db.select().from(schema.agentTools).where(and(eq(schema.agentTools.agentId, s.agent.id), eq(schema.agentTools.toolId, "tool_notes")));
     expect(grant!.unasked).toEqual([]);
   } finally {
+    s.remove();
+  }
+});
+
+test("a reset that points a skill's tool back at the plugin's server makes the choice remembered for it ask again", async () => {
+  const s = await setUp();
+  const echo = { name: "echo", description: "", inputSchema: { type: "object" }, call: () => ({ content: [] }) };
+  const mine = await startFakeMcp([echo]);
+  const next = await startFakeMcp([echo]);
+  try {
+    const pluginId = (await s.drafting()).pluginId!;
+    await s.ctx.db.insert(schema.tools).values({ id: "tool_echo", ownerId: s.ctx.ownerId, name: "Echo", kind: "http", url: mine.url, transport: "streamable-http", actions: [{ name: "echo", description: "", inputSchema: {} }], pluginId, pluginComponent: "echo", upstream: { name: "Echo", url: next.url, transport: "streamable-http" }, overridden: ["url"] });
+    const { packageId } = await call(router.skills.create, { name: "echoing", description: "Echoes.", instructions: "x", requiredToolIds: ["tool_echo"] }, { context: s.ctx });
+    await s.ctx.db.insert(schema.agentSkills).values({ agentId: s.agent.id, packageId });
+    const unasked = async () => (await toolingOf(s.ctx.db, { ownerId: s.ctx.ownerId, snapshot: null }, s.agent.id)).httpTools.find((t) => t.id === "tool_echo")!.unasked;
+    expect(await rememberAllowedAction(s.ctx.db, s.ctx.ownerId, { agentId: s.agent.id, toolId: "tool_echo", action: "echo" })).toBe(true);
+    expect(await unasked()).toEqual(["echo"]);
+    await s.ctx.db.insert(schema.pluginConflicts).values({ id: "conflict_url", ownerId: s.ctx.ownerId, pluginId, kind: "tool", elementId: "tool_echo", field: "url", old: null, mine: mine.url, next: next.url, status: "stem" });
+    // Taking the plugin's own value applies at once.
+    expect(await decide(s.ctx, s.actor, "conflict_url", { kind: "reset" })).toBe("applied");
+    expect((await s.ctx.db.select({ url: schema.tools.url }).from(schema.tools).where(eq(schema.tools.id, "tool_echo")))[0]!.url).toBe(next.url);
+    expect(await unasked()).toEqual([]);
+  } finally {
+    await Promise.all([mine.close(), next.close()]);
     s.remove();
   }
 });

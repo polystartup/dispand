@@ -7,6 +7,7 @@ import { authed, base } from "../rpc/context.ts";
 import { TRANSPORTS } from "../tools/mcp.ts";
 import { createTool, Name, Url } from "../tools/procedures.ts";
 import { toolName } from "./components.ts";
+import { message } from "../messages/index.ts";
 
 const owner = base.use(authed);
 
@@ -28,14 +29,14 @@ export const addServer = owner.input(AddServerInput).handler(async ({ input, con
     .select({ name: pluginsTable.name, components: pluginsTable.components })
     .from(pluginsTable)
     .where(and(eq(pluginsTable.id, input.pluginId), eq(pluginsTable.ownerId, context.ownerId)));
-  if (!plugin) throw new ORPCError("NOT_FOUND", { message: "Plugin not found" });
+  if (!plugin) throw new ORPCError("NOT_FOUND", message("plugins.notFound"));
   const server = plugin.components.mcpServers.find((s) => s.name === input.server);
-  if (!server) throw new ORPCError("BAD_REQUEST", { message: `The plugin has no MCP server “${input.server}”` });
-  if (server.type !== "http") throw new ORPCError("BAD_REQUEST", { message: `${server.name} runs on a runner: add it from the plugin's page` });
-  if (server.settings.length) throw new ORPCError("BAD_REQUEST", { message: `${server.name}'s URL needs a setting: add it from the plugin's page` });
+  if (!server) throw new ORPCError("BAD_REQUEST", message("plugins.server.notFound", { name: input.server }));
+  if (server.type !== "http") throw new ORPCError("BAD_REQUEST", message("plugins.server.onRunner", { name: server.name }));
+  if (server.settings.length) throw new ORPCError("BAD_REQUEST", message("plugins.server.needsSetting", { name: server.name }));
   // Stored before servers were added from a setup.
-  if (!server.transport) throw new ORPCError("BAD_REQUEST", { message: `Update the plugin to add ${server.name}` });
-  if (server.url !== input.url || server.transport !== input.transport) throw new ORPCError("CONFLICT", { message: `${server.name} changed since you reviewed it: look at it again` });
+  if (!server.transport) throw new ORPCError("BAD_REQUEST", message("plugins.server.updateToAdd", { name: server.name }));
+  if (server.url !== input.url || server.transport !== input.transport) throw new ORPCError("CONFLICT", message("plugins.server.changed", { name: server.name }));
   const tool = await createTool(context, { name: toolName(server.name), url: server.url, transport: server.transport, headers: {}, plugin: { id: input.pluginId, component: server.name } });
   await recordCreated(context.db, input.pluginId, "tool", tool.id, `server:${server.name}`);
   return tool;

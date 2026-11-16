@@ -55,7 +55,7 @@ export type ToolTarget = {
 export type ToolAction = McpAction & { outputSchema?: Record<string, unknown>; readOnly?: true };
 
 /**
- * A file in a result's content (an image, an embedded resource's blob): its bytes as the server
+ * A file in a result's content (an image, audio, an embedded resource's blob): its bytes as the server
  * sent them, never read here. Only a Job keeps them (`keepJobFiles`); anywhere else they are dropped.
  */
 export type ToolFile = { name: string; bytes: Uint8Array };
@@ -212,11 +212,11 @@ function decodeURIComponentSafe(text: string): string {
   }
 }
 
-/** The files of a result: its images and the embedded resources that carry a blob, in order. */
+/** The files of a result: its images, audio and the embedded resources that carry a blob, in order. */
 function filesOf(result: CallToolResult, clean: (text: string) => string): ToolFile[] {
   const files: ToolFile[] = [];
   for (const part of result.content) {
-    if (part.type === "image") files.push({ name: "image", bytes: Buffer.from(part.data, "base64") });
+    if (part.type === "image" || part.type === "audio") files.push({ name: part.type, bytes: Buffer.from(part.data, "base64") });
     else if (part.type === "resource" && "blob" in part.resource) files.push({ name: nameOf(part.resource.uri, clean), bytes: Buffer.from(part.resource.blob, "base64") });
   }
   return files;

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "../../test/jsdom-shims.ts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -13,6 +13,7 @@ const fake = vi.hoisted(() => ({
   harnesses: { list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), models: vi.fn() },
   runners: { list: vi.fn() },
   runs: { sendChat: vi.fn(), stream: vi.fn(), list: vi.fn(), get: vi.fn() },
+  files: { hold: vi.fn() },
   jobs: { start: vi.fn(), def: vi.fn() },
   workflows: { get: vi.fn() },
   questions: { answer: vi.fn() },
@@ -24,6 +25,8 @@ vi.mock("../../lib/api.ts", async () => {
 });
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => children }));
 const { AssistantChat } = await import("./AssistantChat.tsx");
+const { createI18n } = await import("../../lib/i18n.ts");
+const { I18nextProvider } = await import("react-i18next");
 const { localTimezone } = await import("../agents/TriggerSheet.tsx");
 
 afterEach(() => {
@@ -106,6 +109,24 @@ test("the Assistant's chat starts a Job of its chat trigger with the first messa
   expect(opened).toEqual(["run_1"]);
 });
 
+test("Stem's composer takes files: an image pasted before the first message goes with it", async () => {
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.runs.list.mockResolvedValue([]);
+  fake.jobs.start.mockResolvedValue({ runId: "run_1" });
+  fake.jobs.def.mockResolvedValue({ trigger: { type: "manual", field: { id: "trigger_chat", key: "trigger", type: "chat", label: "Chat", agentId: "agent_a", prompt: "" } }, steps: [], edges: [] });
+  fake.files.hold.mockResolvedValue({ id: "att_9", name: "screen.png", mime: "image/png", size: 3, image: true });
+  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.runs.stream.mockImplementation(idle);
+  const { user } = mount();
+  expect(await screen.findByRole("button", { name: "Attach a file" })).toBeTruthy();
+  const input = await screen.findByLabelText("Message");
+  // jsdom has no DataTransfer: the paste carries the clipboard's files as the browser gives them.
+  fireEvent.paste(input, { clipboardData: { files: [new File(["png"], "screen.png", { type: "image/png" })], getData: () => "" } });
+  expect(await screen.findByText("screen.png")).toBeTruthy();
+  await user.type(input, "What's wrong here?{Enter}");
+  await waitFor(() => expect(fake.runs.sendChat.mock.calls[0]![0]).toEqual({ runId: "run_1", text: "What's wrong here?", attachmentIds: ["att_9"] }));
+});
+
 test("Assistant settings changes the harness and model, preserves other edits, and can restore the harness default", async () => {
   fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
   fake.runs.list.mockResolvedValue([]);
@@ -115,7 +136,7 @@ test("Assistant settings changes the harness and model, preserves other edits, a
   fake.agents.update.mockImplementation(async (fields) => { Object.assign(agent, fields, { model: fields.model }); return agent; });
   const { user } = mount();
   await user.type(await screen.findByRole("combobox", { name: "Message" }), "Keep this draft");
-  await user.click(await screen.findByRole("button", { name: "Assistant settings" }));
+  await user.click(await screen.findByRole("button", { name: "Stem settings" }));
   let sheet = await screen.findByRole("dialog");
   expect((await within(sheet).findByLabelText("Model") as HTMLInputElement).value).toBe("sonnet");
   await user.click(within(sheet).getByLabelText("Harness"));
@@ -130,7 +151,7 @@ test("Assistant settings changes the harness and model, preserves other edits, a
   expect((screen.getByRole("combobox", { name: "Message" }) as HTMLTextAreaElement).value).toBe("Keep this draft");
   expect(fake.agents.update.mock.calls[0]![0]).toEqual({ id: "agent_a", name: "Assistant", harnessId: "h2", model: "codex-model", systemPrompt: "Updated elsewhere", skillPackageIds: ["platform"], toolIds: ["explicit"] });
 
-  await user.click(screen.getByRole("button", { name: "Assistant settings" }));
+  await user.click(screen.getByRole("button", { name: "Stem settings" }));
   sheet = await screen.findByRole("dialog");
   const model = await within(sheet).findByLabelText("Model");
   expect((model as HTMLInputElement).value).toBe("codex-model");
@@ -147,12 +168,12 @@ test("reopening settings waits for fresh selections, and background refreshes ke
   const agent = { id: "agent_a", name: "Assistant", harnessId: "h1", model: "sonnet", systemPrompt: "", skills: [], tools: [] };
   fake.agents.get.mockResolvedValue(agent);
   const { user, queryClient } = mount();
-  await user.click(await screen.findByRole("button", { name: "Assistant settings" }));
+  await user.click(await screen.findByRole("button", { name: "Stem settings" }));
   expect((await screen.findByLabelText("Model") as HTMLInputElement).value).toBe("sonnet");
   await user.click(screen.getByRole("button", { name: "Close" }));
   let fetched!: (value: typeof agent) => void;
   fake.agents.get.mockImplementationOnce(() => new Promise((resolve) => { fetched = resolve; }));
-  await user.click(screen.getByRole("button", { name: "Assistant settings" }));
+  await user.click(screen.getByRole("button", { name: "Stem settings" }));
   expect(screen.queryByLabelText("Model")).toBeNull();
   await waitFor(() => expect(fetched).toBeDefined());
   fetched({ ...agent, harnessId: "h2", model: "new-model" });
@@ -170,7 +191,7 @@ test("a refused harness change keeps the settings open and shows the reason", as
   fake.agents.get.mockResolvedValue({ id: "agent_a", name: "Assistant", harnessId: "h1", systemPrompt: "", skills: [], tools: [] });
   fake.agents.update.mockRejectedValue(Object.assign(new Error("Runner tools only work with CLI harnesses"), { code: "BAD_REQUEST" }));
   const { user } = mount();
-  await user.click(await screen.findByRole("button", { name: "Assistant settings" }));
+  await user.click(await screen.findByRole("button", { name: "Stem settings" }));
   const sheet = await screen.findByRole("dialog");
   await user.click(await within(sheet).findByRole("button", { name: "Save settings" }));
   expect((await within(sheet).findByRole("alert")).textContent).toBe("Runner tools only work with CLI harnesses");
@@ -226,7 +247,7 @@ test("the weekly review is off until the owner turns it on, in their time zone",
   fake.triggers.get.mockResolvedValue(review);
   fake.triggers.update.mockImplementation(async ({ enabled }: { enabled: boolean }) => (review.enabled = enabled, review));
   const { user } = mount();
-  await user.click(await screen.findByRole("button", { name: "Assistant options" }));
+  await user.click(await screen.findByRole("button", { name: "Stem options" }));
   const box = (await screen.findByRole("checkbox", { name: /Weekly review/ })) as HTMLInputElement;
   expect(box.checked).toBe(false);
   await user.click(box);
@@ -243,7 +264,7 @@ test("without an Assistant, picking a harness makes it", async () => {
   fake.harnesses.list.mockResolvedValue([{ id: "harness_1", name: "Claude" }]);
   fake.agents.ensureAssistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
   const { user } = mount();
-  const start = await screen.findByRole("button", { name: "Start the Assistant" });
+  const start = await screen.findByRole("button", { name: "Start Stem" });
   expect((start as HTMLButtonElement).disabled).toBe(true);
   await user.selectOptions(screen.getByRole("combobox", { name: "Harness" }), "harness_1");
   await user.click(start);
@@ -256,7 +277,7 @@ test("without an Assistant or a harness, it offers to add one, and the Assistant
   fake.harnesses.list.mockResolvedValue([]);
   fake.runners.list.mockResolvedValue([]);
   const { user } = mount();
-  expect(await screen.findByText("Choose where the Assistant runs")).toBeTruthy();
+  expect(await screen.findByText("Choose where Stem runs")).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Add a harness" }));
   // The harness sheet: a cloud provider and key, or a runner's CLI.
   const sheet = await screen.findByRole("dialog");
@@ -288,7 +309,7 @@ test("model search groups provider choices, saves the chosen harness and support
   fake.agents.update.mockResolvedValue({});
   const { user } = mount();
   await user.click(await screen.findByRole("button", { name: "Full page" }));
-  await user.click(screen.getByRole("button", { name: "Assistant settings" }));
+  await user.click(screen.getByRole("button", { name: "Stem settings" }));
   const search = await screen.findByRole("textbox", { name: "Find a model" });
   await user.type(search, "fast");
   await user.click(await within(screen.getByRole("group", { name: "Cloud" })).findByRole("button", { name: "Fast model" }));
@@ -296,9 +317,41 @@ test("model search groups provider choices, saves the chosen harness and support
   expect(within(screen.getByRole("group", { name: "Cloud" })).getByRole("button", { name: "Fast model" }).getAttribute("aria-pressed")).toBe("true");
   await user.click(screen.getByRole("button", { name: "Save settings" }));
   await waitFor(() => expect(fake.agents.update).toHaveBeenCalledWith(expect.objectContaining({ harnessId: "h1", model: "fast" })));
-  await user.click(screen.getByRole("button", { name: "Assistant settings" }));
+  await user.click(screen.getByRole("button", { name: "Stem settings" }));
   await screen.findByRole("dialog");
   await user.keyboard("{Escape}");
   expect(screen.getByRole("button", { name: "Exit full page" })).toBeDefined();
   expect(fake.harnesses.models).toHaveBeenCalledWith({ harnessId: "h2" }, expect.anything());
+});
+
+test("the chat names the built-in agent Stem, in French too", async () => {
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.runs.list.mockResolvedValue([]);
+  fake.harnesses.list.mockResolvedValue([]);
+  fake.agents.get.mockResolvedValue({ id: "agent_a", name: "Assistant", harnessId: "h1", systemPrompt: "", skills: [], tools: [] });
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AssistantChat run={undefined} onOpen={() => {}} />
+      </QueryClientProvider>
+    </I18nextProvider>,
+  );
+  expect(await screen.findByRole("region", { name: "Stem" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Options de Stem" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Réglages de Stem" })).toBeTruthy();
+});
+
+test("without an Assistant, the harness choice is in French and names Stem", async () => {
+  fake.agents.assistant.mockResolvedValue(null);
+  fake.harnesses.list.mockResolvedValue([{ id: "harness_1", name: "Claude" }]);
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AssistantChat run={undefined} onOpen={() => {}} />
+      </QueryClientProvider>
+    </I18nextProvider>,
+  );
+  expect(await screen.findByRole("button", { name: "Démarrer Stem" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "Harnais" })).toBeTruthy();
+  expect(screen.getByText(/Choisissez le harnais sur lequel Stem tourne/)).toBeTruthy();
 });

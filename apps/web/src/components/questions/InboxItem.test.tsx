@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
+import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
+import { createI18n } from "../../lib/i18n.ts";
 
 const fake = vi.hoisted(() => ({ questions: { answer: vi.fn(), list: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
@@ -164,4 +166,18 @@ test("a consult's Approval shows the agent consulted and the question; done, it 
   mount({ ...base, kind: "approval", status: "answered", consultId: "q_consult", payload, answer: { kind: "permission", decision: "deny" }, answeredAt: at });
   expect(screen.getByText("Wanted to consult Architect: Which plan?")).toBeTruthy();
   expect(screen.getByText("Denied")).toBeTruthy();
+});
+
+test("the inbox item is in French: tag, answer, who answered and the link", () => {
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <QueryClientProvider client={new QueryClient()}>
+        <InboxItem item={{ ...approval, status: "answered", answer: { kind: "permission", decision: "deny", message: "pas maintenant", remember: "run" }, answeredAt: at, answeredBy: { type: "user", userId: "u" } } as never} />
+      </QueryClientProvider>
+    </I18nextProvider>,
+  );
+  expect(screen.getByText("Approbation")).toBeTruthy();
+  expect(screen.getByText("Refusé pour cette exécution : pas maintenant")).toBeTruthy();
+  expect(screen.getByText(/Réponse de votre part/)).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Ouvrir l’exécution" })).toBeTruthy();
 });

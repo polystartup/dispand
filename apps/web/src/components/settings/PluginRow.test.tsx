@@ -3,8 +3,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
+import { say } from "@dispand/domain/messages/index.ts";
 
-const fake = vi.hoisted(() => ({ plugins: { update: vi.fn(), updatePreview: vi.fn(), uninstall: vi.fn(), uninstallPreview: vi.fn(), setupPreview: vi.fn(), setUp: vi.fn() }, runners: { list: vi.fn(), plugins: vi.fn(), workspacePlugin: vi.fn() }, harnesses: { list: vi.fn() }, triggers: {}, jobs: {}, skills: {}, tools: {}, agents: {}, tables: {} }));
+const fake = vi.hoisted(() => ({ plugins: { update: vi.fn(), updatePreview: vi.fn(), tableChanges: vi.fn(), applyTableChange: vi.fn(), uninstall: vi.fn(), uninstallPreview: vi.fn(), setupPreview: vi.fn(), setUp: vi.fn() }, runners: { list: vi.fn(), plugins: vi.fn(), workspacePlugin: vi.fn() }, harnesses: { list: vi.fn() }, triggers: {}, jobs: {}, skills: {}, tools: {}, agents: {}, tables: {} }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -84,6 +85,7 @@ test("a marketplace plugin reads as before: where it came from, its commit, Upda
 });
 
 test("a plugin's definitions are listed by kind, each marked once something was set up from it", () => {
+  fake.plugins.tableChanges.mockResolvedValue([]);
   mount({
     ...base,
     id: "plugin_3",
@@ -134,7 +136,7 @@ test("an update that rewords an agent or meets the owner's own change stops on i
     reviewed: "r".repeat(64),
   });
   fake.harnesses.list.mockResolvedValue([]);
-  fake.plugins.update.mockResolvedValue({ sha: "b".repeat(40), failed: [{ name: "Intake", reason: "Harness not found" }] });
+  fake.plugins.update.mockResolvedValue({ sha: "b".repeat(40), failed: [{ name: "Intake", reason: { text: "Harness not found" } }] });
   mount(installed);
   await userEvent.click(screen.getByRole("button", { name: "Update law-firm" }));
   const dialog = await screen.findByRole("dialog");
@@ -148,7 +150,7 @@ test("an update that rewords an agent or meets the owner's own change stops on i
 });
 
 test("after an update that adds elements, Set up opens: they are made from there, not by the update", async () => {
-  fake.plugins.updatePreview.mockResolvedValue({ sha: "b".repeat(40), conflicts: [], changes: [], additions: [{ key: "agent:Billing", kind: "agent", name: "Billing", detail: "Prepares invoices." }], removals: [], tables: [], releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null }, native: { harnesses: [], unchecked: [] }, names: {}, reviewed: "r".repeat(64) });
+  fake.plugins.updatePreview.mockResolvedValue({ sha: "b".repeat(40), conflicts: [], changes: [], additions: [{ key: "agent:Billing", kind: "agent", name: "Billing", detail: { text: "Prepares invoices." } }], removals: [], tables: [], releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null }, native: { harnesses: [], unchecked: [] }, names: {}, reviewed: "r".repeat(64) });
   fake.plugins.update.mockResolvedValue({ sha: "b".repeat(40) });
   fake.harnesses.list.mockResolvedValue([]);
   mount(installed);
@@ -166,7 +168,7 @@ test("what a new version drops is on the update's screen with the removal's choi
     changes: [],
     additions: [],
     removals: [
-      { key: "table:t1", kind: "table", id: "t1", name: "Research", reasons: ["It has 1 row"], needs: [], keepOnly: null },
+      { key: "table:t1", kind: "table", id: "t1", name: "Research", reasons: [say("plugins.reason.rows", { count: 1 })], needs: [], keepOnly: null },
       { key: "agent:a1", kind: "agent", id: "a1", name: "Matter upkeep", reasons: [], needs: [], keepOnly: null },
     ],
     tables: [],
@@ -183,4 +185,30 @@ test("what a new version drops is on the update's screen with the removal's choi
   expect(dialog.textContent).toContain("1 other element goes with the plugin.");
   await userEvent.click(screen.getByRole("button", { name: "Update" }));
   expect(fake.plugins.update.mock.calls[0]![0]).toEqual({ id: "plugin_1", reviewed: "r".repeat(64), take: [], choices: { "table:t1": "keep" }, tables: {}, native: [], stem: [] });
+});
+
+test("a table change an update didn't apply shows on the row with Apply, which applies it with its token", async () => {
+  const reviewed = "r".repeat(64);
+  fake.plugins.tableChanges.mockResolvedValue([
+    {
+      tableId: "tbl_1",
+      name: "Matters",
+      changes: [
+        { key: "remove:Conclusions", kind: "remove", field: "Conclusions", ticked: false, loses: 3, reviewed },
+        { key: "retype:Clients", kind: "retype", field: "Clients", ticked: false, stale: say("plugins.table.unsupported"), reviewed },
+      ],
+    },
+  ]);
+  fake.plugins.applyTableChange.mockResolvedValue({});
+  mount({ ...installed, tables: [{ id: "tbl_1", name: "Matters" }] });
+  const apply = await screen.findByRole("button", { name: "Apply to Matters: Remove the field Conclusions" });
+  const row = screen.getByRole("listitem", { name: "law-firm" });
+  expect(row.textContent).toContain("Not applied to Matters from the plugin");
+  expect(row.textContent).toContain("Applied, it removes the values of 3 rows.");
+  // One that can't apply says why, with nothing to press.
+  expect(row.textContent).toContain("It can't be applied here: change the field by hand.");
+  expect(screen.queryByRole("button", { name: "Apply to Matters: Change the type of Clients" })).toBeNull();
+  await userEvent.click(apply);
+  expect(fake.plugins.applyTableChange.mock.calls[0]![0]).toEqual({ id: "plugin_1", tableId: "tbl_1", key: "remove:Conclusions", reviewed });
+  expect((await screen.findByRole("status")).textContent).toBe("Applied to Matters.");
 });

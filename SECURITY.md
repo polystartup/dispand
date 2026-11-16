@@ -25,7 +25,11 @@ changes it updates this file.
   place: the Job must still be going, and the tool's bundle (for the memory tools, its own
   rule: `allowed` in `platform/tools.ts`) and every table the call touches must be in the
   Job's snapshot and still on the agent, so a right taken back applies at once
-  and a right added later never reaches a running Job. A call then runs as the Job's owner; that
+  and a right added later never reaches a running Job. One exception, which we decided: a table
+  a Job creates (`tables_create`) joins its agent's tables and that Job's own, where each is a
+  list, in the transaction that makes it, so the Job gains rights on exactly that table and
+  nothing else (no other table, no bundle); a refused create adds nothing, and both rows are
+  locked so concurrent creates each keep theirs. A call then runs as the Job's owner; that
   identity is set only by the authorizing function, never from a request. These calls ask the
   owner no question: the bundles are the permission. `configure` changes fields, not the rows
   under them: a Job can't remove a choice of a field, since that clears the rows that use it.
@@ -117,8 +121,8 @@ changes it updates this file.
   wrote is shown in many places; whatever a renderer makes of it, the browser can't be made
   to fetch from, or send to, another host. Scripts and styles are not restricted by it. A
   served file keeps its own stricter policy (`default-src 'none'; sandbox`).
-- **An agent's text is shown formatted, and loads nothing.** In the chat an agent's words go
-  through one component (`components/chat/AgentText.tsx`): an image shows only when its
+- **An agent's text is shown formatted, and loads nothing.** In the chat and in a Job's
+  transcript on its run page, an agent's words go through one component (`components/chat/AgentText.tsx`): an image shows only when its
   address is one of the app's own files (`/files/<id>`, nothing else: no scheme, no host, no
   `..`), and is otherwise replaced by its description; a link is never an anchor but a
   button that shows its destination and opens it in a new window on a click, and only for
@@ -149,7 +153,11 @@ changes it updates this file.
   proposed, the server reads the plugin again, refuses a token that isn't that read's, and keeps
   the picked agents' rights with the item (`shown`): the owner reads those, never a page fetched
   on its own, and the token makes them what is made. Only a Job on every table proposes it, as
-  its setup may reach any table.
+  its setup may reach any table. An agent adds a marketplace or a skill site (`marketplaces_add`)
+  only on an approved item, like any grant: the item holds the exact address and kind, so an
+  approval for one address never adds another, and the owner reads the address as the server
+  will read it (`shown`: GitHub's `owner/repo` made whole, a skill site's index URL; nothing is
+  fetched before the approval, and an address that isn't https, or holds credentials, is refused when proposed).
   The snapshot binds the grant to the tool's target and permission revision; retargeting
   increments the revision atomically, including when pointed back later. Agent writes check
   the binding while holding a shared lock on the tool, so retargeting cannot restore an old grant.
@@ -178,10 +186,21 @@ changes it updates this file.
   off against; a decision that is neither value, or that changes an agent's rights (they combine,
   so two decisions within bounds could give together what neither version did), waits for the
   owner's Approval; a tool it gives an agent starts with every action on Ask. On a runner it runs
-  only on Claude Code, as a restricted session (protocol 26): the runner itself gives it no
-  built-in tool (nor the CLI's server-side advisor, switched off in its environment), none of the user's settings, no skill, memory
-  or consult, and no MCP server but the Job's own, whatever the start holds. Codex, whose native tools have no such switch here, is
-  refused.
+  as a restricted session (protocol 26; on Codex, protocol 29), on Claude Code or Codex: the runner itself gives it no skill, memory or consult, no MCP
+  server but the Job's own, and no way to the shell, files or network, whatever the start holds. On Claude Code: no
+  built-in tool (nor the CLI's server-side advisor, switched off in its environment) and none of the user's settings. On
+  Codex (checked with 0.167.0 on what the model is sent, `codex/restricted-tools.test.ts`): every native tool a switch
+  removes is off (shell, view_image, web search, image generation, browser and computer use, apps and plugins, subagents,
+  goals, sleep, asking the person), as are hooks, memories, the skills catalog and every MCP server of the user's config;
+  its turns get no execution environment, under a read-only profile with no network. What the model keeps is code
+  mode's `exec`/`wait` (an isolate with no file system or network that calls only the tools listed here), `apply_patch`
+  (the model's catalog entry adds it and no switch removes it: with no environment every call fails before touching a
+  file, and a file-change approval would be declined), the clock, the MCP resource tools (which reach only the Job's
+  server), `submit_outputs` and the Job's server. The runner answers no command, file-change or question request and no
+  dynamic tool but `submit_outputs`, bypass or not. A restricted Codex start needs Codex ≥ 0.167.0 (`RESTRICTED_CODEX`):
+  an older one may ignore a switch it doesn't know, so the runner refuses it. On a newer one it runs and the runner logs
+  a warning: after every Codex update, run `codex/restricted-tools.test.ts` on the runner machine, and change the
+  switches if it fails.
 - **A consult reaches only an agent its Job may consult, and nothing answers in that agent's
   place.** A Job's `consult` tool (cloud and runner sessions; absent when its agent may consult
   none, and in workflow steps) names an agent by id. A runner sends a consult only for an agent
@@ -214,11 +233,27 @@ changes it updates this file.
   reconnect or a restart included. Changing the checkpoint is a grant: an agent does it only
   through a proposal a person approved.
 - **What can't be undone, what removes a question and what starts Jobs are grants too.**
-  Deleting a table or a field, changing an action's asking flag, and creating, changing or
+  Deleting a table, a field or an agent, changing a field's type, changing an action's asking flag, and creating, changing or
   deleting a trigger (what starts an agent's Jobs, and what the agent is told then) are in the registry with the same mark as
-  creating or changing an agent, so the same gate refuses them without an approved item. An
+  creating or changing an agent, so the same gate refuses them without an approved item. One
+  exception, which we decided because it only takes away what the agent does: a call that
+  only turns off (`enabled: false`, no other field) a trigger of the Job's own agent runs
+  without an item, checked on its parsed input against the trigger's stored agent, and leaves
+  the same Audit row as any call; turning a trigger on stays a grant. A field's dry run
+  (`fields_retype` with `dryRun: true`) only counts and changes nothing, so it runs without an
+  item too, and can't be proposed. Deleting an agent runs the owner's own `agents.delete` (its
+  Jobs still going stop, its triggers go), and is refused when proposed for the built-in agent
+  (`assistantGuard`) and for the Job's own agent. Accepted: a consulted Job may propose deleting
+  its asker's agent; applied, that stops the asker and so, down the consult chain, the
+  consulted Job too, as any stop of the asker does. An
   item is also checked against the Job's tables when it is proposed, like any call: a Job
   limited to some tables can't put another table's deletion in front of the owner.
+- **A trigger on Jobs gets no content.** A Job created, finished or failed is an event of
+  ids, its cause's kind and its status, never its result, error or transcript, and the Job it
+  starts is told only those and its agent's name, so any agent may have such a trigger without
+  a bundle. Reading what the Job did stays `jobs_get`'s, under `configure` and every table. A
+  Job's own agent is never fired by its event, and a chain of Jobs firing on Jobs stays in its
+  root, so it stops at that root's checkpoint until a person approves.
 - **A Question reaches another agent only within what it may read.** Asking, answering and
   expiring a Question or an Approval is an event of ids and kinds, never its text, options or
   answer. An agent's trigger on them starts a Job only for a Question it may read
@@ -246,7 +281,11 @@ changes it updates this file.
   through `memory/store.ts`, which checks the entry and its path (`isMemoryPath`: never a file
   a CLI loads as instructions) and keeps each revision with its author: the agent, its Job and
   whether it had `configure`. `memory_add` never replaces an entry and `memory_update` never
-  creates one, and the owner can revert or restore any write.
+  creates one, and the owner can revert or restore any write. A memory write may also be an
+  item of a proposal, refused when proposed outside the Job's targets; an approval never widens
+  them. The built-in agent writes the workspace's memory by default (its `workspace` target,
+  which the owner may untick), so what it learns steers every agent's Jobs: the business it
+  writes on day one is an item the owner approves.
 - **Memory steers the agents that work on data, never one that configures until a person
   accepts it.** A Job's session start gets, after its agent's instructions, the memory it reads
   (`memory/read.ts`, read whenever a start is sent, first, again or resumed, with the Job's
@@ -338,7 +377,7 @@ changes it updates this file.
   Workflow questions cannot persist a future-run choice. The answer transaction validates the
   offered scope before marking the question answered; remembered allows consume that approval,
   so revoking the grant cannot leave a spare single-call approval. The UI defaults to Just this
-  call, offers run-only memory, and offers future-run memory only for a Job's chosen agent tool.
+  call, offers run-only memory, and offers future-run memory only for a tool the Job's agent chose or gets with one of its own skill packages.
   Allow + future-run selects Run; Deny + future-run selects Off. Agent answers cannot remember.
   Legacy Always is refused for MCP tool questions. Undelivered positive answers are checked
   again before they may populate a runner's local cache.
@@ -356,8 +395,43 @@ changes it updates this file.
   server or runner tool is no longer its entry). That hint is the
   server's claim and is read only then: a server that later calls another action read-only
   gains nothing, an action that appears later asks, and a tool that only comes with a skill
-  asks for everything. A tool pointed at another address or transport asks for everything
-  again on every agent for enabled actions: the unasked list named the old server's actions. Tools reached by URL and runner tools
+  asks for everything until a future-run answer, or the owner's Run/Ask/Off change for that
+  agent (`agents.setToolPermission`, or an approved proposal item), changes it. That answer is kept in
+  `agent_skill_tool_permissions`, one row per agent, skill package requiring the tool and tool
+  id, with the tool's `toolPermissionTarget` it was written for: a row applies only to that
+  agent, to that tool id (a same-named tool of a plugin or of the owner is another tool), while
+  a package that gives the agent the tool is the agent's and still requires it (each answer is
+  written for every such package at once, so it holds while any of them stays), and only while the tool's target is
+  unchanged (another address, transport or runner tool, an availability change: by an edit, a
+  reset to a plugin's value or a plugin update, the tool asks again). Removing the package from
+  the agent, or the tool from the package, deletes its rows, and so does choosing the tool for
+  the agent (its `agent_tools` row takes over, starting with a remembered Off, and removing it
+  later revives nothing); an agent
+  save that keeps the package keeps them. The write locks the package and its `agent_skills` row. A tool pointed at another address or transport asks for everything
+  again on every agent for enabled actions: the unasked list named the old server's actions.
+  That reset holds in both modes of the workspace's strict permissions (`workspace_settings.strict_permissions`,
+  off until the owner turns it on in Settings; no tool or proposal reads or sets it). Off, a remembered
+  choice (`agent_tools.unasked`, an `agent_skill_tool_permissions` row) is bound to the tool id and
+  its target only, as above. On, it is also bound to a strict target, written beside its lists and compared
+  only while strict is on, one rule for every reader (`heldUnasked`, `toolPermissionTarget` with versions
+  in `agents/tool-ask.ts`): the tool's target plus its listed actions' names and input and output
+  schemas, its plugin's commit, the skill package's files (`skill_packages.fingerprint`, for a choice
+  that came with a skill) and the agent's `revision` (raised by every `agents.update`). A choice whose
+  strict target differs, was written while strict was off, or can't be checked (the tool's last
+  listing failed) asks again; its Off stays (a stale Off asking would widen). An explicit change
+  under strict drops the stale grants of that tool rather than carrying them over. Turning strict on
+  makes choices remembered while it was off ask; turning it off keeps every choice. A Job is held to
+  the agent revision it was made from (its snapshot's), so a grant given after an edit doesn't reach
+  a Job still running the earlier configuration. Polls read only grants that still hold
+  (`tools/pollable.ts`). Turning strict on, and refreshing a tool's listing while it is on, narrows
+  running sessions, as skill edits and plugin updates already do. A future-run answer under strict
+  carries the strict target it was offered for (for a tool that comes with skills, each requiring
+  package's, its files included) and is refused when it is no longer current. An agent update
+  proposal freezes only the grants that still hold, each with the tool's strict target then (the
+  agent's own revision left out, since the approval itself changes it); on approval a list is
+  written only while that target is still current, otherwise a tool the agent had keeps its stale list (so it asks), and a tool it gains asks for
+  everything rather than taking its current defaults. A run's own
+  remembered decisions (`runs.remembered`) end with the run and carry no version. Tools reached by URL and runner tools
   have this list; runner tools use it in Job sessions only. The list changes in three ways, each a person's: the owner on the
   agent's page; an item of a proposal the owner approved (the write is a grant: an agent
   can list it, never make it on its own); and the answer "always allow" to an approval of
@@ -505,9 +579,17 @@ changes it updates this file.
   its `config.json` names under `mcpServers` (command, args, env), or refuses the session before
   its folder or CLI exists; `hello` reports the names only, so the server never sees the
   commands or their `env` (keys stay on the machine), and `pair` and `install.sh --update` keep
-  them. Each starts from the home folder (`sh` changes to it, for Claude Code and Codex alike),
-  never the run folder, where the agent could write files its command loads (`.npmrc`,
-  `package.json`). Listing a runner tool's actions (`tool.discover`) starts only such a server,
+  them. In a session, the CLI starts the runner's own MCP proxy (`dispand-runner mcp-proxy`,
+  `mcp-proxy.ts`) in its place, and the proxy starts it from the home folder, for Claude Code and
+  Codex alike, never the run folder, where the agent could write files its command loads
+  (`.npmrc`, `package.json`), with the proxy's environment stripped of every `DISPAND_*`
+  variable plus its own `env`: the Job's token never reaches it. The proxy relays every message
+  as it came, but a `tools/call` result in a Job's session: its files (images, audio, embedded
+  resources' blobs) go to Dispand's files endpoint and the result gets the text naming the Job's
+  attachments in their place (see the files paragraph below). The token reaches the proxy in its
+  environment (for Codex, by name through `env_vars` from the app-server's environment, never in
+  `thread/start`), as the Job server's bearer reaches the CLI.
+  Listing a runner tool's actions (`tool.discover`) starts only such a server,
   with an MCP client's default environment plus its `env`, from the home folder, its stderr
   dropped, one listing per tool at a time, stopped after 30 s; its `env` values are redacted from
   what it lists before anything reads it, and an error carries the runner's own words, never the
@@ -574,16 +656,48 @@ changes it updates this file.
   with that type. Everything else, SVG and HTML included whatever their name or declared type,
   is a download (`application/octet-stream`). Every file gets `X-Content-Type-Options: nosniff`
   and `Content-Security-Policy: default-src 'none'; sandbox`. A cell only holds files of its own
-  table. Files are at most 10 MiB. Agents never get a file's content: no tool,
-  prompt or runner message carries it. A Job with the `data` bundle sees a row's file names and
+  table. Files are at most 10 MiB. Agents get no file's content but the files a person attaches
+  to a chat message (below): no tool or prompt carries one. A Job with the `data` bundle sees a row's file names and
   ids, and can set a files cell to files already uploaded to that table (or empty it, after
   which the unused files are swept), like any other value of the row. Files in the result of a
   Job's HTTP tool call (images, embedded resources' blobs; at most 20 a result, each with the
   same bounds and sniffing as an upload) are stored as that Job's, and the agent gets their ids
-  in place of the bytes. A Job can write in a cell only its own such files that no table has
+  in place of the bytes. So are the files a Job's runner tools return: the runner's MCP proxy
+  sends them to `POST /mcp/job/files` with the Job's token, which names that one running Job, so
+  a stdio server can't put a file in another Job, and the path stays the server's own
+  (`<ownerId>/<attachmentId>`). A result is kept or refused whole, with the reason in its text
+  (what the agent sees, and the Job's transcript): a file over 10 MiB, more than 20 files, the
+  Job's totals (200 MiB and 100 files over every file it keeps, from any tool, a file a table took
+  included) or the install's (its owner's setting, 10 GiB until set, over every attachment). The
+  check and the store run under one install-wide lock, so two results can't both fit a total only
+  one fits; the proxy checks the per-result limits before sending, and the endpoint takes one
+  result's worth of body (about 268 MiB) and no more.
+  A Job can write in a cell only its own such files that no table has
   yet, which then become that table's for good (`writeRow` takes the writer from the call, never
   from its input): never another Job's, nor one a person writes. The bytes are stored as the
   server sent them, not redacted like the result's text: only the owner can read them.
+- **A file attached in a chat reaches only that chat's agent, and never as configuration.** The
+  owner attaches files in any chat (`files.hold`, owner-only, refused to a Job, not a tool): each
+  is held for them (no table, no Job), counted in the install's total from then on, removed a day
+  later if no message carries it. `runs.sendChat` gives the files it names to the message's Job
+  in the transaction that writes the message (`takeChatFiles`: the owner's held files only, all
+  or none, within 20 files of 10 MiB and the Job's totals, under the attachments lock); a Job
+  can't name any (`FORBIDDEN`). A cloud model gets them as image, PDF or text input, read from
+  disk at each model call and never stored in its transcript; a PDF's pages are read by pdf.js in
+  a child process with no environment, a 96 MB heap and 5 seconds, never in the server's own. A CLI session gets each one copied
+  by its runner to `.dispand/attachments/<attachment id>/file<.ext>` in the run folder, every part
+  made by Dispand (the original name gives only its extension, letters and digits); the original
+  name is words in the message, never a path. Both the server (before it names a path,
+  `chatFiles`) and the runner (`session.send`'s schema, then again before writing,
+  `apps/runner/src/attachments.ts`) refuse a path that isn't `isAttachmentPath`: so never a
+  `.claude`, `.codex` or `.mcp.json` segment nor a `CLAUDE.md`, `AGENTS.md` or
+  `AGENTS.override.md` (in any case), which a CLI would read as configuration or instructions.
+  The runner writes only through a `.dispand` and folders below it that are real folders, and
+  creates each file from inside its folder (a child process that `chdir`s there and checks its
+  real working folder first), so a live session swapping a folder for a link meanwhile sends the
+  write nowhere else; files are created `O_EXCL|O_NOFOLLOW` and made read-only by descriptor. It fetches the bytes at `GET /runner/attachments/<id>` with its
+  own token, which serves only a file a chat message carries, of a Job with a session on that
+  runner. The child that writes gets no environment.
 - **Skill files never name a path outside their skill.** Every file of a skill package, made in
   the app or imported from a plugin, passes `isSafeRelativePath` (`packages/runner-protocol/src/paths.ts`)
   before it is stored: relative POSIX paths only, no `..`, `.` or empty segment, no `\`, NUL or
@@ -653,6 +767,22 @@ changes it updates this file.
   harness. Missing, disabled, unknown, mismatched or unavailable native inventory retains the
   stripped workspace copy. Native execution failures never trigger automatic fallback or retries.
   A locally overridden Skillshare target must name the same CLI account sessions use.
+- **A runner runs a plugin's code only when its own record matches.** `allowedPlugins` in the
+  runner's config, written on the machine only (`dispand-runner allow-plugin`, or by hand) and
+  out of the server's reach like `mcpServers`, holds per plugin name the content digest and the
+  launch entry. `allow-plugin` doesn't take the tool's page on trust: it fetches the files over
+  the runner's token, refuses another name or a digest other than the one typed, shows the entry
+  and writes only after a typed yes. Before a launch, `pluginLaunch`
+  (`apps/runner/src/plugin-servers.ts`) recomputes the digest over the files it was given and
+  canonicalizes the entry it was sent; with no record of that name, or a digest or entry other
+  than the record's, it refuses before writing anything, so a label from the server proves
+  nothing. It then writes the files read-only outside every root and the machine's config,
+  runs a `./` command only when its real path is a file inside the plugin, keeps `cwd` inside the
+  plugin or its data folder, and expands only `${PLUGIN_ROOT}` and `${PLUGIN_DATA}`, once, in
+  `args`, `env` values and `cwd`. The record proves the plugin's files and its command line, not
+  what that command downloads when it runs (`npx some-package`): `allow-plugin` says so whenever
+  the command isn't a file of the plugin. Until Dispand delivers plugin servers to runners, no
+  plugin command is stored or run, as the next paragraph says.
 - **Workspace plugin imports bring files, never code that runs.** Marketplaces and plugins are fetched with
   `fetchGit` (`packages/domain/src/plugins/git.ts`): `https://` only (no credentials in the URL;
   `file://` only in a development build with `DISPAND_GIT_FILE_URLS=1`, for e2e fixtures),
@@ -723,7 +853,23 @@ changes it updates this file.
   index, 2 MiB per file and 32 MiB and 60 s per read. A skill whose name isn't a skill name, or
   whose files include a path `isSafeRelativePath` refuses, is listed as not imported, and its
   files are never requested. Every other skill goes through `validatePackage`.
-- **Every input is validated** by its procedure's Zod schema; errors don't leak internals.
+- **A Web Push carries an agent's name, the item's kind and its random id, nothing else.** What
+  agents wait on reaches the browsers the owner allowed (`push_subscriptions`, from the Inbox) through
+  the browser vendor's push service: the payload is exactly `{ text, count, itemId }`, `text` a
+  sentence naming the agent and the kind ("Drafting needs your decision."), `itemId` the newest
+  item's opaque id, never a question's text, an answer or a proposal's items. We decided an agent's
+  name, which the owner may make business-specific, may pass through that service. The payload is
+  encrypted to the browser's keys (RFC 8291) and signed with the install's VAPID key, generated
+  once and sealed like the other secrets; a subscription's keys are sealed too, and `push.list`
+  returns neither them nor its endpoint. The server posts only to an `https://` endpoint the
+  signed-in owner subscribed, in production never to its own addresses (the tools' guarded
+  fetch), reads only the answer's status and gives up after 15 seconds. Signing out deletes that browser's subscription, and one the push
+  service answers 404 or 410 for is deleted. The page's only worker is its own service worker
+  (`worker-src 'self'`, `/sw.js`), which shows every push and opens `/inbox?item=<id>` on a
+  click. The push procedures are no tool.
+- **Every input is validated** by its procedure's Zod schema; errors don't leak internals:
+  anything but an `ORPCError` reaches the page as the generic message (oRPC sends no text, the
+  log only `logError`'s summary), and a server message's values render as text, never markup.
 - **One owner account per install; every row is owner-scoped,** and procedures only return the session owner's rows.
 - **The server's secrets come from its environment** (`deploy/README.md`), never from git,
   logs or client bundles.
@@ -748,7 +894,10 @@ changes it updates this file.
   http only to loopback) and can't carry credentials itself. They are for the server they
   were entered for: changing a tool's origin (scheme, host, port) or its transport drops
   every saved header, and only those given with that change are kept, so the owner enters
-  them again for the new address; MCP calls follow a redirect only
+  them again for the new address. The cryptography holds it too: a header's AAD also names
+  the origin of its tool's URL (`headerAad`), so a header left on a tool pointed at another
+  origin doesn't open and is never sent there. Headers sealed before this binding are sealed
+  again once, at server start, with the origin their tool calls then (`tools/reseal.ts`); MCP calls follow a redirect only
   within the tool's origin, and a failure reaches the owner as a short reason made by
   Dispand (host, status), never the server's answer. Whatever the server sends back (action
   names and descriptions, results) has the header values, and each word of them but a scheme

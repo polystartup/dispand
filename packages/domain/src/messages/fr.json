@@ -1,0 +1,558 @@
+{
+  "agent": {
+    "assistant": {
+      "name": "Stem"
+    },
+    "tablesFull": "Cet agent travaille déjà sur {{max}} tables, le maximum : demandez au propriétaire d'en retirer une avant d'en créer une autre.",
+    "notFound": "Cet agent n’existe pas.",
+    "harnessNotFound": "Ce harnais n’existe pas.",
+    "skillNotFound": "Cette compétence n’existe pas.",
+    "toolNotFound": "Cet outil n’existe pas.",
+    "workflowUses": "Un workflow utilise cet agent.",
+    "toolChanged": "Un outil a changé depuis la relecture de cette configuration : proposez-la ou relisez-la à nouveau.",
+    "permissionTool": "Chaque permission d’outil doit désigner un outil choisi.",
+    "permissionOnce": "Indiquez une seule fois les permissions de chaque outil.",
+    "runnerNeedsCli": "Les outils de runner ne fonctionnent qu’avec des harnais CLI : « {{tool}} » s’exécute sur un runner.",
+    "runnerElsewhere": "L’outil « {{tool}} » s’exécute sur un autre runner que celui du harnais de l’agent.",
+    "actionDisabled": "Une action est désactivée pour tout l’espace de travail.",
+    "actionDenied": "Une action est désactivée : changez sa permission explicitement avant de l’accorder.",
+    "ofAgent": "de l’agent {{agent}}",
+    "consult": {
+      "self": "Un agent ne peut pas se consulter lui-même.",
+      "sides": "{{changes}} modifie l’espace de travail et {{keeps}} ne le modifie pas : un agent qui modifie l’espace de travail et un agent qui ne le modifie pas ne se consultent jamais."
+    },
+    "guard": {
+      "delete": "L’Assistant ne peut pas être supprimé.",
+      "bundles": "L’Assistant continue de travailler sur les données et de modifier les tables.",
+      "tables": "L’Assistant continue de travailler sur toutes les tables.",
+      "skill": "L’Assistant garde sa compétence de plateforme.",
+      "reviewDelete": "La revue de l’Assistant ne peut pas être supprimée : désactivez-la plutôt.",
+      "chatDelete": "Le chat de l’Assistant ne peut pas être supprimé.",
+      "chatOff": "Le chat de l’Assistant ne peut pas être désactivé.",
+      "chatStays": "Le chat de l’Assistant reste un chat."
+    }
+  },
+  "tools": {
+    "notFound": "Cet outil n’existe pas.",
+    "runnerNotFound": "Ce runner n’existe pas.",
+    "notInCatalog": "Cet élément n’est pas dans le catalogue.",
+    "exists": "Un outil s’appelle déjà « {{name}} ».",
+    "changed": "L’outil a changé entre-temps : rouvrez-le.",
+    "noAction": "L’outil n’a pas d’action {{action}}.",
+    "name": "Un outil a besoin d’un nom de 1 à 100 caractères.",
+    "notUrl": "Ce n’est pas une URL http(s).",
+    "headersInvalid": "Les en-têtes ne sont pas valides.",
+    "oneLine": "Une seule ligne de texte.",
+    "headerOneLine": "La valeur d’un en-tête tient sur une seule ligne de texte.",
+    "headersMax": "20 en-têtes au plus.",
+    "settingsMax": "20 réglages au plus.",
+    "headerTwice": "L’en-tête {{header}} est donné deux fois.",
+    "headerNoValue": "L’en-tête {{header}} n’a pas de valeur.",
+    "credentialsInUrl": "Mettez les identifiants dans un en-tête, pas dans l’URL.",
+    "headersHttps": "Les en-têtes ne sont envoyés qu’à une URL en https://.",
+    "settingMissing": "{{label}} est obligatoire.",
+    "noSettings": "Cet outil n’a aucun réglage à remplir.",
+    "addressChanged": "Cet outil n’appelle plus l’adresse de son entrée du catalogue.",
+    "pickRunner": "Choisissez le runner et son serveur MCP.",
+    "runnerNoServer": "Le runner ne signale aucun serveur MCP nommé {{runnerTool}} : ajoutez-le au config.json du runner, puis redémarrez le runner.",
+    "runnerNoUrl": "Un outil de runner n’a ni URL ni en-têtes : le config.json de son runner indique comment le démarrer.",
+    "httpNoRunner": "Un outil HTTP ne s’exécute pas sur un runner.",
+    "oauthNoHeaders": "Un outil qui se connecte avec OAuth n’a pas d’en-têtes.",
+    "oauthOrNoneNoHeaders": "Un outil qui se connecte avec OAuth, ou sans connexion, n’a pas d’en-têtes.",
+    "oauthNoSecretUrl": "Un outil dont l’URL contient un secret ne peut pas se connecter avec OAuth.",
+    "notOauth": "Cet outil ne se connecte pas avec OAuth.",
+    "noSignIn": "{{host}} ne demande pas de connexion : choisissez plutôt aucune connexion.",
+    "notRunnerEntry": "Ce n’est pas une entrée de runner du catalogue.",
+    "catalogNotListed": "Absent du catalogue : tools_catalog en liste les entrées.",
+    "catalogOnMachine": "{{name}} s’exécute sur la machine du propriétaire : il l’ajoute sous mcpServers dans le config.json de son runner, puis choisit le runner dans Réglages → Outils. {{snippet}}",
+    "holder": {
+      "agent": "L’agent « {{name}} » utilise cet outil.",
+      "skill": "La compétence « {{name}} » exige cet outil.",
+      "workflow": "Le workflow « {{name}} » utilise cet outil.",
+      "run": "Une exécution du workflow « {{name}} » utilise encore cet outil.",
+      "stays": {
+        "agent": "L’agent « {{name}} » utilise cet outil : il reste sur son runner.",
+        "skill": "La compétence « {{name}} » exige cet outil : il reste sur son runner.",
+        "workflow": "Le workflow « {{name}} » utilise cet outil : il reste sur son runner.",
+        "run": "Une exécution du workflow « {{name}} » utilise encore cet outil : il reste sur son runner."
+      }
+    },
+    "onRunner": "sur un runner",
+    "poll": {
+      "gone": "L’outil n’existe plus.",
+      "disabled": "Cette action est désactivée pour tout l’espace de travail.",
+      "agentLacks": "L’agent n’a pas cet outil.",
+      "notReadable": "Une relève ne peut pas lire cette action : l’outil ne laisse pas les relèves la lire, ou un agent doit demander avant de l’utiliser."
+    },
+    "urlCredentials": "L’URL ne peut pas contenir d’identifiants."
+  },
+  "plugins": {
+    "notFound": "Ce plugin n’existe pas.",
+    "ownerSession": "Cette action demande une session de propriétaire.",
+    "marketplace": {
+      "notFound": "Cette place de marché n’existe pas.",
+      "noPlugin": "{{marketplace}} ne propose aucun plugin nommé « {{plugin}} ».",
+      "duplicate": "Cette place de marché est déjà ajoutée.",
+      "builtIn": "Les places de marché intégrées ne peuvent pas être retirées.",
+      "removeFirst": "Retirez d’abord ses plugins : {{plugins}}."
+    },
+    "install": {
+      "noSkill": "Le plugin n’a pas de compétence « {{name}} » à importer.",
+      "noServer": "Le plugin n’a pas de serveur MCP « {{name}} » à importer.",
+      "noAgent": "Le plugin n’a pas d’agent « {{name}} » à importer.",
+      "proposed": "Une installation proposée ne choisit que des compétences et des définitions : les serveurs MCP, les fichiers d’agent et l’installation native, c’est à vous de les ajouter.",
+      "pickHarness": "Choisissez le harnais sur lequel les agents du plugin s’exécutent.",
+      "harnessNotFound": "Ce harnais n’existe pas.",
+      "pickSomething": "Choisissez au moins une compétence, un serveur MCP ou un agent.",
+      "changed": "{{plugin}} a changé depuis votre relecture : relisez-le avant de l’installer.",
+      "serverOnMachine": "Le serveur MCP {{name}} lance une commande sur une machine : ce n’est pas encore pris en charge.",
+      "skillTaken": "Une compétence s’appelle déjà « {{name}} ».",
+      "installed": "{{plugin}} est déjà installé."
+    },
+    "uninstall": {
+      "choose": "Choisissez ce que deviennent les éléments que {{name}} laisserait, puis désinstallez-le à nouveau.",
+      "changed": "{{plugin}} a changé depuis votre relecture : relisez ce qui serait retiré.",
+      "notElement": "Ce n’est pas un élément du plugin.",
+      "needChoice": "Choisissez ce que devient {{name}}.",
+      "needNeeded": "Choisissez ce que devient {{needed}}, dont {{name}} a besoin.",
+      "keepBoth": "{{name}} désigne les lignes de {{other}} : gardez les deux, ou supprimez les deux."
+    },
+    "update": {
+      "generated": "{{plugin}} a été généré dans cet espace de travail : il n’y a rien à partir duquel le mettre à jour.",
+      "unlisted": "{{marketplace}} ne propose plus {{plugin}}.",
+      "nothingLeft": "Aucune des compétences importées de {{plugin}} n’existe encore en amont : retirez plutôt le plugin.",
+      "review": "Relisez ce que la mise à jour de {{plugin}} change avant de l’appliquer.",
+      "changed": "{{plugin}} a changé depuis votre relecture : relisez ce que sa mise à jour change.",
+      "notApplicable": "Ce n’est pas un changement de cette table qui puisse être appliqué.",
+      "notConflict": "Ce n’est pas un champ en conflit.",
+      "stemScope": "Stem décide des champs d’agents, d’outils et de déclencheurs en conflit que vous n’avez pas repris.",
+      "assistantFirst": "Configurez d’abord l’Assistant : Stem est l’Assistant.",
+      "notShown": "Il n’était pas sur l’écran de la mise à jour.",
+      "unreachable": "Son runner n’a pas pu être interrogé, ou l’installation a changé depuis.",
+      "nativeBlocked": "L’aperçu natif a été bloqué.",
+      "nativeApplyBlocked": "L’étape native a été bloquée.",
+      "nativeFailed": "L’étape native a échoué.",
+      "parentMissing": "Son champ parent {{field}} n’existe pas : cochez aussi son ajout.",
+      "parentOther": "Son parent est un autre champ qui désigne la même table : faites de {{field}} le parent à la main.",
+      "tableCount_one": "Une table de {{count}} champ.",
+      "tableCount_other": "Une table de {{count}} champs.",
+      "startsJobs": "Lance des Jobs de {{agent}}."
+    },
+    "table": {
+      "ownField": "Un de vos champs porte déjà ce nom.",
+      "ownerField": "Vous avez modifié ce champ.",
+      "unsupported": "Cela ne peut pas être appliqué ici : modifiez le champ à la main.",
+      "order": "Vous avez changé l’ordre.",
+      "changed": "Vous l’avez modifié.",
+      "changedSince": "{{plugin}} ou sa table a changé depuis votre dernière consultation : regardez à nouveau le changement."
+    },
+    "override": {
+      "forbidden": "Il appartient à {{plugin}} : désinstallez le plugin pour le retirer.",
+      "notField": "Ce n’est pas un champ qu’un plugin définit.",
+      "noValue": "Le plugin n’a pas de valeur à rétablir.",
+      "needsSetting": "L’adresse du plugin demande un réglage : mettez le plugin à jour, ou désinstallez-le puis réinstallez-le, pour le saisir.",
+      "notFound": "Cet élément n’existe pas.",
+      "conflictNotFound": "Ce conflit n’existe pas.",
+      "conflictChanged": "Ce champ a changé depuis votre relecture : relisez-le.",
+      "notPlugins": "Il n’appartient plus au plugin."
+    },
+    "server": {
+      "notFound": "Le plugin n’a pas de serveur MCP « {{name}} ».",
+      "onRunner": "{{name}} s’exécute sur un runner : ajoutez-le depuis la page du plugin.",
+      "needsSetting": "L’URL de {{name}} demande un réglage : ajoutez-le depuis la page du plugin.",
+      "updateToAdd": "Mettez le plugin à jour pour ajouter {{name}}.",
+      "changed": "{{name}} a changé depuis votre relecture : relisez-le."
+    },
+    "component": {
+      "needsSetting": "Le serveur MCP {{server}} a besoin de {{name}}.",
+      "urlTooLong": "L’URL du serveur MCP {{server}} dépasse 2 000 caractères.",
+      "settingInHost": "L’URL du serveur MCP {{server}} demande un réglage dans son hôte : ce n’est pas pris en charge.",
+      "settingCharacters": "Un réglage de l’URL du serveur MCP {{server}} ne peut contenir que des lettres, des chiffres et . _ ~ -.",
+      "notHttp": "L’URL du serveur MCP {{server}} n’est pas une URL http(s).",
+      "badHeaders": "Les en-têtes du serveur MCP {{server}} ne sont pas valides."
+    },
+    "setup": {
+      "changed": "La configuration a changé depuis votre relecture : relisez la liste à jour avant de configurer.",
+      "notTable": "« {{name}} » n’est pas une définition de table de ce plugin.",
+      "notAgent": "« {{name}} » n’est pas une définition d’agent de ce plugin.",
+      "notServer": "« {{name}} » n’est pas un serveur MCP de ce plugin.",
+      "notTrigger": "« {{name}} » n’est pas une définition de déclencheur de ce plugin.",
+      "pickTable": "« {{table}} » désigne la table « {{name}} » de ce plugin : choisissez-la aussi.",
+      "item": "Élément {{number}} ({{tool}}) : {{reason}}",
+      "noRef": "Il désigne un élément qui n’a rien créé.",
+      "notFound": "Cela n’existe pas.",
+      "failed": "Cela a échoué.",
+      "waiting": {
+        "nameField": "Chaque table a déjà un champ Name : celui-ci n’est pas ajouté.",
+        "noWorkspaceTable": "Aucune table de l’espace de travail ne s’appelle « {{table}} ».",
+        "onMachine": "{{name}} s’exécute sur votre machine : ajoutez-le dans Réglages → Outils.",
+        "notInCatalog": "Il n’est pas dans le catalogue.",
+        "notTicked": "Il n’a pas été coché à l’installation : ajoutez-le depuis Configurer, où son adresse est affichée.",
+        "onRunner": "Il s’exécute sur un runner : ajoutez-le depuis les serveurs MCP de ce runner (Réglages → Outils → Ajouter un outil de runner), ou installez le plugin en natif sur un harnais du runner.",
+        "needsSetting": "Son URL demande un réglage : ajoutez-le depuis la page du plugin.",
+        "updateToAdd": "Mettez le plugin à jour pour l’ajouter.",
+        "noTable": "Aucune table « {{table}} » n’est configurée ni dans l’espace de travail : choisissez-la aussi, ou créez-la.",
+        "noSkill": "Sa compétence « {{skill}} » n’a pas été installée avec le plugin : l’agent est créé sans elle.",
+        "noTool": "« {{tool}} » n’est pas encore ajouté comme outil : l’agent est créé sans lui.",
+        "noConsult": "Il consulte « {{agent}} », qui n’est pas encore configuré : choisissez-le aussi, ou configurez à nouveau ensuite.",
+        "noAgent": "Son agent « {{agent}} » n’est pas configuré : choisissez-le aussi.",
+        "noField": "Son champ « {{field}} » n’existe pas encore : configurez à nouveau ensuite.",
+        "noPollTool": "« {{tool}} » n’est pas encore ajouté comme outil.",
+        "addedBySetup": "« {{tool}} » est ajouté par cette configuration : configurez le déclencheur une fois que l’outil liste ses actions.",
+        "pollUnasked": "Sa relève exécute « {{action}} » sans demander, ce que l’installation n’accorde pas : laissez {{agent}} l’exécuter, puis configurez le déclencheur."
+      }
+    },
+    "reason": {
+      "changed": "Vous l’avez modifié.",
+      "changedTrigger": "Vous avez modifié son déclencheur « {{name}} ».",
+      "ownTrigger": "Il a un déclencheur à vous, « {{name}} ».",
+      "dashboardTrigger": "Un tableau de bord lance son déclencheur « {{name}} ».",
+      "job": "Il a un Job en cours ou en attente.",
+      "memory": "Il a des entrées de mémoire.",
+      "consulted": "L’agent « {{agent}} » peut le consulter.",
+      "workflowAgent": "Un workflow utilise cet agent.",
+      "changedFiles": "Vous avez modifié ses fichiers.",
+      "agentUses": "L’agent « {{agent}} » l’utilise.",
+      "skillRequires": "La compétence « {{skill}} » l’exige.",
+      "triggerPolls": "Le déclencheur « {{trigger}} » l’interroge.",
+      "workflowTool": "Un workflow utilise cet outil.",
+      "rows_one": "Elle a {{count}} ligne.",
+      "rows_other": "Elle a {{count}} lignes.",
+      "renamed": "Vous l’avez renommée.",
+      "changedFields": "Vous avez modifié ses champs.",
+      "fieldNames": "Le champ « {{field}} » de votre table « {{table}} » désigne ses lignes.",
+      "fieldNamesFirst": "Le champ « {{field}} » de votre table « {{table}} » désigne ses lignes : supprimez d’abord ce champ pour supprimer cette table.",
+      "agentWorks": "L’agent « {{agent}} » travaille dessus.",
+      "triggerWatches": "Le déclencheur « {{trigger}} » la surveille.",
+      "dashboardShows": "Un tableau de bord l’affiche.",
+      "workflowTable": "Un workflow utilise cette table.",
+      "triggerJob": "Un Job qu’il a lancé est en cours ou en attente.",
+      "held_one": "Il a {{count}} changement mis en attente de son tour.",
+      "held_other": "Il a {{count}} changements mis en attente de leur tour.",
+      "dashboardStarts": "Un tableau de bord le lance."
+    }
+  },
+  "questions": {
+    "notFound": "Cette question n’existe pas.",
+    "answer": {
+      "mismatch": "La réponse ne correspond pas à la question.",
+      "notAsked": "La réponse cite une question qui n’a pas été posée.",
+      "missing": "Répondez à « {{question}} ».",
+      "oneOnly": "« {{question}} » n’accepte qu’une réponse.",
+      "duplicate": "« {{question}} » contient deux fois la même réponse.",
+      "notForGood": "Cette autorisation ne peut pas être accordée définitivement.",
+      "tooLong": "La réponse est trop longue (environ {{max}} caractères au plus).",
+      "chooseScope": "Choisissez pour quelle portée retenir cette autorisation d’outil.",
+      "cannotRemember": "Cette autorisation a changé ou ne peut pas être retenue : actualisez et répondez à nouveau.",
+      "notPending": "Cette question n’attend plus de réponse."
+    }
+  },
+  "data": {
+    "table": {
+      "notFound": "Cette table n’existe pas.",
+      "nameTaken": "Une table s’appelle déjà « {{name}} ».",
+      "usedByWorkflow": "Un workflow utilise cette table.",
+      "referredBy": "Le champ « {{field}} » de la table « {{table}} » fait référence à cette table : supprimez-le d’abord.",
+      "parentNeedsPrimitive": "Seule une table primitive a un parent.",
+      "ownParent": "Une table ne peut pas être son propre parent.",
+      "fieldLimit": "Une table a au plus {{max}} champs.",
+      "parentRowsMissing_one": "{{count}} ligne de cette table n’a pas de {{parent}} : renseignez-la d’abord.",
+      "parentRowsMissing_other": "{{count}} lignes de cette table n’ont pas de {{parent}} : renseignez-les d’abord.",
+      "listEveryField": "Listez chaque champ de la table une seule fois.",
+      "lastField": "Une table garde au moins un champ."
+    },
+    "field": {
+      "notFound": "Ce champ n’existe pas.",
+      "nameTaken": "Un champ s’appelle déjà « {{name}} ».",
+      "choicesOnlySelect": "Seul un champ à choix unique a des choix.",
+      "referenceOnly": "Seul un champ de référence nomme la table dont il contient les lignes, et il doit en nommer une.",
+      "choiceRemoval": "Retirer un choix vide les lignes qui l’utilisent : seul le propriétaire peut le faire.",
+      "retypeToReference": "Créez plutôt un champ de référence : il nomme la table à laquelle il renvoie.",
+      "isParent": "« {{field}} » est le parent de la table : changez d’abord le parent.",
+      "ofTable": "de la table {{table}}"
+    },
+    "row": {
+      "notFound": "Cette ligne n’existe pas.",
+      "noField": "Cette table n’a pas de champ « {{id}} ».",
+      "noFile": "« {{field}} » nomme un fichier qui n’existe pas.",
+      "parentRequired": "Chaque ligne doit avoir une valeur dans « {{field}} ».",
+      "noRow": "« {{field}} » nomme une ligne qui n’existe pas.",
+      "notFiles": "Ce champ ne contient pas de fichiers.",
+      "children_one": "{{count}} ligne de « {{table}} » en dépend : supprimez-la ou déplacez-la d’abord.",
+      "children_other": "{{count}} lignes de « {{table}} » en dépendent : supprimez-les ou déplacez-les d’abord."
+    },
+    "file": {
+      "tooLarge": "Les fichiers font au plus 10 Mio.",
+      "tooMany": "Un message prend au plus {{max}} fichiers.",
+      "installFull": "Ce fichier ne peut pas être gardé : avec lui, les fichiers de Dispand dépasseraient {{limit}} Mio, le maximum de cette installation (un réglage de son propriétaire).",
+      "jobFull": "Ces fichiers ne peuvent pas être envoyés : avec eux, cette conversation garderait plus de {{files}} fichiers ou {{mib}} Mio, le maximum d’un Job.",
+      "gone": "Un fichier joint n’est plus disponible : joignez-le de nouveau.",
+      "agentOnly": "Seule une personne joint des fichiers à un message."
+    },
+    "cell": {
+      "tooLong": "« {{field}} » accepte au plus {{max}} caractères, et la valeur en compte {{length}}.",
+      "unstorable": "« {{field}} » contient un caractère que Dispand ne peut pas enregistrer (NUL ou un demi-substitut isolé).",
+      "noFilesFromText": "Les fichiers de « {{field}} » ne peuvent pas venir d’un texte.",
+      "got": {
+        "number": "« {{field}} » : un nombre était attendu, pas « {{value}} ».",
+        "checkbox": "« {{field}} » : vrai ou faux était attendu, pas « {{value}} ».",
+        "date": "« {{field}} » : une date AAAA-MM-JJ était attendue, pas « {{value}} ».",
+        "url": "« {{field}} » : une URL http(s) était attendue, pas « {{value}} ».",
+        "choice": "« {{field}} » : un des choix du champ était attendu, pas « {{value}} ».",
+        "rowId": "« {{field}} » : l’identifiant d’une ligne était attendu, pas « {{value}} »."
+      },
+      "expected": {
+        "url": "« {{field}} » demande une URL http(s).",
+        "date": "« {{field}} » demande une date AAAA-MM-JJ.",
+        "choice": "« {{field}} » demande un des choix du champ.",
+        "rowId": "« {{field}} » demande l’identifiant d’une ligne."
+      }
+    },
+    "query": {
+      "fieldGone": "Un filtre ou un tri utilise un champ qui n’existe plus.",
+      "notFilterable": "« {{field}} » ne peut pas être filtré par « {{op}} ».",
+      "valueNeeded": "« {{field}} » : une valeur est nécessaire.",
+      "notSortable": "« {{field}} » contient des fichiers et ne peut pas être trié."
+    }
+  },
+  "triggers": {
+    "notFound": "Ce déclencheur n’existe pas.",
+    "agentNotFound": "Cet agent n’existe pas.",
+    "instructionsNeeded": "Dites ce que l’agent fait quand ce déclencheur se déclenche.",
+    "inboxNeeded": "Seul un agent doté de la Boîte de réception peut être lancé par des Questions : donnez-lui d’abord la Boîte de réception.",
+    "tableNotFound": "Cette table n’existe pas.",
+    "needsPrimitive": "Seules les modifications d’une table primitive lancent des Jobs : rendez d’abord la table primitive.",
+    "fieldNotInTable": "Un champ surveillé n’appartient pas à la table.",
+    "cantReadTable": "L’agent ne peut pas lire cette table : donnez-lui d’abord l’accès aux données de la table.",
+    "fieldChanged": "Ce champ a changé entre-temps.",
+    "kindFixed": "Le type d’un déclencheur ne peut pas changer.",
+    "invalid": {
+      "operations": "Ces changements ne sont pas de ceux de ce que le déclencheur surveille.",
+      "noFields": "Une Question, une Approbation ou un Job n’a pas de champs.",
+      "argumentsTooLarge": "Les arguments dépassent 16 Kio."
+    }
+  },
+  "workflows": {
+    "notFound": "Ce workflow n’existe pas.",
+    "versionNotFound": "Cette version du workflow n’existe pas.",
+    "runNotFound": "Cette exécution n’existe pas.",
+    "triggerNotFound": "Ce déclencheur n’existe pas.",
+    "agentNotFound": "Cet agent n’existe pas.",
+    "tableNotFound": "Cette table n’existe pas.",
+    "toolNotFound": "Cet outil n’existe pas.",
+    "noSchedule": "Ce workflow n’a pas de planification.",
+    "runGoing": "Une exécution de ce workflow est encore en cours.",
+    "ownerSkill": "Seul le propriétaire invoque une compétence dans une conversation.",
+    "schedule": {
+      "fields": "Utilisez 5 champs : minute heure jour mois jour de la semaine.",
+      "noH": "Utilisez des nombres, pas H.",
+      "unknownTimezone": "Fuseau horaire inconnu.",
+      "unreadable": "Cette planification est illisible : {{reason}}."
+    },
+    "link": {
+      "self": "Une étape ne peut pas se suivre elle-même.",
+      "already": "Ces étapes sont déjà reliées.",
+      "beforeTrigger": "Rien ne s’exécute avant le déclencheur.",
+      "crossesLoop": "Un lien ne peut pas traverser le bord d’une boucle.",
+      "wouldLoop": "Ce lien créerait une boucle.",
+      "chooseBranch": "Choisissez Alors ou Sinon pour ce lien.",
+      "onlyCondition": "Seule une condition a Alors et Sinon."
+    },
+    "issue": {
+      "sameId": "Une autre étape a le même identifiant",
+      "sameKey": "Une autre étape s’appelle aussi « {{key}} »",
+      "leadsNowhere": "Cette étape mène à une étape qui n’existe pas",
+      "followsNowhere": "Cette étape suit une étape qui n’existe pas",
+      "inLoop": "Cette étape fait partie d’une boucle",
+      "loopMissing": "La boucle de cette étape n’existe pas",
+      "nested": "Les boucles ne peuvent pas encore être imbriquées",
+      "linkNowhere": "Un lien relie des étapes qui n’existent pas",
+      "chooseAgent": "Choisissez un agent",
+      "insideLoop": "{{reference}} : « {{step}} » s’exécute dans la boucle « {{loop}} » : utilisez {{results}}",
+      "notBefore": "{{reference}} : « {{step}} » ne s’exécute pas avant cette étape",
+      "isButton": "{{reference}} : « {{step}} » est un bouton, il n’a pas de valeurs",
+      "badName": "{{reference}} : « {{field}} » ne peut pas nommer une valeur (lettres, chiffres et _, sans commencer par un chiffre, 64 au plus, hors noms réservés)",
+      "noGive": "{{reference}} : « {{step}} » ne donne pas « {{field}} »",
+      "noStep": "{{reference}} : aucune étape ne s’appelle « {{step}} »",
+      "chooseValue": "Choisissez la valeur à comparer",
+      "valueGone": "La valeur à comparer vient d’une étape qui n’existe pas",
+      "chooseList": "Choisissez la liste à parcourir",
+      "listGone": "La liste vient d’une étape qui n’existe pas",
+      "emptyLoop": "Ajoutez une étape dans cette boucle",
+      "sourceGone": "Une valeur vient d’une étape qui n’existe pas",
+      "tooManyOutputs": "Les étapes suivantes demandent {{outputs}} valeurs à cette étape, {{max}} au plus",
+      "chooseTable": "Choisissez une table",
+      "tableGone": "La table de cette étape n’existe plus",
+      "chooseRow": "Choisissez la ligne à mettre à jour",
+      "filterFieldGone": "Un champ que cette étape filtre n’existe plus dans {{table}}",
+      "inputFieldGone": "Un champ que cette étape renseigne n’existe plus dans {{table}}",
+      "holdsFiles": "« {{field}} » contient des fichiers, qu’un workflow ne peut pas renseigner",
+      "setTwice": "« {{name}} » est renseigné deux fois",
+      "chooseTool": "Choisissez un outil",
+      "toolGone": "L’outil de cette étape n’existe plus",
+      "runnerTool": "Les étapes d’outil exécutent des outils HTTP : utilisez un agent pour les outils de runner",
+      "chooseAction": "Choisissez une action",
+      "actionDisabled": "L’action « {{action}} » de {{tool}} est désactivée dans tout l’espace de travail",
+      "actionGone": "{{tool}} n’a plus l’action « {{action}} »",
+      "noParam": "« {{action}} » n’a pas de paramètre « {{param}} »",
+      "needsValue": "« {{param}} » a besoin d’une valeur",
+      "mustBe": {
+        "number": "« {{param}} » doit être un nombre",
+        "integer": "« {{param}} » doit être un nombre entier",
+        "boolean": "« {{param}} » doit être true ou false",
+        "array": "« {{param}} » doit être du JSON (un tableau)",
+        "object": "« {{param}} » doit être du JSON (un objet)"
+      }
+    }
+  },
+  "validation": {
+    "invalid_type": "« {{field}} » n’a pas le bon type.",
+    "too_small": {
+      "string_one": "« {{field}} » demande au moins {{count}} caractère.",
+      "string_other": "« {{field}} » demande au moins {{count}} caractères.",
+      "array_one": "« {{field}} » demande au moins {{count}} élément.",
+      "array_other": "« {{field}} » demande au moins {{count}} éléments.",
+      "number": "« {{field}} » doit valoir au moins {{minimum}}."
+    },
+    "too_big": {
+      "string_one": "« {{field}} » accepte au plus {{count}} caractère.",
+      "string_other": "« {{field}} » accepte au plus {{count}} caractères.",
+      "array_one": "« {{field}} » accepte au plus {{count}} élément.",
+      "array_other": "« {{field}} » accepte au plus {{count}} éléments.",
+      "number": "« {{field}} » doit valoir au plus {{maximum}}."
+    },
+    "invalid_format": "« {{field}} » n’a pas le format attendu.",
+    "not_multiple_of": "« {{field}} » doit être un multiple de {{divisor}}.",
+    "unrecognized_keys": "« {{field}} » contient des champs qu’il n’accepte pas : {{keys}}.",
+    "invalid_union": "« {{field}} » n’est pas valide.",
+    "invalid_key": "« {{field}} » contient une clé qui n’est pas valide.",
+    "invalid_element": "« {{field}} » contient un élément qui n’est pas valide.",
+    "invalid_value": "« {{field}} » doit valoir l’un de : {{values}}.",
+    "custom": "« {{field}} » n’est pas valide."
+  },
+  "push": {
+    "question_one": "{{agent}} a une question pour vous.",
+    "question_other": "{{agent}} a une question pour vous, et {{count}} éléments attendent en tout.",
+    "approval_one": "{{agent}} attend votre décision.",
+    "approval_other": "{{agent}} attend votre décision, et {{count}} éléments attendent en tout."
+  },
+  "engine": {
+    "stoppedAtCheckpoint": "Arrêté à un point de contrôle.",
+    "rootNotFound": "Cette cause racine n’existe pas.",
+    "runOver": "Cette exécution est terminée.",
+    "chatOver": "La conversation est terminée.",
+    "chatRunnerGone": "Le runner de la conversation n’est plus disponible.",
+    "skillChatOnly": "Les compétences ne peuvent être invoquées que dans les conversations de l’Assistant.",
+    "skillWait": "Attendez que l’Assistant ait fini son tour avant de charger une autre compétence."
+  },
+  "harness": {
+    "detail": {
+      "onRunner": "{{kind}}, sur {{runner}}",
+      "mode": "{{kind}}, mode d’autorisation {{mode}}",
+      "both": "{{kind}}, sur {{runner}}, mode d’autorisation {{mode}}"
+    },
+    "usedByAgent": "Un agent utilise ce harnais.",
+    "modelsUnavailable": "Impossible de lister les modèles. Vérifiez que le runner est connecté et authentifié, ou saisissez l’identifiant d’un modèle.",
+    "modelsFailed": "Les modèles n’ont pas pu être listés.",
+    "kindFixed": "Un harnais ne peut pas passer de CLI à cloud, ni l’inverse.",
+    "cloud": {
+      "needsBaseUrl": "Un fournisseur compatible OpenAI a besoin d’une URL de base.",
+      "needsKey": "Une clé d’API est requise.",
+      "keyHttps": "Une clé n’est envoyée qu’à une URL de base en https://.",
+      "temperature": "La température ne concerne que les fournisseurs compatibles OpenAI."
+    },
+    "models": {
+      "unreachable": "Impossible de joindre {{host}}.",
+      "keyRefused": "Le fournisseur a refusé la clé."
+    }
+  },
+  "auth": {
+    "signIn": "Connectez-vous pour continuer.",
+    "setupRefused": "La configuration initiale n’est pas autorisée.",
+    "ownerOnly": "Seul le propriétaire peut faire cela, pas un agent."
+  },
+  "audit": {
+    "badCursor": "Ce curseur n’est pas valide : reprenez la liste depuis le début."
+  },
+  "memory": {
+    "notFound": "Cette mémoire n’existe pas.",
+    "full": "Cette mémoire contient déjà {{max}} entrées : supprimez-en une d’abord.",
+    "exists": "Une entrée {{path}} existe déjà.",
+    "noEntry": "Il n’y a pas d’entrée {{path}}.",
+    "removed": "Cette entrée est déjà supprimée.",
+    "acceptOnly": "Seule une entrée d’agent, non supprimée, peut être acceptée.",
+    "notRemoved": "Cette entrée n’est pas supprimée.",
+    "entry": {
+      "pathRule": "Le chemin doit être un chemin relatif se terminant par .md, de 120 caractères au plus, sans .., . ni partie vide, sans \\ ni dossier .claude ou .mcp.json, et ne pas être MEMORY.md, CLAUDE.md, AGENTS.md ou AGENTS.override.md.",
+      "nameEmpty": "Le nom ne peut pas être vide.",
+      "nameTooLong": "Le nom fait au plus {{nameMax}} caractères.",
+      "descriptionEmpty": "La description ne peut pas être vide.",
+      "descriptionTooLong": "La description fait au plus {{descriptionMax}} caractères.",
+      "descriptionOneLine": "La description tient sur une seule ligne.",
+      "typeOneOf": "Le type est l’un de : {{types}}.",
+      "bodyTooLong": "Le corps fait au plus {{bodyMax}} caractères."
+    }
+  },
+  "jobs": {
+    "manualOnly": "Seul un déclencheur manuel peut être lancé à la main.",
+    "disabled": "Ce déclencheur est désactivé.",
+    "notFound": "Ce Job n’existe pas."
+  },
+  "skills": {
+    "toolsUnavailable": "Cette compétence exige des outils indisponibles sur ce harnais.",
+    "tooMany": "Une conversation peut charger au plus {{max}} paquets de compétences.",
+    "nameTaken": "Une compétence s’appelle déjà « {{name}} ».",
+    "packageNameTaken": "Ce paquet contient déjà une compétence nommée « {{name}} ».",
+    "builtIn": "La compétence de plateforme est intégrée : elle est en lecture seule.",
+    "pluginSkill": "La compétence d’un plugin se modifie fichier par fichier, sur sa page.",
+    "editedFromForm": "Cette compétence se modifie depuis son formulaire.",
+    "fileNotFound": "Ce fichier n’existe pas.",
+    "usedByAgent": "L’agent « {{agent}} » utilise cette compétence.",
+    "package": {
+      "empty": "Un paquet de compétences a besoin d’au moins une compétence.",
+      "tooManyFiles": "Un paquet de compétences contient au plus {{max}} fichiers.",
+      "tooBig": "Un paquet de compétences pèse au plus 8 Mio.",
+      "skillTooManyFiles": "La compétence « {{path}} » contient au plus {{max}} fichiers.",
+      "unsafePath": "« {{path}} » n’est pas un chemin sûr.",
+      "outsideFolder": "« {{path}} » n’est pas dans le dossier d’une compétence : chaque fichier doit l’être.",
+      "badFolder": "Le dossier de « {{path}} » doit être en lettres minuscules, chiffres et tirets, 64 au plus.",
+      "twice": "« {{path}} » est deux fois dans le paquet.",
+      "folderName": "« {{path}} » porte le nom d’un dossier du paquet.",
+      "fileTooBig": "« {{path}} » pèse plus de 2 Mio.",
+      "noSkillMd": "« {{path}} » manque : chaque dossier de compétence a besoin d’un SKILL.md.",
+      "notUtf8": "« {{path}} » n’est pas du texte UTF-8.",
+      "noFrontmatter": "« {{path}} » doit commencer par un frontmatter YAML entre deux lignes ---.",
+      "badYaml": "Le frontmatter de « {{path}} » n’est pas du YAML valide.",
+      "notMapping": "Le frontmatter de « {{path}} » doit être un mapping YAML.",
+      "nameMismatch": "Le nom du frontmatter de « {{path}} » doit être « {{folder}} », son dossier.",
+      "noDescription": "Le frontmatter de « {{path}} » a besoin d’une description.",
+      "descriptionLong": "La description de « {{path}} » doit faire au plus {{max}} caractères de texte."
+    }
+  },
+  "runners": {
+    "usedByHarness": "Un harnais utilise ce runner.",
+    "nativeOwnerOnly": "L’installation native exige une session de propriétaire.",
+    "targetNeedsHarness": "Chaque cible a besoin d’un harnais CLI sur ce runner.",
+    "unavailable": "Runner indisponible ou opération expirée. Actualisez l’inventaire avant de réessayer : les changements natifs ont pu aboutir.",
+    "noUpdate": "Aucune mise à jour disponible ou runner injoignable.",
+    "harnessNotFound": "Ce harnais CLI n’existe pas.",
+    "groupByRunner": "Regroupez les cibles de l’installation native par runner.",
+    "noNativeSource": "Ce plugin n’a pas de source Git HTTPS prise en charge pour l’installation native.",
+    "wholePlugin": "Installez ou supprimez le plugin natif en entier plutôt que d’en copier les compétences séparément.",
+    "refreshInventory": "Actualisez l’inventaire natif avant de modifier les plugins : le runner n’a pas pu vérifier ses liaisons gérées."
+  },
+  "pages": {
+    "notFound": "Cette page n’existe pas.",
+    "widgetNotFound": "Ce widget n’existe pas.",
+    "tooMany": "{{max}} pages au maximum.",
+    "homeRename": "Accueil ne peut pas être renommé.",
+    "homeDelete": "Accueil ne peut pas être supprimé.",
+    "fieldTwice": "Un champ est choisi deux fois.",
+    "fieldNotInTable": "Un champ choisi n’est pas un champ de cette table.",
+    "coverFiles": "La couverture doit être un champ de fichiers de cette table.",
+    "manualTriggerForm": "Seul un déclencheur manuel peut avoir un formulaire.",
+    "manualWorkflowForm": "Seul un workflow manuel peut avoir un formulaire.",
+    "formNoFields": "Un formulaire n’a pas de champs à choisir.",
+    "widgetTooWide": "Un widget est plus large que la grille {{grid}}."
+  }
+}

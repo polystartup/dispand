@@ -46,7 +46,7 @@ test("a missing setting is BAD_REQUEST naming it", async () => {
   const { context, targets } = await setup();
   await expect(call(router.tools.installFromCatalog, { catalogId: "github", settings: { token: " " } }, { context })).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "Personal access token is required",
+    message: "Personal access token is required.",
   });
   await expect(call(router.tools.installFromCatalog, { catalogId: "nope", settings: {} }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(targets).toEqual([]);

@@ -1,8 +1,10 @@
-import { ORPCError, os } from "@orpc/server";
+import { ORPCError, os, ValidationError } from "@orpc/server";
 import type { Auth } from "../auth.ts";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
 import type { Engine } from "../engine/engine.ts";
+import { logError } from "../log.ts";
+import { external, isMessageKey, type Message, message, type MessageValues } from "../messages/index.ts";
 import type { RunnerHub } from "../runners/hub.ts";
 import type { SecretBox } from "../secrets.ts";
 import { annotate, meter, recordError, tracer } from "../telemetry/index.ts";
@@ -38,7 +40,7 @@ export type InitialContext = {
    */
   job?: { runId: string; ownerId: string; agentId: string };
   /** Server-owned bindings of a reviewed agent grant; never built from request input. */
-  approvedToolTargets?: { toolId: string; target: string }[];
+  approvedToolTargets?: { toolId: string; target: string; strictTarget?: string }[];
   /**
    * The plugin's element a create makes (`plugins/setup.ts`): the row is the plugin's from its
    * insert, under this name in it. Server-owned; never built from request input.
@@ -79,6 +81,8 @@ const traced = os.$context<InitialContext>().middleware(({ path, next }) => {
     } catch (err) {
       result = resultOf(err);
       recordError(span, result);
+      // The page gets only "Internal server error" (oRPC hides the rest): its summary goes to the logs.
+      if (!(err instanceof ORPCError)) logError("procedure failed", err);
       throw err;
     } finally {
       span.setAttribute("dispand.result", result);
@@ -88,7 +92,57 @@ const traced = os.$context<InitialContext>().middleware(({ path, next }) => {
   });
 });
 
-export const base = os.$context<InitialContext>().use(traced);
+/** Zod's issue, as oRPC's ValidationError carries it (`issues` are Zod's own). */
+type Issue = { code: string; message?: string; path: PropertyKey[]; origin?: string; minimum?: unknown; maximum?: unknown; divisor?: unknown; keys?: string[]; values?: unknown[]; params?: MessageValues };
+
+/** An input its schema rejected, as the message of its first issue: `validation.<code>`, the field's path and limits as values. */
+export function validationKey(issue: Issue): Message {
+  const field = issue.path.map(String).join(".") || "input";
+  const limit = (bound: unknown) => (typeof bound === "bigint" ? Number(bound) : typeof bound === "number" ? bound : String(bound));
+  switch (issue.code) {
+    case "too_small":
+    case "too_big": {
+      const bound = limit(issue.code === "too_small" ? issue.minimum : issue.maximum);
+      const of = issue.origin === "string" ? "string" : issue.origin === "array" || issue.origin === "set" ? "array" : "number";
+      if (of !== "number") return { key: `validation.${issue.code}.${of}`, values: { field, count: bound } };
+      return { key: `validation.${issue.code}.number`, values: issue.code === "too_small" ? { field, minimum: bound } : { field, maximum: bound } };
+    }
+    case "not_multiple_of":
+      return { key: "validation.not_multiple_of", values: { field, divisor: limit(issue.divisor) } };
+    case "unrecognized_keys":
+      return { key: "validation.unrecognized_keys", values: { field, keys: (issue.keys ?? []).join(", ") } };
+    case "invalid_value":
+      return { key: "validation.invalid_value", values: { field, values: (issue.values ?? []).map(String).join(", ") } };
+    case "invalid_type":
+    case "invalid_format":
+    case "invalid_union":
+    case "invalid_key":
+    case "invalid_element":
+      return { key: `validation.${issue.code}`, values: { field } };
+    default:
+      return { key: "validation.custom", values: { field } };
+  }
+}
+
+/** A rejected input answers with the keyed message of its first issue, in every language the page speaks. */
+const validation = os.$context<InitialContext>().middleware(async ({ next }) => {
+  try {
+    return await next();
+  } catch (err) {
+    const cause: unknown = err instanceof ORPCError && err.code === "BAD_REQUEST" ? err.cause : undefined;
+    const issue = cause instanceof ValidationError ? (cause.issues[0] as Issue | undefined) : undefined;
+    if (!issue) throw err;
+    // A refinement's own message (a key, or words of an area not yet keyed) is kept; zod's default is not one.
+    if (issue.code === "custom" && issue.message && issue.message !== "Invalid input") {
+      if (isMessageKey(issue.message)) throw new ORPCError("BAD_REQUEST", message(issue.message, issue.params));
+      throw new ORPCError("BAD_REQUEST", external(issue.message));
+    }
+    const { key, values } = validationKey(issue);
+    throw new ORPCError("BAD_REQUEST", message(key, values));
+  }
+});
+
+export const base = os.$context<InitialContext>().use(traced).use(validation);
 
 /** Rejects requests without a session and hands the owner id to the procedure. */
 export const authed = os.$context<InitialContext>().middleware(async ({ context, next }) => {
@@ -101,7 +155,7 @@ export const authed = os.$context<InitialContext>().middleware(async ({ context,
     returnHeaders: true,
   });
   for (const cookie of headers.getSetCookie()) context.resHeaders.append("set-cookie", cookie);
-  if (!session) throw new ORPCError("UNAUTHORIZED");
+  if (!session) throw new ORPCError("UNAUTHORIZED", message("auth.signIn"));
   annotate({ "dispand.owner.id": session.user.id });
   return next({ context: { ownerId: session.user.id } satisfies Pick<Context, "ownerId"> });
 });

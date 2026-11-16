@@ -1,12 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
+import { useAgentName } from "../../lib/agent-name.ts";
+import { useFormat } from "../../lib/format.ts";
 import { selectClass } from "../data/NewFieldPopover.tsx";
 import { Empty, FormField, List } from "../settings/parts.tsx";
 
@@ -14,21 +17,20 @@ export type MemoryScope = { scope: "workspace" } | { scope: "table"; tableId: st
 type Listed = Awaited<ReturnType<typeof api.memories.list>>;
 type Entry = Listed["entries"][number];
 
-const TYPES = [
-  ["business", "How the business works"],
-  ["practice", "How work is done"],
-  ["fact", "Facts"],
-  ["reference", "Where things are"],
-] as const;
+const TYPES = ["business", "practice", "fact", "reference"] as const;
 
 /** Who wrote the entry's current revision, and when. */
-function byline(e: Pick<Entry, "author" | "updatedAt">): string {
-  const who = e.author.type === "user" ? "You" : (e.author.name ?? "A deleted agent");
-  return `${who} · ${new Date(e.updatedAt).toLocaleString()}`;
+function useByline() {
+  const { t } = useTranslation("memory");
+  const { dateTime } = useFormat();
+  const agentName = useAgentName();
+  return (e: Pick<Entry, "author" | "updatedAt">): string => {
+    const who = e.author.type === "user" ? t("byline.you") : e.author.name ? agentName({ name: e.author.name, builtIn: e.author.builtIn }) : t("byline.deletedAgent");
+    return t("byline.line", { who, when: dateTime(e.updatedAt) });
+  };
 }
 
 /** Written by a Job without `configure` and not accepted since: agents that configure don't read it (design 6.5). */
-const NOT_READ = "Not read by agents that configure";
 const unread = (e: Pick<Entry, "author" | "acceptedAt" | "removedAt">) => e.author.type === "agent" && !e.author.configure && !e.acceptedAt && !e.removedAt;
 
 /** Why the procedure refused, when it says; else a generic line. */
@@ -47,12 +49,13 @@ function reason(e: unknown, fallback: string): string {
  * ones with Restore.
  */
 export function MemoryPanel({ where }: { where: MemoryScope }) {
+  const { t } = useTranslation("memory");
   const listed = useQuery(orpc.memories.list.queryOptions({ input: where }));
   // An entry's id, "new" to add one, or null.
   const [open, setOpen] = useState<string | null>(null);
   const add = (
     <Button onClick={() => setOpen("new")}>
-      <Plus /> Add entry
+      <Plus /> {t("add")}
     </Button>
   );
   const data = listed.data;
@@ -61,18 +64,19 @@ export function MemoryPanel({ where }: { where: MemoryScope }) {
     <>
       {listed.error && !data && (
         <p role="alert" className="text-[14px] text-danger">
-          Could not load the memory.
+          {t("failed")}
         </p>
       )}
       {data?.entries.length === 0 && (
-        <Empty title="Nothing kept yet" text="Each entry is one fact agents read at the start of their Jobs: how the business works, how work is done, where things are.">
+        <Empty title={t("emptyTitle")} text={t("emptyText")}>
           {add}
         </Empty>
       )}
       {data && data.entries.length > 0 && (
         <>
           <div className="mb-3 flex justify-end">{add}</div>
-          {TYPES.map(([type, label]) => {
+          {TYPES.map((type) => {
+            const label = t(`type.${type}`);
             const group = data.entries.filter((e) => e.type === type);
             if (group.length === 0) return null;
             return (
@@ -89,8 +93,8 @@ export function MemoryPanel({ where }: { where: MemoryScope }) {
         </>
       )}
       {data && data.removed.length > 0 && (
-        <section aria-label="Removed" className="mb-6">
-          <h2 className="mb-2 px-1 text-[13px] font-medium text-muted">Removed</h2>
+        <section aria-label={t("removed")} className="mb-6">
+          <h2 className="mb-2 px-1 text-[13px] font-medium text-muted">{t("removed")}</h2>
           <List>
             {data.removed.map((e) => (
               <EntryRow key={e.id} entry={e} onOpen={() => setOpen(e.id)} />
@@ -104,6 +108,8 @@ export function MemoryPanel({ where }: { where: MemoryScope }) {
 }
 
 function EntryRow({ entry, onOpen }: { entry: Entry; onOpen: () => void }) {
+  const { t } = useTranslation("memory");
+  const byline = useByline();
   return (
     <li>
       <button type="button" onClick={onOpen} className="block w-full px-5 py-3 text-left transition hover:bg-hover">
@@ -111,7 +117,7 @@ function EntryRow({ entry, onOpen }: { entry: Entry; onOpen: () => void }) {
         <span className="block truncate text-[13px] text-muted">{entry.description}</span>
         <span className="block truncate text-[12px] text-faint">
           <span className="font-mono">{entry.path}</span> · {byline(entry)}
-          {unread(entry) && <> · {NOT_READ}</>}
+          {unread(entry) && <> · {t("notRead")}</>}
         </span>
       </button>
     </li>
@@ -120,6 +126,8 @@ function EntryRow({ entry, onOpen }: { entry: Entry; onOpen: () => void }) {
 
 /** One entry: read, then edited in place; or a new one. Mount it only while open. */
 function EntrySheet({ where, entry, onClose }: { where: MemoryScope; entry?: Entry; onClose: () => void }) {
+  const { t } = useTranslation("memory");
+  const byline = useByline();
   const queryClient = useQueryClient();
   const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.memories.key() });
   const write = useMutation(orpc.memories.write.mutationOptions({ onSuccess: invalidate }));
@@ -151,8 +159,8 @@ function EntrySheet({ where, entry, onClose }: { where: MemoryScope; entry?: Ent
     <Sheet open onOpenChange={(o) => !o && onClose()}>
       <SheetContent className="w-full overflow-y-auto bg-surface sm:max-w-lg">
         <SheetHeader className="px-6 pt-6">
-          <SheetTitle className="text-[20px] tracking-tight">{entry ? entry.name : "Add entry"}</SheetTitle>
-          <SheetDescription>{entry ? byline(entry) : "One fact agents read at the start of their Jobs."}</SheetDescription>
+          <SheetTitle className="text-[20px] tracking-tight">{entry ? entry.name : t("add")}</SheetTitle>
+          <SheetDescription>{entry ? byline(entry) : t("addText")}</SheetDescription>
         </SheetHeader>
         <div className="space-y-5 px-6 pb-6">
           {editing ? (
@@ -160,36 +168,36 @@ function EntrySheet({ where, entry, onClose }: { where: MemoryScope; entry?: Ent
               className="space-y-5"
               onSubmit={(e) => {
                 e.preventDefault();
-                void run(() => write.mutateAsync({ where, entry: { path, name, description, type, body } }), "Could not save the entry.");
+                void run(() => write.mutateAsync({ where, entry: { path, name, description, type, body } }), t("saveFailed"));
               }}
             >
-              <FormField label="Path" htmlFor="memory-path" hint="A file name ending in .md, in folders if you like: clients/acme.md.">
+              <FormField label={t("path")} htmlFor="memory-path" hint={t("pathHint")}>
                 <Input id="memory-path" value={path} onChange={(e) => setPath(e.target.value)} readOnly={!!entry} required />
               </FormField>
-              <FormField label="Name" htmlFor="memory-name">
+              <FormField label={t("name")} htmlFor="memory-name">
                 <Input id="memory-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} required />
               </FormField>
-              <FormField label="Description" htmlFor="memory-description" hint="One line: what the entry tells, so an agent knows when to read it.">
+              <FormField label={t("description")} htmlFor="memory-description" hint={t("descriptionHint")}>
                 <Input id="memory-description" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={150} required />
               </FormField>
-              <FormField label="Type" htmlFor="memory-type">
+              <FormField label={t("typeLabel")} htmlFor="memory-type">
                 <select id="memory-type" className={selectClass} value={type} onChange={(e) => setType(e.target.value)}>
-                  {TYPES.map(([value, label]) => (
+                  {TYPES.map((value) => (
                     <option key={value} value={value}>
-                      {label}
+                      {t(`type.${value}`)}
                     </option>
                   ))}
                 </select>
               </FormField>
-              <FormField label="Body" htmlFor="memory-body">
+              <FormField label={t("body")} htmlFor="memory-body">
                 <Textarea id="memory-body" value={body} onChange={(e) => setBody(e.target.value)} maxLength={8000} rows={10} />
               </FormField>
               <div className="flex gap-2">
                 <Button type="submit" disabled={busy}>
-                  Save
+                  {t("save")}
                 </Button>
                 <Button type="button" variant="ghost" onClick={() => (entry ? setEditing(false) : onClose())}>
-                  Cancel
+                  {t("cancel")}
                 </Button>
               </div>
             </form>
@@ -197,42 +205,42 @@ function EntrySheet({ where, entry, onClose }: { where: MemoryScope; entry?: Ent
             entry && (
               <>
                 <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-[13px]">
-                  <dt className="text-muted">Path</dt>
+                  <dt className="text-muted">{t("path")}</dt>
                   <dd className="font-mono">{entry.path}</dd>
-                  <dt className="text-muted">Description</dt>
+                  <dt className="text-muted">{t("description")}</dt>
                   <dd>{entry.description}</dd>
-                  <dt className="text-muted">Type</dt>
-                  <dd>{TYPES.find(([t]) => t === entry.type)?.[1]}</dd>
+                  <dt className="text-muted">{t("typeLabel")}</dt>
+                  <dd>{TYPES.some((x) => x === entry.type) ? t(`type.${entry.type as (typeof TYPES)[number]}`) : entry.type}</dd>
                 </dl>
                 <pre className="whitespace-pre-wrap break-words rounded-lg border border-line bg-bg p-3 text-[13px]">{entry.body}</pre>
                 {unread(entry) && (
                   <div className="text-[13px] text-muted">
-                    <p className="font-medium text-fg">{NOT_READ}</p>
-                    <p>Accepting lets this entry instruct agents that configure the workspace.</p>
+                    <p className="font-medium text-fg">{t("notRead")}</p>
+                    <p>{t("acceptText")}</p>
                   </div>
                 )}
                 <div className="flex flex-wrap gap-2">
                   {entry.removedAt ? (
-                    <Button disabled={busy} onClick={() => void run(() => restore.mutateAsync({ id: entry.id }), "Could not restore the entry.")}>
-                      Restore
+                    <Button disabled={busy} onClick={() => void run(() => restore.mutateAsync({ id: entry.id }), t("restoreFailed"))}>
+                      {t("restore")}
                     </Button>
                   ) : (
                     <>
                       <Button variant="outline" onClick={() => setEditing(true)}>
-                        Edit
+                        {t("edit")}
                       </Button>
                       {unread(entry) && (
-                        <Button variant="outline" disabled={busy} onClick={() => void run(() => accept.mutateAsync({ id: entry.id }), "Could not accept the entry.")}>
-                          Accept
+                        <Button variant="outline" disabled={busy} onClick={() => void run(() => accept.mutateAsync({ id: entry.id }), t("acceptFailed"))}>
+                          {t("accept")}
                         </Button>
                       )}
                       {agentEntry && (
-                        <Button variant="outline" disabled={busy} onClick={() => void run(() => revert.mutateAsync({ id: entry.id }), "Could not revert the entry.")}>
-                          Revert
+                        <Button variant="outline" disabled={busy} onClick={() => void run(() => revert.mutateAsync({ id: entry.id }), t("revertFailed"))}>
+                          {t("revert")}
                         </Button>
                       )}
-                      <Button variant="ghost" disabled={busy} onClick={() => void run(() => remove.mutateAsync({ id: entry.id }), "Could not remove the entry.")}>
-                        Remove
+                      <Button variant="ghost" disabled={busy} onClick={() => void run(() => remove.mutateAsync({ id: entry.id }), t("removeFailed"))}>
+                        {t("remove")}
                       </Button>
                     </>
                   )}

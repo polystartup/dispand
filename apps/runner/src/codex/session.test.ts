@@ -10,6 +10,11 @@ import { fakeCodex } from "../fixtures/fake-codex-bin.ts";
 import { BypassRefused, type HarnessSession } from "../outcome.ts";
 import { type CodexDeps, type CodexSessionStart, PROFILE_REFUSED, startCodexSession } from "./session.ts";
 
+// Each test spawns a fake Codex process and waits on what it sends: on a busy machine (CI runs the
+// runner's test files in parallel, several spawning processes) that takes over Vitest's default 1 s.
+// The config gives each test 30 s; its waits get most of it.
+const waitFor = <T>(callback: () => T | Promise<T>) => vi.waitFor(callback, { timeout: 20_000 });
+
 const made: string[] = [];
 afterEach(async () => {
   for (const dir of made.splice(0)) await rm(dir, { recursive: true, force: true });
@@ -53,8 +58,8 @@ async function run(o: {
   }, { codexPath: codex.path, env: codex.env, secrets: [], ...o.deps });
   const sent = async (method: string) => (await codex.received()).filter((m) => m.method === method);
   /** The runner's reply to server request `id`. */
-  const replyTo = async (id: string) => vi.waitFor(async () => (await codex.received()).find((m) => m.id === id && m.method === undefined)!.result as Record<string, unknown>);
-  const ended = () => vi.waitFor(() => expect(events.some((e) => e.type === "result" || e.type === "error")).toBe(true));
+  const replyTo = async (id: string) => waitFor(async () => (await codex.received()).find((m) => m.id === id && m.method === undefined)!.result as Record<string, unknown>);
+  const ended = () => waitFor(() => expect(events.some((e) => e.type === "result" || e.type === "error")).toBe(true));
   return { dir, cwd, events, session, sent, replyTo, ended, received: codex.received };
 }
 
@@ -148,6 +153,50 @@ test("a session starts a thread with Dispand's profile and instructions, streams
   const [turn] = await s.sent("turn/start");
   expect(turn!.params).toEqual({ threadId: "thr_1", input: [{ type: "text", text: "Summarize", text_elements: [] }] });
   await s.session.done;
+});
+
+test("a restricted session starts with only submit_outputs, the Job's server and no environment, and answers nothing else", async () => {
+  const elicit = (serverName: string) => request("mcpServer/elicitation/request", { serverName, mode: "form", message: "Allow?", requestedSchema: { type: "object", properties: {} }, _meta: { codex_approval_kind: "mcp_tool_call", tool_name: "plugin_decide", tool_params: {} } });
+  const s = await run({
+    turns: [[
+      elicit("job"),
+      elicit("node_repl"),
+      request("item/commandExecution/requestApproval", { itemId: "c", kind: "command", command: "ls" }),
+      request("item/fileChange/requestApproval", { itemId: "f" }),
+      request("item/tool/requestUserInput", { itemId: "q", questions: [{ id: "q1", header: "Pick", question: "Which?", isOther: false, isSecret: false, options: [{ label: "A", description: "" }] }] }),
+      request("item/tool/call", { callId: "a", namespace: null, tool: "request_approval", arguments: { message: "May I?" } }),
+      message("Done"),
+    ]],
+    // A machine that allows bypass, and a start that asks for it: a restricted session is sandboxed all the same.
+    start: { restricted: true, jobToken: "dj_test", permissionMode: "bypassPermissions", consults: [{ agentId: "agt_a", name: "A", description: "" }] },
+    deps: { allowBypass: true, jobServer: "job", mcp: { servers: { job: { url: "https://dispand.test/mcp/job" } }, env: {} } },
+    env: { FAKE_CODEX_CONFIG: JSON.stringify({ mcp_servers: { node_repl: { command: "node" }, job: { command: "x" } } }) },
+    answer: () => ({ kind: "permission", decision: "allow" }),
+  });
+  await s.ended();
+  expect(questions(s.events)).toEqual([]);
+  const [thread] = await s.sent("thread/start");
+  const params = thread!.params as { config: Record<string, unknown>; dynamicTools: { name: string }[] };
+  expect(params.dynamicTools.map((t) => t.name)).toEqual(["submit_outputs"]);
+  expect(params.config).toMatchObject({
+    default_permissions: "dispand",
+    permissions: { dispand: { extends: ":read-only", network: { enabled: false } } },
+    mcp_servers: { node_repl: { enabled: false }, job: { url: "https://dispand.test/mcp/job" } },
+    features: { shell_tool: false, unified_exec: false, view_image: false, apps: false, plugins: false, multi_agent: false, multi_agent_v2: false, image_generation: false, browser_use: false, computer_use: false, hooks: false },
+    agents: { enabled: false },
+    web_search: "disabled",
+    tools: { experimental_request_user_input: { enabled: false } },
+    skills: { include_instructions: false },
+  });
+  expect(JSON.stringify(params.config)).not.toContain('"write"');
+  const [turn] = await s.sent("turn/start");
+  expect(turn!.params).toMatchObject({ environments: [] });
+  expect(await s.replyTo("r0")).toEqual({ action: "accept", content: {}, _meta: null });
+  expect(await s.replyTo("r1")).toEqual({ action: "decline", content: null, _meta: null });
+  expect(await s.replyTo("r2")).toEqual({ decision: "decline" });
+  expect(await s.replyTo("r3")).toEqual({ decision: "decline" });
+  expect(await s.replyTo("r4")).toEqual({ answers: {} });
+  expect(await s.replyTo("r5")).toMatchObject({ success: false });
 });
 
 test("thread/start denies every machine config path", async () => {
@@ -450,22 +499,22 @@ test("a non-interactive agent without its outputs is reminded once, then fails",
 
 test("an interrupt cuts the running turn: an interactive session waits for the next message", async () => {
   const s = await run({ turns: [[{ waitInterrupt: true }], [message("Again")]], start: { interactive: true } });
-  await vi.waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(1));
-  await vi.waitFor(() => expect(s.events).toContainEqual({ type: "cli-session", cliSessionId: "thr_1" }));
+  await waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(1));
+  await waitFor(() => expect(s.events).toContainEqual({ type: "cli-session", cliSessionId: "thr_1" }));
   await s.session.interrupt();
-  await vi.waitFor(() => expect(s.events.at(-1)).toEqual({ type: "turn-end" }));
+  await waitFor(() => expect(s.events.at(-1)).toEqual({ type: "turn-end" }));
   expect((await s.sent("turn/interrupt"))[0]!.params).toEqual({ threadId: "thr_1", turnId: "turn_0" });
   s.session.send("Go on");
-  await vi.waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(2));
+  await waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(2));
   s.session.stop("test over");
   await s.session.done;
 });
 
 test("an interrupt before Codex names the turn is sent once it does", async () => {
   const s = await run({ turns: [[{ waitInterrupt: true }]], start: { interactive: true }, env: { FAKE_CODEX_TURN_START_DELAY: "300" } });
-  await vi.waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(1));
+  await waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(1));
   await s.session.interrupt();
-  await vi.waitFor(() => expect(s.events.at(-1)).toEqual({ type: "turn-end" }));
+  await waitFor(() => expect(s.events.at(-1)).toEqual({ type: "turn-end" }));
   expect((await s.sent("turn/interrupt"))[0]!.params).toEqual({ threadId: "thr_1", turnId: "turn_0" });
   s.session.stop("test over");
   await s.session.done;
@@ -475,9 +524,9 @@ test("an interrupt reaches the running turn, not one whose turn/start reply came
   // The fake sends turn 0's reply, turn/started and turn/completed together: "Next" is queued by then.
   const s = await run({ turns: [[], [{ waitInterrupt: true }]], start: { interactive: true }, env: { FAKE_CODEX_BATCH: "1" } });
   s.session.send("Next");
-  await vi.waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(2));
+  await waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(2));
   await s.session.interrupt();
-  await vi.waitFor(async () => expect((await s.sent("turn/interrupt")).map((m) => m.params)).toEqual([{ threadId: "thr_1", turnId: "turn_1" }]));
+  await waitFor(async () => expect((await s.sent("turn/interrupt")).map((m) => m.params)).toEqual([{ threadId: "thr_1", turnId: "turn_1" }]));
   s.session.stop("test over");
   await s.session.done;
 });
@@ -485,7 +534,7 @@ test("an interrupt reaches the running turn, not one whose turn/start reply came
 test("the prompt runs first, even when a message arrives while the thread opens", async () => {
   const s = await run({ turns: [[message("One")], [message("Two")]], start: { interactive: true } });
   s.session.send("And then this");
-  await vi.waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(2));
+  await waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(2));
   expect((await s.sent("turn/start")).map((m) => (m.params as { input: { text: string }[] }).input[0]!.text)).toEqual(["Summarize", "And then this"]);
   s.session.stop("test over");
   await s.session.done;
@@ -493,10 +542,10 @@ test("the prompt runs first, even when a message arrives while the thread opens"
 
 test("a chat with an empty prompt starts no turn: it waits, and the owner's first message is the first turn", async () => {
   const s = await run({ turns: [[message("Hi")]], start: { interactive: true, prompt: "" } });
-  await vi.waitFor(() => expect(s.events).toEqual([{ type: "cli-session", cliSessionId: "thr_1" }, { type: "turn-end" }]));
+  await waitFor(() => expect(s.events).toEqual([{ type: "cli-session", cliSessionId: "thr_1" }, { type: "turn-end" }]));
   expect(await s.sent("turn/start")).toHaveLength(0);
   s.session.send("Hello");
-  await vi.waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(1));
+  await waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(1));
   expect((await s.sent("turn/start")).map((m) => (m.params as { input: { text: string }[] }).input[0]!.text)).toEqual(["Hello"]);
   s.session.stop("test over");
   await s.session.done;
@@ -626,6 +675,30 @@ test("request_approval on Codex asks the owner in the agent's words and answers 
   expect(await s.replyTo("r0")).toEqual({ contentItems: [{ type: "inputText", text: "Approved." }], success: true });
   expect(await s.replyTo("r1")).toEqual({ contentItems: [{ type: "inputText", text: "Denied." }], success: true });
   expect(await s.replyTo("r2")).toMatchObject({ success: false });
+});
+
+test("request_approval from a Codex subagent is sent back to the agent that started it, and asks nobody", async () => {
+  const call = (callId: string, tool: string, threadId: string, args: Record<string, unknown>) => ({ request: "item/tool/call", params: { threadId, turnId: "$TURN", callId, namespace: null, tool, arguments: args } });
+  const s = await run({
+    start: { consults: [{ agentId: "agt_arch", name: "Architect", description: "Owns the schema." }] },
+    turns: [
+      [
+        call("c1", "request_approval", "thr_sub", { message: "Send this draft?" }),
+        call("c2", "request_approval", "$THREAD", { message: "Send this draft?" }),
+        call("c3", "consult", "thr_sub", { agent: "agt_arch", question: "Hi?" }),
+        call("c4", "submit_outputs", "thr_sub", {}),
+        message("Done"),
+      ],
+    ],
+    answer: () => ({ kind: "permission", decision: "allow" }),
+  });
+  await s.ended();
+  expect(await s.replyTo("r0")).toEqual({ contentItems: [{ type: "inputText", text: "You are a subagent: you can't ask the person. Return your question to the agent that started you; it decides whether to ask them." }], success: false });
+  // The main thread still asks the person; consult and submit_outputs stay main-thread only.
+  expect(questions(s.events).map((q) => q.payload)).toEqual([{ kind: "permission", toolName: "request_approval", input: { message: "Send this draft?" }, canAlwaysAllow: false }]);
+  expect(await s.replyTo("r1")).toEqual({ contentItems: [{ type: "inputText", text: "Approved." }], success: true });
+  expect(await s.replyTo("r2")).toEqual({ contentItems: [{ type: "inputText", text: "unknown tool consult" }], success: false });
+  expect(await s.replyTo("r3")).toEqual({ contentItems: [{ type: "inputText", text: "unknown tool submit_outputs" }], success: false });
 });
 
 test("consult on Codex lists the start's agents, asks Dispand, and answers with the agent's answer or why there is none", async () => {

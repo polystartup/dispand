@@ -131,5 +131,11 @@ describe("openai-compatible chat client", () => {
       warned.mockRestore();
     }
   });
+
+  it("returns the provider's token counts", async () => {
+    const { fetch } = fakeFetch("chat-end.sse");
+    const turn = await createModelClient(harness, { fetch }).turn({ system: "", items: [user], tools, ...collect() });
+    expect(turn.usage).toEqual({ input: 25, output: 4 });
+  });
 });
 

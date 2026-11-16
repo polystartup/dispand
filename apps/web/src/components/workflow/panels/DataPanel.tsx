@@ -3,7 +3,9 @@ import { FILTER_OPS, takesValue, type FilterOp } from "@dispand/domain/data/quer
 import { DATA_OUTPUTS, setDataFields, setSource, type DataTarget, type TableSchema } from "@dispand/domain/workflows/data-steps";
 import { slugify, type DataFilter, type DataStep, type Source, type WorkflowDef } from "@dispand/domain/workflows/model";
 import { Link } from "@tanstack/react-router";
+import type { TFunction } from "i18next";
 import { Plus, X } from "lucide-react";
+import { Trans, useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormField } from "../../settings/parts.tsx";
@@ -11,35 +13,11 @@ import { FIELD_TYPE_UI } from "../../data/field-types.ts";
 import { selectClass } from "../../data/NewFieldPopover.tsx";
 import { SourcePicker } from "../SourcePicker.tsx";
 
-export const ACTION_LABELS: Record<DataStep["action"], string> = {
-  "create-row": "Create row",
-  "update-row": "Update row",
-  "find-rows": "Find rows",
-};
-
-/** Each filter operator as the owner reads it. */
-const FILTER_LABELS: Record<FilterOp, string> = {
-  contains: "contains",
-  "not-contains": "doesn't contain",
-  is: "is",
-  "is-not": "is not",
-  empty: "is empty",
-  "not-empty": "isn't empty",
-  "=": "=",
-  "!=": "≠",
-  "<": "<",
-  "<=": "≤",
-  ">": ">",
-  ">=": "≥",
-  checked: "is checked",
-  unchecked: "is unchecked",
-  before: "is before",
-  after: "is after",
-};
+const ACTIONS: DataStep["action"][] = ["create-row", "update-row", "find-rows"];
 
 /** "Create row · Projects", for the step's card. */
-export function describeDataStep(step: DataStep, tableNames: Map<string, string>): string {
-  return `${ACTION_LABELS[step.action]} · ${tableNames.get(step.tableId) ?? "Choose a table"}`;
+export function describeDataStep(t: TFunction<"workflows">, step: DataStep, tableNames: Map<string, string>): string {
+  return t("dataPanel.card", { action: t(`dataPanel.action.${step.action}`), table: tableNames.get(step.tableId) ?? t("dataPanel.chooseTable") });
 }
 
 /** The step reset for `action` on `tableId`: inputs and filters start over, its loop stays. */
@@ -69,7 +47,8 @@ export function DataPanel({
   expected: Record<string, OutputField[]>;
   onChange: (def: WorkflowDef) => void;
 }) {
-  const table = tables.find((t) => t.id === step.tableId);
+  const { t } = useTranslation("workflows");
+  const table = tables.find((tb) => tb.id === step.tableId);
   const replace = (next: DataStep) => onChange({ ...def, steps: def.steps.map((s) => (s.id === step.id ? next : s)) });
   const wire = (target: DataTarget) => (source: Source | null) => {
     // A name that can't be a value yet keeps the last one that could.
@@ -78,37 +57,33 @@ export function DataPanel({
 
   return (
     <>
-      <FormField label="Action" htmlFor="data-action">
+      <FormField label={t("dataPanel.actionLabel")} htmlFor="data-action">
         <select
           id="data-action"
           value={step.action}
           onChange={(e) => replace(resetStep(step, e.target.value as DataStep["action"], step.tableId))}
           className={selectClass}
         >
-          {Object.entries(ACTION_LABELS).map(([action, label]) => (
+          {ACTIONS.map((action) => (
             <option key={action} value={action}>
-              {label}
+              {t(`dataPanel.action.${action}`)}
             </option>
           ))}
         </select>
       </FormField>
-      <FormField label="Table" htmlFor="data-table">
+      <FormField label={t("dataPanel.table")} htmlFor="data-table">
         {tableList.length === 0 && step.tableId === "" ? (
           <p className="text-[13px] text-faint">
-            No table yet.{" "}
-            <Link to="/settings/data" className="text-accent underline-offset-2 hover:underline">
-              Create one in Data
-            </Link>
-            .
+            <Trans t={t} i18nKey="dataPanel.noTable" components={[<Link key="data" to="/settings/data" className="text-accent underline-offset-2 hover:underline" />]} />
           </p>
         ) : (
           <select id="data-table" value={step.tableId} onChange={(e) => replace(resetStep(step, step.action, e.target.value))} className={selectClass}>
             <option value="" disabled>
-              Choose a table
+              {t("dataPanel.chooseTable")}
             </option>
-            {tableList.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
+            {tableList.map((tb) => (
+              <option key={tb.id} value={tb.id}>
+                {tb.name}
               </option>
             ))}
           </select>
@@ -119,7 +94,7 @@ export function DataPanel({
         <SourcePicker
           // Another table starts the row over: so does the picker.
           key={step.tableId}
-          label="Row"
+          label={t("dataPanel.row")}
           def={def}
           stepId={step.id}
           expected={expected}
@@ -133,7 +108,7 @@ export function DataPanel({
       {table && step.action !== "find-rows" && (
         <>
           <div>
-            <p className="mb-1.5 text-[13px] font-medium text-muted">Fields</p>
+            <p className="mb-1.5 text-[13px] font-medium text-muted">{t("dataPanel.fields")}</p>
             <ul className="space-y-1.5">
               {table.fields.map((f) => {
                 const checked = step.inputs.some((i) => i.fieldId === f.id);
@@ -155,7 +130,7 @@ export function DataPanel({
                       <Icon size={14} className="text-faint" aria-hidden />
                       {f.name}
                     </label>
-                    {files && <p className="ml-6 text-[12px] text-faint">Files can't be set by a workflow yet</p>}
+                    {files && <p className="ml-6 text-[12px] text-faint">{t("dataPanel.noFiles")}</p>}
                   </li>
                 );
               })}
@@ -187,8 +162,8 @@ export function DataPanel({
       )}
 
       <div>
-        <p className="mb-1.5 text-[13px] font-medium text-muted">Gives</p>
-        <ul aria-label="Gives" className="divide-y divide-line overflow-hidden rounded-xl ring-1 ring-line">
+        <p className="mb-1.5 text-[13px] font-medium text-muted">{t("dataPanel.gives")}</p>
+        <ul aria-label={t("dataPanel.gives")} className="divide-y divide-line overflow-hidden rounded-xl ring-1 ring-line">
           {DATA_OUTPUTS[step.action].map((name) => (
             <li key={name} className="px-3 py-2 font-mono text-[13px]">{`{{${step.key}.${name}}}`}</li>
           ))}
@@ -214,6 +189,7 @@ function Filters({
   onChange: (def: WorkflowDef) => void;
   replace: (step: DataStep) => void;
 }) {
+  const { t } = useTranslation("workflows");
   const setFilters = (filters: DataFilter[]) => replace({ ...step, filters });
   /** The filter on `fieldId` with `op`, keeping its value only when the op still takes one. */
   const filterOf = (fieldId: string, op: FilterOp, value?: Source): DataFilter =>
@@ -222,15 +198,15 @@ function Filters({
   return (
     <>
       <div className="space-y-3">
-        <p className="text-[13px] font-medium text-muted">Rows where</p>
+        <p className="text-[13px] font-medium text-muted">{t("dataPanel.rowsWhere")}</p>
         {step.filters.map((filter, i) => {
           const field = table.fields.find((f) => f.id === filter.fieldId);
           const ops: readonly FilterOp[] = field ? FILTER_OPS[field.type] : [];
           return (
-            <fieldset key={`${i}-${filter.fieldId}`} aria-label={`Filter ${i + 1}`} className="space-y-2 rounded-xl p-3 ring-1 ring-line">
+            <fieldset key={`${i}-${filter.fieldId}`} aria-label={t("dataPanel.filterN", { n: i + 1 })} className="space-y-2 rounded-xl p-3 ring-1 ring-line">
               <div className="flex items-center gap-2">
                 <select
-                  aria-label="Field"
+                  aria-label={t("dataPanel.field")}
                   value={field ? filter.fieldId : ""}
                   onChange={(e) => {
                     const next = table.fields.find((f) => f.id === e.target.value)!;
@@ -240,7 +216,7 @@ function Filters({
                 >
                   {!field && (
                     <option value="" disabled>
-                      A deleted field
+                      {t("dataPanel.deletedField")}
                     </option>
                   )}
                   {table.fields.map((f) => (
@@ -252,7 +228,7 @@ function Filters({
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  aria-label={`Remove filter ${i + 1}`}
+                  aria-label={t("dataPanel.removeFilter", { n: i + 1 })}
                   onClick={() => setFilters(step.filters.filter((_, j) => j !== i))}
                 >
                   <X />
@@ -260,14 +236,14 @@ function Filters({
               </div>
               {field && (
                 <select
-                  aria-label="Operator"
+                  aria-label={t("dataPanel.operator")}
                   value={filter.op}
                   onChange={(e) => setFilters(step.filters.map((f, j) => (j === i ? filterOf(f.fieldId, e.target.value as FilterOp, f.value) : f)))}
                   className={selectClass}
                 >
                   {ops.map((op) => (
                     <option key={op} value={op}>
-                      {FILTER_LABELS[op]}
+                      {t(`dataPanel.filterOp.${op}`)}
                     </option>
                   ))}
                 </select>
@@ -296,12 +272,12 @@ function Filters({
               setFilters([...step.filters, filterOf(first.id, FILTER_OPS[first.type][0])]);
             }}
           >
-            <Plus /> Add filter
+            <Plus /> {t("dataPanel.addFilter")}
           </Button>
         )}
-        {step.filters.length === 0 && <p className="text-[13px] text-faint">No filter: every row, oldest first.</p>}
+        {step.filters.length === 0 && <p className="text-[13px] text-faint">{t("dataPanel.noFilter")}</p>}
       </div>
-      <FormField label="At most" htmlFor="data-limit" hint="Rows, 1 to 100.">
+      <FormField label={t("dataPanel.atMost")} htmlFor="data-limit" hint={t("dataPanel.limitHint")}>
         <Input
           id="data-limit"
           type="number"

@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   type HarnessEvent,
+  JOB_FILES_PATH,
   JOB_SERVER_NAME,
   MAX_LIVE_SESSIONS,
   type ServerToRunner,
@@ -11,16 +12,17 @@ import {
 } from "@dispand/runner-protocol";
 import { BypassRefused, type ClaudeDeps, startClaudeSession } from "./claude.ts";
 import { type CodexDeps, startCodexSession } from "./codex/session.ts";
-import { codexRequired } from "./codex/version.ts";
+import { codexRequired, RESTRICTED_CODEX } from "./codex/version.ts";
 import { writeDurable } from "./durable.ts";
 import type { RunnerConfig } from "./config.ts";
 import type { HarnessSession } from "./outcome.ts";
 import { codexMcpServers, mcpConfigFor, withJobServer } from "./mcp.ts";
-import { fetchPackages, removeSkills, sessionPluginsDir, writeSkills } from "./skills.ts";
+import { fetchPackages, removeSkills, sessionPluginsDir, type SkillPackage, writeSkills } from "./skills.ts";
 import { resolveWorkdir } from "./workdir.ts";
 import { fallbackPackages, nativeSkillAliases, resolveSkillAlias } from "./native-skills.ts";
 import type { NativePlugins } from "./plugins.ts";
 import { removeMemoryFiles, writeMemoryFiles } from "./memory.ts";
+import { copyAttachments } from "./attachments.ts";
 
 type Emit = (sessionId: string, event: HarnessEvent) => void;
 
@@ -102,6 +104,10 @@ export const STOPPED = "Stopped";
 
 export class Sessions {
   private readonly live = new Map<string, HarnessSession>();
+  /** Each live session's run folder: a chat message's files are copied there. */
+  private readonly folders = new Map<string, string>();
+  /** The skill packages each live session got as files (`writeSkills`), not through a native installation. */
+  private readonly staged = new Map<string, SkillPackage[]>();
   private readonly stopping = new Set<string>();
   // No parameter properties: `node src/main.ts` runs this file with type stripping only.
   private readonly config: RunnerConfig;
@@ -195,6 +201,8 @@ export class Sessions {
       }
     }
     const id = msg.type === "session.start" ? msg.start.sessionId : msg.sessionId;
+    // A live session's stop, interrupt or narrowed permissions never wait behind a message whose files are still being fetched.
+    if ((msg.type === "session.stop" || msg.type === "session.interrupt" || msg.type === "session.permissions") && this.live.has(id)) return this.dispatch(msg);
     const before = this.queues.get(id);
     // Nothing before it: handled now, as the message arrives.
     const done = before ? before.then(() => this.dispatch(msg)) : this.dispatch(msg);
@@ -204,6 +212,10 @@ export class Sessions {
       if (this.queues.get(id) === settled) this.queues.delete(id);
     });
     return done;
+  }
+
+  stagedPackages(sessionId: string): SkillPackage[] {
+    return this.staged.get(sessionId) ?? [];
   }
 
   async commands(sessionId: string) {
@@ -225,18 +237,29 @@ export class Sessions {
     if (!session) return msg.type === "session.stop" ? this.emit(msg.sessionId, { type: "session-ended" }) : this.notRunning(msg.sessionId);
     if (msg.type === "session.stop") { this.stopping.add(msg.sessionId); return session.stop(STOPPED); }
     if (msg.type === "session.permissions") session.narrowPermissions?.(msg.servers);
-    else if (msg.type === "session.send") session.send(msg.text);
+    else if (msg.type === "session.send") {
+      // Its files are in place before the text that names them reaches the CLI (this session's messages wait meanwhile).
+      const cwd = this.folders.get(msg.sessionId);
+      const failed = msg.files?.length && cwd ? await copyAttachments(cwd, msg.files, this.options.skills) : undefined;
+      // Stopped while its files were fetched: the message goes nowhere.
+      if (this.live.get(msg.sessionId) !== session || this.stopping.has(msg.sessionId)) return;
+      session.send(failed ? `${msg.text}\n\n${failed}` : msg.text);
+    }
     else if (msg.type === "session.answer") session.answer(msg.questionId, msg.answer);
     else await session.interrupt();
   }
 
   private async start(start: SessionStart) {
     let recorded = false;
+    /** How the launched session ended, for its log line: its last result or error, never their words. */
+    let outcome = "exited";
     const emit = (event: HarnessEvent) => {
       if (event.type === "cli-session") {
         this.resumes.record(event.cliSessionId, start.cwd.runKey);
         recorded = true;
       }
+      if (event.type === "result") outcome = "succeeded";
+      if (event.type === "error") outcome = "failed";
       this.emit(start.sessionId, event);
     };
     // Stopping: nothing starts, and nothing is reported (Dispand starts it again after the restart).
@@ -252,13 +275,14 @@ export class Sessions {
     if (start.skills.length > 0 && !this.options.skills) return emit({ type: "error", message: "this runner can't load skills" });
     if (start.harness === "codex") {
       const codex = this.options.codex;
-      const problem = codex ? codexRequired(codex.version) : "Codex isn't installed on this machine, or doesn't run";
+      const problem = codex ? codexRequired(codex.version, start.restricted) : "Codex isn't installed on this machine, or doesn't run";
       if (problem) return emit({ type: "error", message: problem });
+      if (start.restricted && codex!.version !== RESTRICTED_CODEX) {
+        console.warn(`dispand-runner: restricted session ${start.sessionId} runs on Codex ${codex!.version}, its switches were checked on ${RESTRICTED_CODEX}: run restricted-tools.test.ts on this version`);
+      }
     } else if (!atLeast(this.options.claudeVersion, MIN_CLAUDE)) {
       return emit({ type: "error", message: `Claude Code ≥ ${MIN_CLAUDE} required (found ${this.options.claudeVersion ?? "none"}): update claude on this machine` });
     }
-    // A restricted session holds nothing but the Job's own server: Codex has no switch for its native tools here.
-    if (start.restricted && start.harness !== "claude-code") return emit({ type: "error", message: "A restricted session runs on Claude Code only" });
     if (start.permissionMode === "bypassPermissions" && !this.config.allowBypass) {
       return emit({ type: "error", message: new BypassRefused().message });
     }
@@ -272,9 +296,11 @@ export class Sessions {
       const refs = start.restricted
         ? withJobServer([], this.config.server, start.jobToken).filter((r) => r.name === JOB_SERVER_NAME)
         : withJobServer(start.mcpServers, this.config.server, start.jobToken);
+      // A Job's runner tools hand their files to that Job, at this runner's own server.
+      const options = start.jobToken === undefined ? {} : { files: { url: new URL(JOB_FILES_PATH, this.config.server).href, token: start.jobToken } };
       if (refs.length > 0) {
-        if (start.harness === "codex") codexMcp = codexMcpServers(refs, this.config.mcpServers);
-        else claudeMcp = mcpConfigFor(refs, this.config.mcpServers);
+        if (start.harness === "codex") codexMcp = codexMcpServers(refs, this.config.mcpServers, options);
+        else claudeMcp = mcpConfigFor(refs, this.config.mcpServers, options);
       }
     };
     try {
@@ -324,7 +350,9 @@ export class Sessions {
         ? await this.options.nativePlugins.request({ action: "list" }) : {};
       const fallback = fallbackPackages(packages, start.harness, native);
       const aliases = nativeSkillAliases(packages, start.harness, native);
-      start.prompt = resolveSkillAlias(start.prompt, aliases);
+      // Codex resolves aliases itself, after its exact catalog names (a scope can share an alias).
+      const resolve = (text: string) => start.harness === "codex" ? text : resolveSkillAlias(text, aliases);
+      start.prompt = resolve(start.prompt);
       const pluginRoots = pluginsDir ? await writeSkills(pluginsDir, fallback) : [];
       // Writing them took time: check again that the runner may still launch.
       if (this.shuttingDown) return cleanUp();
@@ -344,6 +372,7 @@ export class Sessions {
               secrets: this.options.forbidden ?? [],
               ...(pluginsDir ? { pluginsDir } : {}),
               pluginRoots,
+              skillAliases: aliases,
               ...(codexMcp ? { mcp: codexMcp } : {}),
               ...jobServer,
             })
@@ -356,9 +385,14 @@ export class Sessions {
               ...jobServer,
             });
       const send = session.send.bind(session);
-      session.send = (text) => send(resolveSkillAlias(text, aliases));
+      session.send = (text) => send(resolve(text));
       this.live.set(start.sessionId, session);
+      this.folders.set(start.sessionId, cwd);
+      this.staged.set(start.sessionId, fallback);
       this.toldNotRunning.delete(start.sessionId);
+      // One line at the start and one at the end: ids, the harness and the outcome only (no prompt, result or error text).
+      const named = `session ${start.sessionId} of run ${start.cwd.runKey} (${start.harness})`;
+      console.log(`dispand-runner: ${named} started`);
       // Shutdown waits for it: memory files must not outlive their session.
       const ended = session.done
         .finally(() => {
@@ -367,8 +401,12 @@ export class Sessions {
         .catch(() => undefined)
         .finally(() => {
           this.live.delete(start.sessionId);
+          this.folders.delete(start.sessionId);
+          this.staged.delete(start.sessionId);
           this.ending.delete(ended);
-          if (this.stopping.delete(start.sessionId) && !this.shuttingDown) emit({ type: "session-ended" });
+          const stopped = this.stopping.delete(start.sessionId);
+          console.log(`dispand-runner: ${named} ended: ${stopped ? "stopped" : this.shuttingDown ? "aborted" : outcome}`);
+          if (stopped && !this.shuttingDown) emit({ type: "session-ended" });
         });
       this.ending.add(ended);
     } catch (err) {

@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { parseArgs, strictCompatible, type ChatItem, type ClientDeps, type ClientHarness, type ModelClient, type ModelTurn } from "./model-client.ts";
+import { fileInput, parseArgs, strictCompatible, type ChatFile, type ChatItem, type ClientDeps, type ClientHarness, type ModelClient, type ModelTurn } from "./model-client.ts";
 
 const DEFAULT_MAX_TOKENS = 64_000;
 
@@ -49,7 +49,7 @@ export function createAnthropicClient(h: ClientHarness, deps: ClientDeps): Model
         block.type === "tool_use" ? [{ id: block.id, name: block.name, args: json.has(i) ? parseArgs(json.get(i)!) : block.input }] : [],
       );
       const text = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-      return { text, toolCalls, raw: message.content, stop: stopOf(message.stop_reason) };
+      return { text, toolCalls, raw: message.content, stop: stopOf(message.stop_reason), usage: { input: message.usage.input_tokens + (message.usage.cache_creation_input_tokens ?? 0) + (message.usage.cache_read_input_tokens ?? 0), output: message.usage.output_tokens } };
     },
   };
 }
@@ -68,6 +68,13 @@ function stopOf(reason: Anthropic.StopReason | null): ModelTurn["stop"] {
   }
 }
 
+function fileBlock(file: ChatFile): Anthropic.ContentBlockParam {
+  const input = fileInput(file);
+  if (input.kind === "image") return { type: "image", source: { type: "base64", media_type: input.mime, data: input.base64 } };
+  if (input.kind === "pdf") return { type: "document", source: { type: "base64", media_type: "application/pdf", data: input.base64 }, title: file.name.slice(0, 255) };
+  return { type: "text", text: input.text };
+}
+
 // Tool results and the user text that follows them share one user message, as the API expects.
 function toMessages(items: ChatItem[]): Anthropic.MessageParam[] {
   const messages: Anthropic.MessageParam[] = [];
@@ -80,7 +87,7 @@ function toMessages(items: ChatItem[]): Anthropic.MessageParam[] {
   };
   for (const item of items) {
     if (item.role === "assistant") messages.push({ role: "assistant", content: item.raw as Anthropic.ContentBlockParam[] });
-    else if (item.role === "user") userBlocks().push({ type: "text", text: item.text });
+    else if (item.role === "user") userBlocks().push({ type: "text", text: item.text }, ...(item.files ?? []).map(fileBlock));
     else userBlocks().push({ type: "tool_result", tool_use_id: item.callId, content: item.result, is_error: item.isError });
   }
   return messages;

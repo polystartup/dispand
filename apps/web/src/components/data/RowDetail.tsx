@@ -2,21 +2,25 @@ import { type Cell, cellText, type FieldSchema } from "@dispand/domain/data/fiel
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { api, orpc } from "../../lib/api.ts";
 import { AttachmentEditor } from "./AttachmentCell.tsx";
 import { CellEditor } from "./CellEditor.tsx";
-import { FIELD_TYPE_UI } from "./field-types.ts";
+import { useFormat } from "../../lib/format.ts";
+import { FIELD_TYPE_UI, useFieldTypeLabel } from "./field-types.ts";
 import { listCell, patchListRows, rowWrites, sameCell, setListCell } from "./row-writes.ts";
-
-const time = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Paris" });
 
 /**
  * One row in a side panel (`?row=<id>`): every field in order, each saved when it is left, its
  * times, and Delete. The title is the primary field. Escape closes it.
  */
 export function RowDetail({ tableId, rowId, fields, onClose }: { tableId: string; rowId: string; fields: FieldSchema[]; onClose: () => void }) {
+  const { t } = useTranslation(["data", "common"]);
+  const format = useFormat();
+  const typeLabel = useFieldTypeLabel();
+  const time = (date: Date) => format.dateTime(date, { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Paris" });
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -65,7 +69,7 @@ export function RowDetail({ tableId, rowId, fields, onClose }: { tableId: string
       await update.mutateAsync({ fieldId: field.id, value });
       setError(null);
     } catch (err) {
-      setError(`Could not save “${field.name}”: ${err instanceof Error ? err.message : "try again"}`);
+      setError(t("row.saveFailed", { name: field.name, message: err instanceof Error ? err.message : t("row.tryAgain") }));
       throw err;
     } finally {
       await refresh();
@@ -81,7 +85,7 @@ export function RowDetail({ tableId, rowId, fields, onClose }: { tableId: string
   });
 
   const primary = fields[0];
-  const title = (primary && row.data && cellText(primary, row.data.values[primary.id] ?? null)) || "Untitled";
+  const title = (primary && row.data && cellText(primary, row.data.values[primary.id] ?? null)) || t("row.untitled");
 
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>
@@ -89,10 +93,10 @@ export function RowDetail({ tableId, rowId, fields, onClose }: { tableId: string
         <div className="border-b border-line px-6 py-5 pr-12">
           <SheetTitle className="truncate text-[20px] font-semibold">{title}</SheetTitle>
           <SheetDescription className="mt-1 text-[12px] text-muted">
-            {row.data ? `Created ${time.format(row.data.createdAt)} · Updated ${time.format(row.data.updatedAt)}` : "Loading…"}
+            {row.data ? t("row.dates", { created: time(row.data.createdAt), updated: time(row.data.updatedAt) }) : t("common:loading")}
           </SheetDescription>
         </div>
-        {(first.error ?? row.error) && <p role="alert" className="px-6 py-4 text-[14px] text-danger">This row no longer exists.</p>}
+        {(first.error ?? row.error) && <p role="alert" className="px-6 py-4 text-[14px] text-danger">{t("row.gone")}</p>}
         {row.data && ready && (
           <div className="grid gap-5 px-6 py-5">
             {error && (
@@ -101,12 +105,12 @@ export function RowDetail({ tableId, rowId, fields, onClose }: { tableId: string
               </p>
             )}
             {fields.map((field) => {
-              const { Icon, label } = FIELD_TYPE_UI[field.type];
+              const { Icon } = FIELD_TYPE_UI[field.type];
               const value = (row.data.values[field.id] ?? null) as Cell;
               return (
                 <section key={field.id} aria-label={field.name} className="grid gap-1.5">
                   <h3 className="flex items-center gap-1.5 text-[13px] font-medium text-muted">
-                    <Icon size={13} aria-label={label} /> {field.name}
+                    <Icon size={13} aria-label={typeLabel(field.type)} /> {field.name}
                   </h3>
                   {field.type === "attachment" ? (
                     <AttachmentEditor
@@ -134,17 +138,17 @@ export function RowDetail({ tableId, rowId, fields, onClose }: { tableId: string
             <div className="border-t border-line pt-4">
               {confirmDelete ? (
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[14px]">Delete this row?</span>
+                  <span className="text-[14px]">{t("row.confirm")}</span>
                   <Button variant="destructive" size="sm" disabled={remove.isPending} onClick={() => remove.mutate()}>
-                    Delete row
+                    {t("row.delete")}
                   </Button>
                   <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>
-                    Cancel
+                    {t("row.cancel")}
                   </Button>
                 </div>
               ) : (
                 <Button variant="ghost" size="sm" className="text-danger" onClick={() => setConfirmDelete(true)}>
-                  <Trash2 /> Delete row
+                  <Trash2 /> {t("row.delete")}
                 </Button>
               )}
               {remove.error && <p role="alert" className="mt-2 text-[13px] text-danger">{remove.error.message}</p>}

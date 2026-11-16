@@ -2,6 +2,7 @@ import "react-grid-layout/css/styles.css";
 import { BREAKPOINTS, GRID } from "@dispand/domain/pages/layout";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { type Layout, type ResponsiveLayouts, Responsive, useContainerWidth } from "react-grid-layout";
 import { orpc } from "../../lib/api.ts";
 import { GridWidget } from "../widgets/GridWidget.tsx";
@@ -19,6 +20,7 @@ const same = (a: Layout, b: Layout | undefined) =>
 
 /** The page's widgets on a responsive grid; in edit mode they move and resize, and each breakpoint's layout is saved. */
 export function Dashboard({ pageId, widgets, editing }: Props) {
+  const { t } = useTranslation("dashboard");
   const { width, containerRef, mounted } = useContainerWidth();
   const queryClient = useQueryClient();
   const saveKey = orpc.widgets.saveLayout.mutationKey();
@@ -55,7 +57,7 @@ export function Dashboard({ pageId, widgets, editing }: Props) {
     <div ref={containerRef} className="-mx-2.5">
       {save.isError && (
         <p role="alert" className="mx-2.5 mb-3 text-[14px] text-danger">
-          Could not save the layout: the widgets are back where they were saved. Move them again to retry.
+          {t("page.layoutFailed")}
         </p>
       )}
       {mounted && (

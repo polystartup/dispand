@@ -770,6 +770,11 @@ test("a hello without its replay watermark is refused by the protocol: the runne
   expect(context.hub.isOnline(runnerId)).toBe(false);
 });
 
+test("a runner older than the latest bump (27: runner tools' files reach the Job) gets 426", async () => {
+  const { token, url } = await pairedRunner();
+  expect(await upgradeStatus(url, { authorization: `Bearer ${token}`, "dispand-protocol": String(PROTOCOL_VERSION - 1) })).toBe(426);
+});
+
 test("a v1 runner gets 426, and runners.list says it is outdated with the update command", async () => {
   const { context, runnerId, token, url } = await pairedRunner();
   expect(await upgradeStatus(url, { authorization: `Bearer ${token}`, "dispand-protocol": "1" })).toBe(426);

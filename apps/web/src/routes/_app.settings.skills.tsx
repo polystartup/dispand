@@ -2,6 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Plus } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useFormat } from "../lib/format.ts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Empty, List } from "../components/settings/parts.tsx";
@@ -13,6 +15,8 @@ import { orpc } from "../lib/api.ts";
 export const Route = createFileRoute("/_app/settings/skills")({ component: Skills });
 
 function Skills() {
+  const { t } = useTranslation("skills");
+  const { list } = useFormat();
   const packages = useQuery(orpc.skills.list.queryOptions());
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [sheet, setSheet] = useState<{ pkg?: SkillPackage } | null>(null);
@@ -21,7 +25,7 @@ function Skills() {
 
   const create = (
     <Button onClick={() => setSheet({})}>
-      <Plus /> Create skill
+      <Plus /> {t("list.create")}
     </Button>
   );
   const toggle = (id: string) =>
@@ -34,16 +38,16 @@ function Skills() {
   return (
     <>
       <div className="flex items-start justify-between gap-4">
-        <PageHeader title="Skills" subtitle="Reusable know-how for your agents." />
+        <PageHeader title={t("list.title")} subtitle={t("list.subtitle")} />
         {packages.data && packages.data.length > 0 && create}
       </div>
       {packages.error && !packages.data && (
         <p role="alert" className="text-[14px] text-danger">
-          Could not load the skills.
+          {t("list.failed")}
         </p>
       )}
       {packages.data?.length === 0 && (
-        <Empty title="No skill yet" text="A skill is instructions, and the files they use, that an agent follows when a task calls for them.">
+        <Empty title={t("list.emptyTitle")} text={t("list.emptyText")}>
           {create}
         </Empty>
       )}
@@ -65,20 +69,20 @@ function Skills() {
                     <span className="min-w-0">
                       <span className="block truncate text-[15px] font-medium">{p.name}</span>
                       <span className="block truncate text-[13px] text-muted">
-                        {p.builtIn ? "Built in · " : p.plugin ? `${p.plugin.name}'s · ` : ""}
-                        {p.skills.length === 1 ? p.description : `${p.skills.length} skills`}
+                        {p.builtIn ? t("list.builtIn") : p.plugin ? t("list.pluginOwned", { plugin: p.plugin.name }) : ""}
+                        {p.skills.length === 1 ? p.description : t("list.count", { count: p.skills.length })}
                       </span>
                     </span>
                   </button>
                   {p.builtIn ? (
-                    <span className="shrink-0 text-[12px] text-faint">Read-only</span>
+                    <span className="shrink-0 text-[12px] text-faint">{t("list.readOnly")}</span>
                   ) : p.plugin ? (
-                    <Button variant="ghost" size="sm" aria-label={`Files of ${p.name}`} onClick={() => setFilesOf(p)}>
-                      Files
+                    <Button variant="ghost" size="sm" aria-label={t("list.filesLabel", { name: p.name })} onClick={() => setFilesOf(p)}>
+                      {t("list.files")}
                     </Button>
                   ) : (
-                    <Button variant="ghost" size="sm" aria-label={`Edit ${p.name}`} onClick={() => setSheet({ pkg: p })}>
-                      Edit
+                    <Button variant="ghost" size="sm" aria-label={t("list.editLabel", { name: p.name })} onClick={() => setSheet({ pkg: p })}>
+                      {t("list.edit")}
                     </Button>
                   )}
                 </div>
@@ -91,7 +95,7 @@ function Skills() {
                       </li>
                     ))}
                     {p.requiredTools.length > 0 && (
-                      <li className="text-[13px] text-muted">Requires {p.requiredTools.map((t) => t.name).join(", ")}</li>
+                      <li className="text-[13px] text-muted">{t("list.requires", { tools: list(p.requiredTools.map((tool) => tool.name)) })}</li>
                     )}
                   </ul>
                 )}

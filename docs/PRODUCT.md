@@ -15,7 +15,8 @@ Status: Prototype
   layout or the Agent Plugins standard's, whose Dispand extension also defines tables, agents
   and triggers a workspace can be set up from. The **Assistant**, a
   built-in agent at the top of the sidebar, is a chat with an agent that may work on the data
-  and configure the workspace.
+  and configure the workspace, and keeps what it learns about the business in the workspace's
+  memory (the owner may turn that off on its page).
 - **For whom:** a single owner per install who wants to hand recurring business work to AI
   agents, whatever the business: a law firm, a software studio, a shop.
 - **Direction:** agents own their triggers (data events, polled services, schedules, manual
@@ -26,6 +27,9 @@ Status: Prototype
     latest missed time, never once per missed time.
   - A schedule that falls due while a run of the same workflow is still going is **skipped**,
     and the skip shows in the workflow's recent fires.
+  - Any agent may have a trigger on **other agents' Jobs** (created, finished, or failed or
+    stopped): its Job is told the other Job's id, agent and status, never its result or error,
+    which it reads only through `jobs_get` if it may. An agent's own Jobs never fire it.
   - An agent's schedule trigger set to **one at a time** skips a time that comes while its Job
     is still going, and the skip shows in the trigger's recent fires; set to parallel, every
     time starts a Job. (Firings from data events, when they exist, will wait instead of being
@@ -91,8 +95,8 @@ Status: Prototype
     and the others ask (for a tool from the catalog, the actions its entry lets run start without
     asking, and every other one asks, whatever the tool says); after that only the owner changes it, action by action, on the
     agent's page (under each tool) or through the memory choices on an approval of that action.
-    A tool approval offers Just this call, Remember this for this run only, and, for a chosen
-    tool in a Job, Remember this for this and all future runs. A run-only choice leaves the
+    A tool approval offers Just this call, Remember this for this run only, and, for a tool the agent
+    chose or gets with one of its skills, in a Job, Remember this for this and all future runs. A run-only choice leaves the
     agent's settings unchanged; a future-run Allow sets Run and a future-run Deny sets Off.
     Workflow sessions offer run-only memory. The agent page also lists saved native CLI rules,
     showing the CLI, Allow/Deny decision and rule. Each can be removed there; removal takes
@@ -181,6 +185,7 @@ Status: Prototype
   read it too (`audit_list`), except rows about tables outside theirs. A row names what was touched (ids, names, counts and
   kinds), never what an agent read or wrote, and carries the trace it was recorded in: with
   `DISPAND_TRACE_URL` set, the trace id links to the tracing tool. Workflow runs have no rows.
+  The page filters by who (you, an agent, the scheduler), agent, kind of action, what it was about, how it ended and a range of days; the filters are in the page's address, and a Job's page links to Audit filtered on that Job.
   Rows are kept 90 days by default; the owner sets it from 1 to 3,650 days at the top of the
   Audit page ("Keep Audit for N days"), and older rows are deleted each hour. Agents can't read
   or change it, not even through a proposal: shortening it would erase the trail of what they

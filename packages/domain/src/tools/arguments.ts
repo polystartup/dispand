@@ -1,4 +1,5 @@
 import { OutputField, TEXT } from "@dispand/runner-protocol";
+import { english, type Message, say } from "../messages/index.ts";
 import { storableText } from "../text.ts";
 import type { ToolAction, ToolResult } from "./mcp.ts";
 
@@ -46,32 +47,31 @@ export function typeHint(type: ParamType): string | null {
   return { string: null, number: "a number", integer: "a whole number", boolean: "true or false", array: "a JSON array", object: "a JSON object" }[type];
 }
 
-/** `value` as `type`, or why it isn't one ("“p” must be …" follows from it). */
-export function coerceValue(type: ParamType, value: string): { value: unknown } | { error: string } {
+/** `value` of the parameter `param` as `type`, or why it isn't one. */
+export function coerceValue(type: ParamType, value: string, param: string): { value: unknown } | { error: Message } {
   switch (type) {
     case "string":
       return { value };
     case "number":
     case "integer": {
       const n = value.trim() === "" ? NaN : Number(value);
-      if (!Number.isFinite(n)) return { error: "must be a number" };
-      if (type === "integer" && !Number.isInteger(n)) return { error: "must be a whole number" };
+      if (!Number.isFinite(n)) return { error: say("workflows.issue.mustBe.number", { param }) };
+      if (type === "integer" && !Number.isInteger(n)) return { error: say("workflows.issue.mustBe.integer", { param }) };
       return { value: n };
     }
     case "boolean": {
       const v = value.trim().toLowerCase();
-      return v === "true" ? { value: true } : v === "false" ? { value: false } : { error: "must be true or false" };
+      return v === "true" ? { value: true } : v === "false" ? { value: false } : { error: say("workflows.issue.mustBe.boolean", { param }) };
     }
     case "array":
     case "object": {
-      const shape = type === "array" ? "an array" : "an object";
       try {
         const parsed: unknown = JSON.parse(value);
         if (type === "array" ? Array.isArray(parsed) : isObject(parsed)) return { value: parsed };
       } catch {
         // Not JSON: the same error as the wrong shape.
       }
-      return { error: `must be JSON (${shape})` };
+      return { error: say(`workflows.issue.mustBe.${type}`, { param }) };
     }
   }
 }
@@ -97,8 +97,8 @@ export function coerceArguments(action: Pick<ToolAction, "inputSchema">, values:
       const skipped = typeof value === "object" ? ` (“${value.skipped}” was skipped)` : "";
       return { error: `“${param.name}” has no value${skipped}` };
     }
-    const coerced = coerceValue(param.type, value);
-    if ("error" in coerced) return { error: `“${param.name}” ${coerced.error}` };
+    const coerced = coerceValue(param.type, value, param.name);
+    if ("error" in coerced) return { error: english(coerced.error.key, coerced.error.values) };
     args.push([param.name, coerced.value]);
   }
   // `fromEntries` defines own properties: a parameter named `__proto__` stays one.

@@ -1,14 +1,15 @@
 import type { StepType } from "@dispand/domain/workflows/model";
+import { useTranslation } from "react-i18next";
 import { Bot, Database, GitBranch, Plus, Repeat, type LucideIcon } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 /** The step types the canvas can add, in menu order. */
-const choices: { type: StepType; label: string; icon: LucideIcon }[] = [
-  { type: "agent", label: "Agent", icon: Bot },
-  { type: "data", label: "Data", icon: Database },
-  { type: "condition", label: "Condition", icon: GitBranch },
-  { type: "loop", label: "For each", icon: Repeat },
+const choices: { type: StepType; label: "agent" | "data" | "condition" | "loop"; icon: LucideIcon }[] = [
+  { type: "agent", label: "agent", icon: Bot },
+  { type: "data", label: "data", icon: Database },
+  { type: "condition", label: "condition", icon: GitBranch },
+  { type: "loop", label: "loop", icon: Repeat },
 ];
 
 /** A "+" that opens the list of step types (not "For each" inside a loop); picking one calls `onPick`. */
@@ -24,6 +25,7 @@ export function AddStepMenu({
   /** Inside a loop's body: no "For each" (loops can't be nested yet). */
   inLoop?: boolean;
 }) {
+  const { t } = useTranslation("workflows");
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -44,7 +46,7 @@ export function AddStepMenu({
       <DropdownMenuContent align="center" className="w-44 rounded-xl border-0 p-2 shadow-pop" onClick={(e) => e.stopPropagation()}>
         {choices.filter((c) => !inLoop || c.type !== "loop").map(({ type, label, icon: Icon }) => (
           <DropdownMenuItem key={type} onSelect={() => onPick(type)} className="text-[13px]">
-            <Icon aria-hidden /> {label}
+            <Icon aria-hidden /> {t(`addStep.${label}`)}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

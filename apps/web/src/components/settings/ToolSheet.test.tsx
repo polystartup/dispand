@@ -2,6 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 
 const fake = vi.hoisted(() => ({ tools: { authorize: vi.fn(), pollable: vi.fn(), setPollable: vi.fn(), setActionEnabled: vi.fn(), create: vi.fn(), update: vi.fn(), refresh: vi.fn(), delete: vi.fn(), catalog: vi.fn(), fillSettings: vi.fn() }, plugins: { resetOverride: vi.fn(), conflicts: vi.fn(), resolveConflict: vi.fn() } }));
@@ -10,6 +11,7 @@ vi.mock("../../lib/api.ts", async () => {
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
 const { ToolSheet } = await import("./ToolSheet.tsx");
+const { createI18n } = await import("../../lib/i18n.ts");
 type Tool = Parameters<typeof ToolSheet>[0]["tool"];
 
 afterEach(() => {
@@ -47,6 +49,18 @@ function sheet(shown: NonNullable<Tool> = tool, onSaved: (t: NonNullable<Tool>) 
     </QueryClientProvider>,
   );
 }
+
+test("the tool sheet is in French", () => {
+  fake.tools.pollable.mockResolvedValue([]);
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ToolSheet tool={tool} onClose={() => {}} onSaved={() => {}} />
+      </QueryClientProvider>
+    </I18nextProvider>,
+  );
+  expect(screen.getByRole("button", { name: "Connecter" })).toBeTruthy();
+});
 
 test("an OAuth tool's sheet offers Connect for the saved server", () => {
   sheet();

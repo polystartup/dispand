@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
+import { say } from "@dispand/domain/messages/index.ts";
 
 const fake = vi.hoisted(() => ({ plugins: { setupPreview: vi.fn(), setUp: vi.fn() }, tables: {}, agents: {}, harnesses: { list: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
@@ -46,11 +47,11 @@ test("every table is ticked, what is missing is shown as a proposal's items, and
       { tool: "fields_create", input: { tableId: { $item: 0 }, name: "Clients", type: "reference", referencesTableId: "tbl_1" }, used: false, failed: false, refs: ["tableId", "referencesTableId"], creates: "field", createdId: null },
     ],
     names: { tbl_1: { kind: "table", name: "Clients" } },
-    waiting: [{ definition: "field:Matters.Name", reason: "Every table has a Name field already: this one isn't added" }],
+    waiting: [{ definition: "field:Matters.Name", reason: say("plugins.setup.waiting.nameField") }],
   });
   fake.plugins.setUp.mockResolvedValue({
     outcomes: [
-      { $item: 0, tool: "tables_create", from: "primitive:Matters", outcome: "refused", error: "A table is already called “Matters”" },
+      { $item: 0, tool: "tables_create", from: "primitive:Matters", outcome: "refused", error: { text: "A table is already called “Matters”" } },
       { $item: 1, tool: "fields_create", from: "field:Matters.Clients", outcome: "not made" },
     ],
     waiting: [],

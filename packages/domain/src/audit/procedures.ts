@@ -3,6 +3,7 @@ import { z } from "zod";
 import { rightsOf } from "../platform/rights.ts";
 import { authed, base } from "../rpc/context.ts";
 import { AuditCursorError, AuditFilter, listAudit } from "./list.ts";
+import { message } from "../messages/index.ts";
 
 const owner = base.use(authed);
 
@@ -16,7 +17,7 @@ const list = owner.input(AuditFilter.extend({ cursor: z.string().max(1000).optio
   try {
     return await listAudit(context.db, context.ownerId, filter, cursor, tables);
   } catch (err) {
-    if (err instanceof AuditCursorError) throw new ORPCError("BAD_REQUEST", { message: "Invalid cursor" });
+    if (err instanceof AuditCursorError) throw new ORPCError("BAD_REQUEST", message("audit.badCursor"));
     throw err;
   }
 });

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { say } from "@dispand/domain/messages/index.ts";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { ProposalItems, type ProposalView } from "./ProposalItems.tsx";
@@ -7,7 +8,7 @@ afterEach(cleanup);
 
 test("an agent's tools show the actions approved to run without asking", () => {
   render(<ProposalItems proposal={{ id: "prop_mail", status: "asked", names: { tool_mail: { kind: "tool", name: "Gmail" } }, items: [{ tool: "agents_create", input: { toolIds: ["tool_mail"] }, refs: ["toolIds"], used: false, tools: [{ toolId: "tool_mail", runs: ["search_emails", "read_email", "draft_email"] }] }] }} />);
-  expect(screen.getByText("Runs without asking: search_emails, read_email, draft_email")).toBeTruthy();
+  expect(screen.getByText("Runs without asking: search_emails, read_email, and draft_email")).toBeTruthy();
   expect(screen.getByText("Other enabled actions ask")).toBeTruthy();
 });
 
@@ -20,8 +21,8 @@ const proposal: ProposalView = {
     { tool: "agents_update", used: true, refs: ["id", "harnessId", "toolIds", "skillPackageIds", "dataTables"], input: { id: "agent_1", name: "Builder", harnessId: "harness_1", systemPrompt: "New.", dataTables: ["table_1"] } },
   ],
   names: {
-    harness_1: { kind: "harness", name: "Claude", detail: "claude-code, on Workstation, permission mode default" },
-    tool_1: { kind: "tool", name: "Mail", detail: "https://mail.example.com/mcp" },
+    harness_1: { kind: "harness", name: "Claude", detail: { text: "claude-code, on Workstation, permission mode default" } },
+    tool_1: { kind: "tool", name: "Mail", detail: { text: "https://mail.example.com/mcp" } },
     agent_1: { kind: "agent", name: "Builder" },
     table_1: { kind: "table", name: "Clients" },
   },
@@ -34,7 +35,7 @@ test("a proposal shows every write whole: the tool, each value, and long instruc
   const first = within(items[0]!);
   expect(first.getByText("Create an agent")).toBeTruthy();
   expect(first.getByText("Clerk")).toBeTruthy();
-  expect(first.getByText("data, configure")).toBeTruthy();
+  expect(first.getByText("data and configure")).toBeTruthy();
   expect(first.getByText("all")).toBeTruthy();
   expect(items[0]!.textContent).toContain(long);
   expect(within(items[1]!).getByText("Change an agent")).toBeTruthy();
@@ -62,18 +63,45 @@ test("deletions and asking flags read as what they do, with names; a value that 
       { tool: "fields_delete", used: false, refs: ["id"], input: { id: "field_1" } },
       { tool: "agents_set_tool_permission", used: false, refs: ["agentId", "toolId"], input: { agentId: "agent_1", toolId: "tool_x", action: "table_1", permission: "run" } },
     ],
-    names: { table_1: { kind: "table", name: "Clients" }, field_1: { kind: "field", name: "Phone", detail: "of the table Clients" }, agent_1: { kind: "agent", name: "Builder" } },
+    names: { table_1: { kind: "table", name: "Clients" }, field_1: { kind: "field", name: "Phone", detail: say("data.field.ofTable", { table: "Clients" }) }, agent_1: { kind: "agent", name: "Builder" } },
   };
   render(<ProposalItems proposal={more} />);
   const [table, field, flag] = screen.getAllByRole("listitem");
   expect(within(table!).getByText("Delete a table, with its rows")).toBeTruthy();
+  expect(within(table!).getByText("This can't be undone.")).toBeTruthy();
+  expect(within(flag!).queryByText("This can't be undone.")).toBeNull();
   expect(table!.textContent).toContain("Clients");
   expect(field!.textContent).toContain("Phone (of the table Clients)");
+  expect(within(field!).getByText("This can't be undone.")).toBeTruthy();
   expect(within(flag!).getByText("Set an action to Run, Ask, or Off")).toBeTruthy();
   expect(within(flag!).getByText(/tool_x: not one of yours/)).toBeTruthy();
   // The action happens to read like a table's id: it is shown as the text it is.
   expect(within(flag!).getByText("table_1")).toBeTruthy();
   expect(within(flag!).getByText("run")).toBeTruthy();
+});
+
+test("deleting an agent and changing a field's type say they can't be undone, with names, and no dry run row", () => {
+  const items: ProposalView = {
+    id: "prop_r",
+    status: "asked",
+    items: [
+      { tool: "agents_delete", used: false, refs: ["id"], input: { id: "agent_1" } },
+      { tool: "fields_retype", used: false, refs: ["id"], input: { id: "field_1", type: "number", dryRun: false } },
+    ],
+    names: { agent_1: { kind: "agent", name: "Clerk" }, field_1: { kind: "field", name: "Amount" } },
+  };
+  render(<ProposalItems proposal={items} />);
+  const [agent, field] = screen.getAllByRole("listitem");
+  expect(within(agent!).getByText("Delete an agent, with its triggers: its Jobs still going stop")).toBeTruthy();
+  expect(within(agent!).getByText("This can't be undone.")).toBeTruthy();
+  expect(agent!.textContent).toContain("Clerk");
+  expect(within(field!).getByText("Change a field's type: a value the new type can't hold is cleared")).toBeTruthy();
+  expect(within(field!).getByText("This can't be undone.")).toBeTruthy();
+  expect(within(field!).getByText("New type")).toBeTruthy();
+  expect(field!.textContent).toContain("Amount");
+  // The type by its name, as the Data screens show it.
+  expect(within(field!).getByText("Number")).toBeTruthy();
+  expect(field!.textContent).not.toMatch(/dryRun|Dry run/);
 });
 
 test("a trigger reads as what starts Jobs: its agent by name, its instructions and its schedule whole", () => {
@@ -114,6 +142,26 @@ test("a tool to add shows its address whole and the host calls will go to", () =
   expect(within(item!).getByText("mail.example.com:8443")).toBeTruthy();
 });
 
+test("a marketplace to add shows the address the server will read, whole, its host, and its kind in words", () => {
+  const market: ProposalView = {
+    id: "prop_m",
+    status: "asked",
+    items: [
+      { tool: "marketplaces_add", used: false, refs: [], input: { url: "acme/plugins", kind: "git" }, shown: { url: "https://github.com/acme/plugins.git" } },
+      { tool: "marketplaces_add", used: false, refs: [], input: { url: "https://skills.example", kind: "well-known" }, shown: { url: "https://skills.example/.well-known/skills/index.json" } },
+    ],
+    names: {},
+  };
+  render(<ProposalItems proposal={market} />);
+  const [git, site] = screen.getAllByRole("listitem");
+  expect(within(git!).getByText("Add a marketplace: where plugins and skills are read from")).toBeTruthy();
+  expect(within(git!).getByText("https://github.com/acme/plugins.git")).toBeTruthy();
+  expect(within(git!).getByText("github.com")).toBeTruthy();
+  expect(within(git!).getByText("Git repository")).toBeTruthy();
+  expect(within(site!).getByText("https://skills.example/.well-known/skills/index.json")).toBeTruthy();
+  expect(within(site!).getByText("Skill site")).toBeTruthy();
+});
+
 test("a plugin's server to add names its plugin and shows the address calls will go to", () => {
   const tool: ProposalView = {
     id: "prop_5",
@@ -142,15 +190,31 @@ test("a table-change trigger's config is read in words, its table and fields by 
             input: { agentId: "agent_1", name: "On change", config: { kind: "primitive", tableId: "table_1", operations: ["created", "updated"], fields: ["field_1", "field_gone"] } },
           },
         ],
-        names: { agent_1: { kind: "agent", name: "Builder" }, table_1: { kind: "table", name: "Clients" }, field_1: { kind: "field", name: "City", detail: "of the table Clients" } },
+        names: { agent_1: { kind: "agent", name: "Builder" }, table_1: { kind: "table", name: "Clients" }, field_1: { kind: "field", name: "City", detail: say("data.field.ofTable", { table: "Clients" }) } },
       }}
     />,
   );
   const item = screen.getByRole("listitem");
   expect(item.textContent).toContain("A change to the table Clients");
-  expect(item.textContent).toContain("When a row is created, or a row is changed");
+  expect(item.textContent).toContain("When a row is created or a row is changed");
   expect(item.textContent).toContain("A changed row only when one of these changed:City (of the table Clients)");
   expect(within(item).getByRole("alert").textContent).toBe("field_gone: not one of yours");
+});
+
+test("a trigger on Jobs reads as another agent's Job and its operations in words", () => {
+  render(
+    <ProposalItems
+      proposal={{
+        id: "prop_3",
+        status: "asked",
+        items: [{ tool: "triggers_create", used: false, refs: ["agentId"], input: { agentId: "agent_1", name: "On failures", config: { kind: "primitive", tableId: "job", operations: ["finished", "failed"] } } }],
+        names: { agent_1: { kind: "agent", name: "Watcher" } },
+      }}
+    />,
+  );
+  const item = screen.getByRole("listitem");
+  expect(item.textContent).toContain("A Job of another agent");
+  expect(item.textContent).toContain("When one finishes or one fails or is stopped");
 });
 
 test("an agent's consult entries read by name, with their flag and what a consult can do", () => {
@@ -258,7 +322,8 @@ test("a trigger's rate cap and concurrency read in words, and a field's choices 
   };
   render(<ProposalItems proposal={setup} />);
   const [field, trigger] = screen.getAllByRole("listitem");
-  expect(field!.textContent).toContain("ChoicesNew, Won");
+  expect(field!.textContent).toContain("ChoicesNew and Won");
+  expect(field!.textContent).toContain("TypeSingle select");
   expect(field!.textContent).not.toMatch(/c_new|"label"/);
   expect(trigger!.textContent).toContain("Jobs an hourAt most 30 an hour");
   expect(trigger!.textContent).toContain("Jobs at onceOne at a time");

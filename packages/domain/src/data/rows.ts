@@ -5,7 +5,8 @@ import type { Db, Tx } from "../db/client.ts";
 import { type EventActor, events, fields as fieldsTable, rows as rowsTable, runs, tables as tablesTable } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { recordAudit } from "../audit/record.ts";
-import { authed, base } from "../rpc/context.ts";
+import { isMessageKey, type Message, message, say } from "../messages/index.ts";
+import { authed, base, validationKey } from "../rpc/context.ts";
 import { type Cell, CELL_LIMITS, cellSchema, cellText, type FieldSchema } from "./fields.ts";
 import { adoptAttachments, attachmentsById, lockAttachments } from "./files.ts";
 import { type Filter, filterValue, queryProblem, RowQuery, type Sort } from "./query.ts";
@@ -97,7 +98,13 @@ export function orderOf(fields: FieldSchema[], sort: Sort[]): SQL[] {
   return [...keys, asc(rowsTable.createdAt), asc(rowsTable.id)];
 }
 
-type Written = { row: RowView } | { problem: string; notFound?: true };
+type Written = { row: RowView } | { problem: Message; notFound?: true };
+
+/** A rejected value as the message of its first issue: a refinement's or a pattern's message is already the key, the others are `validation.*` of the field. */
+export function cellProblem(field: FieldSchema, issue: { code: string; message: string; path: PropertyKey[] } | undefined): Message {
+  if (issue && isMessageKey(issue.message)) return say(issue.message, { field: field.name });
+  return validationKey({ ...(issue ?? { code: "custom" }), path: [field.name] });
+}
 
 /**
  * The one way a row is written (procedures, and the engine's Data steps). Waits for any schema
@@ -110,26 +117,26 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
     .from(tablesTable)
     .where(and(eq(tablesTable.id, input.tableId), eq(tablesTable.ownerId, input.ownerId)))
     .for("share");
-  if (!table) return { problem: "table not found", notFound: true };
+  if (!table) return { problem: say("data.table.notFound"), notFound: true };
   const fields = new Map((await tx.select().from(fieldsTable).where(eq(fieldsTable.tableId, table.id))).map((f) => [f.id, schemaOf(f)]));
   for (const [id, value] of Object.entries(input.values)) {
     const field = fields.get(id);
-    if (!field) return { problem: `This table has no field “${id}”` };
+    if (!field) return { problem: say("data.row.noField", { id }) };
     const checked = cellSchema(field).safeParse(value);
-    if (!checked.success) return { problem: `“${field.name}”: ${checked.error.issues[0]?.message ?? "not a valid value"}` };
+    if (!checked.success) return { problem: cellProblem(field, checked.error.issues[0]) };
   }
   // Files: only this table's own, or the writing Job's that no table has yet (they become this
   // table's once the row is written), locked so the sweep keeps them until this commits.
   const files = Object.entries(input.values).filter(([id, value]) => fields.get(id)!.type === "attachment" && Array.isArray(value));
   const { known, adopt } = await lockAttachments(tx, input.ownerId, table.id, files.flatMap(([, ids]) => ids as string[]), input.actor);
   for (const [id, ids] of files) {
-    if ((ids as string[]).some((a) => !known.has(a))) return { problem: `“${fields.get(id)!.name}”: no such file` };
+    if ((ids as string[]).some((a) => !known.has(a))) return { problem: say("data.row.noFile", { field: fields.get(id)!.name }) };
   }
   // A required parent: a new row names one, and no write empties it.
   if (table.parentRequired && table.parentFieldId) {
     const parent = fields.get(table.parentFieldId)!;
     const given = input.values[parent.id];
-    if ((input.rowId ? given === null : given === null || given === undefined)) return { problem: `“${parent.name}”: every row names one` };
+    if ((input.rowId ? given === null : given === null || given === undefined)) return { problem: say("data.row.parentRequired", { field: parent.name }) };
   }
   // References: each names a row of its field's table, the owner's.
   for (const [id, value] of Object.entries(input.values)) {
@@ -140,7 +147,7 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
       .from(rowsTable)
       .where(and(eq(rowsTable.id, value), eq(rowsTable.tableId, field.referencesTableId ?? ""), eq(rowsTable.ownerId, input.ownerId)))
       .for("share");
-    if (!target) return { problem: `“${field.name}”: no such row` };
+    if (!target) return { problem: say("data.row.noRow", { field: field.name }) };
   }
   const values = JSON.stringify(input.values);
   if (!input.rowId) {
@@ -161,7 +168,7 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
     .set({ values: sql`${rowsTable.values} || ${values}::jsonb`, updatedAt: sql`now()` })
     .where(and(eq(rowsTable.id, input.rowId), eq(rowsTable.tableId, table.id)))
     .returning();
-  if (!row) return { problem: "row not found", notFound: true };
+  if (!row) return { problem: say("data.row.notFound"), notFound: true };
   await adoptAttachments(tx, table.id, adopt);
   if (current) {
     const was = (id: string) => current.values[id] ?? null;
@@ -215,7 +222,7 @@ export function actorOf(context: { ownerId: string; job?: { runId: string } }): 
 
 function written(result: Written): RowView {
   if ("row" in result) return result.row;
-  throw new ORPCError(result.notFound ? "NOT_FOUND" : "BAD_REQUEST", { message: result.problem });
+  throw new ORPCError(result.notFound ? "NOT_FOUND" : "BAD_REQUEST", message(result.problem.key, result.problem.values));
 }
 
 async function requireTable(db: Db, ownerId: string, id: string) {
@@ -223,7 +230,7 @@ async function requireTable(db: Db, ownerId: string, id: string) {
     .select({ id: tablesTable.id })
     .from(tablesTable)
     .where(and(eq(tablesTable.id, id), eq(tablesTable.ownerId, ownerId)));
-  if (!table) throw new ORPCError("NOT_FOUND");
+  if (!table) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
   return table;
 }
 
@@ -232,7 +239,7 @@ async function requireRow(db: Db, ownerId: string, id: string) {
     .select()
     .from(rowsTable)
     .where(and(eq(rowsTable.id, id), eq(rowsTable.ownerId, ownerId)));
-  if (!row) throw new ORPCError("NOT_FOUND");
+  if (!row) throw new ORPCError("NOT_FOUND", message("data.row.notFound"));
   return row;
 }
 
@@ -288,7 +295,7 @@ const list = owner
     const fields = (await context.db.select().from(fieldsTable).where(eq(fieldsTable.tableId, table.id))).map(schemaOf);
     const query = input.query ?? { filters: [], sort: [] };
     const problem = queryProblem(query, fields);
-    if (problem) throw new ORPCError("BAD_REQUEST", { message: problem });
+    if (problem) throw new ORPCError("BAD_REQUEST", message(problem.key, problem.values));
     const where = and(eq(rowsTable.tableId, table.id), whereOf(fields, query.filters));
     const [page, [total]] = await Promise.all([
       context.db
@@ -357,9 +364,9 @@ const editFiles = owner
           .select()
           .from(fieldsTable)
           .where(and(eq(fieldsTable.id, input.fieldId), eq(fieldsTable.tableId, current.tableId)));
-        if (field?.type !== "attachment") return { problem: "This field doesn't hold files" };
+        if (field?.type !== "attachment") return { problem: say("data.row.notFiles") };
         const [locked] = await tx.select({ values: rowsTable.values }).from(rowsTable).where(eq(rowsTable.id, current.id)).for("update");
-        if (!locked) return { problem: "row not found", notFound: true };
+        if (!locked) return { problem: say("data.row.notFound"), notFound: true };
         const stored = locked.values[field.id];
         const gone = new Set(input.remove);
         const next = [...new Set([...(Array.isArray(stored) ? stored : []).filter((id) => !gone.has(id)), ...input.add])];
@@ -389,11 +396,11 @@ export async function clearReferences(tx: Tx, ownerId: string, tableId: string, 
       .for("update");
     // Children of a required parent keep it: the parent can't go while they exist.
     if (hits.length > 0 && table?.parentRequired && table.parentFieldId === field.id) {
-      throw new ORPCError("CONFLICT", { message: `${hits.length === 1 ? "1 row" : `${hits.length} rows`} of “${table.name}” belong to it: delete or move them first` });
+      throw new ORPCError("CONFLICT", message("data.row.children", { count: hits.length, table: table.name }));
     }
     for (const hit of hits) {
       const result = await writeRow(tx, { ownerId, tableId: field.tableId, rowId: hit.id, values: { [field.id]: null }, actor });
-      if ("problem" in result) throw new ORPCError("CONFLICT", { message: result.problem });
+      if ("problem" in result) throw new ORPCError("CONFLICT", message(result.problem.key, result.problem.values));
       changed.set(field.tableId, [...(changed.get(field.tableId) ?? []), hit.id]);
     }
   }
@@ -408,7 +415,7 @@ const remove = owner.input(z.object({ ids: z.array(z.string()).min(1).max(MAX_PA
     .from(rowsTable)
     .where(and(inArray(rowsTable.id, ids), eq(rowsTable.ownerId, context.ownerId)));
   const tableId = found[0]?.tableId;
-  if (found.length !== ids.length || found.some((r) => r.tableId !== tableId)) throw new ORPCError("NOT_FOUND");
+  if (found.length !== ids.length || found.some((r) => r.tableId !== tableId)) throw new ORPCError("NOT_FOUND", message("data.row.notFound"));
   const { deleted, cleared } = await context.db.transaction(async (tx) => {
     // The table before its rows, as every writer and schema change takes them.
     const [table] = await tx.select({ id: tablesTable.id, name: tablesTable.name, primitive: tablesTable.primitive }).from(tablesTable).where(eq(tablesTable.id, tableId!)).for("share");
@@ -441,7 +448,7 @@ const stream = owner.input(z.object({ tableIds: z.array(z.string()).min(1).max(2
       .select({ n: count() })
       .from(tablesTable)
       .where(and(inArray(tablesTable.id, ids), eq(tablesTable.ownerId, context.ownerId)));
-    if (mine!.n !== ids.length) throw new ORPCError("NOT_FOUND");
+    if (mine!.n !== ids.length) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
     for await (const event of events) yield event;
   } finally {
     await events.return?.();

@@ -1,13 +1,14 @@
 import { type Answer, type HarnessEvent, ID, type QuestionPayload, SHORT, TEXT } from "@dispand/runner-protocol";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
-import { cloudSessions, stepRuns } from "../db/schema.ts";
+import { cloudSessions, runs, stepRuns, type MessageFile } from "../db/schema.ts";
+import { attachmentBytes } from "../data/files.ts";
 import { answerText } from "../engine/engine.ts";
 import type { AgentAnswerer, CloudHarness, HarnessAdapter, StartParams } from "../engine/harness.ts";
 import { loadCloudHarness } from "../harnesses/cloud.ts";
 import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
-import { meter, recordError, tracer } from "../telemetry/index.ts";
+import { inJobTrace, meter, recordError, tracer } from "../telemetry/index.ts";
 import { SecretError, type SecretBox } from "../secrets.ts";
 import {
   ASK_USER,
@@ -28,7 +29,7 @@ import {
   submitOutputsSpec,
   TEXTS,
 } from "./builtins.ts";
-import { type ChatItem, type ClientHarness, createModelClient, type ModelClient, type ModelTurn, type ToolCall, type ToolSpec } from "./model-client.ts";
+import { budgetFiles, type ChatItem, type ClientHarness, createModelClient, type ModelClient, type ModelTurn, type ToolCall, type ToolSpec } from "./model-client.ts";
 import { DEFAULT_BASE_URLS } from "./models.ts";
 import { readSkill, sessionSkills, skillsPrompt } from "../skills/cloud.ts";
 import { toolNames } from "./tool-names.ts";
@@ -77,6 +78,11 @@ function modelCall(kind: string, sessionId: string, turn: () => Promise<ModelTur
       const done = await turn();
       result = done.stop;
       span.setAttribute("dispand.model.tool_calls", done.toolCalls.length);
+      // An endpoint of the owner's can send anything as a count: only numbers reach telemetry.
+      if (done.usage && [done.usage.input, done.usage.output].every((n) => Number.isFinite(n) && n >= 0)) {
+        span.setAttributes({ "dispand.model.tokens.input": done.usage.input, "dispand.model.tokens.output": done.usage.output });
+        for (const direction of ["input", "output"] as const) counts.counter("dispand.model.tokens", { unit: "{token}", description: "Tokens the provider counted for a model call" }).add(done.usage[direction], { "dispand.harness.kind": kind, "dispand.token.direction": direction });
+      }
       return done;
     } catch (err) {
       recordError(span, errorKind(err));
@@ -151,12 +157,16 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   private readonly client: (h: ClientHarness) => ModelClient;
   private readonly tools: ToolCaller;
 
+  /** Where attachments are kept: a chat message's files are read from there at each model call. */
+  private readonly filesDir: string | undefined;
+
   constructor(
     private readonly db: Db,
     private readonly secrets: SecretBox,
-    deps: { tools: ToolCaller; client?: (h: ClientHarness) => ModelClient },
+    deps: { tools: ToolCaller; client?: (h: ClientHarness) => ModelClient; filesDir?: string },
   ) {
     this.tools = deps.tools;
+    this.filesDir = deps.filesDir;
     this.client = deps.client ?? ((h) => createModelClient(h));
   }
 
@@ -225,12 +235,12 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     return true;
   }
 
-  async send(sessionId: string, text: string): Promise<boolean> {
+  async send(sessionId: string, text: string, files: MessageFile[] = []): Promise<boolean> {
     const known = await this.locked(sessionId, async () => {
       const [row] = await this.db.select().from(cloudSessions).where(eq(cloudSessions.id, sessionId));
       if (!row) return false;
       if (row.status === "done") return true;
-      await this.write(sessionId, { queued: [...row.queued, text], ...(row.status === "idle" ? { status: "running" as const } : {}) });
+      await this.write(sessionId, { queued: [...row.queued, files.length ? { text, files } : text], ...(row.status === "idle" ? { status: "running" as const } : {}) });
       return true;
     });
     if (known) this.kick(sessionId);
@@ -344,12 +354,27 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
 
   private async drive(id: string) {
     for (;;) {
-      const [row] = await this.db.select().from(cloudSessions).where(eq(cloudSessions.id, id));
+      // Each turn in its Job's trace, whatever woke the session (a start, an answer, a restart).
+      const [found] = await this.db
+        .select({ row: cloudSessions, traceId: runs.traceId, spanId: runs.spanId })
+        .from(cloudSessions)
+        .leftJoin(stepRuns, eq(stepRuns.id, cloudSessions.stepRunId))
+        .leftJoin(runs, eq(runs.id, stepRuns.runId))
+        .where(eq(cloudSessions.id, id));
+      const row = found?.row;
       if (row?.status !== "running") return;
       const call = nextCall(row.items);
-      if (call) await this.handleCall(row, call);
-      else await this.modelCall(row);
+      await inJobTrace(found!, () => (call ? this.handleCall(row, call) : this.modelCall(row)));
     }
+  }
+
+  /** The transcript with its attached files' bytes, read for this model call only: the stored items keep their ids. */
+  private async withFileBytes(ownerId: string, items: ChatItem[], kind: ClientHarness["kind"]): Promise<ChatItem[]> {
+    const ids = items.flatMap((x) => (x.role === "user" ? (x.files ?? []).map((f) => f.id) : []));
+    if (ids.length === 0) return items;
+    const bytes = this.filesDir ? await attachmentBytes(this.db, this.filesDir, ownerId, ids) : new Map<string, Uint8Array>();
+    // OpenAI-compatible servers get no PDF (`openai-chat.ts`).
+    return budgetFiles(items.map((x) => (x.role === "user" && x.files?.length ? { ...x, files: x.files.map((f) => ({ id: f.id, name: f.name, ...(bytes.has(f.id) ? { bytes: bytes.get(f.id) } : {}) })) } : x)), { pdf: kind !== "openai-compatible" });
   }
 
   private async specs(sessionId: string) {
@@ -371,7 +396,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     await this.locked(id, async () => {
       const [now] = await this.db.select({ queued: cloudSessions.queued }).from(cloudSessions).where(eq(cloudSessions.id, id));
       if (now && now.queued.length > 0) {
-        items = [...items, ...now.queued.map((text): ChatItem => ({ role: "user", text }))];
+        items = [...items, ...now.queued.map((q): ChatItem => (typeof q === "string" ? { role: "user", text: q } : { role: "user", text: q.text, files: q.files }))];
         await this.write(id, { items, queued: [] });
       }
     });
@@ -407,10 +432,11 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         ...(skills.length > 0 ? [readSkillSpec] : []),
         ...specs.map((s) => ({ ...s.spec, name: names.toName(s.key) })),
       ];
+      const sent = await this.withFileBytes(row.ownerId, items, harness.kind);
       turn = await modelCall(harness.kind, id, () =>
         this.client(harness).turn({
           system: [harness.systemPrompt, start.systemPrompt, skillsPrompt(skills)].filter(Boolean).join("\n\n"),
-          items,
+          items: sent,
           tools,
           signal: new AbortController().signal,
           onText: text.push,

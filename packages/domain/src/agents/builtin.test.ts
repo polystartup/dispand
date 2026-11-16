@@ -1,8 +1,10 @@
 import { call } from "@orpc/server";
-import { eq } from "drizzle-orm";
+import { readFileSync } from "node:fs";
+import { eq, sql } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agents, proposals, runs, triggers } from "../db/schema.ts";
+import { agents, memories, proposals, runs, triggers } from "../db/schema.ts";
 import { ASSISTANT_PROMPT } from "../engine/job-def.ts";
+import { jobMemoryPrompt } from "../memory/read.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
@@ -79,14 +81,14 @@ test("no input makes or unmakes an Assistant: builtIn is in no agent schema", as
 test("the owner can't delete the Assistant or strip its bundles, tables or chat", async () => {
   const { context, agentId, triggerId, fields } = await withAssistant();
   const refused = (p: Promise<unknown>, message: string) => expect(p).rejects.toMatchObject({ code: "FORBIDDEN", message });
-  await refused(call(router.agents.delete, { id: agentId }, { context }), "The Assistant can't be deleted");
-  await refused(call(router.agents.update, { ...fields, bundles: ["data"] }, { context }), "The Assistant keeps working on data and changing tables");
-  await refused(call(router.agents.update, { ...fields, bundles: [] }, { context }), "The Assistant keeps working on data and changing tables");
+  await refused(call(router.agents.delete, { id: agentId }, { context }), "The Assistant can't be deleted.");
+  await refused(call(router.agents.update, { ...fields, bundles: ["data"] }, { context }), "The Assistant keeps working on data and changing tables.");
+  await refused(call(router.agents.update, { ...fields, bundles: [] }, { context }), "The Assistant keeps working on data and changing tables.");
   const { id: tableId } = await call(router.tables.create, { name: "Matters" }, { context });
-  await refused(call(router.agents.update, { ...fields, dataTables: [tableId] }, { context }), "The Assistant keeps working on all tables");
-  await refused(call(router.triggers.delete, { id: triggerId }, { context }), "The Assistant's chat can't be deleted");
-  await refused(call(router.triggers.update, { id: triggerId, enabled: false }, { context }), "The Assistant's chat can't be turned off");
-  await refused(call(router.triggers.update, { id: triggerId, config: { kind: "manual", placement: "button" } }, { context }), "The Assistant's chat stays a chat");
+  await refused(call(router.agents.update, { ...fields, dataTables: [tableId] }, { context }), "The Assistant keeps working on all tables.");
+  await refused(call(router.triggers.delete, { id: triggerId }, { context }), "The Assistant's chat can't be deleted.");
+  await refused(call(router.triggers.update, { id: triggerId, enabled: false }, { context }), "The Assistant's chat can't be turned off.");
+  await refused(call(router.triggers.update, { id: triggerId, config: { kind: "manual", placement: "button" } }, { context }), "The Assistant's chat stays a chat.");
 
   const [row] = await context.db.select().from(agents).where(eq(agents.id, agentId));
   expect(row).toMatchObject({ bundles: ["data", "configure"], dataTables: "all" });
@@ -124,6 +126,7 @@ test("the Assistant's own Job can't propose stripping it: refused when proposed,
   expect(errorOf(await propose([{ tool: "agents_update", input: { ...fields, dataTables: [] } }]))).toContain("Item 1 (agents_update): The Assistant keeps working on all tables");
   expect(errorOf(await propose([{ tool: "triggers_delete", input: { id: triggerId } }]))).toContain("Item 1 (triggers_delete): The Assistant's chat can't be deleted");
   expect(errorOf(await propose([{ tool: "triggers_update", input: { id: triggerId, enabled: false } }]))).toContain("Item 1 (triggers_update): The Assistant's chat can't be turned off");
+  expect(errorOf(await propose([{ tool: "agents_delete", input: { id: agentId } }]))).toContain("Item 1 (agents_delete): The Assistant can't be deleted");
   expect(await context.db.select().from(proposals).where(eq(proposals.runId, job.runId))).toEqual([]);
 
   // What it may change is proposed as any write.
@@ -179,7 +182,7 @@ test("the Assistant's review exists off, Mondays at 09:00, one at a time; the ow
   const rows = await context.db.select().from(triggers).where(eq(triggers.agentId, agentId));
   expect(rows.filter((t) => t.kind === "schedule")).toEqual([expect.objectContaining({ id: reviewTriggerId, name: "Monday review", enabled: true })]);
 
-  await expect(call(router.triggers.delete, { id: reviewTriggerId! }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: "The Assistant's review can't be deleted: turn it off instead" });
+  await expect(call(router.triggers.delete, { id: reviewTriggerId! }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: "The Assistant's review can't be deleted: turn it off instead." });
   await call(router.triggers.update, { id: reviewTriggerId!, enabled: false }, { context });
   expect((await call(router.triggers.get, { id: reviewTriggerId! }, { context })).enabled).toBe(false);
   // Nor through a proposal.
@@ -190,4 +193,55 @@ test("the Assistant's review exists off, Mondays at 09:00, one at a time; the ow
   // A schedule the owner adds to the Assistant is theirs to delete.
   const extra = await call(router.triggers.create, { agentId, name: "Daily", instructions: "Look.", config: { kind: "schedule", cron: "0 8 * * *", timezone: "Europe/Paris" } }, { context });
   await call(router.triggers.delete, { id: extra.id }, { context });
+});
+
+test("Stem learns into the workspace's memory: made so, given so once by the migration, and the owner can untick it", async () => {
+  const { context, agentId, fields } = await withAssistant();
+  expect((await call(router.agents.get, { id: agentId }, { context })).selfLearning).toEqual(["workspace"]);
+  // Not locked by the guard: the owner turns it off, and a start doesn't turn it on again.
+  await call(router.agents.update, { ...fields, selfLearning: [] }, { context });
+  await ensureAssistants(context.db);
+  expect((await call(router.agents.get, { id: agentId }, { context })).selfLearning).toEqual([]);
+
+  // A Stem from before (no target): the migration gives it `workspace`; one whose owner set a target keeps it.
+  const migrate = () => context.db.execute(sql.raw(readFileSync(new URL("../../drizzle/0080_stem_workspace_memory.sql", import.meta.url), "utf8")));
+  const learning = async () => (await context.db.select({ selfLearning: agents.selfLearning }).from(agents).where(eq(agents.id, agentId)))[0]!.selfLearning;
+  await migrate();
+  expect(await learning()).toEqual(["workspace"]);
+  await context.db.update(agents).set({ selfLearning: ["agent"] }).where(eq(agents.id, agentId));
+  await migrate();
+  expect(await learning()).toEqual(["agent"]);
+});
+
+test("the day-one proposal's memory_add, approved and applied, writes the business authored by Stem's Job, and its next Job reads it", async () => {
+  const { context, agentId, triggerId } = await withAssistant();
+  const start = async () => ({ runId: (await call(router.jobs.start, { triggerId }, { context })).runId, ownerId: context.ownerId, agentId });
+  const job = await start();
+  const business = { scope: "workspace", path: "business.md", name: "How the firm works", description: "A law firm: client emails, matters, research and drafted replies", type: "business", body: "SENTINEL-BUSINESS: a law firm." };
+  const proposed = (await callPlatformTool(context, job, "propose", { items: [{ tool: "tables_create", input: { name: "Matters" } }, { tool: "memory_add", input: business }] })) as { output: { proposalId: string } };
+  const { proposalId } = proposed.output;
+  await context.db.update(proposals).set({ status: "approved" }).where(eq(proposals.id, proposalId));
+  expect(await callPlatformTool(context, job, "proposal_apply", { proposalId })).toMatchObject({ ok: true, output: { items: [{ outcome: "made" }, { outcome: "made" }], next: "Every item is made." } });
+  // The item is used: applied again, it is not written twice.
+  expect(await callPlatformTool(context, job, "proposal_apply", { proposalId })).toMatchObject({ ok: true, output: { items: [{ outcome: "made before" }, { outcome: "made before" }] } });
+
+  const [entry] = await context.db.select().from(memories).where(eq(memories.ownerId, context.ownerId));
+  expect(entry).toMatchObject({ scope: "workspace", path: "business.md", type: "business", author: { type: "agent", agentId, runId: job.runId, configure: true } });
+  const next = await start();
+  const [run] = await context.db.select().from(runs).where(eq(runs.id, next.runId));
+  expect((await jobMemoryPrompt(context.db, run!)).prompt).toContain("SENTINEL-BUSINESS: a law firm.");
+  expect((await call(router.agents.get, { id: agentId }, { context })).systemPrompt).toBe("");
+});
+
+test("a memory_add outside the Job's learning targets is refused when proposed, with the reason", async () => {
+  const { context, agentId, triggerId, fields } = await withAssistant();
+  await call(router.agents.update, { ...fields, selfLearning: ["agent"] }, { context });
+  const job = { runId: (await call(router.jobs.start, { triggerId }, { context })).runId, ownerId: context.ownerId, agentId };
+  const entry = { path: "business.md", name: "Business", description: "How it works", type: "business", body: "A law firm." };
+  expect(await callPlatformTool(context, job, "propose", { items: [{ tool: "memory_add", input: { ...entry, scope: "workspace" } }] })).toEqual({
+    ok: false,
+    error: "Item 1 (memory_add): This agent may not write the workspace's memory: its self-learning doesn't include workspace.",
+  });
+  expect(await context.db.select().from(proposals).where(eq(proposals.runId, job.runId))).toEqual([]);
+  expect(await callPlatformTool(context, job, "propose", { items: [{ tool: "memory_add", input: { ...entry, scope: "agent" } }] })).toMatchObject({ ok: true });
 });

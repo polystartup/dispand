@@ -1,15 +1,15 @@
 import { createFileRoute, Outlet, redirect, useRouterState } from "@tanstack/react-router";
 import { Menu } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { usePendingQuestionsStream } from "../components/shell/NotificationsBell.tsx";
 import { Sidebar } from "../components/shell/Sidebar.tsx";
-import { getAuthState } from "../server/session.ts";
 
 export const Route = createFileRoute("/_app")({
-  beforeLoad: async () => {
-    const { needsSetup, user } = await getAuthState();
+  beforeLoad: ({ context }) => {
+    const { needsSetup, user } = context.auth;
     if (needsSetup) throw redirect({ to: "/setup" });
     if (!user) throw redirect({ to: "/login" });
     return { user };
@@ -18,6 +18,7 @@ export const Route = createFileRoute("/_app")({
 });
 
 function AppShell() {
+  const { t } = useTranslation("shell");
   const { user } = Route.useRouteContext();
   const assistant = useRouterState({ select: (state) => state.location.pathname === "/assistant" });
   const [open, setOpen] = useState(false);
@@ -40,7 +41,7 @@ function AppShell() {
           <SheetTrigger asChild>
             <button
               type="button"
-              aria-label="Open menu"
+              aria-label={t("openMenu")}
               className="grid size-9 place-items-center rounded-lg text-fg transition hover:bg-hover"
             >
               <Menu size={20} aria-hidden />
@@ -50,7 +51,7 @@ function AppShell() {
         </header>
 
         <aside
-          aria-label="Sidebar"
+          aria-label={t("sidebar")}
           className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-line bg-sidebar backdrop-blur-2xl backdrop-saturate-150 md:block"
         >
           <Sidebar user={user} onNavigate={() => {}} />
@@ -61,8 +62,8 @@ function AppShell() {
             showCloseButton={false}
             className="w-64 max-w-[85vw] gap-0 border-0 bg-sidebar p-0 backdrop-blur-2xl backdrop-saturate-150 md:hidden"
           >
-            <SheetTitle className="sr-only">Menu</SheetTitle>
-            <SheetDescription className="sr-only">Navigation</SheetDescription>
+            <SheetTitle className="sr-only">{t("menu")}</SheetTitle>
+            <SheetDescription className="sr-only">{t("navigation")}</SheetDescription>
             <Sidebar user={user} onNavigate={() => setOpen(false)} />
           </SheetContent>
 

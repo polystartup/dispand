@@ -1,0 +1,62 @@
+{
+  "list": {
+    "create": "Créer une compétence",
+    "title": "Compétences",
+    "subtitle": "Un savoir-faire réutilisable pour vos agents.",
+    "failed": "Impossible de charger les compétences.",
+    "emptyTitle": "Aucune compétence pour l’instant",
+    "emptyText": "Une compétence, ce sont des instructions, et les fichiers qu’elles utilisent, qu’un agent suit quand une tâche le demande.",
+    "builtIn": "Intégrée · ",
+    "pluginOwned": "De {{plugin}} · ",
+    "count_one": "{{count}} compétence",
+    "count_other": "{{count}} compétences",
+    "readOnly": "Lecture seule",
+    "filesLabel": "Fichiers de {{name}}",
+    "files": "Fichiers",
+    "editLabel": "Modifier {{name}}",
+    "edit": "Modifier",
+    "requires": "Nécessite {{tools}}"
+  },
+  "files": {
+    "resetLabel": "Rétablir {{path}} comme dans le plugin",
+    "reset": "Rétablir",
+    "yours": {
+      "changed": "À vous : modifié",
+      "added": "À vous : ajouté"
+    },
+    "editLabel": "Modifier {{path}}",
+    "edit": "Modifier",
+    "removeLabel": "Retirer {{path}}",
+    "remove": "Retirer",
+    "removed": "Retiré par vous"
+  },
+  "editor": {
+    "edit": "Modifier la compétence",
+    "create": "Créer une compétence",
+    "description": "Des instructions qu’un agent suit quand la tâche le demande, avec les fichiers qu’elles utilisent.",
+    "failed": "Impossible de charger la compétence.",
+    "loading": "Chargement…",
+    "tooBig": "{{path}} dépasse 2 Mo.",
+    "packageTooBig": "Les fichiers d’une compétence font au plus 8 Mo en tout.",
+    "saveFailed": "Impossible d’enregistrer la compétence. Vérifiez les détails et réessayez.",
+    "deleteFailed": "Impossible de supprimer la compétence.",
+    "name": "Nom",
+    "nameHint": "Lettres minuscules, chiffres et tirets : le nom par lequel les agents appellent la compétence.",
+    "descriptionLabel": "Description",
+    "descriptionHint": "Quand l’utiliser : les agents lisent ceci pour décider.",
+    "instructions": "Instructions",
+    "instructionsHint": "Markdown. Enregistré comme le SKILL.md de la compétence, après son nom et sa description.",
+    "files": "Fichiers",
+    "noFiles": "Aucun fichier. Ajoutez les scripts, modèles ou références que les instructions mentionnent.",
+    "removeFile": "Retirer {{path}}",
+    "addFiles": "Ajouter des fichiers",
+    "replaceFiles": "Remplacer les fichiers",
+    "removeAll": "Retirer tous les fichiers",
+    "keepFiles": "Garder les fichiers enregistrés",
+    "tools": "Outils nécessaires",
+    "noTools": "Aucun. Une fois des outils ajoutés, une compétence peut les exiger : les agents qui ont la compétence les reçoivent aussi.",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer"
+  }
+}

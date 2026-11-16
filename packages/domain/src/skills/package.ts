@@ -1,5 +1,6 @@
 import { isSafeRelativePath, storable } from "@dispand/runner-protocol";
 import { parse, stringify } from "yaml";
+import { message, type Message, type MessageKey, type MessageValues } from "../messages/index.ts";
 
 /** A skill's name, which is also its folder in a package; package names follow it too. */
 export const SKILL_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -14,11 +15,15 @@ export type SkillFile = { path: string; content: Uint8Array };
 
 /** Why a package can't be stored; `path` names the file at fault, when there is one. */
 export class PackageError extends Error {
+  readonly say: Message;
   constructor(
-    message: string,
+    key: MessageKey,
     readonly path?: string,
+    values: MessageValues = {},
   ) {
-    super(path === undefined ? message : `${path}: ${message}`);
+    const { message: text, data } = message(key, path === undefined ? values : { ...values, path });
+    super(text);
+    this.say = data;
     this.name = "PackageError";
   }
 }
@@ -37,27 +42,27 @@ export function skillMd(name: string, description: string, instructions: string)
 }
 
 function readSkill(folder: string, file: SkillFile): { name: string; description: string } {
-  const fail = (message: string): never => {
-    throw new PackageError(message, file.path);
+  const fail = (key: MessageKey, values?: MessageValues): never => {
+    throw new PackageError(key, file.path, values);
   };
   let text = "";
   try {
     text = new TextDecoder("utf-8", { fatal: true }).decode(file.content);
   } catch {
-    fail("SKILL.md isn't UTF-8 text");
+    fail("skills.package.notUtf8");
   }
-  const parts = splitSkillMd(text) ?? fail("SKILL.md must start with a YAML frontmatter between --- lines");
+  const parts = splitSkillMd(text) ?? fail("skills.package.noFrontmatter");
   let meta: unknown;
   try {
     meta = parse(parts.frontmatter);
   } catch {
-    fail("the frontmatter isn't valid YAML");
+    fail("skills.package.badYaml");
   }
-  if (typeof meta !== "object" || meta === null || Array.isArray(meta)) return fail("the frontmatter must be a YAML mapping");
+  if (typeof meta !== "object" || meta === null || Array.isArray(meta)) return fail("skills.package.notMapping");
   const { name, description } = meta as Record<string, unknown>;
-  if (name !== folder) fail(`the frontmatter's name must be "${folder}", its folder`);
-  if (typeof description !== "string" || description.trim() === "") return fail("the frontmatter needs a description");
-  if (description.length > MAX_DESCRIPTION || !storable(description)) fail(`the description must be at most ${MAX_DESCRIPTION} characters of text`);
+  if (name !== folder) fail("skills.package.nameMismatch", { folder });
+  if (typeof description !== "string" || description.trim() === "") return fail("skills.package.noDescription");
+  if (description.length > MAX_DESCRIPTION || !storable(description)) fail("skills.package.descriptionLong", { max: MAX_DESCRIPTION });
   return { name: folder, description };
 }
 
@@ -68,37 +73,37 @@ function readSkill(folder: string, file: SkillFile): { name: string; description
  * 2 MiB per file and 8 MiB in all. Throws `PackageError`.
  */
 export function validatePackage(files: SkillFile[]): { skills: { name: string; description: string }[] } {
-  if (files.length === 0) throw new PackageError("A skill package needs at least one skill");
-  if (files.length > MAX_FILES) throw new PackageError(`A skill package holds at most ${MAX_FILES} files`);
+  if (files.length === 0) throw new PackageError("skills.package.empty");
+  if (files.length > MAX_FILES) throw new PackageError("skills.package.tooManyFiles", undefined, { max: MAX_FILES });
   const seen = new Set<string>();
   const folders = new Set<string>();
   const skillMds = new Map<string, SkillFile>();
   let total = 0;
   for (const file of files) {
-    if (!isSafeRelativePath(file.path)) throw new PackageError("unsafe path", file.path);
+    if (!isSafeRelativePath(file.path)) throw new PackageError("skills.package.unsafePath", file.path);
     const segments = file.path.split("/");
-    if (segments.length < 2) throw new PackageError("every file must be inside a skill's folder", file.path);
+    if (segments.length < 2) throw new PackageError("skills.package.outsideFolder", file.path);
     if (!SKILL_NAME.test(segments[0]!)) {
-      throw new PackageError("a skill's folder is lowercase letters, digits and hyphens (at most 64)", file.path);
+      throw new PackageError("skills.package.badFolder", file.path);
     }
     const key = file.path.toLowerCase();
-    if (seen.has(key) || folders.has(key)) throw new PackageError("this path is in the package twice", file.path);
+    if (seen.has(key) || folders.has(key)) throw new PackageError("skills.package.twice", file.path);
     seen.add(key);
     for (let i = 1; i < segments.length; i++) {
       const folder = segments.slice(0, i).join("/").toLowerCase();
-      if (seen.has(folder)) throw new PackageError("a file has the name of this path's folder", file.path);
+      if (seen.has(folder)) throw new PackageError("skills.package.folderName", file.path);
       folders.add(folder);
     }
-    if (file.content.byteLength > MAX_FILE_BYTES) throw new PackageError("a file is at most 2 MiB", file.path);
+    if (file.content.byteLength > MAX_FILE_BYTES) throw new PackageError("skills.package.fileTooBig", file.path);
     total += file.content.byteLength;
-    if (total > MAX_PACKAGE_BYTES) throw new PackageError("A skill package holds at most 8 MiB");
+    if (total > MAX_PACKAGE_BYTES) throw new PackageError("skills.package.tooBig");
     if (segments.length === 2 && segments[1] === "SKILL.md") skillMds.set(segments[0]!, file);
   }
   const names = [...new Set(files.map((f) => f.path.split("/")[0]!))].sort();
   return {
     skills: names.map((name) => {
       const md = skillMds.get(name);
-      if (!md) throw new PackageError("every skill folder needs a SKILL.md", `${name}/SKILL.md`);
+      if (!md) throw new PackageError("skills.package.noSkillMd", `${name}/SKILL.md`);
       return readSkill(name, md);
     }),
   };

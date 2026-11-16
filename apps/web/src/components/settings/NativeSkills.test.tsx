@@ -55,6 +55,15 @@ test("native apply uses the reviewed revision, preserves partial outcomes and ca
   expect(fake.runners.workspacePlugin).toHaveBeenCalledTimes(2);
 });
 
+test("an apply the runner blocks is not shown as done", async () => {
+  fake.runners.workspacePlugin.mockResolvedValueOnce({ revision: "reviewed123", blocked: false }).mockResolvedValueOnce({ blocked: true });
+  mount(<NativePluginAction harnessId="h1" resource={{ kind: "plugin", id: "plugin_1" }} name="Review tools" action="add" onDone={vi.fn()} />);
+  await waitFor(() => expect((screen.getByRole("button", { name: "Apply native install" }) as HTMLButtonElement).disabled).toBe(false));
+  await userEvent.click(screen.getByRole("button", { name: "Apply native install" }));
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  expect(screen.queryByRole("status")).toBeNull();
+});
+
 test("harness inventory offers whole-plugin uninstall and standalone workspace installation", async () => {
   fake.runners.workspaceSkills.mockResolvedValue([plugin, standalone]);
   fake.runners.plugins.mockResolvedValue({ targets: [target], packages: [{ name: "already-managed", sourceKey: "pinned-source", harness: "codex", installed: true, enabled: true, pending: false }] });

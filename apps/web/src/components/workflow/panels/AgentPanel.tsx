@@ -1,13 +1,15 @@
 import type { OutputField } from "@dispand/runner-protocol";
 import { upstreamOf } from "@dispand/domain/workflows/derive";
 import { nodesOf, type WorkflowDef, type WorkflowNode } from "@dispand/domain/workflows/model";
+import { Trans, useTranslation } from "react-i18next";
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { useAgentName } from "../../../lib/agent-name.ts";
 import { FormField } from "../../settings/parts.tsx";
 
-type Agent = { id: string; name: string };
+type Agent = { id: string; name: string; builtIn?: string | null; plugin?: { name: string } | null };
 
 /** An agent-driven node's body (a chat trigger or an agent step): agent, prompt, expected outputs. */
 export function AgentPanel({
@@ -23,6 +25,8 @@ export function AgentPanel({
   expected: Record<string, OutputField[]>;
   onChange: (def: WorkflowDef) => void;
 }) {
+  const { t } = useTranslation("workflows");
+  const agentName = useAgentName();
   const nodeId = node.id;
   const trigger = def.trigger.field;
   const isTrigger = node.kind === "trigger";
@@ -41,15 +45,15 @@ export function AgentPanel({
 
   return (
     <>
-      <FormField label="Agent" htmlFor="node-agent">
+      <FormField label={t("agentPanel.agent")} htmlFor="node-agent">
         <Select value={node.agentId ?? ""} onValueChange={setAgent}>
           <SelectTrigger id="node-agent" className="w-full">
-            <SelectValue placeholder="Choose an agent" />
+            <SelectValue placeholder={t("agentPanel.choose")} />
           </SelectTrigger>
           <SelectContent>
             {agents.map((a) => (
               <SelectItem key={a.id} value={a.id}>
-                {a.name}
+                {agentName(a)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -59,17 +63,16 @@ export function AgentPanel({
         value={node.prompt ?? ""}
         onChange={setPrompt}
         suggestions={suggestionsFor(def, nodeId, expected)}
-        hint={isTrigger ? "What the agent should find out in the chat." : "Type {{ to use a value from an earlier step."}
+        hint={isTrigger ? t("agentPanel.triggerHint") : t("agentPanel.stepHint", { open: "{{" })}
       />
       <div>
-        <p className="mb-1.5 text-[13px] font-medium text-muted">Expected outputs</p>
+        <p className="mb-1.5 text-[13px] font-medium text-muted">{t("agentPanel.outputs")}</p>
         {outputs.length === 0 ? (
           <p className="text-[13px] text-faint">
-            None yet. A later prompt that uses <code className="font-mono">{`{{${node.key}.name}}`}</code> asks this step for
-            “name”.
+            <Trans t={t} i18nKey="agentPanel.none" values={{ ref: `{{${node.key}.name}}` }} components={[<code key="ref" className="font-mono" />]} />
           </p>
         ) : (
-          <ul aria-label="Expected outputs" className="divide-y divide-line overflow-hidden rounded-xl ring-1 ring-line">
+          <ul aria-label={t("agentPanel.outputs")} className="divide-y divide-line overflow-hidden rounded-xl ring-1 ring-line">
             {outputs.map((o) => (
               <li key={o.name} className="px-3 py-2 text-[13px]">
                 <span className="block font-mono">{o.name}</span>
@@ -103,6 +106,7 @@ function PromptEditor({
   suggestions: string[];
   hint: string;
 }) {
+  const { t } = useTranslation("workflows");
   const ref = useRef<HTMLTextAreaElement>(null);
   const listId = useId();
   const [query, setQuery] = useState<{ start: number; text: string } | null>(null);
@@ -154,7 +158,7 @@ function PromptEditor({
   }
 
   return (
-    <FormField label="Prompt" htmlFor="node-prompt" hint={hint}>
+    <FormField label={t("agentPanel.prompt")} htmlFor="node-prompt" hint={hint}>
       <div className="relative">
         <Textarea
           id="node-prompt"
@@ -179,7 +183,7 @@ function PromptEditor({
           <ul
             id={listId}
             role="listbox"
-            aria-label="Values from earlier steps"
+            aria-label={t("agentPanel.earlier")}
             className="absolute inset-x-0 top-full z-10 mt-1 max-h-48 overflow-auto rounded-xl bg-surface p-1 shadow-pop"
           >
             {options.map((o, i) => (

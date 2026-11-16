@@ -4,10 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Options, query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { type HarnessEvent, MAX_LIVE_SESSIONS, type SessionStart } from "@dispand/runner-protocol";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import { Sessions, type SessionsOptions } from "./sessions.ts";
 import { clearSessions, SkillsRefused, sessionPluginsDir } from "./skills.ts";
 import { fakeCodex } from "./fixtures/fake-codex-bin.ts";
+
+// These tests spawn processes or run sessions and wait on what they do: on a busy machine (CI runs
+// the runner's test files in parallel) that takes over Vitest's default 1 s. The config gives
+// each test 30 s; its waits get most of it.
+const waitFor = <T>(callback: () => T | Promise<T>) => vi.waitFor(callback, { timeout: 20_000 });
 
 const made: string[] = [];
 afterEach(async () => {
@@ -74,7 +79,7 @@ const start = (sessionId: string, runKey: string, resumeCliSessionId?: string): 
 });
 
 const ended = (events: [string, HarnessEvent][], sessionId: string) =>
-  vi.waitFor(() => expect(events.some(([id, e]) => id === sessionId && (e.type === "result" || e.type === "error"))).toBe(true));
+  waitFor(() => expect(events.some(([id, e]) => id === sessionId && (e.type === "result" || e.type === "error"))).toBe(true));
 
 test("a known session id resumes in the folder it ran in", async () => {
   const { base, events, fake, sessions, resumeMap } = await setup();
@@ -98,6 +103,15 @@ test.each([
   await sessions.handle({ type: "session.start", start: start("ses_2", "run_a", id) });
   expect(events.at(-1)).toEqual(["ses_2", { type: "error", message: expect.stringContaining("resume") }]);
   expect(fake.calls).toHaveLength(1);
+});
+
+test("a session logs one line when it starts and one when it ends, with its ids, harness and outcome, and none of its words", async () => {
+  const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+  onTestFinished(() => log.mockRestore());
+  const { sessions } = await setup();
+  await sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), prompt: "secret prompt" } });
+  await waitFor(() => expect(log.mock.calls.flat()).toHaveLength(2));
+  expect(log.mock.calls.flat()).toEqual(["dispand-runner: session ses_1 of run run_a (claude-code) started", "dispand-runner: session ses_1 of run run_a (claude-code) ended: succeeded"]);
 });
 
 test("an id mapped to another run's folder is refused", async () => {
@@ -133,11 +147,11 @@ test("stopAll ends every live session with the error and stops its CLI; new sess
   );
   await sessions.handle({ type: "session.start", start: start("ses_1", "run_a") });
   await sessions.handle({ type: "session.start", start: start("ses_2", "run_b") });
-  await vi.waitFor(() => expect(events.filter(([, e]) => e.type === "cli-session")).toHaveLength(2));
+  await waitFor(() => expect(events.filter(([, e]) => e.type === "cli-session")).toHaveLength(2));
 
   accepting = false;
   sessions.stopAll("Dispand unreachable: the runner's backlog is full");
-  await vi.waitFor(() => expect(sessions.ids()).toEqual([]));
+  await waitFor(() => expect(sessions.ids()).toEqual([]));
   for (const id of ["ses_1", "ses_2"]) {
     expect(events).toContainEqual([id, { type: "error", message: "Dispand unreachable: the runner's backlog is full" }]);
   }
@@ -256,9 +270,9 @@ test("a CLI that fails before reporting its session id leaves no folder behind",
     { claude: { query: failing }, resumeMap: join(base, "sessions.json"), claudeVersion: "2.1.311" },
   );
   await sessions.handle({ type: "session.start", start: start("ses_1", "run_a") });
-  await vi.waitFor(() => expect(sessions.ids()).toEqual([]));
+  await waitFor(() => expect(sessions.ids()).toEqual([]));
   expect(events).toEqual([["ses_1", { type: "error", message: "spawn claude ENOENT" }]]);
-  await vi.waitFor(async () => expect(await stat(join(base, "root", "runs", "run_a")).catch(() => null)).toBeNull());
+  await waitFor(async () => expect(await stat(join(base, "root", "runs", "run_a")).catch(() => null)).toBeNull());
 });
 
 test("the resume mapping is on disk before the CLI session id is reported", async () => {
@@ -332,7 +346,8 @@ test("token absent from state dir: a session's MCP servers reach the CLI, and no
   expect(Object.keys(fake.calls[0]!.mcpServers!)).toEqual(["dispand"]);
   expect(fake.servers[0]).toMatchObject({
     github: { type: "http", url: "https://api.example.test/mcp", headers: { authorization: "Bearer s3cret" } },
-    local: { type: "stdio", command: "/bin/sh", args: expect.arrayContaining(["echo-mcp"]), env: {} },
+    // Behind the runner's proxy, which gets the server's command in its spec.
+    local: { type: "stdio", command: process.execPath, args: expect.arrayContaining(["mcp-proxy"]), env: { DISPAND_PROXY: expect.stringContaining('"command":"echo-mcp"') } },
   });
   expect(Object.keys(fake.servers[0]!).at(-1)).toBe("dispand");
   // A failed start too.
@@ -368,7 +383,7 @@ test("a session's skills are fetched, loaded as plugins, readable during it, and
   expect(seen).toEqual(['---\nname: hello-check\ndescription: ""\n---\n\n']);
   // The session folder is gone after the session ends. It is removed after the result is sent,
   // its files before the folder itself: wait for the folder, not only for a file in it.
-  await vi.waitFor(() => expect(stat(join(dir, ".."))).rejects.toThrow());
+  await waitFor(() => expect(stat(join(dir, ".."))).rejects.toThrow());
 });
 
 test("a skill package that can't be fetched ends the start before any folder is made", async () => {
@@ -478,13 +493,13 @@ test("session.stop acknowledges exit only after the process finishes, including 
   );
   await sessions.handle({ type: "session.start", start: start("ses_1", "run_a") });
   await sessions.handle({ type: "session.start", start: start("ses_2", "run_b") });
-  await vi.waitFor(() => expect(events.filter(([, e]) => e.type === "cli-session")).toHaveLength(2));
+  await waitFor(() => expect(events.filter(([, e]) => e.type === "cli-session")).toHaveLength(2));
 
   await sessions.handle({ type: "session.stop", sessionId: "ses_1" });
   expect(events.filter(([, e]) => e.type === "session-ended")).toEqual([]);
   expect(sessions.ids()).toContain("ses_1");
   exit();
-  await vi.waitFor(() => expect(sessions.ids()).toEqual(["ses_2"]));
+  await waitFor(() => expect(sessions.ids()).toEqual(["ses_2"]));
   expect(events.filter(([id, e]) => id === "ses_1" && e.type === "session-ended")).toHaveLength(1);
   expect(events.filter(([id, e]) => id === "ses_1" && e.type === "error")).toEqual([["ses_1", { type: "error", message: "Stopped" }]]);
   expect(calls.map((o) => o.abortController!.signal.aborted)).toEqual([true, false]);
@@ -508,16 +523,24 @@ test("a start with a Job token gives the CLI the Job server at the runner's own 
   expect(Object.keys(fake.servers[1] ?? {})).not.toContain("job");
 });
 
-test("a restricted start gets the Job's own server alone, whatever MCP servers or memory it holds; on Codex it is refused", async () => {
+test("a restricted start gets the Job's own server alone, whatever MCP servers or memory it holds, on Claude Code and on Codex", async () => {
   const { events, fake, sessions } = await setup();
   const files = [{ scope: "agent" as const, path: "MEMORY.md", text: "# This agent\n" }];
   await sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), jobToken: "dj_token", restricted: true, memory: files, mcpServers: [{ name: "mail", type: "runner" as const, tool: "gmail", unasked: ["draft_email"] }] } });
   await ended(events, "ses_1");
   // The Job's own server and the session's answer tool: no runner tool, no Job tools server.
   expect(Object.keys(fake.servers[0] ?? {})).toEqual(["job", "dispand"]);
-  const { events: codexEvents, sessions: codexSessions, codexStart } = await codexSetup("0.166.0", {});
-  await codexSessions.handle({ type: "session.start", start: { ...codexStart("ses_2", "run_b"), jobToken: "dj_token", restricted: true } });
-  await vi.waitFor(() => expect(codexEvents).toContainEqual(["ses_2", { type: "error", message: "A restricted session runs on Claude Code only" }]));
+  const { codex, events: codexEvents, sessions: codexSessions, codexStart } = await codexSetup("0.167.0", {});
+  await codexSessions.handle({ type: "session.start", start: { ...codexStart("ses_2", "run_b"), jobToken: "dj_token", restricted: true, memory: files, mcpServers: [{ name: "mail", type: "runner" as const, tool: "gmail", unasked: ["draft_email"] }] } });
+  await ended(codexEvents, "ses_2");
+  const thread = (await codex.received()).find((m) => m.method === "thread/start")!;
+  expect(Object.keys((thread.params as { config: { mcp_servers: object } }).config.mcp_servers)).toEqual(["job"]);
+  expect(codexEvents.filter(([, e]) => e.type === "error")).toEqual([]);
+  // On a Codex older than the one its switches were checked on, it is refused before anything starts.
+  const old = await codexSetup("0.166.0", {});
+  await old.sessions.handle({ type: "session.start", start: { ...old.codexStart("ses_3", "run_c"), jobToken: "dj_token", restricted: true } });
+  expect(old.events).toEqual([["ses_3", { type: "error", message: "A restricted session needs Codex ≥ 0.167.0 (found 0.166.0): update codex on this machine" }]]);
+  expect((await old.codex.received()).some((m) => m.method === "thread/start")).toBe(false);
 });
 
 test("a consult waits across a reconnection to Dispand, and its answer then reaches the session's tool call", async () => {
@@ -526,7 +549,7 @@ test("a consult waits across a reconnection to Dispand, and its answer then reac
   const { codex, events, sessions, codexStart } = await codexSetup("0.166.0", { FAKE_CODEX_TURNS: JSON.stringify([[call, done]]) });
   const consults = [{ agentId: "agt_arch", name: "Architect", description: "" }];
   await sessions.handle({ type: "session.start", start: { ...codexStart("ses_1", "run_a"), consults } });
-  const question = await vi.waitFor(() => {
+  const question = await waitFor(() => {
     const found = events.find(([, e]) => e.type === "question")?.[1];
     expect(found).toBeDefined();
     return found as Extract<HarnessEvent, { type: "question" }>;
@@ -537,7 +560,7 @@ test("a consult waits across a reconnection to Dispand, and its answer then reac
   expect(sessions.ids()).toEqual(["ses_1"]);
   await sessions.handle({ type: "session.answer", sessionId: "ses_1", questionId: question.questionId, answer: { kind: "consult", outcome: "answered", text: "Yes." } });
   await ended(events, "ses_1");
-  const reply = await vi.waitFor(async () => (await codex.received()).find((m) => m.id === "r0" && m.method === undefined)!.result);
+  const reply = await waitFor(async () => (await codex.received()).find((m) => m.id === "r0" && m.method === undefined)!.result);
   expect(reply).toEqual({ contentItems: [{ type: "inputText", text: "Answer from the agent Architect:\n\nYes." }], success: true });
   expect(events.at(-1)).toEqual(["ses_1", { type: "result", text: "Done" }]);
 });
@@ -556,7 +579,7 @@ test("a Job's memory files are in its run folder before the CLI starts, written 
   await ended(events, "ses_1");
   expect(seen[0]).toEqual(["MEMORY.md", "habits.md"]);
   // Gone once the session ended.
-  await vi.waitFor(() => expect(existsSync(memory)).toBe(false));
+  await waitFor(() => expect(existsSync(memory)).toBe(false));
 
   // A resume gets memory as it is now: the entry removed since is gone.
   await sessions.handle({ type: "session.start", start: { ...start("ses_2", "run_a", "cli-1"), jobToken: "dj_token", memory: [files[0]!] } });
@@ -587,7 +610,7 @@ test("a Codex Job session finds its memory files while it runs, and they are gon
     { scope: "workspace", path: "billing.md", text: "Monthly.\n" },
   ];
   await sessions.handle({ type: "session.start", start: { ...codexStart("ses_1", "run_a"), jobToken: "dj_token", memory: files } });
-  await vi.waitFor(() => expect(events.some(([, e]) => e.type === "cli-session")).toBe(true));
+  await waitFor(() => expect(events.some(([, e]) => e.type === "cli-session")).toBe(true));
   const dir = join(base, "root", "runs", "run_a", ".dispand", "memory");
   expect(readdirSync(join(dir, "workspace"))).toEqual(["MEMORY.md", "billing.md"]);
   expect(readFileSync(join(dir, "workspace", "billing.md"), "utf8")).toBe("Monthly.\n");
@@ -610,7 +633,7 @@ test("revoking a grant during skill fetching narrows the start before the CLI la
   );
   const message = { ...start("ses_1", "run_a"), jobToken: "token", skills: [{ packageId: "pkg_1", name: "hello" }], mcpServers: [{ name: "mail", type: "runner" as const, tool: "gmail", unasked: ["draft_email"] }] };
   const slow = sessions.handle({ type: "session.start", start: message });
-  await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+  await waitFor(() => expect(fetch).toHaveBeenCalled());
   await sessions.handle({ type: "session.permissions", sessionId: "ses_1", servers: [{ name: "mail", unasked: [] }] });
   // A later update cannot restore the removed grant while the start is still preparing.
   await sessions.handle({ type: "session.permissions", sessionId: "ses_1", servers: [{ name: "mail", unasked: ["draft_email", "send_email"] }] });
@@ -663,7 +686,7 @@ test.each([
   );
   const message = { ...start("ses_1", "run_a"), harness, permissionMode: "default", jobToken: "token", skills: [{ packageId: "pkg_1", name: "hello" }], mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["draft_email"] }] } as SessionStart;
   const slow = sessions.handle({ type: "session.start", start: message });
-  await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+  await waitFor(() => expect(fetch).toHaveBeenCalled());
   const servers = change === "remove" ? [] : [{ name: "mail", unasked: [], denied: ["draft_email"] }];
   await sessions.handle({ type: "session.permissions", sessionId: "ses_1", servers });
   // Later messages cannot resurrect a removed server or clear its action denials.

@@ -32,3 +32,13 @@ test("Audit retention is 90 days until set, set by the owner from 1 to 3650 days
   await expect(call(router.workspace.auditRetention, undefined, { context: signedOut })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   await expect(call(router.workspace.setAuditRetention, { days: 5 }, { context: signedOut })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });
+
+test("the install's files limit is 10 GiB until set, set by the owner from 1 MiB to 1 TiB, and the owner's own", async () => {
+  const context = await ownerContext();
+  expect(await call(router.workspace.filesLimit, undefined, { context })).toEqual({ mib: 10_240 });
+  expect(await call(router.workspace.setFilesLimit, { mib: 500 }, { context })).toEqual({ mib: 500 });
+  expect(await call(router.workspace.filesLimit, undefined, { context })).toEqual({ mib: 500 });
+  for (const mib of [0, 1_048_577, 1.5]) await expect(call(router.workspace.setFilesLimit, { mib }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  const signedOut = { ...context, headers: new Headers() };
+  await expect(call(router.workspace.setFilesLimit, { mib: 5 }, { context: signedOut })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+});

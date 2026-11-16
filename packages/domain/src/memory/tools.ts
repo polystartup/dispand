@@ -1,7 +1,7 @@
 import { ID as MAX_ID } from "@dispand/runner-protocol";
 import { z } from "zod";
 import type { JobIdentity, PlatformApp, ToolResult } from "../platform/call.ts";
-import type { Rights } from "../platform/rights.ts";
+import { type Rights, rightsOf } from "../platform/rights.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { MEMORY_TYPES, type MemoryAuthor, MemoryEntryShape, type MemoryScope, type MemoryTarget } from "./model.ts";
 import { listMemory, type MemoryEntry, memoryIndex, NOT_FOUND, refuseWrite, removeMemory, scopeExists, writeMemory } from "./store.ts";
@@ -117,6 +117,14 @@ function writable(job: JobIdentity, input: { scope: MemoryScope["scope"]; tableI
 
 /** The Job that writes: its agent, its run and whether it configures the workspace. */
 const authorOf = (job: JobIdentity, rights: Rights): MemoryAuthor => ({ type: "agent", agentId: job.agentId, runId: job.runId, configure: rights.bundles.includes("configure") });
+
+/** A proposed `memory_add` or `memory_update` (`shown`): why the Job may not write there, refused when proposed, or nothing. */
+export async function refuseProposedWrite(app: PlatformApp, job: JobIdentity, input: Write): Promise<string | undefined> {
+  const rights = await rightsOf(app.db, job);
+  if (!rights) return "This Job is over";
+  const where = writable(job, input, rights);
+  return typeof where === "string" ? where : undefined;
+}
 
 /** `memory_add` (a path that has no entry) and `memory_update` (one that has). */
 export async function writeMemoryTool(app: PlatformApp, job: JobIdentity, input: Write, rights: Rights, mode: "add" | "update"): Promise<ToolResult> {

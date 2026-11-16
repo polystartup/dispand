@@ -1,11 +1,11 @@
 import { call } from "@orpc/server";
-import { asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, ne } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { eventFires, events, runs } from "../db/schema.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
-import type { TriggerConfig } from "../triggers/model.ts";
+import { JOB, type TriggerConfig } from "../triggers/model.ts";
 import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { Scheduler } from "./scheduler.ts";
@@ -54,7 +54,8 @@ async function setup() {
   const update = (id: string, values: Record<string, string>) => call(router.rows.update, { id, values }, { context });
   const jobsOf = (triggerId: string) => context.db.select().from(runs).where(eq(runs.triggerId, triggerId)).orderBy(asc(runs.createdAt));
   const firesOf = (triggerId: string) => context.db.select().from(eventFires).where(eq(eventFires.triggerId, triggerId)).orderBy(asc(eventFires.createdAt));
-  const unprocessed = () => context.db.select().from(events).where(isNull(events.processedAt));
+  // The rows' writes not yet matched (the Jobs they start are `job` events of their own).
+  const unprocessed = () => context.db.select().from(events).where(and(isNull(events.processedAt), ne(events.tableId, JOB)));
   return { context, agent, clerk, clients, name, city, time, adapter, engine, scheduler, watch, create, update, jobsOf, firesOf, unprocessed };
 }
 
@@ -176,7 +177,7 @@ test("a primitive trigger watches a primitive table of the owner's, its fields, 
   const make = (agentId: string, config: Record<string, unknown>) =>
     call(router.triggers.create, { agentId, name: "On change", instructions: "Look.", config: { kind: "primitive", tableId: s.clients.id, operations: ["updated"], ...config } as TriggerConfig }, { context: s.context });
   await expect(make(s.clerk.id, { tableId: notes.id })).rejects.toThrow("make the table primitive first");
-  await expect(make(s.clerk.id, { tableId: "tbl_missing" })).rejects.toThrow("Table not found");
+  await expect(make(s.clerk.id, { tableId: "tbl_missing" })).rejects.toThrow("This table doesn't exist.");
   await expect(make(s.clerk.id, { fields: ["fld_missing"] })).rejects.toThrow("A watched field isn't one of the table's");
   const blind = await call(router.agents.create, { name: "Blind", harnessId: s.clerk.harnessId, systemPrompt: "", bundles: ["data"], dataTables: [notes.id] }, { context: s.context });
   await expect(make(blind.id, {})).rejects.toThrow("The agent can't read this table");

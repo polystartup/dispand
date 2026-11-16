@@ -24,4 +24,6 @@ tool.
 A primitive or poll trigger starts at most `rateCap` Jobs an hour (60 by default); events and
 items past it wait their turn.
 
-Creating, changing or deleting a trigger is a proposal item (see setup.md).
+Creating, changing or deleting a trigger is a proposal item (see setup.md). Turning off a
+trigger of your own agent, with no other change in the call, is not: call `triggers_update`
+with its id and `enabled: false`. Turning it back on is a proposal item again.

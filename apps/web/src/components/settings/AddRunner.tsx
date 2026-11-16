@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { orpc } from "../../lib/api.ts";
@@ -11,6 +12,7 @@ import { FormField } from "./parts.tsx";
  * runner to come online. The wait polls `runners.list` every 2 s.
  */
 export function AddRunner({ onConnected, onCancel }: { onConnected: (runnerId: string) => void; onCancel: () => void }) {
+  const { t } = useTranslation("harnesses");
   const [name, setName] = useState("");
   const [created, setCreated] = useState<{ runnerId: string; installCommand: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +27,7 @@ export function AddRunner({ onConnected, onCancel }: { onConnected: (runnerId: s
     try {
       setCreated(await createRunner.mutateAsync({ name }));
     } catch {
-      setError("Could not create the runner. Check the name and try again.");
+      setError(t("addRunner.createFailed"));
     }
   }
 
@@ -35,7 +37,7 @@ export function AddRunner({ onConnected, onCancel }: { onConnected: (runnerId: s
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      setError("Could not copy. Select the command and copy it by hand.");
+      setError(t("addRunner.copyFailed"));
     }
   }
 
@@ -48,7 +50,7 @@ export function AddRunner({ onConnected, onCancel }: { onConnected: (runnerId: s
           void create();
         }}
       >
-        <FormField label="Runner name" htmlFor="runner-name" hint="The machine that will run Claude Code, for example its host name.">
+        <FormField label={t("addRunner.name")} htmlFor="runner-name" hint={t("addRunner.nameHint")}>
           <Input id="runner-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
         </FormField>
         {error && (
@@ -58,10 +60,10 @@ export function AddRunner({ onConnected, onCancel }: { onConnected: (runnerId: s
         )}
         <div className="flex gap-2">
           <Button type="submit" disabled={createRunner.isPending || !name.trim()}>
-            Get the install command
+            {t("addRunner.getCommand")}
           </Button>
           <Button type="button" variant="ghost" onClick={onCancel}>
-            Back
+            {t("addRunner.back")}
           </Button>
         </div>
       </form>
@@ -90,6 +92,7 @@ function Waiting(props: {
   onConnected: (runnerId: string) => void;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation("harnesses");
   const [nativePlugins, setNativePlugins] = useState(false);
   const command = props.command + (nativePlugins ? " --native-plugins" : "");
   const { data } = useQuery(orpc.runners.list.queryOptions({ refetchInterval: 2000 }));
@@ -101,19 +104,19 @@ function Waiting(props: {
 
   return (
     <div className="space-y-4">
-      <p className="text-[14px] text-muted">Run this on the machine. The code works once and expires in 15 minutes.</p>
+      <p className="text-[14px] text-muted">{t("addRunner.runThis")}</p>
       <label className="flex items-start gap-2 text-[14px]">
         <input type="checkbox" className="mt-1" checked={nativePlugins} onChange={(e) => setNativePlugins(e.target.checked)} />
-        <span>Enable native plugin installation<span className="block text-[13px] text-muted">Approved plugins may run hooks, commands and MCP servers with this machine account’s access.</span></span>
+        <span>{t("addRunner.native")}<span className="block text-[13px] text-muted">{t("addRunner.nativeText")}</span></span>
       </label>
       <div className="relative">
         <pre
-          aria-label="Install command"
+          aria-label={t("addRunner.command")}
           className="overflow-x-auto whitespace-pre-wrap break-all rounded-xl border border-line bg-bg p-3.5 pr-12 font-mono text-[12.5px] leading-relaxed"
         >
           {command}
         </pre>
-        <Button type="button" variant="ghost" size="icon-sm" aria-label="Copy command" className="absolute right-2 top-2" onClick={() => props.onCopy(command)}>
+        <Button type="button" variant="ghost" size="icon-sm" aria-label={t("addRunner.copy")} className="absolute right-2 top-2" onClick={() => props.onCopy(command)}>
           {props.copied ? <Check /> : <Copy />}
         </Button>
       </div>
@@ -124,10 +127,10 @@ function Waiting(props: {
       )}
       <p role="status" className="flex items-center gap-2 text-[14px] text-muted">
         <Loader2 size={15} className="animate-spin" aria-hidden />
-        Waiting for the runner to come online…
+        {t("addRunner.waiting")}
       </p>
       <Button type="button" variant="ghost" onClick={props.onCancel}>
-        Back
+        {t("addRunner.back")}
       </Button>
     </div>
   );

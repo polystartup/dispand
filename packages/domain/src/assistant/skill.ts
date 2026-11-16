@@ -3,12 +3,13 @@ import type { Db, Tx } from "../db/client.ts";
 import { skillFiles, skillPackages, user } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
+import { ASSISTANT_NAME } from "../engine/job-def.ts";
 import { type SkillFile, validatePackage } from "../skills/package.ts";
 import { store } from "../skills/procedures.ts";
 import { emitLog, inSpan, tracer } from "../telemetry/index.ts";
 
 // The platform skill: what the Assistant knows of Dispand, shipped with the application. Its
-// files are bundled from `./skill/` at build time, so the package is the build's: each owner
+// files are bundled from `./skill/` at build time, with `{{assistant}}` written as its shown name, so the package is the build's: each owner
 // has one built-in package, read-only to everyone, whose files a start replaces with these.
 
 const traces = tracer("assistant");
@@ -23,7 +24,7 @@ const bundled = (import.meta as unknown as Glob).glob("./skill/**/*", { query: "
 
 /** The build's files of the platform skill, as `<skill>/<path>`. */
 export const PLATFORM_SKILL_FILES: SkillFile[] = Object.entries(bundled)
-  .map(([path, text]) => ({ path: path.slice("./skill/".length), content: new TextEncoder().encode(text) }))
+  .map(([path, text]) => ({ path: path.slice("./skill/".length), content: new TextEncoder().encode(text.replaceAll("{{assistant}}", ASSISTANT_NAME)) }))
   .sort((a, b) => (a.path < b.path ? -1 : 1));
 
 const { skills: SKILLS } = validatePackage(PLATFORM_SKILL_FILES);

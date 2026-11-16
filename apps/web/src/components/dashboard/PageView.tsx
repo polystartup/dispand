@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import type { Widget } from "../widgets/WorkflowFormWidget.tsx";
 import { AddWidgetSheet } from "./AddWidgetSheet.tsx";
@@ -18,6 +19,7 @@ export function PageView({
   heading: ReactNode;
   empty: ReactNode;
 }) {
+  const { t } = useTranslation("dashboard");
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   const widgets = page.widgets;
@@ -28,11 +30,11 @@ export function PageView({
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setAdding(true)}>
             <Plus aria-hidden />
-            Add widget
+            {t("page.addWidget")}
           </Button>
           {widgets.length > 0 && (
             <Button variant={editing ? "default" : "outline"} onClick={() => setEditing((e) => !e)}>
-              {editing ? "Done" : "Edit"}
+              {editing ? t("page.done") : t("page.edit")}
             </Button>
           )}
         </div>
@@ -45,9 +47,10 @@ export function PageView({
 
 /** "Nothing here yet", for a page without widgets. */
 export function EmptyPage({ text }: { text: string }) {
+  const { t } = useTranslation("dashboard");
   return (
     <div className="grid place-items-center rounded-2xl bg-surface px-6 py-16 text-center shadow-card">
-      <p className="text-[17px] font-medium">Nothing here yet</p>
+      <p className="text-[17px] font-medium">{t("page.emptyTitle")}</p>
       <p className="mt-1 max-w-sm text-[14px] text-muted">{text}</p>
     </div>
   );

@@ -222,6 +222,23 @@ test("the machine's MCP servers: names as the protocol allows, never dispand, at
   expect(await load(Object.fromEntries(Array.from({ length: 101 }, (_, i) => [`s${i}`, fetch])))).toThrow(/at most 100/);
 });
 
+test("the machine's allowed plugins: standard names, a sha256 digest, one record per name, at most 100", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "config-"));
+  made.push(dir);
+  const path = join(dir, "config.json");
+  const load = async (allowedPlugins: unknown) => {
+    await writeFile(path, JSON.stringify({ server: "https://dispand.lan", roots: ["/srv/work"], allowedPlugins }));
+    return () => loadConfig(path);
+  };
+  const law = { name: "law.firm", digest: `sha256:${"a".repeat(64)}`, entry: { command: "./server", args: ["--x"], env: { A: "1" }, cwd: "./" } };
+  expect((await load([law]))().allowedPlugins).toEqual([law]);
+  for (const name of ["Law", "law--firm", "law.", "a".repeat(65), "../law"]) expect(await load([{ ...law, name }])).toThrow();
+  expect(await load([{ ...law, digest: "a".repeat(64) }])).toThrow();
+  expect(await load([{ ...law, entry: { ...law.entry, shell: true } }])).toThrow();
+  expect(await load([law, { ...law, digest: `sha256:${"b".repeat(64)}` }])).toThrow(/one record per plugin name/);
+  expect(await load(Array.from({ length: 101 }, (_, i) => ({ ...law, name: `p${i}` })))).toThrow();
+});
+
 test("Skillshare config, receipts and sources stay outside every runner root", async () => {
   const dir = await mkdtemp(join(tmpdir(), "native-config-"));
   made.push(dir);

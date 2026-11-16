@@ -177,7 +177,7 @@ test("update without apiKey keeps it; an empty one clears it", async () => {
   // Anthropic needs a key: clearing it is refused.
   await expect(call(router.harnesses.update, { ...cloud, id: created.id, apiKey: "" }, { context })).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "An API key is required",
+    message: "An API key is required.",
   });
 
   const local = { type: "cloud", name: "Local", kind: "openai-compatible", baseUrl: "https://llm.example.test/v1", apiKey: KEY, model: "qwen", systemPrompt: "" } as const;
@@ -201,7 +201,7 @@ test("an http base URL with a key is refused", async () => {
   const local = { type: "cloud", name: "Local", kind: "openai-compatible", baseUrl: "http://llm.example.test/v1", model: "qwen", systemPrompt: "" } as const;
   await expect(call(router.harnesses.create, { ...local, apiKey: KEY }, { context })).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "A key is only sent to an https:// base URL",
+    message: "A key is only sent to an https:// base URL.",
   });
   // Without a key, or to this machine, it is allowed.
   const plain = await call(router.harnesses.create, local, { context });
@@ -215,14 +215,14 @@ test("temperature on anthropic is refused; cloud rules", async () => {
   const { context } = await setup();
   await expect(call(router.harnesses.create, { ...cloud, temperature: 0.2 }, { context })).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "Temperature is only for OpenAI-compatible providers",
+    message: "Temperature is only for OpenAI-compatible providers.",
   });
   await expect(call(router.harnesses.create, { ...cloud, apiKey: undefined }, { context })).rejects.toMatchObject({
-    message: "An API key is required",
+    message: "An API key is required.",
   });
   await expect(
     call(router.harnesses.create, { ...cloud, kind: "openai-compatible", apiKey: undefined }, { context }),
-  ).rejects.toMatchObject({ message: "An OpenAI-compatible provider needs a base URL" });
+  ).rejects.toMatchObject({ message: "An OpenAI-compatible provider needs a base URL." });
   const compatible = await call(
     router.harnesses.create,
     { ...cloud, kind: "openai-compatible", baseUrl: "https://llm.example.test/v1", apiKey: undefined, temperature: 0.2 },

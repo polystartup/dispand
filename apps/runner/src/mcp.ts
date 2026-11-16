@@ -10,6 +10,7 @@ import { JOB_SERVER_NAME, JOB_TOOLS_SERVER, mcpActionName, McpAction, type McpSe
 import { overlapping, type RunnerConfig } from "./config.ts";
 import type { JsonValue } from "./codex/protocol/serde_json/JsonValue.ts";
 import { cleanJson, FRAME_BUDGET, protocolString } from "./sanitize.ts";
+import { PROXY_SPEC, PROXY_TOKEN, type ProxySpec } from "./mcp-proxy.ts";
 
 export type LocalServer = NonNullable<RunnerConfig["mcpServers"]>[string];
 
@@ -66,14 +67,29 @@ export function deniedTools(refs: McpServerRef[], harness: "claude-code" | "code
   };
 }
 
+/** How a session's CLI starts the proxy: this same runner, by the path it was started from. */
+export const PROXY_ENTRY = { command: process.execPath, args: [process.argv[1] ?? "", "mcp-proxy"] };
+
+/** Where a Job's session sends its runner tools' files, and the token it sends them with. */
+export type ProxyFiles = { url: string; token: string };
+
+export type McpOptions = {
+  /** Where a runner tool starts: the home folder. */
+  dir?: string;
+  /** In a Job's session: the files its runner tools return go to that Job (`mcp-proxy.ts`). */
+  files?: ProxyFiles;
+  entry?: { command: string; args: string[] };
+};
+
 /**
  * The CLI's MCP servers for `refs`, in the SDK's shapes. A runner tool is the machine's own
  * server of that name (`mcpServers` in its config): the server names one, and never says what
- * it runs. It starts from `dir` (the home folder), never the CLI's working directory, where the
- * agent can write files its command would load (`.npmrc`, `package.json`): `sh` changes to it
- * and runs the command. An unknown one, or a name given twice, throws `ToolRefused`.
+ * it runs. The CLI starts it behind the runner's proxy (`mcp-proxy.ts`), which keeps the files of
+ * its results for the Job. It starts from `dir` (the home folder), never the CLI's working
+ * directory, where the agent can write files its command would load (`.npmrc`, `package.json`).
+ * An unknown one, or a name given twice, throws `ToolRefused`.
  */
-export function mcpConfigFor(refs: McpServerRef[], local: RunnerConfig["mcpServers"], dir = homedir()): Record<string, McpServerConfig> {
+export function mcpConfigFor(refs: McpServerRef[], local: RunnerConfig["mcpServers"], { dir = homedir(), files, entry = PROXY_ENTRY }: McpOptions = {}): Record<string, McpServerConfig> {
   const out: Record<string, McpServerConfig> = {};
   for (const ref of refs) {
     if (ref.name in out) throw new ToolRefused(`the MCP server name ${ref.name} is given twice`);
@@ -83,21 +99,23 @@ export function mcpConfigFor(refs: McpServerRef[], local: RunnerConfig["mcpServe
     }
     const server = Object.hasOwn(local ?? {}, ref.tool) ? local![ref.tool] : undefined;
     if (!server) throw new ToolRefused(`this runner has no MCP server ${ref.tool} in its config`);
-    out[ref.name] = { type: "stdio", command: "/bin/sh", args: ["-c", 'cd "$1" && shift && exec "$@"', "sh", dir, server.command, ...(server.args ?? [])], env: server.env ?? {} };
+    const spec: ProxySpec = { command: server.command, args: server.args ?? [], env: server.env ?? {}, cwd: dir, ...(files ? { files: files.url } : {}) };
+    out[ref.name] = { type: "stdio", command: entry.command, args: entry.args, env: { [PROXY_SPEC]: JSON.stringify(spec), ...(files ? { [PROXY_TOKEN]: files.token } : {}) } };
   }
   return out;
 }
 
 /**
- * The same servers as Codex's `mcp_servers`, and the environment their header values go in: an
- * HTTP server's headers are named in `env_http_headers` (`DISPAND_MCP_<i>_<j>`), so the
- * values travel in the app-server's environment, never in `thread/start`, and Codex keeps
- * `DISPAND_*` out of shells. Codex has no SSE transport: such a server is refused.
+ * The same servers as Codex's `mcp_servers`, and the environment their secrets go in: an HTTP
+ * server's headers are named in `env_http_headers` (`DISPAND_MCP_<i>_<j>`), and a proxied
+ * runner tool's Job token in `env_vars`, so the values travel in the app-server's environment,
+ * never in `thread/start`, and Codex keeps `DISPAND_*` out of shells. Codex has no SSE
+ * transport: such a server is refused.
  */
-export function codexMcpServers(refs: McpServerRef[], local: RunnerConfig["mcpServers"], dir = homedir()): { servers: Record<string, JsonValue>; env: Record<string, string> } {
+export function codexMcpServers(refs: McpServerRef[], local: RunnerConfig["mcpServers"], options: McpOptions = {}): { servers: Record<string, JsonValue>; env: Record<string, string> } {
   const servers: Record<string, JsonValue> = {};
   const env: Record<string, string> = {};
-  Object.entries(mcpConfigFor(refs, local, dir)).forEach(([name, config], i) => {
+  Object.entries(mcpConfigFor(refs, local, options)).forEach(([name, config], i) => {
     const ref = refs.find((ref) => ref.name === name);
     const disabled = ref?.type === "runner" && ref.denied?.length ? { disabled_tools: ref.denied } : {};
     if (config.type === "sse") throw new ToolRefused(`Codex can't use the MCP server ${name}: it only speaks SSE`);
@@ -109,7 +127,9 @@ export function codexMcpServers(refs: McpServerRef[], local: RunnerConfig["mcpSe
       });
       servers[name] = { url: config.url, env_http_headers: names, default_tools_approval_mode: "prompt", ...disabled };
     } else if (config.type === "stdio" || config.type === undefined) {
-      servers[name] = { command: config.command, args: config.args ?? [], env: config.env ?? {}, default_tools_approval_mode: "prompt", ...disabled };
+      const { [PROXY_TOKEN]: token, ...rest } = config.env ?? {};
+      if (token !== undefined) env[PROXY_TOKEN] = token;
+      servers[name] = { command: config.command, args: config.args ?? [], env: rest, ...(token !== undefined ? { env_vars: [PROXY_TOKEN] } : {}), default_tools_approval_mode: "prompt", ...disabled };
     }
   });
   return { servers, env };

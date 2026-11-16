@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { parseRunnerMessage, PROTOCOL_VERSION } from "@dispand/runner-protocol";
+import { contentDigest } from "./plugin-digest.ts";
 import { expect, test, vi } from "vitest";
 import { WebSocketServer } from "ws";
 
@@ -64,8 +65,9 @@ test("a valid pairing saves the config and token only once the code is accepted"
     const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     // A re-pair keeps what the machine's owner set by hand.
     const mcpServers = { echo: { command: "echo-mcp", args: ["--stdio"] } };
+    const allowedPlugins = [{ name: "law", digest: `sha256:${"a".repeat(64)}`, entry: { command: "./server" } }];
     await mkdir(join(base, "config"));
-    await writeFile(join(base, "config", "config.json"), JSON.stringify({ server: url, roots: [join(base, "old")], allowBypass: true, mcpServers }));
+    await writeFile(join(base, "config", "config.json"), JSON.stringify({ server: url, roots: [join(base, "old")], allowBypass: true, mcpServers, allowedPlugins }));
     await promisify(execFile)(
       process.execPath,
       ["src/main.ts", "pair", "--config", join(base, "config"), "--server", url, "--root", join(base, "root")],
@@ -73,7 +75,7 @@ test("a valid pairing saves the config and token only once the code is accepted"
     );
     expect(JSON.parse(body)).toEqual({ code: "ABCD2345" });
     // One file holds both: written at once, mode 0600.
-    expect(JSON.parse(await readFile(join(base, "config", "config.json"), "utf8"))).toMatchObject({ server: url, roots: [join(base, "root")], token: "secret", allowBypass: true, mcpServers });
+    expect(JSON.parse(await readFile(join(base, "config", "config.json"), "utf8"))).toMatchObject({ server: url, roots: [join(base, "root")], token: "secret", allowBypass: true, mcpServers, allowedPlugins });
     expect(((await stat(join(base, "config", "config.json"))).mode & 0o777).toString(8)).toBe("600");
     expect(await readdir(join(base, "config"))).toEqual(["config.json"]);
   } finally {
@@ -154,4 +156,83 @@ test("native-plugins opts in locally while preserving pairing and machine restri
     expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ ...config, pluginTargets: "managed" });
     expect((await stat(path)).mode & 0o777).toBe(0o600);
   } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+/** Runs `allow-plugin` against a fake server returning `plugin` for tool `t1`, typing `answer`. */
+async function allowPlugin(spec: (digest: string) => string, answer: string, entry: Record<string, unknown> = { command: "./server", args: ["--x"] }, legacyToken = false, extra: { path: string; content: Buffer }[] = []) {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "allow-")));
+  const files = [{ path: "server", content: Buffer.from("#!/bin/sh\n") }, { path: "plugin.json", content: Buffer.from("{}") }, ...extra];
+  const digest = contentDigest(files);
+  let auth: string | undefined;
+  let path: string | undefined;
+  const server = createServer((req, res) => {
+    auth = req.headers.authorization;
+    path = req.url;
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ name: "law", entry, files: files.map((f) => ({ path: f.path, base64: f.content.toString("base64") })) }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    await mkdir(join(base, "config"));
+    await writeFile(join(base, "config", "config.json"), JSON.stringify({ server: url, roots: [join(base, "root")], ...(legacyToken ? {} : { token: "tok" }), runnerId: "r" }));
+    if (legacyToken) await writeFile(join(base, "config", "token"), "tok\n");
+    const child = spawn(process.execPath, ["src/main.ts", "allow-plugin", "--config", join(base, "config"), "t1", spec(digest)], { env: { ...process.env, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: "" } });
+    let out = "";
+    child.stdout.on("data", (d: Buffer) => (out += d));
+    child.stderr.on("data", (d: Buffer) => (out += d));
+    child.stdin.end(`${answer}\n`);
+    const code = await new Promise<number | null>((resolve) => child.on("close", resolve));
+    const config = JSON.parse(await readFile(join(base, "config", "config.json"), "utf8")) as Record<string, unknown>;
+    return { code, out, config, digest, auth, path, mode: (await stat(join(base, "config", "config.json"))).mode & 0o777 };
+  } finally {
+    server.close();
+    await rm(base, { recursive: true, force: true });
+  }
+}
+
+test("allow-plugin writes the record after a typed yes, from the files it fetched itself", async () => {
+  const { code, out, config, digest, auth, path, mode } = await allowPlugin((d) => `law@${d}`, "yes");
+  expect(code).toBe(0);
+  expect(auth).toBe("Bearer tok");
+  expect(path).toBe("/runner/plugins/t1");
+  expect(out).toContain('"--x"');
+  expect(out).not.toContain("not what it downloads");
+  expect(config).toMatchObject({ token: "tok", allowedPlugins: [{ name: "law", digest, entry: { command: "./server", args: ["--x"] } }] });
+  expect(mode.toString(8)).toBe("600");
+});
+
+test("allow-plugin keeps an older runner's token, moved from its token file into the config it rewrites", async () => {
+  const { code, config } = await allowPlugin((d) => `law@${d}`, "yes", undefined, true);
+  expect(code).toBe(0);
+  expect(config).toMatchObject({ token: "tok", allowedPlugins: [{ name: "law" }] });
+});
+
+test("allow-plugin refuses a digest that differs from the fetched files", async () => {
+  const { code, out, config } = await allowPlugin(() => `law@sha256:${"0".repeat(64)}`, "yes");
+  expect(code).toBe(1);
+  expect(out).toContain("nothing was written");
+  expect(config.allowedPlugins).toBeUndefined();
+});
+
+test("allow-plugin refuses another plugin's name, and writes nothing without a yes", async () => {
+  const other = await allowPlugin((d) => `contracts@${d}`, "yes");
+  expect(other.code).toBe(1);
+  expect(other.out).toContain("runs the plugin law, not contracts");
+  expect(other.config.allowedPlugins).toBeUndefined();
+  const no = await allowPlugin((d) => `law@${d}`, "y");
+  expect(no.code).toBe(1);
+  expect(no.config.allowedPlugins).toBeUndefined();
+});
+
+test("allow-plugin writes no record for files the runner would never launch", async () => {
+  const { code, out, config } = await allowPlugin((d) => `law@${d}`, "yes", undefined, false, [{ path: ".mcp.json", content: Buffer.from("{}") }]);
+  expect(code).toBe(1);
+  expect(out).toContain("holds an unsafe or repeated path. Nothing was written.");
+  expect(config.allowedPlugins).toBeUndefined();
+});
+
+test("allow-plugin says so when the command isn't a file of the plugin", async () => {
+  const { code, out } = await allowPlugin((d) => `law@${d}`, "yes", { command: "npx", args: ["some-package"] });
+  expect(code).toBe(0);
+  expect(out).toContain("this record covers the command line, not what it downloads");
 });

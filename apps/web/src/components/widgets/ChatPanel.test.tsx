@@ -13,6 +13,7 @@ const fake = vi.hoisted(() => ({
   workflows: { get: vi.fn() },
   jobs: { start: vi.fn(), def: vi.fn() },
   questions: { answer: vi.fn() },
+  files: { hold: vi.fn() },
 }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
@@ -316,4 +317,36 @@ test("Assistant picker supports arrows, Tab, mouse, Escape and discovery fallbac
   await user.click(await screen.findByRole("option", { name: /office:tidy/ }));
   expect((box as HTMLTextAreaElement).value).toBe("/office:tidy ");
   expect(document.activeElement).toBe(box);
+});
+
+test("files attached for one conversation don't go with another: opening a new one takes them off", async () => {
+  fake.runs.stream.mockImplementation(streamOf(snapshot()));
+  fake.files.hold.mockResolvedValue({ id: "att_1", name: "notes.txt", mime: "application/octet-stream", size: 2, image: false });
+  const user = mount("run_1");
+  await user.click(await screen.findByRole("button", { name: "Attach a file" }));
+  await user.upload(document.body.querySelector<HTMLInputElement>("input[type=file]")!, new File(["hi"], "notes.txt"));
+  expect(await screen.findByText("notes.txt")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "New conversation" }));
+  await waitFor(() => expect(screen.queryByText("notes.txt")).toBeNull());
+  expect(screen.getByLabelText("Message")).toBeTruthy();
+});
+
+test("opening another conversation from outside takes the draft's files off too", async () => {
+  fake.runs.stream.mockImplementation(streamOf(snapshot()));
+  fake.files.hold.mockResolvedValue({ id: "att_1", name: "notes.txt", mime: "application/octet-stream", size: 2, image: false });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  fake.workflows.get.mockResolvedValue({ id: "wf_1", name: "Chat", version: 1, def: { trigger: { type: "manual", field: { id: "n_chat" } }, steps: [], edges: [] } });
+  const panel = (runId: string) => (
+    <QueryClientProvider client={client}>
+      <ChatPanel workflowId="wf_1" runId={runId} onRunStarted={() => {}} />
+    </QueryClientProvider>
+  );
+  const { rerender } = render(panel("run_1"));
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Attach a file" }));
+  await user.upload(document.body.querySelector<HTMLInputElement>("input[type=file]")!, new File(["hi"], "notes.txt"));
+  expect(await screen.findByText("notes.txt")).toBeTruthy();
+  rerender(panel("run_2"));
+  await waitFor(() => expect(screen.queryByText("notes.txt")).toBeNull());
+  expect(screen.getByLabelText("Message")).toBeTruthy();
 });

@@ -1,6 +1,10 @@
 import { getRequestHeaders, setResponseHeader } from "@tanstack/react-start/server";
+import { resolveLanguage } from "../lib/i18n.ts";
 
-/** Setup and session state, used by the route guards (on the server and on navigation). */
+/**
+ * Setup and session state, used by the route guards (on the server and on navigation), and the
+ * page's language: the user's saved one, else the browser's (`Accept-Language`).
+ */
 export async function authState() {
   const { getApp } = await import("./app.ts");
   const app = await getApp();
@@ -13,13 +17,19 @@ export async function authState() {
     // Its name, for its span: a call in process has no path of its own.
     path: ["auth", "status"],
   });
-  if (needsSetup) return { needsSetup, user: null };
+  const acceptLanguage = headers.get("accept-language");
+  if (needsSetup) return { needsSetup, user: null, language: resolveLanguage(null, acceptLanguage) };
   const { headers: fresh, response: session } = await auth.api.getSession({ headers, returnHeaders: true });
   // A refreshed session cookie has to reach the browser.
   const cookies = fresh.getSetCookie();
   if (cookies.length) setResponseHeader("set-cookie", cookies);
-  return { needsSetup, user: session ? { name: session.user.name, email: session.user.email } : null };
-  }
+  const language = session?.user.language ?? null;
+  return {
+    needsSetup,
+    user: session ? { name: session.user.name, email: session.user.email, language } : null,
+    language: resolveLanguage(language, acceptLanguage),
+  };
+}
 
 /** First launch, before the owner's Assistant is made: Home's guard sends the owner to its page. */
 export async function firstLaunch() {

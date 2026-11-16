@@ -1,9 +1,9 @@
 import { call } from "@orpc/server";
-import { stopTelemetry } from "../telemetry/index.ts";
+import { currentTraceId, stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { cloudSessions, harnesses, messages, questions, roots, runs, stepRuns } from "../db/schema.ts";
+import { audit, cloudSessions, harnesses, messages, questions, roots, runs, stepRuns } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import type { Engine } from "../engine/engine.ts";
 import { router } from "../rpc/router.ts";
@@ -484,6 +484,46 @@ test("a model call is a span with the harness's kind, how the turn ended and how
   expect(await t.metrics()).toContainEqual({ name: "dispand.model.calls", attributes: { "dispand.harness.kind": "openai-compatible", "dispand.result": "end" } });
   const all = await t.all();
   for (const sentinel of ["sentinel-model-answer", "You work for Dispand.", "Be brief."]) expect(all).not.toContain(sentinel);
+});
+
+test("a model call counts the provider's input and output tokens, by direction, on its span and as a metric", async () => {
+  const model = fakeModel(() => ({ text: "Done.", usage: { input: 25, output: 4 } }));
+  const { engine, workflow } = await setup(buttonStep, { client: model.client });
+  const t = await captureTelemetry();
+  onTestFinished(() => stopTelemetry());
+  await until(engine, await engine.startRun(workflow.id), "succeeded");
+  const [span] = t.spans().filter((x) => x.name === "model.turn");
+  expect(span!.attributes).toMatchObject({ "dispand.model.tokens.input": 25, "dispand.model.tokens.output": 4 });
+  const points = (await t.metrics()).filter((m) => m.name === "dispand.model.tokens").map((m) => m.attributes);
+  expect(points).toEqual(expect.arrayContaining([{ "dispand.harness.kind": "openai-compatible", "dispand.token.direction": "input" }, { "dispand.harness.kind": "openai-compatible", "dispand.token.direction": "output" }]));
+});
+
+test("a cloud Job's model turns and tool calls are in its trace, after a restart too", async () => {
+  const traced: (string | undefined)[] = [];
+  const tools = fakeTools().tools;
+  const recording: ToolCaller = { ...tools, call: async (...args) => (traced.push(currentTraceId()), tools.call(...args)) };
+  const model = fakeModel(use("GitHub_list_repos", {}, "c1"));
+  const { context, engine, agent } = await setup(buttonStep, { client: model.client, tools: recording });
+  const t = await captureTelemetry();
+  onTestFinished(() => stopTelemetry());
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "List them.", config: { kind: "manual", placement: "button" } }, { context });
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const q = await pendingQuestion(engine, runId);
+  const job = await runStatus(engine, runId);
+  // Dispand restarts while the call waits for the owner; the answer wakes the session in no trace of the Job's.
+  const after = fakeModel(say("Two repositories."));
+  const engine2 = createEngine(context.db, context.hub, context.secrets, context.dataEvents, { client: after.client, tools: recording });
+  onTestFinished(() => engine2.stop());
+  await engine2.recover();
+  await engine2.answer(q.id, { kind: "permission", decision: "allow" });
+  await until(engine2, runId, "succeeded");
+  const turns = t.spans().filter((x) => x.name === "model.turn");
+  expect(turns).toHaveLength(2);
+  for (const turn of turns) expect([turn.spanContext().traceId, turn.parentSpanContext?.spanId]).toEqual([job.traceId, job.spanId]);
+  expect(traced).toEqual([job.traceId]);
+  // Made with nothing traced around it, the Job's trace is a new one, and its creation's row is in it.
+  const [created] = await context.db.select().from(audit).where(eq(audit.action, "job.created"));
+  expect(created!.traceId).toBe(job.traceId);
 });
 
 test("a chat with no instructions makes no model call until the owner writes: the first message is the first turn", async () => {

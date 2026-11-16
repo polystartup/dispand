@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { orpc } from "../../lib/api.ts";
 import { Status } from "../workflow/Runs.tsx";
 
 /** What a consult's state reads as. */
-const stateText = { waiting: "waiting", answered: "answered", failed: "no answer", ended: "ended" } as const;
+const stateStatus = { waiting: "waiting", answered: "answered", failed: "noAnswer", ended: "ended" } as const;
 
 /**
  * A Job's consults (design 6.13): the one that made it, with the asking Job to go to, and those it
@@ -13,6 +14,7 @@ const stateText = { waiting: "waiting", answered: "answered", failed: "no answer
  * but the consulted Job.
  */
 export function RunConsults({ runId, live }: { runId: string; live: boolean }) {
+  const { t } = useTranslation("runs");
   const consults = useQuery({
     ...orpc.jobs.consults.queryOptions({ input: { runId } }),
     // The Job ending is read once more, whatever the polling had reached: its consults ended with it.
@@ -24,14 +26,14 @@ export function RunConsults({ runId, live }: { runId: string; live: boolean }) {
   if (!answering && asked.length === 0) return null;
 
   return (
-    <section aria-label="Consults" className="mb-6 flex flex-col gap-3">
+    <section aria-label={t("consults")} className="mb-6 flex flex-col gap-3">
       {answering && (
         <div className="rounded-2xl bg-surface px-5 py-4 shadow-card">
           <h2 className="text-[16px] font-medium">
-            Consulted by {answering.agent}
+            {t("consultedBy", { agent: answering.agent })}
             {" · "}
             <Link to="/settings/workflows/runs/$runId" params={{ runId: answering.runId }} className="text-[14px] font-normal text-accent hover:underline">
-              Open its Job
+              {t("openJob")}
             </Link>
           </h2>
           <p className="mt-2 whitespace-pre-wrap break-words text-[14px]">{answering.question}</p>
@@ -40,19 +42,19 @@ export function RunConsults({ runId, live }: { runId: string; live: boolean }) {
       {asked.map((c) => (
         <div key={c.questionId} className="rounded-2xl bg-surface px-5 py-4 shadow-card">
           <h2 className="flex flex-wrap items-baseline gap-x-2 text-[16px] font-medium">
-            Consulted {c.agent}
-            <Status status={stateText[c.state]} />
+            {t("consulted", { agent: c.agent })}
+            <Status status={stateStatus[c.state]} />
             {c.runId && (
               <Link to="/settings/workflows/runs/$runId" params={{ runId: c.runId }} className="text-[14px] font-normal text-accent hover:underline">
-                Open its Job
+                {t("openJob")}
               </Link>
             )}
           </h2>
           <p className="mt-2 whitespace-pre-wrap break-words text-[14px]">{c.question}</p>
           {c.answer !== null && (
             <>
-              <span className="mt-3 block text-[13px] font-medium text-muted">{c.state === "answered" ? "Answer" : "Why there is none"}</span>
-              <p className="whitespace-pre-wrap break-words text-[14px]">{c.answer || "(empty)"}</p>
+              <span className="mt-3 block text-[13px] font-medium text-muted">{c.state === "answered" ? t("answer") : t("noAnswerWhy")}</span>
+              <p className="whitespace-pre-wrap break-words text-[14px]">{c.answer || t("empty")}</p>
             </>
           )}
         </div>

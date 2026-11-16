@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { agentConsults, runs, stepRuns } from "../db/schema.ts";
+import { agentConsults, audit, runs, stepRuns } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
@@ -70,15 +70,24 @@ test("a cloud Job consults an agent listed in its consult tool and goes on with 
   expect(metrics).toContainEqual({ name: "dispand.consults.asked", attributes: {} });
   expect(metrics).toContainEqual({ name: "dispand.consults.ended", attributes: { "dispand.consult.outcome": "answered" } });
   expect(metrics).toContainEqual({ name: "dispand.consult.wait", attributes: { "dispand.consult.outcome": "answered" } });
-  // The consulted Job's session starts inside the span of the asking Job's consult.
+  // The consulted Job's session starts under its own Job's span, made inside the span of the asking Job's consult.
   const [consultedId] = (await s.context.db.select({ id: runs.id }).from(runs).where(eq(runs.agentId, s.expert.id))).map((r) => r.id);
   const spans = telemetry.spans();
+  const parentOf = (span: (typeof spans)[number]) => spans.find((x) => x.spanContext().spanId === span.parentSpanContext?.spanId);
   const started = spans.find((x) => x.name === "engine.session.start" && x.attributes["dispand.run.id"] === consultedId)!;
-  const parent = spans.find((x) => x.spanContext().spanId === started.parentSpanContext?.spanId);
-  expect(parent?.attributes["dispand.job.id"]).toBe(runId);
+  const job = parentOf(started)!;
+  expect([job.name, job.attributes["dispand.job.id"]]).toEqual(["engine.job", consultedId]);
+  expect(parentOf(job)?.attributes["dispand.job.id"]).toBe(runId);
   const exported = await telemetry.all();
   expect(exported).not.toContain("sentinel-consult-question-41");
   expect(exported).not.toContain("sentinel-consult-answer-42");
+  // Audited, the consult's rows name the Jobs and how it ended, never its question or its answer.
+  const rows = await s.context.db.select().from(audit);
+  expect(rows.filter((r) => r.action.startsWith("consult.")).map((r) => [r.action, r.details])).toEqual([
+    ["consult.asked", { agentId: s.expert.id }],
+    ["consult.ended", expect.objectContaining({ consultedJobId: consultedId, outcome: "answered" })],
+  ]);
+  expect(JSON.stringify(rows)).not.toMatch(/sentinel-consult-(question-41|answer-42)/);
 });
 
 test("a consulted Job, which expects no outputs, is offered no submit_outputs and answers with its last message", async () => {

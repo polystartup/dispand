@@ -118,7 +118,7 @@ test("a step added from the trigger's \"+\" twice makes two branches, and linkin
 
   // A link that would make a loop is refused, with why.
   await drag("Step 3", "Step 1");
-  await expect(page.getByRole("alert")).toHaveText("This link would make a loop");
+  await expect(page.getByRole("alert")).toHaveText("This link would make a loop.");
   await expect(edges).toHaveCount(4);
 
   await expect(page.getByRole("status")).toHaveText(/^Saved/, { timeout: 5_000 });
@@ -225,7 +225,7 @@ test("switching the trigger to Schedule saves it and shows the next run", async 
   const card = page.locator(".react-flow__node").filter({ hasText: "Every Monday at 08:30" });
   await expect(card).toBeVisible();
   await expect(panel.getByRole("list", { name: "Next runs" }).getByRole("listitem")).toHaveCount(3);
-  await expect(panel.getByRole("list", { name: "Next runs" }).getByRole("listitem").first()).toContainText(/^Mon \d+ \w+, 08:30$/);
+  await expect(panel.getByRole("list", { name: "Next runs" }).getByRole("listitem").first()).toContainText(/^Mon, \w+ \d+, 08:30$/);
   await page.getByRole("button", { name: "Add a step after Start" }).click();
   await page.getByRole("menuitem", { name: "Agent" }).click();
   await panel.getByLabel("Name").fill("Report");

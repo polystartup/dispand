@@ -167,8 +167,17 @@ An HTTP one comes with its headers: Claude Code gets them over the SDK's control
 (`setMcpServers`), never on its command line, and Codex as variable names
 (`env_http_headers`), their values only in its app-server's environment and never in shells.
 Codex has no SSE transport: an SSE server in a Codex session is refused. A server that doesn't
-connect ends the session before its first turn. A runner tool's server starts from your home
-folder, never the run folder (where the agent could plant an `.npmrc`). Managed Job tools follow
+connect ends the session before its first turn. A runner tool's server starts behind the
+runner's MCP proxy (`dispand-runner mcp-proxy`, which the CLI starts in its place) from your home
+folder, never the run folder (where the agent could plant an `.npmrc`), without any `DISPAND_*`
+variable. In a Job's session, the files its results carry (images, audio, embedded blobs) go to
+Dispand as the Job's attachments, and the agent gets their ids in their place; a result past a
+limit (10 MiB a file, 20 files, the Job's or the install's total) keeps none, and says why.
+Files a person attaches to a chat message are fetched from Dispand with the runner's token and
+written read-only to `.dispand/attachments/<id>/file<.ext>` in the run folder before the message
+reaches the CLI, which reads them with its file tools; the runner refuses any other path, and
+never one a CLI reads as configuration (`.claude`, `.codex`, `.mcp.json`, `CLAUDE.md`,
+`AGENTS.md`). Managed Job tools follow
 the agent's per-action permissions in every session mode: Run actions proceed, Ask actions ask
 each time, with an option to remember the permission for the agent. Other MCP tools ask each
 time outside `bypassPermissions`. Codex servers use `default_tools_approval_mode: "prompt"`
@@ -193,16 +202,41 @@ the result, however the server reached them. A call whose arguments name the run
 a CLI's home (as a path, `~/…` or a file URL, or through a link) is refused before the server
 starts.
 
+`allowedPlugins` is the machine's record of the plugins' stdio servers it allows, one per plugin
+name (at most 100): `{ "name": "<plugin>", "digest": "sha256:<hex>", "entry": { "command",
+"args", "env", "cwd" } }`. `allow-plugin` writes it, or you write it by hand; the server never
+does. Before a plugin's server starts, the runner computes the digest itself over the files it
+was given (SHA-256 over every file sorted by path: the path, a NUL, the length, a NUL, the bytes)
+and compares the launch entry, canonicalized, with the record of that name: a changed byte,
+argument or `env` value, or no record of that name, refuses the start. Only then does it write
+the files read-only under `<state>/plugins/<name>/<hex digest>/`, resolve a `./` command inside
+that folder (its real path), keep `cwd` (default: that folder) inside it or
+`<state>/plugin-data/<name>/` (created once and kept across updates), expand `${PLUGIN_ROOT}`
+and `${PLUGIN_DATA}` once and only in `args`, `env` values and `cwd`, and set both variables
+last over the entry's `env`. A plugin update that changes any file or the entry needs a new
+`allow-plugin`. The record covers the files and the command line, not what the command
+downloads when it runs (`npx some-package`). Dispand doesn't send plugin servers to runners yet:
+the record is in place for when it does.
+
 ## Commands
 
 - `DISPAND_PAIRING_CODE=<code> node main.mjs pair [--config <dir>] --server <url> --root <dir>...`: checks everything locally
   first (roots, config dir, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`), then trades the single-use code for a token
   and saves both atomically.
+- `node main.mjs allow-plugin [--config <dir>] <tool id> <name>@<digest>`, as a plugin tool's page
+  writes it out: fetches that tool's plugin files from Dispand with the runner's token
+  (`GET /runner/plugins/<tool id>`), refuses when its name isn't `<name>` or the digest it
+  computes isn't `<digest>`, shows the launch entry (and says so when the command isn't a file of
+  the plugin), and writes the record after you type `yes`, replacing that name's. It runs nothing.
+  Restart the runner to use it.
 - `node main.mjs run [--config <dir>]`: on SIGTERM or SIGINT it aborts its live CLIs without
   reporting errors (Dispand resumes them once the runner is back), writes every event to
   the backlog and exits, within 10 s. It connects (while Dispand is unreachable, events
   wait; past 20,000 of them or 32 MiB, sessions end with an error and none starts until the
-  backlog drains below half) and runs sessions (what the unit starts). Logs: `journalctl --user -u dispand-runner`.
+  backlog drains below half) and runs sessions (what the unit starts). Logs: `journalctl --user -u dispand-runner`;
+  each session logs one line when its CLI starts and one when it ends: its session id, its run
+  key (the run's id, the step's and the start's time), its harness and its outcome (`succeeded`,
+  `failed`, `stopped`, `aborted` or `exited`), never a prompt, result or error text.
 
 ## Development
 

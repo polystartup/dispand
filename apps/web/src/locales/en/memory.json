@@ -1,0 +1,40 @@
+{
+  "add": "Add entry",
+  "addText": "One fact agents read at the start of their Jobs.",
+  "failed": "Could not load the memory.",
+  "emptyTitle": "Nothing kept yet",
+  "emptyText": "Each entry is one fact agents read at the start of their Jobs: how the business works, how work is done, where things are.",
+  "removed": "Removed",
+  "type": {
+    "business": "How the business works",
+    "practice": "How work is done",
+    "fact": "Facts",
+    "reference": "Where things are"
+  },
+  "byline": {
+    "you": "You",
+    "deletedAgent": "A deleted agent",
+    "line": "{{who}} · {{when}}"
+  },
+  "notRead": "Not read by agents that configure",
+  "acceptText": "Accepting lets this entry instruct agents that configure the workspace.",
+  "path": "Path",
+  "pathHint": "A file name ending in .md, in folders if you like: clients/acme.md.",
+  "name": "Name",
+  "description": "Description",
+  "descriptionHint": "One line: what the entry tells, so an agent knows when to read it.",
+  "typeLabel": "Type",
+  "body": "Body",
+  "save": "Save",
+  "cancel": "Cancel",
+  "edit": "Edit",
+  "accept": "Accept",
+  "revert": "Revert",
+  "remove": "Remove",
+  "restore": "Restore",
+  "saveFailed": "Could not save the entry.",
+  "restoreFailed": "Could not restore the entry.",
+  "acceptFailed": "Could not accept the entry.",
+  "revertFailed": "Could not revert the entry.",
+  "removeFailed": "Could not remove the entry."
+}

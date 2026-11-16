@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 
 const fake = vi.hoisted(() => ({ navigate: vi.fn(), questions: { stream: vi.fn(), list: vi.fn(), count: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
@@ -129,4 +129,56 @@ test("the bell opens the Inbox and closes the sheet it is in", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Inbox, 2 waiting" }));
   expect(fake.navigate).toHaveBeenCalledWith({ to: "/inbox" });
   expect(onNavigate).toHaveBeenCalledOnce();
+});
+
+test("the open tab's notification names the newest item's agent and kind, under the push's tag", async () => {
+  const shown: [string, NotificationOptions | undefined][] = [];
+  class FakeNotification {
+    static permission = "granted";
+    constructor(title: string, options?: NotificationOptions) {
+      shown.push([title, options]);
+    }
+  }
+  vi.stubGlobal("Notification", FakeNotification);
+  vi.stubGlobal("isSecureContext", true);
+  onTestFinished(() => {
+    vi.unstubAllGlobals();
+  });
+  fake.questions.count.mockResolvedValue({ count: 0 });
+  fake.questions.list.mockResolvedValue([]);
+  const push = streamed();
+  renderBell();
+  push(0); // learns what already waits
+  await waitFor(() => expect(fake.questions.list).toHaveBeenCalled(), WAIT);
+  fake.questions.list.mockResolvedValue([{ id: "q2", kind: "approval", agent: { id: "a1", name: "Drafting", builtIn: null }, workflow: null }]);
+  push(1);
+  await waitFor(() => expect(shown).toEqual([["Dispand", { body: "Drafting needs your decision.", tag: "dispand-inbox" }]]), WAIT);
+});
+
+test("a browser that gets pushes shows no second notification from the open tab", async () => {
+  const shown: string[] = [];
+  vi.stubGlobal("Notification", class {
+    static permission = "granted";
+    constructor(title: string) {
+      shown.push(title);
+    }
+  });
+  vi.stubGlobal("isSecureContext", true);
+  vi.stubGlobal("PushManager", class {});
+  Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: { getRegistration: async () => ({ pushManager: { getSubscription: async () => ({ endpoint: "https://push.example.com/x" }) } }) } });
+  onTestFinished(() => {
+    vi.unstubAllGlobals();
+    Reflect.deleteProperty(navigator, "serviceWorker");
+  });
+  fake.questions.count.mockResolvedValue({ count: 0 });
+  fake.questions.list.mockResolvedValue([]);
+  const push = streamed();
+  renderBell();
+  push(0);
+  await waitFor(() => expect(fake.questions.list).toHaveBeenCalledTimes(1), WAIT);
+  fake.questions.list.mockResolvedValue([{ id: "q2", kind: "question", agent: { id: "a1", name: "Drafting", builtIn: null }, workflow: null }]);
+  push(1);
+  await waitFor(() => expect(fake.questions.list).toHaveBeenCalledTimes(2), WAIT);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(shown).toEqual([]);
 });

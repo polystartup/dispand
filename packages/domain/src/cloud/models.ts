@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { CloudKind } from "../harnesses/cloud.ts";
+import { message, type Message, type MessageKey, type MessageValues } from "../messages/index.ts";
 
 /** Where each provider's API lives when the harness doesn't set a base URL. */
 export const DEFAULT_BASE_URLS: Record<Exclude<CloudKind, "openai-compatible">, string> = {
@@ -12,6 +13,12 @@ export type ModelOption = { id: string; label: string };
 /** A short, safe reason: never the provider's body, which may echo the key. */
 export class ModelListError extends Error {
   override name = "ModelListError";
+  readonly say: Message;
+  constructor(key: MessageKey, values?: MessageValues) {
+    const { message: text, data } = message(key, values);
+    super(text);
+    this.say = data;
+  }
 }
 
 const Listing = z.object({
@@ -39,17 +46,17 @@ export async function listModels(kind: CloudKind, baseUrl: string | undefined, a
   try {
     response = await fetcher(url, { headers, redirect: "error", signal: AbortSignal.timeout(LISTING_TIMEOUT_MS) });
   } catch {
-    throw new ModelListError(`Couldn't reach ${url.host}`);
+    throw new ModelListError("harness.models.unreachable", { host: url.host });
   }
-  if (response.status === 401 || response.status === 403) throw new ModelListError("The provider refused the key");
-  if (!response.ok) throw new ModelListError(`Couldn't reach ${url.host}`);
+  if (response.status === 401 || response.status === 403) throw new ModelListError("harness.models.keyRefused");
+  if (!response.ok) throw new ModelListError("harness.models.unreachable", { host: url.host });
   let body: unknown;
   try {
     body = await response.json();
   } catch {
-    throw new ModelListError(`Couldn't reach ${url.host}`);
+    throw new ModelListError("harness.models.unreachable", { host: url.host });
   }
   const parsed = Listing.safeParse(body);
-  if (!parsed.success) throw new ModelListError(`Couldn't reach ${url.host}`);
+  if (!parsed.success) throw new ModelListError("harness.models.unreachable", { host: url.host });
   return parsed.data.data.map((m) => ({ id: m.id, label: m.display_name || m.id }));
 }

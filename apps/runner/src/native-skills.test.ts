@@ -33,3 +33,12 @@ test("a fallback invocation resolves to the namespace of the verified native ins
   expect(nativeSkillAliases(packages, "claude-code", report)).toEqual([]);
   expect(resolveSkillAlias("/review:tidy", nativeSkillAliases(packages, "codex", { packages: [{ ...native, namespace: "other", sourceKey: "wrong" }] }))).toBe("/review:tidy");
 });
+
+test("only packages staged in the session bind their commands, with the key Dispand sent", async () => {
+  const { stagedSources } = await import("./native-skills.ts");
+  const staged = [{ name: "tidy", nativePlugin: "dispand-tidy", nativeKey: "workspace:abc", files: [] }];
+  const commands = [{ name: "tidy:tidy", description: "Staged" }, { name: "user:tidy", description: "Local user scope" }, { name: "tidy:tidy~0123456789ab", description: "Ambiguous" }, { name: "tidy:other", description: "Verified", sourceKey: "native" }];
+  expect(stagedSources(commands, staged)).toEqual([{ name: "tidy:tidy", description: "Staged", sourceKey: "workspace:abc" }, commands[1], commands[2], commands[3]]);
+  // A package a native installation replaced at the start was never staged: a same-named command stays unbound.
+  expect(stagedSources(commands, [])).toEqual(commands);
+});

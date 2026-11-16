@@ -2,6 +2,9 @@ import type { FieldSchema } from "@dispand/domain/data/fields";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { Trans, useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { useFormat } from "../../lib/format.ts";
 import { orpc } from "../../lib/api.ts";
 import { useTableWatch } from "../../lib/table-watch.ts";
 import { AttachmentCell } from "../data/AttachmentCell.tsx";
@@ -50,10 +53,10 @@ export function DataWidgetFrame({ widget, editing, extra, notice, children }: { 
 }
 
 /** Why the widget has no rows to show yet, or null once it has a table and fields. */
-export function dataNotice(table: { error: unknown; data?: unknown }, shown: FieldSchema[]): string | null {
-  if (table.error && !table.data) return (table.error as { code?: string }).code === "NOT_FOUND" ? "This table no longer exists." : "Could not load this table.";
-  if (!table.data) return "Loading…";
-  if (shown.length === 0) return "The fields this widget showed were deleted. Choose others from its settings in Edit mode.";
+export function dataNotice(t: TFunction<["dashboard", "common"]>, table: { error: unknown; data?: unknown }, shown: FieldSchema[]): string | null {
+  if (table.error && !table.data) return (table.error as { code?: string }).code === "NOT_FOUND" ? t("widget.tableGone") : t("widget.tableFailed");
+  if (!table.data) return t("common:loading");
+  if (shown.length === 0) return t("widget.fieldsDeleted");
   return null;
 }
 
@@ -65,12 +68,16 @@ export function WidgetCell({ field, value, files }: { field: FieldSchema; value:
 
 /** "Showing 100 of N · Open in Data". */
 export function OpenInData({ tableId, shown, total }: { tableId: string; shown: number; total: number }) {
+  const { t } = useTranslation("dashboard");
+  const { number } = useFormat();
   return (
     <p className="px-5 py-2 text-[13px] text-muted">
-      {shown < total ? `Showing ${shown} of ${total} · ` : ""}
-      <Link to="/settings/data/$tableId" params={{ tableId }} className="text-accent hover:underline">
-        Open in Data
-      </Link>
+      <Trans
+        t={t}
+        i18nKey={shown < total ? "widget.showingOpenInData" : "widget.openInData"}
+        values={{ shown: number(shown), total: number(total) }}
+        components={{ go: <Link to="/settings/data/$tableId" params={{ tableId }} className="text-accent hover:underline" /> }}
+      />
     </p>
   );
 }

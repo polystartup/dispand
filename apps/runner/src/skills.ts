@@ -48,7 +48,7 @@ export function sessionPluginsDir(stateDir: string, sessionId: string): string {
 }
 
 /** The body as text, read as it streams: past `max` bytes, it is cancelled and `SkillsRefused` thrown. */
-async function readCapped(res: globalThis.Response, max: number): Promise<string> {
+export async function readCapped(res: globalThis.Response, max: number): Promise<string> {
   if (!res.body) return "";
   const chunks: Uint8Array[] = [];
   let size = 0;

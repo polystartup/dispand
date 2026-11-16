@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { EmptyPage, PageView } from "../components/dashboard/PageView.tsx";
 import { orpc } from "../lib/api.ts";
 import { getFirstLaunch } from "../server/session.ts";
@@ -14,12 +15,13 @@ export const Route = createFileRoute("/_app/")({
 });
 
 function Home() {
+  const { t } = useTranslation("dashboard");
   const { user } = Route.useRouteContext();
   const home = useQuery(orpc.pages.home.queryOptions());
   const heading = (
     <>
-      <h1 className="text-[28px] font-semibold leading-tight tracking-tight">{`Welcome, ${user.name}`}</h1>
-      <p className="mt-1 text-[15px] text-muted">Start your workflows and talk with your agents.</p>
+      <h1 className="text-[28px] font-semibold leading-tight tracking-tight">{t("home.welcome", { name: user.name })}</h1>
+      <p className="mt-1 text-[15px] text-muted">{t("home.subtitle")}</p>
     </>
   );
 
@@ -28,7 +30,7 @@ function Home() {
       <>
         <header className="mb-8">{heading}</header>
         <p role="alert" className="text-[14px] text-danger">
-          Could not load Home.
+          {t("home.failed")}
         </p>
       </>
     );
@@ -38,7 +40,7 @@ function Home() {
     <PageView
       page={home.data}
       heading={heading}
-      empty={<EmptyPage text="Add a widget to start a workflow from here, or ask the Assistant to set one up." />}
+      empty={<EmptyPage text={t("home.empty")} />}
     />
   );
 }

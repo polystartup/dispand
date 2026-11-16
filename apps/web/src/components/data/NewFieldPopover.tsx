@@ -2,11 +2,12 @@ import { FIELD_TYPES, type FieldType } from "@dispand/domain/data/fields";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { type FormEvent, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { orpc } from "../../lib/api.ts";
-import { FIELD_TYPE_UI } from "./field-types.ts";
+import { useFieldTypeLabel } from "./field-types.ts";
 import { qualifiedName } from "@dispand/domain/plugins/names";
 
 /** One choice per line, with an id made here (the server keeps the ids it is given). */
@@ -19,6 +20,8 @@ export const selectClass = "h-9 w-full rounded-md border border-input bg-transpa
 
 /** The "+" header of the grid: name, type, and choices for a single select. */
 export function NewFieldPopover({ tableId, onCreated }: { tableId: string; onCreated: () => void }) {
+  const { t } = useTranslation("data");
+  const typeLabel = useFieldTypeLabel();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [type, setType] = useState<FieldType>("text");
@@ -52,40 +55,40 @@ export function NewFieldPopover({ tableId, onCreated }: { tableId: string; onCre
       }}
     >
       <PopoverTrigger asChild>
-        <button type="button" aria-label="Add a field" className="grid size-8 place-items-center rounded-lg text-muted hover:bg-hover">
+        <button type="button" aria-label={t("newField.add")} className="grid size-8 place-items-center rounded-lg text-muted hover:bg-hover">
           <Plus size={16} aria-hidden />
         </button>
       </PopoverTrigger>
       <PopoverContent align="end">
         <form onSubmit={submit} className="grid gap-3">
           <label className="grid gap-1 text-[13px] font-medium text-muted">
-            Field name
+            {t("newField.name")}
             <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
           </label>
           <label className="grid gap-1 text-[13px] font-medium text-muted">
-            Type
+            {t("newField.type")}
             <select value={type} onChange={(e) => setType(e.target.value as FieldType)} className={selectClass}>
-              {FIELD_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {FIELD_TYPE_UI[t].label}
+              {FIELD_TYPES.map((ft) => (
+                <option key={ft} value={ft}>
+                  {typeLabel(ft)}
                 </option>
               ))}
             </select>
           </label>
           {type === "single-select" && (
             <label className="grid gap-1 text-[13px] font-medium text-muted">
-              Choices, one per line
+              {t("newField.choices")}
               <textarea value={choices} onChange={(e) => setChoices(e.target.value)} rows={4} className="rounded-md border border-input bg-transparent px-3 py-2 text-[14px] outline-none" />
             </label>
           )}
           {type === "reference" && (
             <label className="grid gap-1 text-[13px] font-medium text-muted">
-              Rows of
+              {t("newField.rowsOf")}
               <select value={target} onChange={(e) => setTarget(e.target.value)} className={selectClass} required>
-                <option value="">Choose a table</option>
-                {(tables.data ?? []).map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {qualifiedName(t.plugin?.name ?? null, t.name)}
+                <option value="">{t("newField.chooseTable")}</option>
+                {(tables.data ?? []).map((tb) => (
+                  <option key={tb.id} value={tb.id}>
+                    {qualifiedName(tb.plugin?.name ?? null, tb.name)}
                   </option>
                 ))}
               </select>
@@ -93,7 +96,7 @@ export function NewFieldPopover({ tableId, onCreated }: { tableId: string; onCre
           )}
           {create.error && <p role="alert" className="text-[13px] text-danger">{create.error.message}</p>}
           <Button type="submit" disabled={create.isPending || name.trim() === "" || (type === "reference" && target === "")}>
-            Add field
+            {t("newField.submit")}
           </Button>
         </form>
       </PopoverContent>

@@ -2,6 +2,7 @@ import { createMcpHandler, Server } from "@modelcontextprotocol/server";
 import { recordToolCall } from "../audit/tool-call.ts";
 import { keepJobFiles } from "../data/files.ts";
 import { logError } from "../log.ts";
+import { inJobTrace } from "../telemetry/index.ts";
 import { InstalledTools } from "../tools/executor.ts";
 import { takeApproval } from "./approvals.ts";
 import { askedName, exposedTools } from "./exposed.ts";
@@ -75,5 +76,6 @@ function toolsHandler(app: PlatformApp) {
 export async function handleJobToolsMcp(request: Request, app: PlatformApp): Promise<Response> {
   const found = await jobOfRequest(request, app);
   if (found instanceof Response) return found;
-  return toolsHandler(app).fetch(request, { authInfo: found.auth });
+  // In the Job's trace, as its cloud sessions' calls are.
+  return inJobTrace(found.job, () => toolsHandler(app).fetch(request, { authInfo: found.auth }));
 }

@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import { useFormat } from "../../lib/format.ts";
 import { orpc } from "../../lib/api.ts";
 
 /**
@@ -6,6 +8,8 @@ import { orpc } from "../../lib/api.ts";
  * the server marks read-only; an action an agent must ask before using is never polled, and says why.
  */
 export function PollableActions({ toolId }: { toolId: string }) {
+  const { t } = useTranslation("tools");
+  const { list } = useFormat();
   const queryClient = useQueryClient();
   const actions = useQuery(orpc.tools.pollable.queryOptions({ input: { id: toolId } }));
   const save = useMutation(orpc.tools.setPollable.mutationOptions({ onSuccess: (data) => queryClient.setQueryData(orpc.tools.pollable.queryKey({ input: { id: toolId } }), data) }));
@@ -14,9 +18,9 @@ export function PollableActions({ toolId }: { toolId: string }) {
   return (
     <section aria-labelledby="tool-pollable" className="space-y-2">
       <h2 id="tool-pollable" className="text-[15px] font-medium">
-        What polls may read
+        {t("pollable.title")}
       </h2>
-      <p className="text-[13px] text-muted">A trigger that polls this tool calls only these, outside any Job and without asking. By default, what the server marks read-only.</p>
+      <p className="text-[13px] text-muted">{t("pollable.text")}</p>
       <ul className="divide-y divide-line rounded-xl border border-line">
         {actions.data.map((a) => (
           <li key={a.name} className="px-4 py-2.5">
@@ -29,11 +33,11 @@ export function PollableActions({ toolId }: { toolId: string }) {
                 className="size-4 accent-[var(--color-accent)]"
               />
               <span className="font-mono">{a.name}</span>
-              {a.readOnly && <span className="text-[12px] text-faint">read-only, says the server</span>}
+              {a.readOnly && <span className="text-[12px] text-faint">{t("pollable.readOnly")}</span>}
             </label>
-            {a.disabled && <p className="mt-1 pl-6 text-[12px] text-muted">Not polled: disabled workspace-wide.</p>}
+            {a.disabled && <p className="mt-1 pl-6 text-[12px] text-muted">{t("pollable.disabled")}</p>}
             {!a.disabled && a.allowed && a.askedBy.length > 0 && (
-              <p className="mt-1 pl-6 text-[12px] text-danger">Not polled: {a.askedBy.join(", ")} must ask before using it.</p>
+              <p className="mt-1 pl-6 text-[12px] text-danger">{t("pollable.asked", { agents: list(a.askedBy) })}</p>
             )}
           </li>
         ))}

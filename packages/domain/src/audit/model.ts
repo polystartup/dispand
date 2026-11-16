@@ -50,6 +50,7 @@ export const AUDIT_RESOURCES = [
   "harness",
   "proposal",
   "plugin",
+  "marketplace",
   "memory",
   "workspace",
 ] as const;

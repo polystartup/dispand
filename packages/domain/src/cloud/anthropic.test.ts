@@ -134,4 +134,10 @@ describe("anthropic client", () => {
       warned.mockRestore();
     }
   });
+
+  it("returns the provider's token counts", async () => {
+    const { fetch } = fakeFetch("anthropic-end.sse");
+    const turn = await createModelClient(harness, { fetch }).turn({ system: "", items: [user], tools, ...collect() });
+    expect(turn.usage).toEqual({ input: 30, output: 3 });
+  });
 });

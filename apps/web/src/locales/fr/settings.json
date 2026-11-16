@@ -1,0 +1,23 @@
+{
+  "tabs": "Onglets",
+  "status": {
+    "online": "En ligne",
+    "offline": "Hors ligne",
+    "outdated": "À mettre à jour"
+  },
+  "outdatedRunner": {
+    "text": "Le runner {{name}} doit être mis à jour avant de pouvoir se connecter. Lancez ceci sur sa machine (son appairage et ses réglages sont conservés) :",
+    "command": "Commande de mise à jour de {{name}}"
+  },
+  "memory": {
+    "title": "Mémoire",
+    "subtitle": "Ce que chaque agent de l’espace de travail lit au début de ses Jobs."
+  },
+  "overridden": {
+    "text": "Il appartient à {{plugin}}. Une mise à jour du plugin remplace ce que vous n’avez pas modifié, et il disparaît quand le plugin est désinstallé.",
+    "yours": "<0>{{label}}</0> : le vôtre, conservé lors des mises à jour",
+    "resetLabel": "Rétablir {{label}} comme dans le plugin",
+    "reset": "Rétablir comme dans le plugin"
+  },
+  "loading": "Chargement…"
+}

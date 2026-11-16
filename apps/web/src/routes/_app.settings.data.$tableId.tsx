@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ChevronLeft, Ellipsis, Trash2, Zap } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Tabs as TabsPrimitive } from "radix-ui";
 import type { RowQuery } from "@dispand/domain/data/query";
 import { Button } from "@/components/ui/button";
@@ -15,10 +16,7 @@ import { StateTabs } from "../components/settings/Tabs.tsx";
 import { type DataSearch, parseDataSearch, toDataSearch } from "../lib/data-search.ts";
 import { orpc } from "../lib/api.ts";
 
-const TABS = [
-  ["rows", "Rows"],
-  ["memory", "Memory"],
-] as const;
+const TABS = ["rows", "memory"] as const;
 
 export const Route = createFileRoute("/_app/settings/data/$tableId")({
   // Kept as given; `parseDataSearch` drops what doesn't parse, so an old link still opens the table.
@@ -30,6 +28,7 @@ export const Route = createFileRoute("/_app/settings/data/$tableId")({
 });
 
 function TablePage() {
+  const { t } = useTranslation("data");
   const { tableId } = Route.useParams();
   const search = Route.useSearch();
   const { query, row } = useMemo(() => parseDataSearch(search), [search]);
@@ -39,7 +38,7 @@ function TablePage() {
   const [name, setName] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [settingEvents, setSettingEvents] = useState(false);
-  const [shown, setShown] = useState<(typeof TABS)[number][0]>("rows");
+  const [shown, setShown] = useState<(typeof TABS)[number]>("rows");
   useEffect(() => setName(table.data?.name ?? ""), [table.data?.name]);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: orpc.tables.key() });
@@ -67,17 +66,17 @@ function TablePage() {
   const setQuery = (next: RowQuery) => void navigate({ to: ".", search: toDataSearch(next, row), replace: true });
   const openRow = useCallback((id: string | undefined) => void navigate({ to: ".", search: (prev: DataSearch) => ({ ...prev, row: id }) }), [navigate]);
 
-  if (table.error) return <p role="alert" className="text-[14px] text-danger">Could not load this table.</p>;
-  if (!table.data) return <p className="text-[14px] text-muted">Loading…</p>;
+  if (table.error) return <p role="alert" className="text-[14px] text-danger">{t("table.failed")}</p>;
+  if (!table.data) return <p className="text-[14px] text-muted">{t("table.loading")}</p>;
 
   return (
     <>
       <Link to="/settings/data" className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted hover:text-fg">
-        <ChevronLeft size={14} aria-hidden /> Data
+        <ChevronLeft size={14} aria-hidden /> {t("table.back")}
       </Link>
       <div className="mb-6 flex items-center gap-2">
         <input
-          aria-label="Table name"
+          aria-label={t("table.name")}
           value={name}
           maxLength={100}
           onChange={(e) => setName(e.target.value)}
@@ -93,16 +92,16 @@ function TablePage() {
         />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Table menu">
+            <Button variant="ghost" size="icon" aria-label={t("table.menu")}>
               <Ellipsis />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onSelect={() => setSettingEvents(true)}>
-              <Zap /> Events and parent
+              <Zap /> {t("table.events")}
             </DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onSelect={() => setConfirmDelete(true)}>
-              <Trash2 /> Delete table
+              <Trash2 /> {t("table.delete")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -112,7 +111,7 @@ function TablePage() {
           {rename.error.message}
         </p>
       )}
-      <StateTabs label="Table" tabs={TABS} selected={shown} onSelect={setShown}>
+      <StateTabs label={t("table.tabs")} tabs={TABS.map((tab) => [tab, t(`table.tab.${tab}`)] as const)} selected={shown} onSelect={setShown}>
         <TabsPrimitive.Content value="rows">
           <Grid
             tableId={tableId}
@@ -134,15 +133,15 @@ function TablePage() {
 
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent>
-          <DialogTitle>Delete “{table.data.name}”?</DialogTitle>
-          <DialogDescription>Its fields, rows and files are deleted too. This can't be undone.</DialogDescription>
+          <DialogTitle>{t("table.confirm", { name: table.data.name })}</DialogTitle>
+          <DialogDescription>{t("table.confirmText")}</DialogDescription>
           {remove.error && <p role="alert" className="text-[13px] text-danger">{remove.error.message}</p>}
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
-              Cancel
+              {t("table.cancel")}
             </Button>
             <Button variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate({ id: tableId })}>
-              Delete table
+              {t("table.delete")}
             </Button>
           </div>
         </DialogContent>

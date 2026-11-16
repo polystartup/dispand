@@ -1,9 +1,9 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useFormat } from "../../lib/format.ts";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { api } from "../../lib/api.ts";
 import { Check, Section, toggled } from "./PluginInstallSheet.tsx";
-import { BUNDLE_TEXT } from "./JobRights.tsx";
-import { TARGET_TEXT, WORKSPACE_LINE } from "./SelfLearning.tsx";
 
 type Definition = Awaited<ReturnType<typeof api.plugins.preview>>["definitions"]["agents"][number];
 /** An agent definition as the install's preview reads it (with its rights), or as the plugin's list shows it (with whether it is made). */
@@ -14,20 +14,22 @@ type Offered = { primitives: { name: string; setUp?: boolean }[]; agents: AgentD
 
 /** What an agent definition's Jobs may do, in words: shown before it is made when no proposal shows it. */
 export function AgentRights({ d }: { d: AgentDefinition }) {
+  const { t, i18n } = useTranslation(["plugins", "agents"]);
+  const { list } = useFormat();
   const { bundles = [], tools = [], consults = [], selfLearning = [] } = d;
   const lines = [
-    `What its Jobs may do: ${bundles.length ? bundles.map((b) => BUNDLE_TEXT.find(([bundle]) => bundle === b)?.[1] ?? b).join(", ") : "nothing through Dispand's own tools"}`,
-    `Tables: ${d.tables === undefined || d.tables === "all" ? "all of them" : d.tables.join(", ") || "none"}`,
-    ...(tools.length ? [`Tools: ${tools.join(", ")}`] : []),
-    ...(consults.length ? [`May consult: ${consults.map((c) => `${c.agent}${c.ask ? " (asks before use)" : ""}`).join(", ")}`] : []),
-    ...(selfLearning.length ? [`Learns: ${selfLearning.map((t) => TARGET_TEXT.find(([target]) => target === t)?.[1] ?? t).join(", ")}`] : []),
+    bundles.length ? t("picks.rights.bundles", { list: list(bundles.map((b) => (i18n.exists(`agents:rights.${b}.label`) ? t(`agents:rights.${b}.label`) : b))) }) : t("picks.rights.noBundles"),
+    d.tables === undefined || d.tables === "all" ? t("picks.rights.allTables") : d.tables.length ? t("picks.rights.tables", { list: list(d.tables) }) : t("picks.rights.noTables"),
+    ...(tools.length ? [t("picks.rights.tools", { list: list(tools) })] : []),
+    ...(consults.length ? [t("picks.rights.consults", { list: list(consults.map((c) => (c.ask ? t("picks.rights.asks", { agent: c.agent }) : c.agent))) })] : []),
+    ...(selfLearning.length ? [t("picks.rights.learns", { list: list(selfLearning.map((x) => (i18n.exists(`agents:learns.${x}.label`) ? t(`agents:learns.${x}.label`) : x))) })] : []),
   ];
   return (
-    <ul aria-label={`What ${d.name} may do`} className="ml-7 space-y-0.5 text-[12px] text-muted">
+    <ul aria-label={t("picks.rights.label", { name: d.name })} className="ml-7 space-y-0.5 text-[12px] text-muted">
       {lines.map((line) => (
         <li key={line}>{line}</li>
       ))}
-      {selfLearning.includes("workspace") && <li>{WORKSPACE_LINE}</li>}
+      {selfLearning.includes("workspace") && <li>{t("agents:learns.workspace.text")}</li>}
     </ul>
   );
 }
@@ -38,6 +40,8 @@ export function AgentRights({ d }: { d: AgentDefinition }) {
  * shows what each ticked agent may do, for a sheet that has no proposal to show it.
  */
 export function useDefinitionPicks(definitions: Offered, harnesses: Harness[] | undefined, rights = false) {
+  const { t } = useTranslation("plugins");
+  const { list } = useFormat();
   const { primitives, agents, triggers } = definitions;
   // All ticked: a table made by a run that stopped may still lack its fields, and a run only adds what is missing.
   const [picked, setPicked] = useState(() => new Set(primitives.map((d) => d.name)));
@@ -52,8 +56,8 @@ export function useDefinitionPicks(definitions: Offered, harnesses: Harness[] | 
   // A trigger goes with its agent: ticked while its agent is ticked or made, unless the owner unticks it.
   const [unticked, setUnticked] = useState(() => new Set<string>());
   // Names match as the server matches them: whatever their case.
-  const offered = triggers.filter((t) => !t.setUp && agents.some((d) => d.name.toLowerCase() === t.agent.toLowerCase() && (d.setUp || pickedAgents.has(d.name))));
-  const triggerPicks = offered.filter((t) => !unticked.has(t.name)).map((t) => t.name);
+  const offered = triggers.filter((tr) => !tr.setUp && agents.some((d) => d.name.toLowerCase() === tr.agent.toLowerCase() && (d.setUp || pickedAgents.has(d.name))));
+  const triggerPicks = offered.filter((tr) => !unticked.has(tr.name)).map((tr) => tr.name);
   const pick = {
     primitives: primitives.map((d) => d.name).filter((n) => picked.has(n)),
     ...(agentPicks.length ? { agents: agentPicks } : {}),
@@ -64,18 +68,18 @@ export function useDefinitionPicks(definitions: Offered, harnesses: Harness[] | 
   const sections = (
     <>
       {primitives.length > 0 && (
-        <Section id="setup-tables" title="Tables">
+        <Section id="setup-tables" title={t("picks.tables")}>
           <ul className="space-y-1">
             {primitives.map((d) => (
               <li key={d.name}>
-                <Check checked={picked.has(d.name)} onChange={() => setPicked((prev) => toggled(prev, d.name))} label={d.name} detail={d.setUp ? "Made: setting it up again adds what is missing" : "Not set up yet"} />
+                <Check checked={picked.has(d.name)} onChange={() => setPicked((prev) => toggled(prev, d.name))} label={d.name} detail={d.setUp ? t("picks.tableMade") : t("picks.notSetUp")} />
               </li>
             ))}
           </ul>
         </Section>
       )}
       {agents.length > 0 && (
-        <Section id="setup-agents" title="Agents">
+        <Section id="setup-agents" title={t("picks.agents")}>
           <ul className="space-y-2">
             {agents.map((d) => (
               <li key={d.name} className="space-y-1">
@@ -83,12 +87,12 @@ export function useDefinitionPicks(definitions: Offered, harnesses: Harness[] | 
                   checked={pickedAgents.has(d.name)}
                   onChange={() => setPickedAgents((prev) => toggled(prev, d.name))}
                   label={d.name}
-                  detail={[d.setUp ? "Made: it stays as you have it" : d.description || "Not set up yet", !rights && d.selfLearning?.length ? `Learns into: ${d.selfLearning.join(", ")}` : ""].filter(Boolean).join(" · ")}
+                  detail={[d.setUp ? t("picks.agentMade") : d.description || t("picks.notSetUp"), !rights && d.selfLearning?.length ? t("picks.learnsInto", { list: list(d.selfLearning) }) : ""].filter(Boolean).join(" · ")}
                 />
                 {pickedAgents.has(d.name) && !d.setUp && harnesses && harnesses.length > 0 && (
                   <Select value={harnessOf(d) ?? ""} onValueChange={(id) => setChosen((prev) => ({ ...prev, [d.name]: id }))}>
-                    <SelectTrigger aria-label={`Harness of ${d.name}`} className="ml-7 w-[calc(100%-1.75rem)]">
-                      <SelectValue placeholder="Pick a harness" />
+                    <SelectTrigger aria-label={t("picks.harnessOf", { name: d.name })} className="ml-7 w-[calc(100%-1.75rem)]">
+                      <SelectValue placeholder={t("picks.pickHarness")} />
                     </SelectTrigger>
                     <SelectContent>
                       {harnesses.map((h) => (
@@ -103,15 +107,15 @@ export function useDefinitionPicks(definitions: Offered, harnesses: Harness[] | 
               </li>
             ))}
           </ul>
-          {harnesses?.length === 0 && <p className="text-[13px] text-faint">Add a harness first to set up agents.</p>}
+          {harnesses?.length === 0 && <p className="text-[13px] text-faint">{t("picks.harnessFirst")}</p>}
         </Section>
       )}
       {offered.length > 0 && (
-        <Section id="setup-triggers" title="Triggers">
+        <Section id="setup-triggers" title={t("picks.triggers")}>
           <ul className="space-y-2">
-            {offered.map((t) => (
-              <li key={t.name}>
-                <Check checked={!unticked.has(t.name)} onChange={() => setUnticked((prev) => toggled(prev, t.name))} label={t.name} detail={`Starts Jobs of ${t.agent}`} />
+            {offered.map((tr) => (
+              <li key={tr.name}>
+                <Check checked={!unticked.has(tr.name)} onChange={() => setUnticked((prev) => toggled(prev, tr.name))} label={tr.name} detail={t("picks.startsJobs", { agent: tr.agent })} />
               </li>
             ))}
           </ul>

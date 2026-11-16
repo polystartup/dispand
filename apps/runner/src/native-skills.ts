@@ -1,4 +1,4 @@
-import type { PluginReport } from "@dispand/runner-protocol";
+import type { HarnessCommand, PluginReport } from "@dispand/runner-protocol";
 import type { SkillPackage } from "./skills.ts";
 
 /** A verified full native installation replaces its workspace package only on this harness. */
@@ -23,4 +23,16 @@ export function resolveSkillAlias(text: string, aliases: { alias: string; namesp
   const match = /^\/([^:\s]+):([^\s]+)([\s\S]*)$/.exec(text);
   const found = match && aliases.find((a) => a.alias === match[1]);
   return found ? `/${found.namespace}:${match![2]}${match![3]}` : text;
+}
+
+/**
+ * The runner wrote these packages into the session itself, so their `<package>:<skill>` commands
+ * carry the package's key, as a verified native installation's do. A `~<hash>` name shares its
+ * identity with another skill: it stays unbound.
+ */
+export function stagedSources(commands: HarnessCommand[], staged: SkillPackage[]): HarnessCommand[] {
+  return commands.map((c) => {
+    const pkg = c.sourceKey || /~[a-f0-9]{12}$/.test(c.name) ? undefined : staged.find((p) => p.nativeKey && c.name.startsWith(`${p.name}:`));
+    return pkg ? { ...c, sourceKey: pkg.nativeKey! } : c;
+  });
 }

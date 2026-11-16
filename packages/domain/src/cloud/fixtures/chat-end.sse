@@ -2,5 +2,7 @@ data: {"id":"chatcmpl-02","object":"chat.completion.chunk","created":1793000001,
 
 data: {"id":"chatcmpl-02","object":"chat.completion.chunk","created":1793000001,"model":"llama-4","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
 
+data: {"id":"chatcmpl-02","object":"chat.completion.chunk","created":1793000001,"model":"llama-4","choices":[],"usage":{"prompt_tokens":25,"completion_tokens":4,"total_tokens":29}}
+
 data: [DONE]
 

@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
+import { useFormat } from "../../lib/format.ts";
 import { FormField } from "./parts.tsx";
 
 export type SkillPackage = Awaited<ReturnType<typeof api.skills.list>>[number];
@@ -16,12 +18,6 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_PACKAGE_BYTES = 8 * 1024 * 1024;
 
 type Upload = { path: string; base64: string; size: number };
-
-export function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
 
 async function toUpload(file: File): Promise<Upload> {
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -47,13 +43,14 @@ type Props = {
 
 /** The "Create skill" sheet, or the editor of a user-made skill. Mount it only while open. */
 export function SkillEditor({ pkg, onClose }: Props) {
+  const { t } = useTranslation("skills");
   const details = useQuery({ ...orpc.skills.get.queryOptions({ input: { packageId: pkg?.packageId ?? "" } }), enabled: !!pkg });
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="w-full overflow-y-auto bg-surface sm:max-w-lg">
         <SheetHeader className="px-6 pt-6">
-          <SheetTitle className="text-[20px] tracking-tight">{pkg ? "Edit skill" : "Create skill"}</SheetTitle>
-          <SheetDescription>Instructions an agent follows when the task calls for them, with any files they use.</SheetDescription>
+          <SheetTitle className="text-[20px] tracking-tight">{pkg ? t("editor.edit") : t("editor.create")}</SheetTitle>
+          <SheetDescription>{t("editor.description")}</SheetDescription>
         </SheetHeader>
         <div className="px-6 pb-6">
           {!pkg ? (
@@ -62,10 +59,10 @@ export function SkillEditor({ pkg, onClose }: Props) {
             <SkillForm pkg={details.data} onClose={onClose} />
           ) : details.error ? (
             <p role="alert" className="text-[13px] text-danger">
-              Could not load the skill.
+              {t("editor.failed")}
             </p>
           ) : (
-            <p className="text-[13px] text-muted">Loading…</p>
+            <p className="text-[13px] text-muted">{t("editor.loading")}</p>
           )}
         </div>
       </SheetContent>
@@ -76,6 +73,8 @@ export function SkillEditor({ pkg, onClose }: Props) {
 type Details = Awaited<ReturnType<typeof api.skills.get>>;
 
 function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
+  const { t } = useTranslation("skills");
+  const format = useFormat();
   const queryClient = useQueryClient();
   const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.skills.key() });
   const create = useMutation(orpc.skills.create.mutationOptions({ onSuccess: invalidate }));
@@ -99,9 +98,9 @@ function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
     setError(null);
     const added = await Promise.all([...list].map(toUpload));
     const tooBig = added.find((f) => f.size > MAX_FILE_BYTES);
-    if (tooBig) return setError(`${tooBig.path} is larger than 2 MB.`);
+    if (tooBig) return setError(t("editor.tooBig", { path: tooBig.path }));
     const next = [...(uploads ?? []).filter((f) => !added.some((a) => a.path === f.path)), ...added];
-    if (next.reduce((n, f) => n + f.size, 0) > MAX_PACKAGE_BYTES) return setError("A skill's files are at most 8 MB in all.");
+    if (next.reduce((n, f) => n + f.size, 0) > MAX_PACKAGE_BYTES) return setError(t("editor.packageTooBig"));
     setUploads(next);
   }
 
@@ -111,7 +110,7 @@ function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
       name: name.trim(),
       description,
       instructions,
-      requiredToolIds: pkg?.requiredTools.map((t) => t.id) ?? [],
+      requiredToolIds: pkg?.requiredTools.map((tool) => tool.id) ?? [],
       ...(uploads ? { files: uploads.map(({ path, base64 }) => ({ path, base64 })) } : {}),
     };
     try {
@@ -119,7 +118,7 @@ function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
       else await create.mutateAsync(fields);
       onClose();
     } catch (e) {
-      setError(reason(e, "Could not save the skill. Check the details and try again."));
+      setError(reason(e, t("editor.saveFailed")));
     }
   }
 
@@ -131,7 +130,7 @@ function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
       onClose();
     } catch (e) {
       // CONFLICT names the agent that uses the skill.
-      setError(reason(e, "Could not delete the skill."));
+      setError(reason(e, t("editor.deleteFailed")));
     }
   }
 
@@ -143,7 +142,7 @@ function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
         void save();
       }}
     >
-      <FormField label="Name" htmlFor="skill-name" hint="Lowercase letters, digits and hyphens: how agents call the skill.">
+      <FormField label={t("editor.name")} htmlFor="skill-name" hint={t("editor.nameHint")}>
         <Input
           id="skill-name"
           value={name}
@@ -154,7 +153,7 @@ function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
           autoFocus={!pkg}
         />
       </FormField>
-      <FormField label="Description" htmlFor="skill-description" hint="When to use it: agents read this to decide.">
+      <FormField label={t("editor.descriptionLabel")} htmlFor="skill-description" hint={t("editor.descriptionHint")}>
         <Textarea
           id="skill-description"
           value={description}
@@ -165,7 +164,7 @@ function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
           className="rounded-xl text-[14px]"
         />
       </FormField>
-      <FormField label="Instructions" htmlFor="skill-instructions" hint="Markdown. Saved as the skill's SKILL.md, after its name and description.">
+      <FormField label={t("editor.instructions")} htmlFor="skill-instructions" hint={t("editor.instructionsHint")}>
         <Textarea
           id="skill-instructions"
           value={instructions}
@@ -178,21 +177,21 @@ function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
 
       <section aria-labelledby="skill-files" className="space-y-2">
         <h3 id="skill-files" className="text-[13px] font-medium text-muted">
-          Files
+          {t("editor.files")}
         </h3>
         {shown.length === 0 ? (
-          <p className="text-[13px] text-faint">No files. Add scripts, templates or references the instructions mention.</p>
+          <p className="text-[13px] text-faint">{t("editor.noFiles")}</p>
         ) : (
           <ul className="divide-y divide-line rounded-xl border border-line">
             {shown.map((f) => (
               <li key={f.path} className="flex items-center justify-between gap-3 px-3 py-2 text-[13px]">
                 <span className="min-w-0 truncate font-mono">{f.path}</span>
                 <span className="flex shrink-0 items-center gap-2 text-muted">
-                  {formatSize(f.size)}
+                  {format.size(f.size)}
                   {uploads && (
                     <button
                       type="button"
-                      aria-label={`Remove ${f.path}`}
+                      aria-label={t("editor.removeFile", { path: f.path })}
                       className="rounded p-0.5 hover:bg-hover"
                       onClick={() => setUploads(uploads.filter((u) => u.path !== f.path))}
                     >
@@ -206,11 +205,11 @@ function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
         )}
         <div className="flex flex-wrap items-center gap-2">
           <label className="inline-flex cursor-pointer items-center rounded-lg border border-line px-3 py-1.5 text-[13px] transition hover:bg-hover">
-            {uploads ? "Add files" : "Replace files"}
+            {uploads ? t("editor.addFiles") : t("editor.replaceFiles")}
             <input
               type="file"
               multiple
-              aria-label={uploads ? "Add files" : "Replace files"}
+              aria-label={uploads ? t("editor.addFiles") : t("editor.replaceFiles")}
               className="sr-only"
               onChange={(e) => {
                 void addFiles(e.target.files);
@@ -220,12 +219,12 @@ function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
           </label>
           {pkg && uploads === null && current.length > 0 && (
             <Button type="button" variant="ghost" size="sm" onClick={() => setUploads([])}>
-              Remove all files
+              {t("editor.removeAll")}
             </Button>
           )}
           {pkg && uploads !== null && (
             <Button type="button" variant="ghost" size="sm" onClick={() => setUploads(null)}>
-              Keep the saved files
+              {t("editor.keepFiles")}
             </Button>
           )}
         </div>
@@ -233,12 +232,12 @@ function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
 
       <section aria-labelledby="skill-tools" className="space-y-1">
         <h3 id="skill-tools" className="text-[13px] font-medium text-muted">
-          Required tools
+          {t("editor.tools")}
         </h3>
         <p className="text-[13px] text-faint">
           {pkg && pkg.requiredTools.length > 0
-            ? pkg.requiredTools.map((t) => t.name).join(", ")
-            : "None. Once you add tools, a skill can require them: agents with the skill get them too."}
+            ? pkg.requiredTools.map((tool) => tool.name).join(", ")
+            : t("editor.noTools")}
         </p>
       </section>
 
@@ -249,14 +248,14 @@ function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
       )}
       <div className="flex items-center gap-2 pt-1">
         <Button type="submit" disabled={busy || !name.trim() || !description.trim()}>
-          {pkg ? "Save" : "Create skill"}
+          {pkg ? t("editor.save") : t("editor.create")}
         </Button>
         <Button type="button" variant="ghost" onClick={onClose}>
-          Cancel
+          {t("editor.cancel")}
         </Button>
         {pkg && (
           <Button type="button" variant="ghost" className="ml-auto text-danger" disabled={busy} onClick={() => void remove()}>
-            Delete
+            {t("editor.delete")}
           </Button>
         )}
       </div>

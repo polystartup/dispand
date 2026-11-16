@@ -12,7 +12,7 @@
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with
-  `Authorization: Bearer <token>` and `Dispand-Protocol: 25` (`PROTOCOL_VERSION`, bumped by
+  `Authorization: Bearer <token>` and `Dispand-Protocol: 29` (`PROTOCOL_VERSION`, bumped by
   every change an older runner can't parse or honor). An older runner is refused with 426 "update
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
@@ -387,7 +387,9 @@
   messages and questions into thread messages, a tool's trace and a question as tool-call
   parts; `useRunThread` feeds `useExternalStoreRuntime`), and `components/chat/Thread.tsx`
   renders it over the library's unstyled primitives, a question through `QuestionForm` and
-  `questions.answer`. A pending Approval of a proposal carries its `proposalView` in the run's
+  `questions.answer`. A Job's run page shows each step's transcript on the same thread,
+  read-only (`ChatTranscript` over `useTranscript`: the step's messages only, no composer;
+  its questions keep their own section). A pending Approval of a proposal carries its `proposalView` in the run's
   snapshot and stream (`runs.get`, `runs.stream`): the thread shows it whole (`ProposalItems`,
   no control of its own) and, while it is the chat's one waiting question (`composerApproval`; with
   several, each card keeps `QuestionForm`'s own controls), `ChatPanel`'s composer answers it, Approve or Mod+Enter on an
@@ -495,7 +497,11 @@
   (`withJob`). Every procedure runs in a span named after it (`rpc/context.ts`: `rpc.method`,
   `dispand.owner.id`, `dispand.result`) and records `dispand.rpc.duration`; a Job's tool call
   passes the procedure's path. Metric instruments and their allowed attributes are listed in
-  `telemetry/metrics.ts`. Better Auth's own spans go through the same pipeline.
+  `telemetry/metrics.ts`. A cloud model call's span carries the provider's token counts, and
+  `dispand.model.tokens` counts them by direction (`input` includes cached input; a provider that
+  sends none adds none). A plugin's install, update and uninstall each make a `plugins.<action>`
+  span (the plugin's id, `dispand.result`) and count in `dispand.plugins.actions`, never a name or
+  a value. Better Auth's own spans go through the same pipeline.
   `apps/web/telemetry-preload.mjs`, loaded with `node --import` by `pnpm start`, the image and
   the dev server (`NODE_OPTIONS`), registers the HTTP, PostgreSQL and undici instrumentations
   before anything loads; the import hook wraps only `pg` and `http(s)` (wrapping every module
@@ -503,7 +509,14 @@
   hooked. `telemetry-requests.mjs` lists the requests that make no span. PGlite has no
   instrumentation: installs on it get no database spans. Each scheduler tick is the root of its own trace
   (`scheduler.tick`, one `scheduler.fire` per due schedule or trigger with its kind, result
-  and lag); a run stores the trace it was created in (`runs.trace_id`, migration 0036). The
+  and lag); a run stores the trace it was created in (`runs.trace_id`, migration 0036). A Job is
+  one trace: creating it starts and ends an `engine.job` span in the trigger's or the request's
+  trace and stores its id (`runs.span_id`, migration 0077), and `inJobTrace` makes every later
+  span of the Job its child, linked to the span that was active (a runner message, a request, a
+  restart): its session starts, its runner events, its end, its cloud sessions' model turns and
+  tool calls, and its CLI sessions' calls to the Job and tools endpoints. We decided on a parent
+  rather than links alone because what a Job did, from its trigger to its tool calls, is then
+  read as one trace, and the Audit rows written in that work carry its id. The
   engine traces each session start (`engine.session.start`, inside the Job for a Job) and
   each runner event but text deltas (`engine.event`, which are only counted), and counts runs
   created and finished (with their duration), questions opened and answered (with their
@@ -565,7 +578,8 @@
   before its call, after the call otherwise); and each event of a primitive table, when
   `recordEvent` appends it, in the write's transaction (`event.recorded`, on the row, by the
   person or the Job that wrote it, with the table's id and name, the event's id, the operation
-  and how many fields changed; never a value, and nothing for a workflow step's write): a Job's
+  and how many fields changed; never a value, and nothing for a workflow step's write); and
+  each memory write (`memory.written`, see Memory): a Job's
   write leaves its call's row and this one, whose event id is the one the Jobs it fires name in
   their `job.created`. A runner session's calls of the runner's own MCP
   servers never reach the server: their permission prompts are its Approvals' rows. `audit.list` (owner, or a `configure` Job as
@@ -581,7 +595,8 @@
   `NOT_TOOLS`.
 - **Platform tools:** a Job's session gets some of Dispand's own procedures as tools.
   `platform/tools.ts` is the registry: each tool names its procedure (`rows.create` is the tool
-  `rows_create`), its bundle (`data`: `tables.list`, `tables.get` and the rows procedures;
+  `rows_create`), its bundle (`data`: `tables.list`, `tables.get` and the rows procedures, with
+  `tables.list` given to `configure` too, which needs table ids;
   `configure`: creating and renaming tables, creating, changing and ordering fields), what the
   agent reads about it, and how to find the tables a call touches from its input (a row or a
   field gives its table). Every other procedure is listed there as not a tool, and a test walks
@@ -590,7 +605,10 @@
   its Jobs' snapshot. `callPlatformTool` (`platform/call.ts`) is the one path a call takes: the
   Job must still be going, the tool's bundle and every table touched must be in the Job's
   snapshot and still on the agent (rights shrink with the agent at once and never grow after the
-  Job was created), an id that names nothing is answered like a table out of scope ("Not
+  Job was created, but for a table the Job creates: we decided it joins the agent's `dataTables`
+  and the Job's snapshot tables, where each is a list, in `tables.create`'s own transaction
+  (`joinCreatedTable` in `platform/rights.ts`, both rows locked `FOR UPDATE`, the plugin's agent
+  marked overridden on `dataTables`; refused when the agent already has its 100 tables)), an id that names nothing is answered like a table out of scope ("Not
   found"), and the procedure then runs in process as the Job's owner (`InitialContext.job`,
   which only that function sets; `authed` reads it instead of a session). Refusals and
   procedure errors come back as words, any other failure as "The tool failed". Cloud sessions
@@ -615,14 +633,25 @@
   'assistant'` (migration 0048; a partial unique index keeps one per owner). No procedure's
   input carries `built_in`: `ensureAssistant` (`agents/builtin.ts`, behind the owner's
   `agents.ensureAssistant`, not a tool) makes it on the harness the owner picks, with `data`
-  and `configure` on all tables, the platform skill and a chat trigger, and gives the one there
-  is otherwise; it runs at server start for every Assistant, so what a version adds reaches
+  and `configure` on all tables, the `workspace` self-learning target, the platform skill and a
+  chat trigger, and gives the one there is otherwise; it runs at server start for every Assistant, so what a version adds reaches
   existing ones. `assistantGuard` is the one check of what may change on it (its bundles, its
   tables, its platform skill, its chat): `agents.update`,
   `agents.delete`, `triggers.update`, `triggers.delete` and `createProposal` (for
-  `agents_update` and `triggers_*` items, refused when proposed with the reason) call it. Its
+  `agents_update`, `agents_delete` and `triggers_*` items, refused when proposed with the reason) call it. We
+  decided its self-learning isn't one of those: the owner may untick `workspace` on its page.
+  It keeps the business in the workspace's memory: the platform skill's day-one proposal ends
+  with a `memory_add` of the business (`type: "business"`) in place of a change of its own
+  instructions, and an install from before gets the target once (migration 0080, on Assistants
+  whose `self_learning` was empty); a description already in its instructions stays there until
+  the owner approves the move it proposes. Its
   Jobs' system prompt starts with a fixed text (`jobSystemPrompt`, `engine/job-def.ts`), then
-  the owner's instructions. The web's `/assistant` (`components/assistant/AssistantChat.tsx`)
+  the owner's instructions. It stays `assistant` in code and data; what people see is the
+  label `agent.assistant.name` of the `messages` files (`packages/domain/src/messages/`),
+  "Stem" in English and in French, whatever its stored name (`shownAgentName` in the web, the
+  chat's labels, and its page's Name field, read-only there so the stored name never changes).
+  Its fixed text and the platform skill (`{{assistant}}`, filled as `skill.ts` bundles it) name
+  it from the English value. The web's `/assistant` (`components/assistant/AssistantChat.tsx`)
   is its chat trigger's `ChatPanel` beside the list of its conversations (`runs.list` with
   `kind: "chat"`, newest first, titled by the first message; a plain list of Jobs, not
   assistant-ui's thread list), the open one held in the URL's `run` (absent: the latest;
@@ -657,9 +686,13 @@
   snapshot. A CLI start carries the skills (the runner fetches each package from
   `/runner/packages/<id>`, which serves a package only to the runner of a harness whose agent
   has it) and one `runner` MCP server per runner tool of the harness's own runner, named by
-  `serverName` (lowercase words joined by `_`, never `job` or `dispand`, distinct); they are
+  `serverName` (lowercase words joined by `_`, never `job` or `dispand`, distinct; the CLI starts
+  each behind the runner's MCP proxy, `apps/runner/src/mcp-proxy.ts`, see Attachments); they are
   read at each start, so a resume carries them as they are then, and are never stored with the
-  step. HTTP tools never travel. A cloud session gets them through `installedToolCaller`
+  step. A CLI session gets at most 50 skill packages and 20 runner tools (`MAX_SESSION_SKILLS`,
+  `MAX_SESSION_RUNNER_TOOLS`), the first in name order; saving or reading an agent on a CLI
+  harness past either returns `leftOut` (per kind, the limit and the names past it), and the
+  agent page warns with it in a whole sentence. HTTP tools never travel. A cloud session gets them through `installedToolCaller`
   (`tools/cloud.ts`): one tool per action, called on the server through `InstalledTools`, asked
   before each call like any tool that isn't Dispand's own, and checked again at call time
   (a tool taken back, or an action gone, isn't called). `createEngine` combines that caller
@@ -682,7 +715,14 @@
   the list is filled from the actions' `readOnly` (the server's `readOnlyHint`, kept at
   listing), or for a catalog tool from its entry's `unasked` alone (`defaultUnasked`), when `agents.create` or `agents.update` adds the tool, kept as it is for a tool
   the agent already had, and changed by `agents.setToolPermission` only (`agents.toolAsk` reads it;
-  changing permissions is a proposal-only platform grant). A Job's session start names those actions (`unasked`, their
+  changing permissions is a proposal-only platform grant). For a tool the agent has only through
+  its skill packages, a future-run answer goes to `agent_skill_tool_permissions` (migration
+  0078; `writePermission` in `agents/tool-ask.ts`), read by `toolingOf` where the agent has no
+  `agent_tools` row, and only for the tool's current `toolPermissionTarget`. With the workspace's
+  strict permissions on (`workspace.setStrictPermissions`, migration 0081), each of those lists
+  holds only while its `strict_target` (the target with the tool's listed actions and schemas, its
+  plugin's commit, the package's `fingerprint` and the agent's `revision`) still matches
+  (`heldUnasked`, used by `toolingOf`, `writePermission` and `agents.toolAsk`). A Job's session start names those actions (`unasked`, their
   exposed names, at most 500; protocol 7), and the runner lets `mcp__job_tools__<name>` run
   without a question for them (the Claude permission hook or Codex elicitation): the CLI
   prompts for the others. A scoped owner answer carries `remember` (protocol 20), after the
@@ -705,7 +745,10 @@
   author included, and restore a removed entry as it last was. The owner's procedures
   (`memories.*`, not tools) back the workspace memory page under Settings (`MemoryPanel`).
   Every write is a `memory.write` span and `dispand.memory.writes` (scope, operation, result),
-  never a path or a body.
+  never a path or a body, and a `memory.written` Audit row in the write's transaction (by the
+  person or the Job, on the entry, with `scope`, the table or agent, and `operation`: `add`,
+  `update`, `remove`, `accept`, `revert` or `restore`; a person's write included, a refused one
+  none).
   An agent's self-learning switch (`agents.self_learning`: targets among `agent`, `data`,
   `workspace`, empty by default) says where its Jobs may write memory. Setting it is part of
   `agents.create` and `agents.update`, grants a Job reaches only through an approved proposal;
@@ -756,7 +799,8 @@
   0042; null: the actions the server marks read-only) says which of a tool's actions a poll may
   call, and `isPollable` adds that no agent holding the tool must ask before using it (the
   action is in every holder's `agent_tools.unasked`; an agent that has the tool only through a
-  skill's required tools asks before every action). `tools.pollable` and `tools.setPollable`
+  skill's required tools asks before every action, unless a future-run answer was kept for it
+  in `agent_skill_tool_permissions`, which polls don't read). `tools.pollable` and `tools.setPollable`
   are the owner's (never platform tools); the tool sheets show each action's state and why one
   isn't polled. Polls check `isPollable` when a trigger is made and at every dispatch.
 - **Proposals** (`platform/proposals.ts`, table `proposals`, migration 0034). Agent items save
@@ -770,22 +814,32 @@
   writing. Old pending agent grants lacking a permissions snapshot must be proposed again.
   A tool of the
   registry marked `grant` (`agents.create`, `agents.update`, `agents.setToolPermission`,
-  `tables.delete`, `fields.delete`, `triggers.create`, `triggers.update`, `triggers.delete`, `tools.add` (an address and no
+  `agents.delete`, `tables.delete`, `fields.delete`, `fields.retype`, `triggers.create`, `triggers.update`, `triggers.delete`, `tools.add` (an address and no
   headers; `tools.create` stays the owner's) and `tools.delete`;
   a tool's name is its path in lower case with `_`) is refused by `callPlatformTool`
   unless `takeItem` uses up a matching item of an approved proposal of the Job: one
   transaction that locks the Job's approved proposals and marks the first unused item with
-  that tool and canonically equal input (`canonical`, `platform/approvals.ts`). `propose`, a
+  that tool and canonically equal input (`canonical`, `platform/approvals.ts`). Without an
+  item, a grant still runs when its `direct` check passes: `triggers.update` has one
+  (`ownTriggerOff`: the parsed input is `id` and `enabled: false` alone, on a trigger of the
+  owner's whose agent is the Job's), and `fields.retype` another (`dryRun: true`, which only
+  counts; its `shown` refuses proposing a dry run). `agents.delete`'s `shown` refuses the Job's
+  own agent, whose deletion would stop the Job in the middle of its call; the Inbox marks the
+  items that can't be undone (deleting a table, a field, a tool or an agent, and changing a
+  field's type). `propose`, a
   tool with no router path (`PROPOSE`, handled in `callPlatformTool`), stores a draft through
   `createProposal`: configuration writes of the Job's bundles only (`grant` tools, and the
   others marked `write`: `tables.create`, `tables.rename`, `tables.setPrimitive`,
-  `fields.create`, `fields.update`, `fields.reorder`), inputs parsed by the tool's schema
+  `fields.create`, `fields.update`, `fields.reorder`, and the memory writes `memory_add` and
+  `memory_update`, refused when proposed outside the Job's self-learning targets through their
+  `shown`), inputs parsed by the tool's schema
   and stored as parsed, storable text, at most 60 items and 64 KiB. An input may hold
   `{ "$item": n }` where an id goes, `n` an earlier item whose tool creates something
   (`CREATES`: `tables_create`, `fields_create`, `agents_create`, `triggers_create`,
   `tools_add`); it is parsed with a random placeholder id in its place (also checked against
   the Job's tables, so a Job limited to some tables can't name a table it creates) and stored
-  as the reference. A `write` call matching an unused item uses it too, and a call made as an
+  as the reference. A `write` call matching an unused item uses it too (a tool with a `run`,
+  such as `memory_add`, takes it before it runs), and a call made as an
   item is `pending` from when it is taken until its call ends, then records on it the id its
   output carries (`createdId`) or, when the procedure refused it, `failed`; `takeItem` compares a call with an item's input whose references are replaced
   by those `createdId`s (an item naming one with none can't match). `proposal_apply`
@@ -830,9 +884,37 @@
   (`cloud/builtins.ts`); on a runner it is a tool of the runner's own `dispand` server (Claude
   Code) or a dynamic tool (Codex), which asks the owner itself (`requestApproval` in
   `apps/runner/src/outcome.ts`) in every permission mode, bypass included, and is never
-  allowed for the session. On Claude Code, the other tool calls of a turn that asks for an
+  allowed for the session. We decided a subagent asks the agent that started it, which decides
+  whether to ask the person: on Codex, a `request_approval` call from a subagent's thread asks
+  nobody and fails with a text telling it to return its question to that agent. On Claude Code, the other tool calls of a turn that asks for an
   approval wait for the answer (from the moment the CLI is about to call the tool), and aren't
   run after a "no"; a cloud session refuses them the same way.
+- **Push notifications:** what agents wait on (new pending Inbox items: Questions and Approvals,
+  never consults) reaches every browser or device the owner allowed, even with no Dispand tab open,
+  through Web Push and the `web-push` library (`packages/domain/src/push/`). The VAPID key pair is
+  made on first need and kept in `push_keys`, the private key sealed (`push/keys.ts`). The Inbox's
+  opt-in registers the service worker (`apps/web/public/sw.js`), subscribes the browser and calls
+  `push.subscribe` with its endpoint, keys (sealed, bound to the endpoint), a label from its user
+  agent and the language it shows; subscribing again refreshes those, not its `created_at`.
+  `push.list` gives the public key and the owner's devices; signing out calls `push.unsubscribe`
+  and drops the browser's subscription. `PushSender` (`push/sender.ts`, started in
+  `apps/web/src/server/app.ts`) is woken by `engine.questionChanges` and once at start, and sends,
+  10 seconds after the first wake (what comes within the window goes together), every pending item
+  to every subscription made before it was asked with no `push_deliveries` row for it: one push per
+  subscription, `{ text, count, itemId }`, `itemId` the newest item, `text` rendered on the server
+  from the domain messages (`push.question`, `push.approval`, plural by `count`) in the user's
+  Settings language, else the subscription's. A success records a row per item, so a delivered
+  item is never pushed again and a restart inside the window loses nothing; a failure is tried
+  again a minute later, then twice as late each time up to an hour (only that device: the others
+  have their rows); a 404 or 410 deletes the
+  subscription. Pushes go through `pushVia(fetch)`: `web-push` encrypts and signs, the tools'
+  address-guarded fetch posts (production), within 15 seconds. The service worker shows every push
+  under the tag `dispand-inbox` (Safari revokes a subscription whose push shows nothing, so a
+  focused window gets it too), and a click opens `/inbox?item=<id>`, which scrolls to that item. An
+  open tab's own notification says the same sentence, only while its browser has no push
+  subscription, so an item alerts once. Telemetry:
+  a `push.flush` span, a `push.send` span per device, `dispand.push.sent` by `dispand.result`
+  (`sent`, `gone`, `failed`), never the payload.
 - **Stopping a run:** `runs.stop` (`Engine.stopRun`) fails every step of the run still open
   with "Stopped" (a step that never started too), expires its pending questions and fails the
   run, in one transaction, then cuts what the run was doing: a Tool step's call under way is
@@ -887,7 +969,9 @@
   (`<roots[0]>/runs/<runKey>`; `SessionStart.cwd` has no other mode) through `startClaudeSession`: the Claude Agent SDK's `query` in streaming-input mode,
   running the machine's `claude` with the user's settings only (`settingSources: ["user"]`,
   never the run folder's), resuming only a CLI session the runner recorded for that run key
-  (`sessions.json`). Claude Code and Codex run as the runner machine's user, with that user's
+  (`sessions.json`). It logs one line when a session's CLI starts and one when it ends: the
+  session id, the run key, the harness and the outcome, never a prompt, result or error text.
+  Claude Code and Codex run as the runner machine's user, with that user's
   profile (settings, instructions files, memory, hooks, sign-in), which the session's agent
   sees and uses. A chat whose agent calls `submit_outputs` with no expected values completes
   without an owner confirmation, on both native and cloud harnesses. Workflow chats that hand
@@ -910,6 +994,22 @@
   runner's and the CLI's config out of every root and working directory. `install.sh` writes the unit
   where the user manager looks (its `XDG_CONFIG_HOME`, else `~/.config`) and passes the
   runner's config dir with `--config`.
+- **A plugin's stdio server on a runner (runner side):** the runner runs plugin code only
+  when its own record allows exactly that code. `allowedPlugins` in the machine's config holds,
+  per plugin name, the content digest and the launch entry; `dispand-runner allow-plugin <tool
+  id> <name>@<digest>` writes it after fetching the files itself (`GET /runner/plugins/<tool
+  id>`), recomputing the digest and a typed yes. `plugin-digest.ts` computes the digest
+  (`sha256:` over every file sorted by its path's UTF-8 bytes: path, NUL, length, NUL, bytes) and
+  the canonical entry (keys sorted, `env` keys sorted, `cwd` default `./`). `pluginLaunch`
+  (`plugin-servers.ts`) checks the record, the digest and the entry before writing anything, then
+  materializes the files read-only under `<state>/plugins/<name>/<hex digest>/` (a temporary
+  folder renamed into place, so an existing one is complete and reused), resolves a `./` command
+  by real path inside that root, keeps `cwd` inside it or `<state>/plugin-data/<name>/` (kept
+  across digests), expands `${PLUGIN_ROOT}` and `${PLUGIN_DATA}` once in `args`, `env` values and
+  `cwd` only, and sets both last over `env`. A refusal is a `PluginRefused` whose message names
+  only the plugin and digests, logged by the runner. No protocol message carries a plugin server
+  yet: the files route, the `plugin` server ref and the tool's page come with it, and call
+  `pluginLaunch` for sessions, `tool.discover` and polls.
 - **Runner distribution:** `pnpm build` bundles the runner with esbuild into
   `dispand-runner.tgz` and copies it with `install/install.sh` into
   `apps/web/public/runner/` (gitignored), so the web app serves `/runner/install.sh` and
@@ -974,6 +1074,21 @@
   item's id and the event's values (`INTERACTION_PROMPT`), and each start of its session checks
   `startable` again with the Job's scope, failing the step otherwise. `dispand.events.recorded`
   counts events by kind and operation; `scheduler.fire` has kind `interaction`.
+  Jobs are a built-in primitive too (`engine/jobs-events.ts`): `createJob` and `finishRun`
+  append an `events` row in their transaction for each Job (`runs.source = "agent"`), its
+  `table_id` the built-in kind `job`, its row the Job, its operation `created`, `finished` (it
+  succeeded) or `failed` (it failed or was stopped), its `after` the Job's agent, trigger, cause's
+  kind and status, never its result, error or transcript, its actor the Job itself and its
+  `root_id` the Job's root. They are events, not Audit rows (the Job's life is audited already).
+  We decided any agent may have a `primitive` trigger on `job` with those operations (no
+  fields, no bundle: it reads ids and a status); its tools declare no table, and `lostScope`
+  takes nothing from such a Job. At dispatch a Job's own agent is `skipped-same-agent` (the
+  event's actor is the Job), and a fired Job is the next link of the Job's chain in its root, so
+  Jobs firing on Jobs reach that root's checkpoint like any other chain. The trigger node's
+  outputs are the event's own (`jobOutputs`: `operation`, `job_id`, `agent_id`, `agent`, the
+  agent's name at dispatch, `status`, and `table_id` `job`), told by `JOB_PROMPT`; reading the
+  Job's result stays `jobs_get`'s, under `configure`. `dispand.events.recorded` and
+  `scheduler.fire` have kind `job`.
   The `inbox` bundle's tools (`questions/inbox.ts`: `questions_list`, `questions_get`,
   `questions_answer`) are a Job's own, not procedures of the router (`INBOX_TOOLS`, run by
   `callPlatformTool` through their `run`): each call takes `jobScope`, then `reachable`, then
@@ -1028,28 +1143,82 @@
   sniffed type). Files in the MCP content of a Job's HTTP tool call (image items, embedded
   resources with a blob; the tools endpoint and a cloud Job's calls) go the same way through
   `keepJobFiles`, owned by the Job (`job_id`, no table yet), and the result's text tells the agent
-  their ids, or why one wasn't kept (over 10 MiB, past 20 a result). Tool steps and workflow runs'
+  their ids. So do the files of a Job's runner tools: the CLI starts each runner tool behind the
+  runner's MCP proxy (`dispand-runner mcp-proxy`, `apps/runner/src/mcp-proxy.ts`), a relay of
+  JSON-RPC lines that leaves every message as it came but a `tools/call` result, whose image,
+  audio and blob parts it sends (JSON, base64) to `POST /mcp/job/files` (`platform/job-files.ts`,
+  route `routes/mcp/job_.files.ts`, the Job's bearer, `JOB_FILES_PATH` in the runner protocol)
+  and replaces with the reply's text. A relay rather than the SDK's `Client` and `Server`: those
+  answer only what the proxy implements, and the relay keeps resources, prompts, progress and the
+  server's own requests as they were. Lines reach the CLI in the order the server sent them, so
+  while a result's files are being kept (up to 120 s), the server's later lines wait. Its spec (the command, args, `env` and folder from the
+  runner's config, and the files URL) is the `DISPAND_PROXY` variable, the Job's token
+  `DISPAND_JOB_TOKEN` (Codex: `env_vars`); outside a Job it relays results untouched. A
+  plugin's stdio server can start from the same spec (`plugin-servers.ts` `Launch`).
+  `keepJobFiles` keeps a result whole or refuses it whole, with the reason as its text: a file
+  over 10 MiB or more than 20 files (`resultRefusal`, shared with the proxy, which checks before
+  sending), the Job's totals (`MAX_JOB_BYTES` 200 MiB, `MAX_JOB_FILES` 100, over every attachment
+  whose `job_id` is the Job's, whatever its source, a file a table took included: we chose these as
+  ten results of large files and five full results), or the install's
+  (`workspace_settings.files_limit_mib`, 10 GiB until set, 1 MiB to 1 TiB, over every attachment;
+  `workspace.filesLimit`/`setFilesLimit`, owner-only, not tools, set on the Harnesses page beside
+  the checkpoint). A future source of a Job's files counts by storing them as attachment rows
+  with its `job_id`. Checks and stores run in one transaction under
+  `pg_advisory_xact_lock('dispand:attachments')`; refusals count in
+  `dispand.attachments.refused` by `dispand.attachment.limit`. Tool steps and workflow runs'
   sessions keep none: their text has placeholders only. `writeRow` accepts ids of the same
   table, locked `FOR SHARE`, and, when a Job writes, that Job's files no table has, locked
   `FOR UPDATE` and given to the table once the row is written. `GET /files/<id>` (`apps/web/src/server/files.ts`, the one route outside oRPC,
   checks the session itself) serves PNG, JPEG, GIF and WebP sniffed on upload inline and
   everything else as a download, all with `nosniff` and a sandbox CSP. `sweepAttachments` runs
   on boot and hourly: it removes attachments no row of their table references, a Job's files no
-  table took once the Job has ended, then files on disk with no row (a deleted table's), all after
-  an hour; it is the one mechanism for every way a
+  table took and no message of it carries once the Job has ended, then files on disk with no row
+  (a deleted table's), all after an hour, and files of no table and no Job (held for a chat
+  message never sent, or their Job deleted) after a day; it is the one mechanism for every way a
   file stops being used. `filesDir` is `DISPAND_FILES_DIR` (production: `/data/files`, in the
   `dispand-files` volume), `.data/files` in development. Bounds: 20 files per cell,
-  10 MiB per file (the production server takes 11 MiB bodies on `files.upload` only).
+  10 MiB per file (the production server takes 11 MiB bodies on `files.upload` and `files.hold` only).
+- **Chat attachments:** the composer of every chat (`components/chat/Thread.tsx`, the library's
+  attachment adapter, paste and an attach button) holds each file as it is added (`files.hold`:
+  an attachment row with no table and no Job, checked against the install's total). The next
+  message names their ids (`runs.sendChat` `attachmentIds`, at most 20); `engine.sendChat` gives
+  them to the Job in the transaction that writes the message (`takeChatFiles`, checked against
+  the Job's totals) and keeps `{id, name}` on the message (`messages.files`, migration 0083),
+  which the thread shows. A file held before a chat's first message goes to the Job that message
+  starts. Delivery goes through the harness: the cloud runner queues the message with its files
+  and, at each model call, reads their bytes (`attachmentBytes`) into the user item (`ChatFile`):
+  by first bytes, a raster image is image input, a PDF document input, UTF-8 text a text part,
+  anything else (or a file gone) a line saying so, for Anthropic, OpenAI Responses and chat
+  completions alike (`fileInput`). Within bounds that keep a call from being refused, which would
+  end the session and every later turn (the history is sent again): an image of at most 3.75 MB,
+  a PDF of at most 100 pages (`pdfPages`: pdf.js reads its current revision's page tree, once per
+  attachment, in a child process with no environment, a 96 MB heap and 5 s, so a crafted PDF can't
+  block or exhaust the server; one it can't read in those limits isn't sent; `pdfjs-dist` stays outside the server bundle, as its
+  worker module loads beside it), text cut at 100,000 characters per file, and per call 16 MiB of
+  files and 300,000 characters of text (a PDF page counts as 3,000 where the provider takes PDFs),
+  the newest messages' first (`budgetFiles`); no PDF to an OpenAI-compatible server, which may
+  not take one. Past them the
+  file is a line too. Tokens aren't counted: these keep a chat's files well within a context
+  window, not exactly to it. A CLI session's `session.send` carries `files` (attachment id
+  and path, `attachmentPath`: `.dispand/attachments/<id>/file<.ext>`, `isAttachmentPath` checked
+  by `chatFiles` and the protocol schema) and a text that names the paths with the original names
+  as words. The runner fetches each file at `GET /runner/attachments/<id>` (runner token; served
+  only for a file a message carries, of a Job with a session on that runner, `attachmentForRunner`, span
+  `runner.attachment`), writes it read-only in the run folder, then hands the text to the CLI;
+  if it can't, the text goes with a line saying so. The files stay with the run folder for later
+  turns and resumes. Runner protocol 28.
 - **Secrets at rest:** `packages/domain/src/secrets.ts` is the one secret box (the tool headers use it too). `createSecretBox(key)`
   seals with AES-256-GCM and a random 12-byte IV into `v1.<iv>.<ciphertext+tag>` (base64url);
-  `seal` and `open` take an AAD, `secretAad(table, rowId, field)`, which binds the value to where
-  it is stored. Every procedure gets the box as `context.secrets`, built once from
+  `seal` and `open` take an AAD, `secretAad(table, rowId, field, origin?)`, which binds the value
+  to where it is stored and, for a tool's header, to the origin it is sent to. Every procedure gets the box as `context.secrets`, built once from
   `ServerConfig.secretKey`. Sealed values never leave the server: views say only whether one
   is set.
 - **Tools (MCP servers):** one `tools` table, MCP connector and Settings → Tools serve agents, sessions and Tool steps,
   with a catalog and runner (stdio) tools. A `tools` row (`packages/domain/src/db/schema.ts`) is
   `kind: "http"`: URL, transport (`streamable-http` or `sse`), headers sealed one by one in
-  `headers_sealed` (name in lower case → sealed value, AAD `headerAad(id, name)`), the actions
+  `headers_sealed` (name in lower case → sealed value, AAD `headerAad(id, name, url)`, which names the URL's origin: a header opens only while its
+  tool calls the origin it was entered for; `resealToolHeaders` (`tools/reseal.ts`) seals again,
+  at server start, a header sealed before that binding, with its tool's origin then), the actions
   of the last listing that succeeded (`ToolAction`: runner-protocol's `McpAction` plus an
   optional `outputSchema`) and `actions_error`, the short reason the last one failed. Names are
   unique case-insensitively per owner. `ToolConnector` (`tools/mcp.ts`, `createMcpConnector`,
@@ -1273,6 +1442,11 @@
   again, refuses a token that isn't that read's, and stores the picked agents' rights on the item
   (`ProposalItem.shown`), which `proposalView` returns and `PluginInstallItem` shows. The tool's
   `tables` is the whole workspace, so only a Job on every table proposes it.
+  `marketplaces_add` (`marketplaces.add`, a Git marketplace or skill repository, or with
+  `kind: "well-known"` a skill site) is a grant too: its `shown` hook resolves the address as the
+  add will (`marketplaceUrl`, `wellKnownIndexUrl`) without fetching it, so the Inbox shows the
+  address that will be read and an address the add would refuse (not https, credentials) is refused when proposed; its Audit rows
+  are about a `marketplace`. Listing, syncing and removing marketplaces stay the owner's.
   What a setup makes is the plugin's from its insert: `runItemsAsOwner` passes
   `context.pluginElement` (a value no input sets) and `tables.create`, `fields.create` and
   `agents.create` write it on the row (`tables.plugin_id`, `plugin_component` and the
@@ -1341,8 +1515,18 @@
   whose values it takes away; one the owner already changed is `stale`, and one naming a table
   that isn't there yet `waiting`. `plugins.update` takes the ticked keys per table (`tables`),
   part of the `reviewed` token, applies each through the field or table operation a person uses
-  (`applyTable`), then keeps the new definition, but for what waits, which the next update offers
-  again. A declined change isn't offered again. Set up also offers the plugin's HTTP servers
+  (`applyTable`), then keeps the new definition of every table the version still defines, but
+  for what waits, which the next update offers again. A declined change isn't offered again by
+  an update: it shows on the plugin's row (`plugins.tableChanges`, the same `tablePlan` from the
+  table as it is now to the definition kept), each with "Apply" (`plugins.applyTableChange`,
+  through `applyTable`, leaving the definition kept as it is). We decided its token covers the
+  table now (its fields, flags and, for a change that takes values away, those values), the
+  plugin's installed commit, the definition kept and the change: one read before a table edit,
+  or before an update that changes that table's definition, is refused. As in the update, the
+  token is checked and the change then made through the field operation, under that operation's
+  own lock: a value written in between to a field being removed goes with it, which we accept
+  (removing the field is what was asked). A move that would have to move the table's first field
+  is `stale`: the update's reorder keeps the first field first. Set up also offers the plugin's HTTP servers
   that aren't tools yet and need no setting, unticked (`pick.servers`). A tool an update gives
   an existing agent is attached with every action on Ask (`toolPermissions` with nothing
   unasked): the update's screen shows the tool gained, not which actions would run unasked.
@@ -1473,8 +1657,17 @@ start arguments: on Claude Code, no built-in tool (`tools: []`, and the CLI's se
 `advisor` switched off with `CLAUDE_CODE_DISABLE_ADVISOR_TOOL`, since neither `tools` nor
 `disallowedTools` removes it), no settings source,
 `strictMcpConfig`, no skill package, memory file or consult, and the Job's own `job` server
-alone; on Codex the start is refused (`startProblem` refuses it first), the Job fails and its
-conflicts are the owner's again. On the element's page (`StemMarks`, from
+alone; on Codex (`codex/config.ts` `RESTRICTED`, checked with 0.167.0), the same, with
+`submit_outputs` its only dynamic tool, every native tool a switch removes turned off through
+`features` and config keys, every MCP server of the user's config set `enabled = false` (their
+names from `config/read`), a read-only profile without network, and `environments: []` on every
+`turn/start`, so the `apply_patch` the model's catalog entry adds (no switch removes it) fails
+before touching a file. `codex/restricted-tools.test.ts` runs the machine's Codex against a
+stand-in Responses API and checks every tool the model is offered; the runner refuses a
+restricted Codex start below `RESTRICTED_CODEX` (0.167.0) and warns above it, until that test
+is run again on the new version (runner protocol 29: an older
+runner refuses restricted Codex starts and shows as outdated). A start that fails fails the Job,
+and its conflicts are the owner's again. On the element's page (`StemMarks`, from
 `plugins.conflicts`), each conflict says where it is: Stem is looking; Stem's merged value waits
 for the owner, who accepts it or keeps theirs (`plugins.resolveConflict`, `answerConflict`, with
 the same check); or it is theirs again, with the three choices of the update's screen (keep
@@ -1658,6 +1851,69 @@ Native command bindings use verified installation source keys, never a matching 
 alone. The runner annotates catalog entries from its native inventory; the server compares
 those keys with the stored plugin revision or workspace package digest before attaching a
 Dispand skill id. An unrelated native command with the same invocation keeps precedence without
-granting access to the unrelated Dispand package or its tools. Exact Codex catalog identities
-also take precedence over compatibility aliases. Protocol 25 covers command discovery and all
+granting access to the unrelated Dispand package or its tools. A package the runner wrote into
+the live session as files carries the key Dispand sent with it on its own `<package>:<skill>`
+commands (a `~<hash>` name stays unbound), so choosing it again refreshes its required tools; a
+package a native installation replaced at the start was never written, and binds only through
+that installation. Exact Codex catalog identities also take precedence over compatibility
+aliases, the runner's package aliases included: Codex applies one only when no catalog name
+matches exactly. Protocol 25 covers command discovery and all
 of these identity fields together; the intermediate commits were not distributed as releases.
+
+## English and French
+
+We decided that the page speaks English and French. `i18next` and `react-i18next` hold its
+strings: one namespace per area in `apps/web/src/locales/<language>/` (`common`, `shell`,
+`assistant`), plus
+`messages`, the files the server and the page share (`packages/domain/src/messages/`). A key
+missing in French shows the English text; `lib/i18n.test.ts` keeps both languages with the
+same keys.
+
+- **One instance per page render:** the root route's `beforeLoad` reads `getAuthState`, which
+  gives the page's language: the signed-in user's saved one (Better Auth's
+  `user.additionalFields.language`, column `user.language`, `"en"`, `"fr"` or null, the
+  validator refusing anything else), else the request's `Accept-Language` ordered by quality
+  with `q=0` dropped (`resolveLanguage`, `detectLanguage`: the first of English or French,
+  otherwise English). The root shell makes its instance in that language (`createI18n`), so the
+  first HTML and `<html lang>` are already in it, and the dehydrated context gives the browser
+  the same language for hydration. Concurrent renders never share an instance.
+- **The choice:** the user menu's Language (`LanguageChoice`, beside the theme) saves
+  `language` through Better Auth's `updateUser` (`lib/auth-call.ts`) and reloads the route
+  context, which switches the instance. "Browser's language" saves null.
+- **Dates and numbers:** `lib/format.ts` formats them in the page's language (`useFormat`),
+  never the browser's default locale.
+- **Lint:** `i18next/no-literal-string` fails a user-visible literal (JSX text, `placeholder`,
+  `aria-label`, `title`, `alt`) anywhere in `apps/web/src` (tests apart), so no area of the page
+  is left untranslated.
+- **Server messages:** an error whose text reaches a person carries a key of the `messages`
+  files and its values, never a sentence: `new ORPCError(code, message(key, values))` or
+  `new EngineError(code, message(key, values))` (`packages/domain/src/messages/index.ts`;
+  `MessageKey` is every key of `en.json`). Each message is a whole sentence under one key, its
+  values interpolated (`{{name}}`, plural forms by `count`), never assembled from pieces. The
+  error's `message` stays the English sentence, for agents (a tool call's refusal) and the logs.
+  The page's link (`lib/api.ts`, `translateErrors`) translates `data.key` in the page's language
+  (`<html lang>`); text marked `external(text)` (an MCP server's, a plugin's) shows as it came;
+  an internal error, or a key the page doesn't know, shows the generic message. Values are text:
+  React escapes them; a list value is formatted by the page (`Intl.ListFormat`). Person-facing text a
+  procedure returns as data (an uninstall's reasons, an update's refusals, a setup's waiting
+  definitions, why a cell value doesn't fit its field, a proposal's "of the table X") is a `Text`: `say(key, values)`, or `{ text }` for words that came as they are (a
+  plugin's, another area's not yet keyed, `reasonOf(err)`); the page renders it with `useText()`
+  (`lib/message.ts`). The same holds for what the workflow editor shows: a workflow issue
+  (`WorkflowIssue.message`), a refused link (`connect`) and a schedule's problem (`cronProblem`) are
+  keyed messages, which the procedures that refuse a save or a start throw as they are. So are the
+  Assistant's guard reasons (`assistantGuard`), why a consult isn't allowed (`pairProblem`), what
+  still holds a tool (`toolHolder`) and why a poll may not read an action (`pollProblem`): each
+  returns a `Message`, and what stores one (a skipped poll's reason) keeps its English sentence
+  (`pollProblemText`). The engine's refusals are keyed too (`engine.*`); a checkpoint's Approval
+  names its root by kind (`rootKind`), and the page has one whole sentence per kind, and a harness's proposal detail is a
+  keyed message. What the engine stores as a Job's failure, or as a fire's or poll item's reason,
+  stays an English sentence until a task stores keys there. A tool result for an agent shows every such text as its English sentence
+  (`sentence`, a tool's `filter`, `issues` for a refinement's key and its `params`), never a key. An input its Zod schema rejects answers with `validation.<code>` and the
+  field's path and limits (`rpc/context.ts`, `validationKey`). `messages/messages.test.ts` walks
+  the domain for every `new ORPCError(` and `new EngineError(` and fails on one whose message
+  isn't a single `message()` key, external text or an engine error passed on (`passOn(err)`, typed
+  `EngineError`, always keyed: its constructor takes a `message()`), unless its file is
+  in the list of the areas still to key, which shrinks to nothing; until then an unkeyed error
+  shows its English text.
+- Agent output, plugin texts and MCP servers' texts are shown as they came. Logs, telemetry and
+  the code stay English.

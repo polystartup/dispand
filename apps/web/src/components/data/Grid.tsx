@@ -4,6 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { type ColumnDef, flexRender, type RowSelectionState, rowSelectionFeature, tableFeatures, useTable } from "@tanstack/react-table";
 import { Maximize2, Plus, Trash2 } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -14,7 +15,7 @@ import { AttachmentCell } from "./AttachmentCell.tsx";
 import { CellEditor, type CommitMove } from "./CellEditor.tsx";
 import { CellView } from "./CellView.tsx";
 import { FieldMenu } from "./FieldMenu.tsx";
-import { FIELD_TYPE_UI } from "./field-types.ts";
+import { FIELD_TYPE_UI, useFieldTypeLabel } from "./field-types.ts";
 import { NewFieldPopover } from "./NewFieldPopover.tsx";
 import { NewRowDialog } from "./NewRowDialog.tsx";
 import { patchListRows, rowWrites, setListCell } from "./row-writes.ts";
@@ -52,6 +53,8 @@ type Props = {
 };
 
 export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, onOpenRow, requiredParent }: Props) {
+  const { t } = useTranslation(["data", "common"]);
+  const typeLabel = useFieldTypeLabel();
   const [adding, setAdding] = useState(false);
   const queryClient = useQueryClient();
   const listKey = orpc.rows.list.key({ input: { tableId } });
@@ -116,7 +119,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
       // Back to what it was, unless a newer edit of this cell replaced it meanwhile.
       setCell(input.id, input.fieldId, ctx?.before ?? null, (current) => !same(current, input.value));
       const field = fields.find((f) => f.id === input.fieldId);
-      setError(`Could not save “${field?.name ?? "the cell"}”: ${err.message}`);
+      setError(t("grid.saveFailed", { name: field?.name ?? t("grid.theCell"), message: err.message }));
     },
     onSuccess: (row, input) => {
       setError(null);
@@ -155,7 +158,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
       const gone = new Set(ids);
       patchRows((list) => list.filter((r) => !gone.has(r.id)), -ids.length);
     },
-    onError: (err) => setError(`Could not delete the rows: ${err.message}`),
+    onError: (err) => setError(t("grid.deleteFailed", { message: err.message })),
   });
 
   const columns = useMemo<ColumnDef<typeof features, Row>[]>(
@@ -165,7 +168,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
         header: ({ table }) => (
           <input
             type="checkbox"
-            aria-label="Select all rows"
+            aria-label={t("grid.selectAll")}
             checked={table.getIsAllRowsSelected()}
             onChange={table.getToggleAllRowsSelectedHandler()}
             className="size-4 accent-[var(--accent)]"
@@ -173,8 +176,8 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
         ),
         cell: ({ row }) => (
           <span className="flex items-center gap-1">
-            <input type="checkbox" aria-label="Select row" checked={row.getIsSelected()} onChange={row.getToggleSelectedHandler()} className="size-4 accent-[var(--accent)]" />
-            <button type="button" aria-label="Open row" onClick={() => onOpenRow(row.original.id)} className="grid size-6 place-items-center rounded-md text-muted hover:bg-hover hover:text-fg">
+            <input type="checkbox" aria-label={t("grid.select")} checked={row.getIsSelected()} onChange={row.getToggleSelectedHandler()} className="size-4 accent-[var(--accent)]" />
+            <button type="button" aria-label={t("grid.open")} onClick={() => onOpenRow(row.original.id)} className="grid size-6 place-items-center rounded-md text-muted hover:bg-hover hover:text-fg">
               <Maximize2 size={13} aria-hidden />
             </button>
           </span>
@@ -187,7 +190,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
         }),
       ),
     ],
-    [fields, onOpenRow],
+    [fields, onOpenRow, t],
   );
 
   const table = useTable({
@@ -265,14 +268,14 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
         <ViewBar fields={fields} query={query} onChange={onQueryChange} shown={total} total={filtered ? (all.data?.total ?? total) : total} />
         {selectedIds.length > 0 && (
           <Button variant="outline" size="sm" onClick={() => setConfirmDelete(true)}>
-            <Trash2 /> Delete {selectedIds.length === 1 ? "1 row" : `${selectedIds.length} rows`}
+            <Trash2 /> {t("grid.deleteRows", { count: selectedIds.length })}
           </Button>
         )}
       </div>
       <div
         ref={gridRef}
         role="grid"
-        aria-label="Rows"
+        aria-label={t("grid.rows")}
         aria-rowcount={total + 1}
         tabIndex={0}
         onKeyDown={onKeyDown}
@@ -298,7 +301,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
                         <div className="flex w-48 items-center gap-1.5">
                           {(() => {
                             const { Icon } = FIELD_TYPE_UI[field.type];
-                            return <Icon size={14} aria-label={FIELD_TYPE_UI[field.type].label} className="shrink-0" />;
+                            return <Icon size={14} aria-label={typeLabel(field.type)} className="shrink-0" />;
                           })()}
                           <span className="truncate text-fg">{field.name}</span>
                           <span className="ml-auto" />
@@ -375,16 +378,16 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
             ))}
           </tbody>
         </table>
-        {rowsQuery.isPending && <p className="px-4 py-3 text-[13px] text-muted">Loading…</p>}
-        {rowsQuery.error && <p role="alert" className="px-4 py-3 text-[13px] text-danger">Could not load the rows.</p>}
+        {rowsQuery.isPending && <p className="px-4 py-3 text-[13px] text-muted">{t("common:loading")}</p>}
+        {rowsQuery.error && <p role="alert" className="px-4 py-3 text-[13px] text-danger">{t("grid.loadFailed")}</p>}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="ghost" size="sm" onClick={startAdding}>
-          <Plus /> New row
+          <Plus /> {t("grid.newRow")}
         </Button>
         {rowsQuery.hasNextPage && (
           <Button variant="outline" size="sm" disabled={rowsQuery.isFetchingNextPage} onClick={() => void rowsQuery.fetchNextPage()}>
-            Load more
+            {t("grid.loadMore")}
           </Button>
         )}
       </div>
@@ -396,20 +399,20 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
           onCreate={(values) => create.mutate(values)}
           onCancel={() => setAdding(false)}
           pending={create.isPending}
-          error={create.error ? `Could not add the row: ${create.error.message}` : undefined}
+          error={create.error ? t("grid.addFailed", { message: create.error.message }) : undefined}
         />
       )}
 
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent>
-          <DialogTitle>Delete {selectedIds.length === 1 ? "1 row" : `${selectedIds.length} rows`}?</DialogTitle>
-          <DialogDescription>This can't be undone.</DialogDescription>
+          <DialogTitle>{t("grid.deleteTitle", { count: selectedIds.length })}</DialogTitle>
+          <DialogDescription>{t("grid.irreversible")}</DialogDescription>
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
-              Cancel
+              {t("grid.cancel")}
             </Button>
             <Button variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate(selectedIds)}>
-              Delete
+              {t("grid.delete")}
             </Button>
           </div>
         </DialogContent>

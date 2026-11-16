@@ -44,6 +44,7 @@ import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
 import type { DataEvents } from "../data/events.ts";
 import { loadTableSchemas } from "../data/tables.ts";
+import { takeChatFiles } from "../data/files.ts";
 import { loadToolSchemas, noToolSteps, type ToolExecutor } from "../tools/executor.ts";
 import { tableIdsOf, validateDataSteps } from "../workflows/data-steps.ts";
 import { deriveExpectedOutputs, validateWorkflow, type WorkflowIssue } from "../workflows/derive.ts";
@@ -55,7 +56,7 @@ import { CLOUD_SOURCE, type CliHarness, type ConsultTarget, type Harness, type H
 import { runDataStep } from "./data-step.ts";
 import { sessionTooling } from "./tooling.ts";
 import { runnerGrantCurrent, stopAsking } from "../platform/exposed.ts";
-import { annotate, currentTraceId, meter, recordError, spanEvent, tracer, withJob } from "../telemetry/index.ts";
+import { annotate, currentTraceId, inJobTrace, markSpan, meter, recordError, spanEvent, tracer, withJob } from "../telemetry/index.ts";
 import { CONSULT, REQUEST_APPROVAL } from "../cloud/builtins.ts";
 import { attachProposal, settleProposal } from "../platform/proposals.ts";
 import { issueJobToken } from "../platform/token.ts";
@@ -72,10 +73,12 @@ import { pollProblem } from "../tools/pollable.ts";
 import { give, next, take } from "./slots.ts";
 import { checkpointOf, newRoot, pause, pausedGauge, ROOT_STOPPED, rootGoing } from "./roots.ts";
 import { recordInteraction, recordInteractions } from "./interactions.ts";
+import { recordJobEvent } from "./jobs-events.ts";
 import { recordAudit, recordAuditAfter } from "../audit/record.ts";
 import type { AuditActor } from "../audit/model.ts";
 import { jobScope, startable } from "../questions/inbox-scope.ts";
-import { INTERACTION } from "../triggers/model.ts";
+import { INTERACTION, JOB } from "../triggers/model.ts";
+import { type Message, message } from "../messages/index.ts";
 
 type RunRow = typeof runs.$inferSelect;
 type StepRow = typeof stepRuns.$inferSelect;
@@ -122,8 +125,8 @@ export function stepView(s: StepRow) {
   return { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, interactive: s.start?.interactive ?? false, prompt: s.start?.prompt ?? null, ...(s.cliSessionId ? { resumable: true as const } : {}) };
 }
 export function messageView(m: MessageRow) {
-  const { id, runId, stepRunId, role, text, createdAt } = m;
-  return { id, runId, stepRunId, role, text, createdAt };
+  const { id, runId, stepRunId, role, text, createdAt, files } = m;
+  return { id, runId, stepRunId, role, text, createdAt, ...(files?.length ? { files } : {}) };
 }
 export function questionView(q: QuestionRow) {
   // `rootId`: a checkpoint's Approval (`roots.ts`), and `consultId` a consult's, each told apart by it and never by its tool name.
@@ -154,9 +157,7 @@ function runOf(e: RunEvent): string {
 }
 
 /** Why the runner would refuse this start (the protocol's `SessionStart`), in the owner's words; null if it wouldn't. */
-export function startProblem(harness: CliHarness, { runKey, restricted, ...start }: StartParams): string | null {
-  // shortcut: a Codex session offers its native tools with no switch here to take them away; a limited Job (a Stem Job) runs on Claude Code, started restricted, or on a cloud harness.
-  if (restricted && harness.kind !== "claude-code") return "Stem decides on Claude Code or a cloud harness: set the Assistant on one, or decide these fields yourself";
+export function startProblem(harness: CliHarness, { runKey, ...start }: StartParams): string | null {
   const parsed = SessionStart.safeParse({
     ...start,
     harness: harness.kind,
@@ -258,7 +259,7 @@ export function resumePrompt(
   waiting: QuestionRow[],
 ): { prompt: string; answers: QuestionRow[]; messages: MessageRow[]; laterAnswers: QuestionRow[]; laterMessages: MessageRow[] } {
   // A native command must be the first text the harness sees, not quoted transcript prose.
-  if (original === null && !answered.length && !waiting.length && unsent[0]?.text.startsWith("/")) {
+  if (original === null && !answered.length && !waiting.length && unsent[0]?.text.startsWith("/") && !unsent[0].files?.length) {
     return { prompt: unsent[0].text, answers: [], messages: [unsent[0]], laterAnswers: [], laterMessages: unsent.slice(1) };
   }
   // An empty original (a chat whose trigger has no instructions) adds nothing.
@@ -279,7 +280,8 @@ export function resumePrompt(
     return false;
   };
   const answers = answered.filter((q) => fits(answerText(q)));
-  const messages = unsent.filter((m) => fits(`The owner wrote: ${m.text}`));
+  // A message with files goes as itself, which carries them (the prompt can't): it and the rest follow.
+  const messages = unsent.filter((m) => (m.files?.length ? ((full = true), false) : fits(`The owner wrote: ${m.text}`)));
   if (waitingLine && length + 2 + waitingLine.length <= TEXT) parts.push(waitingLine);
   return {
     prompt: parts.join("\n\n"),
@@ -365,13 +367,19 @@ async function agentHarnesses(db: Db | Tx, ownerId: string, nodes: object[]): Pr
 
 export class EngineError extends Error {
   override name = "EngineError";
+  /** What the page translates, when its text reaches a person (`message()`). */
+  readonly data: Message;
   constructor(
     readonly code: "NOT_FOUND" | "INVALID" | "CLOSED" | "NOT_PENDING" | "STOPPED",
-    message: string,
+    detail: ReturnType<typeof message>,
   ) {
-    super(message);
+    super(detail.message);
+    this.data = detail.data;
   }
 }
+
+/** A keyed engine error's options, passed on as a procedure's error: `new ORPCError(code, passOn(err))`. */
+export const passOn = (err: EngineError) => ({ message: err.message, data: err.data });
 
 /**
  * Runs workflows (spec 7.4). Runs, step runs, transcripts and questions are rows, so a run
@@ -447,14 +455,14 @@ export class Engine {
   async createRun(tx: Tx, workflowId: string, trigger: RunTrigger): Promise<string> {
     // Shared with other starts, exclusive with a delete: the run never outlives its workflow.
     const [workflow] = await tx.select().from(workflows).where(eq(workflows.id, workflowId)).for("share");
-    if (!workflow) throw new EngineError("NOT_FOUND", "Workflow not found");
+    if (!workflow) throw new EngineError("NOT_FOUND", message("workflows.notFound"));
     const [version] = await tx
       .select({ def: workflowVersions.def })
       .from(workflowVersions)
       .where(and(eq(workflowVersions.workflowId, workflowId), eq(workflowVersions.version, workflow.currentVersion)));
     const def = version!.def;
     const [issue] = await runIssues(tx, workflow.ownerId, def);
-    if (issue) throw new EngineError("INVALID", issue.message);
+    if (issue) throw new EngineError("INVALID", message(issue.message.key, issue.message.values));
     const runId = newId("run");
     await tx.insert(runs).values({ id: runId, ownerId: workflow.ownerId, workflowId, version: workflow.currentVersion, status: "running", trigger, traceId: currentTraceId() ?? null });
     counts.counter("dispand.runs.created").add(1, { "dispand.run.source": "workflow", "dispand.run.trigger": trigger.type });
@@ -472,11 +480,11 @@ export class Engine {
         .select({ agentId: triggers.agentId })
         .from(triggers)
         .where(and(eq(triggers.id, triggerId), eq(triggers.ownerId, ownerId)));
-      if (!trigger) throw new EngineError("NOT_FOUND", "Trigger not found");
+      if (!trigger) throw new EngineError("NOT_FOUND", message("triggers.notFound"));
       const id = await this.createJob(tx, { ownerId, agentId: trigger.agentId, triggerId, cause: { kind: "user", depth: 0 }, firing: { type: "manual", ...(timezone ? { timezone } : {}) } });
       if (skillId) {
         const [run] = await tx.select().from(runs).where(eq(runs.id, id));
-        if (!run?.snapshot || run.def?.trigger.field.type !== "chat") throw new EngineError("INVALID", "Skills can be invoked in Assistant chats only");
+        if (!run?.snapshot || run.def?.trigger.field.type !== "chat") throw new EngineError("INVALID", message("engine.skillChatOnly"));
         const selected = await invokedSnapshot(tx, ownerId, run.snapshot, skillId);
         await tx.update(runs).set({ snapshot: selected.snapshot }).where(eq(runs.id, id));
       }
@@ -521,8 +529,8 @@ export class Engine {
     // An existing root first, then the trigger and the agent (`roots.ts`); a new one is no one else's yet.
     const lockRoot = async (rootId: string) => {
       const [root] = await tx.select().from(roots).where(and(eq(roots.id, rootId), eq(roots.ownerId, ownerId))).for("update");
-      if (!root) throw new EngineError("NOT_FOUND", "Root cause not found");
-      if (root.state === "stopped") throw new EngineError("STOPPED", ROOT_STOPPED);
+      if (!root) throw new EngineError("NOT_FOUND", message("engine.rootNotFound"));
+      if (root.state === "stopped") throw new EngineError("STOPPED", message("engine.stoppedAtCheckpoint"));
       return root;
     };
     const given = input.rootId ? await lockRoot(input.rootId) : undefined;
@@ -542,9 +550,9 @@ export class Engine {
       .from(agents)
       .where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)))
       .for("share");
-    if (!agent) throw new EngineError("NOT_FOUND", "Agent not found");
+    if (!agent) throw new EngineError("NOT_FOUND", message("agent.notFound"));
     // A consult's and a Stem Job's firing is no trigger: the consult's root is the asking Job's; a Stem Job's, the owner's hand-off.
-    if (firing.type === "consult" ? triggerId || !given : firing.type === "stem" ? !!triggerId : !trigger || !trigger.enabled) throw new EngineError("NOT_FOUND", "Trigger not found");
+    if (firing.type === "consult" ? triggerId || !given : firing.type === "stem" ? !!triggerId : !trigger || !trigger.enabled) throw new EngineError("NOT_FOUND", message("triggers.notFound"));
     const root = given ?? (await lockRoot(await newRoot(tx, ownerId, cause.kind === "stem" ? "user" : (cause.kind as RootKind), runId)));
     const rootId = root.id;
     // A Stem Job decides the fields handed to it and nothing else: no skill, tool, bundle, memory or consult, and one tool of Dispand's.
@@ -563,9 +571,13 @@ export class Engine {
       selfLearning: stem ? [] : agent.selfLearning,
       consults: stem ? [] : await consultsOf(tx, agentId),
       ...(stem ? { only: ["plugin_decide"] } : {}),
+      revision: agent.revision,
     };
     const def = jobDef({ agent: snapshot, trigger: trigger ?? null, stem });
     const token = this.secrets ? issueJobToken(this.secrets, runId) : undefined;
+    // The Job's own span, in the trigger's or the request's trace: all its later work hangs under it (`inJobTrace`).
+    // Under its own id: a consulted Job is made inside its asking Job's work.
+    const span = withJob(runId, () => markSpan(traces, "engine.job", { "dispand.job.id": runId, "dispand.agent.id": agentId, "dispand.run.trigger": firing.type }));
     await tx.insert(runs).values({
       id: runId,
       ownerId,
@@ -580,11 +592,14 @@ export class Engine {
       rootId,
       status: "running",
       trigger: firing,
-      traceId: currentTraceId() ?? null,
+      traceId: span?.traceId ?? null,
+      spanId: span?.spanId ?? null,
     });
     counts.counter("dispand.runs.created").add(1, { "dispand.run.source": "agent", "dispand.run.trigger": firing.type });
+    await recordJobEvent(tx, { id: runId, ownerId, agentId, triggerId: triggerId ?? null, cause, status: "running", rootId }, "created");
     const creator = creatorOf(ownerId, cause);
-    await recordAudit(tx, {
+    // In the Job's trace, which is a new one when nothing was traced around its creation (a recovery).
+    await inJobTrace(span ?? {}, () => recordAudit(tx, {
       ownerId,
       actor: creator,
       // A consult's row is its asking Job's; any other is filed under the Job's agent.
@@ -601,7 +616,7 @@ export class Engine {
         firing: firing.type,
         ...(cause.kind === "event" ? { eventId: cause.eventId } : {}),
       },
-    });
+    }));
     await tx
       .insert(stepRuns)
       .values(nodesOf(def).map((n) => ({ id: newId("step"), ownerId, runId, nodeId: n.id, harnessId: n.agentId ? snapshot.harnessId : null, status: "pending" as const })));
@@ -626,9 +641,12 @@ export class Engine {
   async stopRun(runId: string): Promise<void> {
     const out: Out[] = [];
     const sessions = await this.db.transaction(async (tx) => {
+      // The root before the run, the order the paths that lock a root `FOR UPDATE` take them in (a chat, a consult): the run's end event references the root.
+      const [rooted] = await tx.select({ rootId: runs.rootId }).from(runs).where(eq(runs.id, runId));
+      if (rooted?.rootId) await tx.select({ id: roots.id }).from(roots).where(eq(roots.id, rooted.rootId)).for("key share");
       const [run] = await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).for("update");
-      if (!run) throw new EngineError("NOT_FOUND", "Run not found");
-      if (!ACTIVE_RUN.includes(run.status)) throw new EngineError("CLOSED", "This run is over");
+      if (!run) throw new EngineError("NOT_FOUND", message("workflows.runNotFound"));
+      if (!ACTIVE_RUN.includes(run.status)) throw new EngineError("CLOSED", message("engine.runOver"));
       return this.stopIn(tx, runId, out);
     });
     this.publish(out);
@@ -675,24 +693,24 @@ export class Engine {
   }
 
   /** The owner's next chat message to the run's chat session. */
-  async sendChat(runId: string, text: string, skillId?: string): Promise<void> {
+  async sendChat(runId: string, text: string, skillId?: string, attachmentIds: string[] = []): Promise<void> {
     const steps = await this.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
     const candidate = steps.find((s) => s.start?.interactive && s.sessionId) ?? (await this.queuedChat(runId, steps));
-    if (!candidate) throw new EngineError("CLOSED", "The chat is over");
+    if (!candidate) throw new EngineError("CLOSED", message("engine.chatOver"));
     const out: Out[] = [];
     const { row, working, chat } = await this.db.transaction(async (tx) => {
       // Lock the root before the chat step, as checkpoint answers do. Completion and this
       // message serialize on the step: a message racing completion either sends or reopens.
       let going = await this.rootGoingLocked(tx, runId);
       let [chat] = await tx.select().from(stepRuns).where(eq(stepRuns.id, candidate.id)).for("update");
-      if (!chat) throw new EngineError("CLOSED", "The chat is over");
+      if (!chat) throw new EngineError("CLOSED", message("engine.chatOver"));
       let refresh = false;
       if (skillId) {
         const [run] = await tx.select().from(runs).where(eq(runs.id, runId)).for("update");
-        if (!run?.snapshot || run.def?.trigger.field.type !== "chat") throw new EngineError("INVALID", "Skills can be invoked in Assistant chats only");
+        if (!run?.snapshot || run.def?.trigger.field.type !== "chat") throw new EngineError("INVALID", message("engine.skillChatOnly"));
         const selected = await invokedSnapshot(tx, run.ownerId, run.snapshot, skillId, chat.runnerId === CLOUD_SOURCE ? null : chat.runnerId ?? undefined);
         refresh = !run.snapshot.skills.some((s) => s.packageId === selected.packageId) || selected.snapshot.tools.some((t) => !run.snapshot!.tools.some((old) => old.toolId === t.toolId));
-        if (refresh && OPEN_STEP.includes(chat.status) && chat.sessionId && (chat.working || !chat.cliSessionId)) throw new EngineError("INVALID", "Wait for the Assistant to finish its turn before loading another skill.");
+        if (refresh && OPEN_STEP.includes(chat.status) && chat.sessionId && (chat.working || !chat.cliSessionId)) throw new EngineError("INVALID", message("engine.skillWait"));
         await tx.update(runs).set({ snapshot: selected.snapshot }).where(eq(runs.id, runId));
         // CLI invocations retain their native name; cloud sessions use the skill loader.
         const args = text.replace(/^\/\S+/, "");
@@ -709,7 +727,9 @@ export class Engine {
         const [updated] = await tx.update(stepRuns).set({ sessionId, start: { ...chat.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: chat.sessionId, ended: false } }).where(eq(stepRuns.id, chat.id)).returning();
         chat = updated!;
       }
-      const [row] = await tx.insert(messages).values({ id: newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text }).returning();
+      // Files held for the owner become the Job's with the message that carries them.
+      const files = await takeChatFiles(tx, chat.ownerId, runId, attachmentIds);
+      const [row] = await tx.insert(messages).values({ id: newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text, ...(files.length ? { files } : {}) }).returning();
       out.push({ type: "message", message: messageView(row!) });
       if (chat.resumeAfterSession) return { row: row!, working: false, chat };
       if (!chat.sessionId) return { row: row!, working: true, chat };
@@ -749,14 +769,14 @@ export class Engine {
   /** A new turn in the same Job, keeping its transcript but replacing its session and token. */
   private async reopen(tx: Tx, step: StepRow, out: Out[]): Promise<StepRow> {
     const [run] = await tx.select().from(runs).where(eq(runs.id, step.runId));
-    if (!run || run.source !== "agent" || !run.agentId || run.status !== "succeeded" || run.def?.trigger.field.type !== "chat" || step.status !== "succeeded" || !step.cliSessionId || !step.sessionId || !step.start?.interactive || !step.harness || (run.tokenSealed && !this.secrets)) throw new EngineError("CLOSED", "The chat is over");
+    if (!run || run.source !== "agent" || !run.agentId || run.status !== "succeeded" || run.def?.trigger.field.type !== "chat" || step.status !== "succeeded" || !step.cliSessionId || !step.sessionId || !step.start?.interactive || !step.harness || (run.tokenSealed && !this.secrets)) throw new EngineError("CLOSED", message("engine.chatOver"));
     if (step.runnerId !== CLOUD_SOURCE) {
       const [runner] = await tx.select({ revokedAt: runners.revokedAt }).from(runners).where(and(eq(runners.id, step.runnerId!), eq(runners.ownerId, run.ownerId))).for("share");
-      if (!runner || runner.revokedAt) throw new EngineError("CLOSED", "The chat's runner is no longer available");
+      if (!runner || runner.revokedAt) throw new EngineError("CLOSED", message("engine.chatRunnerGone"));
     }
     const token = this.secrets ? issueJobToken(this.secrets, run.id) : null;
     const [reopened] = await tx.update(runs).set({ status: "running", finishedAt: null, rootId: await newRoot(tx, run.ownerId, "chat", run.id), ...(token ? { tokenHash: token.hash, tokenSealed: token.sealed } : {}) }).where(and(eq(runs.id, run.id), eq(runs.status, "succeeded"))).returning();
-    if (!reopened) throw new EngineError("CLOSED", "The chat is over");
+    if (!reopened) throw new EngineError("CLOSED", message("engine.chatOver"));
     const sessionId = newId("ses");
     const [chat] = await tx.update(stepRuns).set({ status: "running", finishedAt: null, sessionId, start: { ...step.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: step.sessionId, ended: false } }).where(eq(stepRuns.id, step.id)).returning();
     await recordAudit(tx, { ownerId: run.ownerId, actor: { type: "user", userId: run.ownerId }, agentId: run.agentId, jobId: run.id, action: "job.reopened", resource: { type: "job", id: run.id } });
@@ -841,10 +861,10 @@ export class Engine {
     // Any answer may have to go as words (its session lost and resumed): those must fit a message.
     const [asked] = await this.db.select({ payload: questions.payload, kind: questions.kind, ownerId: questions.ownerId, runId: questions.runId, consultId: questions.consultId }).from(questions).where(eq(questions.id, questionId));
     // Nothing answers in a consulted agent's place: only its Job does (`answerConsult`).
-    if (asked?.kind === "consult") throw new EngineError("NOT_FOUND", "Question not found");
+    if (asked?.kind === "consult") throw new EngineError("NOT_FOUND", message("questions.notFound"));
     if (asked) {
       const words = answerText({ payload: asked.payload, answer, answeredBy: by ?? null });
-      if (words.length > TEXT || !storable(words)) throw new EngineError("INVALID", `The answer is too long (at most about ${TEXT - 100} characters)`);
+      if (words.length > TEXT || !storable(words)) throw new EngineError("INVALID", message("questions.answer.tooLong", { max: TEXT - 100 }));
     }
     const out: Out[] = [];
     const settled = await this.db.transaction(async (tx) => {
@@ -855,9 +875,9 @@ export class Engine {
       }
       const [pending] = await tx.select().from(questions).where(and(eq(questions.id, questionId), eq(questions.status, "pending"))).for("update");
       if (!pending) return undefined;
-      if (answer.kind === "permission" && answer.decision === "allow-always" && (pending.remember || (pending.payload.kind === "permission" && pending.payload.toolName.startsWith("mcp__")))) throw new EngineError("INVALID", "Choose a remember scope for this tool permission");
+      if (answer.kind === "permission" && answer.decision === "allow-always" && (pending.remember || (pending.payload.kind === "permission" && pending.payload.toolName.startsWith("mcp__")))) throw new EngineError("INVALID", message("questions.answer.chooseScope"));
       if (answer.kind === "permission" && answer.remember) {
-        if (answer.decision === "allow-always" || !by || !(await remember(tx, { questionId, decision: answer.decision, scope: answer.remember, by }))) throw new EngineError("INVALID", "This permission changed or cannot be remembered: refresh and answer again");
+        if (answer.decision === "allow-always" || !by || !(await remember(tx, { questionId, decision: answer.decision, scope: answer.remember, by }))) throw new EngineError("INVALID", message("questions.answer.cannotRemember"));
       }
       const [q] = await tx
         .update(questions)
@@ -904,7 +924,7 @@ export class Engine {
     });
     const { q, step } = settled ?? {};
     const root = settled && "root" in settled ? settled.root : undefined;
-    if (!q) throw new EngineError("NOT_PENDING", "This question is no longer waiting for an answer");
+    if (!q) throw new EngineError("NOT_PENDING", message("questions.answer.notPending"));
     const decision = q.answer?.kind === "permission" ? q.answer.decision : q.answer?.kind ?? "none";
     counts.counter("dispand.questions.answered").add(1, { "dispand.question.kind": q.kind, "dispand.answer.decision": decision, "dispand.answer.by": q.answeredBy?.type ?? "user" });
     counts.histogram("dispand.question.wait", { unit: "ms", description: "From a question to its answer" }).record(q.answeredAt!.getTime() - q.createdAt.getTime(), { "dispand.question.kind": q.kind });
@@ -1213,7 +1233,8 @@ export class Engine {
     const decision = answer.kind === "permission" ? answer.decision : "deny";
     const answered = decision === "allow-always" ? "dont-ask" : decision === "allow" ? "approve" : "decline";
     counts.counter("dispand.checkpoints.answered").add(1, { "dispand.checkpoint.answer": answered });
-    const [root] = await tx.select().from(roots).where(eq(roots.id, rootId)).for("update");
+    // `NO KEY UPDATE`: a Job ending meanwhile (its run locked) still writes events referencing the root, so the decline's wait on its runs can't deadlock with it.
+    const [root] = await tx.select().from(roots).where(eq(roots.id, rootId)).for("no key update");
     if (!root || root.state !== "paused") return {};
     // The root's row, besides its Approval's `question.answered`: on a decline, with what it stopped.
     const audited = (details: { events?: number; jobs?: number } = {}) =>
@@ -1362,7 +1383,9 @@ export class Engine {
     counts.counter("dispand.harness.events").add(1, { "dispand.event.type": event.type });
     // Words stream as many small events: those are counted, the others traced one by one.
     if (event.type === "text") return this.applyEvent(sessionId, event, from);
-    return traces.startActiveSpan("engine.event", { attributes: { "dispand.event.type": event.type, "dispand.session.id": sessionId, "dispand.runner.id": from.runnerId } }, async (span) => {
+    // In its Job's trace: the runner message's own span is linked from it.
+    const [job] = await this.db.select({ traceId: runs.traceId, spanId: runs.spanId }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId)).where(eq(stepRuns.sessionId, sessionId));
+    return inJobTrace(job ?? {}, () => traces.startActiveSpan("engine.event", { attributes: { "dispand.event.type": event.type, "dispand.session.id": sessionId, "dispand.runner.id": from.runnerId } }, async (span) => {
       try {
         await this.applyEvent(sessionId, event, from);
       } catch (err) {
@@ -1371,7 +1394,7 @@ export class Engine {
       } finally {
         span.end();
       }
-    });
+    }));
   }
 
   private async applyEvent(sessionId: string, event: HarnessEvent, from: { runnerId: string; seq: number }): Promise<void> {
@@ -2101,7 +2124,7 @@ export class Engine {
           span.end();
         }
       });
-    return run.source === "agent" ? withJob(run.id, traced) : traced();
+    return run.source === "agent" ? inJobTrace(run, () => withJob(run.id, traced)) : traced();
   }
 
   private async openSession(run: RunRow, def: WorkflowDef, steps: StepRow[], node: WorkflowNode, step: StepRow) {
@@ -2288,7 +2311,7 @@ export class Engine {
     return true;
   }
 
-  /** Why the run, a Job fired by a row's change, a Question or a poll's item, may no longer be told of it; null when it may. */
+  /** Why the run, a Job fired by a row's change, a Question or a poll's item, may no longer be told of it; null when it may (always, for another Job's event). */
   private async lostScope(runId: string): Promise<string | null> {
     const [row] = await this.db
       .select({ ownerId: runs.ownerId, agentId: runs.agentId, trigger: runs.trigger, bundles: agents.bundles, dataTables: agents.dataTables })
@@ -2301,6 +2324,8 @@ export class Engine {
     }
     if (row?.trigger.type !== "event") return null;
     const tableId = row.trigger.outputs.table_id ?? "";
+    // Another Job's ids and status: any agent may be told of them, so nothing is lost.
+    if (tableId === JOB) return null;
     // A Question or an Approval: still one its Job may read, with the Job's rights as they are now (and, once asked, still open).
     if (tableId === INTERACTION) {
       const scope = row.agentId ? await jobScope(this.db, { runId, ownerId: row.ownerId, agentId: row.agentId }) : null;
@@ -2339,7 +2364,7 @@ export class Engine {
     }
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`m:${m.id}`, async () => {
-      if ((await this.adapter.send(sessionId, m.text)) && (this.losses.get(sessionId) ?? 0) === losses) {
+      if ((await this.adapter.send(sessionId, m.text, m.files ?? [])) && (this.losses.get(sessionId) ?? 0) === losses) {
         await this.db.update(messages).set({ deliveredAt: new Date() }).where(eq(messages.id, m.id));
       }
     }).catch((err: unknown) => logError("chat message delivery failed", err, { ref: m.id }));
@@ -2468,7 +2493,8 @@ export class Engine {
       counts.counter("dispand.runs.finished").add(1, attributes);
       counts.histogram("dispand.run.duration", { unit: "ms", description: "From a run's creation to its end" }).record(row.finishedAt!.getTime() - row.createdAt.getTime(), attributes);
       if (row.source === "agent") {
-        await recordAudit(tx, {
+        await recordJobEvent(tx, row, status === "succeeded" ? "finished" : "failed");
+        await inJobTrace(row, () => recordAudit(tx, {
           ownerId: row.ownerId,
           actor: { type: "job", runId: row.id },
           agentId: row.agentId,
@@ -2477,7 +2503,7 @@ export class Engine {
           resource: { type: "job", id: row.id },
           result: status === "succeeded" ? "ok" : "failed",
           ...(status === "failed" ? { details: { reason: stop ?? (error === STOPPED ? "stopped" : "failed") } } : {}),
-        });
+        }));
       }
       await this.answerConsult(tx, row, out);
       // A Stem Job's conflicts it didn't decide are the owner's again, however it ended.
@@ -2547,7 +2573,7 @@ export class Engine {
           .from(workflowVersions)
           .where(and(eq(workflowVersions.workflowId, run.workflowId), eq(workflowVersions.version, run.version)))
       : [];
-    if (!row) throw new EngineError("NOT_FOUND", "Workflow version not found");
+    if (!row) throw new EngineError("NOT_FOUND", message("workflows.versionNotFound"));
     return row.def;
   }
 

@@ -1,9 +1,10 @@
 import type { Cell, FieldSchema } from "@dispand/domain/data/fields";
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { CellEditor } from "./CellEditor.tsx";
-import { FIELD_TYPE_UI } from "./field-types.ts";
+import { FIELD_TYPE_UI, useFieldTypeLabel } from "./field-types.ts";
 
 type Props = {
   fields: FieldSchema[];
@@ -22,6 +23,8 @@ type Props = {
  * nothing. Files are added from the row detail once the row exists.
  */
 export function NewRowDialog({ fields, requiredParent, onCreate, onCancel, pending, error }: Props) {
+  const { t } = useTranslation("data");
+  const typeLabel = useFieldTypeLabel();
   const [values, setValues] = useState<Record<string, Cell>>({});
   // Read by "Create row": a field left by clicking the button commits during that same click.
   const latest = useRef(values);
@@ -36,10 +39,10 @@ export function NewRowDialog({ fields, requiredParent, onCreate, onCancel, pendi
   };
   const create = () => {
     // A text that doesn't fit its field stays in its box with the reason, and isn't created empty.
-    if (formRef.current?.querySelector('[aria-invalid="true"]')) return setProblem("Fix the fields marked above first.");
+    if (formRef.current?.querySelector('[aria-invalid="true"]')) return setProblem(t("newRow.fix"));
     const filled = Object.fromEntries(Object.entries(latest.current).filter(([, v]) => v !== null));
     // A table of files only has nothing to fill here: its row is created empty, and filled in its detail.
-    if (Object.keys(filled).length === 0 && editable.length > 0) return setProblem("Fill in at least one field.");
+    if (Object.keys(filled).length === 0 && editable.length > 0) return setProblem(t("newRow.fill"));
     onCreate(filled);
   };
 
@@ -47,16 +50,16 @@ export function NewRowDialog({ fields, requiredParent, onCreate, onCancel, pendi
     // A creation under way finishes in this form: it can't be closed and opened again meanwhile.
     <Dialog open onOpenChange={(open) => !open && !pending && onCancel()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
-        <DialogTitle>New row</DialogTitle>
-        <DialogDescription>The row is created when you click Create row. Files are added from the row once it exists.</DialogDescription>
+        <DialogTitle>{t("newRow.title")}</DialogTitle>
+        <DialogDescription>{t("newRow.description")}</DialogDescription>
         <div ref={formRef} className="grid gap-4">
           {editable.map((field) => {
-            const { Icon, label } = FIELD_TYPE_UI[field.type];
+            const { Icon } = FIELD_TYPE_UI[field.type];
             return (
               <section key={field.id} aria-label={field.name} className="grid gap-1.5">
                 <h3 className="flex items-center gap-1.5 text-[13px] font-medium text-muted">
-                  <Icon size={13} aria-label={label} /> {field.name}
-                  {field.id === requiredParent?.id && <span className="text-faint">(required)</span>}
+                  <Icon size={13} aria-label={typeLabel(field.type)} /> {field.name}
+                  {field.id === requiredParent?.id && <span className="text-faint">{t("newRow.required")}</span>}
                 </h3>
                 <CellEditor field={field} value={values[field.id] ?? null} inline={false} onCommit={(v) => set(field, v)} onCancel={() => {}} />
               </section>
@@ -70,10 +73,10 @@ export function NewRowDialog({ fields, requiredParent, onCreate, onCancel, pendi
         )}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" disabled={pending} onClick={onCancel}>
-            Cancel
+            {t("newRow.cancel")}
           </Button>
           <Button disabled={pending || (requiredParent !== undefined && values[requiredParent.id] == null)} onClick={create}>
-            Create row
+            {t("newRow.create")}
           </Button>
         </div>
       </DialogContent>

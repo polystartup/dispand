@@ -13,17 +13,22 @@ export { DataEvents, getDataEvents, type DataEvent } from "./data/events.ts";
 
 export { openAttachment, sweepAttachments, type AttachmentView } from "./data/files.ts";
 export { sweepAudit } from "./audit/sweep.ts";
+export { PushSender, pushVia } from "./push/sender.ts";
 export { logError } from "./log.ts";
+export { external, isMessageKey, message, reasonOf, say, type Message, type MessageKey, type MessageValues, type Text } from "./messages/index.ts";
 export { ensureAssistants } from "./agents/builtin.ts";
 export { syncPlatformSkills } from "./assistant/skill.ts";
 export { createMcpConnector, type ToolConnector } from "./tools/mcp.ts";
 export { InstalledTools } from "./tools/executor.ts";
 export { pollCaller } from "./tools/poll.ts";
+export { resealToolHeaders } from "./tools/reseal.ts";
 export { guardedFetch, ownAddresses } from "./tools/network.ts";
 export { clientDocument, handleToolOAuthCallback } from "./tools/oauth.ts";
 export { packageForRunner } from "./skills/runner-access.ts";
 export { platformToolCaller } from "./platform/cloud.ts";
 export { handleJobMcp } from "./platform/mcp.ts";
 export { handleJobToolsMcp } from "./platform/tools-mcp.ts";
+export { handleJobFiles } from "./platform/job-files.ts";
+export { handleRunnerAttachment } from "./runners/attachments.ts";
 
 export { flushTelemetry, startTelemetry, stopTelemetry } from "./telemetry/index.ts";

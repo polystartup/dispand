@@ -20,7 +20,7 @@ test("first launch: setup, the Assistant's page adds a harness and starts it, th
 
   // The first page is the Assistant's: no harness yet, so it asks for one.
   await expect(page).toHaveURL(/\/assistant$/);
-  await expect(page.getByText("Choose where the Assistant runs")).toBeVisible();
+  await expect(page.getByText("Choose where Stem runs")).toBeVisible();
   await expect(page.getByRole("button", { name: /guided tour/ })).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath("first-launch.png"), animations: "disabled" });
   await page.waitForLoadState("networkidle");
@@ -45,7 +45,7 @@ test("first launch: setup, the Assistant's page adds a harness and starts it, th
   await expect(page.getByRole("combobox", { name: "Harness" })).toHaveValue(/^harness_/);
   const harnessId = await page.getByRole("combobox", { name: "Harness" }).inputValue();
   await expect(page).toHaveURL(/\/assistant$/);
-  await page.getByRole("button", { name: "Start the Assistant" }).click();
+  await page.getByRole("button", { name: "Start Stem" }).click();
   await expect(page.getByText("Describe your business or use case and how you'd like to automate it.")).toBeVisible();
   await page.screenshot({ path: test.info().outputPath("assistant-welcome.png"), animations: "disabled" });
 

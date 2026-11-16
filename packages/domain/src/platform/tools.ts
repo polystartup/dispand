@@ -5,14 +5,18 @@ import type { Db } from "../db/client.ts";
 import { fields, rows, runs, triggers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
-import { INTERACTION } from "../triggers/model.ts";
+import { INTERACTION, JOB } from "../triggers/model.ts";
 import { ApplyInput, CREATES, ProposeInput, type ProposalName } from "./proposals.ts";
 import type { JobIdentity, PlatformApp, ToolResult } from "./call.ts";
 import { signalsWithin } from "../assistant/review.ts";
 import { AnswerInput, answerQuestion, getQuestion, GetInput, listQuestions, ListInput } from "../questions/inbox.ts";
-import { readMemory, ReadInput, RemoveInput, removeMemoryTool, tablesOf, WriteInput, writeMemoryTool } from "../memory/tools.ts";
+import { readMemory, ReadInput, refuseProposedWrite, RemoveInput, removeMemoryTool, tablesOf, WriteInput, writeMemoryTool } from "../memory/tools.ts";
 import type { Rights } from "./rights.ts";
+import { sentence, type Text } from "../messages/index.ts";
 import { type Decision, decide } from "../plugins/resolve.ts";
+import { marketplaceUrl } from "../plugins/procedures.ts";
+import { wellKnownIndexUrl, WellKnownError } from "../plugins/well-known.ts";
+import { checkGitUrl, GitError } from "../plugins/git.ts";
 
 export { BUNDLES, type Bundle, type TableScope } from "./bundles.ts";
 
@@ -46,9 +50,12 @@ export type PlatformTool = {
    * approved for that Job (`platform/proposals.ts`), checked in `callPlatformTool`.
    */
   grant?: true;
+  /** A grant call that needs no proposal all the same: checked on its parsed input, before it runs. */
+  direct?(db: Db, job: JobIdentity, input: unknown): Promise<boolean>;
   /**
-   * A configuration write that needs no proposal but may be listed in one, so a whole setup is
-   * approved at once. A grant is a write too. Reads are neither, and are never proposal items.
+   * A configuration write, or a memory write within the Job's targets, that needs no proposal but
+   * may be listed in one, so a whole setup is approved at once. A grant is a write too. Reads are
+   * neither, and are never proposal items.
    */
   write?: true;
   /** What the call creates: its kind, and its id read from the output. An item may name it with `{ "$item": n }`. */
@@ -93,8 +100,8 @@ const none = async () => [];
 /** The table a primitive trigger's config watches, if it is one. */
 const watchedBy = (config: unknown): (string | null)[] => {
   const c = config as { kind?: unknown; tableId?: unknown } | undefined;
-  // Questions and Approvals (the built-in `interaction`) are no table: the agent's `inbox` decides.
-  if (c?.kind !== "primitive" || c.tableId === INTERACTION) return [];
+  // Questions and Approvals (the built-in `interaction`) and Jobs (`job`) are no table: the agent's `inbox`, or nothing, decides.
+  if (c?.kind !== "primitive" || c.tableId === INTERACTION || c.tableId === JOB) return [];
   return [typeof c.tableId === "string" ? c.tableId : null];
 };
 /** A trigger change's tables: what its new config watches, and what the trigger watched before. */
@@ -102,6 +109,16 @@ async function triggerTables(db: Db, ownerId: string, input: unknown): Promise<(
   const id = str(input, "id");
   const [current] = id ? await db.select({ config: triggers.config }).from(triggers).where(and(eq(triggers.id, id), eq(triggers.ownerId, ownerId))) : [];
   return [...watchedBy((input as { config?: unknown })?.config), ...watchedBy(current?.config)];
+}
+/**
+ * Turning off a trigger of the Job's own agent, and nothing else, needs no proposal: it only
+ * takes away what that agent does. Turning one on, any other field, another agent's: a grant.
+ */
+async function ownTriggerOff(db: Db, job: JobIdentity, input: unknown): Promise<boolean> {
+  const { id, enabled, ...rest } = input as { id: string; enabled?: boolean };
+  if (enabled !== false || Object.values(rest).some((v) => v !== undefined)) return false;
+  const [row] = await db.select({ agentId: triggers.agentId }).from(triggers).where(and(eq(triggers.id, id), eq(triggers.ownerId, job.ownerId)));
+  return row?.agentId === job.agentId;
 }
 const named = (key: string) => async (_db: Db, _ownerId: string, input: unknown) => [str(input, key)];
 
@@ -177,11 +194,25 @@ const idOf = (output: unknown): string | null => {
   return typeof id === "string" ? id : null;
 };
 
-function tool(path: string, bundle: Bundle, description: string, rest: Pick<PlatformTool, "tables" | "filter" | "grant" | "write" | "shown">): PlatformTool {
+function tool(path: string, bundle: Bundle, description: string, rest: Pick<PlatformTool, "tables" | "filter" | "grant" | "direct" | "write" | "shown" | "available">): PlatformTool {
   // `agents.setToolPermission` is `agents_set_tool_permission`: lower case with `_`, like every tool's name.
   const name = path.replace(".", "_").replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
   const kind = CREATES[name];
   return { path, name, bundle, description, input: procedureOf(router, path)["~orpc"].inputSchema ?? z.object({}), ...rest, ...(kind ? { creates: { kind, id: idOf } } : {}) };
+}
+
+/** The install's setup report for an agent: each waiting reason and refused item's error as its English sentence. */
+export function englishSetup(output: unknown): unknown {
+  const out = output as { setup?: { outcomes: { error?: Text }[]; waiting: { reason: Text }[] } };
+  if (!out.setup) return output;
+  const { outcomes, waiting } = out.setup;
+  return { ...out, setup: { outcomes: outcomes.map((o) => (o.error ? { ...o, error: sentence(o.error) } : o)), waiting: waiting.map((w) => ({ ...w, reason: sentence(w.reason) })) } };
+}
+
+/** An agent's consults with why each is inactive as an English sentence, for an agent: its tool results stay English, never keys. */
+export function englishConsults(output: unknown): unknown {
+  const out = output as { consults: { inactive: Text | null }[] };
+  return { ...out, consults: out.consults.map((c) => ({ ...c, inactive: c.inactive && sentence(c.inactive) })) };
 }
 
 /**
@@ -201,8 +232,24 @@ async function pluginRights(app: PlatformApp, job: JobIdentity, input: unknown):
   }
 }
 
+/** The address a proposed marketplace is read from, as the add resolves it (nothing is fetched): what the owner approves. */
+async function marketplaceAddress(app: PlatformApp, _job: JobIdentity, input: unknown): Promise<unknown> {
+  const { url, kind } = input as { url: string; kind: "git" | "well-known" };
+  try {
+    if (kind === "well-known") return { url: wellKnownIndexUrl(url) };
+    const git = marketplaceUrl(url);
+    checkGitUrl(git, !!app.gitFileUrls);
+    return { url: git };
+  } catch (err) {
+    if (err instanceof WellKnownError || err instanceof GitError) return err.message;
+    throw err;
+  }
+}
+
 export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("tables.list", "data", "Lists the tables you may work on, with their ids and names.", {
+    // Configuring needs table ids too: `configure` alone lists them.
+    available: (rights) => rights.bundles.includes("data") || rights.bundles.includes("configure"),
     tables: none,
     filter: (output, scope) => (scope === "all" ? output : (output as { id: string }[]).filter((t) => scope.includes(t.id))),
   }),
@@ -217,7 +264,7 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
       return withReferring(db, ownerId, tablesOfRows(db, ownerId, Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []));
     },
   }),
-  tool("tables.create", "configure", "Creates a table. Add its fields next with fields_create.", { tables: none, write: true }),
+  tool("tables.create", "configure", "Creates a table: it joins the tables you may work on. Add its fields next with fields_create.", { tables: none, write: true }),
   tool("tables.rename", "configure", "Renames a table.", { tables: named("id"), write: true }),
   tool("tables.setPrimitive", "configure", "Makes a table primitive (each change of its rows is an event that can start agents' Jobs) or not, and sets its parent table.", {
     tables: async (_db, _ownerId, input) => {
@@ -234,7 +281,7 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("fields.update", "configure", "Renames a field or changes its choices.", { tables: tableOfField, write: true }),
   tool("fields.reorder", "configure", "Sets the order of a table's fields: give every field id, in the new order.", { tables: named("tableId"), write: true }),
   tool("agents.list", "configure", "Lists the agents, with their ids, harness, instructions and what their Jobs may do.", { tables: none }),
-  tool("agents.get", "configure", "Gives one agent by its id, with its skills and tools.", { tables: none }),
+  tool("agents.get", "configure", "Gives one agent by its id, with its skills and tools.", { tables: none, filter: englishConsults }),
   tool("agents.create", "configure", `Creates an agent. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("agents.toolAsk", "configure", "Lists the actions of each tool an agent chose, with their Run, Ask or Off permissions.", { tables: none }),
   tool("harnesses.limits", "configure", "Lists every harness: whether it is a CLI on a runner (with the runner's name and whether it is connected now) or a cloud provider, its kind and model, how many of its sessions may work at once, and how many work and wait now.", { tables: none }),
@@ -244,10 +291,17 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("agents.setToolPermission", "configure", `Sets one action of an agent's tool to run without asking, ask before use, or be off. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("tables.delete", "configure", `Deletes a table with its rows: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: named("id"), grant: true }),
   tool("fields.delete", "configure", `Deletes a field with its values in every row: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: tableOfField, grant: true }),
+  tool("fields.retype", "configure", `Changes a field's type and converts its value in every row; a value the new type can't hold is cleared, and that can't be undone. With dryRun: true it only counts (converted, cleared), changes nothing and runs at once: call it so first, and give the counts when you ask. With dryRun: false: ${NEEDS_PROPOSAL}`, {
+    tables: tableOfField,
+    grant: true,
+    // A dry run only reads.
+    direct: async (_db, _job, input) => (input as { dryRun: boolean }).dryRun,
+    shown: async (_app, _job, input) => ((input as { dryRun: boolean }).dryRun ? "A dry run changes nothing and needs no approval: call fields_retype with dryRun: true directly, and propose dryRun: false" : undefined),
+  }),
   tool("triggers.list", "configure", "Lists an agent's triggers: what starts its Jobs (a button, a chat, a schedule), with their instructions.", { tables: none }),
   tool("triggers.get", "configure", "Gives one trigger by its id.", { tables: none }),
   tool("triggers.create", "configure", `Creates a trigger for an agent: what starts a Job and what the agent is told then. ${NEEDS_PROPOSAL}`, { tables: async (_db, _ownerId, input) => watchedBy((input as { config?: unknown })?.config), grant: true }),
-  tool("triggers.update", "configure", `Changes a trigger: its name, instructions, schedule, or whether it is on. ${NEEDS_PROPOSAL}`, { tables: triggerTables, grant: true }),
+  tool("triggers.update", "configure", `Changes a trigger: its name, instructions, schedule, or whether it is on. ${NEEDS_PROPOSAL} Except: a call with only its id and enabled: false, on a trigger of your own agent, runs at once.`, { tables: triggerTables, grant: true, direct: ownTriggerOff }),
   tool("triggers.delete", "configure", `Deletes a trigger. ${NEEDS_PROPOSAL}`, { tables: triggerTables, grant: true }),
   tool("jobs.list", "configure", "Lists the latest Jobs, newest first, of one agent or trigger or with one status if given: what made each, how it went, when, and the ids of its Questions and Approvals still waiting.", { tables: none }),
   tool("jobs.get", "configure", "Gives one Job with its transcript (a page of its messages, oldest first, and how many there are) and its Questions and Approvals with their answers. Only an agent on every table reads it.", { tables: wholeWorkspace }),
@@ -266,11 +320,18 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("tools.addFromCatalog", "configure", `Adds a tool from the catalog by its id, with no credentials: the owner enters them, or signs in, on the tool's page afterwards (its signInPath). It starts with the actions its entry declares, so their flags and poll triggers can be set at once. An entry that runs on a runner can't be added this way. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("tools.add", "configure", `Adds a tool: an MCP server reached at a URL, with no credentials (the owner enters those afterwards). ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("tools.delete", "configure", `Deletes a tool no agent uses, with its saved headers: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool("agents.delete", "configure", `Deletes an agent and its triggers (the skills and tools it uses stay); its Jobs still going stop, its past Jobs stay: this can't be undone. The built-in agent, an agent a workflow uses and your own agent can't be deleted. ${NEEDS_PROPOSAL}`, {
+    tables: none,
+    grant: true,
+    // Its own deletion would stop the Job in the middle of its call.
+    shown: async (_app, job, input) => ((input as { id: string }).id === job.agentId ? "An agent can't delete itself: the owner deletes it on its page" : undefined),
+  }),
   tool("agents.update", "configure", `Changes an agent: give every field, as agents_get shows them. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool("marketplaces.add", "configure", `Adds a marketplace, where plugins_discover finds plugins: a Git repository (its URL, or GitHub's owner/repo) with a .claude-plugin/marketplace.json or a skills/ folder, or with kind "well-known" a skill site (an https address serving /.well-known/skills/index.json). Nothing is read from it before the owner approves. ${NEEDS_PROPOSAL}`, { tables: none, grant: true, shown: marketplaceAddress }),
   tool("plugins.discover", "configure", "Lists what the owner's marketplaces offer (each entry with its marketplace's id), with whether it is installed; a query narrows them by name or description.", { tables: none }),
   tool("plugins.preview", "configure", "Reads a marketplace entry as installing it would: its skills, MCP servers, agents, and definitions (tables, agents with what their Jobs may do, triggers), and the reviewed token an install must carry.", { tables: none }),
   tool("plugins.list", "configure", "Lists the installed plugins with their definitions and which of them are set up.", { tables: none }),
-  tool("plugins.install", "configure", `Installs a marketplace entry: its skills, and with setup the definitions picked (tables, agents each on a harness, triggers), made as the plugin's. Give plugins_preview's reviewed token: an entry changed since is refused. Pick skills and setup only: its MCP servers, agent files and native install are the owner's to add. Every tool its agents get starts on Ask. Only an agent on every table installs. ${NEEDS_PROPOSAL}`, { tables: everyTable, grant: true, shown: pluginRights }),
+  tool("plugins.install", "configure", `Installs a marketplace entry: its skills, and with setup the definitions picked (tables, agents each on a harness, triggers), made as the plugin's. Give plugins_preview's reviewed token: an entry changed since is refused. Pick skills and setup only: its MCP servers, agent files and native install are the owner's to add. Every tool its agents get starts on Ask. Only an agent on every table installs. ${NEEDS_PROPOSAL}`, { tables: everyTable, grant: true, shown: pluginRights, filter: englishSetup }),
 ];
 
 /**
@@ -387,6 +448,9 @@ export const MEMORY_TOOLS: PlatformTool[] = [
       "Adds an entry to a memory you may write (your agent's, a table's you work on, or the workspace's, as your self-learning allows): one fact the Jobs that come next need, at a path that has no entry yet. Memory is not a log.",
     input: WriteInput,
     tables: tableOfScope,
+    // Within its targets it needs no proposal, but may be an item of one (the day-one setup's business).
+    write: true,
+    shown: (app, job, input) => refuseProposedWrite(app, job, input as never),
     run: (app, job, input, rights) => writeMemoryTool(app, job, input as never, rights, "add"),
   },
   {
@@ -397,6 +461,8 @@ export const MEMORY_TOOLS: PlatformTool[] = [
     description: "Rewrites the entry at a path of a memory you may write: give every field, as it should read now.",
     input: WriteInput,
     tables: tableOfScope,
+    write: true,
+    shown: (app, job, input) => refuseProposedWrite(app, job, input as never),
     run: (app, job, input, rights) => writeMemoryTool(app, job, input as never, rights, "update"),
   },
   {
@@ -414,7 +480,10 @@ export const MEMORY_TOOLS: PlatformTool[] = [
 /** Every other procedure: not a tool. A new procedure goes here or above, or the walk test fails. */
 export const NOT_TOOLS: string[] = [
   "assistantCommands",
-  // Signing in and the owner's account.
+  // Signing in and the owner's account, and the browsers it pushes to.
+  "push.subscribe",
+  "push.unsubscribe",
+  "push.list",
   "auth.setup",
   "auth.status",
   "auth.me",
@@ -445,9 +514,6 @@ export const NOT_TOOLS: string[] = [
   "tools.pollable",
   "tools.setPollable",
   "tools.setActionEnabled",
-  // What grants authority or can't be undone: a person does it (later, through a proposal).
-  "fields.retype",
-  "agents.delete",
   // Saved native CLI permissions belong to the owner, never to Job tools.
   "agents.cliRules",
   "agents.removeCliRule",
@@ -460,7 +526,6 @@ export const NOT_TOOLS: string[] = [
   "skills.list",
   "skills.get",
   "marketplaces.list",
-  "marketplaces.add",
   "marketplaces.remove",
   "marketplaces.sync",
   "plugins.uninstallPreview",
@@ -472,12 +537,15 @@ export const NOT_TOOLS: string[] = [
   "plugins.resetOverride",
   "plugins.conflicts",
   "plugins.resolveConflict",
+  "plugins.tableChanges",
+  "plugins.applyTableChange",
   "skills.setFile",
   "skills.removeFile",
   "skills.readFile",
   "plugins.addServer",
   // Files and streams.
   "files.upload",
+  "files.hold",
   "rows.editFiles",
   "rows.stream",
   // The owner's pages.
@@ -516,6 +584,12 @@ export const NOT_TOOLS: string[] = [
   // or changes it, not even through a proposal.
   "workspace.auditRetention",
   "workspace.setAuditRetention",
+  // How many files the install keeps: it guards the machine's disk against agents' tool results.
+  "workspace.filesLimit",
+  "workspace.setFilesLimit",
+  // Strict permissions: turning them off widens what agents run unasked, so it is the owner's only.
+  "workspace.strictPermissions",
+  "workspace.setStrictPermissions",
   // The owner's memory pages; agents have their own memory tools, gated by their targets.
   "memories.list",
   "memories.get",

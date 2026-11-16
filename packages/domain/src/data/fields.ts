@@ -1,5 +1,6 @@
 import { storable } from "@dispand/runner-protocol";
 import { z } from "zod";
+import { type Message, type MessageKey, say } from "../messages/index.ts";
 import { StorableText } from "../text.ts";
 
 // Field types and cell values: the one place that knows what each type stores, how text becomes a
@@ -28,7 +29,11 @@ export const ROW_ID = /^row_[0-9A-Za-z]{1,64}$/;
 /** text, long-text, url, date: a string; number: finite; checkbox: boolean; single-select: a choice id; attachment: attachment ids; reference: a row id. `null` is empty. */
 export type Cell = string | number | boolean | string[] | null;
 
-type Parsed = { ok: true; value: Cell } | { ok: false; reason: string };
+/** Why a value doesn't fit, as a keyed message that names the field. */
+type Parsed = { ok: true; value: Cell } | { ok: false; reason: Message };
+
+// A schema issue's message is the key `cellProblem` reads back.
+const expected = (key: "url" | "date" | "choice" | "rowId"): MessageKey => `data.cell.expected.${key}`;
 
 function isDate(s: string): boolean {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
@@ -56,9 +61,9 @@ export function cellSchema(field: FieldSchema): z.ZodType<Cell> {
     case "long-text":
       return StorableText(CELL_LIMITS["long-text"]).nullable();
     case "url":
-      return StorableText(CELL_LIMITS.url).refine(isHttpUrl, "expected an http(s) URL").nullable();
+      return StorableText(CELL_LIMITS.url).refine(isHttpUrl, expected("url")).nullable();
     case "date":
-      return z.string().refine(isDate, "expected a date, YYYY-MM-DD").nullable();
+      return z.string().refine(isDate, expected("date")).nullable();
     case "number":
       return z.number().finite().nullable();
     case "checkbox":
@@ -67,13 +72,13 @@ export function cellSchema(field: FieldSchema): z.ZodType<Cell> {
       const ids = new Set(field.choices.map((c) => c.id));
       return z
         .string()
-        .refine((id) => ids.has(id), "not one of the field's choices")
+        .refine((id) => ids.has(id), expected("choice"))
         .nullable();
     }
     case "attachment":
       return z.array(StorableText(200)).max(CELL_LIMITS.attachments).nullable();
     case "reference":
-      return z.string().regex(ROW_ID, "expected the id of a row").nullable();
+      return z.string().regex(ROW_ID, expected("rowId")).nullable();
   }
 }
 
@@ -83,14 +88,14 @@ function cut(s: string, max: number): string {
   return /[\uD800-\uDBFF]$/.test(head) ? head.slice(0, -1) : head;
 }
 
-/** The value as the owner reads it in a reason: quoted, and cut so a long output stays short. */
-function quote(text: string): string {
-  return `“${text.length > 100 ? `${cut(text, 100)}…` : text}”`;
+/** The value as the owner reads it in a reason, cut so a long output stays short. */
+function shown(text: string): string {
+  return text.length > 100 ? `${cut(text, 100)}…` : text;
 }
 
-function textCell(text: string, max: number): Parsed {
-  if (text.length > max) return { ok: false, reason: `expected at most ${max} characters, got ${text.length}` };
-  if (!storable(text)) return { ok: false, reason: "contains a character Dispand can't store (NUL or a lone surrogate)" };
+function textCell(field: FieldSchema, text: string, max: number): Parsed {
+  if (text.length > max) return { ok: false, reason: say("data.cell.tooLong", { field: field.name, max, length: text.length }) };
+  if (!storable(text)) return { ok: false, reason: say("data.cell.unstorable", { field: field.name }) };
   return { ok: true, value: text };
 }
 
@@ -101,42 +106,43 @@ const ISO_DATE_TIME = /^(\d{4}-\d{2}-\d{2})[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+
 /** What a wired value or a literal goes through: lenient, with an owner-facing reason when it doesn't fit. */
 export function parseCellText(field: FieldSchema, text: string): Parsed {
   const t = text.trim();
+  const got = (key: "number" | "checkbox" | "date" | "url" | "choice" | "rowId"): Parsed => ({ ok: false, reason: say(`data.cell.got.${key}`, { field: field.name, value: shown(t) }) });
   if (t === "") return { ok: true, value: null };
   switch (field.type) {
     case "text":
-      return textCell(text, CELL_LIMITS.text);
+      return textCell(field, text, CELL_LIMITS.text);
     case "long-text":
-      return textCell(text, CELL_LIMITS["long-text"]);
+      return textCell(field, text, CELL_LIMITS["long-text"]);
     case "number": {
       let n = t.replace(/\s/g, "");
       if (n.split(",").length === 2 && !n.includes(".")) n = n.replace(",", ".");
       const value = Number(n);
-      if (!/^[+-]?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(n) || !Number.isFinite(value)) return { ok: false, reason: `expected a number, got ${quote(t)}` };
+      if (!/^[+-]?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(n) || !Number.isFinite(value)) return got("number");
       return { ok: true, value };
     }
     case "checkbox": {
       const v = t.toLowerCase();
       if (TRUE.has(v)) return { ok: true, value: true };
       if (FALSE.has(v)) return { ok: true, value: false };
-      return { ok: false, reason: `expected true or false, got ${quote(t)}` };
+      return got("checkbox");
     }
     case "date": {
       const date = ISO_DATE_TIME.exec(t)?.[1] ?? t;
-      if (!isDate(date)) return { ok: false, reason: `expected a date, YYYY-MM-DD, got ${quote(t)}` };
+      if (!isDate(date)) return got("date");
       return { ok: true, value: date };
     }
     case "url":
-      if (t.length > CELL_LIMITS.url || !storable(t) || !isHttpUrl(t)) return { ok: false, reason: `expected an http(s) URL, got ${quote(t)}` };
+      if (t.length > CELL_LIMITS.url || !storable(t) || !isHttpUrl(t)) return got("url");
       return { ok: true, value: t };
     case "single-select": {
       const choice = field.choices.find((c) => c.label.toLowerCase() === t.toLowerCase());
-      if (!choice) return { ok: false, reason: `expected one of the field's choices, got ${quote(t)}` };
+      if (!choice) return got("choice");
       return { ok: true, value: choice.id };
     }
     case "attachment":
-      return { ok: false, reason: "files can't be set from text" };
+      return { ok: false, reason: say("data.cell.noFilesFromText", { field: field.name }) };
     case "reference":
-      return ROW_ID.test(t) ? { ok: true, value: t } : { ok: false, reason: `expected the id of a row, got ${quote(t)}` };
+      return ROW_ID.test(t) ? { ok: true, value: t } : got("rowId");
   }
 }
 

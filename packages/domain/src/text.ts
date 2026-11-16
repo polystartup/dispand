@@ -15,3 +15,8 @@ export const StorableText = (max: number) =>
 export function storableText(s: string): string {
   return s.replaceAll("\u0000", "\uFFFD").toWellFormed();
 }
+
+/** `s` on one line, at most 255 characters: every control and line-breaking character becomes a space. How a file's name is shown to an agent. */
+export function oneLine(s: string): string {
+  return [...s].map((c) => { const n = c.codePointAt(0)!; return n < 0x20 || (n >= 0x7f && n <= 0x9f) || n === 0x2028 || n === 0x2029 ? " " : c; }).join("").slice(0, 255);
+}

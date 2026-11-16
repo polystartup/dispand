@@ -1,4 +1,5 @@
 import { commandSources, discoverCommands } from "./commands.ts";
+import { stagedSources } from "./native-skills.ts";
 import { discoverModels } from "./models.ts";
 // The runner's command line: `pair` once (install.sh runs it), then `run` (the systemd user unit).
 import { startUpdates } from "./updates.ts";
@@ -8,10 +9,15 @@ import { accessSync, constants } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 import { parseArgs, promisify } from "node:util";
 import pkg from "../package.json" with { type: "json" };
-import { claudeEnv, codexEnv, configDir, loadConfig, loadToken, machineConfigPaths, preparePairing, type RunnerConfig, runnerStateDir, serverUrl, stateDir } from "./config.ts";
+import { createInterface } from "node:readline/promises";
+import { z } from "zod";
+import { canonicalEntry, contentDigest } from "./plugin-digest.ts";
+import { checkPluginFiles } from "./plugin-servers.ts";
+import { claudeEnv, codexEnv, configDir, loadConfig, PLUGIN_NAME, PluginEntry, loadToken, machineConfigPaths, preparePairing, type RunnerConfig, runnerStateDir, serverUrl, stateDir } from "./config.ts";
 import { callTool, credentialValues, discoverTool } from "./mcp.ts";
+import { PROXY_SPEC, PROXY_TOKEN, ProxySpec, runProxy } from "./mcp-proxy.ts";
 import { codexDenied } from "./boundary.ts";
-import { clearSessions } from "./skills.ts";
+import { clearSessions, readCapped } from "./skills.ts";
 import { Connection } from "./connection.ts";
 import { ID } from "@dispand/runner-protocol";
 import { protocolString } from "./sanitize.ts";
@@ -25,7 +31,8 @@ import { writeDurable } from "./durable.ts";
 const USAGE = `Usage:
   DISPAND_PAIRING_CODE=<code> dispand-runner pair [--config <dir>] --server <url> --root <dir> [--root <dir>...]
   dispand-runner run [--config <dir>]
-  dispand-runner native-plugins [--config <dir>]`;
+  dispand-runner native-plugins [--config <dir>]
+  dispand-runner allow-plugin [--config <dir>] <tool id> <name>@<digest>`;
 
 function fail(message: string): never {
   console.error(`dispand-runner: ${message}`);
@@ -62,10 +69,10 @@ async function pair(args: string[]) {
   const roots = values.root.map((root) => resolve(root));
   const dir = values.config ? resolve(values.config) : configDir();
   // A re-pair keeps what the machine's owner set by hand.
-  let kept: Pick<RunnerConfig, "allowBypass" | "mcpServers" | "pluginTargets"> = { allowBypass: false };
+  let kept: Pick<RunnerConfig, "allowBypass" | "mcpServers" | "pluginTargets" | "allowedPlugins"> = { allowBypass: false };
   try {
-    const { allowBypass, mcpServers, pluginTargets } = loadConfig(join(dir, "config.json"));
-    kept = { allowBypass, ...(pluginTargets ? { pluginTargets } : {}), ...(mcpServers ? { mcpServers } : {}) };
+    const { allowBypass, mcpServers, pluginTargets, allowedPlugins } = loadConfig(join(dir, "config.json"));
+    kept = { allowBypass, ...(pluginTargets ? { pluginTargets } : {}), ...(mcpServers ? { mcpServers } : {}), ...(allowedPlugins ? { allowedPlugins } : {}) };
   } catch {
     // First pairing.
   }
@@ -93,6 +100,72 @@ async function pair(args: string[]) {
   const { runnerId, token } = (await res.json()) as { runnerId: string; token: string };
   pairing.commit(token, runnerId);
   console.log(`Paired as runner ${runnerId}. Config: ${join(dir, "config.json")}`);
+}
+
+/** A plugin's files as the server's route of a plugin runner tool returns them, within a skill package's caps. */
+const FetchedPlugin = z.object({
+  name: z.string(),
+  entry: PluginEntry,
+  files: z.array(z.object({ path: z.string().max(255), base64: z.base64() })).max(500),
+});
+
+/**
+ * `allow-plugin <tool id> <name>@<digest>`: fetches the tool's plugin from the server itself,
+ * refuses another name or a digest other than the one typed, shows the launch entry and writes
+ * the record (`allowedPlugins`, replacing that name's) only after a typed yes. Runs nothing.
+ */
+async function allowPlugin(args: string[]) {
+  const { values, positionals } = parseArgs({ args, options: { config: { type: "string" } }, allowPositionals: true });
+  const [toolId, spec, ...extra] = positionals;
+  const at = spec?.lastIndexOf("@") ?? -1;
+  const name = spec?.slice(0, at) ?? "";
+  const typed = spec?.slice(at + 1) ?? "";
+  if (!toolId || toolId.length > ID || extra.length || name.length > 64 || !PLUGIN_NAME.test(name) || !/^sha256:[0-9a-f]{64}$/.test(typed)) fail(USAGE);
+  const dir = values.config ? resolve(values.config) : configDir();
+  const path = join(dir, "config.json");
+  // The token first: an older runner's separate token file moves into config.json, which this command then rewrites.
+  const token = loadToken(dir);
+  const config = loadConfig(path, codexEnv(claudeEnv()));
+  let res: Response;
+  try {
+    res = await fetch(`${config.server}/runner/plugins/${encodeURIComponent(toolId)}`, { headers: { authorization: `Bearer ${token}` }, redirect: "error", signal: AbortSignal.timeout(30_000) });
+  } catch (err) {
+    fail(`can't reach ${config.server}: ${(err as Error).message}`);
+  }
+  if (res.status !== 200) {
+    await res.body?.cancel();
+    fail(`Dispand refused the plugin of tool ${toolId} (HTTP ${res.status})`);
+  }
+  let parsed: z.infer<typeof FetchedPlugin>;
+  try {
+    parsed = FetchedPlugin.parse(JSON.parse(await readCapped(res, 16 * 1024 * 1024)));
+  } catch {
+    fail(`the plugin of tool ${toolId} isn't readable or is too large`);
+  }
+  if (parsed.name !== name) fail(`tool ${toolId} runs the plugin ${parsed.name}, not ${name}: nothing was written`);
+  const files = parsed.files.map((f) => ({ path: f.path, content: Buffer.from(f.base64, "base64") }));
+  // The runner would refuse to launch these files whatever the record: write none for them.
+  try {
+    checkPluginFiles(name, files);
+  } catch (err) {
+    fail(`${(err as Error).message} Nothing was written.`);
+  }
+  const digest = contentDigest(files);
+  if (digest !== typed) fail(`the files Dispand sent for ${name} have the digest ${digest}, not ${typed}: nothing was written`);
+  const command = parsed.entry.command;
+  console.log(`The plugin ${name} (${digest}) starts its server with this launch entry:\n${JSON.stringify(JSON.parse(canonicalEntry(parsed.entry)), null, 2)}`);
+  if (!(command.startsWith("./") && files.some((f) => f.path === command.slice(2)))) {
+    console.log(`Its command ${command} isn't a file of the plugin: this record covers the command line, not what it downloads.`);
+  }
+  const record = { name, digest, entry: parsed.entry };
+  const allowedPlugins = [...(config.allowedPlugins ?? []).filter((r) => r.name !== name), record];
+  if (allowedPlugins.length > 100) fail("this runner already allows 100 plugins: remove one from allowedPlugins in its config first");
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await rl.question("Allow it on this runner? Type yes to write the record: ").catch(() => "");
+  rl.close();
+  if (answer.trim() !== "yes") fail("nothing was written");
+  writeDurable(path, `${JSON.stringify({ ...config, allowedPlugins }, null, 2)}\n`, 0o600);
+  console.log(`The plugin ${name} is allowed on this runner with the digest ${digest}; restart the runner to use it.`);
 }
 
 async function run(args: string[]) {
@@ -184,7 +257,7 @@ async function run(args: string[]) {
     onMessage: (msg) => {
       if (msg.type === "commands.request") {
         const catalog = msg.sessionId ? sessions.commands(msg.sessionId) : discoverCommands(msg.harness, msg.harness === "codex" ? codexPath : claudePath, env, config.roots[0]!);
-        void Promise.all([catalog, plugins.request({ action: "list" })]).then(([commands, report]) => commandSources(commands, msg.harness, report)).then(
+        void Promise.all([catalog, plugins.request({ action: "list" })]).then(([commands, report]) => stagedSources(commandSources(commands, msg.harness, report), msg.sessionId ? sessions.stagedPackages(msg.sessionId) : [])).then(
           (commands) => conn.reply({ type: "commands.replied", requestId: msg.requestId, commands }),
           () => conn.reply({ type: "commands.replied", requestId: msg.requestId, error: "Could not discover commands from the CLI" }),
         );
@@ -238,6 +311,18 @@ async function run(args: string[]) {
 const [command, ...rest] = process.argv.slice(2);
 if (command === "pair") await pair(rest);
 else if (command === "run") await run(rest);
+else if (command === "allow-plugin") await allowPlugin(rest);
+// Started by a session's CLI in place of a runner tool (`mcp.ts` `mcpConfigFor`), never by hand.
+else if (command === "mcp-proxy") {
+  let spec: ProxySpec;
+  try {
+    spec = ProxySpec.parse(JSON.parse(process.env[PROXY_SPEC] ?? ""));
+  } catch {
+    fail("mcp-proxy is started by a session, with its spec");
+  }
+  // Its server gone and every line written out, the proxy goes too, whatever the CLI still holds open.
+  process.exit(await runProxy(spec, process.env[PROXY_TOKEN]));
+}
 else if (command === "native-plugins") {
   const { values } = parseArgs({ args: rest, options: { config: { type: "string" } } });
   const dir = values.config ? resolve(values.config) : configDir();

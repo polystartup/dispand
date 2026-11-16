@@ -76,10 +76,10 @@ test("refuses a cron the schedule helpers refuse", async () => {
   const { context, agent } = await setup();
   await expect(
     call(router.triggers.create, { agentId: agent.id, name: "T", instructions: "Do it.", config: { kind: "schedule", cron: "H 9 * * *", timezone: "Europe/Paris" } }, { context }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Use numbers, not H" });
+  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Use numbers, not H." });
   await expect(
     call(router.triggers.create, { agentId: agent.id, name: "T", instructions: "Do it.", config: { kind: "schedule", cron: "0 9 * * *", timezone: "Mars/Olympus" } }, { context }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Unknown timezone" });
+  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Unknown timezone." });
 });
 
 test("a schedule trigger gets its next fire and keeps it on rename", async () => {
@@ -142,7 +142,7 @@ test("a button or schedule trigger needs instructions; a chat doesn't", async ()
   const { context, agent } = await setup();
   const create = (config: TriggerConfig, instructions?: string) =>
     call(router.triggers.create, { agentId: agent.id, name: "T", config, ...(instructions === undefined ? {} : { instructions }) }, { context });
-  const refused = { code: "BAD_REQUEST", message: "Say what the agent does when this trigger fires" };
+  const refused = { code: "BAD_REQUEST", message: "Say what the agent does when this trigger fires.", data: { key: "triggers.instructionsNeeded" } };
   await expect(create({ kind: "manual", placement: "button" })).rejects.toMatchObject(refused);
   await expect(create({ kind: "schedule", cron: "0 9 * * *", timezone: "Europe/Paris" }, "  ")).rejects.toMatchObject(refused);
   const chat = await create({ kind: "manual", placement: "chat" });
@@ -161,4 +161,14 @@ test("a schedule trigger's cron is checked even when it is turned off", async ()
   await expect(
     call(router.triggers.update, { id: trigger.id, enabled: false, config: { kind: "schedule", cron: "not a cron", timezone: "Europe/Paris" } }, { context }),
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+});
+
+test("a trigger config's refinements answer with their own keyed message, not the generic one", async () => {
+  const { context, agent } = await setup();
+  const refuse = (config: unknown) => call(router.triggers.create, { agentId: agent.id, name: "T", instructions: "Do it.", config } as never, { context });
+  const primitive = { kind: "primitive", tableId: "interaction", operations: ["updated"] };
+  await expect(refuse(primitive)).rejects.toMatchObject({ message: "These changes aren't ones of what the trigger watches.", data: { key: "triggers.invalid.operations" } });
+  await expect(refuse({ ...primitive, operations: ["answered"], fields: ["f"] })).rejects.toMatchObject({ message: "A Question, an Approval or a Job has no fields.", data: { key: "triggers.invalid.noFields" } });
+  const poll = { kind: "poll", toolId: "t", action: "a", idPath: "id", arguments: { big: "x".repeat(17 * 1024) } };
+  await expect(refuse(poll)).rejects.toMatchObject({ message: "The arguments are larger than 16 KiB.", data: { key: "triggers.invalid.argumentsTooLarge" } });
 });

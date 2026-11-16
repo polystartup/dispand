@@ -40,10 +40,10 @@ test("an entry naming the agent itself, another owner's agent, or an agent acros
   const clerk = await make("Clerk");
   const builder = await make("Builder", ["data", "configure"]);
   const update = (consults: { agentId: string; ask: boolean }[]) => call(router.agents.update, { ...base, id: clerk.id, name: "Clerk", bundles: ["data"], consults }, { context });
-  await expect(update([{ agentId: clerk.id, ask: false }])).rejects.toMatchObject({ code: "BAD_REQUEST", message: "An agent can't consult itself" });
+  await expect(update([{ agentId: clerk.id, ask: false }])).rejects.toMatchObject({ code: "BAD_REQUEST", message: "An agent can't consult itself." });
   await expect(update([{ agentId: builder.id, ask: false }])).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "Builder changes the workspace and Clerk doesn't: an agent that changes the workspace and one that doesn't never consult each other",
+    message: "Builder changes the workspace and Clerk doesn't: an agent that changes the workspace and one that doesn't never consult each other.",
   });
   await expect(call(router.agents.create, { ...base, name: "Admin", bundles: ["configure"], consults: [{ agentId: clerk.id, ask: false }] }, { context })).rejects.toMatchObject({
     code: "BAD_REQUEST",
@@ -51,12 +51,12 @@ test("an entry naming the agent itself, another owner's agent, or an agent acros
   });
   // Refused in the agent's own transaction: nothing of the refused create is left.
   expect((await context.db.select({ name: agents.name }).from(agents).where(eq(agents.ownerId, context.ownerId))).map((a) => a.name).sort()).toEqual(["Builder", "Clerk"]);
-  await expect(update([{ agentId: "agent_nobody", ask: false }])).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Agent not found" });
+  await expect(update([{ agentId: "agent_nobody", ask: false }])).rejects.toMatchObject({ code: "BAD_REQUEST", message: "This agent doesn't exist." });
   // Another owner's agent is not one to consult.
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(harnesses).values({ id: "harness_other", ownerId: "user_other", name: "Eve's", runnerId: harness.runnerId, kind: "claude-code", permissionMode: "default" });
   await context.db.insert(agents).values({ id: "agent_eve", ownerId: "user_other", name: "Eve's clerk", harnessId: "harness_other", systemPrompt: "", bundles: ["data"] });
-  await expect(update([{ agentId: "agent_eve", ask: false }])).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Agent not found" });
+  await expect(update([{ agentId: "agent_eve", ask: false }])).rejects.toMatchObject({ code: "BAD_REQUEST", message: "This agent doesn't exist." });
   expect(await context.db.select().from(agentConsults)).toEqual([]);
   // Both with configure, or both without: allowed.
   const admin = await call(router.agents.create, { ...base, name: "Admin", bundles: ["configure"], consults: [{ agentId: builder.id, ask: false }] }, { context });
@@ -68,7 +68,7 @@ test("an entry a later bundle change puts across the configure line is kept, sho
   const architect = await make("Architect");
   const owner = await call(router.agents.create, { ...base, name: "Owner", bundles: ["data"], consults: [{ agentId: architect.id, ask: false }] }, { context });
   await call(router.agents.update, { ...base, id: architect.id, name: "Architect", bundles: ["data", "configure"] }, { context });
-  const entry = { agentId: architect.id, ask: false, inactive: "Architect changes the workspace and Owner doesn't: an agent that changes the workspace and one that doesn't never consult each other" };
+  const entry = { agentId: architect.id, ask: false, inactive: { key: "agent.consult.sides", values: { changes: "Architect", keeps: "Owner" } } };
   expect((await call(router.agents.get, { id: owner.id }, { context })).consults).toEqual([entry]);
   await call(router.agents.update, { ...base, id: owner.id, name: "Owner", systemPrompt: "Changed.", consults: [{ agentId: architect.id, ask: false }] }, { context });
   expect((await call(router.agents.get, { id: owner.id }, { context })).consults).toEqual([entry]);
@@ -126,4 +126,16 @@ test("a Job names an agent to consult, or changes a description, only through an
   expect((await context.db.select().from(proposals).where(eq(proposals.id, proposalId)))[0]!.status).toBe("approved");
   expect(await callPlatformTool(context, job, "agents_update", input)).toMatchObject({ ok: true });
   expect(await call(router.agents.get, { id: builder.id }, { context })).toMatchObject({ description: "Builds tables.", consults: [{ agentId: architect.id, ask: false, inactive: null }] });
+});
+
+test("an agent that reads an agent through agents_get gets why an entry is inactive as an English sentence, never a key", async () => {
+  const { context, base, make } = await setup();
+  const architect = await make("Architect");
+  const builder = await make("Builder", ["configure"]);
+  const owner = await call(router.agents.create, { ...base, name: "Owner", bundles: ["data"], consults: [{ agentId: architect.id, ask: false }] }, { context });
+  await call(router.agents.update, { ...base, id: architect.id, name: "Architect", bundles: ["data", "configure"] }, { context });
+  const trigger = await call(router.triggers.create, { agentId: builder.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const job: JobIdentity = { runId: (await call(router.jobs.start, { triggerId: trigger.id }, { context })).runId, ownerId: context.ownerId, agentId: builder.id };
+  const read = await callPlatformTool(context, job, "agents_get", { id: owner.id });
+  expect(read).toMatchObject({ ok: true, output: { consults: [{ agentId: architect.id, inactive: "Architect changes the workspace and Owner doesn't: an agent that changes the workspace and one that doesn't never consult each other." }] } });
 });

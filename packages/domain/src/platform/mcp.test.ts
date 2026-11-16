@@ -2,7 +2,9 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { runs } from "../db/schema.ts";
+import { audit, runs } from "../db/schema.ts";
+import { stopTelemetry } from "../telemetry/index.ts";
+import { captureTelemetry } from "../telemetry/testing.ts";
 import type { MemoryTarget } from "../memory/model.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
@@ -62,6 +64,21 @@ test("the endpoint lists the Job's tools and runs one", async () => {
   expect(created.isError).toBeFalsy();
   expect(JSON.parse(textOf(created))).toMatchObject({ id: expect.stringMatching(/^row_/) });
   expect((await call(router.rows.list, { tableId: table.id }, { context })).rows).toHaveLength(1);
+});
+
+test("a call through the endpoint is in the Job's trace, and so is its Audit row", async () => {
+  const { context, job } = await setup();
+  const t = await captureTelemetry();
+  onTestFinished(() => stopTelemetry());
+  const { table, token, runId } = await job("Clients");
+  const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
+  const client = await connect(context, token);
+  await client.callTool({ name: "rows_create", arguments: { tableId: table.id } });
+  const [row] = await context.db.select().from(audit).where(eq(audit.action, "platform.call"));
+  expect(run!.spanId).toBeTruthy();
+  expect(row!.traceId).toBe(run!.traceId);
+  const [procedure] = t.spans().filter((s) => s.spanContext().traceId === run!.traceId && s.parentSpanContext?.spanId === run!.spanId);
+  expect(procedure).toBeDefined();
 });
 
 test("no token, a wrong token and an ended Job's token get 401 with a Bearer challenge", async () => {

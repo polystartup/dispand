@@ -35,7 +35,7 @@ test("a Job gets a token at creation: only its hash and its sealed form are stor
 test("a token names its Job while the Job goes on, and nothing after", async () => {
   const { context, agent, runId, run } = await setup();
   const token = jobTokenOf(context.secrets, run)!;
-  expect(await jobOfToken(context.db, token)).toEqual({ runId, ownerId: context.ownerId, agentId: agent.id });
+  expect(await jobOfToken(context.db, token)).toEqual({ runId, ownerId: context.ownerId, agentId: agent.id, traceId: null, spanId: null });
   for (const wrong of ["", "dj_", `${token}x`, token.slice(0, -1), "Bearer " + token]) expect(await jobOfToken(context.db, wrong)).toBeNull();
   await context.engine.stopRun(runId);
   expect(await jobOfToken(context.db, token)).toBeNull();

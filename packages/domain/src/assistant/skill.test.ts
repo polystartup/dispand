@@ -15,6 +15,7 @@ import type { RunnerHub } from "../runners/hub.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
 import { PLATFORM_SKILL, PLATFORM_SKILL_FILES, syncPlatformSkill, syncPlatformSkills } from "./skill.ts";
+import { ASSISTANT_NAME } from "../engine/job-def.ts";
 
 const text = (content: Uint8Array) => new TextDecoder().decode(content);
 
@@ -45,6 +46,12 @@ test("the build's files are a valid package of one skill, and name only tools Di
   expect(named.filter((n) => !names.has(n))).toEqual([]);
 });
 
+test("the skill names the built-in agent by its shown name, never as the Assistant", () => {
+  const text = Object.values(build).join("\n");
+  expect(build[`${PLATFORM_SKILL}/references/concepts.md`]).toContain(`## ${ASSISTANT_NAME}\n\n${ASSISTANT_NAME} is the workspace's built-in agent`);
+  expect(text).not.toMatch(/\{\{assistant\}\}|the Assistant/);
+});
+
 test("the skill tells the Assistant to give times in the owner's time zone, never in UTC", () => {
   expect(build[`${PLATFORM_SKILL}/SKILL.md`]).toMatch(/times in their own time zone[\s\S]*never in UTC/);
 });
@@ -73,9 +80,9 @@ test("the platform skill is read-only to the owner, and its name is kept for it"
   const { packageId } = (await call(router.skills.list, undefined, { context })).find((p) => p.name === PLATFORM_SKILL)!;
   expect((await call(router.skills.list, undefined, { context })).find((p) => p.packageId === packageId)).toMatchObject({ builtIn: true, plugin: null });
   const fields = { name: PLATFORM_SKILL, description: "Mine.", instructions: "x", requiredToolIds: [] };
-  await expect(call(router.skills.update, { packageId, ...fields }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: "The platform skill is built in: it is read-only" });
+  await expect(call(router.skills.update, { packageId, ...fields }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: "The platform skill is built in: it is read-only." });
   await expect(call(router.skills.update, { packageId, ...fields, name: "renamed" }, { context })).rejects.toMatchObject({ code: "FORBIDDEN" });
-  await expect(call(router.skills.delete, { packageId }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: "The platform skill is built in: it is read-only" });
+  await expect(call(router.skills.delete, { packageId }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: "The platform skill is built in: it is read-only." });
   await expect(call(router.skills.create, fields, { context })).rejects.toMatchObject({ code: "CONFLICT" });
   const mine = await call(router.skills.create, { ...fields, name: "mine" }, { context });
   await expect(call(router.skills.update, { packageId: mine.packageId, ...fields }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
@@ -88,7 +95,7 @@ test("the Assistant has the platform skill, and neither the owner nor a proposal
   expect(agent.skills).toEqual([{ packageId: pkg!.id, name: PLATFORM_SKILL }]);
 
   const mine = await call(router.skills.create, { name: "mine", description: "Mine.", instructions: "x", requiredToolIds: [] }, { context });
-  const reason = "The Assistant keeps its platform skill";
+  const reason = "The Assistant keeps its platform skill.";
   await expect(call(router.agents.update, { ...fields, skillPackageIds: [] }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: reason });
   await expect(call(router.agents.update, { ...fields, skillPackageIds: [mine.packageId] }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: reason });
   // Left out, the list is empty: that drops it too.

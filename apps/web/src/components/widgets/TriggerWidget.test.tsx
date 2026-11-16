@@ -7,6 +7,7 @@ import { afterEach, expect, test, vi } from "vitest";
 
 const fake = vi.hoisted(() => ({
   runs: { start: vi.fn(), sendChat: vi.fn(), stream: vi.fn(), list: vi.fn(), get: vi.fn() },
+  files: { hold: vi.fn() },
   jobs: { start: vi.fn(), def: vi.fn() },
   triggers: { get: vi.fn() },
   workflows: { get: vi.fn() },
@@ -72,6 +73,25 @@ test("TriggerWidget with a chat placement starts the Job with the first message"
   await waitFor(() => expect(fake.runs.sendChat.mock.calls[0]![0]).toEqual({ runId: "run_1", text: "Anything urgent?" }));
   expect(fake.jobs.start.mock.calls[0]![0]).toEqual({ triggerId: "trigger_1", timezone: localTimezone() });
   expect(fake.runs.start).not.toHaveBeenCalled();
+});
+
+test("a chat trigger's composer takes files: one attached before the first message goes with it", async () => {
+  fake.triggers.get.mockResolvedValue(trigger("chat"));
+  fake.runs.list.mockResolvedValue([]);
+  fake.jobs.start.mockResolvedValue({ runId: "run_1", chatSessionId: "ses_1" });
+  fake.jobs.def.mockResolvedValue({ trigger: { type: "manual", field: { id: "trigger_1", key: "trigger", type: "chat", label: "Mail", agentId: "agent_1", prompt: "" } }, steps: [], edges: [] });
+  fake.files.hold.mockResolvedValue({ id: "att_1", name: "invoice.pdf", mime: "application/octet-stream", size: 3, image: false });
+  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.runs.stream.mockImplementation(idle);
+  const user = mount();
+  await user.click(await screen.findByRole("button", { name: "Attach a file" }));
+  await user.upload(document.body.querySelector<HTMLInputElement>("input[type=file]")!, new File(["pdf"], "invoice.pdf"));
+  expect(await screen.findByText("invoice.pdf")).toBeTruthy();
+  expect(fake.files.hold.mock.calls[0]![0].file.name).toBe("invoice.pdf");
+  expect(fake.jobs.start).not.toHaveBeenCalled();
+  await user.type(screen.getByLabelText("Message"), "Pay this{Enter}");
+  await waitFor(() => expect(fake.runs.sendChat.mock.calls[0]![0]).toEqual({ runId: "run_1", text: "Pay this", attachmentIds: ["att_1"] }));
+  await waitFor(() => expect(screen.queryByText("invoice.pdf")).toBeNull());
 });
 
 test("TriggerWidget says when its trigger is disabled or gone", async () => {

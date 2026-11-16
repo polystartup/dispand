@@ -1,8 +1,9 @@
-import { call } from "@orpc/server";
+import { call, ORPCError } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { expect, test } from "vitest";
 import * as schema from "../db/schema.ts";
+import { say } from "../messages/index.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext, recordingDb } from "../runners/test-support.ts";
 import { startFakeMcp } from "../tools/test-server.ts";
@@ -78,35 +79,35 @@ test("each kind of change the owner made is a reason to ask", async () => {
     const drafting = await named("Drafting");
     const agent = await call(router.agents.get, { id: drafting.id }, { context: ctx });
     await call(router.agents.update, { id: agent.id, name: agent.name, harnessId: agent.harnessId, systemPrompt: "Mine.", skillPackageIds: agent.skills.map((s) => s.packageId), toolIds: agent.tools.filter((t) => t.explicit).map((t) => t.toolId) }, { context: ctx });
-    expect((await named("Drafting")).reasons).toEqual(["You changed it"]);
+    expect((await named("Drafting")).reasons).toEqual([say("plugins.reason.changed")]);
 
     // A change of one of its triggers counts for the agent, which the trigger goes with.
     const [trigger] = await ctx.db.select().from(schema.triggers).where(eq(schema.triggers.name, "Matter changed"));
     await call(router.triggers.update, { id: trigger!.id, instructions: "Mine." }, { context: ctx });
-    expect((await named("Matter upkeep")).reasons).toEqual(["You changed its trigger “Matter changed”"]);
+    expect((await named("Matter upkeep")).reasons).toEqual([say("plugins.reason.changedTrigger", { name: "Matter changed" })]);
 
     const skill = (await named("law-firm"));
     expect(skill.kind).toBe("skill");
     await call(router.skills.setFile, { packageId: skill.id, path: "legal-research/notes.md", base64: Buffer.from("Mine.").toString("base64") }, { context: ctx });
-    expect((await named("law-firm")).reasons).toEqual(["You changed its files"]);
+    expect((await named("law-firm")).reasons).toEqual([say("plugins.reason.changedFiles")]);
 
     const tool = await named("case-law");
     await call(router.tools.update, { id: tool.id, name: "Case law" }, { context: ctx });
-    expect((await named("Case law")).reasons).toEqual(["You changed it"]);
+    expect((await named("Case law")).reasons).toEqual([say("plugins.reason.changed")]);
 
     // A table: a field of the owner's, rows, or memory.
     const clients = await named("Clients");
     await call(router.fields.create, { tableId: clients.id, name: "Phone", type: "text" }, { context: ctx });
-    expect((await named("Clients")).reasons).toEqual(["You changed its fields"]);
+    expect((await named("Clients")).reasons).toEqual([say("plugins.reason.changedFields")]);
     // A rename of the table itself, or of its first field, is a change too.
     await call(router.tables.rename, { id: clients.id, name: "Customers" }, { context: ctx });
-    expect((await named("Customers")).reasons).toEqual(["You renamed it", "You changed its fields"]);
+    expect((await named("Customers")).reasons).toEqual([say("plugins.reason.renamed"), say("plugins.reason.changedFields")]);
     const research = await named("Research");
     await ctx.db.insert(schema.memories).values({ id: "mem_1", ownerId: ctx.ownerId, scope: "table", tableId: research.id, path: "notes.md", name: "Notes", description: "", type: "reference", body: "x", author: { kind: "user" }, revision: 1 } as never);
-    expect((await named("Research")).reasons).toEqual(["It has memory entries"]);
+    expect((await named("Research")).reasons).toEqual([say("plugins.reason.memory")]);
     const matters = await named("Matters");
     await call(router.rows.create, { tableId: matters.id, values: {} } as never, { context: ctx });
-    expect((await named("Matters")).reasons[0]).toBe("It has 1 row");
+    expect((await named("Matters")).reasons[0]).toEqual(say("plugins.reason.rows", { count: 1 }));
   } finally {
     remove();
   }
@@ -118,7 +119,7 @@ test("what a kept agent needs is known from the start, a set that drops it unask
     // The owner's own agent consults Drafting, which consults Intake and research, which uses the skill, the case-law tool and the tables.
     const drafting = await named("Drafting");
     await call(router.agents.create, { name: "Mine", harnessId: harness.id, systemPrompt: "", skillPackageIds: [], toolIds: [], consults: [{ agentId: drafting.id, ask: true }] }, { context: ctx });
-    expect((await named("Drafting")).reasons).toEqual(["The agent “Mine” may consult it"]);
+    expect((await named("Drafting")).reasons).toEqual([say("plugins.reason.consulted", { agent: "Mine" })]);
     const intake = await named("Intake and research");
     expect((await named("Drafting")).needs).toContain(intake.key);
     const [skill, tool, clients] = [await named("law-firm"), await named("case-law"), await named("Clients")];
@@ -167,13 +168,21 @@ test("an uninstall applies only what was shown: a stale review is refused and no
 
 test("choices are checked as a whole", () => {
   const element = (key: string, more: Partial<Element> = {}): Element => ({ key, kind: "agent", id: key, name: key.split(":")[1]!, reasons: [], needs: [], keepOnly: null, ...more });
-  const elements = [element("agent:a", { reasons: ["You changed it"], needs: ["tool:t"] }), element("tool:t", { kind: "tool" }), element("agent:w", { reasons: ["A workflow uses this agent"], keepOnly: "A workflow uses this agent" })];
-  expect(checkChoices(elements, {})).toBe("Choose what becomes of a");
-  expect(checkChoices(elements, { "agent:a": "keep", "agent:w": "keep" })).toBe("Choose what becomes of t, which a needs");
-  expect(checkChoices(elements, { "agent:a": "keep", "tool:t": "delete", "agent:w": "delete" })).toBe("A workflow uses this agent");
-  expect(checkChoices(elements, { "agent:a": "delete", "agent:w": "keep", "nope:x": "keep" })).toBe("Not an element of this plugin");
-  expect(checkChoices(elements, { "agent:a": "delete", "agent:w": "keep" })).toBeNull();
-  expect(checkChoices(elements, { "agent:a": "keep", "tool:t": "keep", "agent:w": "keep" })).toBeNull();
+  const elements = [element("agent:a", { reasons: [say("plugins.reason.changed")], needs: ["tool:t"] }), element("tool:t", { kind: "tool" }), element("agent:w", { reasons: [say("plugins.reason.workflowAgent")], keepOnly: say("plugins.reason.workflowAgent") })];
+  const refused = (choices: Record<string, "keep" | "delete">) => {
+    try {
+      checkChoices(elements, choices);
+      return null;
+    } catch (err) {
+      return err instanceof ORPCError ? err.message : expect.unreachable();
+    }
+  };
+  expect(refused({})).toBe("Choose what becomes of a.");
+  expect(refused({ "agent:a": "keep", "agent:w": "keep" })).toBe("Choose what becomes of t, which a needs.");
+  expect(refused({ "agent:a": "keep", "tool:t": "delete", "agent:w": "delete" })).toBe("A workflow uses this agent.");
+  expect(refused({ "agent:a": "delete", "agent:w": "keep", "nope:x": "keep" })).toBe("This is not an element of the plugin.");
+  expect(refused({ "agent:a": "delete", "agent:w": "keep" })).toBeNull();
+  expect(refused({ "agent:a": "keep", "tool:t": "keep", "agent:w": "keep" })).toBeNull();
 });
 
 test("a table can't be deleted while a table that stays names its rows: the uninstall says which field, and removes nothing", async () => {
@@ -182,12 +191,12 @@ test("a table can't be deleted while a table that stays names its rows: the unin
     const clients = await named("Clients");
     const mine = await call(router.tables.create, { name: "Invoices" }, { context: ctx });
     await call(router.fields.create, { tableId: mine.id, name: "Client", type: "reference", referencesTableId: clients.id }, { context: ctx });
-    expect(await named("Clients")).toMatchObject({ reasons: ["The field “Client” of your table “Invoices” names its rows"], keepOnly: "The field “Client” of your table “Invoices” names its rows: delete that field first to delete this table" });
+    expect(await named("Clients")).toMatchObject({ reasons: [say("plugins.reason.fieldNames", { field: "Client", table: "Invoices" })], keepOnly: say("plugins.reason.fieldNamesFirst", { field: "Client", table: "Invoices" }) });
     // Matters names Clients' rows too: kept without Clients, it would name a table that is gone.
     const matters = await named("Matters");
     expect(matters.needs).toContain(clients.key);
     await call(router.fields.delete, { id: (await call(router.tables.get, { id: mine.id }, { context: ctx })).fields.find((f) => f.name === "Client")!.id }, { context: ctx });
-    await expect(uninstall({ [matters.key]: "keep", [clients.key]: "delete" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Matters names the rows of Clients: keep both, or delete both" });
+    await expect(uninstall({ [matters.key]: "keep", [clients.key]: "delete" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Matters names the rows of Clients: keep both, or delete both." });
     expect(await ctx.db.select({ id: schema.plugins.id }).from(schema.plugins).where(eq(schema.plugins.id, pluginId))).toHaveLength(1);
   } finally {
     remove();

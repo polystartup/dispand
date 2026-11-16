@@ -20,7 +20,7 @@ export default defineConfig({
   resolve: { tsconfigPaths: true },
   // PGlite loads its wasm and data files next to its own code: keep it out of the bundle. The
   // PostgreSQL driver too: its telemetry hooks it as it loads (`telemetry-preload.mjs`), which a
-  // bundled copy never does.
-  ssr: { external: ["@electric-sql/pglite", "pg"] },
+  // bundled copy never does. pdf.js loads its worker module next to its own code too.
+  ssr: { external: ["@electric-sql/pglite", "pg", "pdfjs-dist"] },
   plugins: [tailwindcss(), tanstackStart(), viteReact(), copyMigrations, runnerHub()],
 });

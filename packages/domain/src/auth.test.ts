@@ -131,3 +131,18 @@ test("a wrong setup code is refused before anything happens: no user, no hash", 
   // the right code still works afterwards
   await expect(call(router.auth.setup, owner, { context })).resolves.toBeTruthy();
 });
+
+test("the owner saves a page language, English or French, or none to follow the browser", async () => {
+  const context = await emptyContext();
+  await call(router.auth.setup, owner, { context });
+  const signed = await context.auth.api.signInEmail({ body: { email: owner.email, password: owner.password }, returnHeaders: true });
+  const headers = new Headers({ cookie: signed.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ") });
+  const saved = async () => (await context.auth.api.getSession({ headers }))?.user.language;
+  expect(await saved()).toBeNull();
+  await context.auth.api.updateUser({ headers, body: { language: "fr" } });
+  expect(await saved()).toBe("fr");
+  await expect(context.auth.api.updateUser({ headers, body: { language: "de" as never } })).rejects.toBeInstanceOf(Error);
+  expect(await saved()).toBe("fr");
+  await context.auth.api.updateUser({ headers, body: { language: null } });
+  expect(await saved()).toBeNull();
+});

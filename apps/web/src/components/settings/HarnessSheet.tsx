@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { TFunction } from "i18next";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -17,30 +19,26 @@ type CliHarness = Extract<Harness, { type: "cli" }>;
 const ADD_RUNNER = "__add-runner";
 
 /** The tabs of the harness settings. */
+/** The tabs of the harness settings; each label is a key of the `harnesses` namespace. */
 export const harnessTabs = [
-  { to: "/settings/harnesses", label: "Harnesses" },
-  { to: "/settings/harnesses/runners", label: "Runners" },
-];
+  { to: "/settings/harnesses", label: "tabs.harnesses" },
+  { to: "/settings/harnesses/runners", label: "tabs.runners" },
+] as const;
 
-export const permissionLabels = {
-  default: "Ask before acting",
-  acceptEdits: "Accept file edits",
-  plan: "Plan only",
-  bypassPermissions: "Bypass permissions",
-} as const;
+type PermissionMode = CliHarness["permissionMode"];
 
 export const cliLabels = { "claude-code": "Claude Code", codex: "Codex" } as const;
 
 /** The permission modes each CLI's sessions accept (the runner protocol's). */
-const cliPermissions: Record<CliHarness["kind"], (keyof typeof permissionLabels)[]> = {
+const cliPermissions: Record<CliHarness["kind"], PermissionMode[]> = {
   "claude-code": ["default", "acceptEdits", "plan", "bypassPermissions"],
   codex: ["default", "bypassPermissions"],
 };
 
 /** A CLI and its version as the runner last reported it, e.g. "Claude Code 2.1.0". */
-export function cliVersion(kind: CliHarness["kind"], runner: Runner | undefined): string {
+export function cliVersion(t: TFunction<"harnesses">, kind: CliHarness["kind"], runner: Runner | undefined): string {
   const version = kind === "codex" ? runner?.clis.codex?.version : runner?.clis.claude;
-  return version ? `${cliLabels[kind]} ${version}` : cliLabels[kind];
+  return version ? t("cliVersion", { cli: cliLabels[kind], version }) : cliLabels[kind];
 }
 
 type Props = {
@@ -51,20 +49,17 @@ type Props = {
   onSaved: (harness: Harness, created: boolean) => void;
 };
 
+const TYPES = ["cloud", "cli"] as const;
+
 /** The "New harness" sheet (Cloud or CLI), or the editor of an existing harness. Mount it only while open. */
 export function HarnessSheet({ harness, runners, onClose, onSaved }: Props) {
+  const { t } = useTranslation("harnesses");
   const [type, setType] = useState<Harness["type"] | null>(harness?.type ?? null);
   const [step, setStep] = useState<"form" | "runner">("form");
   const title =
-    type === null ? "New harness" : step === "runner" ? "Add a runner" : harness ? "Edit harness" : type === "cloud" ? "New cloud harness" : "New CLI harness";
+    type === null ? t("sheet.new") : step === "runner" ? t("sheet.addRunner") : harness ? t("sheet.edit") : type === "cloud" ? t("sheet.newCloud") : t("sheet.newCli");
   const description =
-    type === null
-      ? "Where your agents run."
-      : type === "cloud"
-        ? "A provider's API (Anthropic, OpenAI or an OpenAI-compatible server), with your API key."
-        : step === "runner"
-          ? "A runner is a small service on the machine where Claude Code or Codex is installed."
-          : "Claude Code or Codex on one of your machines, through a runner.";
+    type === null ? t("sheet.where") : type === "cloud" ? t("sheet.cloudDescription") : step === "runner" ? t("sheet.runnerDescription") : t("sheet.cliDescription");
 
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>
@@ -76,20 +71,15 @@ export function HarnessSheet({ harness, runners, onClose, onSaved }: Props) {
         <div className="px-6 pb-6">
           {type === null ? (
             <div className="grid gap-3">
-              {(
-                [
-                  ["cloud", "Cloud", "Anthropic, OpenAI or an OpenAI-compatible API, with your key."],
-                  ["cli", "CLI", "Claude Code or Codex on one of your machines, through a runner."],
-                ] as const
-              ).map(([value, label, text]) => (
+              {TYPES.map((value) => (
                 <button
                   key={value}
                   type="button"
                   onClick={() => setType(value)}
                   className="rounded-xl border border-line px-4 py-3 text-left transition hover:bg-hover"
                 >
-                  <span className="block text-[15px] font-medium">{label}</span>
-                  <span className="block text-[13px] text-muted">{text}</span>
+                  <span className="block text-[15px] font-medium">{t(`sheet.type.${value}.label`)}</span>
+                  <span className="block text-[13px] text-muted">{t(`sheet.type.${value}.text`)}</span>
                 </button>
               ))}
             </div>
@@ -115,11 +105,11 @@ export function HarnessSheet({ harness, runners, onClose, onSaved }: Props) {
  * What the picked runner last reported about Codex: its version and sign-in, or that it has none.
  * Nothing for Claude Code, nor for a runner that hasn't reported yet.
  */
-function cliStatus(kind: CliHarness["kind"], runner: Runner | undefined): string | undefined {
+function cliStatus(t: TFunction<"harnesses">, kind: CliHarness["kind"], runner: Runner | undefined): string | undefined {
   if (kind !== "codex" || !runner?.lastSeenAt) return undefined;
   const codex = runner.clis.codex;
-  if (!codex) return `Codex isn't installed on ${runner.name}.`;
-  return codex.signedIn ? `Codex ${codex.version}, signed in.` : `Codex ${codex.version}. Not signed in: run \`codex login\` on ${runner.name}, then restart its runner.`;
+  if (!codex) return t("sheet.codexMissing", { runner: runner.name });
+  return t(codex.signedIn ? "sheet.codexSignedIn" : "sheet.codexSignedOut", { version: codex.version, runner: runner.name });
 }
 
 type CliProps = Omit<Props, "harness"> & {
@@ -129,10 +119,11 @@ type CliProps = Omit<Props, "harness"> & {
 };
 
 function CliHarnessForm({ harness, runners, step, setStep, onClose, onSaved }: CliProps) {
+  const { t } = useTranslation("harnesses");
   const [name, setName] = useState(harness?.name ?? "");
   const [runnerId, setRunnerId] = useState(harness?.runnerId ?? "");
   const [kind, setKind] = useState<CliHarness["kind"]>(harness?.kind ?? "claude-code");
-  const [permissionMode, setPermissionMode] = useState<keyof typeof permissionLabels>(harness?.permissionMode ?? "default");
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(harness?.permissionMode ?? "default");
   const [model, setModel] = useState(harness?.model ?? "");
   const models = useQuery({ ...orpc.harnesses.models.queryOptions({ input: { runnerId, kind } }), enabled: !!runnerId, retry: false, staleTime: 60_000 });
   const [error, setError] = useState<string | null>(null);
@@ -154,7 +145,7 @@ function CliHarnessForm({ harness, runners, step, setStep, onClose, onSaved }: C
       const saved = harness ? await update.mutateAsync({ ...fields, id: harness.id }) : await create.mutateAsync(fields);
       onSaved(saved, !harness);
     } catch {
-      setError("Could not save the harness. Check the details and try again.");
+      setError(t("sheet.saveFailed"));
     }
   }
 
@@ -166,7 +157,7 @@ function CliHarnessForm({ harness, runners, step, setStep, onClose, onSaved }: C
       onSaved(harness, false);
     } catch (e) {
       const used = typeof e === "object" && e !== null && "code" in e && e.code === "CONFLICT";
-      setError(used ? "An agent uses this harness. Delete or move the agent first." : "Could not delete the harness.");
+      setError(used ? t("sheet.inUse") : t("sheet.deleteFailed"));
     }
   }
 
@@ -188,11 +179,11 @@ function CliHarnessForm({ harness, runners, step, setStep, onClose, onSaved }: C
                 void save();
               }}
             >
-              <FormField label="Name" htmlFor="harness-name">
+              <FormField label={t("sheet.name")} htmlFor="harness-name">
                 <Input id="harness-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
               </FormField>
 
-              <FormField label="CLI" htmlFor="harness-cli">
+              <FormField label={t("sheet.cli")} htmlFor="harness-cli">
                 <Select
                   value={kind}
                   onValueChange={(v) => {
@@ -215,52 +206,52 @@ function CliHarnessForm({ harness, runners, step, setStep, onClose, onSaved }: C
                 </Select>
               </FormField>
 
-              <FormField label="Runner" htmlFor="harness-runner" hint={cliStatus(kind, runners.find((r) => r.id === runnerId))}>
+              <FormField label={t("sheet.runner")} htmlFor="harness-runner" hint={cliStatus(t, kind, runners.find((r) => r.id === runnerId))}>
                 <Select
                   value={runnerId}
                   onValueChange={(v) => (v === ADD_RUNNER ? setStep("runner") : setRunnerId(v))}
                 >
                   <SelectTrigger id="harness-runner" className="w-full">
-                    <SelectValue placeholder="Pick a runner" />
+                    <SelectValue placeholder={t("sheet.pickRunner")} />
                   </SelectTrigger>
                   <SelectContent>
                     {runners.map((r) => (
                       <SelectItem key={r.id} value={r.id}>
-                        {r.name} {r.status === "online" ? "" : r.status === "outdated" ? "(needs an update)" : "(offline)"}
+                        {t(r.status === "online" ? "sheet.runnerOption" : r.status === "outdated" ? "sheet.runnerOutdated" : "sheet.runnerOffline", { name: r.name })}
                       </SelectItem>
                     ))}
-                    <SelectItem value={ADD_RUNNER}>Add a runner…</SelectItem>
+                    <SelectItem value={ADD_RUNNER}>{t("sheet.addRunnerOption")}</SelectItem>
                   </SelectContent>
                 </Select>
               </FormField>
 
               <FormField
-                label="Permissions"
+                label={t("sheet.permissions")}
                 htmlFor="harness-permissions"
-                hint={permissionMode === "bypassPermissions" ? "Only works if the runner's own config allows it." : undefined}
+                hint={permissionMode === "bypassPermissions" ? t("sheet.bypassHint") : undefined}
               >
-                <Select value={permissionMode} onValueChange={(v) => setPermissionMode(v as keyof typeof permissionLabels)}>
+                <Select value={permissionMode} onValueChange={(v) => setPermissionMode(v as PermissionMode)}>
                   <SelectTrigger id="harness-permissions" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {cliPermissions[kind].map((value) => (
                       <SelectItem key={value} value={value}>
-                        {permissionLabels[value]}
+                        {t(`permission.${value}`)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </FormField>
 
-              {!!models.data?.length && <FormField label="Available models" htmlFor="harness-model-list">
+              {!!models.data?.length && <FormField label={t("sheet.models")} htmlFor="harness-model-list">
                 <Select value={models.data.some((m) => m.id === model) ? model : ""} onValueChange={setModel}>
-                  <SelectTrigger id="harness-model-list"><SelectValue placeholder="Pick a model" /></SelectTrigger>
+                  <SelectTrigger id="harness-model-list"><SelectValue placeholder={t("sheet.pickModel")} /></SelectTrigger>
                   <SelectContent>{models.data.map((m) => <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>)}</SelectContent>
                 </Select>
               </FormField>}
-              {models.isError && <p role="status" className="text-xs text-muted">Could not list models. You can enter a model ID below.</p>}
-              <FormField label="Default model (optional)" htmlFor="harness-model" hint="Leave empty for the CLI's default. An agent can pick its own.">
+              {models.isError && <p role="status" className="text-xs text-muted">{t("sheet.modelsFailed")}</p>}
+              <FormField label={t("sheet.defaultModel")} htmlFor="harness-model" hint={t("sheet.defaultModelHint")}>
                 <Input id="harness-model" value={model} onChange={(e) => setModel(e.target.value)} maxLength={100} />
               </FormField>
 
@@ -271,14 +262,14 @@ function CliHarnessForm({ harness, runners, step, setStep, onClose, onSaved }: C
               )}
               <div className="flex items-center gap-2 pt-1">
                 <Button type="submit" disabled={busy || !name.trim() || !runnerId}>
-                  {harness ? "Save" : "Create harness"}
+                  {harness ? t("sheet.save") : t("sheet.create")}
                 </Button>
                 <Button type="button" variant="ghost" onClick={onClose}>
-                  Cancel
+                  {t("sheet.cancel")}
                 </Button>
                 {harness && (
                   <Button type="button" variant="ghost" className="ml-auto text-danger" disabled={busy} onClick={() => void remove()}>
-                    Delete
+                    {t("sheet.delete")}
                   </Button>
                 )}
               </div>

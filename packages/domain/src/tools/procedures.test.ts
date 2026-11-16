@@ -4,7 +4,9 @@ import { afterEach, expect, test } from "vitest";
 import { runners, tools, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
-import { toolTarget } from "./procedures.ts";
+import { secretAad, SecretError } from "../secrets.ts";
+import { headerAad, MAX_HEADERS, retarget, toolTarget } from "./procedures.ts";
+import { resealToolHeaders } from "./reseal.ts";
 import { startFakeMcp, type FakeAction, type FakeMcp } from "./test-server.ts";
 
 const servers: FakeMcp[] = [];
@@ -19,8 +21,8 @@ const echo: FakeAction = {
   call: (args) => ({ content: [{ type: "text", text: String(args.text) }] }),
 };
 
-async function fake(actions: FakeAction[] = [echo]) {
-  const server = await startFakeMcp(actions);
+async function fake(actions: FakeAction[] = [echo], transport: "streamable-http" | "sse" = "streamable-http") {
+  const server = await startFakeMcp(actions, transport);
   servers.push(server);
   return server;
 }
@@ -120,20 +122,87 @@ test("a tool's headers never follow it to another address: a new origin starts w
   expect(third.requests.every((h) => h.authorization === "Bearer other")).toBe(true);
 });
 
+test("an sse tool's header is bound to its origin: sealed for one, it doesn't open for another, and a move drops it", async () => {
+  const context = await ownerContext();
+  const first = await fake([echo], "sse");
+  const tool = await call(router.tools.create, { name: "Echo", url: first.url, transport: "sse", headers: { authorization: SECRET } }, { context });
+  expect(first.requests.length).toBeGreaterThan(0);
+  expect(first.requests.every((h) => h.authorization === SECRET)).toBe(true);
+  const second = await fake([echo], "sse");
+  const [row] = await context.db.select().from(tools).where(eq(tools.id, tool.id));
+  const sealed = row!.headersSealed.authorization!;
+  expect(context.secrets.open(sealed, headerAad(tool.id, "authorization", first.url))).toBe(SECRET);
+  expect(() => context.secrets.open(sealed, headerAad(tool.id, "authorization", second.url))).toThrow(SecretError);
+  // Moved to another origin: dropped, and nothing reaches the new server.
+  const moved = await call(router.tools.update, { id: tool.id, url: second.url }, { context });
+  expect(moved.headerNames).toEqual([]);
+  expect(second.requests.length).toBeGreaterThan(0);
+  expect(second.requests.every((h) => h.authorization === undefined)).toBe(true);
+  // Another transport at the same origin drops them too.
+  const again = await call(router.tools.update, { id: tool.id, headers: { authorization: SECRET } }, { context });
+  expect(again.headerNames).toEqual(["authorization"]);
+  const switched = await call(router.tools.update, { id: tool.id, transport: "streamable-http" }, { context });
+  expect(switched.headerNames).toEqual([]);
+});
+
+test("retarget keeps the headers at the same origin and drops them at another", async () => {
+  const context = await ownerContext();
+  const first = await fake();
+  const tool = await call(router.tools.create, { name: "Echo", url: first.url, transport: "streamable-http", headers: { authorization: SECRET } }, { context });
+  const [row] = await context.db.select().from(tools).where(eq(tools.id, tool.id));
+  const samePlace = await retarget(context.db, row!, `${first.url}?v=2`, "streamable-http");
+  expect(toolTarget(samePlace, context.secrets).headers).toEqual({ authorization: SECRET });
+  const second = await fake();
+  const moved = await retarget(context.db, samePlace, second.url, "streamable-http");
+  expect(moved).toMatchObject({ headersSealed: {}, auth: "none" });
+});
+
+test("a header still sealed for its old origin is never sent to the tool's new one", async () => {
+  const context = await ownerContext();
+  const first = await fake();
+  const tool = await call(router.tools.create, { name: "Echo", url: first.url, transport: "streamable-http", headers: { authorization: SECRET } }, { context });
+  const second = await fake();
+  // A row whose URL changed without its headers (no procedure does it): the header doesn't open there.
+  await context.db.update(tools).set({ url: second.url }).where(eq(tools.id, tool.id));
+  const [row] = await context.db.select().from(tools).where(eq(tools.id, tool.id));
+  expect(() => toolTarget(row!, context.secrets)).toThrow(SecretError);
+  const refreshed = await call(router.tools.refresh, { id: tool.id }, { context });
+  expect(refreshed.actionsError).toBe("Couldn't list the tool's actions");
+  expect(second.requests).toEqual([]);
+});
+
+test("a header sealed before the re-seal, read after the tool's origin changed, is dropped as before and never sent", async () => {
+  const context = await ownerContext();
+  const first = await fake();
+  const tool = await call(router.tools.create, { name: "Echo", url: first.url, transport: "streamable-http", headers: {} }, { context });
+  // Sealed as before headers were bound to an origin.
+  const legacy = context.secrets.seal(SECRET, secretAad("tools", tool.id, "header:authorization"));
+  await context.db.update(tools).set({ headersSealed: { authorization: legacy }, auth: "headers" }).where(eq(tools.id, tool.id));
+  const second = await fake();
+  const moved = await call(router.tools.update, { id: tool.id, url: second.url }, { context });
+  expect(moved.headerNames).toEqual([]);
+  expect(await resealToolHeaders(context.db, context.secrets)).toEqual({ resealed: 0 });
+  const [row] = await context.db.select().from(tools).where(eq(tools.id, tool.id));
+  expect(toolTarget(row!, context.secrets).headers).toEqual({});
+  await call(router.tools.refresh, { id: tool.id }, { context });
+  expect(second.requests.length).toBeGreaterThan(0);
+  expect(second.requests.every((h) => h.authorization === undefined)).toBe(true);
+});
+
 test("headers go only to https, or plain http on this machine; no credentials in the URL", async () => {
   const context = await ownerContext();
   await expect(
     call(router.tools.create, { name: "A", url: "http://example.com/mcp", transport: "streamable-http", headers: { authorization: SECRET } }, { context }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Headers are only sent to an https:// URL" });
+  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Headers are only sent to an https:// URL." });
   await expect(
     call(router.tools.create, { name: "B", url: "https://u:p@example.com/mcp", transport: "streamable-http", headers: {} }, { context }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Put credentials in a header, not in the URL" });
+  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Put credentials in a header, not in the URL." });
   await expect(
     call(router.tools.create, { name: "C", url: "https://example.com/mcp", transport: "streamable-http", headers: { "x-a": "1\r\nx-b: 2" } }, { context }),
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   await expect(
     call(router.tools.create, { name: "D", url: "https://example.com/mcp", transport: "streamable-http", headers: { "X-A": "1", "x-a": "2" } }, { context }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "The header x-a is given twice" });
+  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "The header x-a is given twice." });
   expect(await call(router.tools.list, undefined, { context })).toEqual([]);
 });
 
@@ -173,7 +242,7 @@ test("a runner tool the runner doesn't report is refused", async () => {
   const runnerId = await runnerWith(context, ["brave-search"]);
   await expect(call(router.tools.create, { kind: "runner", name: "Fetch", runnerId, runnerTool: "fetch" }, { context })).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "The runner doesn't report an MCP server named fetch: add it to the runner's config.json, then restart the runner",
+    message: "The runner doesn't report an MCP server named fetch: add it to the runner's config.json, then restart the runner.",
   });
   await expect(call(router.tools.create, { kind: "runner", name: "Fetch", runnerId: "runner_unknown", runnerTool: "fetch" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(await context.db.select().from(tools)).toEqual([]);
@@ -214,7 +283,7 @@ test("a runner tool has no URL or headers, and stays on its runner while an agen
   await call(router.agents.create, { name: "Searcher", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] }, { context });
   await expect(call(router.tools.update, { id: tool.id, runnerId: other, runnerTool: "fetch" }, { context })).rejects.toMatchObject({
     code: "CONFLICT",
-    message: "The agent “Searcher” uses this tool: it stays on its runner",
+    message: "The agent “Searcher” uses this tool: it stays on its runner.",
   });
   // An HTTP tool has no runner.
   const server = await fake();
@@ -298,4 +367,22 @@ test.each(["run", "ask", "off"] as const)("workspace availability masks and rest
   await context.db.insert(user).values({ id: "user_other", name: "Other", email: "other@example.test" });
   await context.db.update(tools).set({ ownerId: "user_other" }).where(eq(tools.id, tool.id));
   await expect(call(router.tools.setActionEnabled, { toolId: tool.id, action: "echo", enabled: false }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("each refinement of the tools inputs fires with its key, English for an agent", async () => {
+  const context = await ownerContext();
+  const refused = (promise: Promise<unknown>) => promise.then(() => expect.unreachable(), (err: { message: string; data?: unknown }) => err);
+  const base = { name: "A", url: "https://example.com/mcp", transport: "streamable-http" as const };
+  const headers = (h: Record<string, string>) => call(router.tools.create, { ...base, headers: h }, { context });
+  expect(await refused(headers({ authorization: "a\nb" }))).toMatchObject({ message: "A header value is one line of text.", data: { key: "tools.headerOneLine" } });
+  expect(await refused(headers(Object.fromEntries(Array.from({ length: MAX_HEADERS + 1 }, (_, i) => [`h${i}`, "v"]))))).toMatchObject({ message: `At most ${MAX_HEADERS} headers.`, data: { key: "tools.headersMax" } });
+  expect(await refused(call(router.tools.update, { id: "tool_x", headers: { "bad name": "v" } }, { context }))).toMatchObject({ data: { key: "validation.invalid_key", values: { field: "headers.bad name" } } });
+  expect(await refused(call(router.tools.add, { ...base, url: "https://u:p@example.com/mcp" }, { context }))).toMatchObject({ message: "The URL can't carry credentials.", data: { key: "tools.urlCredentials" } });
+  expect(await refused(call(router.tools.create, { kind: "runner", name: "A", runnerId: "r", runnerTool: "fetch", catalogId: "github" }, { context }))).toMatchObject({ data: { key: "tools.notRunnerEntry" } });
+  expect(await refused(call(router.tools.installFromCatalog, { catalogId: "github", settings: Object.fromEntries(Array.from({ length: MAX_HEADERS + 1 }, (_, i) => [`s${i}`, "v"])) }, { context }))).toMatchObject({ data: { key: "tools.settingsMax" } });
+  expect(await refused(call(router.tools.addFromCatalog, { catalogId: "nothing" }, { context }))).toMatchObject({ message: "Not in the catalog: tools_catalog lists its entries.", data: { key: "tools.catalogNotListed" } });
+  const onMachine = await refused(call(router.tools.addFromCatalog, { catalogId: "fetch" }, { context }));
+  expect(onMachine).toMatchObject({ data: { key: "tools.catalogOnMachine", values: { name: expect.any(String), snippet: expect.stringContaining("mcp-server-fetch") } } });
+  expect(onMachine.message).toMatch(/runs on the owner's machine.*"fetch"/s);
+  expect(await refused(call(router.tools.authorize, { id: "tool_x", client: { clientId: "a\nb" } }, { context }))).toMatchObject({ message: "One line of text.", data: { key: "tools.oneLine" } });
 });

@@ -1,0 +1,558 @@
+{
+  "agent": {
+    "assistant": {
+      "name": "Stem"
+    },
+    "tablesFull": "This agent already works on {{max}} tables, the most it may have: ask the owner to take one away before you create another.",
+    "notFound": "This agent doesn't exist.",
+    "harnessNotFound": "This harness doesn't exist.",
+    "skillNotFound": "This skill doesn't exist.",
+    "toolNotFound": "This tool doesn't exist.",
+    "workflowUses": "A workflow uses this agent.",
+    "toolChanged": "A tool changed since this setup was reviewed: propose or review the setup again.",
+    "permissionTool": "Each tool permission must name a chosen tool.",
+    "permissionOnce": "List each tool's permissions once.",
+    "runnerNeedsCli": "Runner tools only work with CLI harnesses: “{{tool}}” runs on a runner.",
+    "runnerElsewhere": "The tool “{{tool}}” runs on another runner than the agent's harness.",
+    "actionDisabled": "An action is disabled workspace-wide.",
+    "actionDenied": "An action is disabled: change its permission explicitly before granting it.",
+    "ofAgent": "of the agent {{agent}}",
+    "consult": {
+      "self": "An agent can't consult itself.",
+      "sides": "{{changes}} changes the workspace and {{keeps}} doesn't: an agent that changes the workspace and one that doesn't never consult each other."
+    },
+    "guard": {
+      "delete": "The Assistant can't be deleted.",
+      "bundles": "The Assistant keeps working on data and changing tables.",
+      "tables": "The Assistant keeps working on all tables.",
+      "skill": "The Assistant keeps its platform skill.",
+      "reviewDelete": "The Assistant's review can't be deleted: turn it off instead.",
+      "chatDelete": "The Assistant's chat can't be deleted.",
+      "chatOff": "The Assistant's chat can't be turned off.",
+      "chatStays": "The Assistant's chat stays a chat."
+    }
+  },
+  "tools": {
+    "notFound": "This tool doesn't exist.",
+    "runnerNotFound": "This runner doesn't exist.",
+    "notInCatalog": "This isn't in the catalog.",
+    "exists": "A tool is already called “{{name}}”.",
+    "changed": "The tool changed meanwhile: open it again.",
+    "noAction": "The tool has no action {{action}}.",
+    "name": "A tool needs a name of 1 to 100 characters.",
+    "notUrl": "Not an http(s) URL.",
+    "headersInvalid": "The headers aren't valid.",
+    "oneLine": "One line of text.",
+    "headerOneLine": "A header value is one line of text.",
+    "headersMax": "At most 20 headers.",
+    "settingsMax": "At most 20 settings.",
+    "headerTwice": "The header {{header}} is given twice.",
+    "headerNoValue": "The header {{header}} has no value.",
+    "credentialsInUrl": "Put credentials in a header, not in the URL.",
+    "headersHttps": "Headers are only sent to an https:// URL.",
+    "settingMissing": "{{label}} is required.",
+    "noSettings": "This tool has no settings to fill.",
+    "addressChanged": "This tool no longer calls its catalog entry's address.",
+    "pickRunner": "Pick the runner and its MCP server.",
+    "runnerNoServer": "The runner doesn't report an MCP server named {{runnerTool}}: add it to the runner's config.json, then restart the runner.",
+    "runnerNoUrl": "A runner tool has no URL or headers: its runner's config.json says how to start it.",
+    "httpNoRunner": "An HTTP tool doesn't run on a runner.",
+    "oauthNoHeaders": "A tool that signs in with OAuth has no headers.",
+    "oauthOrNoneNoHeaders": "A tool that signs in with OAuth, or not at all, has no headers.",
+    "oauthNoSecretUrl": "A tool whose URL holds a secret can't sign in with OAuth.",
+    "notOauth": "This tool doesn't sign in with OAuth.",
+    "noSignIn": "{{host}} doesn't ask for a sign-in: choose no sign-in instead.",
+    "notRunnerEntry": "Not a runner entry of the catalog.",
+    "catalogNotListed": "Not in the catalog: tools_catalog lists its entries.",
+    "catalogOnMachine": "{{name}} runs on the owner's machine: they add this under mcpServers in their runner's config.json, then pick the runner in Settings → Tools. {{snippet}}",
+    "holder": {
+      "agent": "The agent “{{name}}” uses this tool.",
+      "skill": "The skill “{{name}}” requires this tool.",
+      "workflow": "The workflow “{{name}}” uses this tool.",
+      "run": "A run of the workflow “{{name}}” still uses this tool.",
+      "stays": {
+        "agent": "The agent “{{name}}” uses this tool: it stays on its runner.",
+        "skill": "The skill “{{name}}” requires this tool: it stays on its runner.",
+        "workflow": "The workflow “{{name}}” uses this tool: it stays on its runner.",
+        "run": "A run of the workflow “{{name}}” still uses this tool: it stays on its runner."
+      }
+    },
+    "onRunner": "on a runner",
+    "poll": {
+      "gone": "The tool no longer exists.",
+      "disabled": "This action is disabled workspace-wide.",
+      "agentLacks": "The agent doesn't have this tool.",
+      "notReadable": "A poll may not read this action: the tool doesn't let polls read it, or an agent must ask before using it."
+    },
+    "urlCredentials": "The URL can't carry credentials."
+  },
+  "plugins": {
+    "notFound": "This plugin doesn't exist.",
+    "ownerSession": "This takes an owner session.",
+    "marketplace": {
+      "notFound": "This marketplace doesn't exist.",
+      "noPlugin": "{{marketplace}} doesn't list a plugin called “{{plugin}}”.",
+      "duplicate": "This marketplace is already added.",
+      "builtIn": "Built-in marketplaces can't be removed.",
+      "removeFirst": "Remove its plugins first: {{plugins}}."
+    },
+    "install": {
+      "noSkill": "The plugin has no skill “{{name}}” to import.",
+      "noServer": "The plugin has no MCP server “{{name}}” to import.",
+      "noAgent": "The plugin has no agent “{{name}}” to import.",
+      "proposed": "A proposed install picks skills and definitions only: MCP servers, agent files and native installation are the owner's to add.",
+      "pickHarness": "Pick the harness the plugin's agents run on.",
+      "harnessNotFound": "This harness doesn't exist.",
+      "pickSomething": "Pick at least one skill, MCP server or agent.",
+      "changed": "{{plugin}} changed since you reviewed it: look at it again before installing.",
+      "serverOnMachine": "The MCP server {{name}} runs a command on a machine: not yet supported.",
+      "skillTaken": "A skill is already called “{{name}}”.",
+      "installed": "{{plugin}} is already installed."
+    },
+    "uninstall": {
+      "choose": "Choose what happens to each element {{name}} would leave behind, then uninstall it again.",
+      "changed": "{{plugin}} changed since you looked: look at what would be removed again.",
+      "notElement": "This is not an element of the plugin.",
+      "needChoice": "Choose what becomes of {{name}}.",
+      "needNeeded": "Choose what becomes of {{needed}}, which {{name}} needs.",
+      "keepBoth": "{{name}} names the rows of {{other}}: keep both, or delete both."
+    },
+    "update": {
+      "generated": "{{plugin}} was generated in this workspace: there is nothing to update it from.",
+      "unlisted": "{{marketplace}} no longer lists {{plugin}}.",
+      "nothingLeft": "None of {{plugin}}'s imported skills is left upstream: remove the plugin instead.",
+      "review": "Look at what updating {{plugin}} changes before it is applied.",
+      "changed": "{{plugin}} changed since you looked: look at what updating it changes again.",
+      "notApplicable": "This is not a change of this table that can be applied.",
+      "notConflict": "This is not a field in conflict.",
+      "stemScope": "Stem decides fields of agents, tools and triggers in conflict, that you didn't take.",
+      "assistantFirst": "Set the Assistant up first: Stem is the Assistant.",
+      "notShown": "It wasn't on the update's screen.",
+      "unreachable": "Its runner couldn't be asked, or the install changed since.",
+      "nativeBlocked": "The native preview was blocked.",
+      "nativeApplyBlocked": "The native step was blocked.",
+      "nativeFailed": "The native step failed.",
+      "parentMissing": "Its parent field {{field}} isn't there: tick its addition too.",
+      "parentOther": "Its parent is another field naming the same table: make {{field}} the parent by hand.",
+      "tableCount_one": "A table with {{count}} field.",
+      "tableCount_other": "A table with {{count}} fields.",
+      "startsJobs": "Starts Jobs of {{agent}}."
+    },
+    "table": {
+      "ownField": "A field of yours is called so.",
+      "ownerField": "You changed this field.",
+      "unsupported": "It can't be applied here: change the field by hand.",
+      "order": "You changed the order.",
+      "changed": "You changed it.",
+      "changedSince": "{{plugin}} or its table changed since you looked: look at the change again."
+    },
+    "override": {
+      "forbidden": "It is {{plugin}}'s: uninstall the plugin to remove it.",
+      "notField": "This is not a field a plugin sets.",
+      "noValue": "The plugin has no value to go back to.",
+      "needsSetting": "The plugin's address needs a setting: update the plugin, or uninstall and install it again, to enter it.",
+      "notFound": "This element doesn't exist.",
+      "conflictNotFound": "This conflict doesn't exist.",
+      "conflictChanged": "This field changed since you looked: look at it again.",
+      "notPlugins": "It is no longer the plugin's."
+    },
+    "server": {
+      "notFound": "The plugin has no MCP server “{{name}}”.",
+      "onRunner": "{{name}} runs on a runner: add it from the plugin's page.",
+      "needsSetting": "{{name}}'s URL needs a setting: add it from the plugin's page.",
+      "updateToAdd": "Update the plugin to add {{name}}.",
+      "changed": "{{name}} changed since you reviewed it: look at it again."
+    },
+    "component": {
+      "needsSetting": "The MCP server {{server}} needs {{name}}.",
+      "urlTooLong": "The MCP server {{server}}'s URL is longer than 2,000 characters.",
+      "settingInHost": "The MCP server {{server}}'s URL needs a setting in its host: not supported.",
+      "settingCharacters": "A setting of the MCP server {{server}}'s URL may hold only letters, digits and . _ ~ -.",
+      "notHttp": "The MCP server {{server}}'s URL isn't an http(s) URL.",
+      "badHeaders": "The MCP server {{server}}'s headers aren't valid."
+    },
+    "setup": {
+      "changed": "The setup changed since you reviewed it: look at the updated list before setting it up.",
+      "notTable": "“{{name}}” isn't a table definition of this plugin.",
+      "notAgent": "“{{name}}” isn't an agent definition of this plugin.",
+      "notServer": "“{{name}}” isn't an MCP server of this plugin.",
+      "notTrigger": "“{{name}}” isn't a trigger definition of this plugin.",
+      "pickTable": "“{{table}}” names the table “{{name}}” of this plugin: pick it too.",
+      "item": "Item {{number}} ({{tool}}): {{reason}}",
+      "noRef": "It names an item that created nothing.",
+      "notFound": "This doesn't exist.",
+      "failed": "It failed.",
+      "waiting": {
+        "nameField": "Every table has a Name field already: this one isn't added.",
+        "noWorkspaceTable": "No table of the workspace is called “{{table}}”.",
+        "onMachine": "{{name}} runs on your machine: add it in Settings → Tools.",
+        "notInCatalog": "It isn't in the catalog.",
+        "notTicked": "It wasn't ticked with the install: add it from Set up, where its address is shown.",
+        "onRunner": "It runs on a runner: add it from that runner's own MCP servers (Settings → Tools → Add runner tool), or install the plugin natively on a runner's harness.",
+        "needsSetting": "Its URL needs a setting: add it from the plugin's page.",
+        "updateToAdd": "Update the plugin to add it.",
+        "noTable": "No table “{{table}}” is set up or in the workspace: pick it too, or make it.",
+        "noSkill": "Its skill “{{skill}}” wasn't installed with the plugin: the agent is made without it.",
+        "noTool": "“{{tool}}” isn't added as a tool yet: the agent is made without it.",
+        "noConsult": "It consults “{{agent}}”, which isn't set up yet: pick it too, or set it up again afterwards.",
+        "noAgent": "Its agent “{{agent}}” isn't set up: pick it too.",
+        "noField": "Its field “{{field}}” isn't there yet: set it up again afterwards.",
+        "noPollTool": "“{{tool}}” isn't added as a tool yet.",
+        "addedBySetup": "“{{tool}}” is added by this setup: set the trigger up once it lists its actions.",
+        "pollUnasked": "Its poll runs “{{action}}” unasked, which the install doesn't grant: let {{agent}} run it, then set the trigger up."
+      }
+    },
+    "reason": {
+      "changed": "You changed it.",
+      "changedTrigger": "You changed its trigger “{{name}}”.",
+      "ownTrigger": "It has a trigger of yours, “{{name}}”.",
+      "dashboardTrigger": "A dashboard starts its trigger “{{name}}”.",
+      "job": "It has a Job running or waiting.",
+      "memory": "It has memory entries.",
+      "consulted": "The agent “{{agent}}” may consult it.",
+      "workflowAgent": "A workflow uses this agent.",
+      "changedFiles": "You changed its files.",
+      "agentUses": "The agent “{{agent}}” uses it.",
+      "skillRequires": "The skill “{{skill}}” requires it.",
+      "triggerPolls": "The trigger “{{trigger}}” polls it.",
+      "workflowTool": "A workflow uses this tool.",
+      "rows_one": "It has {{count}} row.",
+      "rows_other": "It has {{count}} rows.",
+      "renamed": "You renamed it.",
+      "changedFields": "You changed its fields.",
+      "fieldNames": "The field “{{field}}” of your table “{{table}}” names its rows.",
+      "fieldNamesFirst": "The field “{{field}}” of your table “{{table}}” names its rows: delete that field first to delete this table.",
+      "agentWorks": "The agent “{{agent}}” works on it.",
+      "triggerWatches": "The trigger “{{trigger}}” watches it.",
+      "dashboardShows": "A dashboard shows it.",
+      "workflowTable": "A workflow uses this table.",
+      "triggerJob": "A Job it started is running or waiting.",
+      "held_one": "It has {{count}} change held back for its turn.",
+      "held_other": "It has {{count}} changes held back for its turn.",
+      "dashboardStarts": "A dashboard starts it."
+    }
+  },
+  "questions": {
+    "notFound": "This question doesn't exist.",
+    "answer": {
+      "mismatch": "The answer doesn't match the question.",
+      "notAsked": "The answer names a question that wasn't asked.",
+      "missing": "Answer “{{question}}”.",
+      "oneOnly": "“{{question}}” takes one answer.",
+      "duplicate": "“{{question}}” lists the same answer twice.",
+      "notForGood": "This permission can't be allowed for good.",
+      "tooLong": "The answer is too long (at most about {{max}} characters).",
+      "chooseScope": "Choose a remember scope for this tool permission.",
+      "cannotRemember": "This permission changed or cannot be remembered: refresh and answer again.",
+      "notPending": "This question is no longer waiting for an answer."
+    }
+  },
+  "data": {
+    "table": {
+      "notFound": "This table doesn't exist.",
+      "nameTaken": "A table is already called “{{name}}”.",
+      "usedByWorkflow": "A workflow uses this table.",
+      "referredBy": "The field “{{field}}” of the table “{{table}}” refers to this table: delete it first.",
+      "parentNeedsPrimitive": "Only a primitive table has a parent.",
+      "ownParent": "A table can't be its own parent.",
+      "fieldLimit": "A table has at most {{max}} fields.",
+      "parentRowsMissing_one": "{{count}} row of this table has no {{parent}}: fill it first.",
+      "parentRowsMissing_other": "{{count}} rows of this table have no {{parent}}: fill them first.",
+      "listEveryField": "List every field of the table once.",
+      "lastField": "A table keeps at least one field."
+    },
+    "field": {
+      "notFound": "This field doesn't exist.",
+      "nameTaken": "A field is already called “{{name}}”.",
+      "choicesOnlySelect": "Only a single select has choices.",
+      "referenceOnly": "A reference field, and only it, names the table whose rows it holds.",
+      "choiceRemoval": "Removing a choice clears the rows that use it: only the owner does that.",
+      "retypeToReference": "Create a reference field instead: it names the table it refers to.",
+      "isParent": "“{{field}}” is the table's parent: change the parent first.",
+      "ofTable": "of the table {{table}}"
+    },
+    "row": {
+      "notFound": "This row doesn't exist.",
+      "noField": "This table has no field “{{id}}”.",
+      "noFile": "“{{field}}” names a file that doesn't exist.",
+      "parentRequired": "Every row needs a value in “{{field}}”.",
+      "noRow": "“{{field}}” names a row that doesn't exist.",
+      "notFiles": "This field doesn't hold files.",
+      "children_one": "{{count}} row of “{{table}}” belongs to it: delete or move it first.",
+      "children_other": "{{count}} rows of “{{table}}” belong to it: delete or move them first."
+    },
+    "file": {
+      "tooLarge": "Files are at most 10 MiB.",
+      "tooMany": "A message takes at most {{max}} files.",
+      "installFull": "This file can't be kept: with it, Dispand's files would pass {{limit}} MiB, the most this install keeps (a setting of its owner).",
+      "jobFull": "These files can't be sent: with them, this conversation would keep more than {{files}} files or {{mib}} MiB, the most a Job keeps.",
+      "gone": "An attached file is no longer available: attach it again.",
+      "agentOnly": "Only a person attaches files to a message."
+    },
+    "cell": {
+      "tooLong": "“{{field}}” takes at most {{max}} characters, and this is {{length}}.",
+      "unstorable": "“{{field}}” contains a character Dispand can't store (NUL or a lone surrogate).",
+      "noFilesFromText": "Files can't be set from text in “{{field}}”.",
+      "got": {
+        "number": "“{{field}}”: expected a number, got “{{value}}”.",
+        "checkbox": "“{{field}}”: expected true or false, got “{{value}}”.",
+        "date": "“{{field}}”: expected a date, YYYY-MM-DD, got “{{value}}”.",
+        "url": "“{{field}}”: expected an http(s) URL, got “{{value}}”.",
+        "choice": "“{{field}}”: expected one of the field's choices, got “{{value}}”.",
+        "rowId": "“{{field}}”: expected the id of a row, got “{{value}}”."
+      },
+      "expected": {
+        "url": "“{{field}}” needs an http(s) URL.",
+        "date": "“{{field}}” needs a date, YYYY-MM-DD.",
+        "choice": "“{{field}}” needs one of the field's choices.",
+        "rowId": "“{{field}}” needs the id of a row."
+      }
+    },
+    "query": {
+      "fieldGone": "A filter or sort uses a field that no longer exists.",
+      "notFilterable": "“{{field}}” can't be filtered by “{{op}}”.",
+      "valueNeeded": "“{{field}}”: a value is needed.",
+      "notSortable": "“{{field}}” holds files and can't be sorted."
+    }
+  },
+  "triggers": {
+    "notFound": "This trigger doesn't exist.",
+    "agentNotFound": "This agent doesn't exist.",
+    "instructionsNeeded": "Say what the agent does when this trigger fires.",
+    "inboxNeeded": "Only an agent with the Inbox can be started by Questions: give it the Inbox first.",
+    "tableNotFound": "This table doesn't exist.",
+    "needsPrimitive": "Only a primitive table's changes start Jobs: make the table primitive first.",
+    "fieldNotInTable": "A watched field isn't one of the table's.",
+    "cantReadTable": "The agent can't read this table: give it data on the table first.",
+    "fieldChanged": "This field changed meanwhile.",
+    "kindFixed": "A trigger's kind can't change.",
+    "invalid": {
+      "operations": "These changes aren't ones of what the trigger watches.",
+      "noFields": "A Question, an Approval or a Job has no fields.",
+      "argumentsTooLarge": "The arguments are larger than 16 KiB."
+    }
+  },
+  "workflows": {
+    "notFound": "This workflow doesn't exist.",
+    "versionNotFound": "This version of the workflow doesn't exist.",
+    "runNotFound": "This run doesn't exist.",
+    "triggerNotFound": "This trigger doesn't exist.",
+    "agentNotFound": "This agent doesn't exist.",
+    "tableNotFound": "This table doesn't exist.",
+    "toolNotFound": "This tool doesn't exist.",
+    "noSchedule": "This workflow has no schedule.",
+    "runGoing": "A run of this workflow is still going.",
+    "ownerSkill": "Only the owner invokes a skill in a chat.",
+    "schedule": {
+      "fields": "Use 5 fields: minute hour day month weekday.",
+      "noH": "Use numbers, not H.",
+      "unknownTimezone": "Unknown timezone.",
+      "unreadable": "This schedule can't be read: {{reason}}."
+    },
+    "link": {
+      "self": "A step can't follow itself.",
+      "already": "These steps are already linked.",
+      "beforeTrigger": "Nothing runs before the trigger.",
+      "crossesLoop": "A link can't cross the edge of a loop.",
+      "wouldLoop": "This link would make a loop.",
+      "chooseBranch": "Choose Then or Else for this link.",
+      "onlyCondition": "Only a condition has Then and Else."
+    },
+    "issue": {
+      "sameId": "Another step has the same id",
+      "sameKey": "Another step is also called “{{key}}”",
+      "leadsNowhere": "This step leads to a step that doesn't exist",
+      "followsNowhere": "This step follows a step that doesn't exist",
+      "inLoop": "This step is part of a loop",
+      "loopMissing": "This step's loop doesn't exist",
+      "nested": "Loops can't be nested yet",
+      "linkNowhere": "A link joins steps that don't exist",
+      "chooseAgent": "Choose an agent",
+      "insideLoop": "{{reference}}: “{{step}}” runs inside the loop “{{loop}}”: use {{results}}",
+      "notBefore": "{{reference}}: “{{step}}” doesn't run before this step",
+      "isButton": "{{reference}}: “{{step}}” is a button, it has no values",
+      "badName": "{{reference}}: “{{field}}” can't name a value (letters, digits and _, not starting with a digit, at most 64, not a reserved name)",
+      "noGive": "{{reference}}: “{{step}}” doesn't give “{{field}}”",
+      "noStep": "{{reference}}: no step is called “{{step}}”",
+      "chooseValue": "Choose the value to compare",
+      "valueGone": "The value to compare comes from a step that doesn't exist",
+      "chooseList": "Choose the list to loop over",
+      "listGone": "The list comes from a step that doesn't exist",
+      "emptyLoop": "Add a step inside this loop",
+      "sourceGone": "A value comes from a step that doesn't exist",
+      "tooManyOutputs": "Later steps ask this step for {{outputs}} values, at most {{max}}",
+      "chooseTable": "Choose a table",
+      "tableGone": "This step's table no longer exists",
+      "chooseRow": "Choose the row to update",
+      "filterFieldGone": "A field this step filters on no longer exists in {{table}}",
+      "inputFieldGone": "A field this step sets no longer exists in {{table}}",
+      "holdsFiles": "“{{field}}” holds files, which a workflow can't set",
+      "setTwice": "“{{name}}” is set twice",
+      "chooseTool": "Choose a tool",
+      "toolGone": "This step's tool no longer exists",
+      "runnerTool": "Tool steps run HTTP tools; use an agent for runner tools",
+      "chooseAction": "Choose an action",
+      "actionDisabled": "{{tool}}'s action “{{action}}” is disabled workspace-wide",
+      "actionGone": "{{tool}} no longer has the action “{{action}}”",
+      "noParam": "“{{action}}” has no parameter “{{param}}”",
+      "needsValue": "“{{param}}” needs a value",
+      "mustBe": {
+        "number": "“{{param}}” must be a number",
+        "integer": "“{{param}}” must be a whole number",
+        "boolean": "“{{param}}” must be true or false",
+        "array": "“{{param}}” must be JSON (an array)",
+        "object": "“{{param}}” must be JSON (an object)"
+      }
+    }
+  },
+  "validation": {
+    "invalid_type": "“{{field}}” has the wrong type.",
+    "too_small": {
+      "string_one": "“{{field}}” needs at least {{count}} character.",
+      "string_other": "“{{field}}” needs at least {{count}} characters.",
+      "array_one": "“{{field}}” needs at least {{count}} item.",
+      "array_other": "“{{field}}” needs at least {{count}} items.",
+      "number": "“{{field}}” must be at least {{minimum}}."
+    },
+    "too_big": {
+      "string_one": "“{{field}}” takes at most {{count}} character.",
+      "string_other": "“{{field}}” takes at most {{count}} characters.",
+      "array_one": "“{{field}}” takes at most {{count}} item.",
+      "array_other": "“{{field}}” takes at most {{count}} items.",
+      "number": "“{{field}}” must be at most {{maximum}}."
+    },
+    "invalid_format": "“{{field}}” is not in the expected format.",
+    "not_multiple_of": "“{{field}}” must be a multiple of {{divisor}}.",
+    "unrecognized_keys": "“{{field}}” has fields it doesn't take: {{keys}}.",
+    "invalid_union": "“{{field}}” is not valid.",
+    "invalid_key": "“{{field}}” has a key that is not valid.",
+    "invalid_element": "“{{field}}” has an element that is not valid.",
+    "invalid_value": "“{{field}}” must be one of: {{values}}.",
+    "custom": "“{{field}}” is not valid."
+  },
+  "push": {
+    "question_one": "{{agent}} has a question for you.",
+    "question_other": "{{agent}} has a question for you, and {{count}} items wait in all.",
+    "approval_one": "{{agent}} needs your decision.",
+    "approval_other": "{{agent}} needs your decision, and {{count}} items wait in all."
+  },
+  "engine": {
+    "stoppedAtCheckpoint": "Stopped at a checkpoint.",
+    "rootNotFound": "This root cause doesn't exist.",
+    "runOver": "This run is over.",
+    "chatOver": "The chat is over.",
+    "chatRunnerGone": "The chat's runner is no longer available.",
+    "skillChatOnly": "Skills can be invoked in Assistant chats only.",
+    "skillWait": "Wait for the Assistant to finish its turn before loading another skill."
+  },
+  "harness": {
+    "detail": {
+      "onRunner": "{{kind}}, on {{runner}}",
+      "mode": "{{kind}}, permission mode {{mode}}",
+      "both": "{{kind}}, on {{runner}}, permission mode {{mode}}"
+    },
+    "usedByAgent": "An agent uses this harness.",
+    "modelsUnavailable": "Could not list models. Check that the runner is connected and signed in, or enter a model ID.",
+    "modelsFailed": "The models couldn't be listed.",
+    "kindFixed": "A harness can't change between CLI and cloud.",
+    "cloud": {
+      "needsBaseUrl": "An OpenAI-compatible provider needs a base URL.",
+      "needsKey": "An API key is required.",
+      "keyHttps": "A key is only sent to an https:// base URL.",
+      "temperature": "Temperature is only for OpenAI-compatible providers."
+    },
+    "models": {
+      "unreachable": "Couldn't reach {{host}}.",
+      "keyRefused": "The provider refused the key."
+    }
+  },
+  "auth": {
+    "signIn": "Sign in to continue.",
+    "setupRefused": "Setup is not allowed.",
+    "ownerOnly": "Only the owner can do this, not an agent."
+  },
+  "audit": {
+    "badCursor": "This cursor isn't valid: start the list again."
+  },
+  "memory": {
+    "notFound": "This memory doesn't exist.",
+    "full": "This memory holds {{max}} entries already: remove one first.",
+    "exists": "An entry {{path}} exists already.",
+    "noEntry": "There is no entry {{path}}.",
+    "removed": "This entry is removed already.",
+    "acceptOnly": "Only an agent's entry, not removed, can be accepted.",
+    "notRemoved": "This entry isn't removed.",
+    "entry": {
+      "pathRule": "The path must be a relative path ending in .md, at most 120 characters, without .., . or empty parts, \\ or a .claude or .mcp.json folder, and not MEMORY.md, CLAUDE.md, AGENTS.md or AGENTS.override.md.",
+      "nameEmpty": "The name can't be empty.",
+      "nameTooLong": "The name is at most {{nameMax}} characters.",
+      "descriptionEmpty": "The description can't be empty.",
+      "descriptionTooLong": "The description is at most {{descriptionMax}} characters.",
+      "descriptionOneLine": "The description is one line.",
+      "typeOneOf": "The type is one of {{types}}.",
+      "bodyTooLong": "The body is at most {{bodyMax}} characters."
+    }
+  },
+  "jobs": {
+    "manualOnly": "Only a manual trigger can be started by hand.",
+    "disabled": "This trigger is disabled.",
+    "notFound": "This Job doesn't exist."
+  },
+  "skills": {
+    "toolsUnavailable": "This skill requires tools unavailable on this harness.",
+    "tooMany": "A conversation can load at most {{max}} skill packages.",
+    "nameTaken": "A skill is already called “{{name}}”.",
+    "packageNameTaken": "This package already holds a skill called “{{name}}”.",
+    "builtIn": "The platform skill is built in: it is read-only.",
+    "pluginSkill": "A plugin's skill is changed file by file, on its page.",
+    "editedFromForm": "This skill is edited from its form.",
+    "fileNotFound": "This file doesn't exist.",
+    "usedByAgent": "The agent “{{agent}}” uses this skill.",
+    "package": {
+      "empty": "A skill package needs at least one skill.",
+      "tooManyFiles": "A skill package holds at most {{max}} files.",
+      "tooBig": "A skill package holds at most 8 MiB.",
+      "skillTooManyFiles": "The skill “{{path}}” holds at most {{max}} files.",
+      "unsafePath": "“{{path}}” is not a safe path.",
+      "outsideFolder": "“{{path}}” is not inside a skill's folder: every file must be.",
+      "badFolder": "The folder of “{{path}}” must be lowercase letters, digits and hyphens, at most 64.",
+      "twice": "“{{path}}” is in the package twice.",
+      "folderName": "“{{path}}” has the name of a folder of the package.",
+      "fileTooBig": "“{{path}}” is larger than 2 MiB.",
+      "noSkillMd": "“{{path}}” is missing: every skill folder needs a SKILL.md.",
+      "notUtf8": "“{{path}}” isn't UTF-8 text.",
+      "noFrontmatter": "“{{path}}” must start with a YAML frontmatter between --- lines.",
+      "badYaml": "The frontmatter of “{{path}}” isn't valid YAML.",
+      "notMapping": "The frontmatter of “{{path}}” must be a YAML mapping.",
+      "nameMismatch": "The frontmatter's name in “{{path}}” must be “{{folder}}”, its folder.",
+      "noDescription": "The frontmatter of “{{path}}” needs a description.",
+      "descriptionLong": "The description in “{{path}}” must be at most {{max}} characters of text."
+    }
+  },
+  "runners": {
+    "usedByHarness": "A harness uses this runner.",
+    "nativeOwnerOnly": "Native installation requires an owner session.",
+    "targetNeedsHarness": "Each target needs a CLI harness on this runner.",
+    "unavailable": "Runner unavailable or operation timed out. Refresh inventory before retrying; native changes may have completed.",
+    "noUpdate": "No update available or runner unreachable.",
+    "harnessNotFound": "This CLI harness doesn't exist.",
+    "groupByRunner": "Group native installation targets by runner.",
+    "noNativeSource": "This plugin has no supported HTTPS Git source for native installation.",
+    "wholePlugin": "Install or remove the whole native plugin instead of copying its skills separately.",
+    "refreshInventory": "Refresh native inventory before changing plugins; the runner could not verify its managed bindings."
+  },
+  "pages": {
+    "notFound": "This page doesn't exist.",
+    "widgetNotFound": "This widget doesn't exist.",
+    "tooMany": "At most {{max}} pages.",
+    "homeRename": "Home can't be renamed.",
+    "homeDelete": "Home can't be deleted.",
+    "fieldTwice": "A field is chosen twice.",
+    "fieldNotInTable": "A chosen field isn't a field of this table.",
+    "coverFiles": "The cover must be a files field of this table.",
+    "manualTriggerForm": "Only a manual trigger can have a form.",
+    "manualWorkflowForm": "Only a manual workflow can have a form.",
+    "formNoFields": "A form has no fields to choose.",
+    "widgetTooWide": "A widget is wider than the {{grid}} grid."
+  }
+}

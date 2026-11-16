@@ -52,7 +52,7 @@ test("a custom cron with 6 fields shows the problem and doesn't call onChange wi
   expect((cron as HTMLInputElement).value).toBe("0 9 * * 1-5");
   await user.clear(cron);
   await user.type(cron, "0 0 9 * * *");
-  expect(screen.getByRole("alert").textContent).toBe("Use 5 fields: minute hour day month weekday");
+  expect(screen.getByRole("alert").textContent).toBe("Use 5 fields: minute hour day month weekday.");
   expect(onChange.mock.calls.map(([f]) => (f as ScheduleField).cron)).not.toContain("0 0 9 * * *");
   await user.clear(cron);
   await user.type(cron, "*/15 9-17 * * 1-5");
@@ -70,7 +70,7 @@ test("next runs show three times in the schedule's timezone", async () => {
   setup({ field: { ...start, timezone: "America/New_York" } });
   const next = within(screen.getByRole("list", { name: "Next runs" }));
   // Weekdays at 09:00 New York time, after 04:05 there on Thursday 5 Nov.
-  expect(next.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Thu 5 Nov, 09:00", "Fri 6 Nov, 09:00", "Mon 9 Nov, 09:00"]);
+  expect(next.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Thu, Nov 5, 09:00", "Fri, Nov 6, 09:00", "Mon, Nov 9, 09:00"]);
   expect(screen.getByText(/America\/New_York/)).toBeTruthy();
 });
 
@@ -79,7 +79,7 @@ test("an unknown timezone is shown, not saved", async () => {
   const tz = screen.getByLabelText("Timezone");
   await user.clear(tz);
   await user.type(tz, "Mars/Olympus");
-  expect(screen.getByRole("alert").textContent).toBe("Unknown timezone");
+  expect(screen.getByRole("alert").textContent).toBe("Unknown timezone.");
   expect(onChange.mock.calls.map(([f]) => (f as ScheduleField).timezone)).not.toContain("Mars/Olympus");
   await user.clear(tz);
   await user.type(tz, "Asia/Tokyo");
@@ -102,9 +102,9 @@ test("recent fires say what happened", () => {
   });
   const recent = within(screen.getByRole("list", { name: "Recent" }));
   expect(recent.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
-    "Thu 5 Nov, 09:00Started",
-    "Wed 4 Nov, 09:00Skipped: a run was still going",
-    "Tue 3 Nov, 09:00Refused: Choose an agent",
+    "Thu, Nov 5, 09:00Started",
+    "Wed, Nov 4, 09:00Skipped: a run was still going",
+    "Tue, Nov 3, 09:00Refused: Choose an agent",
   ]);
   expect(recent.getByRole("link", { name: "Started" }).getAttribute("href")).toBe("/settings/workflows/runs/run_1");
 });

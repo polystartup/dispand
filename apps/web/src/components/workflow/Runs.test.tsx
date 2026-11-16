@@ -47,3 +47,22 @@ test("the runs list names each Job's agent, and a deleted one as “<name> (Dele
   expect(await screen.findByText("Clerk")).toBeTruthy();
   expect(screen.getByText("Order drafter (Deleted)")).toBeTruthy();
 });
+
+test("the runs list is in French, and shows the built-in agent as Stem", async () => {
+  const { I18nextProvider } = await import("react-i18next");
+  const { createI18n } = await import("../../lib/i18n.ts");
+  fake.runs.list.mockResolvedValue([job("run_1", "agent_1", null)]);
+  fake.workflows.list.mockResolvedValue([]);
+  fake.agents.list.mockResolvedValue([{ id: "agent_1", name: "Assistant", builtIn: "assistant" }]);
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RunList />
+      </QueryClientProvider>
+    </I18nextProvider>,
+  );
+  expect(await screen.findByText("Stem")).toBeTruthy();
+  expect(screen.getByText("échoué")).toBeTruthy();
+  expect(screen.getByText("Manuel")).toBeTruthy();
+  expect(screen.getByText(/1 janv\. 2026.* · 1 min 0 s/)).toBeTruthy();
+});

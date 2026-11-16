@@ -2,8 +2,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Bell } from "lucide-react";
 import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import type { i18n as I18n } from "i18next";
 import { api, orpc } from "../../lib/api.ts";
 import { takeNew } from "../../lib/new-questions.ts";
+import { currentSubscription } from "../../lib/push.ts";
 
 /** Browser notifications: only on a secure context (HTTPS or localhost), and never required. */
 export function notificationsSupported(): boolean {
@@ -22,10 +25,20 @@ export function notificationPermission(): NotificationPermission | "unsupported"
   }
 }
 
-function notify(fresh: number) {
+type Fresh = { kind: string; agent: { name: string; builtIn?: string | null } | null; workflow: { name: string } | null };
+
+/**
+ * The sentence a push says too (`messages:push.*`, `packages/domain/src/push/sender.ts`): the newest
+ * item's agent and kind, and how many came. Only while this browser gets no pushes: they tell it then
+ * (`public/sw.js`), and one alert per item is enough.
+ */
+async function notify(i18n: I18n, fresh: Fresh[]) {
   try {
-    if (notificationPermission() !== "granted") return;
-    new Notification("Dispand", { body: fresh === 1 ? "An agent has a question for you." : `${fresh} agents have questions for you.`, tag: "dispand-questions" });
+    if (notificationPermission() !== "granted" || (await currentSubscription().catch(() => null))) return;
+    const newest = fresh[0]!;
+    const agent = newest.agent?.builtIn === "assistant" ? i18n.t("messages:agent.assistant.name") : ((newest.workflow ?? newest.agent)?.name ?? "");
+    const body = i18n.t(newest.kind === "approval" ? "messages:push.approval" : "messages:push.question", { agent, count: fresh.length });
+    new Notification("Dispand", { body, tag: "dispand-inbox" });
   } catch {
     // A browser that refuses (some mobile ones need a service worker): the badge still tells.
   }
@@ -36,6 +49,8 @@ const STREAM_DELAY_MS = 1500;
 /** Keeps the pending count current from the server stream (once, in the app shell). */
 export function usePendingQuestionsStream() {
   const queryClient = useQueryClient();
+  // The instance, not `t`: a notification is written in the language of the moment it shows.
+  const { i18n } = useTranslation();
   useEffect(() => {
     const stop = new AbortController();
     let seen: Set<string> | null = null;
@@ -49,9 +64,9 @@ export function usePendingQuestionsStream() {
           for await (const { count } of await api.questions.stream(undefined, { signal: stop.signal })) {
             // A notification per new question id (a count can stay the same when one is answered and another asked).
             const items = await api.questions.list({ status: "pending" });
-            const taken: { seen: Set<string>; fresh: unknown[] } = takeNew(seen, items);
+            const taken: { seen: Set<string>; fresh: Fresh[] } = takeNew(seen, items);
             seen = taken.seen;
-            if (taken.fresh.length > 0) notify(taken.fresh.length);
+            if (taken.fresh.length > 0) void notify(i18n, taken.fresh);
             // A count request still in flight read the database earlier: it must not land after this.
             await queryClient.cancelQueries({ queryKey: orpc.questions.count.queryKey() });
             queryClient.setQueryData(orpc.questions.count.queryKey(), { count });
@@ -64,10 +79,11 @@ export function usePendingQuestionsStream() {
       }
     })();
     return () => stop.abort();
-  }, [queryClient]);
+  }, [queryClient, i18n]);
 }
 
 export function NotificationsBell({ onNavigate }: { onNavigate: () => void }) {
+  const { t } = useTranslation("shell");
   const { data, error } = useQuery(orpc.questions.count.queryOptions());
   const pending = data?.count ?? 0;
   // Without a count, say so rather than look like nothing waits.
@@ -81,8 +97,8 @@ export function NotificationsBell({ onNavigate }: { onNavigate: () => void }) {
         onNavigate();
         void navigate({ to: "/inbox" });
       }}
-      aria-label={unknown ? "Inbox (couldn't load what's waiting)" : pending > 0 ? `Inbox, ${pending} waiting` : "Inbox"}
-      title={unknown ? "Couldn't load what's waiting" : undefined}
+      aria-label={unknown ? t("inbox.unknownLabel") : pending > 0 ? t("inbox.waiting", { count: pending }) : t("inbox.label")}
+      title={unknown ? t("inbox.unknown") : undefined}
       className="relative grid size-8 place-items-center rounded-lg text-muted transition hover:bg-hover hover:text-fg"
     >
       <Bell size={17} aria-hidden />

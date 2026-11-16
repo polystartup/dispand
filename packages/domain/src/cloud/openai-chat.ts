@@ -1,5 +1,5 @@
 import type OpenAI from "openai";
-import { parseArgs, type ChatItem, type ClientDeps, type ClientHarness, type ModelClient, type ModelTurn } from "./model-client.ts";
+import { fileInput, parseArgs, type ChatFile, type ChatItem, type ClientDeps, type ClientHarness, type ModelClient, type ModelTurn } from "./model-client.ts";
 import { openAIClient } from "./openai-responses.ts";
 
 type Message = OpenAI.Chat.ChatCompletionMessageParam;
@@ -16,6 +16,7 @@ export function createChatClient(h: ClientHarness, deps: ClientDeps): ModelClien
           model: h.model,
           messages: [...(system ? [{ role: "system" as const, content: system }] : []), ...toMessages(items)],
           stream: true,
+          stream_options: { include_usage: true },
           ...(tools.length > 0
             ? { tools: tools.map((t) => ({ type: "function" as const, function: { name: t.name, description: t.description, parameters: t.inputSchema } })) }
             : {}),
@@ -27,8 +28,11 @@ export function createChatClient(h: ClientHarness, deps: ClientDeps): ModelClien
       let text = "";
       let refusal = "";
       let finish: string | null = null;
+      let usage: ModelTurn["usage"];
       const calls: { id: string; name: string; arguments: string }[] = [];
       for await (const chunk of stream) {
+        // The last chunk, with no choice, carries the counts.
+        if (chunk.usage) usage = { input: chunk.usage.prompt_tokens, output: chunk.usage.completion_tokens };
         const choice = chunk.choices[0];
         if (!choice) continue;
         const { delta } = choice;
@@ -62,14 +66,24 @@ export function createChatClient(h: ClientHarness, deps: ClientDeps): ModelClien
         : finish === "content_filter" || refusal ? "refusal"
         : present.length > 0 ? "tool_use"
         : "end";
-      return { text, toolCalls: present.map((c) => ({ id: c.id, name: c.name, args: parseArgs(c.arguments) })), raw, stop };
+      return { text, toolCalls: present.map((c) => ({ id: c.id, name: c.name, args: parseArgs(c.arguments) })), raw, stop, ...(usage ? { usage } : {}) };
     },
   };
 }
 
+function filePart(file: ChatFile): OpenAI.Chat.ChatCompletionContentPart {
+  // Not every server behind this API takes a PDF part, and one it refuses would end the session: none is sent.
+  const input = fileInput(file, { pdf: false });
+  if (input.kind === "image") return { type: "image_url", image_url: { url: `data:${input.mime};base64,${input.base64}` } };
+  return { type: "text", text: "text" in input ? input.text : "" };
+}
+
 function toMessages(items: ChatItem[]): Message[] {
   return items.map((item): Message => {
-    if (item.role === "user") return { role: "user", content: item.text };
+    if (item.role === "user") {
+      if (!item.files?.length) return { role: "user", content: item.text };
+      return { role: "user", content: [{ type: "text", text: item.text }, ...item.files.map(filePart)] };
+    }
     if (item.role === "assistant") return item.raw as Assistant;
     return { role: "tool", tool_call_id: item.callId, content: item.result };
   });

@@ -1,11 +1,12 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
+import { say } from "../messages/index.ts";
 import { expect, test } from "vitest";
 import { fields, rows, tables, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext, recordingDb } from "../runners/test-support.ts";
-import type { Cell } from "./fields.ts";
-import { writeRow } from "./rows.ts";
+import { type Cell, cellSchema, type FieldSchema } from "./fields.ts";
+import { cellProblem, writeRow } from "./rows.ts";
 
 type Ctx = Awaited<ReturnType<typeof ownerContext>>;
 
@@ -198,7 +199,7 @@ test("list refuses a page over 500 and a query with an unknown field", async () 
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   await expect(
     call(router.rows.list, { tableId: table.id, query: { filters: [{ fieldId: price.id, op: ">", value: "lots" }], sort: [] } }, { context }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "“Price”: expected a number, got “lots”" });
+  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "“Price”: expected a number, got “lots”.", data: say("data.cell.got.number", { field: "Price", value: "lots" }) });
 });
 
 test("delete refuses ids of another table or owner", async () => {
@@ -253,4 +254,17 @@ test("another owner's table can't be listed, written or streamed", async () => {
   ];
   for (const attempt of attempts) await expect(attempt()).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(await context.db.select().from(rows).where(eq(rows.tableId, "tbl_other"))).toMatchObject([{ id: "row_other", values: { fld_other: "kept" } }]);
+});
+
+test("a value a field's schema refuses is a keyed message of that field, whichever kind of check refused it", () => {
+  const problem = (type: FieldSchema["type"], value: unknown) => {
+    const field: FieldSchema = { id: "f", name: "F", type, choices: [{ id: "c_a", label: "A" }] };
+    const checked = cellSchema(field).safeParse(value);
+    return checked.success ? null : cellProblem(field, checked.error.issues[0]);
+  };
+  expect(problem("reference", "Ada")).toEqual(say("data.cell.expected.rowId", { field: "F" }));
+  expect(problem("url", "ftp://x")).toEqual(say("data.cell.expected.url", { field: "F" }));
+  expect(problem("date", "2026-02-30")).toEqual(say("data.cell.expected.date", { field: "F" }));
+  expect(problem("single-select", "c_gone")).toEqual(say("data.cell.expected.choice", { field: "F" }));
+  expect(problem("number", "7")).toEqual({ key: "validation.invalid_type", values: { field: "F" } });
 });

@@ -3,6 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { agents, questions, roots, runs, stepRuns } from "../db/schema.ts";
 import { consultsOf, pairProblem } from "../agents/consults.ts";
+import { sentence } from "../messages/index.ts";
 import { storableText } from "../text.ts";
 import { STOPPED } from "./engine.ts";
 import { JOB_STEP } from "./job-def.ts";
@@ -43,7 +44,7 @@ async function rightsProblem(db: Db | Tx, run: Pick<RunRow, "ownerId" | "agentId
   const now = (await consultsOf(db, run.agentId)).find((e) => e.agentId === consultedId);
   if (!then || !now) return NOT_LISTED;
   const pair = await pairProblem(db, run.ownerId, run.agentId, consultedId);
-  if (pair) return pair;
+  if (pair) return sentence(pair);
   return !asked && (then.ask || now.ask) ? FLAGGED : null;
 }
 

@@ -3,6 +3,7 @@ import { CELL_LIMITS } from "@dispand/domain/data/fields";
 import { FileText, Upload, X } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type DragEvent, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { api } from "../../lib/api.ts";
 import { rowWrites, setListCell } from "./row-writes.ts";
@@ -11,6 +12,7 @@ export const fileUrl = (id: string) => `/files/${encodeURIComponent(id)}`;
 
 /** One file: a thumbnail for an image sniffed on upload, a chip with its name otherwise. */
 function FileItem({ id, file, size }: { id: string; file?: AttachmentView; size: "sm" | "lg" }) {
+  const { t } = useTranslation("data");
   if (file?.image) {
     return <img src={fileUrl(id)} alt={file.name} className={cn("rounded-md border border-line object-cover", size === "sm" ? "size-7" : "size-20")} />;
   }
@@ -22,15 +24,16 @@ function FileItem({ id, file, size }: { id: string; file?: AttachmentView; size:
       title={file?.name}
     >
       <FileText size={12} aria-hidden className="shrink-0" />
-      <span className="truncate">{file?.name ?? "File"}</span>
+      <span className="truncate">{file?.name ?? t("files.file")}</span>
     </a>
   );
 }
 
 /** The files of a cell in the grid, read-only. */
 export function AttachmentCell({ ids, files }: { ids: string[]; files: Record<string, AttachmentView> }) {
+  const { t } = useTranslation("data");
   return (
-    <span className="flex items-center gap-1 overflow-hidden" aria-label={`${ids.length} ${ids.length === 1 ? "file" : "files"}`}>
+    <span className="flex items-center gap-1 overflow-hidden" aria-label={t("files.count", { count: ids.length })}>
       {ids.map((id) => (
         <FileItem key={id} id={id} file={files[id]} size="sm" />
       ))}
@@ -62,6 +65,7 @@ export function AttachmentEditor({
   files: Record<string, AttachmentView>;
   onSaved: () => Promise<unknown>;
 }) {
+  const { t } = useTranslation("data");
   const input = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +88,7 @@ export function AttachmentEditor({
   const upload = async (picked: File[]) => {
     if (picked.length === 0 || busy) return;
     if (ids.length + picked.length > CELL_LIMITS.attachments) {
-      setError(`A cell holds at most ${CELL_LIMITS.attachments} files.`);
+      setError(t("files.tooMany", { max: CELL_LIMITS.attachments }));
       return;
     }
     setUploading(true);
@@ -94,7 +98,7 @@ export function AttachmentEditor({
       for (const file of picked) added.push((await api.files.upload({ tableId, file })).id);
       edit.mutate({ add: added });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not upload the file.");
+      setError(err instanceof Error ? err.message : t("files.uploadFailed"));
     } finally {
       setUploading(false);
       if (input.current) input.current.value = "";
@@ -110,13 +114,13 @@ export function AttachmentEditor({
   return (
     <div className="grid gap-2">
       {ids.length > 0 && (
-        <ul className="flex flex-wrap gap-2" aria-label={`${label} files`}>
+        <ul className="flex flex-wrap gap-2" aria-label={t("files.list", { label })}>
           {ids.map((id) => (
             <li key={id} className="relative flex items-center">
               <FileItem id={id} file={files[id]} size="lg" />
               <button
                 type="button"
-                aria-label={`Remove ${files[id]?.name ?? "file"}`}
+                aria-label={t("files.remove", { name: files[id]?.name ?? t("files.file") })}
                 disabled={busy}
                 onClick={() => {
                   setError(null);
@@ -140,10 +144,10 @@ export function AttachmentEditor({
         className={cn("grid place-items-center rounded-xl border border-dashed border-line px-3 py-4 text-center text-[13px] text-muted", over && "border-accent bg-hover")}
       >
         <button type="button" disabled={busy} onClick={() => input.current?.click()} className="inline-flex items-center gap-1.5 font-medium text-accent disabled:opacity-50">
-          <Upload size={14} aria-hidden /> {busy ? "Uploading…" : "Add files"}
+          <Upload size={14} aria-hidden /> {busy ? t("files.uploading") : t("files.add")}
         </button>
-        <span>or drop them here (10 MiB each)</span>
-        <input ref={input} type="file" multiple hidden aria-label={`Upload to ${label}`} onChange={(e) => void upload([...(e.target.files ?? [])])} />
+        <span>{t("files.drop")}</span>
+        <input ref={input} type="file" multiple hidden aria-label={t("files.upload", { label })} onChange={(e) => void upload([...(e.target.files ?? [])])} />
       </div>
       {error && (
         <p role="alert" className="text-[13px] text-danger">

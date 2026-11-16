@@ -2,6 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 
 const fake = vi.hoisted(() => ({
@@ -12,6 +13,7 @@ vi.mock("../../lib/api.ts", async () => {
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
 const { MemoryPanel } = await import("./MemoryPanel.tsx");
+const { createI18n } = await import("../../lib/i18n.ts");
 type Where = Parameters<typeof MemoryPanel>[0]["where"];
 
 afterEach(() => {
@@ -162,4 +164,20 @@ test("an entry agents that configure don't read says so, with Accept; an accepte
     expect(screen.getByRole("button", { name: "Revert" })).toBeTruthy();
     await user.keyboard("{Escape}");
   }
+});
+
+test("the memory is in French, its built-in agent author shown as Stem", async () => {
+  fake.memories.list.mockResolvedValue({ index: "", entries: [{ ...agents, author: { ...agents.author, name: "Assistant", builtIn: "assistant" } }], removed: [] });
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryPanel where={{ scope: "workspace" }} />
+      </QueryClientProvider>
+    </I18nextProvider>,
+  );
+  expect(await screen.findByRole("button", { name: "Ajouter une entrée" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Faits" })).toBeTruthy();
+  expect(screen.getByText(/Stem · /)).toBeTruthy();
+  expect(screen.getByText(/Non lue par les agents qui configurent/)).toBeTruthy();
+  expect(screen.queryByText(/Assistant/)).toBeNull();
 });

@@ -5,10 +5,11 @@ import { mcpActionName, parseRule, type QuestionPayload } from "@dispand/runner-
 import { exposedName } from "../platform/exposed.ts";
 import { runnerServerName, sessionTooling } from "../engine/tooling.ts";
 import { meter, tracer } from "../telemetry/index.ts";
-import { rememberAllowedAction, setPermission, toolPermissionTarget } from "./tool-ask.ts";
+import { packagesRequiring, rememberAllowedAction, setPermission, strictTargets, toolPermissionTarget } from "./tool-ask.ts";
 
 /** A server-resolved tool action, bound to the target for which permission was requested. */
-export type ToolSubject = { kind: "tool"; agentId: string; toolId: string; action: string; target: string };
+/** `strictTarget`: under strict permissions, the tool's strict target for the configuration that asked; a future-run answer holds only while it is still current. */
+export type ToolSubject = { kind: "tool"; agentId: string; toolId: string; action: string; target: string; strictTarget?: string };
 export type CliSubject = { kind: "cli"; agentId: string; cli: "claude-code" | "codex"; rule: string };
 export type Subject = ToolSubject | CliSubject;
 export type RememberScope = "run" | "always";
@@ -22,6 +23,20 @@ const same = (a: Subject, b: Subject) => a.agentId === b.agentId && (a.kind === 
 export function rememberedDecision(state: RememberedPermissions, subject: Subject): Decision | null {
   if (state.deny.some((s) => same(s, subject))) return "deny";
   return state.allow.some((s) => same(s, subject)) ? "allow" : null;
+}
+
+/**
+ * Under strict permissions, what a future-run answer about the tool is for: its strict target for
+ * the agent, or for a tool the agent has only with skill packages, for each package that requires it
+ * (their files included). Undefined without strict permissions; null when it can't be checked.
+ */
+async function reviewedTarget(db: Db | Tx, ownerId: string, agentId: string, tool: typeof tools.$inferSelect, revision?: number): Promise<string | null | undefined> {
+  const [chosen] = await db.select({ id: agentTools.toolId }).from(agentTools).where(and(eq(agentTools.agentId, agentId), eq(agentTools.toolId, tool.id)));
+  const packageIds = chosen ? [] : (await packagesRequiring(db, ownerId, agentId, tool.id)).map((p) => p.id).sort();
+  const strict = await strictTargets(db, ownerId, agentId, [tool], packageIds, revision);
+  if (!strict) return undefined;
+  const targets = chosen ? [strict(tool)] : packageIds.map((id) => strict(tool, id));
+  return targets.length && targets.every((t) => t !== null) ? targets.join(",") : null;
 }
 
 const traces = tracer("permissions");
@@ -69,6 +84,9 @@ async function write(db: Db | Tx, input: Input): Promise<boolean> {
     if (!current?.actions.some((a) => a.name === subject.action)) return false;
     if (input.scope === "always") {
       if (run.source !== "agent" || !run.agentId) return false;
+      // Under strict permissions, only for what was asked about: not an older configuration's Job, nor a tool listed anew meanwhile.
+      const reviewed = await reviewedTarget(tx, ownerId, run.agentId, tool);
+      if (reviewed !== undefined && (!subject.strictTarget || reviewed !== subject.strictTarget)) return false;
       const to = { agentId: run.agentId, toolId: subject.toolId, action: subject.action };
       return input.decision === "allow" ? rememberAllowedAction(tx, ownerId, to) : setPermission(tx, ownerId, { ...to, permission: "off" });
     }
@@ -86,7 +104,7 @@ async function write(db: Db | Tx, input: Input): Promise<boolean> {
 /** Resolve an offer from the active session's identities, never the runner's display label. */
 export async function offerForQuestion(db: Db | Tx, input: { ownerId: string; sessionId: string; questionId: string; payload: QuestionPayload; harness?: string }): Promise<{ remember: RememberOffer; about: { tool: string; action: string; description: string; toolId: string } | null } | null> {
   if (input.payload.kind !== "permission" || ["request_approval", "checkpoint", "consult"].includes(input.payload.toolName)) return null;
-  const [run] = await db.select({ source: runs.source, agentId: runs.agentId, status: runs.status }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId))
+  const [run] = await db.select({ source: runs.source, agentId: runs.agentId, status: runs.status, snapshot: runs.snapshot }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId))
     .where(and(eq(stepRuns.sessionId, input.sessionId), eq(runs.ownerId, input.ownerId)));
   if (!run || !["running", "waiting"].includes(run.status)) return null;
   if (input.payload.remembers) {
@@ -106,9 +124,12 @@ export async function offerForQuestion(db: Db | Tx, input: { ownerId: string; se
   const { tool, action } = candidates[0]!;
   const [row] = await db.select().from(tools).where(and(eq(tools.id, tool.id), eq(tools.ownerId, input.ownerId)));
   if (!row) return null;
+  // Future runs are remembered for a tool the agent chose, or one its own skill packages give it.
   const [chosen] = await db.select({ id: agentTools.toolId }).from(agentTools).where(and(eq(agentTools.agentId, tooling.agentId), eq(agentTools.toolId, tool.id)));
+  const [withSkill] = chosen ? [] : await packagesRequiring(db, input.ownerId, tooling.agentId, tool.id);
+  const strictTarget = await reviewedTarget(db, input.ownerId, tooling.agentId, row, run.snapshot?.revision);
   return {
-    remember: { scopes: run.source === "agent" && run.agentId === tooling.agentId && chosen ? ["run", "always"] : ["run"], subject: { kind: "tool", agentId: tooling.agentId, toolId: tool.id, action: action.name, target: toolPermissionTarget(row) } },
+    remember: { scopes: run.source === "agent" && run.agentId === tooling.agentId && (chosen || withSkill) ? ["run", "always"] : ["run"], subject: { kind: "tool", agentId: tooling.agentId, toolId: tool.id, action: action.name, target: toolPermissionTarget(row), ...(strictTarget ? { strictTarget } : {}) } },
     about: { tool: row.name, toolId: row.id, action: action.name, description: action.description },
   };
 }

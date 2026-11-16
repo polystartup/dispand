@@ -1,5 +1,6 @@
 import { createMcpHandler, McpServer, OAuthError, OAuthErrorCode, requireBearerAuth, type AuthInfo } from "@modelcontextprotocol/server";
 import { logError } from "../log.ts";
+import { inJobTrace } from "../telemetry/index.ts";
 import { callPlatformTool, toolsOf, type JobIdentity, type PlatformApp } from "./call.ts";
 import { jobOfToken } from "./token.ts";
 
@@ -72,5 +73,6 @@ function jobHandler(app: PlatformApp) {
 export async function handleJobMcp(request: Request, app: PlatformApp): Promise<Response> {
   const found = await jobOfRequest(request, app);
   if (found instanceof Response) return found;
-  return jobHandler(app).fetch(request, { authInfo: found.auth });
+  // In the Job's trace, as its cloud sessions' calls are.
+  return inJobTrace(found.job, () => jobHandler(app).fetch(request, { authInfo: found.auth }));
 }

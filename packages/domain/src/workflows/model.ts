@@ -1,6 +1,7 @@
 import { OutputField } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { FILTER_OP_NAMES } from "../data/query.ts";
+import { english, type Message, say } from "../messages/index.ts";
 import { StorableText } from "../text.ts";
 import { CONDITION_OPS } from "./condition.ts";
 import { DEFAULT_ITERATIONS, MAX_ITERATIONS } from "./loop.ts";
@@ -207,9 +208,9 @@ function isCondition(def: WorkflowDef, nodeId: string): boolean {
 }
 
 /** Why `branch` can't go on an edge out of `from`, or null when it fits. */
-export function branchProblem(def: WorkflowDef, from: string, branch: Edge["branch"]): string | null {
-  if (isCondition(def, from)) return branch === undefined ? "Choose Then or Else for this link" : null;
-  return branch === undefined ? null : "Only a condition has Then and Else";
+export function branchProblem(def: WorkflowDef, from: string, branch: Edge["branch"]): Message | null {
+  if (isCondition(def, from)) return branch === undefined ? say("workflows.link.chooseBranch") : null;
+  return branch === undefined ? null : say("workflows.link.onlyCondition");
 }
 
 /** A key for `name`: lowercase letters, digits and `_`. */
@@ -276,7 +277,7 @@ export function addStep(def: WorkflowDef, at: AddAt, id: string, type: StepType)
   if (type === "loop" && loopId) throw new Error("Loops can't be nested yet");
   if ("after" in at) {
     const problem = branchProblem(def, at.after, at.branch);
-    if (problem) throw new Error(problem);
+    if (problem) throw new Error(english(problem.key, problem.values));
   }
   const names = new Set(nodesOf(def).map((n) => n.name));
   // Conditions are "If", "If 2"…, loops "For each", "For each 2"…: the canvas names a card's "+" after it.
@@ -315,12 +316,12 @@ export function connect(
   from: string,
   to: string,
   branch?: "then" | "else",
-): { def: WorkflowDef } | { refused: string } {
-  if (from === to) return { refused: "A step can't follow itself" };
-  if (def.edges.some((e) => e.from === from && e.to === to)) return { refused: "These steps are already linked" };
-  if (to === def.trigger.field.id) return { refused: "Nothing runs before the trigger" };
-  if (loopOf(def, from) !== loopOf(def, to)) return { refused: "A link can't cross the edge of a loop" };
-  if (upstreamOf(def, from).has(to)) return { refused: "This link would make a loop" };
+): { def: WorkflowDef } | { refused: Message } {
+  if (from === to) return { refused: say("workflows.link.self") };
+  if (def.edges.some((e) => e.from === from && e.to === to)) return { refused: say("workflows.link.already") };
+  if (to === def.trigger.field.id) return { refused: say("workflows.link.beforeTrigger") };
+  if (loopOf(def, from) !== loopOf(def, to)) return { refused: say("workflows.link.crossesLoop") };
+  if (upstreamOf(def, from).has(to)) return { refused: say("workflows.link.wouldLoop") };
   const problem = branchProblem(def, from, branch);
   if (problem) return { refused: problem };
   return { def: { ...def, edges: [...def.edges, { from, to, ...(branch ? { branch } : {}) }] } };

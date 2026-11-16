@@ -9,7 +9,7 @@ function diamond(): WorkflowDef {
   def = addStep(def, { after: "n_start" }, "n_b", "agent");
   def = addStep(def, { after: "n_a" }, "n_c", "agent");
   const joined = connect(def, "n_b", "n_c");
-  if (!("def" in joined)) throw new Error(joined.refused);
+  if (!("def" in joined)) throw new Error(joined.refused.key);
   return joined.def;
 }
 

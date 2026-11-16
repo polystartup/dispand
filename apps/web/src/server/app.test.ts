@@ -10,6 +10,7 @@ vi.mock("@dispand/domain", () => ({
   createSecretBox: () => ({}),
   ensureAssistants: async () => {},
   syncPlatformSkills: async () => {},
+  resealToolHeaders: async () => ({ resealed: 0 }),
   createMcpConnector: () => ({}),
   guardedFetch: () => fetch,
   ownAddresses: () => ({}),
@@ -24,6 +25,11 @@ vi.mock("@dispand/domain", () => ({
   getScheduler: () => ({ start: () => {}, stop: async () => {} }),
   InstalledTools: class {},
   pollCaller: () => ({}),
+  PushSender: class {
+    start() {}
+    async stop() {}
+  },
+  pushVia: () => async () => {},
   sweepAttachments: async () => ({ removed: 0 }),
   sweepAudit: async () => ({ removed: 0 }),
   logError: () => {},

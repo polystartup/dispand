@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 
 export type SkillFileRow = { path: string; size: number; overridden: "changed" | "added" | null };
@@ -7,9 +8,10 @@ export type SkillFileRow = { path: string; size: number; overridden: "changed" |
  * owner's change (a changed, added or removed file) can be taken back to the plugin's.
  */
 export function SkillFiles({ files, removed, busy, onEdit, onRemove, onReset }: { files: SkillFileRow[]; removed: string[]; busy: boolean; onEdit: (path: string) => void; onRemove: (path: string) => void; onReset: (path: string) => void }) {
+  const { t } = useTranslation("skills");
   const reset = (path: string) => (
-    <Button type="button" variant="ghost" size="sm" disabled={busy} aria-label={`Reset ${path} to the plugin's`} onClick={() => onReset(path)}>
-      Reset
+    <Button type="button" variant="ghost" size="sm" disabled={busy} aria-label={t("files.resetLabel", { path })} onClick={() => onReset(path)}>
+      {t("files.reset")}
     </Button>
   );
   return (
@@ -20,13 +22,13 @@ export function SkillFiles({ files, removed, busy, onEdit, onRemove, onReset }: 
             <span data-path className="block truncate font-mono">
               {f.path}
             </span>
-            {f.overridden && <span className="block text-muted">Yours: {f.overridden}</span>}
+            {f.overridden && <span className="block text-muted">{t(`files.yours.${f.overridden}`)}</span>}
           </span>
-          <Button type="button" variant="ghost" size="sm" disabled={busy} aria-label={`Edit ${f.path}`} onClick={() => onEdit(f.path)}>
-            Edit
+          <Button type="button" variant="ghost" size="sm" disabled={busy} aria-label={t("files.editLabel", { path: f.path })} onClick={() => onEdit(f.path)}>
+            {t("files.edit")}
           </Button>
-          <Button type="button" variant="ghost" size="sm" disabled={busy} aria-label={`Remove ${f.path}`} onClick={() => onRemove(f.path)}>
-            Remove
+          <Button type="button" variant="ghost" size="sm" disabled={busy} aria-label={t("files.removeLabel", { path: f.path })} onClick={() => onRemove(f.path)}>
+            {t("files.remove")}
           </Button>
           {f.overridden && reset(f.path)}
         </li>
@@ -37,7 +39,7 @@ export function SkillFiles({ files, removed, busy, onEdit, onRemove, onReset }: 
             <span data-path className="block truncate font-mono text-faint line-through">
               {path}
             </span>
-            <span className="block text-muted">Removed by you</span>
+            <span className="block text-muted">{t("files.removed")}</span>
           </span>
           {reset(path)}
         </li>

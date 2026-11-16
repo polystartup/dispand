@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useFormat } from "../../lib/format.ts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { orpc } from "../../lib/api.ts";
@@ -12,6 +14,8 @@ import { errorMessage, type Tool } from "./ToolSheet.tsx";
  * never shown again. Nothing for an entry without settings.
  */
 export function CatalogSettings({ tool, onSaved }: { tool: Tool; onSaved: (tool: Tool) => void }) {
+  const { t } = useTranslation("tools");
+  const { list } = useFormat();
   const catalog = useQuery(orpc.tools.catalog.queryOptions({ input: {} }));
   const entry = catalog.data?.find((e) => e.id === tool.catalogId);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -26,17 +30,17 @@ export function CatalogSettings({ tool, onSaved }: { tool: Tool; onSaved: (tool:
       onSaved(await fill.mutateAsync({ id: tool.id, settings: values }));
       setValues({});
     } catch (e) {
-      setError(errorMessage(e, "Could not save the settings."));
+      setError(errorMessage(e, t("settings.saveFailed")));
     }
   }
 
   return (
     <section aria-labelledby="tool-settings" className="space-y-3">
       <h2 id="tool-settings" className="text-[15px] font-medium">
-        Sign-in
+        {t("settings.title")}
       </h2>
       <p role="status" className={`text-[13px] ${tool.signIn === "needed" ? "text-danger" : "text-muted"}`}>
-        {tool.signIn === "needed" ? `Needs sign-in: enter its ${entry.settings.map((s) => s.label).join(" and ")} to use it. Until then nothing calls it.` : "Connected. Enter new settings to replace them."}
+        {tool.signIn === "needed" ? t("settings.needed", { settings: list(entry.settings.map((s) => s.label)) }) : t("settings.connected")}
       </p>
       <form
         className="space-y-3"
@@ -46,7 +50,7 @@ export function CatalogSettings({ tool, onSaved }: { tool: Tool; onSaved: (tool:
         }}
       >
         {entry.settings.map((s) => (
-          <FormField key={s.key} label={s.label} htmlFor={`tool-setting-${s.key}`} hint={`${s.help} Stored encrypted; it is never shown again.`}>
+          <FormField key={s.key} label={s.label} htmlFor={`tool-setting-${s.key}`} hint={t("catalog.settingHint", { help: s.help })}>
             <Input
               id={`tool-setting-${s.key}`}
               type="password"
@@ -64,7 +68,7 @@ export function CatalogSettings({ tool, onSaved }: { tool: Tool; onSaved: (tool:
           </p>
         )}
         <Button type="submit" disabled={fill.isPending}>
-          Save settings
+          {t("settings.save")}
         </Button>
       </form>
     </section>

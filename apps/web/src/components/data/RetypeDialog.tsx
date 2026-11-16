@@ -1,19 +1,19 @@
 import { FIELD_TYPES, type FieldSchema, type FieldType } from "@dispand/domain/data/fields";
 import { useMutation } from "@tanstack/react-query";
+import type { TFunction } from "i18next";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { orpc } from "../../lib/api.ts";
-import { FIELD_TYPE_UI } from "./field-types.ts";
+import { useFieldTypeLabel } from "./field-types.ts";
 import { selectClass } from "./NewFieldPopover.tsx";
 
-const values = (n: number) => (n === 1 ? "1 value" : `${n} values`);
-
 /** What a retype does to the cells, said before it runs. */
-export function retypeSummary({ converted, cleared }: { converted: number; cleared: number }): string {
-  if (converted === 0 && cleared === 0) return "No value to convert.";
-  if (cleared === 0) return `${values(converted)} will be converted.`;
-  return `${values(converted)} will be converted, ${cleared} can't be and will be cleared.`;
+export function retypeSummary(t: TFunction<"data">, { converted, cleared }: { converted: number; cleared: number }): string {
+  if (converted === 0 && cleared === 0) return t("retype.none");
+  if (cleared === 0) return t("retype.converted", { count: converted });
+  return t("retype.convertedCleared", { count: converted, cleared });
 }
 
 /**
@@ -21,6 +21,8 @@ export function retypeSummary({ converted, cleared }: { converted: number; clear
  * many would be cleared; nothing changes until they confirm.
  */
 export function RetypeDialog({ field, open, onOpenChange, onDone }: { field: FieldSchema; open: boolean; onOpenChange: (open: boolean) => void; onDone: () => void }) {
+  const { t } = useTranslation("data");
+  const typeLabel = useFieldTypeLabel();
   const [type, setType] = useState<FieldType | "">("");
   const check = useMutation(orpc.fields.retype.mutationOptions());
   const apply = useMutation(
@@ -50,27 +52,27 @@ export function RetypeDialog({ field, open, onOpenChange, onDone }: { field: Fie
       onOpenChange={(o) => (o ? onOpenChange(true) : close())}
     >
       <DialogContent>
-        <DialogTitle>Change the type of “{field.name}”</DialogTitle>
-        <DialogDescription>Values that fit the new type are converted; the others are cleared.</DialogDescription>
+        <DialogTitle>{t("retype.title", { name: field.name })}</DialogTitle>
+        <DialogDescription>{t("retype.description")}</DialogDescription>
         <label className="grid gap-1 text-[13px] font-medium text-muted">
-          New type
+          {t("retype.newType")}
           <select value={type} onChange={(e) => choose(e.target.value as FieldType | "")} className={selectClass}>
-            <option value="">Choose a type</option>
-            {FIELD_TYPES.filter((t) => (t !== field.type || t === "single-select") && t !== "reference").map((t) => (
-              <option key={t} value={t}>
-                {FIELD_TYPE_UI[t].label}
+            <option value="">{t("retype.choose")}</option>
+            {FIELD_TYPES.filter((ft) => (ft !== field.type || ft === "single-select") && ft !== "reference").map((ft) => (
+              <option key={ft} value={ft}>
+                {typeLabel(ft)}
               </option>
             ))}
           </select>
         </label>
-        {check.data && type && <p role="status" className="text-[14px]">{retypeSummary(check.data)}</p>}
+        {check.data && type && <p role="status" className="text-[14px]">{retypeSummary(t, check.data)}</p>}
         {(check.error ?? apply.error) && <p role="alert" className="text-[13px] text-danger">{(check.error ?? apply.error)!.message}</p>}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={close}>
-            Cancel
+            {t("retype.cancel")}
           </Button>
           <Button disabled={!type || !check.data || check.isPending || apply.isPending} onClick={() => type && apply.mutate({ id: field.id, type, dryRun: false })}>
-            Change type
+            {t("retype.submit")}
           </Button>
         </div>
       </DialogContent>

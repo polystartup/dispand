@@ -1,0 +1,99 @@
+{
+  "placeholder": {
+    "soon": "Bientôt disponible",
+    "soonText": "Bientôt disponible."
+  },
+  "help": {
+    "title": "Aide",
+    "subtitle": "Les réponses sur Dispand seront ici. En attendant, demandez à l’Assistant."
+  },
+  "home": {
+    "welcome": "Bienvenue, {{name}}",
+    "subtitle": "Lancez vos workflows et discutez avec vos agents.",
+    "failed": "Impossible de charger l’Accueil.",
+    "empty": "Ajoutez un widget pour lancer un workflow d’ici, ou demandez à l’Assistant d’en préparer un."
+  },
+  "page": {
+    "addWidget": "Ajouter un widget",
+    "edit": "Modifier",
+    "done": "Terminé",
+    "emptyTitle": "Rien ici pour l’instant",
+    "emptyText": "Ajoutez un widget pour lancer un workflow depuis cette page.",
+    "gone": "Cette page n’existe pas",
+    "failed": "Impossible de charger cette page.",
+    "goHome": "Retour à l’Accueil",
+    "titleLabel": "Titre de la page",
+    "renameFailed": "Impossible de renommer la page. Réessayez.",
+    "options": "Options de la page",
+    "rename": "Renommer",
+    "delete": "Supprimer",
+    "deleteTitle": "Supprimer « {{title}} » et ses widgets ?",
+    "deleteText": "Les workflows et les tables qu’ils affichent restent.",
+    "deleteFailed": "Impossible de supprimer la page. Réessayez.",
+    "deletePage": "Supprimer la page",
+    "layoutFailed": "Impossible d’enregistrer la disposition : les widgets sont revenus là où ils étaient enregistrés. Déplacez-les de nouveau pour réessayer."
+  },
+  "add": {
+    "title": "Ajouter un widget",
+    "pick": "Un formulaire pour lancer un workflow, ou les lignes d’une table.",
+    "pickGrid": "Les lignes d’une table, sous forme de cartes.",
+    "pickTable": "Les lignes d’une table, sous forme de tableau.",
+    "back": "Retour",
+    "workflows": "Workflows",
+    "workflow": "Workflow : {{name}}",
+    "workflowForm": "Formulaire de workflow",
+    "noWorkflows": "Créez d’abord un workflow, dans <go>Paramètres → Workflows</go>.",
+    "workflowsFailed": "Impossible de charger les workflows. Fermez cette fenêtre et réessayez.",
+    "data": "Données",
+    "grid": "Grille",
+    "table": "Tableau",
+    "noTables": "Créez d’abord une table, dans <go>Données</go>.",
+    "tablesFailed": "Impossible de charger les tables. Fermez cette fenêtre et réessayez."
+  },
+  "form": {
+    "table": "Table",
+    "chooseTable": "Choisir une table",
+    "tableFailed": "Impossible de charger cette table.",
+    "fieldsGrid": "Champs <hint>(le premier est le titre de la carte)</hint>",
+    "fieldsTable": "Champs <hint>(les colonnes)</hint>",
+    "cover": "Couverture",
+    "noCover": "Sans couverture",
+    "sortBy": "Trier par",
+    "creationOrder": "Ordre de création",
+    "direction": "Sens",
+    "asc": "Croissant",
+    "desc": "Décroissant"
+  },
+  "settings": {
+    "label": "Paramètres de {{title}}",
+    "title": "Paramètres du widget",
+    "text": "Les lignes de la table s’affichent avec ces champs."
+  },
+  "widget": {
+    "titleLabel": "Titre du widget",
+    "delete": "Supprimer {{title}}",
+    "rowsFailed": "Impossible de charger les lignes.",
+    "noRows": "Aucune ligne pour l’instant.",
+    "untitled": "Sans titre",
+    "loadMore": "Charger plus",
+    "openInData": "<go>Ouvrir dans Données</go>",
+    "showingOpenInData": "{{shown}} sur {{total}} affichées · <go>Ouvrir dans Données</go>",
+    "tableGone": "Cette table n’existe plus.",
+    "tableFailed": "Impossible de charger cette table.",
+    "fieldsDeleted": "Les champs que ce widget affichait ont été supprimés. Choisissez-en d’autres dans ses paramètres, en mode Modifier.",
+    "workflowGone": "Ce workflow n’est plus disponible.",
+    "workflowFailed": "Impossible de charger ce workflow.",
+    "workflowRunsFailed": "Impossible de charger les exécutions de ce workflow.",
+    "triggerGone": "Ce déclencheur n’est plus disponible.",
+    "triggerFailed": "Impossible de charger ce déclencheur.",
+    "triggerJobsFailed": "Impossible de charger les Jobs de ce déclencheur.",
+    "triggerDisabled": "Ce déclencheur est désactivé."
+  },
+  "lastRun": {
+    "running": "Dernière exécution : en cours…",
+    "waiting": "Dernière exécution : vous attend dans la <inbox>Boîte de réception</inbox>",
+    "succeeded": "Dernière exécution : terminée",
+    "failed": "Dernière exécution : échec",
+    "failedWith": "Dernière exécution : échec : {{error}}"
+  }
+}

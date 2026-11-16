@@ -9,7 +9,9 @@ import {
   metrics,
   SeverityNumber,
   type Span,
+  type SpanContext,
   SpanStatusCode,
+  TraceFlags,
   trace,
   type Tracer,
   isSpanContextValid,
@@ -37,6 +39,8 @@ export type { Span } from "@opentelemetry/api";
 
 const JOB = createContextKey("dispand.job");
 const JOB_ID = "dispand.job.id";
+/** The span that was active when `inJobTrace` began: the Job's spans started there link it. */
+const CALLER = createContextKey("dispand.job.caller");
 
 /** Where telemetry goes: the OTLP exporters, or (tests) exporters given; `console` prints each log record. */
 export type Exporters = { console?: boolean; spans?: SpanExporter; logs?: LogRecordExporter; metrics?: PushMetricExporter; metricIntervalMs?: number; simple?: boolean };
@@ -62,11 +66,16 @@ function redactedLogs(inner: LogRecordExporter): LogRecordExporter {
   };
 }
 
-/** Puts the Job id of the current context on every span started in it. */
+/**
+ * Puts the Job id of the current context on every span started in it, and a link to the caller's
+ * span on each span started right under a Job's stored one (`inJobTrace`).
+ */
 const jobOnSpans: SpanProcessor = {
   onStart(span, parent) {
     const job = parent.getValue(JOB);
     if (typeof job === "string") span.setAttribute(JOB_ID, job);
+    const caller = parent.getValue(CALLER) as SpanContext | undefined;
+    if (caller && trace.getSpanContext(parent)?.isRemote) span.addLink({ context: caller });
   },
   onEnd() {},
   forceFlush: () => Promise.resolve(),
@@ -187,10 +196,32 @@ export function withJob<T>(jobId: string, fn: () => T): T {
   return context.with(context.active().setValue(JOB, jobId), fn);
 }
 
+/**
+ * Runs `fn` in a Job's trace: spans started inside are children of the span stored with the Job
+ * (`runs.span_id`, made when it was created) and link the span that was active, so all of a Job's
+ * work is one trace whatever started it (a request, a runner message, a restart). A run with no
+ * stored span (a workflow run, a Job made before spans were stored) runs `fn` as it is.
+ */
+export function inJobTrace<T>(job: { traceId?: string | null; spanId?: string | null }, fn: () => T): T {
+  if (!job.traceId || !job.spanId) return fn();
+  const active = context.active();
+  const caller = trace.getSpanContext(active);
+  const inJob = trace.setSpanContext(active, { traceId: job.traceId, spanId: job.spanId, traceFlags: TraceFlags.SAMPLED, isRemote: true });
+  return context.with(caller && isSpanContextValid(caller) ? inJob.setValue(CALLER, caller) : inJob, fn);
+}
+
 /** The id of the trace running now, to store with what it creates (a Job); none outside a span. */
 export function currentTraceId(): string | undefined {
   const span = trace.getActiveSpan()?.spanContext();
   return span && isSpanContextValid(span) ? span.traceId : undefined;
+}
+
+/** A span started and ended at once, marking something made now (a Job): its ids, to store with it; none when telemetry is off. */
+export function markSpan(t: Tracer, name: string, attributes: Attributes): { traceId: string; spanId: string } | undefined {
+  const span = t.startSpan(name, { attributes });
+  span.end();
+  const ids = span.spanContext();
+  return isSpanContextValid(ids) ? { traceId: ids.traceId, spanId: ids.spanId } : undefined;
 }
 
 /** Attributes for the span running now, if any (an owner id once it is known, a count). */

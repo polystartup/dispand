@@ -1,0 +1,40 @@
+{
+  "add": "Ajouter une entrée",
+  "addText": "Un fait que les agents lisent au début de leurs Jobs.",
+  "failed": "Impossible de charger la mémoire.",
+  "emptyTitle": "Rien de retenu pour l’instant",
+  "emptyText": "Chaque entrée est un fait que les agents lisent au début de leurs Jobs : comment l’entreprise fonctionne, comment le travail se fait, où se trouvent les choses.",
+  "removed": "Supprimées",
+  "type": {
+    "business": "Comment l’entreprise fonctionne",
+    "practice": "Comment le travail se fait",
+    "fact": "Faits",
+    "reference": "Où se trouvent les choses"
+  },
+  "byline": {
+    "you": "Vous",
+    "deletedAgent": "Un agent supprimé",
+    "line": "{{who}} · {{when}}"
+  },
+  "notRead": "Non lue par les agents qui configurent",
+  "acceptText": "Accepter permet à cette entrée de donner des instructions aux agents qui configurent l’espace de travail.",
+  "path": "Chemin",
+  "pathHint": "Un nom de fichier se terminant par .md, dans des dossiers si vous le souhaitez : clients/acme.md.",
+  "name": "Nom",
+  "description": "Description",
+  "descriptionHint": "Une ligne : ce que dit l’entrée, pour qu’un agent sache quand la lire.",
+  "typeLabel": "Type",
+  "body": "Contenu",
+  "save": "Enregistrer",
+  "cancel": "Annuler",
+  "edit": "Modifier",
+  "accept": "Accepter",
+  "revert": "Rétablir",
+  "remove": "Supprimer",
+  "restore": "Restaurer",
+  "saveFailed": "Impossible d’enregistrer l’entrée.",
+  "restoreFailed": "Impossible de restaurer l’entrée.",
+  "acceptFailed": "Impossible d’accepter l’entrée.",
+  "revertFailed": "Impossible de rétablir l’entrée.",
+  "removeFailed": "Impossible de supprimer l’entrée."
+}

@@ -26,6 +26,8 @@ export const user = pgTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
+  /** The page language the user chose ("en" or "fr"); null follows the browser's. */
+  language: text("language"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -160,6 +162,8 @@ export const agents = pgTable("agents", {
   overridden: jsonb("overridden").$type<string[]>().notNull().default([]),
   // `"assistant"`: the workspace's Assistant (`agents/builtin.ts`), one per owner. No input sets it.
   builtIn: text("built_in").$type<"assistant">(),
+  // Raised by every configuration write (`agents.update`): strict permissions bind remembered choices to it.
+  revision: integer("revision").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [uniqueIndex("agents_one_assistant_idx").on(t.ownerId).where(sql`${t.builtIn} = 'assistant'`)]);
 
@@ -235,6 +239,8 @@ export type AgentSnapshot = {
   consults?: { agentId: string; ask: boolean }[];
   /** The only tools of Dispand's the Job may call, whatever its bundles: a Stem Job's `plugin_decide`. */
   only?: string[];
+  /** The agent's `revision` it was made from: strict permissions hold only for it. Absent in Jobs made before: the agent's current one. */
+  revision?: number;
 };
 /** What made a Job, and how many Jobs deep its chain is (0 for a user or a schedule): information only, never a limit. */
 export type JobCause = (
@@ -291,10 +297,15 @@ export const workspaceSettings = pgTable(
     checkpoint: integer("checkpoint").notNull().default(100),
     // How many days Audit rows are kept (design 6.8).
     auditRetentionDays: integer("audit_retention_days").notNull().default(90),
+    // How many MiB of files the whole install keeps (`data/files.ts` `keepJobFiles`); one owner per install.
+    filesLimitMib: integer("files_limit_mib").notNull().default(10240),
+    // Strict permissions (design 6.6): remembered choices also hold only for the versions they were given for (`agents/tool-ask.ts`).
+    strictPermissions: boolean("strict_permissions").notNull().default(false),
   },
   (t) => [
     check("workspace_settings_checkpoint_range", sql`${t.checkpoint} between 1 and 100000`),
     check("workspace_settings_audit_retention_range", sql`${t.auditRetentionDays} between 1 and 3650`),
+    check("workspace_settings_files_limit_range", sql`${t.filesLimitMib} between 1 and 1048576`),
   ],
 );
 
@@ -328,6 +339,8 @@ export const runs = pgTable(
     error: text("error"),
     // The trace the run was created in (a scheduler tick, a request): to find its telemetry.
     traceId: text("trace_id"),
+    // A Job's `engine.job` span, in that trace: every later span of the Job is its child (`inJobTrace`).
+    spanId: text("span_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     finishedAt: timestamp("finished_at"),
   },
@@ -506,6 +519,9 @@ export const stepRuns = pgTable(
 );
 
 /** Chat transcripts and step transcripts: assistant text (deltas appended), user messages, tool calls. */
+/** A file attached to a chat message: its attachment and the name it came with (metadata, never a path). */
+export type MessageFile = { id: string; name: string };
+
 export const messages = pgTable(
   "messages",
   {
@@ -522,6 +538,8 @@ export const messages = pgTable(
       .references(() => stepRuns.id, { onDelete: "cascade" }),
     role: text("role").$type<"assistant" | "user" | "tool">().notNull(),
     text: text("text").notNull(),
+    /** A user message's attached files: attachments of the run, by id, with the name they came with. */
+    files: jsonb("files").$type<MessageFile[]>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     // User messages: when the hub wrote them to the runner (null: resent on recovery).
     deliveredAt: timestamp("delivered_at"),
@@ -550,7 +568,7 @@ export const cloudSessions = pgTable("cloud_sessions", {
   // running: the loop works on it; waiting: on the owner's answer to `pending`; idle: a chat's turn ended; done.
   status: text("status").$type<"running" | "waiting" | "idle" | "done">().notNull(),
   // Chat messages that arrived during a turn: they join the history before the next model call.
-  queued: jsonb("queued").$type<string[]>().notNull().default([]),
+  queued: jsonb("queued").$type<(string | { text: string; files: MessageFile[] })[]>().notNull().default([]),
   // The question the session waits on, for the tool call `callId` of the last assistant item.
   // `key`: the tool a permission question is about, so its answer stays with that tool.
   pending: jsonb("pending").$type<{ questionId: string; callId: string; payload: QuestionPayload; key?: string } | null>(),
@@ -582,7 +600,7 @@ export type QuestionKind = "question" | "approval" | "consult";
  * definition it is made from (`primitive:<name>`, `field:<table>.<field>`), recorded in the
  * plugin's `created.from` with what it creates.
  */
-export type ProposalItem = { tool: string; input: unknown; from?: string; usedAt?: string; pending?: true; createdId?: string; failed?: true; toolPermissions?: { toolId: string | { $item: number }; unasked: string[]; target: string }[]; /** What the owner reads of the item that its input doesn't hold, read by the server when it was proposed (a plugin install's agents' rights). */ shown?: unknown };
+export type ProposalItem = { tool: string; input: unknown; from?: string; usedAt?: string; pending?: true; createdId?: string; failed?: true; toolPermissions?: { toolId: string | { $item: number }; unasked: string[]; target: string; strictTarget?: string }[]; /** What the owner reads of the item that its input doesn't hold, read by the server when it was proposed (a plugin install's agents' rights). */ shown?: unknown };
 
 /**
  * Proposals (`platform/proposals.ts`): the writes a Job's agent asks a person to approve
@@ -754,7 +772,7 @@ export const tables = pgTable(
 export type EventActor = { type: "user"; userId: string } | { type: "job"; runId: string } | { type: "step"; runId: string; stepId: string };
 
 /** A row's write; for the built-in `interaction` kind, a Question or an Approval asked, answered or expired. */
-export type EventOperation = "created" | "updated" | "deleted" | "answered" | "expired";
+export type EventOperation = "created" | "updated" | "deleted" | "answered" | "expired" | "finished" | "failed";
 
 /**
  * The outbox (node C): one row per write of a row of a primitive table, appended in the same
@@ -1022,7 +1040,7 @@ export const plugins = pgTable(
 
 /**
  * Tools: MCP servers agents and Tool steps call (`tools/`). `http` tools are called by URL from
- * the server (and by the CLIs), with headers sealed one by one (`headerAad(id, name)`);
+ * the server (and by the CLIs), with headers sealed one by one (`headerAad(id, name, url)`, bound to the URL's origin);
  * `runner` tools add their own columns. Names are unique case-insensitively per owner among its
  * own tools, and within each plugin among that plugin's.
  */
@@ -1103,6 +1121,8 @@ export const skillPackages = pgTable(
     /** Tools an agent gets, locked, with this package. */
     requiredToolIds: jsonb("required_tool_ids").$type<string[]>().notNull().default([]),
     builtIn: boolean("built_in").notNull().default(false),
+    // A hash of its files, set with them (`store`); null until they are next written.
+    fingerprint: text("fingerprint"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -1235,8 +1255,35 @@ export const agentTools = pgTable(
     // then changed by a person only: taking an action off the asking ones is a grant.
     unasked: jsonb("unasked").$type<string[]>().notNull().default([]),
     denied: jsonb("denied").$type<string[]>().notNull().default([]),
+    // The strict target (`toolPermissionTarget` with versions) `unasked` was written for under strict permissions; null when written without.
+    strictTarget: text("strict_target"),
   },
   (t) => [primaryKey({ columns: [t.agentId, t.toolId] }), index("agent_tools_tool_idx").on(t.toolId)],
+);
+
+/**
+ * The same two lists as `agent_tools`, for a tool the agent gets only with a skill package
+ * (`agents/tool-ask.ts`). A row holds while its package is the agent's and still requires the
+ * tool, and only for the tool's `target` (`toolPermissionTarget`) it was written for.
+ */
+export const agentSkillToolPermissions = pgTable(
+  "agent_skill_tool_permissions",
+  {
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    skillPackageId: text("skill_package_id")
+      .notNull()
+      .references(() => skillPackages.id, { onDelete: "cascade" }),
+    toolId: text("tool_id")
+      .notNull()
+      .references(() => tools.id, { onDelete: "cascade" }),
+    target: text("target").notNull(),
+    unasked: jsonb("unasked").$type<string[]>().notNull().default([]),
+    denied: jsonb("denied").$type<string[]>().notNull().default([]),
+    strictTarget: text("strict_target"),
+  },
+  (t) => [primaryKey({ columns: [t.agentId, t.skillPackageId, t.toolId] }), index("agent_skill_tool_permissions_package_idx").on(t.skillPackageId), index("agent_skill_tool_permissions_tool_idx").on(t.toolId)],
 );
 
 /**
@@ -1329,4 +1376,44 @@ export const memoryRevisions = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [unique("memory_revisions_memory_revision").on(t.memoryId, t.revision)],
+);
+
+/** The install's VAPID key pair for Web Push (`push/keys.ts`), made on first need: one row, the private key sealed. */
+export const pushKeys = pgTable("push_keys", {
+  id: text("id").primaryKey(),
+  publicKey: text("public_key").notNull(),
+  privateKey: text("private_key").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/**
+ * A browser or device the owner allowed to get Web Push (`push/procedures.ts`): its push service
+ * endpoint, its keys sealed, a label from its user agent, and the language that browser shows
+ * (refreshed each time it subscribes again). Only items asked after `created_at` reach it.
+ */
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  endpoint: text("endpoint").notNull().unique(),
+  keys: text("keys").notNull(),
+  label: text("label").notNull(),
+  language: text("language").$type<"en" | "fr">().notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/** An Inbox item pushed to a subscription (`push/sender.ts`): never sent to it again. */
+export const pushDeliveries = pgTable(
+  "push_deliveries",
+  {
+    questionId: text("question_id")
+      .notNull()
+      .references(() => questions.id, { onDelete: "cascade" }),
+    subscriptionId: text("subscription_id")
+      .notNull()
+      .references(() => pushSubscriptions.id, { onDelete: "cascade" }),
+    sentAt: timestamp("sent_at").notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.questionId, t.subscriptionId] }), index("push_deliveries_subscription_idx").on(t.subscriptionId)],
 );

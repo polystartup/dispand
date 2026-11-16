@@ -1,10 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { orpc } from "../../lib/api.ts";
 
 /** Stops a run or a Job still going, after a confirmation: what its sessions were doing is cut. */
 export function StopRun({ runId, status }: { runId: string; status: string }) {
+  const { t } = useTranslation("runs");
   const queryClient = useQueryClient();
   const [asking, setAsking] = useState(false);
   const stop = useMutation(
@@ -21,15 +23,15 @@ export function StopRun({ runId, status }: { runId: string; status: string }) {
       {asking ? (
         <>
           <Button variant="outline" size="sm" className="text-danger" disabled={stop.isPending} onClick={() => stop.mutate({ runId })}>
-            Stop this run
+            {t("stopThis")}
           </Button>
           <Button variant="ghost" size="sm" disabled={stop.isPending} onClick={() => setAsking(false)}>
-            Keep it going
+            {t("keepGoing")}
           </Button>
         </>
       ) : (
         <Button variant="outline" size="sm" onClick={() => setAsking(true)}>
-          Stop
+          {t("stop")}
         </Button>
       )}
       {stop.error && (

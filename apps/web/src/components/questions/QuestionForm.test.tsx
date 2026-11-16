@@ -2,7 +2,9 @@
 import type { Answer, QuestionPayload } from "@dispand/runner-protocol";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
+import { createI18n } from "../../lib/i18n.ts";
 import { QuestionForm } from "./QuestionForm.tsx";
 
 afterEach(cleanup);
@@ -85,11 +87,11 @@ test("busy disables the buttons, the error and the restart note show", () => {
 });
 
 test("a checkpoint names its root, Jobs and agents, and answers go on, don't ask again or stop", async () => {
-  const payload: QuestionPayload = { kind: "permission", toolName: "checkpoint", input: { root: "A schedule", jobs: 100, agents: ["Clerk", "Auditor"], since: "2026-11-11T09:00:00.000Z" }, canAlwaysAllow: true };
+  const payload: QuestionPayload = { kind: "permission", toolName: "checkpoint", input: { rootKind: "schedule", jobs: 100, agents: ["Clerk", "Auditor"], since: "2026-11-11T09:00:00.000Z" }, canAlwaysAllow: true };
   const onAnswer = vi.fn<(a: Answer) => void>();
   render(<QuestionForm question={{ payload, rootId: "root_1" }} onAnswer={onAnswer} />);
-  expect(screen.getByText(/A schedule has led to/).textContent).toContain("100 Jobs");
-  expect(screen.getByText("Agents: Clerk, Auditor")).toBeTruthy();
+  expect(screen.getByText(/^A schedule has led to/).textContent).toContain("100 Jobs");
+  expect(screen.getByText("Agents: Clerk and Auditor")).toBeTruthy();
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: "Go on" }));
   await user.click(screen.getByRole("button", { name: "Don't ask again for this goal" }));
@@ -163,4 +165,20 @@ test("Codex remembers Allow while Deny applies only to the current call", async 
   expect(onAnswer).toHaveBeenLastCalledWith({ kind: "permission", decision: "allow", remember: "always" });
   await user.click(screen.getByRole("button", { name: "Deny" }));
   expect(onAnswer).toHaveBeenLastCalledWith({ kind: "permission", decision: "deny" });
+});
+
+test("a checkpoint is one whole French sentence per root kind, the generic one for an absent or unknown kind", async () => {
+  const sentences = { user: "Un lancement de votre part a mené à", chat: "Votre message dans une conversation a mené à", schedule: "Une planification a mené à", event: "Un changement dans une table a mené à", poll: "Un élément trouvé par une interrogation a mené à", unknown: "Le travail de vos agents a mené à", none: "Le travail de vos agents a mené à" };
+  for (const [kind, start] of Object.entries(sentences)) {
+    const input = { ...(kind === "none" ? {} : { rootKind: kind }), jobs: 1, agents: ["Clerk", "Auditor"], since: "2026-11-11T09:00:00.000Z" };
+    const payload: QuestionPayload = { kind: "permission", toolName: "checkpoint", input, canAlwaysAllow: true };
+    render(
+      <I18nextProvider i18n={createI18n("fr")}>
+        <QuestionForm question={{ payload, rootId: "root_1" }} onAnswer={() => {}} />
+      </I18nextProvider>,
+    );
+    expect(screen.getByText(new RegExp(`^${start}`)).textContent).toMatch(/1 Job depuis 11 nov\. 2026/);
+    expect(screen.getByText("Agents : Clerk et Auditor")).toBeTruthy();
+    cleanup();
+  }
 });

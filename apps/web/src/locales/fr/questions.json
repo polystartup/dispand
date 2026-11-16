@@ -1,0 +1,389 @@
+{
+  "run": "Exécution",
+  "approval": "Approbation",
+  "question": "Question",
+  "approvalFrom": "Approbation de {{from}}",
+  "questionFrom": "Question de {{from}}",
+  "askedInChat": "Posée dans un chat",
+  "openRun": "Ouvrir l’exécution",
+  "openJob": "Ouvrir son Job",
+  "answeredElsewhere": "Cela a déjà reçu une réponse ailleurs.",
+  "answeredByAgent": "Réponse de l’agent {{name}}",
+  "answeredByYou": "Réponse de votre part",
+  "answered": "Répondu",
+  "expiredRestarted": "Expirée : l’agent a été redémarré et a posé la question à nouveau.",
+  "expiredEnded": "Expirée : son exécution s’est terminée avant une réponse.",
+  "asked": {
+    "checkpoint": {
+      "user_one": "Point de contrôle : Un lancement de votre part avait mené à {{count}} Job",
+      "user_other": "Point de contrôle : Un lancement de votre part avait mené à {{count}} Jobs",
+      "chat_one": "Point de contrôle : Votre message dans une conversation avait mené à {{count}} Job",
+      "chat_other": "Point de contrôle : Votre message dans une conversation avait mené à {{count}} Jobs",
+      "schedule_one": "Point de contrôle : Une planification avait mené à {{count}} Job",
+      "schedule_other": "Point de contrôle : Une planification avait mené à {{count}} Jobs",
+      "event_one": "Point de contrôle : Un changement dans une table avait mené à {{count}} Job",
+      "event_other": "Point de contrôle : Un changement dans une table avait mené à {{count}} Jobs",
+      "poll_one": "Point de contrôle : Un élément trouvé par une interrogation avait mené à {{count}} Job",
+      "poll_other": "Point de contrôle : Un élément trouvé par une interrogation avait mené à {{count}} Jobs",
+      "other_one": "Point de contrôle : Le travail de vos agents avait mené à {{count}} Job",
+      "other_other": "Point de contrôle : Le travail de vos agents avait mené à {{count}} Jobs"
+    },
+    "consult": "Voulait consulter {{agent}} : {{question}}",
+    "words": "A demandé : {{words}}",
+    "useWith": "Voulait utiliser {{what}} : {{input}}",
+    "use": "Voulait utiliser {{what}}",
+    "confirm": "A demandé de confirmer ses valeurs"
+  },
+  "answer": {
+    "checkpoint": {
+      "allow": "Poursuivi",
+      "allow-always": "Poursuivi, sans redemander",
+      "deny": "Arrêté"
+    },
+    "approved": "Approuvé",
+    "choice": "« {{question}} » : {{answer}}",
+    "deny": {
+      "none": "Refusé",
+      "run": "Refusé pour cette exécution",
+      "always": "Refusé pour celle-ci et les suivantes"
+    },
+    "denyMessage": {
+      "none": "Refusé : {{message}}",
+      "run": "Refusé pour cette exécution : {{message}}",
+      "always": "Refusé pour celle-ci et les suivantes : {{message}}"
+    },
+    "allowAlways": "Autorisé, toujours",
+    "allow": {
+      "none": "Autorisé",
+      "run": "Autorisé pour cette exécution",
+      "always": "Autorisé pour celle-ci et les suivantes"
+    },
+    "consultAnswered": "Réponse de l’agent consulté",
+    "consultNone": "Pas de réponse",
+    "confirmed": "Confirmé",
+    "notConfirmedWith": "Non confirmé : {{feedback}}",
+    "notConfirmed": "Non confirmé"
+  },
+  "orphaned": "L’agent a été redémarré depuis sa question. Votre réponse lui parviendra sous forme de message.",
+  "anAgent": "un agent",
+  "consult": {
+    "wants": "L’agent veut consulter <0>{{agent}}</0>. Un Job de {{agent}} répond à cette question :"
+  },
+  "consultLine": "Il peut orienter cet agent avec ses questions, et ses réponses peuvent citer ce qu’il lit dans des tables que cet agent ne peut pas lire.",
+  "allow": "Autoriser",
+  "deny": "Refuser",
+  "dontAskAgain": "Ne plus demander",
+  "alwaysAllow": "Toujours autoriser",
+  "approve": "Approuver",
+  "checkpoint": {
+    "agents": "Agents : {{agents}}",
+    "goOn": "Continuer",
+    "dontAsk": "Ne plus demander pour cet objectif",
+    "stop": "Arrêter ce travail",
+    "text": {
+      "user_one": "Un lancement de votre part a mené à <0>{{count}} Job</0>. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "user_other": "Un lancement de votre part a mené à <0>{{count}} Jobs</0>. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "chat_one": "Votre message dans une conversation a mené à <0>{{count}} Job</0>. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "chat_other": "Votre message dans une conversation a mené à <0>{{count}} Jobs</0>. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "schedule_one": "Une planification a mené à <0>{{count}} Job</0>. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "schedule_other": "Une planification a mené à <0>{{count}} Jobs</0>. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "event_one": "Un changement dans une table a mené à <0>{{count}} Job</0>. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "event_other": "Un changement dans une table a mené à <0>{{count}} Jobs</0>. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "poll_one": "Un élément trouvé par une interrogation a mené à <0>{{count}} Job</0>. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "poll_other": "Un élément trouvé par une interrogation a mené à <0>{{count}} Jobs</0>. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "other_one": "Le travail de vos agents a mené à <0>{{count}} Job</0>. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "other_other": "Le travail de vos agents a mené à <0>{{count}} Jobs</0>. Il est en pause jusqu’à ce que vous disiez s’il continue."
+    },
+    "textSince": {
+      "user_one": "Un lancement de votre part a mené à <0>{{count}} Job</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "user_other": "Un lancement de votre part a mené à <0>{{count}} Jobs</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "chat_one": "Votre message dans une conversation a mené à <0>{{count}} Job</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "chat_other": "Votre message dans une conversation a mené à <0>{{count}} Jobs</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "schedule_one": "Une planification a mené à <0>{{count}} Job</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "schedule_other": "Une planification a mené à <0>{{count}} Jobs</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "event_one": "Un changement dans une table a mené à <0>{{count}} Job</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "event_other": "Un changement dans une table a mené à <0>{{count}} Jobs</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "poll_one": "Un élément trouvé par une interrogation a mené à <0>{{count}} Job</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "poll_other": "Un élément trouvé par une interrogation a mené à <0>{{count}} Jobs</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "other_one": "Le travail de vos agents a mené à <0>{{count}} Job</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "other_other": "Le travail de vos agents a mené à <0>{{count}} Jobs</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue."
+    }
+  },
+  "other": "Autre",
+  "otherFor": "Autre : {{question}}",
+  "otherPlaceholder": "Autre…",
+  "sendAnswer": "Envoyer la réponse",
+  "wantsToUseAction": "L’agent veut utiliser <0>{{tool}}</0> : <1>{{action}}</1>",
+  "wantsToUse": "L’agent veut utiliser <0>{{tool}}</0>.",
+  "toolInput": "Entrée de l’outil",
+  "rememberAllow": "Retenir « Autoriser »",
+  "rememberDecision": "Retenir cette décision",
+  "denyOnlyCall": "Refuser ne vaut que pour cet appel.",
+  "justThisCall": "Cet appel seulement",
+  "rememberRun": "Retenir pour cette exécution seulement",
+  "rememberAlways": "Retenir pour cette exécution et toutes les suivantes",
+  "messageLabel": "Message à l’agent",
+  "messagePlaceholder": "Message facultatif à l’agent",
+  "confirm": {
+    "text": "L’agent a ce qu’il lui faut. Continuer avec ces valeurs ?",
+    "feedback": "Commentaire",
+    "placeholder": "Que faut-il changer ? (pour « Pas encore »)",
+    "goAhead": "Continuer",
+    "notYet": "Pas encore"
+  },
+  "plugin": {
+    "none": "aucun",
+    "plugin": "Plugin",
+    "skills": "Compétences",
+    "tables": "Tables",
+    "triggers": "Déclencheurs",
+    "agents": "Agents qu’il crée",
+    "on": "sur {{harness}}",
+    "aHarness": "un harnais",
+    "unread": "Ce qu’il peut faire n’a pas été lu : refusez, et demandez qu’il soit proposé à nouveau.",
+    "note": "Chaque outil que reçoivent ses agents demande avant chaque action ; ses serveurs et son installation native restent à vous d’ajouter. Un plugin modifié depuis sa proposition n’installe rien."
+  },
+  "proposal": {
+    "intro": "L’agent vous demande d’approuver ces changements. Approuver lui permet de faire exactement ceux-là, une fois chacun.",
+    "says": "L’agent dit :",
+    "inInbox": "Cela vous demande d’approuver une proposition : des changements à ce que les agents peuvent faire. <0>Lisez-la et répondez dans la boîte de réception</0>.",
+    "unattached": "Cette demande nomme une proposition qui ne lui est pas jointe. Approuver n’approuve que ces mots : aucun changement listé.",
+    "label": "Ce qui est proposé",
+    "none": "aucun",
+    "nothing": "rien",
+    "empty": "vide",
+    "yes": "oui",
+    "no": "non",
+    "asksBeforeUse": "(demande avant usage)",
+    "targets": {
+      "agent": "Sa propre mémoire",
+      "data": "La mémoire de ses tables",
+      "workspace": "La mémoire de l’espace de travail"
+    },
+    "workspaceLine": "Ce qu’il écrit oriente tous les agents de l’espace de travail.",
+    "itemRef": {
+      "agent": "l’agent créé par l’élément {{n}}",
+      "harness": "le harnais créé par l’élément {{n}}",
+      "tool": "l’outil créé par l’élément {{n}}",
+      "skill": "la compétence créée par l’élément {{n}}",
+      "table": "la table créée par l’élément {{n}}",
+      "field": "le champ créé par l’élément {{n}}",
+      "trigger": "le déclencheur créé par l’élément {{n}}",
+      "catalog": "l’entrée de catalogue créée par l’élément {{n}}",
+      "plugin": "le plugin créé par l’élément {{n}}",
+      "thing": "ce que crée l’élément {{n}}"
+    },
+    "itemRefMade": "{{what}} : <0/>",
+    "notYours": "{{id}} : ne vous appartient pas",
+    "operations": {
+      "created": "une ligne est créée",
+      "updated": "une ligne est modifiée",
+      "deleted": "une ligne est supprimée"
+    },
+    "interactionOperations": {
+      "created": "une est posée",
+      "answered": "une reçoit une réponse",
+      "expired": "une expire"
+    },
+    "interaction": "Une Question ou une Approbation du Job d’un autre agent",
+    "job": "Un Job d’un autre agent",
+    "jobOperations": {
+      "created": "un est créé",
+      "finished": "un se termine",
+      "failed": "un échoue ou est arrêté"
+    },
+    "changeTable": "Un changement de la table <0/>",
+    "changeRef": "Un changement de <0/>",
+    "when": "Quand {{what}}",
+    "whenNothing": "Quand rien",
+    "onlyWhen": "Une ligne modifiée seulement quand l’un de ceux-ci a changé :",
+    "polls": "Interroge <0/>",
+    "parentRequired": "<0/>, que chaque ligne doit nommer",
+    "rateCap": "Au plus {{value}} par heure",
+    "concurrency": {
+      "parallel": "Plusieurs à la fois",
+      "one-at-a-time": "Un à la fois"
+    },
+    "marketKinds": {
+      "git": "Dépôt Git",
+      "well-known": "Site de compétences"
+    },
+    "callsGo": "Les appels vont à <0>{{host}}</0>",
+    "unreadable": "une adresse illisible",
+    "recorded": "Ce que ces éléments créent est enregistré dans le plugin <0>{{plugin}}</0>.",
+    "refused": "refusé",
+    "done": "fait",
+    "undone": "Cette action est irréversible.",
+    "runsWithout": "S’exécute sans demander : {{runs}}",
+    "othersAsk": "Les autres actions activées demandent",
+    "titles": {
+      "tables_create": "Créer une table",
+      "tables_rename": "Renommer une table",
+      "tables_set_primitive": "Rendre une table primitive, ou non",
+      "fields_create": "Ajouter un champ à une table",
+      "fields_update": "Modifier un champ",
+      "fields_reorder": "Réordonner les champs d’une table",
+      "agents_create": "Créer un agent",
+      "agents_update": "Modifier un agent",
+      "agents_set_tool_permission": "Régler une action sur Exécuter, Demander ou Désactivée",
+      "harnesses_set_limit": "Changer le nombre de sessions d’un harnais qui travaillent en même temps",
+      "tables_delete": "Supprimer une table, avec ses lignes",
+      "fields_delete": "Supprimer un champ, avec ses valeurs",
+      "tools_add": "Ajouter un outil : un serveur que Dispand appellera",
+      "tools_add_from_catalog": "Ajouter un outil du catalogue : un serveur que Dispand appellera",
+      "tools_delete": "Supprimer un outil, avec ses en-têtes enregistrés",
+      "plugins_add_server": "Ajouter le serveur d’un plugin comme outil : un serveur que Dispand appellera",
+      "triggers_create": "Créer un déclencheur : ce qui lance les Jobs d’un agent",
+      "triggers_update": "Modifier un déclencheur",
+      "triggers_delete": "Supprimer un déclencheur",
+      "plugins_install": "Installer un plugin et configurer ce qu’il définit",
+      "marketplaces_add": "Ajouter une marketplace : là où les plugins et les compétences sont lus",
+      "memory_add": "Ajouter une entrée à une mémoire : ce dont partent les Jobs suivants",
+      "memory_update": "Réécrire une entrée d’une mémoire : ce dont partent les Jobs suivants",
+      "fields_retype": "Changer le type d’un champ : une valeur que le nouveau type ne peut pas contenir est effacée",
+      "agents_delete": "Supprimer un agent, avec ses déclencheurs : ses Jobs en cours s’arrêtent"
+    },
+    "labelsOf": {
+      "tables_create": {
+        "name": "Nom"
+      },
+      "tables_rename": {
+        "id": "Table",
+        "name": "Nouveau nom"
+      },
+      "tables_set_primitive": {
+        "id": "Table",
+        "primitive": "Primitive",
+        "parent": "Table parente"
+      },
+      "fields_create": {
+        "tableId": "Table",
+        "name": "Nom",
+        "type": "Type",
+        "choices": "Choix",
+        "referencesTableId": "Nomme les lignes de"
+      },
+      "fields_update": {
+        "id": "Champ",
+        "name": "Nouveau nom",
+        "choices": "Choix"
+      },
+      "fields_reorder": {
+        "tableId": "Table",
+        "fieldIds": "Champs, dans l’ordre"
+      },
+      "tables_delete": {
+        "id": "Table"
+      },
+      "fields_delete": {
+        "id": "Champ"
+      },
+      "triggers_create": {
+        "id": "Déclencheur",
+        "agentId": "Agent",
+        "instructions": "Ce qu’on dit à l’agent",
+        "config": "Quand il se déclenche",
+        "concurrency": "Jobs en même temps",
+        "rateCap": "Jobs par heure",
+        "enabled": "Activé"
+      },
+      "triggers_update": {
+        "id": "Déclencheur",
+        "agentId": "Agent",
+        "instructions": "Ce qu’on dit à l’agent",
+        "config": "Quand il se déclenche",
+        "concurrency": "Jobs en même temps",
+        "rateCap": "Jobs par heure",
+        "enabled": "Activé"
+      },
+      "triggers_delete": {
+        "id": "Déclencheur"
+      },
+      "tools_add": {
+        "name": "Nom",
+        "url": "Adresse",
+        "transport": "Transport"
+      },
+      "tools_add_from_catalog": {
+        "catalogId": "Entrée du catalogue",
+        "name": "Nom"
+      },
+      "tools_delete": {
+        "id": "Outil"
+      },
+      "plugins_add_server": {
+        "pluginId": "Plugin",
+        "server": "Serveur",
+        "url": "Adresse",
+        "transport": "Transport"
+      },
+      "marketplaces_add": {
+        "url": "Adresse",
+        "kind": "Type"
+      },
+      "agents_set_tool_permission": {
+        "agentId": "Agent",
+        "toolId": "Outil",
+        "action": "Action",
+        "permission": "Permission"
+      },
+      "harnesses_set_limit": {
+        "id": "Harnais",
+        "maxWorking": "Au plus en même temps"
+      },
+      "memory_add": {
+        "scope": "Mémoire",
+        "tableId": "Table",
+        "path": "Chemin",
+        "type": "Type",
+        "body": "Ce qu’elle dit"
+      },
+      "memory_update": {
+        "scope": "Mémoire",
+        "tableId": "Table",
+        "path": "Chemin",
+        "type": "Type",
+        "body": "Ce qu’elle dit"
+      },
+      "fields_retype": {
+        "id": "Champ",
+        "type": "Nouveau type"
+      },
+      "agents_delete": {
+        "id": "Agent"
+      }
+    },
+    "labels": {
+      "id": "Agent",
+      "name": "Nom",
+      "description": "Description",
+      "harnessId": "Harnais",
+      "systemPrompt": "Instructions",
+      "model": "Modèle",
+      "skillPackageIds": "Compétences",
+      "toolIds": "Outils",
+      "bundles": "Ce que ses Jobs peuvent faire",
+      "dataTables": "Tables",
+      "consults": "Peut consulter",
+      "selfLearning": "Apprend"
+    }
+  },
+  "inbox": {
+    "title": "Boîte de réception",
+    "subtitle": "Ce que vos agents vous demandent, et ce qui a reçu une réponse.",
+    "failed": "Impossible de charger la boîte de réception.",
+    "emptyTitle": "Rien n’attend de votre part",
+    "emptyText": "Quand un agent a besoin d’une réponse ou d’une approbation, cela apparaît ici.",
+    "waiting": "En attente de vous",
+    "done": "Terminé",
+    "browser": {
+      "unsupported": "Les notifications du navigateur demandent HTTPS ou localhost. La cloche compte toujours ce qui attend.",
+      "title": "Notifications du navigateur",
+      "granted": "Activées : ce navigateur vous prévient quand un agent pose une question, même sans onglet Dispand ouvert.",
+      "denied": "Bloquées dans les réglages de ce navigateur.",
+      "default": "Soyez prévenu quand un agent pose une question, même sans onglet Dispand ouvert.",
+      "turnOn": "Activer",
+      "failed": "Les notifications n’ont pas pu être activées dans ce navigateur. Réessayez."
+    }
+  }
+}

@@ -2,6 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 
 const fake = vi.hoisted(() => ({ audit: { list: vi.fn(), traceUrl: vi.fn() } }));
@@ -10,9 +11,12 @@ vi.mock("../../lib/api.ts", async () => {
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, params }: { children: unknown; params: { runId: string } }) => <a href={`/runs/${params.runId}`}>{children as string}</a>,
+  Link: ({ children, params, search }: { children: unknown; params?: { runId: string }; search?: { jobId: string } }) => <a href={params ? `/runs/${params.runId}` : `/audit?jobId=${search?.jobId}`}>{children as string}</a>,
 }));
 const { AuditList, JobAudit } = await import("./AuditList.tsx");
+const { createI18n } = await import("../../lib/i18n.ts");
+const { AUDIT_ACTIONS, AUDIT_RESOURCES, AuditDetails } = await import("@dispand/domain/audit/model");
+const { resources } = await import("../../lib/i18n.ts");
 
 afterEach(() => {
   cleanup();
@@ -48,6 +52,7 @@ test("the Job page's Audit lists its rows: the action in words, the agent and it
   const section = await screen.findByRole("region", { name: "Audit" });
   expect(await within(section).findByText("Job started")).toBeTruthy();
   expect(fake.audit.list.mock.calls[0]![0]).toEqual({ jobId: "run_1" });
+  expect(within(section).getByRole("link", { name: "Open in Audit" }).getAttribute("href")).toBe("/audit?jobId=run_1");
   const [started, failed] = within(section).getAllByRole("listitem");
   expect(within(started!).getByText(/Writer/)).toBeTruthy();
   expect(within(started!).getByRole("link", { name: "its Job" }).getAttribute("href")).toBe("/runs/run_1");
@@ -117,4 +122,41 @@ test("a deleted agent is named as its Job kept it", async () => {
   mount(<AuditList />);
   expect(await screen.findByText(/Writer \(Deleted\)/)).toBeTruthy();
   expect(screen.getByText("Scheduler · for A deleted agent")).toBeTruthy();
+});
+
+test("the Audit list is in French", async () => {
+  fake.audit.traceUrl.mockResolvedValue({ traceUrl: null });
+  fake.audit.list.mockResolvedValue({ rows: [row("aud_1", { resourceType: "marketplace", resourceId: null })], next: null });
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AuditList />
+      </QueryClientProvider>
+    </I18nextProvider>,
+  );
+  expect(await screen.findByText("Job démarré")).toBeTruthy();
+  expect(screen.getByText("Marketplace")).toBeTruthy();
+  expect(screen.getByText(/Writer/)).toBeTruthy();
+  expect(screen.getByText("Harnais")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "son Job" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Copier l’id de la trace" })).toBeTruthy();
+});
+
+test("every action, resource and detail has its words in English and French", () => {
+  const words = (l: "en" | "fr") => resources[l].audit;
+  for (const l of ["en", "fr"] as const) {
+    for (const a of AUDIT_ACTIONS) {
+      const [family, name] = a.split(".") as [string, string];
+      expect((words(l).action as Record<string, Record<string, string>>)[family]?.[name], `${l} ${a}`).toBeTruthy();
+    }
+    for (const r of AUDIT_RESOURCES) expect((words(l).resource as Record<string, string>)[r], `${l} ${r}`).toBeTruthy();
+    for (const d of Object.keys(AuditDetails.shape)) expect((words(l).detail as Record<string, string>)[d], `${l} ${d}`).toBeTruthy();
+  }
+});
+
+test("the built-in agent's rows show its label, not the stored name", async () => {
+  fake.audit.traceUrl.mockResolvedValue({ traceUrl: null });
+  fake.audit.list.mockResolvedValue({ rows: [row("aud_1", { agentName: "Assistant", agentBuiltIn: "assistant", actor: { type: "scheduler" } })], next: null });
+  mount(<AuditList />);
+  expect(await screen.findByText("Scheduler · for Stem")).toBeTruthy();
 });

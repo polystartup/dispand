@@ -40,13 +40,13 @@ test("fromCron leaves anything else to Custom", () => {
 
 test("cronProblem refuses 6 fields and unknown timezones", () => {
   expect(cronProblem("0 9 * * 1-5", PARIS)).toBeNull();
-  expect(cronProblem("0 0 9 * * *", PARIS)).toBe("Use 5 fields: minute hour day month weekday");
-  expect(cronProblem("@daily", PARIS)).toBe("Use 5 fields: minute hour day month weekday");
-  expect(cronProblem("H 9 * * *", PARIS)).toBe("Use numbers, not H");
-  expect(cronProblem("0 9 * * *", "Mars/Olympus")).toBe("Unknown timezone");
-  expect(cronProblem("0 9 * * *", "")).toBe("Unknown timezone");
-  expect(cronProblem("61 9 * * *", PARIS)).toMatch(/^This schedule can't be read/);
-  expect(cronProblem("0 0 30 2 *", PARIS)).toMatch(/^This schedule can't be read/);
+  expect(cronProblem("0 0 9 * * *", PARIS)).toEqual({ key: "workflows.schedule.fields" });
+  expect(cronProblem("@daily", PARIS)).toEqual({ key: "workflows.schedule.fields" });
+  expect(cronProblem("H 9 * * *", PARIS)).toEqual({ key: "workflows.schedule.noH" });
+  expect(cronProblem("0 9 * * *", "Mars/Olympus")).toEqual({ key: "workflows.schedule.unknownTimezone" });
+  expect(cronProblem("0 9 * * *", "")).toEqual({ key: "workflows.schedule.unknownTimezone" });
+  expect(cronProblem("61 9 * * *", PARIS)).toMatchObject({ key: "workflows.schedule.unreadable" });
+  expect(cronProblem("0 0 30 2 *", PARIS)).toMatchObject({ key: "workflows.schedule.unreadable" });
 });
 
 test("schedules read in UTC", () => {

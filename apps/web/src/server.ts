@@ -5,6 +5,8 @@ import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
 
 // For the production entry, which reads its settings through the bundle like the rest of the server.
 export { loadServerConfig } from "./server/config.ts";
+/** The body cap of the runner tools' files endpoint, for `server.ts`'s per-path caps. */
+export { MAX_RESULT_BODY_BYTES } from "@dispand/runner-protocol";
 import { withPageSecurity } from "./server/page-security.ts";
 
 /**

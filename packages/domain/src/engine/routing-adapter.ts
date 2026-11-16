@@ -1,7 +1,7 @@
 import type { Answer } from "@dispand/runner-protocol";
 import { eq } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
-import { stepRuns } from "../db/schema.ts";
+import { stepRuns, type MessageFile } from "../db/schema.ts";
 import { type AgentAnswerer, CLOUD_SOURCE, type CliHarness, type CloudHarness, type Harness, type HarnessAdapter, isCloud, type StartParams } from "./harness.ts";
 
 /** Hands each session to its harness's adapter: cloud sessions to the in-process runner, CLI ones to the hub. */
@@ -20,8 +20,8 @@ export class RoutingAdapter implements HarnessAdapter {
     return (await this.adapterOf(sessionId)).narrowPermissions?.(sessionId, db) ?? true;
   }
 
-  async send(sessionId: string, text: string): Promise<boolean> {
-    return (await this.adapterOf(sessionId)).send(sessionId, text);
+  async send(sessionId: string, text: string, files?: MessageFile[]): Promise<boolean> {
+    return (await this.adapterOf(sessionId)).send(sessionId, text, files);
   }
 
   async answer(sessionId: string, questionId: string, answer: Answer, by?: AgentAnswerer): Promise<boolean> {

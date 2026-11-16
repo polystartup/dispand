@@ -57,15 +57,15 @@ test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ pa
   const skillPackageIds = agent.skills.map((s) => s.packageId);
   await rpc(page, "agents/update", { id: agentId, name: agent.name, harnessId: harness.id, systemPrompt: agent.systemPrompt, skillPackageIds, toolIds: [] });
 
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Assistant" }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Stem" }).click();
   await expect(page).toHaveURL(/\/assistant$/);
 
-  const chat = page.getByRole("region", { name: "Assistant" });
+  const chat = page.getByRole("region", { name: "Stem" });
   await chat.getByRole("combobox", { name: "Message", exact: true }).fill("What fires a Job?");
   await chat.getByRole("button", { name: "Send" }).click();
   const { start } = await runner.waitFor("session.start", WAIT_MS);
   expect(start.interactive).toBe(true);
-  expect(start.systemPrompt).toMatch(/^You are the Assistant of this Dispand workspace/);
+  expect(start.systemPrompt).toMatch(/^You are Stem, the built-in agent of this Dispand workspace/);
   expect((await runner.waitFor("session.send", WAIT_MS)).text).toBe("What fires a Job?");
   runner.emit(start.sessionId, { type: "text", delta: "A trigger does." });
   await expect(chat.getByText("A trigger does.")).toBeVisible();
@@ -100,7 +100,7 @@ test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ pa
   // It is listed with the other agents, its rights locked.
   const assistant = await rpc<{ agentId: string }>(page, "agents/assistant");
   await page.goto(`/settings/agents/${assistant.agentId}`);
-  await expect(page.getByText("The Assistant always works on data and changes tables, on every table.")).toBeVisible();
+  await expect(page.getByText("Stem always works on data and changes tables, on every table.")).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /Change tables and fields/ })).toBeDisabled();
 });
 
@@ -108,7 +108,7 @@ test("a proposal in the Assistant's chat: shown whole, approved from the compose
   test.skip(!runner || !harnessId, "needs the Assistant on the fake runner, from the test above");
   await signIn(page);
   await page.goto("/assistant?run=new");
-  const chat = page.getByRole("region", { name: "Assistant" });
+  const chat = page.getByRole("region", { name: "Stem" });
   const box = chat.getByRole("combobox", { name: "Message", exact: true });
   await box.fill("Let the Assistant box run two sessions at once.");
   await chat.getByRole("button", { name: "Send" }).click();
