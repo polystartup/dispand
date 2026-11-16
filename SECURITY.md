@@ -897,7 +897,8 @@ changes it updates this file.
   click. The push procedures are no tool.
 - **Every input is validated** by its procedure's Zod schema; errors don't leak internals:
   anything but an `ORPCError` reaches the page as the generic message (oRPC sends no text, the
-  log only `logError`'s summary), and a server message's values render as text, never markup.
+  log only `logError`'s summary), and so does an `ORPCError` with no message key (the page shows
+  only keyed messages and text marked external), and a server message's values render as text, never markup.
 - **One owner account per install; every row is owner-scoped,** and procedures only return the session owner's rows.
 - **The server's secrets come from its environment** (`deploy/README.md`), never from git,
   logs or client bundles.

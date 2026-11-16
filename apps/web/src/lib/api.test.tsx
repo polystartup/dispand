@@ -22,6 +22,12 @@ const failing = {
     listed: os.handler(() => {
       throw new ORPCError("CONFLICT", message("plugins.marketplace.removeFirst", { plugins: ["case-law", "tax", "labour"] }));
     }),
+    plain: os.handler(() => {
+      throw new ORPCError("BAD_REQUEST", { message: "Plain words nobody keyed" });
+    }),
+    git: os.handler(() => {
+      throw new ORPCError("BAD_REQUEST", message("git.fetch.timeout", { url: "https://example.com/a.git", seconds: 60 }));
+    }),
     trigger: os.handler(() => {
       throw new ORPCError("BAD_REQUEST", message("triggers.inboxNeeded"));
     }),
@@ -92,6 +98,10 @@ test("a plugins refusal shows in French, its list of plugins written as French l
   expect(await refusal((await client("en")).fails.listed())).toBe("Remove its plugins first: case-law, tax, and labour.");
 });
 
+test("a Git refusal shows in French, its address and seconds kept", async () => {
+  expect(await refusal((await client("fr")).fails.git())).toBe("Impossible de récupérer https://example.com/a.git : cela a pris plus de 60 s.");
+});
+
 test("a tables refusal shows in French, with its plural and the name the person typed", async () => {
   expect(await refusal((await client("fr")).fails.rows())).toBe("3 lignes de cette table n’ont pas de Clients : renseignez-les d’abord.");
   expect(await refusal((await client("fr")).fails.taken())).toBe("Une table s’appelle déjà « Clients ».");
@@ -134,6 +144,10 @@ test("a value with markup renders as text", async () => {
   const shown = renderToString(<p role="alert">{await refusal((await client("en")).fails.markup())}</p>);
   expect(shown).toContain("each element &lt;b&gt;case-law&lt;/b&gt; would");
   expect(shown).not.toContain("<b>");
+});
+
+test("an error without a key shows the generic message, never its words", async () => {
+  expect(await refusal((await client("fr")).fails.plain())).toBe("Une erreur s’est produite. Réessayez.");
 });
 
 test("a key the page doesn't know shows the generic error, in English when the page is", async () => {

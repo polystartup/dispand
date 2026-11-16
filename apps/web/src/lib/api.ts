@@ -14,7 +14,7 @@ const translator = (language: Language) => translators.get(language) ?? translat
 /**
  * The error a person reads, in `language`: a server message (`data.key`, `message()` in the
  * domain) translated with its values; text marked as external (an MCP server's, a plugin's) as it
- * came; an internal error, or a key the page doesn't know, as the generic message, its details
+ * came; an error without a key, or a key the page doesn't know, as the generic message, its details
  * staying in the server's logs. Values are text: React escapes them where they are shown.
  */
 export function translated(error: unknown, language: Language): unknown {
@@ -22,9 +22,8 @@ export function translated(error: unknown, language: Language): unknown {
   const data = (error.data ?? {}) as { key?: unknown; values?: Message["values"]; external?: unknown };
   if (data.external === true) return error;
   const t = translator(language);
-  // shortcut: an error without a key keeps its English text until Task 4 has keyed every procedure; then every one is generic.
-  if (typeof data.key === "string") error.message = messageText(t, data as Message);
-  else if (error.code === "INTERNAL_SERVER_ERROR") error.message = t.t("errors.generic");
+  // shortcut: an error without a key reads as the generic message, whatever its code; a procedure that wants its words shown keys them or marks them external. Upgrade to per-code messages (not found, forbidden) if the generic one proves too vague.
+  error.message = typeof data.key === "string" ? messageText(t, data as Message) : t.t("errors.generic");
   return error;
 }
 
