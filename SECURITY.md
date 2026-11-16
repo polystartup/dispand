@@ -807,8 +807,9 @@ changes it updates this file.
   limits: its `$schema` ids are known, never fetched; a linked `plugin.json` rejects it; its
   stdio servers are read (a `./` command and `cwd` that stay inside the plugin, or a `cwd` in
   its data folder). Dispand runs none of a plugin's commands itself; it keeps a standard plugin's
-  files when it has a stdio server (`plugin_files`, at most 500 files and 11 MiB, so their base64 fits the runner's 16 MiB response cap, else the install
-  is refused; links, `.git` and paths a runner can't write left out), and a runner runs such a
+  files when it has a stdio server (`plugin_files`, at most 500 files and 11 MiB, so their base64 fits the runner's 16 MiB response cap; a larger
+  plugin installs keeping none, and its stdio servers can't be added; links, `.git` and paths a
+  runner can't write left out and listed), and a runner runs such a
   server only as the paragraph above says. A plugin in the Claude layout keeps none: its stdio
   servers are added from a runner's own `mcpServers`, as today. Its `com.dispand`
   definitions (tables, agents, triggers) are data and grant nothing: install only stores them,

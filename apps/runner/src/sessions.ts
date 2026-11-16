@@ -287,7 +287,7 @@ export class Sessions {
     if (start.permissionMode === "bypassPermissions" && !this.config.allowBypass) {
       return emit({ type: "error", message: new BypassRefused().message });
     }
-    // A plugin's stdio servers, launched once the start is registered (`launchPlugins`): until then they are left out of the checks.
+    // A plugin's stdio servers, launched once the start is registered (in the `try` below): until then they are left out of the checks.
     const launches = new Map<string, Launch>();
     let launched = false;
     // The session's MCP servers: a runner tool must be one of this machine's own (ToolRefused).

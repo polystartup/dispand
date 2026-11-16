@@ -261,13 +261,14 @@ export const MAX_RUNNER_BYTES = 11 * 1024 * 1024;
 
 /**
  * Every regular file under `root` a runner can write (`isSafeRelativePath`), for a plugin's stdio
- * servers: links, other non-regular files, unsafe paths and `.git` are left out. Past
- * `MAX_RUNNER_FILES` files or `MAX_RUNNER_BYTES` bytes, throws `PluginError`: a runner would refuse it.
+ * servers: links, other non-regular files and `.git` are left out, and a path a runner can't
+ * write is listed in `notImported`. Past `MAX_RUNNER_FILES` files or `MAX_RUNNER_BYTES` bytes,
+ * null: a runner would refuse them, and the plugin installs without them.
  */
-export function readRunnerFiles(root: string): { path: string; content: Uint8Array }[] {
+export function readRunnerFiles(root: string, notImported: Notes): { path: string; content: Uint8Array }[] | null {
   const files: { path: string; content: Uint8Array }[] = [];
   let bytes = 0;
-  const tooLarge = () => new PluginError(`The plugin is too large to run on a runner: more than ${MAX_RUNNER_FILES} files or 11 MiB`);
+  const tooLarge = new Error("too large");
   const walk = (dir: string, prefix: string) => {
     for (const entry of list(dir)) {
       if (entry.name === ".git") continue;
@@ -275,14 +276,20 @@ export function readRunnerFiles(root: string): { path: string; content: Uint8Arr
       const full = join(dir, entry.name);
       const stat = lstatSync(full);
       if (stat.isDirectory()) walk(full, path);
-      else if (stat.isFile() && isSafeRelativePath(path)) {
+      else if (stat.isFile() && !isSafeRelativePath(path)) notImported.push({ component: "file", name: path, reason: "Its path isn't one a runner writes: its stdio servers run without it" });
+      else if (stat.isFile()) {
         bytes += stat.size;
-        if (files.length >= MAX_RUNNER_FILES || bytes > MAX_RUNNER_BYTES) throw tooLarge();
+        if (files.length >= MAX_RUNNER_FILES || bytes > MAX_RUNNER_BYTES) throw tooLarge;
         spend(0, stat.size);
         files.push({ path, content: new Uint8Array(readFileSync(full)) });
       }
     }
   };
-  walk(root, "");
+  try {
+    walk(root, "");
+  } catch (e) {
+    if (e !== tooLarge) throw e;
+    return null;
+  }
   return files;
 }

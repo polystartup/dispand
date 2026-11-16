@@ -53,8 +53,10 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
 
   const runner = runners.data?.find((r) => r.id === runnerId);
   // A plugin's stdio server: no server of the runner's own to pick; its runner must allow it (`allow-plugin`).
-  const fromPlugin = !!current && current.kind === "runner" && !current.runnerTool;
   const server = current?.pluginServer;
+  // Without its plugin's server (removed, or no longer offered): the owner may point it at one of the runner's own.
+  const fromPlugin = !!server;
+  const orphan = !!current && current.kind === "runner" && !current.runnerTool && !server;
   const allowLine = current && server ? `dispand-runner allow-plugin ${current.id} ${server.plugin}@${server.digest}` : "";
   const [copied, setCopied] = useState(false);
   // The servers the picked runner reports, and the saved one even if it no longer does.
@@ -98,7 +100,7 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
       <SheetContent className="w-full overflow-y-auto bg-surface sm:max-w-lg">
         <SheetHeader className="px-6 pt-6">
           <SheetTitle className="text-[20px] tracking-tight">{current ? current.name : t("runnerSheet.add")}</SheetTitle>
-          <SheetDescription>{!fromPlugin ? t("runnerSheet.description") : server ? t("runnerSheet.pluginDescription", { plugin: server.plugin }) : t("runnerSheet.removedDescription")}</SheetDescription>
+          <SheetDescription>{server ? t("runnerSheet.pluginDescription", { plugin: server.plugin }) : orphan ? t(current.plugin ? "runnerSheet.noServerDescription" : "runnerSheet.removedDescription") : t("runnerSheet.description")}</SheetDescription>
         </SheetHeader>
         <div className="space-y-8 px-6 pb-6">
           <form

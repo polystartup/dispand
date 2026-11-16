@@ -57,7 +57,7 @@ import { answerConflict, approvalOf, conflictView, fieldNow, forgetConflicts, ow
 import { findAssistant } from "../agents/builtin.ts";
 import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, PluginError, type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
-import { readRunnerFiles, withBudget } from "./fs.ts";
+import { MAX_RUNNER_FILES, Notes, readRunnerFiles, withBudget } from "./fs.ts";
 import { type PluginFile, storePluginFiles } from "./runner-servers.ts";
 
 const owner = base.use(authed);
@@ -163,8 +163,13 @@ async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry, allowF
     const links = checkout.links.flatMap((l) => (prefix === "" ? [l] : l.startsWith(`${prefix}/`) ? [l.slice(prefix.length + 1)] : []));
     const contents = readPlugin(root, entry, links);
     // A standard plugin's stdio servers run its own files on a runner: Dispand keeps them to send.
-    const files = contents.layout === "standard" && contents.mcpServers.some((s) => s.type === "stdio") ? withBudget(() => readRunnerFiles(root)) : undefined;
-    return { contents, ...(files ? { files } : {}), url, sha: checkout.sha, nativeRoot: prefix || ".", changelog: readChangelog(root) };
+    const stdio = contents.layout === "standard" ? contents.mcpServers.filter((s) => s.type === "stdio") : [];
+    const notes = new Notes();
+    const files = stdio.length ? withBudget(() => readRunnerFiles(root, notes)) : undefined;
+    // Too large for a runner: the plugin installs all the same, keeping none (adding such a server is refused, `noFiles`).
+    if (files === null) for (const s of stdio) notes.push({ component: "mcp-server", name: s.name, reason: `The plugin is larger than a runner takes (${MAX_RUNNER_FILES} files or 11 MiB): this server can't run as a runner tool` });
+    const read = { ...contents, notImported: [...contents.notImported, ...notes.list()] };
+    return { contents: read, ...(files ? { files } : {}), url, sha: checkout.sha, nativeRoot: prefix || ".", changelog: readChangelog(root) };
   } finally {
     await checkout.cleanup();
   }

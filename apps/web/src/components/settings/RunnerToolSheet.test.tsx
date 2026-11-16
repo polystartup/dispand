@@ -56,3 +56,10 @@ test("a command that is a file of the plugin carries no warning", () => {
   expect(screen.getByText("./server.mjs")).toBeTruthy();
   expect(screen.queryByRole("note")).toBeNull();
 });
+
+test("a tool whose plugin no longer offers its server says so, and can be pointed at one of the runner's own servers", () => {
+  sheet({ ...tool, pluginServer: null, actionsError: null } as Tool);
+  expect(screen.getByText("A stdio server its plugin no longer offers, or keeps no files for: update the plugin, or point this tool at one of the runner's own MCP servers.")).toBeTruthy();
+  expect(screen.getByLabelText("MCP server")).toBeTruthy();
+  expect(screen.queryByText(/dispand-runner allow-plugin/)).toBeNull();
+});

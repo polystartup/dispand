@@ -107,14 +107,26 @@ test("an update that changes a file changes the digest; uninstalling keeps the t
   }
 });
 
-test("a plugin with a stdio server larger than a runner takes is refused at install, with that reason", async () => {
+test("a plugin larger than a runner takes installs and updates, keeping no files; its stdio server isn't added, with the reason", async () => {
   const many = Object.fromEntries(Array.from({ length: 500 }, (_, i) => [`data/${i}.txt`, "x"]));
   const fx = await installed(many);
   try {
-    await expect(installReviewed(fx.ctx, { marketplaceId: fx.market.id, entryName: "law-firm" })).rejects.toMatchObject({
+    const { pluginId } = await installReviewed(fx.ctx, { marketplaceId: fx.market.id, entryName: "law-firm", skills: ["legal-research"] });
+    const [row] = await fx.ctx.db.select().from(pluginsTable).where(eq(pluginsTable.id, pluginId));
+    expect(row!.digest).toBeNull();
+    expect(row!.notImported).toContainEqual({ component: "mcp-server", name: "notes", reason: "The plugin is larger than a runner takes (500 files or 11 MiB): this server can't run as a runner tool" });
+    expect(await fx.ctx.db.select().from(pluginFiles).where(eq(pluginFiles.pluginId, pluginId))).toEqual([]);
+    const { previewWaiting } = await addOnRunner(fx, pluginId);
+    expect(previewWaiting).toEqual([{ definition: "tool:notes", reason: { key: "plugins.setup.waiting.noFiles" } }]);
+    await expect(call(router.plugins.addServer, { pluginId, server: "notes", runnerId: fx.runnerId, digest: `sha256:${"0".repeat(64)}` }, { context: fx.ctx })).rejects.toMatchObject({
       code: "BAD_REQUEST",
-      message: "The plugin is too large to run on a runner: more than 500 files or 11 MiB",
+      message: "notes can't run as a runner tool: Dispand keeps no files of this plugin for runners. Update the plugin if it follows the Agent Plugins standard.",
     });
+    fx.plugin.commit({ "server.mjs": `${SERVER}// one more line\n` });
+    await updatePlugin(fx.ctx, pluginId);
+    const [after] = await fx.ctx.db.select().from(pluginsTable).where(eq(pluginsTable.id, pluginId));
+    expect(after!.sha).not.toBe(row!.sha);
+    expect(after!.digest).toBeNull();
   } finally {
     fx.remove();
   }
