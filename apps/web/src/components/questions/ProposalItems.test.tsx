@@ -72,6 +72,7 @@ test("deletions and asking flags read as what they do, with names; a value that 
   expect(within(flag!).queryByText("This can't be undone.")).toBeNull();
   expect(table!.textContent).toContain("Clients");
   expect(field!.textContent).toContain("Phone (of the table Clients)");
+  expect(within(field!).getByText("This can't be undone.")).toBeTruthy();
   expect(within(flag!).getByText("Set an action to Run, Ask, or Off")).toBeTruthy();
   expect(within(flag!).getByText(/tool_x: not one of yours/)).toBeTruthy();
   // The action happens to read like a table's id: it is shown as the text it is.
@@ -98,6 +99,8 @@ test("deleting an agent and changing a field's type say they can't be undone, wi
   expect(within(field!).getByText("This can't be undone.")).toBeTruthy();
   expect(within(field!).getByText("New type")).toBeTruthy();
   expect(field!.textContent).toContain("Amount");
+  // The type by its name, as the Data screens show it.
+  expect(within(field!).getByText("Number")).toBeTruthy();
   expect(field!.textContent).not.toMatch(/dryRun|Dry run/);
 });
 
@@ -320,6 +323,7 @@ test("a trigger's rate cap and concurrency read in words, and a field's choices 
   render(<ProposalItems proposal={setup} />);
   const [field, trigger] = screen.getAllByRole("listitem");
   expect(field!.textContent).toContain("ChoicesNew and Won");
+  expect(field!.textContent).toContain("TypeSingle select");
   expect(field!.textContent).not.toMatch(/c_new|"label"/);
   expect(trigger!.textContent).toContain("Jobs an hourAt most 30 an hour");
   expect(trigger!.textContent).toContain("Jobs at onceOne at a time");

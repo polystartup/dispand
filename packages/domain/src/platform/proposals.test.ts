@@ -572,8 +572,8 @@ test("a field's type changes through an approved proposal; its dry run only coun
   await s.answer(q, "allow");
   expect(await s.tool("fields_retype", real)).toMatchObject({ ok: true, output: { converted: 1, cleared: 1, field: { type: "number" } } });
   expect(await typeOf()).toBe("number");
-  // Once only.
-  expect(((await s.tool("fields_retype", { ...real, type: "text" })) as { error: string }).error).toMatch(NEEDS);
+  // Once only: the same call again finds no unused item.
+  expect(((await s.tool("fields_retype", real)) as { error: string }).error).toMatch(NEEDS);
 });
 
 test("an agent is deleted through an approved proposal, as the owner's delete does it; never its own", async () => {

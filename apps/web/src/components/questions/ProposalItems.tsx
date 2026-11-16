@@ -3,6 +3,8 @@ import { Trans, useTranslation } from "react-i18next";
 import { useFormat } from "../../lib/format.ts";
 import { useText } from "../../lib/message.ts";
 import { PluginInstallItem } from "./PluginInstallItem.tsx";
+import { useFieldTypeLabel } from "../data/field-types.ts";
+import type { FieldType } from "@dispand/domain/data/fields";
 
 /** A proposal as the server gives it to its owner: every write, and a name for each id a write points at. */
 export type ProposalView = {
@@ -209,6 +211,7 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
   const { t } = useTranslation("questions");
   const word = useWord();
   const format = useFormat();
+  const fieldType = useFieldTypeLabel();
   return (
     <>
       {proposal.plugin && (
@@ -247,6 +250,8 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
                     <Consults value={value} items={proposal.items} names={proposal.names} />
                   ) : item.tool.startsWith("agents_") && name === "selfLearning" ? (
                     <Targets value={value} />
+                  ) : item.tool.startsWith("fields_") && name === "type" && typeof value === "string" ? (
+                    <span>{fieldType(value as FieldType)}</span>
                   ) : (
                     <Value
                       name={name}

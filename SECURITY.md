@@ -232,7 +232,9 @@ changes it updates this file.
   (`fields_retype` with `dryRun: true`) only counts and changes nothing, so it runs without an
   item too, and can't be proposed. Deleting an agent runs the owner's own `agents.delete` (its
   Jobs still going stop, its triggers go), and is refused when proposed for the built-in agent
-  (`assistantGuard`) and for the Job's own agent. An
+  (`assistantGuard`) and for the Job's own agent. Accepted: a consulted Job may propose deleting
+  its asker's agent; applied, that stops the asker and so, down the consult chain, the
+  consulted Job too, as any stop of the asker does. An
   item is also checked against the Job's tables when it is proposed, like any call: a Job
   limited to some tables can't put another table's deletion in front of the owner.
 - **A trigger on Jobs gets no content.** A Job created, finished or failed is an event of
