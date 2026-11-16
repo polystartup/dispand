@@ -1,3 +1,4 @@
+import { english, isMessageKey } from "../messages/index.ts";
 import { storable } from "@dispand/runner-protocol";
 import { parse } from "yaml";
 import { z } from "zod";
@@ -111,7 +112,9 @@ function problem(error: z.ZodError): string {
   const issue = error.issues[0];
   const path = issue?.path.filter((p) => typeof p === "string" || typeof p === "number").join(".");
   if (issue?.code === "unrecognized_keys") return `It has a field it doesn't take${path ? ` in ${path}` : ""}`;
-  return `${path ? `${path}: ` : ""}${issue?.message ?? "not valid"}`.slice(0, 200);
+  // A refinement may carry a message key (the trigger model's): shown as its English sentence.
+  const words = issue?.message && isMessageKey(issue.message) ? english(issue.message) : (issue?.message ?? "not valid");
+  return `${path ? `${path}: ` : ""}${words}`.slice(0, 200);
 }
 
 /** The files of `com.dispand/<kind>/` ending in `extension`, read as regular files of at most 2 MiB. */
