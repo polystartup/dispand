@@ -1682,7 +1682,7 @@ some) puts a digest of that field's values in every row under the token too (`Ta
 a value written after the screen was read refuses the update, and the screen is read again.
 The read and the field operation aren't one transaction (the operation runs its own), so a write
 landing within the same call is the gap left. The update's screen offers "Let Stem deal with it" on a field of an
-agent, tool or trigger: `plugins.update` takes those keys (`stem`), keeps them as conflicts and
+agent, tool or trigger, or on a skill's file: `plugins.update` takes those keys (`stem`), keeps them as conflicts and
 starts one Job of the Assistant (`handToStem`, a `stem` firing with no trigger, its conflicts as
 the trigger node's data). Its snapshot is limited (`only: ["plugin_decide"]`, and no skill, tool,
 bundle, memory or consult; `withMemory` gives it no memory to read either, since it holds no
@@ -1710,8 +1710,25 @@ and its conflicts are the owner's again. On the element's page (`StemMarks`, fro
 for the owner in the update's Approval, in the Inbox, which the page links to (`approvalId`, once
 the Job ended) and where each value is accepted or declined (`plugins.resolveConflict`,
 `answerConflict`, with the same check); or it is theirs again, with the three choices of the update's screen (keep
-theirs, take the plugin's, or hand it to Stem once more against the values as they are now). Not
-yet built: skill files' conflicts.
+theirs, take the plugin's, or hand it to Stem once more against the values as they are now).
+
+A skill's file in conflict can be handed to Stem too: we decided it is a wording field like any
+other, its merged text going to the update's one Approval. Its conflict is `kind: "skill_file"`
+(no migration: `kind` is plain text), the skill package's id and field `file:<path>`; `mine` and
+`next` are the owner's file and the plugin's, whole (the screen cuts a long one, so the update
+hands Stem the full texts, `skillValues`, outside the screen's response), as their text, or for
+a file that isn't text its size and digest, or null for none. The Job gets the three texts. A
+reset takes the plugin's file as the package keeps it (`skill_file_upstream`, the same file
+`resetFile` writes back; none when the plugin has none); a merge is the file's whole text (any
+other value is refused, and so is one the package's check refuses, said by `plugin_decide`), and
+applies at once only when it is one of the two files, else it waits in the Approval. Each of
+`decideFile`, `answerFile` and the owner's "take the plugin's" is one transaction with the
+package locked `for update`, the lock every file edit and the update take: the file and the
+plugin's are read again (another value makes it `open`, the owner's again), the conflict claimed
+(an Approval's item only as the owner answered it), then the file written through `putFile`,
+which checks the package whole; a refusal rolls the claim back. An update that changes the
+plugin's file reopens a decision waiting on it (`reopenChanged`). The skill's sheet shows
+`StemMarks` for its files (`plugins.conflicts` with `kind: "skill_file"`).
 
 A plugin's table can be handed to Stem too, whole: on the update's screen its "Let Stem deal with
 it" box leaves its change boxes to Stem (`stem` takes `table:<id>`, refused with ticks for that

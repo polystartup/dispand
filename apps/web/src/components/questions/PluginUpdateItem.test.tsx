@@ -70,6 +70,15 @@ test("a plugin update's Approval lists each of Stem's values, each answered on i
   expect(fake.plugins.resolveConflict.mock.calls[1]![0]).toEqual({ id: "c2", choice: "decline", reviewed: "r_c2" });
 });
 
+test("a skill file's merged text is named by the skill and the file's path", async () => {
+  fake.plugins.resolveConflict.mockResolvedValue({ ok: true });
+  mount(item("pending", [{ ...entry("c1", "legal", "file:legal/SKILL.md", "Mine, and the plugin's."), kind: "skill_file", elementId: "skillpkg_1" }]));
+  const file = screen.getByRole("listitem", { name: "legal: legal/SKILL.md" });
+  expect(within(file).getByText("Mine, and the plugin's.")).toBeTruthy();
+  await userEvent.click(within(file).getByRole("button", { name: "Accept Stem's" }));
+  expect(fake.plugins.resolveConflict.mock.calls[0]![0]).toEqual({ id: "c1", choice: "accept", reviewed: "r_c1" });
+});
+
 test("a refused answer says why; once done, the item says which update it was for and that each value was answered", async () => {
   fake.plugins.resolveConflict.mockRejectedValue(Object.assign(new Error("This conflict changed: look at it again."), { code: "CONFLICT" }));
   mount(item("pending", [entry("c1", "Drafting", "systemPrompt", "Mine, and Next")]));

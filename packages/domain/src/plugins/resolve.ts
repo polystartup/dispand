@@ -2,12 +2,13 @@ import { ORPCError } from "@orpc/server";
 import { createHash } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { agents as agentsTable, fields as fieldsTable, pluginConflicts, plugins as pluginsTable, questions, rows as rowsTable, tables as tablesTable, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
+import { agents as agentsTable, fields as fieldsTable, pluginConflicts, plugins as pluginsTable, questions, rows as rowsTable, skillFiles, skillFileUpstream, skillPackages, tables as tablesTable, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
 import type { AuditActor } from "../audit/model.ts";
 import { recordAudit } from "../audit/record.ts";
 import { recordInteraction } from "../engine/interactions.ts";
-import { message, reasonOf, type Text } from "../messages/index.ts";
+import { message, reasonOf, say, type Text } from "../messages/index.ts";
 import { publish, removeFieldIn, retypeIn, updateFieldIn } from "../data/tables.ts";
+import { putFile } from "../skills/procedures.ts";
 import { newId } from "../ids.ts";
 import { canonical } from "../platform/approvals.ts";
 import type { InitialContext } from "../rpc/context.ts";
@@ -34,6 +35,13 @@ import { writeFields } from "./write-field.ts";
 // never the owner's to decide on its own: when Stem doesn't decide it, it is dropped, and the
 // definition the table keeps as merged still lacks its changes, so the next update offers them
 // again as the checklist.
+//
+// A skill's file is a wording field (`kind: "skill_file"`, the skill package's id, field
+// `file:<path>`), its value the file's text (a file that isn't text: its size and digest; none:
+// null). A reset takes the plugin's file as the package keeps it (`skill_file_upstream`). A decision
+// or an answer applies in one transaction with the package locked as every file edit locks it: the
+// file and the plugin's read again (another value is the owner's to decide again), the conflict
+// claimed, then the file written.
 
 const counts = meter("plugins");
 
@@ -50,6 +58,7 @@ type Conflict = typeof pluginConflicts.$inferSelect;
 export async function fieldNow(db: Db | Tx, c: Conflict): Promise<{ value: unknown; plugin: unknown } | null> {
   // A table's conflict is read as it was handed off (`tableNow` reads the table).
   if (c.kind === "table") return null;
+  if (c.kind === "skill_file") return fileNow(db, c);
   if (c.kind === "agent") {
     const [agent] = await db.select().from(agentsTable).where(and(eq(agentsTable.id, c.elementId), eq(agentsTable.ownerId, c.ownerId), eq(agentsTable.pluginId, c.pluginId)));
     if (!agent?.upstream) return null;
@@ -69,9 +78,9 @@ export async function fieldNow(db: Db | Tx, c: Conflict): Promise<{ value: unkno
 const AGENT_RIGHTS = new Set(["bundles", "dataTables", "toolIds", "skillPackageIds", "selfLearning", "consults"]);
 
 /** Whether a decided value may apply without the owner's Approval: one of the two values, and for an agent's rights the owner's alone. */
-function within(kind: ElementKind, field: string, value: unknown, mine: unknown, next: unknown): boolean {
+function within(kind: Conflict["kind"], field: string, value: unknown, mine: unknown, next: unknown): boolean {
   if (kind === "agent" && AGENT_RIGHTS.has(field)) return sameValue(kind, field, value, mine);
-  return sameValue(kind, field, value, mine) || sameValue(kind, field, value, next);
+  return sameValue(kind as ElementKind, field, value, mine) || sameValue(kind as ElementKind, field, value, next);
 }
 
 async function audit(context: Context, actor: AuditActor, c: Conflict, decision: string, jobId: string | null) {
@@ -129,6 +138,7 @@ export async function decide(context: Context, actor: AuditActor, conflictId: st
     .where(and(eq(pluginConflicts.id, conflictId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "stem"), ...(runId ? [eq(pluginConflicts.runId, runId)] : [])));
   if (!c) return "gone";
   if (c.kind === "table") return decideTable(context, actor, c, decision, report);
+  if (c.kind === "skill_file") return decideFile(context, actor, c, decision, report);
   const state = await fresh(context.db, c);
   if (state === "gone") {
     await context.db.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
@@ -173,6 +183,7 @@ export async function answerConflict(context: Context, actor: AuditActor, confli
 
 async function answerOne(context: Context, actor: AuditActor, c: Conflict, approved: boolean, report?: { refused: Refused[]; stale: string[] }): Promise<"applied" | "kept" | "reopened" | "gone"> {
   if (c.kind === "table") return answerTable(context, actor, c, approved, report);
+  if (c.kind === "skill_file") return answerFile(context, actor, c, approved);
   const state = await fresh(context.db, c);
   if (state === "stale") {
     await context.db.update(pluginConflicts).set({ status: "open", merged: null }).where(eq(pluginConflicts.id, c.id));
@@ -190,6 +201,16 @@ async function answerOne(context: Context, actor: AuditActor, c: Conflict, appro
 export async function ownerChoice(context: Context, actor: AuditActor, conflictId: string, choice: "mine" | "plugin"): Promise<void> {
   const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, conflictId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "open")));
   if (!c) return;
+  if (c.kind === "skill_file") {
+    const now = await context.db.transaction(async (tx) => {
+      const now = await fileNow(tx, c, true);
+      if (now && choice === "plugin") await putFile(tx, c.ownerId, c.elementId, pathOf(c), now.upstream);
+      await tx.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
+      return now;
+    });
+    if (now) await audit(context, actor, c, choice, c.runId);
+    return;
+  }
   const now = await fieldNow(context.db, c);
   if (now && choice === "plugin") await apply(context, c, now.plugin);
   await context.db.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
@@ -197,7 +218,7 @@ export async function ownerChoice(context: Context, actor: AuditActor, conflictI
 }
 
 /** An update that changes the plugin's value of these fields: their pending conflicts are the owner's again. */
-export async function reopenChanged(tx: Db | Tx, kind: ElementKind, elementId: string, fields: string[]): Promise<void> {
+export async function reopenChanged(tx: Db | Tx, kind: ElementKind | "skill_file", elementId: string, fields: string[]): Promise<void> {
   if (!fields.length) return;
   const reopened = await tx
     .update(pluginConflicts)
@@ -269,10 +290,14 @@ export async function approvalOf(db: Db | Tx, runId: string | null): Promise<str
   return q?.id ?? null;
 }
 
+/** Where a conflict's element is: its table of rows. */
+export const elementTable = (kind: Conflict["kind"]) => (kind === "agent" ? agentsTable : kind === "tool" ? toolsTable : kind === "table" ? tablesTable : kind === "skill_file" ? skillPackages : triggersTable);
+
 /** A conflict as the owner decides it: the field's value now, the plugin's now, Stem's suggestion, and the token of the three. */
 export async function conflictView(db: Db | Tx, r: Conflict) {
   const now = await fieldNow(db, r);
-  const shown = { id: r.id, field: r.field, status: r.status, mine: now?.value ?? r.mine, next: now?.plugin ?? r.next, merged: r.status === "approval" ? r.merged : null };
+  // A file the owner removed, or the plugin did, is null now: shown as none, not as it was.
+  const shown = { id: r.id, field: r.field, status: r.status, mine: now ? now.value : r.mine, next: now ? now.plugin : r.next, merged: r.status === "approval" ? r.merged : null };
   return { ...shown, reviewed: createHash("sha256").update(canonical(shown)).digest("hex") };
 }
 
@@ -290,7 +315,7 @@ export async function approvalView(db: Db, ownerId: string, q: { runId: string; 
     .orderBy(asc(pluginConflicts.createdAt), asc(pluginConflicts.id));
   const items = [];
   for (const r of rows) {
-    const table = r.kind === "agent" ? agentsTable : r.kind === "tool" ? toolsTable : r.kind === "table" ? tablesTable : triggersTable;
+    const table = elementTable(r.kind);
     const [element] = await db.select({ name: table.name }).from(table).where(and(eq(table.id, r.elementId), eq(table.ownerId, ownerId)));
     items.push({ ...(await conflictView(db, r)), kind: r.kind, elementId: r.elementId, name: element?.name ?? null });
   }
@@ -457,4 +482,96 @@ async function answerTable(context: Context, actor: AuditActor, c: Conflict, app
   report?.stale.push(...done.stale);
   await audit(context, actor, c, approved ? "approved" : "declined", c.runId);
   return approved ? "applied" : "kept";
+}
+
+/** A skill's file as its conflict keeps it: its text, a file that isn't text as its size and digest, null for none. */
+export function fileValue(content: Uint8Array | undefined): unknown {
+  if (content === undefined) return null;
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(content);
+  } catch {
+    return { bytes: content.length, sha256: createHash("sha256").update(content).digest("hex") };
+  }
+}
+
+const pathOf = (c: Conflict) => c.field.slice("file:".length);
+
+/**
+ * A file conflict's file and the plugin's, with the plugin's bytes (what a reset writes); null
+ * when the package is gone or no longer the plugin's. `lock`: the package `for update`, as a file's
+ * edit and the update lock it.
+ */
+async function fileNow(db: Db | Tx, c: Conflict, lock = false) {
+  const query = db.select({ id: skillPackages.id }).from(skillPackages).where(and(eq(skillPackages.id, c.elementId), eq(skillPackages.ownerId, c.ownerId), eq(skillPackages.pluginId, c.pluginId)));
+  const [pkg] = lock ? await query.for("update") : await query;
+  if (!pkg) return null;
+  const [file] = await db.select({ content: skillFiles.content }).from(skillFiles).where(and(eq(skillFiles.packageId, pkg.id), eq(skillFiles.path, pathOf(c))));
+  const [upstream] = await db.select({ content: skillFileUpstream.content }).from(skillFileUpstream).where(and(eq(skillFileUpstream.packageId, pkg.id), eq(skillFileUpstream.path, pathOf(c))));
+  return { value: fileValue(file?.content), plugin: fileValue(upstream?.content), upstream: upstream?.content ?? null };
+}
+
+/** Whether a file conflict still stands as it was handed off: the owner's file and the plugin's both as they were. */
+const fileStands = (c: Conflict, now: { value: unknown; plugin: unknown }) => canonical(now.value) === canonical(c.mine) && canonical(now.plugin) === canonical(c.next);
+
+/**
+ * Stem's decision on a skill's file, in one transaction under the package's lock: a reset writes
+ * the plugin's file (none, when the plugin has none), a merge (a text) equal to either file
+ * applies, any other waits for the owner's Approval. One the package's check refuses (a
+ * `SKILL.md` that no longer reads as a skill) applies nothing and is in `report`.
+ */
+async function decideFile(context: Context, actor: AuditActor, c: Conflict, decision: Decision, report?: { refused: Refused[] }): Promise<DecisionOutcome> {
+  if (decision.kind === "merge" && typeof decision.value !== "string") {
+    report?.refused.push({ key: c.field, reason: say("plugins.stem.fileText") });
+    return "refused";
+  }
+  const held = and(eq(pluginConflicts.id, c.id), eq(pluginConflicts.status, "stem"));
+  let outcome: DecisionOutcome;
+  try {
+    outcome = await context.db.transaction(async (tx): Promise<DecisionOutcome> => {
+      const now = await fileNow(tx, c, true);
+      if (!now) {
+        await tx.delete(pluginConflicts).where(held);
+        return "gone";
+      }
+      if (!fileStands(c, now)) return (await tx.update(pluginConflicts).set({ status: "open", merged: null }).where(held).returning({ id: pluginConflicts.id })).length ? "reopened" : "gone";
+      const value = decision.kind === "reset" ? now.plugin : decision.value;
+      if (!within(c.kind, c.field, value, c.mine, c.next)) return (await tx.update(pluginConflicts).set({ status: "approval", merged: value }).where(held).returning({ id: pluginConflicts.id })).length ? "approval" : "gone";
+      if (!(await tx.delete(pluginConflicts).where(held).returning({ id: pluginConflicts.id })).length) return "gone";
+      await putFile(tx, c.ownerId, c.elementId, pathOf(c), decision.kind === "reset" ? now.upstream : Buffer.from(value as string));
+      return "applied";
+    });
+  } catch (err) {
+    if (!(err instanceof ORPCError)) throw err;
+    report?.refused.push({ key: c.field, reason: reasonOf(err) });
+    return "refused";
+  }
+  if (outcome === "gone") return outcome;
+  await audit(context, actor, c, outcome === "applied" ? decision.kind : outcome, c.runId);
+  // The skill's text reached sessions: they get the file as it is now.
+  if (outcome === "applied") await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  return outcome;
+}
+
+/**
+ * The owner's answer to Stem's merged text of a skill's file, in one transaction under the
+ * package's lock: the file and the plugin's read again (another value is the owner's to decide
+ * again), the item claimed as the owner answered it, then on a yes the text written.
+ */
+async function answerFile(context: Context, actor: AuditActor, c: Conflict, approved: boolean): Promise<"applied" | "kept" | "reopened" | "gone"> {
+  const asAnswered = and(eq(pluginConflicts.id, c.id), eq(pluginConflicts.status, "approval"), sql`${pluginConflicts.merged} = ${JSON.stringify(c.merged)}::jsonb`);
+  const outcome = await context.db.transaction(async (tx) => {
+    const now = await fileNow(tx, c, true);
+    if (!now) {
+      await tx.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
+      return "gone" as const;
+    }
+    const claimed = fileStands(c, now) ? await tx.delete(pluginConflicts).where(asAnswered).returning({ id: pluginConflicts.id }) : await tx.update(pluginConflicts).set({ status: "open", merged: null }).where(asAnswered).returning({ id: pluginConflicts.id });
+    if (!claimed.length) throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
+    if (!fileStands(c, now)) return "reopened" as const;
+    if (approved) await putFile(tx, c.ownerId, c.elementId, pathOf(c), Buffer.from(c.merged as string));
+    return approved ? ("applied" as const) : ("kept" as const);
+  });
+  if (outcome === "gone") return outcome;
+  await audit(context, actor, c, outcome === "reopened" ? "reopened" : approved ? "approved" : "declined", c.runId);
+  return outcome;
 }

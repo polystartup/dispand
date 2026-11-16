@@ -35,7 +35,7 @@ export function NativeMoves({ native }: { native: NativeInstalls }) {
 type T = TFunction<"plugins">;
 
 /** A field as its form names it (`plugins:update.field.<field>`), a file by its path. */
-const label = (t: T, field: string) => (field.startsWith("file:") ? field.slice("file:".length) : t(`update.field.${field}`, { defaultValue: field }));
+export const label = (t: T, field: string) => (field.startsWith("file:") ? field.slice("file:".length) : t(`update.field.${field}`, { defaultValue: field }));
 
 /** A value as plain text: ids read by name, lists by their entries, a config as its JSON. Never markup. */
 function shown(t: T, value: unknown, names: Names): string {
@@ -115,7 +115,7 @@ export function UpdatePlan({
               <Text title={t("update.yours")} value={c.mine} names={names} />
               <Text title={t("update.now")} value={c.next} names={names} />
               <div className="flex flex-wrap gap-x-4 gap-y-2">
-                {[...CHOICES, ...(onStem && c.kind !== "skill" ? STEM : [])].map((choice) => (
+                {[...CHOICES, ...(onStem ? STEM : [])].map((choice) => (
                   <label key={choice} className="flex items-center gap-2">
                     <input
                       type="radio"

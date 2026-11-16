@@ -91,6 +91,9 @@
     }
   },
   "plugins": {
+    "stem": {
+      "fileText": "Un fichier de compétence se fusionne en donnant tout son texte."
+    },
     "notFound": "Ce plugin n’existe pas.",
     "ownerSession": "Cette action demande une session de propriétaire.",
     "marketplace": {
@@ -129,7 +132,7 @@
       "changed": "{{plugin}} a changé depuis votre relecture : relisez ce que sa mise à jour change.",
       "notApplicable": "Ce n’est pas un changement de cette table qui puisse être appliqué.",
       "notConflict": "Ce n’est pas un champ en conflit.",
-      "stemScope": "Stem décide des champs d’agents, d’outils et de déclencheurs en conflit que vous n’avez pas repris, et des tables dont vous n’avez rien coché.",
+      "stemScope": "Stem décide des champs d’agents, d’outils et de déclencheurs et des fichiers de compétences en conflit que vous n’avez pas repris, et des tables dont vous n’avez rien coché.",
       "assistantFirst": "Configurez d’abord l’Assistant : Stem est l’Assistant.",
       "notShown": "Il n’était pas sur l’écran de la mise à jour.",
       "unreachable": "Son runner n’a pas pu être interrogé, ou l’installation a changé depuis.",

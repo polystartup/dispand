@@ -9,11 +9,11 @@ import { refusal } from "./PluginInstallSheet.tsx";
 const shown = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value, null, 2));
 
 /**
- * On a plugin's agent, tool or trigger: each field an update changed that the owner had changed
+ * On a plugin's agent, tool, trigger or skill (its files): each field an update changed that the owner had changed
  * too and handed to Stem. Stem is looking; or its merged value waits for the owner's answer in
  * the update's Approval, in the Inbox, linked from here; or the field is theirs to decide again, with the three choices of the update's screen.
  */
-export function StemMarks({ kind, id, labels, onResolved }: { kind: "agent" | "tool" | "trigger"; id: string; labels: Record<string, string>; /** The field may have changed: the page starts over from the saved element. */ onResolved: () => void }) {
+export function StemMarks({ kind, id, labels, onResolved }: { kind: "agent" | "tool" | "trigger" | "skill_file"; id: string; labels: Record<string, string>; /** The field may have changed: the page starts over from the saved element. */ onResolved: () => void }) {
   const { t } = useTranslation("agents");
   const { t: tm } = useTranslation("messages");
   const assistant = tm("agent.assistant.name");
@@ -37,7 +37,8 @@ export function StemMarks({ kind, id, labels, onResolved }: { kind: "agent" | "t
   return (
     <ul aria-label={t("stem.label")} className="space-y-2 text-[13px]">
       {conflicts.data.map((c) => {
-        const label = labels[c.field] ?? c.field;
+        // A skill's file is named by its path.
+        const label = labels[c.field] ?? c.field.replace(/^file:/, "");
         return (
           <li key={c.id} className="space-y-1 rounded-xl border border-border p-3">
             <p>

@@ -410,7 +410,7 @@ export const PLUGIN_DECIDE: PlatformTool = {
   bundle: null,
   available: () => false,
   description:
-    "Decides one field the owner handed you, by its conflict id: reset to take the plugin's new value, or merge with the value to keep. A value that is neither the owner's nor the plugin's, or that changes an agent's rights (its bundles, tables, tools, skills, self-learning or consults), waits for the owner's approval. For a table (field `changes`), merge with the list of change keys to apply, among those listed as applicable (reset applies them all); a change that removes values waits for the owner's approval, and the others are declined.",
+    "Decides one field the owner handed you, by its conflict id: reset to take the plugin's new value, or merge with the value to keep. A value that is neither the owner's nor the plugin's, or that changes an agent's rights (its bundles, tables, tools, skills, self-learning or consults), waits for the owner's approval. For a table (field `changes`), merge with the list of change keys to apply, among those listed as applicable (reset applies them all); a change that removes values waits for the owner's approval, and the others are declined. For a skill's file (field `file:<path>`), merge with the file's whole text; reset takes the plugin's file.",
   input: DecideInput,
   tables: none,
   run: async (app, job, input) => {
@@ -418,7 +418,8 @@ export const PLUGIN_DECIDE: PlatformTool = {
     const context = { ...app, job, ownerId: job.ownerId, headers: new Headers(), resHeaders: new Headers() };
     const report = { refused: [] as Refused[] };
     const outcome = await decide(context, { type: "job", runId: job.runId }, conflictId, decision as Decision, job.runId, report);
-    if (outcome === "refused") return { ok: false, error: "Not a list of change keys shown as applicable for this table: nothing was applied" };
+    // A skill file's decision refused says why; a table's, that its keys weren't shown.
+    if (outcome === "refused") return { ok: false, error: report.refused.length ? `Nothing was applied: ${report.refused.map((r) => sentence(r.reason)).join(" ")}` : "Not a list of change keys shown as applicable for this table: nothing was applied" };
     if (outcome === "gone") return { ok: false, error: "Not a field handed to this Job" };
     // A table change its operation refused wasn't made: said by key and reason, offered again by the next update.
     return { ok: true, output: { outcome, ...(report.refused.length ? { refused: report.refused.map((r) => ({ key: r.key, reason: sentence(r.reason) })) } : {}) } };

@@ -51,7 +51,7 @@ import { canonical } from "../platform/approvals.ts";
 import { runItemsAsOwner, SetupPick, setupItems } from "./setup.ts";
 import { addServer } from "./servers.ts";
 import { writeFields } from "./write-field.ts";
-import { answerConflict, approvalOf, conflictView, fieldNow, forgetConflicts, type HandedTable, ownerChoice, reopenChanged, type Refused, settleApprovals, TABLE_FIELD } from "./resolve.ts";
+import { answerConflict, approvalOf, conflictView, elementTable, fieldNow, fileValue, forgetConflicts, type HandedTable, ownerChoice, reopenChanged, type Refused, settleApprovals, TABLE_FIELD } from "./resolve.ts";
 import { findAssistant } from "../agents/builtin.ts";
 import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, PluginError, type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
@@ -853,6 +853,9 @@ async function skillPlan(db: Db | Tx, row: PluginRow, contents: PluginContents, 
   const same = (a: Uint8Array | undefined, b: Uint8Array | undefined) => (a === undefined || b === undefined ? a === b : Buffer.from(a).equals(Buffer.from(b)));
   const changes: ShownChange[] = [];
   const conflicts: ShownConflict[] = [];
+  // The files the plugin changes; and each conflict's files whole, as Stem gets them (the screen cuts a long one).
+  const changed: string[] = [];
+  const values: Record<string, { old: unknown; mine: unknown; next: unknown }> = {};
   // The agents the package's text reaches: named beside each of its files, and so under the screen's token.
   const reaches = (
     await db.select({ name: agentsTable.name }).from(agentSkills).innerJoin(agentsTable, eq(agentsTable.id, agentSkills.agentId)).where(eq(agentSkills.packageId, pkg.id)).orderBy(asc(agentsTable.name))
@@ -861,12 +864,16 @@ async function skillPlan(db: Db | Tx, row: PluginRow, contents: PluginContents, 
   for (const path of [...new Set([...old, ...next].map((f) => f.path))].sort()) {
     const [was, now, own] = [at(old, path), at(next, path), at(mine, path)];
     if (same(was, now)) continue;
+    changed.push(path);
     const shown = { key: `skill:${pkg.id}:file:${path}`, kind: "skill" as const, id: pkg.id, name: pkg.name, field: `file:${path}`, reaches };
     if (same(own, was)) changes.push({ ...shown, class: "wording", before: shownFile(was), after: shownFile(now) });
     else if (take.includes(shown.key)) files = [...files.filter((f) => f.path !== path), ...(now ? [{ path, content: now }] : [])];
-    else conflicts.push({ ...shown, old: shownFile(was), mine: shownFile(own), next: shownFile(now) });
+    else {
+      conflicts.push({ ...shown, old: shownFile(was), mine: shownFile(own), next: shownFile(now) });
+      values[shown.key] = { old: fileValue(was), mine: fileValue(own), next: fileValue(now) };
+    }
   }
-  return { packageId: pkg.id, files, next, changes, conflicts };
+  return { packageId: pkg.id, files, next, changes, conflicts, changed, values };
 }
 
 type Addition = { key: string; kind: "primitive" | "agent" | "trigger" | "server"; name: string; detail: Text };
@@ -973,7 +980,7 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
   // The plugin's own words for the version it goes to, when its changelog names it; the two commits either way.
   const { version } = read.contents;
   const releaseNotes = { from: row.sha, to: read.sha, version, text: version && read.changelog ? changelogSection(read.changelog, version) : null };
-  return { ...read, conflicts, changes, additions, leaving, after, removals, tables, shownTables, reviewed, releaseNotes };
+  return { ...read, conflicts, changes, additions, leaving, after, removals, tables, shownTables, reviewed, releaseNotes, skillValues: skill?.values ?? {} };
 }
 
 /**
@@ -1088,11 +1095,11 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
     if (!plan || keys.some((k) => !plan.changes.some((c) => c.key === k && !c.stale && !c.waiting))) throw new ORPCError("BAD_REQUEST", message("plugins.update.notApplicable"));
   }
   if (input.take.some((key) => !shown.conflicts.some((c) => c.key === key))) throw new ORPCError("BAD_REQUEST", message("plugins.update.notConflict"));
-  // Handed to Stem: a field of an agent, tool or trigger in conflict, not also taken; the Assistant decides it.
-  const handed = shown.conflicts.filter((c) => input.stem.includes(c.key));
+  // Handed to Stem: a field of an agent, tool or trigger, or a skill's file, in conflict, not also taken; the Assistant decides it. A file is handed whole.
+  const handed = shown.conflicts.filter((c) => input.stem.includes(c.key)).map((c) => ({ ...c, ...shown.skillValues[c.key] }));
   // A table shown with changes, none of them ticked: Stem decides which apply.
   const handedTables = shown.tables.filter((t) => t.changes.length && input.stem.includes(`table:${t.tableId}`));
-  if (handed.length + handedTables.length !== input.stem.length || handed.some((c) => c.kind === "skill" || input.take.includes(c.key)) || handedTables.some((t) => input.tables[t.tableId]?.length)) throw new ORPCError("BAD_REQUEST", message("plugins.update.stemScope"));
+  if (handed.length + handedTables.length !== input.stem.length || handed.some((c) => input.take.includes(c.key)) || handedTables.some((t) => input.tables[t.tableId]?.length)) throw new ORPCError("BAD_REQUEST", message("plugins.update.stemScope"));
   const toStem = handed.length + handedTables.length > 0;
   const assistant = toStem ? await findAssistant(context.db, context.ownerId) : null;
   if (toStem && !assistant) throw new ORPCError("BAD_REQUEST", message("plugins.update.assistantFirst"));
@@ -1114,6 +1121,7 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
       await tx.update(skillPackages).set({ updatedAt: sql`now()` }).where(eq(skillPackages.id, skill.packageId));
       await store(tx, skill.packageId, skill.files, skills);
       await storeUpstream(tx, skill.packageId, skill.next);
+      await reopenChanged(tx, "skill_file", skill.packageId, skill.changed.map((path) => `file:${path}`));
     }
     // A field whose plugin value changes, or a table merged again: a decision Stem was asked for on it no longer stands.
     await forgetConflicts(tx, shown.tables.map((t) => t.tableId));
@@ -1174,7 +1182,7 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
 async function handToStem(context: InitialContext & { ownerId: string }, pluginId: string, agentId: string, handed: ShownConflict[], tables: TablePlan[] = []): Promise<string> {
   const runId = await context.db.transaction(async (tx) => {
     const rows = [
-      ...handed.map((c) => ({ id: newId("conflict"), ownerId: context.ownerId, pluginId, kind: c.kind as "agent" | "tool" | "trigger" | "table", elementId: c.id, field: c.field, old: c.old, mine: c.mine, next: c.next, status: "stem" as const })),
+      ...handed.map((c) => ({ id: newId("conflict"), ownerId: context.ownerId, pluginId, kind: c.kind === "skill" ? ("skill_file" as const) : (c.kind as "agent" | "tool" | "trigger" | "skill_file"), elementId: c.id, field: c.field, old: c.old, mine: c.mine, next: c.next, status: "stem" as const })),
       ...tables.map((t) => ({ id: newId("conflict"), ownerId: context.ownerId, pluginId, kind: "table" as const, elementId: t.tableId, field: TABLE_FIELD, old: t.kept, mine: t.fields, next: { definition: t.next, changes: t.changes } satisfies HandedTable, status: "stem" as const })),
     ];
     // A field waiting in an earlier update's Approval leaves it.
@@ -1253,7 +1261,7 @@ const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool", "tri
 });
 
 export const marketplaces = { list: listMarketplaces, add: addMarketplace, remove: removeMarketplace, sync };
-const ElementRef = z.object({ kind: z.enum(["agent", "tool", "trigger"]), id: z.string().max(64) });
+const ElementRef = z.object({ kind: z.enum(["agent", "tool", "trigger", "skill_file"]), id: z.string().max(64) });
 
 /** The conflicts of one of a plugin's elements: with Stem, waiting for the owner's Approval, or theirs again. */
 const conflicts = owner.input(ElementRef).handler(async ({ input, context }) => {
@@ -1292,10 +1300,10 @@ const resolveConflict = owner.input(z.object({ id: z.string().max(64), choice: z
     const assistant = await findAssistant(context.db, context.ownerId);
     if (!now) throw new ORPCError("BAD_REQUEST", message("plugins.override.notPlugins"));
     if (!assistant) throw new ORPCError("BAD_REQUEST", message("plugins.update.assistantFirst"));
-    const table = c.kind === "agent" ? agentsTable : c.kind === "tool" ? toolsTable : triggersTable;
+    const table = elementTable(c.kind);
     const [element] = await context.db.select({ name: table.name }).from(table).where(eq(table.id, c.elementId));
     // Handed off again against the values as they are now.
-    await handToStem(context, c.pluginId, assistant.agentId, [{ key: `${c.kind}:${c.elementId}:${c.field}`, kind: c.kind as UpdatableKind, id: c.elementId, name: element?.name ?? c.kind, field: c.field, old: c.old, mine: now.value, next: now.plugin }]);
+    await handToStem(context, c.pluginId, assistant.agentId, [{ key: `${c.kind}:${c.elementId}:${c.field}`, kind: c.kind === "skill_file" ? "skill" : (c.kind as UpdatableKind), id: c.elementId, name: element?.name ?? c.kind, field: c.field, old: c.old, mine: now.value, next: now.plugin }]);
   }
   await context.engine.narrowOwnerSessions(context.ownerId, context.db);
   return { ok: true, ...(report.refused.length ? { refused: report.refused } : {}), ...(report.stale.length ? { stale: report.stale } : {}) };

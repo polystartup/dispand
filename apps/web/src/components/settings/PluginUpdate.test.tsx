@@ -118,7 +118,7 @@ test("the native installs an update moves are named, and a runner that couldn't 
   expect(screen.getByText(/Stays as it is on Laptop/)).toBeTruthy();
 });
 
-test("a conflict of an agent's field can be handed to Stem; a skill file's can't", async () => {
+test("a conflict of an agent's field, or of a skill's file, can be handed to Stem", async () => {
   const conflicts = [
     { key: "agent:a:systemPrompt", kind: "agent" as const, id: "a", name: "Drafting", field: "systemPrompt", old: "Old", mine: "Mine", next: "New" },
     { key: "skill:p:file:x.md", kind: "skill" as const, id: "p", name: "legal", field: "file:x.md", old: "a", mine: "b", next: "c" },
@@ -130,7 +130,8 @@ test("a conflict of an agent's field can be handed to Stem; a skill file's can't
   await userEvent.click(within(agent).getByRole("radio", { name: "Let Stem deal with it" }));
   expect(onStem).toHaveBeenCalledWith("agent:a:systemPrompt", true);
   expect(onTake).toHaveBeenCalledWith("agent:a:systemPrompt", false);
-  expect(within(screen.getByRole("group", { name: /legal/ })).queryByRole("radio", { name: "Let Stem deal with it" })).toBeNull();
+  await userEvent.click(within(screen.getByRole("group", { name: /legal/ })).getByRole("radio", { name: "Let Stem deal with it" }));
+  expect(onStem).toHaveBeenCalledWith("skill:p:file:x.md", true);
 });
 
 test("a skill's reworded file names the agents it reaches; a tool's new address says what it clears", async () => {

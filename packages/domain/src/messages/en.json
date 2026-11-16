@@ -91,6 +91,9 @@
     }
   },
   "plugins": {
+    "stem": {
+      "fileText": "A skill file is merged as its whole text."
+    },
     "notFound": "This plugin doesn't exist.",
     "ownerSession": "This takes an owner session.",
     "marketplace": {
@@ -129,7 +132,7 @@
       "changed": "{{plugin}} changed since you looked: look at what updating it changes again.",
       "notApplicable": "This is not a change of this table that can be applied.",
       "notConflict": "This is not a field in conflict.",
-      "stemScope": "Stem decides the fields of agents, tools and triggers in conflict that you didn't take, and the tables you ticked nothing of.",
+      "stemScope": "Stem decides the fields of agents, tools and triggers and the skill files in conflict that you didn't take, and the tables you ticked nothing of.",
       "assistantFirst": "Set the Assistant up first: Stem is the Assistant.",
       "notShown": "It wasn't on the update's screen.",
       "unreachable": "Its runner couldn't be asked, or the install changed since.",

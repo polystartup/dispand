@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { orpc } from "../../lib/api.ts";
 import { refusal } from "../settings/PluginInstallSheet.tsx";
-import { says, type UpdateTableChange } from "../settings/PluginUpdate.tsx";
+import { label, says, type UpdateTableChange } from "../settings/PluginUpdate.tsx";
 import type { InboxEntry } from "./InboxItem.tsx";
 import { useText } from "../../lib/message.ts";
 
@@ -61,7 +61,7 @@ export function PluginUpdateItem({ update, onNotices }: { update: NonNullable<In
       },
     }),
   );
-  const field = (name: string) => t(`plugins:update.field.${name}` as "plugins:update.field.name", { defaultValue: name });
+  const field = (name: string) => label(tp, name);
   return (
     <div className="flex flex-col gap-3">
       <p className="text-[15px]">{update.plugin ? t("update.intro", { assistant, plugin: update.plugin.name }) : t("update.introUnnamed", { assistant })}</p>

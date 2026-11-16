@@ -176,7 +176,13 @@ export async function resetFile(tx: Tx, ownerId: string, packageId: string, path
   const { files } = await pluginPackage(tx, ownerId, packageId);
   const [upstream] = await tx.select().from(skillFileUpstream).where(and(eq(skillFileUpstream.packageId, packageId), eq(skillFileUpstream.path, path)));
   if (!upstream && !files.some((f) => f.path === path)) throw new ORPCError("NOT_FOUND", message("skills.fileNotFound"));
-  await writeFiles(tx, packageId, [...files.filter((f) => f.path !== path), ...(upstream ? [{ path, content: upstream.content }] : [])]);
+  await putFile(tx, ownerId, packageId, path, upstream?.content ?? null);
+}
+
+/** Writes one path of a plugin's skill, the package locked and checked as a whole: `content`, or no file when null. */
+export async function putFile(tx: Tx, ownerId: string, packageId: string, path: string, content: Uint8Array | null) {
+  const { files } = await pluginPackage(tx, ownerId, packageId);
+  await writeFiles(tx, packageId, [...files.filter((f) => f.path !== path), ...(content ? [{ path, content }] : [])]);
 }
 
 /** One file's text, for its editor: null for a file that isn't text. */

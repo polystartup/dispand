@@ -9,6 +9,7 @@ import { orpc } from "../../lib/api.ts";
 import { FormField } from "./parts.tsx";
 import type { SkillPackage } from "./SkillEditor.tsx";
 import { SkillFiles } from "./SkillFiles.tsx";
+import { StemMarks } from "./StemMarks.tsx";
 
 /** Text as the base64 the server takes, bytes kept as UTF-8. */
 function toBase64(text: string): string {
@@ -102,6 +103,8 @@ export function PluginSkillSheet({ pkg, onClose }: { pkg: SkillPackage; onClose:
           ) : (
             detail.data && (
               <>
+                {/* A file an update handed to Stem: where its decision is. */}
+                <StemMarks kind="skill_file" id={packageId} labels={{}} onResolved={() => void invalidate()} />
                 <SkillFiles
                   files={detail.data.files}
                   removed={detail.data.removed}
