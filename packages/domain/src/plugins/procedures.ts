@@ -1280,7 +1280,7 @@ const resolveConflict = owner.input(z.object({ id: z.string().max(64), choice: z
   if ((await conflictView(context.db, row)).reviewed !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
   const actor = { type: "user" as const, userId: context.ownerId };
   if (input.choice === "accept" || input.choice === "decline") {
-    if ((await answerConflict(context, actor, input.id, input.choice === "accept")) === "gone") throw new ORPCError("NOT_FOUND", message("plugins.override.conflictNotFound"));
+    if ((await answerConflict(context, actor, input.id, input.choice === "accept", row.merged)) === "gone") throw new ORPCError("NOT_FOUND", message("plugins.override.conflictNotFound"));
   } else if (input.choice === "mine" || input.choice === "plugin") {
     await ownerChoice(context, actor, input.id, input.choice);
   } else {

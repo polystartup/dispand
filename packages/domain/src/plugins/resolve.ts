@@ -159,9 +159,10 @@ export async function decide(context: Context, actor: AuditActor, conflictId: st
  * changed meanwhile is theirs again either way, the other items untouched. The Approval is done
  * once none waits.
  */
-export async function answerConflict(context: Context, actor: AuditActor, conflictId: string, approved: boolean): Promise<"applied" | "kept" | "reopened" | "gone"> {
+export async function answerConflict(context: Context, actor: AuditActor, conflictId: string, approved: boolean, /** The merged value the owner answered on, when they read it first: another one now is shown again. */ seen?: unknown): Promise<"applied" | "kept" | "reopened" | "gone"> {
   const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, conflictId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "approval")));
   if (!c) return "gone";
+  if (seen !== undefined && canonical(c.merged) !== canonical(seen)) throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
   const outcome = await answerOne(context, actor, c, approved);
   await context.db.transaction((tx) => settleApprovals(tx, [c.runId], actor.type === "user" ? actor : undefined));
   // Every Inbox showing it hears that an item left, even while others still wait.
@@ -373,7 +374,8 @@ async function decideTable(context: Context, actor: AuditActor, c: Conflict, dec
 /**
  * The owner's answer to a table's changes that remove values. On a yes, the values are read
  * again: any difference from what was stored applies nothing, stores the values now and asks
- * again (CONFLICT). Else each change applies through its field operation, which reads the values
+ * again (CONFLICT). Else the conflict is claimed, only while it is still the one answered (an
+ * update drops it; values stored anew change it), and each change applies through its field operation, which reads the values
  * once more under the table's lock (a row's write takes it shared, so none lands in between) and
  * refuses on a difference: such a change stays out of the table's definition, offered again. On
  * a no they are declined, as an unticked box: the definition the table keeps takes them, and the
@@ -381,6 +383,7 @@ async function decideTable(context: Context, actor: AuditActor, c: Conflict, dec
  */
 async function answerTable(context: Context, actor: AuditActor, c: Conflict, approved: boolean): Promise<"applied" | "kept" | "gone"> {
   const held = c.merged as HeldTable;
+  const asAnswered = and(eq(pluginConflicts.id, c.id), sql`${pluginConflicts.merged} = ${JSON.stringify(c.merged)}::jsonb`);
   const plan = await tableNow(context.db, c);
   if (!plan) {
     await context.db.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
@@ -391,17 +394,20 @@ async function answerTable(context: Context, actor: AuditActor, c: Conflict, app
     const now: HeldTable["values"] = {};
     for (const key of held.keys) now[key] = await valuesOf(context.db, plan.tableId, fieldIdOf(plan, plan.changes.find((ch) => ch.key === key)));
     if (canonical(now) !== canonical(held.values)) {
-      await context.db.update(pluginConflicts).set({ merged: { keys: held.keys, values: now } satisfies HeldTable }).where(eq(pluginConflicts.id, c.id));
+      await context.db.update(pluginConflicts).set({ merged: { keys: held.keys, values: now } satisfies HeldTable }).where(and(asAnswered, eq(pluginConflicts.status, "approval")));
       throw new ORPCError("CONFLICT", message("plugins.table.valuesChanged"));
     }
     keys = plan.changes.filter((ch) => held.keys.includes(ch.key) && !ch.stale && !ch.waiting).map((ch) => ch.key);
+  }
+  // Claimed before anything applies, as the owner answered it: an update that dropped it, or values stored anew since, leave nothing to claim.
+  if (!(await context.db.delete(pluginConflicts).where(and(asAnswered, eq(pluginConflicts.status, "approval"))).returning({ id: pluginConflicts.id })).length) {
+    throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
   }
   // Only this Approval's changes are answered: any other the table still lacks (one that failed earlier) stays offered.
   const others = plan.changes.filter((ch) => !held.keys.includes(ch.key)).map((ch) => ch.key);
   const expected = Object.fromEntries(keys.map((k) => [k, { values: held.values[k] ?? [], definition: c.old }]));
   const definition = await applyTable(context, { id: c.pluginId }, plan, keys, [], others, expected);
   await keepDefinition(context.db, c, definition);
-  await context.db.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
   await audit(context, actor, c, approved ? "approved" : "declined", c.runId);
   return approved ? "applied" : "kept";
 }

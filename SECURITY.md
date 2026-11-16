@@ -192,7 +192,8 @@ changes it updates this file.
   the change keys the update showed (any other key refuses the whole decision); a change that
   removes values never applies without the owner's yes on that Approval, which shows the values
   it removes, and it applies only while the field still holds exactly those values, checked
-  under the table's lock that every row write takes (any difference asks again). The Job is
+  under the table's lock that every row write takes (any difference asks again), and only while
+  that Approval item still stands as the owner read it (claimed before anything applies). The Job is
   given the changes' keys and counts, never a row's value. On a runner it runs
   as a restricted session (protocol 26; on Codex, protocol 29), on Claude Code or Codex: the runner itself gives it no skill, memory or consult, no MCP
   server but the Job's own, and no way to the shell, files or network, whatever the start holds. On Claude Code: no

@@ -14,6 +14,7 @@ import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { lawFirm, lawFirmMarket } from "./test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
+import { answerConflict } from "./resolve.ts";
 import { writeFields } from "./write-field.ts";
 
 const DRAFTING = "com.dispand/agents/drafting.md";
@@ -227,4 +228,19 @@ test("an approved removal checks, under the table's lock, that the table still k
   expect(await s.field("Conclusions")).toBeDefined();
   await call(router.fields.delete, { id: s.conclusions.id }, { context: { ...s.ctx, expectValues: { values, definition: table!.definition } } });
   expect(await s.field("Conclusions")).toBeUndefined();
+});
+
+test("a removal's Approval answers only as the owner read it: values stored anew since, or an update that dropped it, apply nothing", async () => {
+  const s = await tableSetUp(decideTable(["remove:Conclusions"]), say("Removing Conclusions waits for you."));
+  await s.ended(await s.hand());
+  const [item] = (await call(router.questions.list, { status: "pending" }, { context: s.ctx })).flatMap((q) => q.update?.items ?? []);
+  const actor = { type: "user" as const, userId: s.ctx.ownerId };
+  // Another request stored other values after this one read them.
+  await expect(answerConflict(s.ctx, actor, item!.id, true, { keys: ["remove:Conclusions"], values: { "remove:Conclusions": [] } })).rejects.toMatchObject({ code: "CONFLICT" });
+  expect(await s.field("Conclusions")).toBeDefined();
+  // An update plans the table again: the Approval's item is dropped, and the old answer finds nothing.
+  const again = await s.preview();
+  await call(router.plugins.update, { id: s.pluginId, reviewed: again.reviewed }, { context: s.ctx });
+  await expect(call(router.plugins.resolveConflict, { id: item!.id, choice: "accept", reviewed: item!.reviewed }, { context: s.ctx })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  expect(await s.field("Conclusions")).toBeDefined();
 });

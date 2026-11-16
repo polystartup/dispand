@@ -1731,7 +1731,9 @@ id and value of that field); the rest apply now through the field operations, an
 the table keeps takes what Stem decided and declined, but keeps what waits as it was. What Stem
 leaves out counts as declined, as an unticked box. On the Approval's yes, `answerTable` reads the
 values again: any difference stores the values now and asks again (CONFLICT, the item shown
-anew); else each change runs through its field operation with `context.expectValues`
+anew); else the conflict is claimed (deleted only while it is still in `approval` with the
+`merged` the owner answered on, so an update that dropped it or values stored anew by another
+request leave nothing to apply), then each change runs through its field operation with `context.expectValues`
 (server-owned: the values, and the definition the table kept when approved), which
 `fields.delete`, `fields.retype` and `fields.update` check after locking the table `for update`, the lock a row's write takes `for share`, so a write racing the apply
 waits for it, and one that landed first refuses that change, which then stays out of the
