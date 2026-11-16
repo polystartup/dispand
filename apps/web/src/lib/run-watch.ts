@@ -9,6 +9,8 @@ import { afterStream, applyRunEvent, runOver, type RunSnapshot } from "./run-sta
  */
 export const MAX_RUN_STREAMS = 3;
 export const POLL_MS = 3000;
+/** A stream that sends nothing this long is held back on the way (a buffering proxy): the run is polled instead. */
+export const STREAM_WAIT_MS = 5000;
 
 type Entry = { state: RunSnapshot | null; listeners: Set<(s: RunSnapshot | null) => void>; stop: AbortController };
 
@@ -28,11 +30,24 @@ async function watch(runId: string, entry: Entry) {
     entry.state = state;
     for (const listener of entry.listeners) listener(state);
   };
+  // Once a stream was held back, this run is polled: the next one would be held back too.
+  let held = false;
   for (let attempt = 0; !signal.aborted; attempt++) {
-    if (streaming < MAX_RUN_STREAMS) {
+    if (!held && streaming < MAX_RUN_STREAMS) {
       streaming++;
+      // The stream's first event, its snapshot, comes at once from the server.
+      const connection = new AbortController();
+      const stop = () => connection.abort();
+      signal.addEventListener("abort", stop, { once: true });
+      let heard = false;
+      const timer = setTimeout(() => {
+        if (heard) return;
+        held = true;
+        connection.abort();
+      }, STREAM_WAIT_MS);
       try {
-        for await (const event of await api.runs.stream({ runId }, { signal })) {
+        for await (const event of await api.runs.stream({ runId }, { signal: connection.signal })) {
+          heard = true;
           set(applyRunEvent(entry.state, event));
           // Something came through: the next end of the stream starts the backoff over.
           attempt = -1;
@@ -42,8 +57,11 @@ async function watch(runId: string, entry: Entry) {
       } catch {
         // Offline or the server restarted: decided below like a clean close.
       } finally {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", stop);
         streaming--;
       }
+      if (held) continue;
       const next = afterStream(entry.state, Math.max(attempt, 0));
       if (signal.aborted) return;
       if (next.stop) {
