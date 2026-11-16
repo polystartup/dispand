@@ -551,7 +551,7 @@ test("a harness's limit changes through an approved proposal, which names the ha
   const q = await s.ask({ message: "May I?", proposal: id });
   const { proposal } = (await call(router.questions.list, { status: "pending" }, { context: s.context })).find((i) => i.id === q)!;
   expect(proposal!.items[0]!.refs).toEqual(["id"]);
-  expect(proposal!.names[s.harness.id]).toMatchObject({ kind: "harness" });
+  expect(proposal!.names[s.harness.id]).toMatchObject({ kind: "harness", detail: { key: "harness.detail.both", values: { kind: "claude-code", mode: "default" } } });
   await s.answer(q, "allow");
   expect(await s.tool("harnesses_set_limit", { id: s.harness.id, maxWorking: 2 })).toMatchObject({ ok: true, output: { maxWorking: 2 } });
   expect((await call(router.harnesses.limits, undefined, { context: s.context })).find((h) => h.id === s.harness.id)).toMatchObject({ maxWorking: 2 });

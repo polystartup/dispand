@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { type api, orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
 import { ProposalItems } from "./ProposalItems.tsx";
-import { type About, approvalWords, checkpointInput, consultInput, QuestionForm } from "./QuestionForm.tsx";
+import { type About, approvalWords, checkpointInput, checkpointRoot, consultInput, QuestionForm } from "./QuestionForm.tsx";
 
 export type InboxEntry = Awaited<ReturnType<typeof api.questions.list>>[number];
 
@@ -19,7 +19,7 @@ function useInboxText() {
   const askedText = (payload: QuestionPayload, about?: About | null, rootId?: string | null, consultId?: string | null): string => {
     if (rootId) {
       const c = checkpointInput(payload);
-      return t("asked.checkpoint", { root: c.root ?? t("checkpoint.defaultRoot"), count: c.jobs });
+      return t("asked.checkpoint", { root: checkpointRoot(t, c), count: c.jobs });
     }
     if (consultId) {
       const c = consultInput(payload);

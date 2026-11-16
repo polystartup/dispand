@@ -5,6 +5,7 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import { agentConsults, audit, agents, events, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
 import { takeApproval } from "../platform/approvals.ts";
 import { jobScope, reachable } from "../questions/inbox-scope.ts";
+import { message, rendered } from "../messages/index.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { INTERACTION } from "../triggers/model.ts";
@@ -737,4 +738,14 @@ test("a consult that got no answer says why, and a consult that made no Job has 
 test("a Job that is not there has no consult page", async () => {
   const s = await setup();
   await expect(call(router.jobs.consults, { runId: "run_nobody" }, { context: s.context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("an engine refusal carries its key: English for the logs and agents, French for the person", async () => {
+  const s = await setup();
+  const refused = await s.engine().startJob("trigger_missing", s.context.ownerId).catch((err: unknown) => err);
+  expect(refused).toBeInstanceOf(EngineError);
+  const { message: english, data } = refused as EngineError;
+  expect([english, data]).toEqual(["This trigger doesn't exist.", { key: "triggers.notFound" }]);
+  expect(rendered("fr", data.key)).toBe("Ce déclencheur n’existe pas.");
+  expect(message("engine.runOver").message).toBe("This run is over.");
 });

@@ -1874,12 +1874,15 @@ same keys.
   Assistant's guard reasons (`assistantGuard`), why a consult isn't allowed (`pairProblem`), what
   still holds a tool (`toolHolder`) and why a poll may not read an action (`pollProblem`): each
   returns a `Message`, and what stores one (a skipped poll's reason) keeps its English sentence
-  (`pollProblemText`). A tool result for an agent shows every such text as its English sentence
+  (`pollProblemText`). The engine's refusals are keyed too (`engine.*`); a checkpoint's Approval
+  names its root by kind (`rootKind`), which the page words, and a harness's proposal detail is a
+  keyed message. What the engine stores as a Job's failure, or as a fire's or poll item's reason,
+  stays an English sentence until a task stores keys there. A tool result for an agent shows every such text as its English sentence
   (`sentence`, a tool's `filter`, `issues` for a refinement's key and its `params`), never a key. An input its Zod schema rejects answers with `validation.<code>` and the
   field's path and limits (`rpc/context.ts`, `validationKey`). `messages/messages.test.ts` walks
   the domain for every `new ORPCError(` and `new EngineError(` and fails on one whose message
   isn't a single `message()` key, external text or an engine error passed on (`passOn(err)`, typed
-  `EngineError`: valid once the engine errors it passes on are keyed), unless its file is
+  `EngineError`, always keyed: its constructor takes a `message()`), unless its file is
   in the list of the areas still to key, which shrinks to nothing; until then an unkeyed error
   shows its English text.
 - Agent output, plugin texts and MCP servers' texts are shown as they came. Logs, telemetry and

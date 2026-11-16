@@ -72,7 +72,14 @@
     "agents": "Agents : {{agents}}",
     "goOn": "Continuer",
     "dontAsk": "Ne plus demander pour cet objectif",
-    "stop": "Arrêter ce travail"
+    "stop": "Arrêter ce travail",
+    "roots": {
+      "user": "Un lancement de votre part",
+      "chat": "Votre message dans une conversation",
+      "schedule": "Une planification",
+      "event": "Un changement dans une table",
+      "poll": "Un élément trouvé par une interrogation"
+    }
   },
   "other": "Autre",
   "otherFor": "Autre : {{question}}",

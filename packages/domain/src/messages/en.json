@@ -433,5 +433,22 @@
     "question_other": "{{agent}} has a question for you, and {{count}} items wait in all.",
     "approval_one": "{{agent}} needs your decision.",
     "approval_other": "{{agent}} needs your decision, and {{count}} items wait in all."
+  },
+  "engine": {
+    "stoppedAtCheckpoint": "Stopped at a checkpoint.",
+    "rootNotFound": "This root cause doesn't exist.",
+    "runOver": "This run is over.",
+    "chatOver": "The chat is over.",
+    "chatRunnerGone": "The chat's runner is no longer available.",
+    "skillChatOnly": "Skills can be invoked in Assistant chats only.",
+    "skillWait": "Wait for the Assistant to finish its turn before loading another skill."
+  },
+  "harness": {
+    "detail": {
+      "kind": "{{kind}}",
+      "onRunner": "{{kind}}, on {{runner}}",
+      "mode": "{{kind}}, permission mode {{mode}}",
+      "both": "{{kind}}, on {{runner}}, permission mode {{mode}}"
+    }
   }
 }

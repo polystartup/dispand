@@ -433,5 +433,22 @@
     "question_other": "{{agent}} a une question pour vous, et {{count}} éléments attendent en tout.",
     "approval_one": "{{agent}} attend votre décision.",
     "approval_other": "{{agent}} attend votre décision, et {{count}} éléments attendent en tout."
+  },
+  "engine": {
+    "stoppedAtCheckpoint": "Arrêté à un point de contrôle.",
+    "rootNotFound": "Cette cause racine n’existe pas.",
+    "runOver": "Cette exécution est terminée.",
+    "chatOver": "La conversation est terminée.",
+    "chatRunnerGone": "Le runner de la conversation n’est plus disponible.",
+    "skillChatOnly": "Les compétences ne peuvent être invoquées que dans les conversations de l’Assistant.",
+    "skillWait": "Attendez que l’Assistant ait fini son tour avant de charger une autre compétence."
+  },
+  "harness": {
+    "detail": {
+      "kind": "{{kind}}",
+      "onRunner": "{{kind}}, sur {{runner}}",
+      "mode": "{{kind}}, mode d’autorisation {{mode}}",
+      "both": "{{kind}}, sur {{runner}}, mode d’autorisation {{mode}}"
+    }
   }
 }

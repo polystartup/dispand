@@ -1,5 +1,6 @@
 import type { Answer, QuestionPayload } from "@dispand/runner-protocol";
 import { useId, useState } from "react";
+import type { TFunction } from "i18next";
 import { Trans, useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -97,24 +98,27 @@ function Consult({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { ki
 }
 
 /** What a checkpoint's Approval says (`engine/roots.ts`): the root cause, its Jobs, the agents involved and since when. */
-export type CheckpointInput = { root: string | null; jobs: number; agents: string[]; since: string };
+export type CheckpointInput = { rootKind: string | null; jobs: number; agents: string[]; since: string };
 
 export function checkpointInput(payload: QuestionPayload): CheckpointInput {
   const input = (payload.kind === "permission" ? payload.input : null) as Partial<CheckpointInput> | null;
   return {
-    root: typeof input?.root === "string" ? input.root : null,
+    rootKind: typeof input?.rootKind === "string" ? input.rootKind : null,
     jobs: typeof input?.jobs === "number" ? input.jobs : 0,
     agents: Array.isArray(input?.agents) ? input.agents.filter((a): a is string => typeof a === "string") : [],
     since: typeof input?.since === "string" ? input.since : "",
   };
 }
 
+/** What started the work, by the kind of root cause the server named; a kind this page doesn't know reads as the generic one. */
+export const checkpointRoot = (t: TFunction<"questions">, c: CheckpointInput) => (c.rootKind && t(`checkpoint.roots.${c.rootKind}`, { defaultValue: "" })) || t("checkpoint.defaultRoot");
+
 /** A checkpoint (design 6.1): the work from one root cause made this many Jobs; go on, go on for good, or stop it. */
 function Checkpoint({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { kind: "permission" }>>) {
   const { t } = useTranslation("questions");
   const format = useFormat();
   const c = checkpointInput(payload);
-  const root = c.root ?? t("checkpoint.defaultRoot");
+  const root = checkpointRoot(t, c);
   const send = (decision: "allow" | "allow-always" | "deny") => onAnswer({ kind: "permission", decision });
   const date = c.since ? new Date(c.since) : null;
   return (

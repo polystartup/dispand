@@ -547,7 +547,7 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
         .from(harnesses)
         .leftJoin(runners, eq(runners.id, harnesses.runnerId))
         .where(and(inArray(harnesses.id, w), eq(harnesses.ownerId, ownerId))),
-    (r) => ({ name: r.name, detail: { text: [r.kind, r.runner ? `on ${r.runner}` : null, r.permissionMode ? `permission mode ${r.permissionMode}` : null].filter(Boolean).join(", ") } }),
+    (r) => ({ name: r.name, detail: say(r.runner ? (r.permissionMode ? "harness.detail.both" : "harness.detail.onRunner") : r.permissionMode ? "harness.detail.mode" : "harness.detail.kind", { kind: r.kind, runner: r.runner ?? "", mode: r.permissionMode ?? "" }) }),
   );
   await found(
     "tool",

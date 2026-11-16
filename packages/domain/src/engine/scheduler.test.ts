@@ -5,6 +5,7 @@ import { audit, runs, scheduleFires, schedules, stepRuns, triggerFires } from ".
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
+import { message } from "../messages/index.ts";
 import { Engine, EngineError } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { Scheduler } from "./scheduler.ts";
@@ -282,9 +283,9 @@ test("one-at-a-time skips while the trigger's Job is running; parallel doesn't",
 test("a fire the engine refuses is recorded with its message, and the next time fires", async () => {
   const { time, scheduler, engine, jobsOf, firesOf } = await triggerSetup();
   time.set("2026-11-05T11:00:10+01:00");
-  const create = vi.spyOn(engine, "createJob").mockRejectedValueOnce(new EngineError("NOT_FOUND", "Agent not found"));
+  const create = vi.spyOn(engine, "createJob").mockRejectedValueOnce(new EngineError("NOT_FOUND", message("agent.notFound")));
   expect(await scheduler.tick()).toEqual([]);
-  expect(await firesOf()).toMatchObject([{ status: "refused", message: "Agent not found", runId: null }]);
+  expect(await firesOf()).toMatchObject([{ status: "refused", message: "This agent doesn't exist.", runId: null }]);
   create.mockRestore();
   // Not left due forever: the refused time is done, the next one fires.
   expect(await scheduler.tick()).toEqual([]);

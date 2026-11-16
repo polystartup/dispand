@@ -87,7 +87,7 @@ test("busy disables the buttons, the error and the restart note show", () => {
 });
 
 test("a checkpoint names its root, Jobs and agents, and answers go on, don't ask again or stop", async () => {
-  const payload: QuestionPayload = { kind: "permission", toolName: "checkpoint", input: { root: "A schedule", jobs: 100, agents: ["Clerk", "Auditor"], since: "2026-11-11T09:00:00.000Z" }, canAlwaysAllow: true };
+  const payload: QuestionPayload = { kind: "permission", toolName: "checkpoint", input: { rootKind: "schedule", jobs: 100, agents: ["Clerk", "Auditor"], since: "2026-11-11T09:00:00.000Z" }, canAlwaysAllow: true };
   const onAnswer = vi.fn<(a: Answer) => void>();
   render(<QuestionForm question={{ payload, rootId: "root_1" }} onAnswer={onAnswer} />);
   expect(screen.getByText(/A schedule has led to/).textContent).toContain("100 Jobs");
@@ -168,13 +168,13 @@ test("Codex remembers Allow while Deny applies only to the current call", async 
 });
 
 test("a checkpoint is in French, with the date and the agents as the language writes them", async () => {
-  const payload: QuestionPayload = { kind: "permission", toolName: "checkpoint", input: { root: "Un planning", jobs: 1, agents: ["Clerk", "Auditor"], since: "2026-11-11T09:00:00.000Z" }, canAlwaysAllow: true };
+  const payload: QuestionPayload = { kind: "permission", toolName: "checkpoint", input: { rootKind: "schedule", jobs: 1, agents: ["Clerk", "Auditor"], since: "2026-11-11T09:00:00.000Z" }, canAlwaysAllow: true };
   render(
     <I18nextProvider i18n={createI18n("fr")}>
       <QuestionForm question={{ payload, rootId: "root_1" }} onAnswer={() => {}} />
     </I18nextProvider>,
   );
-  expect(screen.getByText(/Un planning a mené à/).textContent).toMatch(/1 Job depuis 11 nov\. 2026/);
+  expect(screen.getByText(/Une planification a mené à/).textContent).toMatch(/1 Job depuis 11 nov\. 2026/);
   expect(screen.getByText("Agents : Clerk et Auditor")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Ne plus demander pour cet objectif" })).toBeTruthy();
 });

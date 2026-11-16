@@ -370,14 +370,13 @@ async function agentHarnesses(db: Db | Tx, ownerId: string, nodes: object[]): Pr
 export class EngineError extends Error {
   override name = "EngineError";
   /** What the page translates, when its text reaches a person (`message()`). */
-  readonly data?: Message;
+  readonly data: Message;
   constructor(
     readonly code: "NOT_FOUND" | "INVALID" | "CLOSED" | "NOT_PENDING" | "STOPPED",
-    // shortcut: plain text is left only for the errors the message walk's allow-list names; Task 4 keys them.
-    detail: string | ReturnType<typeof message>,
+    detail: ReturnType<typeof message>,
   ) {
-    super(typeof detail === "string" ? detail : detail.message);
-    if (typeof detail !== "string") this.data = detail.data;
+    super(detail.message);
+    this.data = detail.data;
   }
 }
 
@@ -458,7 +457,7 @@ export class Engine {
   async createRun(tx: Tx, workflowId: string, trigger: RunTrigger): Promise<string> {
     // Shared with other starts, exclusive with a delete: the run never outlives its workflow.
     const [workflow] = await tx.select().from(workflows).where(eq(workflows.id, workflowId)).for("share");
-    if (!workflow) throw new EngineError("NOT_FOUND", "Workflow not found");
+    if (!workflow) throw new EngineError("NOT_FOUND", message("workflows.notFound"));
     const [version] = await tx
       .select({ def: workflowVersions.def })
       .from(workflowVersions)
@@ -483,11 +482,11 @@ export class Engine {
         .select({ agentId: triggers.agentId })
         .from(triggers)
         .where(and(eq(triggers.id, triggerId), eq(triggers.ownerId, ownerId)));
-      if (!trigger) throw new EngineError("NOT_FOUND", "Trigger not found");
+      if (!trigger) throw new EngineError("NOT_FOUND", message("triggers.notFound"));
       const id = await this.createJob(tx, { ownerId, agentId: trigger.agentId, triggerId, cause: { kind: "user", depth: 0 }, firing: { type: "manual", ...(timezone ? { timezone } : {}) } });
       if (skillId) {
         const [run] = await tx.select().from(runs).where(eq(runs.id, id));
-        if (!run?.snapshot || run.def?.trigger.field.type !== "chat") throw new EngineError("INVALID", "Skills can be invoked in Assistant chats only");
+        if (!run?.snapshot || run.def?.trigger.field.type !== "chat") throw new EngineError("INVALID", message("engine.skillChatOnly"));
         const selected = await invokedSnapshot(tx, ownerId, run.snapshot, skillId);
         await tx.update(runs).set({ snapshot: selected.snapshot }).where(eq(runs.id, id));
       }
@@ -532,8 +531,8 @@ export class Engine {
     // An existing root first, then the trigger and the agent (`roots.ts`); a new one is no one else's yet.
     const lockRoot = async (rootId: string) => {
       const [root] = await tx.select().from(roots).where(and(eq(roots.id, rootId), eq(roots.ownerId, ownerId))).for("update");
-      if (!root) throw new EngineError("NOT_FOUND", "Root cause not found");
-      if (root.state === "stopped") throw new EngineError("STOPPED", ROOT_STOPPED);
+      if (!root) throw new EngineError("NOT_FOUND", message("engine.rootNotFound"));
+      if (root.state === "stopped") throw new EngineError("STOPPED", message("engine.stoppedAtCheckpoint"));
       return root;
     };
     const given = input.rootId ? await lockRoot(input.rootId) : undefined;
@@ -553,9 +552,9 @@ export class Engine {
       .from(agents)
       .where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)))
       .for("share");
-    if (!agent) throw new EngineError("NOT_FOUND", "Agent not found");
+    if (!agent) throw new EngineError("NOT_FOUND", message("agent.notFound"));
     // A consult's and a Stem Job's firing is no trigger: the consult's root is the asking Job's; a Stem Job's, the owner's hand-off.
-    if (firing.type === "consult" ? triggerId || !given : firing.type === "stem" ? !!triggerId : !trigger || !trigger.enabled) throw new EngineError("NOT_FOUND", "Trigger not found");
+    if (firing.type === "consult" ? triggerId || !given : firing.type === "stem" ? !!triggerId : !trigger || !trigger.enabled) throw new EngineError("NOT_FOUND", message("triggers.notFound"));
     const root = given ?? (await lockRoot(await newRoot(tx, ownerId, cause.kind === "stem" ? "user" : (cause.kind as RootKind), runId)));
     const rootId = root.id;
     // A Stem Job decides the fields handed to it and nothing else: no skill, tool, bundle, memory or consult, and one tool of Dispand's.
@@ -648,8 +647,8 @@ export class Engine {
       const [rooted] = await tx.select({ rootId: runs.rootId }).from(runs).where(eq(runs.id, runId));
       if (rooted?.rootId) await tx.select({ id: roots.id }).from(roots).where(eq(roots.id, rooted.rootId)).for("key share");
       const [run] = await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).for("update");
-      if (!run) throw new EngineError("NOT_FOUND", "Run not found");
-      if (!ACTIVE_RUN.includes(run.status)) throw new EngineError("CLOSED", "This run is over");
+      if (!run) throw new EngineError("NOT_FOUND", message("workflows.runNotFound"));
+      if (!ACTIVE_RUN.includes(run.status)) throw new EngineError("CLOSED", message("engine.runOver"));
       return this.stopIn(tx, runId, out);
     });
     this.publish(out);
@@ -699,21 +698,21 @@ export class Engine {
   async sendChat(runId: string, text: string, skillId?: string, attachmentIds: string[] = []): Promise<void> {
     const steps = await this.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
     const candidate = steps.find((s) => s.start?.interactive && s.sessionId) ?? (await this.queuedChat(runId, steps));
-    if (!candidate) throw new EngineError("CLOSED", "The chat is over");
+    if (!candidate) throw new EngineError("CLOSED", message("engine.chatOver"));
     const out: Out[] = [];
     const { row, working, chat } = await this.db.transaction(async (tx) => {
       // Lock the root before the chat step, as checkpoint answers do. Completion and this
       // message serialize on the step: a message racing completion either sends or reopens.
       let going = await this.rootGoingLocked(tx, runId);
       let [chat] = await tx.select().from(stepRuns).where(eq(stepRuns.id, candidate.id)).for("update");
-      if (!chat) throw new EngineError("CLOSED", "The chat is over");
+      if (!chat) throw new EngineError("CLOSED", message("engine.chatOver"));
       let refresh = false;
       if (skillId) {
         const [run] = await tx.select().from(runs).where(eq(runs.id, runId)).for("update");
-        if (!run?.snapshot || run.def?.trigger.field.type !== "chat") throw new EngineError("INVALID", "Skills can be invoked in Assistant chats only");
+        if (!run?.snapshot || run.def?.trigger.field.type !== "chat") throw new EngineError("INVALID", message("engine.skillChatOnly"));
         const selected = await invokedSnapshot(tx, run.ownerId, run.snapshot, skillId, chat.runnerId === CLOUD_SOURCE ? null : chat.runnerId ?? undefined);
         refresh = !run.snapshot.skills.some((s) => s.packageId === selected.packageId) || selected.snapshot.tools.some((t) => !run.snapshot!.tools.some((old) => old.toolId === t.toolId));
-        if (refresh && OPEN_STEP.includes(chat.status) && chat.sessionId && (chat.working || !chat.cliSessionId)) throw new EngineError("INVALID", "Wait for the Assistant to finish its turn before loading another skill.");
+        if (refresh && OPEN_STEP.includes(chat.status) && chat.sessionId && (chat.working || !chat.cliSessionId)) throw new EngineError("INVALID", message("engine.skillWait"));
         await tx.update(runs).set({ snapshot: selected.snapshot }).where(eq(runs.id, runId));
         // CLI invocations retain their native name; cloud sessions use the skill loader.
         const args = text.replace(/^\/\S+/, "");
@@ -772,14 +771,14 @@ export class Engine {
   /** A new turn in the same Job, keeping its transcript but replacing its session and token. */
   private async reopen(tx: Tx, step: StepRow, out: Out[]): Promise<StepRow> {
     const [run] = await tx.select().from(runs).where(eq(runs.id, step.runId));
-    if (!run || run.source !== "agent" || !run.agentId || run.status !== "succeeded" || run.def?.trigger.field.type !== "chat" || step.status !== "succeeded" || !step.cliSessionId || !step.sessionId || !step.start?.interactive || !step.harness || (run.tokenSealed && !this.secrets)) throw new EngineError("CLOSED", "The chat is over");
+    if (!run || run.source !== "agent" || !run.agentId || run.status !== "succeeded" || run.def?.trigger.field.type !== "chat" || step.status !== "succeeded" || !step.cliSessionId || !step.sessionId || !step.start?.interactive || !step.harness || (run.tokenSealed && !this.secrets)) throw new EngineError("CLOSED", message("engine.chatOver"));
     if (step.runnerId !== CLOUD_SOURCE) {
       const [runner] = await tx.select({ revokedAt: runners.revokedAt }).from(runners).where(and(eq(runners.id, step.runnerId!), eq(runners.ownerId, run.ownerId))).for("share");
-      if (!runner || runner.revokedAt) throw new EngineError("CLOSED", "The chat's runner is no longer available");
+      if (!runner || runner.revokedAt) throw new EngineError("CLOSED", message("engine.chatRunnerGone"));
     }
     const token = this.secrets ? issueJobToken(this.secrets, run.id) : null;
     const [reopened] = await tx.update(runs).set({ status: "running", finishedAt: null, rootId: await newRoot(tx, run.ownerId, "chat", run.id), ...(token ? { tokenHash: token.hash, tokenSealed: token.sealed } : {}) }).where(and(eq(runs.id, run.id), eq(runs.status, "succeeded"))).returning();
-    if (!reopened) throw new EngineError("CLOSED", "The chat is over");
+    if (!reopened) throw new EngineError("CLOSED", message("engine.chatOver"));
     const sessionId = newId("ses");
     const [chat] = await tx.update(stepRuns).set({ status: "running", finishedAt: null, sessionId, start: { ...step.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: step.sessionId, ended: false } }).where(eq(stepRuns.id, step.id)).returning();
     await recordAudit(tx, { ownerId: run.ownerId, actor: { type: "user", userId: run.ownerId }, agentId: run.agentId, jobId: run.id, action: "job.reopened", resource: { type: "job", id: run.id } });
@@ -2576,7 +2575,7 @@ export class Engine {
           .from(workflowVersions)
           .where(and(eq(workflowVersions.workflowId, run.workflowId), eq(workflowVersions.version, run.version)))
       : [];
-    if (!row) throw new EngineError("NOT_FOUND", "Workflow version not found");
+    if (!row) throw new EngineError("NOT_FOUND", message("workflows.versionNotFound"));
     return row.def;
   }
 

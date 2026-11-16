@@ -127,7 +127,7 @@ test("a loop of two agents pauses at the checkpoint with one Approval; approving
   const [asked, ...more] = await s.approvals();
   expect(more).toEqual([]);
   expect(asked).toMatchObject({ status: "pending", kind: "approval", rootId: root.id, runId: made[3], sessionId: null, placement: "notifications" });
-  expect(asked!.payload).toMatchObject({ kind: "permission", toolName: "checkpoint", canAlwaysAllow: true, input: { root: "A change to a table", jobs: 4, agents: ["Auditor", "Clerk"] } });
+  expect(asked!.payload).toMatchObject({ kind: "permission", toolName: "checkpoint", canAlwaysAllow: true, input: { rootKind: "event", jobs: 4, agents: ["Auditor", "Clerk"] } });
   // The last Jobs' writes wait, unclaimed: nothing is lost.
   expect(await s.unprocessed()).toHaveLength(2);
   // Audited as the root's, by the Job that reached it, with the count; its Approval is a Question's row.
@@ -227,7 +227,7 @@ test("declining stops the root's Jobs, processes its held events, closes its def
   const fires = await s.context.db.select().from(eventFires).where(eq(eventFires.triggerId, slow.id));
   expect(fires[0]).toMatchObject({ status: "started" });
   expect(fires.length).toBeGreaterThan(1);
-  for (const f of fires.slice(1)) expect(f).toMatchObject({ status: "stopped", message: "Stopped at a checkpoint", runId: null });
+  for (const f of fires.slice(1)) expect(f).toMatchObject({ status: "stopped", message: "Stopped at a checkpoint.", runId: null });
   expect(await s.scheduler.tick()).toEqual([]);
   // Its Approval's events, and those of what its stopped Jobs asked, start nothing either.
   expect(await s.context.db.select().from(events).where(isNull(events.processedAt))).toEqual([]);
