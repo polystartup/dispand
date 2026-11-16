@@ -202,7 +202,7 @@ test("headers go only to https, or plain http on this machine; no credentials in
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   await expect(
     call(router.tools.create, { name: "D", url: "https://example.com/mcp", transport: "streamable-http", headers: { "X-A": "1", "x-a": "2" } }, { context }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "The header x-a is given twice" });
+  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "The header x-a is given twice." });
   expect(await call(router.tools.list, undefined, { context })).toEqual([]);
 });
 

@@ -319,7 +319,7 @@ test("a Tool step's tool must be the owner's, a tool in use can't go, and start 
     code: "BAD_REQUEST",
     message: "“name” needs a value",
   });
-  await expect(call(router.tools.delete, { id: tool!.id }, { context })).rejects.toMatchObject({ code: "CONFLICT", message: "The workflow “Ship” uses this tool" });
+  await expect(call(router.tools.delete, { id: tool!.id }, { context })).rejects.toMatchObject({ code: "CONFLICT", message: "The workflow “Ship” uses this tool." });
   await call(router.workflows.update, { id: workflow.id, name: "Ship", def: workflow.def }, { context });
   await call(router.tools.delete, { id: tool!.id }, { context });
 });
@@ -346,6 +346,6 @@ test("a tool a run still going uses can't go, even once the workflow dropped it"
   await call(router.workflows.update, { id: workflow.id, name: "Ship", def: withAgent }, { context });
   await expect(call(router.tools.delete, { id: "tool_gh" }, { context })).rejects.toMatchObject({
     code: "CONFLICT",
-    message: "A run of the workflow “Ship” still uses this tool",
+    message: "A run of the workflow “Ship” still uses this tool.",
   });
 });

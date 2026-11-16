@@ -95,7 +95,7 @@ test("the Assistant has the platform skill, and neither the owner nor a proposal
   expect(agent.skills).toEqual([{ packageId: pkg!.id, name: PLATFORM_SKILL }]);
 
   const mine = await call(router.skills.create, { name: "mine", description: "Mine.", instructions: "x", requiredToolIds: [] }, { context });
-  const reason = "The Assistant keeps its platform skill";
+  const reason = "The Assistant keeps its platform skill.";
   await expect(call(router.agents.update, { ...fields, skillPackageIds: [] }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: reason });
   await expect(call(router.agents.update, { ...fields, skillPackageIds: [mine.packageId] }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: reason });
   // Left out, the list is empty: that drops it too.
