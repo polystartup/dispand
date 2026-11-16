@@ -884,7 +884,11 @@
   (`cloud/builtins.ts`); on a runner it is a tool of the runner's own `dispand` server (Claude
   Code) or a dynamic tool (Codex), which asks the owner itself (`requestApproval` in
   `apps/runner/src/outcome.ts`) in every permission mode, bypass included, and is never
-  allowed for the session. We decided a subagent asks the agent that started it, which decides
+  allowed for the session. The call waits for the answer however long it takes: Codex puts no
+  timeout on a dynamic tool, and the `dispand` server's tools have Claude Code's longest one
+  (`DISPAND_TOOL_TIMEOUT_MS`, about 24 days) instead of its default of about 28 hours or a
+  lower `MCP_TOOL_TIMEOUT` from the user's environment (checked on Claude Code 2.1.311 and
+  Codex 0.167). We decided a subagent asks the agent that started it, which decides
   whether to ask the person: on Codex, a `request_approval` call from a subagent's thread asks
   nobody and fails with a text telling it to return its question to that agent. On Claude Code, the other tool calls of a turn that asks for an
   approval wait for the answer (from the moment the CLI is about to call the tool), and aren't
