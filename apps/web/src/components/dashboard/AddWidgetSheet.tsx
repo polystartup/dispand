@@ -77,7 +77,7 @@ export function AddWidgetSheet({ pageId, onClose }: Props) {
                   {t("add.workflowForm")}
                 </button>
                 <p className="mt-2 text-[13px] text-muted">
-                  <Trans t={t} i18nKey="add.noWorkflows" components={{ link: <Link to="/settings/workflows" className="text-accent hover:underline" onClick={onClose} /> }} />
+                  <Trans t={t} i18nKey="add.noWorkflows" components={{ go: <Link to="/settings/workflows" className="text-accent hover:underline" onClick={onClose} /> }} />
                 </p>
               </div>
             )}
@@ -100,7 +100,7 @@ export function AddWidgetSheet({ pageId, onClose }: Props) {
             })}
             {tables.data?.length === 0 && (
               <p className="px-3 text-[13px] text-muted">
-                <Trans t={t} i18nKey="add.noTables" components={{ link: <Link to="/settings/data" className="text-accent hover:underline" onClick={onClose} /> }} />
+                <Trans t={t} i18nKey="add.noTables" components={{ go: <Link to="/settings/data" className="text-accent hover:underline" onClick={onClose} /> }} />
               </p>
             )}
             {tables.error && !tables.data && (

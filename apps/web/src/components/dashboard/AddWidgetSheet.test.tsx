@@ -14,7 +14,7 @@ vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
-vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => children }));
+vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: React.ReactNode }) => <a href="/">{children}</a> }));
 const { AddWidgetSheet } = await import("./AddWidgetSheet.tsx");
 const { createI18n } = await import("../../lib/i18n.ts");
 
@@ -36,6 +36,7 @@ test("in French, the add-widget sheet offers workflows and tables, and says what
   expect(await screen.findByText("Ajouter un widget")).toBeTruthy();
   expect(await screen.findByText("Workflow : Relance")).toBeTruthy();
   expect(await screen.findByText(/Créez d’abord une table, dans/)).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Données" })).toBeTruthy();
   expect(screen.getByText("Grille")).toBeTruthy();
   expect(screen.getByText("Fermer")).toBeTruthy();
 });

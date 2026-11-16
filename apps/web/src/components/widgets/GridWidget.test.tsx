@@ -13,7 +13,7 @@ vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
-vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => children }));
+vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: React.ReactNode }) => <a href="/">{children}</a> }));
 const { GridWidget } = await import("./GridWidget.tsx");
 const { createI18n } = await import("../../lib/i18n.ts");
 
@@ -63,6 +63,6 @@ test("in French, a grid says how many rows it shows and links to Data", async ()
     </I18nextProvider>,
   );
   expect(await screen.findByText(/1 sur 1\s200 affichées/)).toBeTruthy();
-  expect(screen.getByText(/Ouvrir dans Données/)).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Ouvrir dans Données" })).toBeTruthy();
   expect(screen.getByLabelText("Supprimer Projects")).toBeTruthy();
 });

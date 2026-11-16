@@ -76,7 +76,7 @@ export function OpenInData({ tableId, shown, total }: { tableId: string; shown: 
         t={t}
         i18nKey={shown < total ? "widget.showingOpenInData" : "widget.openInData"}
         values={{ shown: number(shown), total: number(total) }}
-        components={{ link: <Link to="/settings/data/$tableId" params={{ tableId }} className="text-accent hover:underline" /> }}
+        components={{ go: <Link to="/settings/data/$tableId" params={{ tableId }} className="text-accent hover:underline" /> }}
       />
     </p>
   );
