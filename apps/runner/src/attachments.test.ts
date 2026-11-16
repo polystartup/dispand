@@ -6,7 +6,7 @@ import { join, relative } from "node:path";
 import type { Options, query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { attachmentPath, type HarnessEvent, type SessionFile } from "@dispand/runner-protocol";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
-import { AttachmentsRefused, copyAttachments, writeAttachments } from "./attachments.ts";
+import { AttachmentsRefused, copyAttachments, writeAnchored, writeAttachments } from "./attachments.ts";
 import { Sessions } from "./sessions.ts";
 
 const made: string[] = [];
@@ -96,6 +96,21 @@ test("a .dispand or an attachment folder that is a link is refused, and nothing 
   await symlink(elsewhere, join(dir, ".dispand"));
   await expect(writeAttachments(dir, [{ file: { attachmentId: "att_2", path: ".dispand/attachments/att_2/file.txt" }, bytes: Buffer.from("x") }])).rejects.toThrow(AttachmentsRefused);
   expect(await readdir(join(elsewhere, ".dispand"))).toEqual(["plans"]);
+});
+
+test("a folder swapped for a link after the checks gets nothing: the write is anchored to the folder it checked", async () => {
+  const dir = await runDir();
+  const elsewhere = await runDir();
+  await mkdir(join(dir, ".dispand", "attachments"));
+  // What a live session could do between the runner's checks and its write.
+  await symlink(join(elsewhere, ".dispand"), join(dir, ".dispand", "attachments", "att_1"));
+  await expect(writeAnchored([{ dir: join(dir, ".dispand", "attachments", "att_1"), name: "file.md", base64: "eA==" }])).rejects.toThrow(AttachmentsRefused);
+  expect(await readdir(join(elsewhere, ".dispand"))).toEqual(["plans"]);
+  // A real folder: written there, read-only through its descriptor.
+  await mkdir(join(dir, ".dispand", "attachments", "att_2"));
+  await writeAnchored([{ dir: join(dir, ".dispand", "attachments", "att_2"), name: "file.md", base64: "eA==" }]);
+  expect(await readFile(join(dir, ".dispand", "attachments", "att_2", "file.md"), "utf8")).toBe("x");
+  expect((await lstat(join(dir, ".dispand", "attachments", "att_2", "file.md"))).mode & 0o777).toBe(0o444);
 });
 
 test("a file Dispand doesn't serve leaves a line for the agent, and nothing written", async () => {

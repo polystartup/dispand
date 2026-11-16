@@ -668,8 +668,10 @@ changes it updates this file.
   `apps/runner/src/attachments.ts`) refuse a path that isn't `isAttachmentPath`: so never a
   `.claude`, `.codex` or `.mcp.json` segment nor a `CLAUDE.md`, `AGENTS.md` or
   `AGENTS.override.md` (in any case), which a CLI would read as configuration or instructions.
-  The runner writes only through a `.dispand` and folders below it that are real folders, with
-  `O_EXCL|O_NOFOLLOW`, read-only. It fetches the bytes at `GET /runner/attachments/<id>` with its
+  The runner writes only through a `.dispand` and folders below it that are real folders, and
+  creates each file from inside its folder (a child process that `chdir`s there and checks its
+  real working folder first), so a live session swapping a folder for a link meanwhile sends the
+  write nowhere else; files are created `O_EXCL|O_NOFOLLOW` and made read-only by descriptor. It fetches the bytes at `GET /runner/attachments/<id>` with its
   own token, which serves only a file given to a Job with a session on that runner.
 - **Skill files never name a path outside their skill.** Every file of a skill package, made in
   the app or imported from a plugin, passes `isSafeRelativePath` (`packages/runner-protocol/src/paths.ts`)

@@ -1,5 +1,5 @@
-import { constants } from "node:fs";
-import { chmod, lstat, mkdir, open } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { lstat, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { ATTACHMENTS_DIR, MAX_FILE_BYTES, RUNNER_ATTACHMENTS_PATH, SessionFile } from "@dispand/runner-protocol";
 import { PLANS_ROOT } from "./workdir.ts";
@@ -47,10 +47,39 @@ export async function fetchAttachment(server: string, token: string, attachmentI
 }
 
 /**
- * Writes each file at its path under `runDir`. Every path is checked again (`SessionFile`, so
- * `isAttachmentPath`) before anything is written; `.dispand` must be a real folder, and the folders
- * below it are made here or must be real folders, so none is a link. Files are created with `wx`
- * and `O_NOFOLLOW`, then made 0444; one already there (the same message sent again) is kept.
+ * Creates each file in the folder its process is in: that process `chdir`s into the folder, checks
+ * that its real working folder (`getcwd`, which a link can't fake) is the one expected, then
+ * creates the file by its bare name with `O_EXCL|O_NOFOLLOW` and makes it 0444 through its
+ * descriptor. Once there, a folder swapped for a link changes nothing: the name is resolved from
+ * the folder it is in. A child process, since `chdir` is the whole process's. One already there
+ * (the same message sent again) is kept. Exits 3 when a folder isn't the one expected.
+ */
+const ANCHORED_WRITE = `
+const fs = require("node:fs");
+const chunks = [];
+process.stdin.on("data", (c) => chunks.push(c)).on("end", () => {
+  for (const f of JSON.parse(Buffer.concat(chunks).toString("utf8"))) {
+    process.chdir(f.dir);
+    if (process.cwd() !== f.dir) process.exit(3);
+    let fd;
+    try {
+      fd = fs.openSync(f.name, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
+    } catch (err) {
+      if (err.code === "EEXIST") continue;
+      throw err;
+    }
+    fs.writeSync(fd, Buffer.from(f.base64, "base64"));
+    fs.fchmodSync(fd, 0o444);
+    fs.closeSync(fd);
+  }
+});`;
+
+/**
+ * Writes each file at its path under `runDir` (a real path, as `resolveWorkdir` gives it). Every
+ * path is checked again (`SessionFile`, so `isAttachmentPath`) before anything is written;
+ * `.dispand` must be a real folder, and the folders below it are made here or must be real
+ * folders. The files themselves are created anchored to their folder (`ANCHORED_WRITE`): a live
+ * session can't swap a folder for a link between the checks and the write.
  */
 export async function writeAttachments(runDir: string, files: { file: SessionFile; bytes: Uint8Array }[]): Promise<void> {
   for (const { file } of files) {
@@ -65,24 +94,24 @@ export async function writeAttachments(runDir: string, files: { file: SessionFil
   const root = await lstat(join(runDir, PLANS_ROOT)).catch(() => null);
   if (!root?.isDirectory()) throw new AttachmentsRefused(`${join(runDir, PLANS_ROOT)} must be a real directory`);
   await folder(join(runDir, ATTACHMENTS_DIR));
+  const writes = [];
   for (const { file, bytes } of files) {
     const [id, name] = file.path.slice(ATTACHMENTS_DIR.length + 1).split("/") as [string, string];
-    await folder(join(runDir, ATTACHMENTS_DIR, id));
-    const path = join(runDir, ATTACHMENTS_DIR, id, name);
-    let handle;
-    try {
-      handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "EEXIST") continue;
-      throw err;
-    }
-    try {
-      await handle.writeFile(bytes);
-    } finally {
-      await handle.close();
-    }
-    await chmod(path, 0o444);
+    const dir = join(runDir, ATTACHMENTS_DIR, id);
+    await folder(dir);
+    writes.push({ dir, name, base64: Buffer.from(bytes).toString("base64") });
   }
+  await writeAnchored(writes);
+}
+
+/** Runs `ANCHORED_WRITE` on these files: each `dir` must be the real path of the folder it names. */
+export async function writeAnchored(writes: { dir: string; name: string; base64: string }[]): Promise<void> {
+  const child = spawn(process.execPath, ["-e", ANCHORED_WRITE], { stdio: ["pipe", "ignore", "ignore"] });
+  const code = new Promise<number | null>((resolve, reject) => child.on("error", reject).on("close", resolve));
+  child.stdin.end(JSON.stringify(writes));
+  const exit = await code;
+  if (exit === 3) throw new AttachmentsRefused("an attachments folder was moved while its files were written");
+  if (exit !== 0) throw new AttachmentsRefused("the files couldn't be written");
 }
 
 /**
