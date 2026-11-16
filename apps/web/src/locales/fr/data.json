@@ -1,0 +1,31 @@
+{
+  "tables": {
+    "name": "Nom de la table",
+    "create": "Créer",
+    "new": "Nouvelle table",
+    "title": "Données",
+    "subtitle": "Les tables que les workflows lisent et écrivent.",
+    "failed": "Impossible de charger les tables.",
+    "emptyTitle": "Aucune table pour l’instant",
+    "emptyText": "Les tables contiennent ce que vos workflows créent et trouvent.",
+    "rows_one": "{{count}} ligne",
+    "rows_other": "{{count}} lignes"
+  },
+  "table": {
+    "tab": {
+      "rows": "Lignes",
+      "memory": "Mémoire"
+    },
+    "failed": "Impossible de charger cette table.",
+    "loading": "Chargement…",
+    "back": "Données",
+    "name": "Nom de la table",
+    "menu": "Menu de la table",
+    "events": "Événements et parent",
+    "delete": "Supprimer la table",
+    "tabs": "Table",
+    "confirm": "Supprimer « {{name}} » ?",
+    "confirmText": "Ses champs, lignes et fichiers sont supprimés aussi. C’est irréversible.",
+    "cancel": "Annuler"
+  }
+}

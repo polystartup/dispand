@@ -14,27 +14,23 @@ import { shownAgentName } from "../lib/agent-name.ts";
 
 export const Route = createFileRoute("/_app/settings/agents/$id")({ component: EditAgent });
 
-const TABS = [
-  ["settings", "Settings"],
-  ["triggers", "Triggers"],
-  ["jobs", "Jobs"],
-  ["memory", "Memory"],
-] as const;
+const TABS = ["settings", "triggers", "jobs", "memory"] as const;
 
 function EditAgent() {
-  const { t } = useTranslation("messages");
+  const { t } = useTranslation("agents");
+  const { t: tm } = useTranslation("messages");
   const { id } = Route.useParams();
   const agent = useQuery(orpc.agents.get.queryOptions({ input: { id } }));
-  const [shown, setShown] = useState<(typeof TABS)[number][0]>("settings");
+  const [shown, setShown] = useState<(typeof TABS)[number]>("settings");
   // Bumped when a field goes back to its plugin's value: the form starts again from the agent as it is now.
   const [resets, setResets] = useState(0);
   return (
     <>
-      <PageHeader title={agent.data ? shownAgentName(t, agent.data) : "Agent"} subtitle="What this agent does, what makes it work, and the Jobs it did." />
-      {agent.error && <p role="alert" className="text-[14px] text-danger">Could not load the agent.</p>}
+      <PageHeader title={agent.data ? shownAgentName(tm, agent.data) : t("page.fallbackTitle")} subtitle={t("page.subtitle")} />
+      {agent.error && <p role="alert" className="text-[14px] text-danger">{t("page.failed")}</p>}
       {agent.data && (
         <>
-          <StateTabs label="Agent" tabs={TABS} selected={shown} onSelect={setShown}>
+          <StateTabs label={t("page.tabs")} tabs={TABS.map((tab) => [tab, t(`page.tab.${tab}`)] as const)} selected={shown} onSelect={setShown}>
             {/* Kept mounted: switching tabs must not drop an unsaved draft. Keyed: moving between two agents (history) must not keep the previous one's. */}
             <TabsPrimitive.Content value="settings" forceMount className="data-[state=inactive]:hidden">
               <AgentEditor key={`${agent.data.id}:${resets}`} agent={agent.data} onReset={() => setResets((n) => n + 1)} />

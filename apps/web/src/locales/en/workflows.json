@@ -1,0 +1,34 @@
+{
+  "list": {
+    "createFailed": "Could not create the workflow. Try again.",
+    "untitled": "Untitled workflow",
+    "new": "New workflow",
+    "title": "Workflows",
+    "subtitle": "Chain agent steps behind a button or a chat.",
+    "failed": "Could not load the workflows.",
+    "emptyTitle": "No workflow yet",
+    "emptyText": "A workflow starts from a button or a chat, then hands the results to agent steps.",
+    "version": "Version {{version}} · {{when}}"
+  },
+  "editor": {
+    "failed": "Could not load the workflow.",
+    "status": {
+      "saved": "Saved",
+      "unsaved": "Edited",
+      "saving": "Saving…",
+      "error": "Couldn't save"
+    },
+    "back": "Workflows",
+    "onHome": "This workflow is on Home.",
+    "openHome": "Open Home",
+    "saved": "Workflow saved.",
+    "addHome": "Add it to Home",
+    "addFailed": "Could not add it to Home. Try again.",
+    "name": "Workflow name",
+    "namePlaceholder": "Name this workflow",
+    "issues_one": "{{status}} · {{count}} issue to fix before it can run",
+    "issues_other": "{{status}} · {{count}} issues to fix before it can run",
+    "agentsFailed": "Could not load the agents: steps can't be given one until the page is reloaded.",
+    "stepSettings": "Step settings"
+  }
+}

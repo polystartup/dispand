@@ -27,9 +27,11 @@ export default tseslint.config(
       "apps/web/src/components/{chat,assistant,questions,runs}/**/*.tsx",
       "apps/web/src/routes/_app.{assistant,inbox}.tsx",
       "apps/web/src/routes/_app.settings.workflows.runs.$runId.tsx",
+      "apps/web/src/components/{memory,audit}/**/*.tsx",
+      "apps/web/src/routes/_app.audit.tsx",
+      "apps/web/src/routes/_app.settings.{agents.*,data.*,memory,workflows.index,workflows.$id}.tsx",
     ],
-    // The Agents and Audit areas' parts in settings/ are translated with their areas.
-    ignores: ["**/*.test.tsx", "apps/web/src/components/settings/{AgentEditor,AuditRetention,CliRules,ConsultList,HarnessModelPicker,JobRights,SelfLearning,StemMarks,ToolAsk}.tsx"],
+    ignores: ["**/*.test.tsx"],
     plugins: { i18next },
     rules: {
       "i18next/no-literal-string": [

@@ -1,5 +1,6 @@
 import { qualifiedName } from "@dispand/domain/plugins/names";
 import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 
 type Named = { name: string; builtIn?: string | null; plugin?: { name: string } | null };
 
@@ -9,4 +10,10 @@ type Named = { name: string; builtIn?: string | null; plugin?: { name: string } 
  */
 export function shownAgentName(t: TFunction<"messages">, agent: Named): string {
   return agent.builtIn === "assistant" ? t("agent.assistant.name") : qualifiedName(agent.plugin?.name ?? null, agent.name);
+}
+
+/** `shownAgentName` in the page's language, for a component. */
+export function useAgentName() {
+  const { t } = useTranslation("messages");
+  return (agent: Named) => shownAgentName(t, agent);
 }

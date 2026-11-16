@@ -8,7 +8,7 @@ import { Empty, List } from "../components/settings/parts.tsx";
 import { PageHeader } from "../components/Placeholder.tsx";
 import { orpc } from "../lib/api.ts";
 import { useTranslation } from "react-i18next";
-import { shownAgentName } from "../lib/agent-name.ts";
+import { useAgentName } from "../lib/agent-name.ts";
 
 export const Route = createFileRoute("/_app/settings/agents/")({
   // `saved`: an agent was just created, so the list offers the next step.
@@ -17,7 +17,8 @@ export const Route = createFileRoute("/_app/settings/agents/")({
 });
 
 function Agents() {
-  const { t } = useTranslation("messages");
+  const { t } = useTranslation("agents");
+  const agentName = useAgentName();
   const { saved } = Route.useSearch();
   const agents = useQuery(orpc.agents.list.queryOptions());
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
@@ -27,7 +28,7 @@ function Agents() {
   const create = (
     <Button asChild>
       <Link to="/settings/agents/new">
-        <Plus /> New agent
+        <Plus /> {t("list.new")}
       </Link>
     </Button>
   );
@@ -35,20 +36,20 @@ function Agents() {
   return (
     <>
       <div className="flex items-start justify-between gap-4">
-        <PageHeader title="Agents" subtitle="Define what each agent does and which harness runs it." />
+        <PageHeader title={t("list.title")} subtitle={t("list.subtitle")} />
         {loaded && agents.data!.length > 0 && create}
       </div>
       {saved && <AgentSaved />}
       {(agents.error || harnesses.error) && !loaded && (
         <p role="alert" className="text-[14px] text-danger">
-          Could not load the {agents.error ? "agents" : "harnesses"}.
+          {agents.error ? t("list.agentsFailed") : t("list.harnessesFailed")}
         </p>
       )}
       {loaded && agents.data!.length === 0 && (
-        <Empty title="No agent yet" text="An agent is a system prompt on a harness. Workflows put agents to work.">
+        <Empty title={t("list.emptyTitle")} text={t("list.emptyText")}>
           {harnesses.data!.length === 0 ? (
             <Button asChild>
-              <Link to="/settings/harnesses">Add a harness first</Link>
+              <Link to="/settings/harnesses">{t("list.harnessFirst")}</Link>
             </Button>
           ) : (
             create
@@ -64,7 +65,7 @@ function Agents() {
                 params={{ id: a.id }}
                 className="flex items-center justify-between gap-4 px-5 py-4 transition hover:bg-hover"
               >
-                <span className="truncate text-[15px] font-medium">{shownAgentName(t, a)}</span>
+                <span className="truncate text-[15px] font-medium">{agentName(a)}</span>
                 <span className="truncate text-[13px] text-muted">{harnessName.get(a.harnessId)}</span>
               </Link>
             </li>

@@ -1,0 +1,31 @@
+{
+  "tables": {
+    "name": "Table name",
+    "create": "Create",
+    "new": "New table",
+    "title": "Data",
+    "subtitle": "Tables that workflows read and write.",
+    "failed": "Could not load the tables.",
+    "emptyTitle": "No table yet",
+    "emptyText": "Tables hold what your workflows create and find.",
+    "rows_one": "{{count}} row",
+    "rows_other": "{{count}} rows"
+  },
+  "table": {
+    "tab": {
+      "rows": "Rows",
+      "memory": "Memory"
+    },
+    "failed": "Could not load this table.",
+    "loading": "Loading…",
+    "back": "Data",
+    "name": "Table name",
+    "menu": "Table menu",
+    "events": "Events and parent",
+    "delete": "Delete table",
+    "tabs": "Table",
+    "confirm": "Delete “{{name}}”?",
+    "confirmText": "Its fields, rows and files are deleted too. This can't be undone.",
+    "cancel": "Cancel"
+  }
+}

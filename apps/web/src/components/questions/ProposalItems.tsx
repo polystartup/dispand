@@ -26,7 +26,6 @@ function useWord() {
 }
 
 /** What naming an agent on another's consult list gives each of them (`ConsultList` says it too; its own translation will read `questions:consultLine`). */
-export const CONSULT_LINE = "It can steer this agent with its questions, and its answers may quote what it reads in tables this agent can't.";
 
 /** An agent's consult entries: each agent by name, whether it asks first, and what the pair can do. */
 function Consults({ value, items, names }: { value: unknown; items: Items; names: ProposalView["names"] }) {

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Lock, X } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HarnessModelPicker } from "./HarnessModelPicker.tsx";
@@ -22,8 +22,8 @@ import { Overridden } from "./Overridden.tsx";
 import { StemMarks } from "./StemMarks.tsx";
 import { BannerSlot, Empty, FormField, NextStep } from "./parts.tsx";
 
-/** The fields a plugin gives an agent, as this form names them. */
-const FIELD_LABELS = { name: "Name", description: "Description", systemPrompt: "Instructions", bundles: "What its Jobs may do", dataTables: "Tables", selfLearning: "Learns", skillPackageIds: "Skills", toolIds: "Tools", consults: "May consult" };
+
+const LEFT_OUT_KINDS = ["skills", "runnerTools"] as const;
 
 export type Agent = Awaited<ReturnType<typeof api.agents.get>>;
 
@@ -39,8 +39,12 @@ function refusal(e: unknown, fallback: string): string {
 
 /** Create (no `agent`) or edit an agent. A new agent goes back to the list; both offer the next step. */
 export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agent; defaultHarnessId?: string; /** A field went back to its plugin's value: the form is stale. */ onReset?: () => void }) {
-  const { t } = useTranslation("messages");
+  const { t } = useTranslation("agents");
+  const { t: tm } = useTranslation("messages");
   const { t: tc } = useTranslation();
+  const assistantName = tm("agent.assistant.name");
+  // The fields a plugin gives an agent, as this form names them.
+  const fieldLabels = t("fields", { returnObjects: true });
   const format = useFormat();
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   const packages = useQuery(orpc.skills.list.queryOptions());
@@ -87,9 +91,9 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
 
   if (harnesses.data && harnesses.data.length === 0) {
     return (
-      <Empty title="Add a harness first" text="An agent runs on a harness, so connect one before creating the agent.">
+      <Empty title={t("editor.noHarnessTitle")} text={t("editor.noHarnessText")}>
         <Button asChild>
-          <Link to="/settings/harnesses">Go to harnesses</Link>
+          <Link to="/settings/harnesses">{t("editor.toHarnesses")}</Link>
         </Button>
       </Empty>
     );
@@ -110,7 +114,7 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
       await update.mutateAsync({ ...fields, id: agent.id });
       setSaved(true);
     } catch (e) {
-      setError(refusal(e, "Could not save the agent. Check the details and try again."));
+      setError(refusal(e, t("editor.saveFailed")));
     }
   }
 
@@ -125,30 +129,30 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
         }}
       >
         {assistant && (
-          <p className="text-[13px] text-muted">The workspace's built-in agent: it can't be deleted. Its harness, model and instructions are yours to change.</p>
+          <p className="text-[13px] text-muted">{t("editor.builtIn", { assistant: assistantName })}</p>
         )}
         {agent?.plugin && (
           <>
-            <Overridden plugin={agent.plugin.name} overridden={agent.overridden} labels={FIELD_LABELS} busy={reset.isPending} onReset={(field) => reset.mutate({ kind: "agent", id: agent.id, field })} />
-            <StemMarks kind="agent" id={agent.id} labels={FIELD_LABELS} onResolved={() => onReset?.()} />
+            <Overridden plugin={agent.plugin.name} overridden={agent.overridden} labels={fieldLabels} busy={reset.isPending} onReset={(field) => reset.mutate({ kind: "agent", id: agent.id, field })} />
+            <StemMarks kind="agent" id={agent.id} labels={fieldLabels} onResolved={() => onReset?.()} />
           </>
         )}
-        {reset.error && <p role="alert" className="text-[13px] text-danger">{refusal(reset.error, "Could not reset the field. Try again.")}</p>}
-        <FormField label="Name" htmlFor="agent-name">
+        {reset.error && <p role="alert" className="text-[13px] text-danger">{refusal(reset.error, t("editor.resetFailed"))}</p>}
+        <FormField label={t("editor.name")} htmlFor="agent-name">
           {/* The built-in agent shows its label; its stored name never changes here. */}
-          <Input id="agent-name" value={assistant ? t("agent.assistant.name") : name} readOnly={assistant} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus={!agent} />
+          <Input id="agent-name" value={assistant ? assistantName : name} readOnly={assistant} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus={!agent} />
         </FormField>
-        <FormField label="Description" htmlFor="agent-description" hint="What it is for and when to consult it: agents that may consult it read this.">
+        <FormField label={t("editor.description")} htmlFor="agent-description" hint={t("editor.descriptionHint")}>
           <Textarea id="agent-description" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} rows={2} />
         </FormField>
         <HarnessModelPicker harnessId={harnessId} model={model} onChange={(id, next) => { setHarnessId(id); setModel(next); }} />
         <section aria-labelledby="agent-skills" className="space-y-2">
           <h3 id="agent-skills" className="text-[13px] font-medium text-muted">
-            Skills
+            {t("editor.skills")}
           </h3>
           {packages.data?.length === 0 ? (
             <p className="text-[13px] text-faint">
-              No skills yet. <Link to="/settings/skills" className="underline">Add one</Link> or install a plugin that brings some.
+              <Trans t={t} i18nKey="editor.noSkills" components={[<Link to="/settings/skills" className="underline" />]} />
             </p>
           ) : (
             <ul className="divide-y divide-line rounded-xl border border-line">
@@ -166,11 +170,11 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
                     />
                     <span className="min-w-0">
                       <span className="block font-medium">{p.name}</span>
-                      <span className="block text-[13px] text-muted">{p.plugin ? `From the plugin ${p.plugin.name}. ` : ""}{p.description}</span>
+                      <span className="block text-[13px] text-muted">{p.plugin ? `${t("editor.fromPlugin", { plugin: p.plugin.name })} ` : ""}{p.description}</span>
                       {assistant && p.builtIn && (
                         <span className="flex items-center gap-1.5 text-[13px] text-muted">
                           <Lock aria-hidden className="size-3.5" />
-                          The Assistant keeps its platform skill.
+                          {t("editor.keepsSkill", { assistant: assistantName })}
                         </span>
                       )}
                     </span>
@@ -181,47 +185,47 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
           )}
           {packages.error && !packages.data && (
             <p role="alert" className="text-[13px] text-danger">
-              Could not load the skills. Reload the page to try again.
+              {t("editor.skillsFailed")}
             </p>
           )}
         </section>
         <section aria-labelledby="agent-tools" className="space-y-2">
           <h3 id="agent-tools" className="text-[13px] font-medium text-muted">
-            Tools
+            {t("editor.tools")}
           </h3>
           {agentTools.length === 0 ? (
-            <p className="text-[13px] text-faint">No tools.</p>
+            <p className="text-[13px] text-faint">{t("editor.noTools")}</p>
           ) : (
             <ul className="divide-y divide-line rounded-xl border border-line">
-              {agentTools.map((t) => (
-                <li key={t.toolId} className="space-y-1.5 px-3 py-2 text-[14px]">
+              {agentTools.map((tool) => (
+                <li key={tool.toolId} className="space-y-1.5 px-3 py-2 text-[14px]">
                   <div className="flex items-center justify-between gap-3">
-                  <span className="min-w-0 truncate">{t.name}</span>
-                  {t.lockedBy.length > 0 ? (
+                  <span className="min-w-0 truncate">{tool.name}</span>
+                  {tool.lockedBy.length > 0 ? (
                     <span className="flex shrink-0 items-center gap-1.5 text-[13px] text-muted">
                       <Lock aria-hidden className="size-3.5" />
-                      from skill {t.lockedBy.join(", ")}
+                      {t("editor.fromSkill", { skills: format.list(tool.lockedBy) })}
                     </span>
                   ) : (
                     <button
                       type="button"
-                      aria-label={`Remove ${t.name}`}
+                      aria-label={t("editor.removeTool", { name: tool.name })}
                       className="rounded p-0.5 text-muted hover:bg-hover"
-                      onClick={() => setToolIds(toolIds.filter((id) => id !== t.toolId))}
+                      onClick={() => setToolIds(toolIds.filter((id) => id !== tool.toolId))}
                     >
                       <X className="size-3.5" />
                     </button>
                   )}
                   </div>
-                  {asks.get(t.toolId) ? (
+                  {asks.get(tool.toolId) ? (
                     <ToolAsk
-                      tool={t.name}
-                      actions={asks.get(t.toolId)!}
+                      tool={tool.name}
+                      actions={asks.get(tool.toolId)!}
                       busy={setPermission.isPending}
-                      onChange={(action, permission) => setPermission.mutate({ agentId: agent!.id, toolId: t.toolId, action, permission })}
+                      onChange={(action, permission) => setPermission.mutate({ agentId: agent!.id, toolId: tool.toolId, action, permission })}
                     />
                   ) : (
-                    t.lockedBy.length === 0 && agent && toolAsk.isSuccess && <p className="text-[12px] text-faint">Save the agent to choose which of its actions ask before use.</p>
+                    tool.lockedBy.length === 0 && agent && toolAsk.isSuccess && <p className="text-[12px] text-faint">{t("editor.saveToChoose")}</p>
                   )}
                 </li>
               ))}
@@ -229,8 +233,8 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
           )}
           {addable.length > 0 && (
             <Select value="" onValueChange={(id) => setToolIds([...toolIds, id])}>
-              <SelectTrigger aria-label="Add a tool" className="w-full">
-                <SelectValue placeholder="Add a tool" />
+              <SelectTrigger aria-label={t("editor.addTool")} className="w-full">
+                <SelectValue placeholder={t("editor.addTool")} />
               </SelectTrigger>
               <SelectContent>
                 {addable.map((t) => (
@@ -243,29 +247,29 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
           )}
           {tools.data?.length === 0 && (
             <p className="text-[13px] text-faint">
-              <Link to="/settings/tools" className="underline">Add an MCP server</Link> to give agents tools.
+              <Trans t={t} i18nKey="editor.noMcp" components={[<Link to="/settings/tools" className="underline" />]} />
             </p>
           )}
           {tools.error && !tools.data && (
             <p role="alert" className="text-[13px] text-danger">
-              Could not load the tools. Reload the page to try again.
+              {t("editor.toolsFailed")}
             </p>
           )}
         </section>
         {agent && <>
           {cliRules.data && <CliRules rules={cliRules.data} busy={removeCliRule.isPending} onRemove={(rule) => removeCliRule.mutate({ id: agent.id, cli: rule.cli, rule: rule.rule })} />}
-          {cliRules.error && <p role="alert" className="text-[13px] text-danger">Could not load remembered CLI permissions. Reload the page to try again.</p>}
-          {removeCliRule.error && <p role="alert" className="text-[13px] text-danger">Could not remove the CLI permission. Try again.</p>}
+          {cliRules.error && <p role="alert" className="text-[13px] text-danger">{t("editor.cliRulesFailed")}</p>}
+          {removeCliRule.error && <p role="alert" className="text-[13px] text-danger">{t("editor.cliRuleRemoveFailed")}</p>}
         </>}
         <JobRights
           rights={rights}
           tables={(tables.data ?? []).map((t) => ({ id: t.id, name: qualifiedName(t.plugin?.name ?? null, t.name) }))}
           onChange={setRights}
-          {...(assistant ? { locked: "The Assistant always works on data and changes tables, on every table." } : {})}
+          {...(assistant ? { locked: t("editor.rightsLocked", { assistant: assistantName }) } : {})}
         />
         <SelfLearning targets={selfLearning} onChange={setSelfLearning} />
         <ConsultList {...(agent ? { agentId: agent.id } : {})} bundles={rights.bundles} entries={consults} agents={agents.data ?? []} onChange={setConsults} />
-        <FormField label="System prompt" htmlFor="agent-prompt" hint="What this agent is and how it works. Sent at the start of every session.">
+        <FormField label={t("editor.systemPrompt")} htmlFor="agent-prompt" hint={t("editor.systemPromptHint")}>
           <Textarea
             id="agent-prompt"
             value={systemPrompt}
@@ -276,7 +280,7 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
           />
         </FormField>
         {leftOut &&
-          (["skills", "runnerTools"] as const).map(
+          LEFT_OUT_KINDS.map(
             (kind) =>
               leftOut[kind].names.length > 0 && (
                 <p key={kind} role="status" className="text-[13px] text-danger">
@@ -291,10 +295,10 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
         )}
         <div className="flex gap-2">
           <Button type="submit" disabled={busy || !name.trim() || !harnessId}>
-            {agent ? "Save" : "Create agent"}
+            {agent ? t("editor.save") : t("editor.create")}
           </Button>
           <Button asChild variant="ghost">
-            <Link to="/settings/agents">Back to agents</Link>
+            <Link to="/settings/agents">{t("editor.back")}</Link>
           </Button>
         </div>
       </form>
@@ -303,10 +307,11 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
 }
 
 export function AgentSaved() {
+  const { t } = useTranslation("agents");
   return (
-    <NextStep title="Agent saved.">
+    <NextStep title={t("editor.saved")}>
       <Button asChild>
-        <Link to="/settings/workflows">Configure a manual workflow</Link>
+        <Link to="/settings/workflows">{t("editor.nextWorkflow")}</Link>
       </Button>
     </NextStep>
   );

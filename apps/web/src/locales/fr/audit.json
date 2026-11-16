@@ -1,0 +1,131 @@
+{
+  "title": "Audit",
+  "subtitle": "Ce que vos agents ont fait, quand, et comment cela s’est terminé. Des ids, des noms et des nombres seulement : jamais ce qu’ils ont lu ou écrit.",
+  "failed": "Impossible de charger l’Audit.",
+  "emptyTitle": "Rien d’enregistré pour l’instant",
+  "emptyText": "Ce que font vos agents apparaît ici.",
+  "loadMore": "Voir plus",
+  "actor": {
+    "you": "Vous",
+    "scheduler": "Planificateur",
+    "schedulerFor": "Planificateur · pour {{agent}}",
+    "deletedAgent": "Un agent supprimé",
+    "anAgent": "Un agent",
+    "itsJob": "son Job"
+  },
+  "trace": {
+    "label": "Trace",
+    "copy": "Copier l’id de la trace"
+  },
+  "retention": {
+    "label": "Conservation de l’Audit",
+    "keepFor": "Conserver l’Audit pendant",
+    "days": "jours",
+    "save": "Enregistrer",
+    "invalid": "Un nombre entier de 1 à 3 650"
+  },
+  "action": {
+    "job": {
+      "created": "Job créé",
+      "queued": "Job mis en file pour son harnais",
+      "started": "Job démarré",
+      "reopened": "Job rouvert",
+      "waiting": "Job en attente d’une réponse",
+      "finished": "Job terminé",
+      "failed": "Job en échec",
+      "skipped": "Aucun Job démarré"
+    },
+    "checkpoint": {
+      "reached": "Point de contrôle atteint",
+      "answered": "Point de contrôle répondu"
+    },
+    "question": {
+      "asked": "Question posée",
+      "answered": "Question répondue",
+      "expired": "Question expirée"
+    },
+    "consult": {
+      "asked": "Agent consulté",
+      "ended": "Consultation terminée"
+    },
+    "platform": {
+      "call": "Outil Dispand appelé"
+    },
+    "tool": {
+      "call": "Action d’outil appelée"
+    },
+    "poll": {
+      "run": "Outil interrogé"
+    },
+    "event": {
+      "recorded": "Modification de ligne enregistrée"
+    },
+    "memory": {
+      "written": "Mémoire écrite"
+    },
+    "plugin": {
+      "decided": "Modification de plugin décidée"
+    }
+  },
+  "resource": {
+    "job": "Job",
+    "root": "Cause racine",
+    "question": "Question",
+    "consult": "Consultation",
+    "tool": "Outil",
+    "trigger": "Déclencheur",
+    "poll": "Interrogation",
+    "table": "Table",
+    "row": "Ligne",
+    "field": "Champ",
+    "agent": "Agent",
+    "harness": "Harnais",
+    "proposal": "Proposition",
+    "plugin": "Plugin",
+    "marketplace": "Marketplace",
+    "memory": "Mémoire",
+    "workspace": "Espace de travail"
+  },
+  "detail": {
+    "agentId": "Id de l’agent",
+    "harnessId": "Id du harnais",
+    "runnerId": "Id du runner",
+    "triggerId": "Id du déclencheur",
+    "rootId": "Cause racine",
+    "questionId": "Question",
+    "consultedJobId": "Job consulté",
+    "proposalId": "Proposition",
+    "toolId": "Id de l’outil",
+    "tableId": "Id de la table",
+    "rowId": "Ligne",
+    "eventId": "Événement",
+    "memoryId": "Mémoire",
+    "elementId": "Élément du plugin",
+    "agentName": "Agent",
+    "harnessName": "Harnais",
+    "runnerName": "Runner",
+    "triggerName": "Déclencheur",
+    "toolName": "Outil",
+    "tableName": "Table",
+    "field": "Champ",
+    "causeKind": "Cause",
+    "firing": "Déclenchement",
+    "questionKind": "Type",
+    "decision": "Décision",
+    "answeredBy": "Réponse de",
+    "outcome": "Résultat",
+    "reason": "Raison",
+    "operation": "Opération",
+    "scope": "Portée",
+    "status": "Statut",
+    "elementKind": "Type d’élément",
+    "item": "Élément",
+    "items": "Éléments",
+    "jobs": "Jobs",
+    "fields": "Champs",
+    "events": "Événements",
+    "found": "Trouvés",
+    "tool": "Outil Dispand",
+    "action": "Action"
+  }
+}

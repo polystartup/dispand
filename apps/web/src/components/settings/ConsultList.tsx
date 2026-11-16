@@ -1,9 +1,10 @@
 import { X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CONSULT_LINE } from "../questions/ProposalItems.tsx";
+import { useTranslation } from "react-i18next";
+import { useAgentName } from "../../lib/agent-name.ts";
 
 export type ConsultEntry = { agentId: string; ask: boolean };
-type OtherAgent = { id: string; name: string; bundles: string[] };
+type OtherAgent = { id: string; name: string; builtIn?: string | null; plugin?: { name: string } | null; bundles: string[] };
 
 const configures = (bundles: string[]) => bundles.includes("configure");
 
@@ -27,21 +28,23 @@ export function ConsultList({
   agents: OtherAgent[];
   onChange: (entries: ConsultEntry[]) => void;
 }) {
+  const { t } = useTranslation("agents");
+  const agentName = useAgentName();
   const sameSide = (a: OtherAgent) => configures(a.bundles) === configures(bundles);
   const addable = agents.filter((a) => a.id !== agentId && sameSide(a) && !entries.some((e) => e.agentId === a.id));
   return (
     <section aria-labelledby="agent-consults" className="space-y-2">
       <h3 id="agent-consults" className="text-[13px] font-medium text-muted">
-        May consult
+        {t("consults.title")}
       </h3>
-      <p className="text-[12px] text-faint">{CONSULT_LINE}</p>
+      <p className="text-[12px] text-faint">{t("consults.line")}</p>
       {entries.length === 0 ? (
-        <p className="text-[13px] text-faint">No agents.</p>
+        <p className="text-[13px] text-faint">{t("consults.none")}</p>
       ) : (
         <ul className="divide-y divide-line rounded-xl border border-line">
           {entries.map((e) => {
             const agent = agents.find((a) => a.id === e.agentId);
-            const name = agent?.name ?? e.agentId;
+            const name = agent ? agentName(agent) : e.agentId;
             const inactive = agent && !sameSide(agent);
             return (
               <li key={e.agentId} className="space-y-1 px-3 py-2 text-[14px]">
@@ -49,11 +52,11 @@ export function ConsultList({
                   <span className="min-w-0 truncate">{name}</span>
                   <span className="flex shrink-0 items-center gap-3">
                     <label className="flex items-center gap-2 text-[12px] text-muted">
-                      Ask before use
+                      {t("consults.ask")}
                       <input
                         type="checkbox"
                         role="switch"
-                        aria-label={`Ask before consulting ${name}`}
+                        aria-label={t("consults.askLabel", { name })}
                         checked={e.ask}
                         onChange={(ev) => onChange(entries.map((x) => (x.agentId === e.agentId ? { ...x, ask: ev.target.checked } : x)))}
                         className="size-4 accent-[var(--color-accent)]"
@@ -61,7 +64,7 @@ export function ConsultList({
                     </label>
                     <button
                       type="button"
-                      aria-label={`Remove ${name}`}
+                      aria-label={t("consults.remove", { name })}
                       className="rounded p-0.5 text-muted hover:bg-hover"
                       onClick={() => onChange(entries.filter((x) => x.agentId !== e.agentId))}
                     >
@@ -71,7 +74,7 @@ export function ConsultList({
                 </div>
                 {inactive && (
                   <p className="text-[12px] text-danger">
-                    Inactive: one of the two changes the workspace and the other doesn't, so they can't consult each other.
+                    {t("consults.inactive")}
                   </p>
                 )}
               </li>
@@ -81,13 +84,13 @@ export function ConsultList({
       )}
       {addable.length > 0 && (
         <Select value="" onValueChange={(id) => onChange([...entries, { agentId: id, ask: false }])}>
-          <SelectTrigger aria-label="Add an agent to consult" className="w-full">
-            <SelectValue placeholder="Add an agent to consult" />
+          <SelectTrigger aria-label={t("consults.add")} className="w-full">
+            <SelectValue placeholder={t("consults.add")} />
           </SelectTrigger>
           <SelectContent>
             {addable.map((a) => (
               <SelectItem key={a.id} value={a.id}>
-                {a.name}
+                {agentName(a)}
               </SelectItem>
             ))}
           </SelectContent>

@@ -1,0 +1,34 @@
+{
+  "list": {
+    "createFailed": "Impossible de créer le workflow. Réessayez.",
+    "untitled": "Workflow sans titre",
+    "new": "Nouveau workflow",
+    "title": "Workflows",
+    "subtitle": "Enchaînez des étapes d’agents derrière un bouton ou un chat.",
+    "failed": "Impossible de charger les workflows.",
+    "emptyTitle": "Aucun workflow pour l’instant",
+    "emptyText": "Un workflow part d’un bouton ou d’un chat, puis passe les résultats à des étapes d’agents.",
+    "version": "Version {{version}} · {{when}}"
+  },
+  "editor": {
+    "failed": "Impossible de charger le workflow.",
+    "status": {
+      "saved": "Enregistré",
+      "unsaved": "Modifié",
+      "saving": "Enregistrement…",
+      "error": "Échec de l’enregistrement"
+    },
+    "back": "Workflows",
+    "onHome": "Ce workflow est sur l’Accueil.",
+    "openHome": "Ouvrir l’Accueil",
+    "saved": "Workflow enregistré.",
+    "addHome": "L’ajouter à l’Accueil",
+    "addFailed": "Impossible de l’ajouter à l’Accueil. Réessayez.",
+    "name": "Nom du workflow",
+    "namePlaceholder": "Nommez ce workflow",
+    "issues_one": "{{status}} · {{count}} problème à corriger avant de pouvoir le lancer",
+    "issues_other": "{{status}} · {{count}} problèmes à corriger avant de pouvoir le lancer",
+    "agentsFailed": "Impossible de charger les agents : aucune étape ne peut en recevoir un avant de recharger la page.",
+    "stepSettings": "Réglages de l’étape"
+  }
+}

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { orpc } from "../../lib/api.ts";
@@ -9,6 +10,7 @@ import { orpc } from "../../lib/api.ts";
  * only: no agent reads or changes it.
  */
 export function AuditRetention() {
+  const { t } = useTranslation("audit");
   const queryClient = useQueryClient();
   const current = useQuery(orpc.workspace.auditRetention.queryOptions());
   // What is typed, while editing; otherwise the field follows the setting (another tab).
@@ -20,7 +22,7 @@ export function AuditRetention() {
   const valid = Number.isInteger(n) && n >= 1 && n <= 3650;
   return (
     <form
-      aria-label="Audit retention"
+      aria-label={t("retention.label")}
       className="mb-6 flex flex-wrap items-center gap-2"
       onSubmit={(e) => {
         e.preventDefault();
@@ -28,16 +30,16 @@ export function AuditRetention() {
       }}
     >
       <label htmlFor="audit-retention-days" className="text-[13px] text-muted">
-        Keep Audit for
+        {t("retention.keepFor")}
       </label>
       <Input id="audit-retention-days" type="number" min={1} max={3650} value={value} onChange={(e) => setTyped(e.target.value)} aria-invalid={!valid} className="w-24" />
-      <span className="text-[13px] text-muted">days</span>
+      <span className="text-[13px] text-muted">{t("retention.days")}</span>
       <Button type="submit" variant="outline" disabled={!valid || n === current.data.days || save.isPending}>
-        Save
+        {t("retention.save")}
       </Button>
       {!valid && (
         <p role="alert" className="w-full text-[13px] text-danger">
-          A whole number from 1 to 3,650
+          {t("retention.invalid")}
         </p>
       )}
       {save.error && (

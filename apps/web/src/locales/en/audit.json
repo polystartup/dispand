@@ -1,0 +1,131 @@
+{
+  "title": "Audit",
+  "subtitle": "What your agents did, when, and how it ended. Ids, names and counts only: never what they read or wrote.",
+  "failed": "Could not load Audit.",
+  "emptyTitle": "Nothing recorded yet",
+  "emptyText": "What your agents do shows up here.",
+  "loadMore": "Load more",
+  "actor": {
+    "you": "You",
+    "scheduler": "Scheduler",
+    "schedulerFor": "Scheduler · for {{agent}}",
+    "deletedAgent": "A deleted agent",
+    "anAgent": "An agent",
+    "itsJob": "its Job"
+  },
+  "trace": {
+    "label": "Trace",
+    "copy": "Copy the trace id"
+  },
+  "retention": {
+    "label": "Audit retention",
+    "keepFor": "Keep Audit for",
+    "days": "days",
+    "save": "Save",
+    "invalid": "A whole number from 1 to 3,650"
+  },
+  "action": {
+    "job": {
+      "created": "Job created",
+      "queued": "Job queued for its harness",
+      "started": "Job started",
+      "reopened": "Job reopened",
+      "waiting": "Job waiting for an answer",
+      "finished": "Job finished",
+      "failed": "Job failed",
+      "skipped": "No Job started"
+    },
+    "checkpoint": {
+      "reached": "Checkpoint reached",
+      "answered": "Checkpoint answered"
+    },
+    "question": {
+      "asked": "Question asked",
+      "answered": "Question answered",
+      "expired": "Question expired"
+    },
+    "consult": {
+      "asked": "Agent consulted",
+      "ended": "Consult ended"
+    },
+    "platform": {
+      "call": "Dispand tool called"
+    },
+    "tool": {
+      "call": "Tool action called"
+    },
+    "poll": {
+      "run": "Tool polled"
+    },
+    "event": {
+      "recorded": "Row change recorded"
+    },
+    "memory": {
+      "written": "Memory written"
+    },
+    "plugin": {
+      "decided": "Plugin change decided"
+    }
+  },
+  "resource": {
+    "job": "Job",
+    "root": "Root cause",
+    "question": "Question",
+    "consult": "Consult",
+    "tool": "Tool",
+    "trigger": "Trigger",
+    "poll": "Poll",
+    "table": "Table",
+    "row": "Row",
+    "field": "Field",
+    "agent": "Agent",
+    "harness": "Harness",
+    "proposal": "Proposal",
+    "plugin": "Plugin",
+    "marketplace": "Marketplace",
+    "memory": "Memory",
+    "workspace": "Workspace"
+  },
+  "detail": {
+    "agentId": "Agent id",
+    "harnessId": "Harness id",
+    "runnerId": "Runner id",
+    "triggerId": "Trigger id",
+    "rootId": "Root cause",
+    "questionId": "Question",
+    "consultedJobId": "Consulted Job",
+    "proposalId": "Proposal",
+    "toolId": "Tool id",
+    "tableId": "Table id",
+    "rowId": "Row",
+    "eventId": "Event",
+    "memoryId": "Memory",
+    "elementId": "Plugin element",
+    "agentName": "Agent",
+    "harnessName": "Harness",
+    "runnerName": "Runner",
+    "triggerName": "Trigger",
+    "toolName": "Tool",
+    "tableName": "Table",
+    "field": "Field",
+    "causeKind": "Cause",
+    "firing": "Firing",
+    "questionKind": "Kind",
+    "decision": "Decision",
+    "answeredBy": "Answered by",
+    "outcome": "Outcome",
+    "reason": "Reason",
+    "operation": "Operation",
+    "scope": "Scope",
+    "status": "Status",
+    "elementKind": "Element kind",
+    "item": "Item",
+    "items": "Items",
+    "jobs": "Jobs",
+    "fields": "Fields",
+    "events": "Events",
+    "found": "Found",
+    "tool": "Dispand tool",
+    "action": "Action"
+  }
+}

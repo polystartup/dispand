@@ -2,6 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 
 const fake = vi.hoisted(() => ({
@@ -18,6 +19,7 @@ vi.mock("../../lib/api.ts", async () => {
 });
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => children, useNavigate: () => vi.fn() }));
 const { AgentEditor } = await import("./AgentEditor.tsx");
+const { createI18n } = await import("../../lib/i18n.ts");
 type Agent = NonNullable<Parameters<typeof AgentEditor>[0]["agent"]>;
 
 afterEach(() => {
@@ -91,7 +93,7 @@ test("the Assistant's page locks its platform skill, with the reason", async () 
   const box = (await screen.findByRole("checkbox", { name: /dispand-platform/ })) as HTMLInputElement;
   expect(box.checked).toBe(true);
   expect(box.disabled).toBe(true);
-  expect(screen.getByText("The Assistant keeps its platform skill.")).toBeTruthy();
+  expect(screen.getByText("Stem keeps its platform skill.")).toBeTruthy();
   expect((screen.getByRole("checkbox", { name: /writing/ }) as HTMLInputElement).disabled).toBe(false);
 });
 
@@ -111,7 +113,7 @@ test("another agent's page leaves the platform skill's box free", async () => {
   mount({ ...agent, builtIn: undefined } as unknown as Agent);
   const box = (await screen.findByRole("checkbox", { name: /dispand-platform/ })) as HTMLInputElement;
   expect(box.disabled).toBe(false);
-  expect(screen.queryByText("The Assistant keeps its platform skill.")).toBeNull();
+  expect(screen.queryByText("Stem keeps its platform skill.")).toBeNull();
 });
 
 test("a save past a CLI session's limits says, in a whole sentence, what its sessions will leave out", async () => {
@@ -174,4 +176,25 @@ test("the shared picker saves the selected model and can restore the harness def
   await user.click(screen.getByRole("button", { name: /CLI default\s*Default/ }));
   await user.click(screen.getByRole("button", { name: "Save" }));
   expect(fake.agents.update.mock.calls.at(-1)![0]).not.toHaveProperty("model");
+});
+
+test("the agent form is in French, the built-in agent shown as Stem", async () => {
+  fake.harnesses.list.mockResolvedValue([{ id: "harness_1", name: "Claude Code" }]);
+  fake.skills.list.mockResolvedValue([platform]);
+  fake.tools.list.mockResolvedValue([]);
+  fake.tables.list.mockResolvedValue([]);
+  fake.agents.list.mockResolvedValue([]);
+  fake.agents.toolAsk.mockResolvedValue([]);
+  fake.agents.cliRules.mockResolvedValue([]);
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AgentEditor agent={agent} />
+      </QueryClientProvider>
+    </I18nextProvider>,
+  );
+  expect(await screen.findByText("Stem garde sa compétence de plateforme.")).toBeTruthy();
+  expect((screen.getByLabelText("Nom") as HTMLInputElement).value).toBe("Stem");
+  expect(screen.getByText("Ce que ses Jobs peuvent faire")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Enregistrer" })).toBeTruthy();
 });

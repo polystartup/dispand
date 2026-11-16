@@ -1,126 +1,41 @@
-import type { AuditAction, AuditDetails, AuditResource } from "@dispand/domain/audit/model";
+import type { AuditDetails } from "@dispand/domain/audit/model";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Copy } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { type api, orpc } from "../../lib/api.ts";
 import { Empty } from "../settings/parts.tsx";
-import { Status, when } from "../workflow/Runs.tsx";
+import { useFormat } from "../../lib/format.ts";
+import { Status } from "../workflow/Runs.tsx";
 
 type Filter = Omit<Parameters<typeof api.audit.list>[0], "cursor">;
 type Row = Awaited<ReturnType<typeof api.audit.list>>["rows"][number];
 
-/** Each action in words. Typed on the whole list: an action added without its words doesn't compile. */
-export const ACTION_WORDS: Record<AuditAction, string> = {
-  "job.created": "Job created",
-  "job.queued": "Job queued for its harness",
-  "job.started": "Job started",
-  "job.reopened": "Job reopened",
-  "job.waiting": "Job waiting for an answer",
-  "job.finished": "Job finished",
-  "job.failed": "Job failed",
-  "job.skipped": "No Job started",
-  "checkpoint.reached": "Checkpoint reached",
-  "checkpoint.answered": "Checkpoint answered",
-  "question.asked": "Question asked",
-  "question.answered": "Question answered",
-  "question.expired": "Question expired",
-  "consult.asked": "Agent consulted",
-  "consult.ended": "Consult ended",
-  "platform.call": "Dispand tool called",
-  "tool.call": "Tool action called",
-  "poll.run": "Tool polled",
-  "event.recorded": "Row change recorded",
-  "memory.written": "Memory written",
-  "plugin.decided": "Plugin change decided",
-};
-
-const RESOURCE_WORDS: Record<AuditResource, string> = {
-  job: "Job",
-  root: "Root cause",
-  question: "Question",
-  consult: "Consult",
-  tool: "Tool",
-  trigger: "Trigger",
-  poll: "Poll",
-  table: "Table",
-  row: "Row",
-  field: "Field",
-  agent: "Agent",
-  harness: "Harness",
-  proposal: "Proposal",
-  plugin: "Plugin",
-  marketplace: "Marketplace",
-  memory: "Memory",
-  workspace: "Workspace",
-};
-
-/** Each detail's label. */
-const DETAIL_LABELS: Record<keyof AuditDetails, string> = {
-  agentId: "Agent id",
-  harnessId: "Harness id",
-  runnerId: "Runner id",
-  triggerId: "Trigger id",
-  rootId: "Root cause",
-  questionId: "Question",
-  consultedJobId: "Consulted Job",
-  proposalId: "Proposal",
-  toolId: "Tool id",
-  tableId: "Table id",
-  rowId: "Row",
-  eventId: "Event",
-  memoryId: "Memory",
-  elementId: "Plugin element",
-  agentName: "Agent",
-  harnessName: "Harness",
-  runnerName: "Runner",
-  triggerName: "Trigger",
-  toolName: "Tool",
-  tableName: "Table",
-  field: "Field",
-  causeKind: "Cause",
-  firing: "Firing",
-  questionKind: "Kind",
-  decision: "Decision",
-  answeredBy: "Answered by",
-  outcome: "Outcome",
-  reason: "Reason",
-  operation: "Operation",
-  scope: "Scope",
-  status: "Status",
-  elementKind: "Element kind",
-  item: "Item",
-  items: "Items",
-  jobs: "Jobs",
-  fields: "Fields",
-  events: "Events",
-  found: "Found",
-  tool: "Dispand tool",
-  action: "Action",
-};
-
-/** `at` as stored has microseconds: shown to the second. */
-const shown = (at: string) => when.format(new Date(`${at.slice(0, 23)}Z`));
+/** `at` as stored has microseconds: read to the millisecond. */
+const shownAt = (at: string) => new Date(`${at.slice(0, 23)}Z`);
 
 function Actor({ row }: { row: Row }) {
-  if (row.actor.type === "user") return <span>You</span>;
-  const agent = row.actorAgentId ? (row.agentName ?? "A deleted agent") : null;
-  if (row.actor.type === "scheduler") return <span>Scheduler{agent ? ` · for ${agent}` : ""}</span>;
+  const { t } = useTranslation("audit");
+  if (row.actor.type === "user") return <span>{t("actor.you")}</span>;
+  const agent = row.actorAgentId ? (row.agentName ?? t("actor.deletedAgent")) : null;
+  if (row.actor.type === "scheduler") return <span>{agent ? t("actor.schedulerFor", { agent }) : t("actor.scheduler")}</span>;
   return (
     <span>
-      {agent ?? "An agent"}
+      {agent ?? t("actor.anAgent")}
       {" · "}
       <Link to="/settings/workflows/runs/$runId" params={{ runId: row.actor.runId }} className="text-accent hover:underline">
-        its Job
+        {t("actor.itsJob")}
       </Link>
     </span>
   );
 }
 
 function Trace({ traceId, traceUrl }: { traceId: string; traceUrl: string | null }) {
+  const { t } = useTranslation("audit");
   return (
     <span className="inline-flex items-center gap-1">
-      Trace{" "}
+      {t("trace.label")}{" "}
       {traceUrl ? (
         <a href={traceUrl.replaceAll("{traceId}", encodeURIComponent(traceId))} target="_blank" rel="noreferrer noopener" className="font-mono text-accent hover:underline">
           {traceId}
@@ -128,7 +43,7 @@ function Trace({ traceId, traceUrl }: { traceId: string; traceUrl: string | null
       ) : (
         <span className="font-mono">{traceId}</span>
       )}
-      <Button variant="ghost" size="icon-xs" aria-label="Copy the trace id" onClick={() => void navigator.clipboard.writeText(traceId).catch(() => undefined)}>
+      <Button variant="ghost" size="icon-xs" aria-label={t("trace.copy")} onClick={() => void navigator.clipboard.writeText(traceId).catch(() => undefined)}>
         <Copy aria-hidden />
       </Button>
     </span>
@@ -141,6 +56,8 @@ function Trace({ traceId, traceUrl }: { traceId: string; traceUrl: string | null
  * (`DISPAND_TRACE_URL`). "Load more" reads the next page.
  */
 export function AuditList({ filter = {}, live = false }: { filter?: Filter; live?: boolean }) {
+  const { t } = useTranslation("audit");
+  const { dateTimeSeconds, number } = useFormat();
   const options = orpc.audit.list.infiniteOptions({
     input: (cursor: string | undefined) => ({ ...filter, ...(cursor ? { cursor } : {}) }),
     initialPageParam: undefined,
@@ -157,10 +74,10 @@ export function AuditList({ filter = {}, live = false }: { filter?: Filter; live
   const rows = pages.data?.pages.flatMap((p) => p.rows) ?? [];
   const traceUrl = trace.data?.traceUrl ?? null;
 
-  if (pages.error && !pages.data) return <p role="alert" className="text-[14px] text-danger">Could not load Audit.</p>;
+  if (pages.error && !pages.data) return <p role="alert" className="text-[14px] text-danger">{t("failed")}</p>;
   if (pages.data && rows.length === 0) {
     return (
-      <Empty title="Nothing recorded yet" text="What your agents do shows up here.">
+      <Empty title={t("emptyTitle")} text={t("emptyText")}>
         <span />
       </Empty>
     );
@@ -171,10 +88,10 @@ export function AuditList({ filter = {}, live = false }: { filter?: Filter; live
         {rows.map((row) => (
           <li key={row.id} className="px-5 py-3 text-[14px]">
             <div className="flex flex-wrap items-baseline gap-x-2">
-              <span className="font-medium">{ACTION_WORDS[row.action]}</span>
+              <span className="font-medium">{t(`action.${row.action}`)}</span>
               {row.result !== "ok" && <Status status={row.result} />}
               <span className="text-muted">
-                {RESOURCE_WORDS[row.resourceType]}
+                {t(`resource.${row.resourceType}`)}
                 {row.resourceId && row.resourceType === "job" ? (
                   <>
                     {" "}
@@ -188,7 +105,7 @@ export function AuditList({ filter = {}, live = false }: { filter?: Filter; live
               </span>
             </div>
             <div className="mt-0.5 flex flex-wrap gap-x-3 text-[13px] text-muted">
-              <time dateTime={row.at}>{shown(row.at)}</time>
+              <time dateTime={row.at}>{dateTimeSeconds(shownAt(row.at))}</time>
               <Actor row={row} />
               {row.traceId && <Trace traceId={row.traceId} traceUrl={traceUrl} />}
             </div>
@@ -196,8 +113,8 @@ export function AuditList({ filter = {}, live = false }: { filter?: Filter; live
               <dl className="mt-1 flex flex-wrap gap-x-3 text-[13px]">
                 {Object.entries(row.details).map(([key, value]) => (
                   <div key={key} className="flex gap-1">
-                    <dt className="text-muted">{DETAIL_LABELS[key as keyof AuditDetails] ?? key}</dt>
-                    <dd className={key.endsWith("Id") ? "font-mono" : undefined}>{String(value)}</dd>
+                    <dt className="text-muted">{t(`detail.${key as keyof AuditDetails}`, { defaultValue: key })}</dt>
+                    <dd className={key.endsWith("Id") ? "font-mono" : undefined}>{typeof value === "number" ? number(value) : String(value)}</dd>
                   </div>
                 ))}
               </dl>
@@ -208,7 +125,7 @@ export function AuditList({ filter = {}, live = false }: { filter?: Filter; live
       {pages.hasNextPage && (
         <div className="mt-4 flex justify-center">
           <Button variant="outline" disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>
-            Load more
+            {t("loadMore")}
           </Button>
         </div>
       )}
@@ -218,9 +135,10 @@ export function AuditList({ filter = {}, live = false }: { filter?: Filter; live
 
 /** A Job's page: what the Job did and met, as Audit recorded it. */
 export function JobAudit({ jobId, live }: { jobId: string; live: boolean }) {
+  const { t } = useTranslation("audit");
   return (
-    <section aria-label="Audit" className="mt-8">
-      <h2 className="mb-3 text-[13px] font-medium uppercase tracking-wide text-muted">Audit</h2>
+    <section aria-label={t("title")} className="mt-8">
+      <h2 className="mb-3 text-[13px] font-medium uppercase tracking-wide text-muted">{t("title")}</h2>
       <AuditList filter={{ jobId }} live={live} />
     </section>
   );

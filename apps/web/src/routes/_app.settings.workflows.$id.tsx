@@ -5,20 +5,23 @@ import { useMutation, useQueries, useQuery, useQueryClient, type UseQueryResult 
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { BannerSlot } from "../components/settings/parts.tsx";
 import { Canvas } from "../components/workflow/Canvas.tsx";
 import { WorkflowTabs } from "../components/workflow/Runs.tsx";
 import { StepPanel } from "../components/workflow/StepPanel.tsx";
 import { Autosaver, saverFor, type SaveState } from "../components/workflow/autosave.ts";
+import { shownAgentName } from "../lib/agent-name.ts";
 import { api, orpc } from "../lib/api.ts";
 
 export const Route = createFileRoute("/_app/settings/workflows/$id")({ component: EditWorkflow });
 
 function EditWorkflow() {
+  const { t } = useTranslation("workflows");
   const { id } = Route.useParams();
   const workflow = useQuery(orpc.workflows.get.queryOptions({ input: { id }, staleTime: Infinity }));
-  if (workflow.error) return <p role="alert" className="text-[14px] text-danger">Could not load the workflow.</p>;
+  if (workflow.error) return <p role="alert" className="text-[14px] text-danger">{t("editor.failed")}</p>;
   if (!workflow.data) return null;
   return <Editor key={id} workflow={workflow.data} />;
 }
@@ -32,6 +35,8 @@ function combineTables(results: UseQueryResult<TableSchema>[]) {
 type SaveInput = { id: string; name: string; def: WorkflowDef };
 
 function Editor({ workflow }: { workflow: Workflow }) {
+  const { t } = useTranslation("workflows");
+  const { t: tm } = useTranslation("messages");
   const [name, setName] = useState(workflow.name);
   const [def, setDef] = useState<WorkflowDef>(workflow.def);
   const [selected, setSelected] = useState<string | null>(workflow.def.trigger.field.id);
@@ -113,33 +118,33 @@ function Editor({ workflow }: { workflow: Workflow }) {
     for (const i of issues) counts.set(i.nodeId, (counts.get(i.nodeId) ?? 0) + 1);
     return counts;
   }, [issues]);
-  const agentNames = useMemo(() => new Map(agents.data?.map((a) => [a.id, a.name])), [agents.data]);
+  const agentNames = useMemo(() => new Map(agents.data?.map((a) => [a.id, shownAgentName(tm, a)])), [agents.data, tm]);
   const onAdd = useCallback((at: AddAt, type: StepType) => {
     const nodeId = `node_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     setDef((d) => addStep(d, at, nodeId, type));
     setSelected(nodeId);
   }, []);
 
-  const status = { saved: "Saved", unsaved: "Edited", saving: "Saving…", error: "Couldn't save" }[state];
+  const status = t(`editor.status.${state}`);
 
   return (
     <>
       <Link to="/settings/workflows" className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted transition hover:text-fg">
-        <ChevronLeft size={15} aria-hidden /> Workflows
+        <ChevronLeft size={15} aria-hidden /> {t("editor.back")}
       </Link>
       {/* Not role="status" banners: the save state below is the page's one status. */}
       <BannerSlot>
         {onHome && !edited && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-surface px-5 py-4 shadow-card">
-            <p className="text-[15px] font-medium">This workflow is on Home.</p>
+            <p className="text-[15px] font-medium">{t("editor.onHome")}</p>
             <Button asChild variant="outline">
-              <Link to="/">Open Home</Link>
+              <Link to="/">{t("editor.openHome")}</Link>
             </Button>
           </div>
         )}
         {home.data && !onHome && savedOnce && state !== "error" && issues.length === 0 && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-surface px-5 py-4 shadow-card">
-            <p className="text-[15px] font-medium">Workflow saved.</p>
+            <p className="text-[15px] font-medium">{t("editor.saved")}</p>
             <Button
               // The widget copies the saved workflow: wait for the edits to land.
               disabled={addToHome.isPending || state !== "saved"}
@@ -148,30 +153,29 @@ function Editor({ workflow }: { workflow: Workflow }) {
                 addToHome.mutate({ pageId: home.data.id, type: "workflow-form", workflowId: workflow.id });
               }}
             >
-              Add it to Home
+              {t("editor.addHome")}
             </Button>
           </div>
         )}
       </BannerSlot>
-      {addToHome.isError && <p role="alert" className="mb-4 text-[14px] text-danger">Could not add it to Home. Try again.</p>}
+      {addToHome.isError && <p role="alert" className="mb-4 text-[14px] text-danger">{t("editor.addFailed")}</p>}
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <input
-          aria-label="Workflow name"
+          aria-label={t("editor.name")}
           value={name}
           maxLength={100}
           onChange={(e) => setName(e.target.value)}
           className="min-w-0 flex-1 rounded-lg bg-transparent text-[28px] font-semibold leading-tight tracking-tight outline-none placeholder:text-faint focus-visible:outline-none"
-          placeholder="Name this workflow"
+          placeholder={t("editor.namePlaceholder")}
         />
         <span role="status" className={state === "error" ? "text-[13px] text-danger" : "text-[13px] text-muted"}>
-          {status}
-          {issues.length > 0 && state !== "error" && ` · ${issues.length} issue${issues.length > 1 ? "s" : ""} to fix before it can run`}
+          {issues.length > 0 && state !== "error" ? t("editor.issues", { status, count: issues.length }) : status}
         </span>
       </header>
       <WorkflowTabs id={workflow.id} />
       {agents.error && !agents.data && (
         <p role="alert" className="mb-4 text-[14px] text-danger">
-          Could not load the agents: steps can't be given one until the page is reloaded.
+          {t("editor.agentsFailed")}
         </p>
       )}
       <div className="overflow-hidden rounded-2xl bg-surface/60 shadow-card ring-1 ring-line md:flex md:h-[640px]">
@@ -188,7 +192,7 @@ function Editor({ workflow }: { workflow: Workflow }) {
           />
         </div>
         {selected && (
-          <aside aria-label="Step settings" className="border-t border-line bg-surface p-5 md:w-[340px] md:shrink-0 md:overflow-y-auto md:border-t-0 md:border-l">
+          <aside aria-label={t("editor.stepSettings")} className="border-t border-line bg-surface p-5 md:w-[340px] md:shrink-0 md:overflow-y-auto md:border-t-0 md:border-l">
             <StepPanel
               key={selected}
               def={def}

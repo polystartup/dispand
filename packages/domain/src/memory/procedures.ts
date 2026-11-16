@@ -44,13 +44,13 @@ function done<T extends { id: string }>(result: T | Refusal): T {
 /** Each agent author's name, for the page (an agent deleted since has none). */
 async function authorNames(db: Parameters<typeof scopeExists>[0], ownerId: string, authors: MemoryAuthor[]) {
   const ids = [...new Set(authors.flatMap((a) => (a.type === "agent" ? [a.agentId] : [])))];
-  if (ids.length === 0) return new Map<string, string>();
-  const rows = await db.select({ id: agents.id, name: agents.name }).from(agents).where(and(eq(agents.ownerId, ownerId), inArray(agents.id, ids)));
-  return new Map(rows.map((r) => [r.id, r.name]));
+  if (ids.length === 0) return new Map<string, { name: string; builtIn: "assistant" | null }>();
+  const rows = await db.select({ id: agents.id, name: agents.name, builtIn: agents.builtIn }).from(agents).where(and(eq(agents.ownerId, ownerId), inArray(agents.id, ids)));
+  return new Map(rows.map((r) => [r.id, { name: r.name, builtIn: r.builtIn }]));
 }
 
-const authorView = (a: MemoryAuthor, names: Map<string, string>) =>
-  a.type === "user" ? { type: "user" as const } : { type: "agent" as const, agentId: a.agentId, runId: a.runId, configure: a.configure, name: names.get(a.agentId) ?? null };
+const authorView = (a: MemoryAuthor, names: Map<string, { name: string; builtIn: "assistant" | null }>) =>
+  a.type === "user" ? { type: "user" as const } : { type: "agent" as const, agentId: a.agentId, runId: a.runId, configure: a.configure, name: names.get(a.agentId)?.name ?? null, builtIn: names.get(a.agentId)?.builtIn ?? null };
 
 /** A scope's index, its live entries and its removed ones. */
 const list = owner.input(Scope).handler(async ({ input, context }) => {
