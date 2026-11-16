@@ -119,14 +119,16 @@ export async function decide(context: Context, actor: AuditActor, conflictId: st
     await context.db.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
     return "gone";
   }
+  // Each write holds only while Stem still has it: a Job stopped meanwhile gave it back (`closeStemJob`), and its Approval was asked without it.
+  const held = and(eq(pluginConflicts.id, c.id), eq(pluginConflicts.status, "stem"));
   if (state === "stale") {
-    await context.db.update(pluginConflicts).set({ status: "open", merged: null }).where(eq(pluginConflicts.id, c.id));
+    if (!(await context.db.update(pluginConflicts).set({ status: "open", merged: null }).where(held).returning({ id: pluginConflicts.id })).length) return "gone";
     await audit(context, actor, c, "reopened", c.runId);
     return "reopened";
   }
   const value = decision.kind === "reset" ? state.plugin : decision.value;
   if (!within(c.kind, c.field, value, c.mine, c.next)) {
-    await context.db.update(pluginConflicts).set({ status: "approval", merged: value }).where(eq(pluginConflicts.id, c.id));
+    if (!(await context.db.update(pluginConflicts).set({ status: "approval", merged: value }).where(held).returning({ id: pluginConflicts.id })).length) return "gone";
     await audit(context, actor, c, "approval", c.runId);
     return "approval";
   }
@@ -147,7 +149,7 @@ export async function answerConflict(context: Context, actor: AuditActor, confli
   const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, conflictId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "approval")));
   if (!c) return "gone";
   const outcome = await answerOne(context, actor, c, approved);
-  await settleApprovals(context.db, [c.runId], actor.type === "user" ? actor : undefined);
+  await context.db.transaction((tx) => settleApprovals(tx, [c.runId], actor.type === "user" ? actor : undefined));
   // Every Inbox showing it hears that an item left, even while others still wait.
   context.engine.questionChanges.publish("changed", true);
   return outcome;
@@ -185,14 +187,14 @@ export async function reopenChanged(tx: Db | Tx, kind: ElementKind, elementId: s
     .set({ status: "open", merged: null })
     .where(and(eq(pluginConflicts.kind, kind), eq(pluginConflicts.elementId, elementId), inArray(pluginConflicts.field, fields), inArray(pluginConflicts.status, ["stem", "approval"])))
     .returning({ runId: pluginConflicts.runId });
-  await settleApprovals(tx, reopened.map((r) => r.runId));
+  await tx.transaction((t) => settleApprovals(t, reopened.map((r) => r.runId)));
 }
 
 /** Elements that leave the plugin, kept as the owner's own or gone, have no plugin conflict left. */
 export async function forgetConflicts(tx: Db | Tx, elementIds: string[]): Promise<void> {
   if (!elementIds.length) return;
   const gone = await tx.delete(pluginConflicts).where(inArray(pluginConflicts.elementId, elementIds)).returning({ runId: pluginConflicts.runId });
-  await settleApprovals(tx, gone.map((r) => r.runId));
+  await tx.transaction((t) => settleApprovals(t, gone.map((r) => r.runId)));
 }
 
 /**
@@ -218,20 +220,24 @@ const isUpdateApproval = sql`${questions.payload} ->> 'toolName' = ${PLUGIN_UPDA
 /**
  * The Inbox Approvals of these Stem Jobs that nothing waits on any more: answered when the owner
  * answered the last item (`by`), expired when the last left otherwise (an update reopened it, its
- * element left the plugin). True when one closed.
+ * element left the plugin). True when one closed. In a transaction: the Approval's row is locked
+ * before its items are counted, so of two that remove its last items at once, the second counts
+ * after the first committed and closes it.
  */
-export async function settleApprovals(db: Db | Tx, runIds: (string | null)[], by?: { type: "user"; userId: string }): Promise<boolean> {
+export async function settleApprovals(tx: Tx, runIds: (string | null)[], by?: { type: "user"; userId: string }): Promise<boolean> {
   let closed = false;
   for (const runId of new Set(runIds)) {
     if (!runId) continue;
-    const [left] = await db.select({ id: pluginConflicts.id }).from(pluginConflicts).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "approval"))).limit(1);
+    const [approval] = await tx.select({ id: questions.id }).from(questions).where(and(eq(questions.runId, runId), eq(questions.status, "pending"), isUpdateApproval)).for("update");
+    if (!approval) continue;
+    const [left] = await tx.select({ id: pluginConflicts.id }).from(pluginConflicts).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "approval"))).limit(1);
     if (left) continue;
-    const done = await db
+    const done = await tx
       .update(questions)
       .set(by ? { status: "answered", answer: { kind: "permission", decision: "allow" }, answeredAt: new Date(), answeredBy: by } : { status: "expired" })
-      .where(and(eq(questions.runId, runId), eq(questions.status, "pending"), isUpdateApproval))
+      .where(and(eq(questions.id, approval.id), eq(questions.status, "pending")))
       .returning();
-    for (const q of done) await recordInteraction(db as Tx, q, by ? "answered" : "expired", by);
+    for (const q of done) await recordInteraction(tx, q, by ? "answered" : "expired", by);
     closed ||= done.length > 0;
   }
   return closed;

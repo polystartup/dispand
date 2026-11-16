@@ -1637,7 +1637,10 @@ become one `questions` row (an Approval of no step, its payload's `toolName` `pl
 so one push per update), whose items are the conflicts of that `runId` still waiting. Each item
 is answered on its own through `plugins.resolveConflict` (`answerConflict` applies a yes, drops a
 no as "Keep mine"), with the same check; the engine refuses a whole answer. The Approval is
-answered once its last item is, and expires when the last leaves otherwise (`settleApprovals`).
+answered once its last item is, and expires when the last leaves otherwise (`settleApprovals`,
+which locks the Approval's row before counting its items, so two removals at once still close it).
+A decision of Stem's writes only while the conflict is still Stem's: one landing after its Job was
+stopped writes nothing.
 The element's page links to it (`approvalId`). A later kind of conflict feeds the same Approval
 by keeping its rows in `plugin_conflicts` with the Job's `runId`. The write holds only while the field still has the owner's value: the element's update checks
 `context.expectField` (server-owned) under its row lock, or in its write for a tool, and a save
@@ -1682,8 +1685,9 @@ is run again on the new version (runner protocol 29: an older
 runner refuses restricted Codex starts and shows as outdated). A start that fails fails the Job,
 and its conflicts are the owner's again. On the element's page (`StemMarks`, from
 `plugins.conflicts`), each conflict says where it is: Stem is looking; Stem's merged value waits
-for the owner, who accepts it or keeps theirs (`plugins.resolveConflict`, `answerConflict`, with
-the same check); or it is theirs again, with the three choices of the update's screen (keep
+for the owner in the update's Approval, in the Inbox, which the page links to (`approvalId`, once
+the Job ended) and where each value is accepted or declined (`plugins.resolveConflict`,
+`answerConflict`, with the same check); or it is theirs again, with the three choices of the update's screen (keep
 theirs, take the plugin's, or hand it to Stem once more against the values as they are now). Not
 yet built: tables' and skill files' conflicts.
 
