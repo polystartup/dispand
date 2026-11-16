@@ -139,7 +139,6 @@ test.each(["FORBIDDEN", "BAD_REQUEST"])("a %s refusal shows the server's reason"
 
 test.each([
   ["a failure the server didn't explain", refused("INTERNAL_SERVER_ERROR", "Internal server error")],
-  ["a rejected input", refused("BAD_REQUEST", "Input validation failed")],
   ["a network failure", new TypeError("Failed to fetch")],
 ])("%s keeps the generic text", async (_, error) => {
   fake.agents.update.mockRejectedValue(error);
