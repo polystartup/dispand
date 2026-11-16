@@ -369,11 +369,12 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   }
 
   /** The transcript with its attached files' bytes, read for this model call only: the stored items keep their ids. */
-  private async withFileBytes(ownerId: string, items: ChatItem[]): Promise<ChatItem[]> {
+  private async withFileBytes(ownerId: string, items: ChatItem[], kind: ClientHarness["kind"]): Promise<ChatItem[]> {
     const ids = items.flatMap((x) => (x.role === "user" ? (x.files ?? []).map((f) => f.id) : []));
     if (ids.length === 0) return items;
     const bytes = this.filesDir ? await attachmentBytes(this.db, this.filesDir, ownerId, ids) : new Map<string, Uint8Array>();
-    return budgetFiles(items.map((x) => (x.role === "user" && x.files?.length ? { ...x, files: x.files.map((f) => ({ id: f.id, name: f.name, ...(bytes.has(f.id) ? { bytes: bytes.get(f.id) } : {}) })) } : x)));
+    // OpenAI-compatible servers get no PDF (`openai-chat.ts`).
+    return budgetFiles(items.map((x) => (x.role === "user" && x.files?.length ? { ...x, files: x.files.map((f) => ({ id: f.id, name: f.name, ...(bytes.has(f.id) ? { bytes: bytes.get(f.id) } : {}) })) } : x)), { pdf: kind !== "openai-compatible" });
   }
 
   private async specs(sessionId: string) {
@@ -431,7 +432,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         ...(skills.length > 0 ? [readSkillSpec] : []),
         ...specs.map((s) => ({ ...s.spec, name: names.toName(s.key) })),
       ];
-      const sent = await this.withFileBytes(row.ownerId, items);
+      const sent = await this.withFileBytes(row.ownerId, items, harness.kind);
       turn = await modelCall(harness.kind, id, () =>
         this.client(harness).turn({
           system: [harness.systemPrompt, start.systemPrompt, skillsPrompt(skills)].filter(Boolean).join("\n\n"),

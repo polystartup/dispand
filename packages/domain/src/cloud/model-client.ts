@@ -13,7 +13,7 @@ export type ToolCall = { id: string; name: string; args: unknown };
  * A file attached to a user message: its attachment and name, with its bytes read for each model
  * call (never stored in the transcript). `omitted`: left out of this call by `budgetFiles`.
  */
-export type ChatFile = { id: string; name: string; bytes?: Uint8Array; omitted?: true };
+export type ChatFile = { id: string; name: string; bytes?: Uint8Array; omitted?: true; pages?: number };
 
 export type ChatItem =
   | { role: "user"; text: string; files?: ChatFile[] }
@@ -87,8 +87,7 @@ export function parseArgs(text: string): unknown {
  * Dispand's own limits never gets the call refused (which would end the session, and every later
  * one, since the history is sent again each time):
  * - an image of at most 3.75 MB, which is 5 MB in base64, the strictest provider's limit (Anthropic);
- * - a PDF of at most 100 pages (Anthropic's limit); a PDF whose pages can't be counted cheaply
- *   (its page tree compressed) counts as 100;
+ * - a PDF of at most 100 pages (Anthropic's limit), counted by pdf.js; one it can't read is a line;
  * - text up to 100,000 characters per file, the rest cut with a line saying so;
  * - per call, 16 MiB of files (about 21 MB in base64, under the 32 MB request limit) and 300,000
  *   characters of text, where a PDF page counts as 3,000 (so about 100k tokens at most), the
@@ -102,22 +101,31 @@ export const MAX_FILE_INPUT_BYTES = 16 * 1024 * 1024;
 export const MAX_TEXT_CHARS_PER_CALL = 300_000;
 const PDF_PAGE_CHARS = 3_000;
 
-/** A PDF's pages, read cheaply: its page tree's largest `/Count`, else its `/Type /Page` objects; 100 when neither is in clear. */
-export function pdfPages(bytes: Uint8Array): number {
-  const text = Buffer.from(bytes).toString("latin1");
-  const counts = [...text.matchAll(/\/Type\s*\/Pages\b[^>]*?\/Count\s+(\d+)|\/Count\s+(\d+)[^>]*?\/Type\s*\/Pages\b/g)].map((m) => Number(m[1] ?? m[2]));
-  if (counts.length) return Math.max(...counts);
-  const pages = text.match(/\/Type\s*\/Page\b(?!s)/g)?.length ?? 0;
-  return pages || MAX_PDF_PAGES;
+/**
+ * A PDF's pages as pdf.js reads them (its current revision, compressed page trees included); null
+ * for one it can't read. In-process: pdf.js reads only the cross-reference table and the page
+ * tree for this, not the pages.
+ */
+export async function pdfPages(bytes: Uint8Array): Promise<number | null> {
+  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  // A copy: pdf.js takes the buffer it is given.
+  const task = getDocument({ data: new Uint8Array(bytes), verbosity: 0 });
+  try {
+    return (await task.promise).numPages;
+  } catch {
+    return null;
+  } finally {
+    await task.destroy();
+  }
 }
 
-type Measured = { kind: "image"; mime: ImageType } | { kind: "pdf"; pages: number } | { kind: "text"; text: string } | { kind: "other" };
+type Measured = { kind: "image"; mime: ImageType } | { kind: "pdf" } | { kind: "text"; text: string } | { kind: "other" };
 
 /** What a file is, by its first bytes (never its name). */
 function measure(bytes: Uint8Array): Measured {
   const image = detectImage(bytes);
   if (image) return { kind: "image", mime: image };
-  if (Buffer.from(bytes.subarray(0, 5)).toString("latin1") === "%PDF-") return { kind: "pdf", pages: pdfPages(bytes) };
+  if (Buffer.from(bytes.subarray(0, 5)).toString("latin1") === "%PDF-") return { kind: "pdf" };
   try {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     if (!text.includes("\0")) return { kind: "text", text };
@@ -127,18 +135,15 @@ function measure(bytes: Uint8Array): Measured {
   return { kind: "other" };
 }
 
-/** The characters of a call's text budget a file takes as `fileInput` sends it (0: it goes as a line). */
-function charsOf(m: Measured): number {
-  if (m.kind === "text") return Math.min(m.text.length, MAX_TEXT_INPUT_CHARS);
-  if (m.kind === "pdf" && m.pages <= MAX_PDF_PAGES) return m.pages * PDF_PAGE_CHARS;
-  return 0;
-}
+/** PDFs' pages by attachment id, as `pdfPages` read them. */
+const pagesRead = new Map<string, number | null>();
 
 /**
  * The items with the files past a call's budgets (`MAX_FILE_INPUT_BYTES`, `MAX_TEXT_CHARS_PER_CALL`,
- * counted from the newest) marked `omitted`, their bytes dropped.
+ * counted from the newest) marked `omitted`, their bytes dropped, and each PDF's `pages` read.
+ * `pdf`: whether the provider takes PDFs; when it doesn't, they cost nothing, since they go as a line.
  */
-export function budgetFiles(items: ChatItem[]): ChatItem[] {
+export async function budgetFiles(items: ChatItem[], options: { pdf: boolean } = { pdf: true }): Promise<ChatItem[]> {
   let bytesLeft = MAX_FILE_INPUT_BYTES;
   let charsLeft = MAX_TEXT_CHARS_PER_CALL;
   const out = [...items];
@@ -149,9 +154,23 @@ export function budgetFiles(items: ChatItem[]): ChatItem[] {
     for (let j = files.length - 1; j >= 0; j--) {
       const f = files[j]!;
       if (!f.bytes) continue;
-      const chars = charsOf(measure(f.bytes));
-      if (f.bytes.length <= bytesLeft && chars <= charsLeft) {
-        bytesLeft -= f.bytes.length;
+      const m = measure(f.bytes);
+      let chars = 0;
+      let sent = f.bytes.length;
+      if (m.kind === "text") chars = Math.min(m.text.length, MAX_TEXT_INPUT_CHARS);
+      else if (m.kind === "pdf" && options.pdf) {
+        // A file's bytes never change: read once per attachment, not at every call.
+        if (!pagesRead.has(f.id)) {
+          if (pagesRead.size >= 10_000) pagesRead.clear();
+          pagesRead.set(f.id, await pdfPages(f.bytes));
+        }
+        const pages = pagesRead.get(f.id) ?? MAX_PDF_PAGES + 1;
+        files[j] = { ...f, pages };
+        if (pages <= MAX_PDF_PAGES) chars = pages * PDF_PAGE_CHARS;
+        else sent = 0;
+      } else if (m.kind !== "image" || f.bytes.length > MAX_IMAGE_INPUT_BYTES) sent = 0;
+      if (sent <= bytesLeft && chars <= charsLeft) {
+        bytesLeft -= sent;
         charsLeft -= chars;
       } else files[j] = { id: f.id, name: f.name, omitted: true };
     }
@@ -178,7 +197,8 @@ export function fileInput(file: ChatFile, options: { pdf: boolean } = { pdf: tru
   const cannot = { kind: "note" as const, text: `The attached file ${named} (${file.bytes.length} bytes) is in a format or a size this model can't read: only images up to 3.75 MB, PDFs of at most 100 pages (where the model takes them) and text are.` };
   const m = measure(file.bytes);
   if (m.kind === "image") return file.bytes.length > MAX_IMAGE_INPUT_BYTES ? cannot : { kind: "image", mime: m.mime, base64: Buffer.from(file.bytes).toString("base64") };
-  if (m.kind === "pdf") return options.pdf && m.pages <= MAX_PDF_PAGES ? { kind: "pdf", base64: Buffer.from(file.bytes).toString("base64") } : cannot;
+  // Its pages as `budgetFiles` read them: none read, it isn't sent.
+  if (m.kind === "pdf") return options.pdf && file.pages !== undefined && file.pages <= MAX_PDF_PAGES ? { kind: "pdf", base64: Buffer.from(file.bytes).toString("base64") } : cannot;
   if (m.kind === "text") {
     if (m.text.length <= MAX_TEXT_INPUT_CHARS) return { kind: "text", text: `The attached file ${named}:\n${m.text}` };
     // Never between the two halves of a surrogate pair.
