@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
-import { BypassRefused, type ClaudeSession, pluginFailure, startClaudeSession } from "./claude.ts";
+import { BypassRefused, type ClaudeSession, DISPAND_TOOL_TIMEOUT_MS, pluginFailure, startClaudeSession } from "./claude.ts";
 import { claudeEnv } from "./config.ts";
 import { TOOL_SHAPES } from "./boundary.ts";
 
@@ -1435,6 +1435,18 @@ test("a request for approval that can't be asked never leaves the turn's other c
   // Whatever the model sends as the message reaches the tool, which answers in words: the CLI never rejects the call before it.
   const message = (schema as { message: { safeParse(v: unknown): { success: boolean } } }).message;
   for (const value of [123, null, undefined, { a: 1 }, "ok"]) expect(message.safeParse(value).success).toBe(true);
+});
+
+test("Dispand's own tools wait on the owner past the CLI's default and the user's MCP_TOOL_TIMEOUT", async () => {
+  let timeouts: unknown[] = [];
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    timeouts = Object.values(options.mcpServers as Record<string, { timeout?: number }>).map((server) => server.timeout);
+    yield result();
+  });
+  await startClaudeSession(start, "/work", () => {}, { query: fake.query, jobServer: "job" }).done;
+  expect(timeouts).toEqual([DISPAND_TOOL_TIMEOUT_MS]);
+  expect(DISPAND_TOOL_TIMEOUT_MS).toBe(2 ** 31 - 1);
 });
 
 test("an action the agent lets run unasked isn't asked about; the Job's other tools and look-alikes still ask", async () => {
