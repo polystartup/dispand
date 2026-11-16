@@ -248,7 +248,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
                   <MessageSquarePlus aria-hidden />
                 </Button>
               )}
-              {!approval && <ComposerAttachments handle={files} disabled={!canSend || sending} />}
+              <ComposerAttachments handle={files} hidden={!!approval} disabled={!canSend || sending} />
               {assistantAgentId ? <AssistantInput agentId={assistantAgentId} runId={runId} onTextChange={setText} onSkillChange={setChosenSkill} inputProps={composerInput.props} /> : composerInput}
               {composerTools && <div className="min-w-0 flex-1">{composerTools}</div>}
               <Button type="submit" size="icon-sm" aria-label="Send" disabled={!canSend || sending || holding > 0 || !text.trim()} className="rounded-full">

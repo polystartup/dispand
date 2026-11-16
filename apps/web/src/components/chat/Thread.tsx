@@ -179,7 +179,8 @@ const SentChip = () => <FileChip />;
 export type ComposerFiles = { ids: () => string[]; remove: (ids: string[]) => Promise<void> };
 
 /** The composer's files, inside the thread's runtime: the button that attaches one, and each attached one. */
-export function ComposerAttachments({ handle, disabled }: { handle: RefObject<ComposerFiles | null>; disabled?: boolean }) {
+/** `hidden`: while the composer answers a proposal; its files stay, and the panel can still take them off. */
+export function ComposerAttachments({ handle, disabled, hidden }: { handle: RefObject<ComposerFiles | null>; disabled?: boolean; hidden?: boolean }) {
   const { t } = useTranslation("chat");
   const aui = useAui();
   useEffect(() => {
@@ -196,6 +197,7 @@ export function ComposerAttachments({ handle, disabled }: { handle: RefObject<Co
       handle.current = null;
     };
   }, [aui, handle]);
+  if (hidden) return null;
   return (
     <>
       <ComposerPrimitive.AddAttachment multiple disabled={disabled} aria-label={t("attachFile")} title={t("attachFile")} className="rounded-full p-2 text-muted hover:bg-hover hover:text-fg disabled:opacity-60">
