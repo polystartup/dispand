@@ -1,5 +1,6 @@
 // The real Codex on this machine (skipped without one ≥ 0.167.0): what a restricted session's model is
-// offered, read from the requests Codex sends to a stand-in Responses API, and what its file tool does.
+// offered, read from the requests Codex sends to a stand-in Responses API, what its file tool does, and
+// what its code-mode isolate can reach.
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -26,7 +27,7 @@ afterEach(async () => {
 
 /** What the model may reach in a restricted session, besides code mode's own `exec` and `wait`. */
 const ALLOWED = ["apply_patch", "clock__curr_time", "list_mcp_resource_templates", "list_mcp_resources", "read_mcp_resource", "submit_outputs", "mcp__job__echo"];
-const PROBE = 'text(JSON.stringify(ALL_TOOLS.map((t) => t.name)));\ntry { await tools.apply_patch("*** Begin Patch\\n*** Add File: probe.txt\\n+hi\\n*** End Patch\\n"); text("written"); } catch (e) { text(String(e)); }';
+const PROBE = 'text(JSON.stringify(ALL_TOOLS.map((t) => t.name)));\ntry { await tools.apply_patch("*** Begin Patch\\n*** Add File: probe.txt\\n+hi\\n*** End Patch\\n"); text("written"); } catch (e) { text(String(e)); }\ntext("net:" + typeof fetch + "/" + typeof XMLHttpRequest + "/" + typeof WebSocket + "/" + typeof require + "/" + typeof process);';
 
 type Tool = { type: string; name?: string; tools?: Tool[] };
 const names = (tools: Tool[]): string[] => tools.flatMap((t) => (t.tools ? names(t.tools) : t.name ? [t.name] : []));
@@ -85,4 +86,6 @@ test.skipIf(!codexPath)("a restricted session on the real Codex offers only the 
   expect(all).toEqual(expect.arrayContaining(["submit_outputs", "mcp__job__echo"]));
   expect(output).toContain("No usable execution environment");
   expect(output).not.toContain("written");
+  // Code mode's isolate itself: no network or Node API.
+  expect(output).toContain("net:undefined/undefined/undefined/undefined/undefined");
 });
