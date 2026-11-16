@@ -100,7 +100,7 @@ test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ pa
   // It is listed with the other agents, its rights locked.
   const assistant = await rpc<{ agentId: string }>(page, "agents/assistant");
   await page.goto(`/settings/agents/${assistant.agentId}`);
-  await expect(page.getByText("The Assistant always works on data and changes tables, on every table.")).toBeVisible();
+  await expect(page.getByText("Stem always works on data and changes tables, on every table.")).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /Change tables and fields/ })).toBeDisabled();
 });
 
