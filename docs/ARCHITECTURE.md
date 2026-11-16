@@ -12,7 +12,7 @@
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with
-  `Authorization: Bearer <token>` and `Dispand-Protocol: 28` (`PROTOCOL_VERSION`, bumped by
+  `Authorization: Bearer <token>` and `Dispand-Protocol: 29` (`PROTOCOL_VERSION`, bumped by
   every change an older runner can't parse or honor). An older runner is refused with 426 "update
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
@@ -1663,8 +1663,9 @@ alone; on Codex (`codex/config.ts` `RESTRICTED`, checked with 0.167.0), the same
 names from `config/read`), a read-only profile without network, and `environments: []` on every
 `turn/start`, so the `apply_patch` the model's catalog entry adds (no switch removes it) fails
 before touching a file. `codex/restricted-tools.test.ts` runs the machine's Codex against a
-stand-in Responses API and checks every tool the model is offered. A runner whose start fails
-(an older one refuses restricted Codex starts) fails the Job, and its conflicts are the owner's again. On the element's page (`StemMarks`, from
+stand-in Responses API and checks every tool the model is offered (runner protocol 29: an older
+runner refuses restricted Codex starts and shows as outdated). A start that fails fails the Job,
+and its conflicts are the owner's again. On the element's page (`StemMarks`, from
 `plugins.conflicts`), each conflict says where it is: Stem is looking; Stem's merged value waits
 for the owner, who accepts it or keeps theirs (`plugins.resolveConflict`, `answerConflict`, with
 the same check); or it is theirs again, with the three choices of the update's screen (keep
