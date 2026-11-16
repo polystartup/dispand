@@ -113,7 +113,7 @@ test("a plugin with a stdio server larger than a runner takes is refused at inst
   try {
     await expect(installReviewed(fx.ctx, { marketplaceId: fx.market.id, entryName: "law-firm" })).rejects.toMatchObject({
       code: "BAD_REQUEST",
-      message: "The plugin is too large to run on a runner: more than 500 files or 16 MiB",
+      message: "The plugin is too large to run on a runner: more than 500 files or 11 MiB",
     });
   } finally {
     fx.remove();

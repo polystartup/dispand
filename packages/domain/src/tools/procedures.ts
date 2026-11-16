@@ -6,6 +6,7 @@ import { toolHolder, type Holder } from "../agents/usage.ts";
 import type { Db, Tx } from "../db/client.ts";
 import { McpServerName } from "@dispand/runner-protocol";
 import { posix } from "node:path";
+import { PluginServer } from "@dispand/runner-protocol";
 import { agentTools, pluginFiles, plugins, runners, tools as toolsTable } from "../db/schema.ts";
 import type { PluginComponents } from "../plugins/read-plugin.ts";
 import { runnerTarget } from "../plugins/runner-servers.ts";
@@ -123,7 +124,8 @@ async function views(db: Db, rows: Row[]): Promise<ToolView[]> {
       const plugin = found.find((p) => p.id === r.pluginId);
       const entry = r.kind === "runner" && r.runnerTool === null ? plugin?.components.mcpServers.find((s) => s.type === "stdio" && s.name === r.pluginComponent)?.entry : undefined;
       const file = entry?.command.startsWith("./") ? await db.select({ path: pluginFiles.path }).from(pluginFiles).where(and(eq(pluginFiles.pluginId, plugin!.id), eq(pluginFiles.path, posix.normalize(entry.command)))) : [];
-      const server = plugin && entry && plugin.digest ? { plugin: plugin.name, entry, digest: plugin.digest, commandIsFile: file.length > 0 } : null;
+      // Only what its runner would be sent (`PluginServer`): its name and digest go into a command the owner copies.
+      const server = plugin && PluginServer.safeParse({ tool: r.id, plugin: plugin.name, digest: plugin.digest, entry }).success ? { plugin: plugin.name, entry: entry!, digest: plugin.digest!, commandIsFile: file.length > 0 } : null;
       return toView(r, plugin ? { id: plugin.id, name: plugin.name } : null, server);
     }),
   );

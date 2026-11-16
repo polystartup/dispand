@@ -1023,7 +1023,7 @@
   plugin's own `cwd` and `env`; `tool.discover` and a poll's `tool.call` start the launch directly.
 - **A plugin's stdio server on a runner (server side):** install and update keep a standard
   plugin's files when it has a stdio server (`plugin_files`, `plugins.digest`; at most 500 files
-  and 16 MiB, else refused; `fs.ts` `readRunnerFiles`), and `components.mcpServers[].entry` holds
+  and 11 MiB, so their base64 fits the runner's 16 MiB response cap, else refused; `fs.ts` `readRunnerFiles`), and `components.mcpServers[].entry` holds
   the launch entry. We decided against a launch column on the tool: the entry is read from the
   plugin, so an update that changes it changes the digest and needs a new `allow-plugin`.
   `plugins.addServer` with a `runnerId` and the reviewed digest (or a setup item from a server

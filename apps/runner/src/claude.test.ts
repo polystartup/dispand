@@ -1629,6 +1629,18 @@ test.each([true, false])("an unasked runner action protects configuration (Job c
   expect(decision).toMatchObject({ behavior: "deny" });
 });
 
+test("a plugin server's relative paths are read from its own folder by the guard", async () => {
+  let decision: unknown;
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    decision = await options.canUseTool!("mcp__mail__read_file", { path: "../../config.json" }, ctx());
+    yield result();
+  });
+  const session = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "plugin" as const, tool: "tool_1", plugin: "notes", digest: `sha256:${"0".repeat(64)}`, entry: { command: "./server" }, unasked: ["read_file"] }] }, "/work", () => undefined, { query: fake.query, jobServer: "job", secrets: ["/guarded/config.json"], serverDirs: { mail: "/guarded/plugins/notes" } });
+  await session.done;
+  expect(decision).toMatchObject({ behavior: "deny" });
+});
+
 test("unasked Claude runner tools refuse targets linked from protected config directories", async () => {
   const { mkdtemp, mkdir, writeFile, symlink, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");

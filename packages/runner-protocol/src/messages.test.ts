@@ -449,7 +449,7 @@ test("remembered permission answers carry only supported scopes and other answer
 test("a plugin server carries a sha256 digest and only the standard's entry fields", () => {
   const discover = (tool: unknown) => JSON.stringify({ type: "tool.discover", requestId: "r", tool });
   expect(parseServerMessage(discover(pluginServer))).toMatchObject({ tool: pluginServer });
-  for (const bad of [{ ...pluginServer, digest: "sha256:abc" }, { ...pluginServer, entry: { ...pluginServer.entry, shell: true } }, { ...pluginServer, tool: "../x" }]) {
+  for (const bad of [{ ...pluginServer, digest: "sha256:abc" }, { ...pluginServer, entry: { ...pluginServer.entry, shell: true } }, { ...pluginServer, tool: "../x" }, { ...pluginServer, plugin: "notes$(id)" }, { ...pluginServer, plugin: "notes; id" }]) {
     expect(() => parseServerMessage(discover(bad))).toThrow(ProtocolError);
   }
 });

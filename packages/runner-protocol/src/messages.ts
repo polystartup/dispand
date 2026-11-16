@@ -59,7 +59,8 @@ const SessionServerName = McpServerName.regex(/^[a-zA-Z0-9-]+(?:_[a-zA-Z0-9-]+)*
  */
 export const PluginServer = z.object({
   tool: id().regex(/^[A-Za-z0-9_-]{1,64}$/),
-  plugin: string(64).min(1),
+  // The standard's name rule (`allowedPlugins` holds no other): lowercase words, so a command a person copies with it never needs quoting.
+  plugin: string(64).regex(/^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/),
   digest: string(71).regex(/^sha256:[0-9a-f]{64}$/),
   entry: z.strictObject({
     command: string(1024).min(1),

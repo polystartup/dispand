@@ -252,9 +252,12 @@ export function readSkillFolders(root: string, folders: string[], notImported: N
   return skills;
 }
 
-/** What a runner takes of one plugin (`apps/runner/src/plugin-servers.ts`): files, and bytes in all. */
+/**
+ * What a runner takes of one plugin (`apps/runner/src/plugin-servers.ts`): files, and bytes in
+ * all, so that their base64 in the files route's JSON stays within the runner's 16 MiB response cap.
+ */
 export const MAX_RUNNER_FILES = 500;
-export const MAX_RUNNER_BYTES = 16 * 1024 * 1024;
+export const MAX_RUNNER_BYTES = 11 * 1024 * 1024;
 
 /**
  * Every regular file under `root` a runner can write (`isSafeRelativePath`), for a plugin's stdio
@@ -264,7 +267,7 @@ export const MAX_RUNNER_BYTES = 16 * 1024 * 1024;
 export function readRunnerFiles(root: string): { path: string; content: Uint8Array }[] {
   const files: { path: string; content: Uint8Array }[] = [];
   let bytes = 0;
-  const tooLarge = () => new PluginError(`The plugin is too large to run on a runner: more than ${MAX_RUNNER_FILES} files or 16 MiB`);
+  const tooLarge = () => new PluginError(`The plugin is too large to run on a runner: more than ${MAX_RUNNER_FILES} files or 11 MiB`);
   const walk = (dir: string, prefix: string) => {
     for (const entry of list(dir)) {
       if (entry.name === ".git") continue;

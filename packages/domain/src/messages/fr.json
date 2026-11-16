@@ -167,7 +167,8 @@
       "updateToAdd": "Mettez le plugin à jour pour ajouter {{name}}.",
       "changed": "{{name}} a changé depuis votre relecture : relisez-le.",
       "noFiles": "{{name}} ne peut pas s’exécuter comme outil de runner : Dispand ne garde aucun fichier de ce plugin pour les runners. Mettez le plugin à jour s’il suit le standard Agent Plugins.",
-      "entryTooLarge": "L’entrée de lancement de {{name}} est plus grande que ce qu’un runner accepte."
+      "entryTooLarge": "L’entrée de lancement de {{name}} est plus grande que ce qu’un runner accepte.",
+      "badName": "{{name}} ne peut pas s’exécuter sur un runner : le nom de son plugin n’est pas un nom que le standard Agent Plugins autorise."
     },
     "component": {
       "needsSetting": "Le serveur MCP {{server}} a besoin de {{name}}.",

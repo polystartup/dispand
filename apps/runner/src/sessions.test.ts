@@ -399,6 +399,24 @@ test("a plugin's stdio server starts behind the proxy from its own folder, once 
   expect(fake.servers[1]!.notes).toEqual(server);
 });
 
+test("a permission update while a plugin's files are fetched narrows the start it waits on", async () => {
+  const { events, fake, sessions, route, ref } = await pluginRunner();
+  const served = route.getMockImplementation()!;
+  let release!: () => void;
+  route.mockImplementation(async (...args) => {
+    await new Promise<void>((r) => (release = r));
+    return served(...args);
+  });
+  const started = sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), mcpServers: [{ ...ref, unasked: ["search"] }] } });
+  await waitFor(() => expect(route).toHaveBeenCalled());
+  await sessions.handle({ type: "session.permissions", sessionId: "ses_1", servers: [] });
+  release();
+  await started;
+  await ended(events, "ses_1");
+  expect(fake.calls).toHaveLength(1);
+  expect(fake.servers[0]?.notes).toBeUndefined();
+});
+
 test.each([
   ["one byte changed in the files, under the digest this runner allowed", (ref: { digest: string }) => ref, [{ path: "server.sh", content: Buffer.from("#!/bin/sh\n#") }], /^The files of the plugin notes have the digest sha256:[0-9a-f]{64}, not sha256:[0-9a-f]{64} that this runner allowed\.$/],
   ["an entry that gained an argument", (ref: { entry: object }) => ({ ...ref, entry: { ...ref.entry, args: ["${PLUGIN_DATA}", "--write"] } }), undefined, /^The launch entry of the plugin notes isn't the one this runner allowed\.$/],

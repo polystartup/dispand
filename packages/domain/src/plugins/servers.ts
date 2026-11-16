@@ -60,6 +60,8 @@ async function addRunnerServer(context: InitialContext & { ownerId: string }, in
   if (server.type !== "stdio") throw new ORPCError("CONFLICT", message("plugins.server.changed", { name: server.name }));
   if (!server.entry || !plugin.digest) throw new ORPCError("BAD_REQUEST", message("plugins.server.noFiles", { name: server.name }));
   if (!PluginServer.shape.entry.safeParse(server.entry).success) throw new ORPCError("BAD_REQUEST", message("plugins.server.entryTooLarge", { name: server.name }));
+  // A runner allows only the standard's names; the tool's page writes it into a command to copy.
+  if (!PluginServer.shape.plugin.safeParse(plugin.name).success) throw new ORPCError("BAD_REQUEST", message("plugins.server.badName", { name: server.name }));
   if (plugin.digest !== input.digest) throw new ORPCError("CONFLICT", message("plugins.server.changed", { name: server.name }));
   const [runner] = await context.db
     .select({ id: runners.id })

@@ -31,6 +31,8 @@ export type CodexDeps = {
   /** This session's skill packages (`skills.ts` `writeSkills`): the folder holding them, and each package's root. */
   pluginsDir?: string;
   pluginRoots?: string[];
+  /** Where each plugin server of the session starts, by its name: paths in its arguments are read from there. */
+  serverDirs?: Record<string, string>;
   /** The session's MCP servers (`mcp.ts` `codexMcpServers`): the config, and the header values for the app-server's environment. */
   mcp?: { servers: Record<string, JsonValue>; env: Record<string, string> };
   /** The name of Dispand's Job server among them, when the session has one: its tools run without a question. */
@@ -301,7 +303,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         // An action the agent lets run unasked: no question (the tools server runs it without an approval).
         const input = isObject(meta.tool_params) ? meta.tool_params : {};
         const runnerTool = agentServers.includes(p.serverName) && p.serverName !== "job_tools";
-        if (runnerTool && !runnerArgumentsAllowed(input, mcpDenied)) return decline;
+        if (runnerTool && !runnerArgumentsAllowed(input, mcpDenied, deps.serverDirs?.[p.serverName])) return decline;
         if (unasked.has(toolName)) return { action: "accept" as const, content: {}, _meta: null };
         const jobTool = agentServers.includes(p.serverName);
         if (bypass && !jobTool) return { action: "accept" as const, content: {}, _meta: null };

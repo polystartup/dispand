@@ -167,7 +167,8 @@
       "updateToAdd": "Update the plugin to add {{name}}.",
       "changed": "{{name}} changed since you reviewed it: look at it again.",
       "noFiles": "{{name}} can't run as a runner tool: Dispand keeps no files of this plugin for runners. Update the plugin if it follows the Agent Plugins standard.",
-      "entryTooLarge": "{{name}}'s launch entry is larger than a runner takes."
+      "entryTooLarge": "{{name}}'s launch entry is larger than a runner takes.",
+      "badName": "{{name}} can't run on a runner: its plugin's name isn't one the Agent Plugins standard allows."
     },
     "component": {
       "needsSetting": "The MCP server {{server}} needs {{name}}.",

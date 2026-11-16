@@ -811,6 +811,17 @@ test.each([true, false])("Codex runner grants protect configuration (Job context
   expect(questions(s.events)).toEqual([]);
 });
 
+test("a Codex plugin server's relative paths are read from its own folder by the guard", async () => {
+  const s = await run({
+    start: { mcpServers: [{ name: "mail", type: "plugin" as const, tool: "tool_1", plugin: "notes", digest: `sha256:${"0".repeat(64)}`, entry: { command: "./server" }, unasked: ["read_file"] }] },
+    deps: { jobServer: "job", secrets: ["/guarded/config.json"], serverDirs: { mail: "/guarded/plugins/notes" } },
+    turns: [[localApproval("read_file", { path: "../../config.json" }), localApproval("read_file", { path: "note.txt" }), message("Done")]],
+  });
+  await s.ended();
+  expect(await s.replyTo("r0")).toMatchObject({ action: "decline" });
+  expect(await s.replyTo("r1")).toMatchObject({ action: "accept" });
+});
+
 test("unasked Codex runner tools refuse targets linked from protected config directories", async () => {
   const base = await mkdtemp(join(tmpdir(), "runner-linked-"));
   made.push(base);
