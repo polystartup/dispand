@@ -87,17 +87,60 @@ export function parseArgs(text: string): unknown {
  * Dispand's own limits never gets the call refused (which would end the session, and every later
  * one, since the history is sent again each time):
  * - an image of at most 3.75 MB, which is 5 MB in base64, the strictest provider's limit (Anthropic);
- * - text up to 100,000 characters, the rest cut with a line saying so;
- * - 16 MiB of files in all per call (about 21 MB in base64, under the 32 MB request limit), the
- *   newest messages' first: older ones become a line.
+ * - a PDF of at most 100 pages (Anthropic's limit); a PDF whose pages can't be counted cheaply
+ *   (its page tree compressed) counts as 100;
+ * - text up to 100,000 characters per file, the rest cut with a line saying so;
+ * - per call, 16 MiB of files (about 21 MB in base64, under the 32 MB request limit) and 300,000
+ *   characters of text, where a PDF page counts as 3,000 (so about 100k tokens at most), the
+ *   newest messages' files first: older ones become a line. Tokens aren't counted: this keeps a
+ *   chat's files well within a context window, not exactly to it.
  */
 export const MAX_IMAGE_INPUT_BYTES = 3_750_000;
+export const MAX_PDF_PAGES = 100;
 export const MAX_TEXT_INPUT_CHARS = 100_000;
 export const MAX_FILE_INPUT_BYTES = 16 * 1024 * 1024;
+export const MAX_TEXT_CHARS_PER_CALL = 300_000;
+const PDF_PAGE_CHARS = 3_000;
 
-/** The items with the files past `MAX_FILE_INPUT_BYTES` (counted from the newest) marked `omitted`, their bytes dropped. */
+/** A PDF's pages, read cheaply: its page tree's largest `/Count`, else its `/Type /Page` objects; 100 when neither is in clear. */
+export function pdfPages(bytes: Uint8Array): number {
+  const text = Buffer.from(bytes).toString("latin1");
+  const counts = [...text.matchAll(/\/Type\s*\/Pages\b[^>]*?\/Count\s+(\d+)|\/Count\s+(\d+)[^>]*?\/Type\s*\/Pages\b/g)].map((m) => Number(m[1] ?? m[2]));
+  if (counts.length) return Math.max(...counts);
+  const pages = text.match(/\/Type\s*\/Page\b(?!s)/g)?.length ?? 0;
+  return pages || MAX_PDF_PAGES;
+}
+
+type Measured = { kind: "image"; mime: ImageType } | { kind: "pdf"; pages: number } | { kind: "text"; text: string } | { kind: "other" };
+
+/** What a file is, by its first bytes (never its name). */
+function measure(bytes: Uint8Array): Measured {
+  const image = detectImage(bytes);
+  if (image) return { kind: "image", mime: image };
+  if (Buffer.from(bytes.subarray(0, 5)).toString("latin1") === "%PDF-") return { kind: "pdf", pages: pdfPages(bytes) };
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    if (!text.includes("\0")) return { kind: "text", text };
+  } catch {
+    // Not UTF-8: a binary file.
+  }
+  return { kind: "other" };
+}
+
+/** The characters of a call's text budget a file takes as `fileInput` sends it (0: it goes as a line). */
+function charsOf(m: Measured): number {
+  if (m.kind === "text") return Math.min(m.text.length, MAX_TEXT_INPUT_CHARS);
+  if (m.kind === "pdf" && m.pages <= MAX_PDF_PAGES) return m.pages * PDF_PAGE_CHARS;
+  return 0;
+}
+
+/**
+ * The items with the files past a call's budgets (`MAX_FILE_INPUT_BYTES`, `MAX_TEXT_CHARS_PER_CALL`,
+ * counted from the newest) marked `omitted`, their bytes dropped.
+ */
 export function budgetFiles(items: ChatItem[]): ChatItem[] {
-  let left = MAX_FILE_INPUT_BYTES;
+  let bytesLeft = MAX_FILE_INPUT_BYTES;
+  let charsLeft = MAX_TEXT_CHARS_PER_CALL;
   const out = [...items];
   for (let i = out.length - 1; i >= 0; i--) {
     const item = out[i]!;
@@ -106,8 +149,11 @@ export function budgetFiles(items: ChatItem[]): ChatItem[] {
     for (let j = files.length - 1; j >= 0; j--) {
       const f = files[j]!;
       if (!f.bytes) continue;
-      if (f.bytes.length <= left) left -= f.bytes.length;
-      else files[j] = { id: f.id, name: f.name, omitted: true };
+      const chars = charsOf(measure(f.bytes));
+      if (f.bytes.length <= bytesLeft && chars <= charsLeft) {
+        bytesLeft -= f.bytes.length;
+        charsLeft -= chars;
+      } else files[j] = { id: f.id, name: f.name, omitted: true };
     }
     out[i] = { ...item, files };
   }
@@ -115,9 +161,9 @@ export function budgetFiles(items: ChatItem[]): ChatItem[] {
 }
 
 /**
- * What a model is given for an attached file, by its first bytes (never its name): a raster image
- * as image input, a PDF as document input (where the provider takes one: `pdf`), UTF-8 text as
- * text; anything else, a file past the bounds above, and a file gone, as a line saying so.
+ * What a model is given for an attached file (`measure`): a raster image as image input, a PDF as
+ * document input (where the provider takes one: `pdf`), UTF-8 text as text; anything else, a file
+ * past the bounds above, and a file gone, as a line saying so.
  */
 export type FileInput =
   | { kind: "image"; mime: ImageType; base64: string }
@@ -129,18 +175,15 @@ export function fileInput(file: ChatFile, options: { pdf: boolean } = { pdf: tru
   const named = `“${oneLine(file.name)}”`;
   if (file.omitted) return { kind: "note", text: `The attached file ${named} isn't sent again: with the files of later messages, it would pass what one model call takes.` };
   if (!file.bytes) return { kind: "note", text: `The attached file ${named} is no longer available.` };
-  const cannot = { kind: "note" as const, text: `The attached file ${named} (${file.bytes.length} bytes) is in a format or a size this model can't read: only images up to 3.75 MB, PDFs (where the model takes them) and text are.` };
-  const image = detectImage(file.bytes);
-  if (image) return file.bytes.length > MAX_IMAGE_INPUT_BYTES ? cannot : { kind: "image", mime: image, base64: Buffer.from(file.bytes).toString("base64") };
-  if (Buffer.from(file.bytes.subarray(0, 5)).toString("latin1") === "%PDF-") return options.pdf ? { kind: "pdf", base64: Buffer.from(file.bytes).toString("base64") } : cannot;
-  try {
-    const text = new TextDecoder("utf-8", { fatal: true }).decode(file.bytes);
-    if (!text.includes("\0")) {
-      const cut = text.length > MAX_TEXT_INPUT_CHARS ? `\n\n[Cut here: the file goes on for ${text.length - MAX_TEXT_INPUT_CHARS} more characters, past what one model call takes.]` : "";
-      return { kind: "text", text: `The attached file ${named}:\n${text.slice(0, MAX_TEXT_INPUT_CHARS)}${cut}` };
-    }
-  } catch {
-    // Not UTF-8: a binary file.
+  const cannot = { kind: "note" as const, text: `The attached file ${named} (${file.bytes.length} bytes) is in a format or a size this model can't read: only images up to 3.75 MB, PDFs of at most 100 pages (where the model takes them) and text are.` };
+  const m = measure(file.bytes);
+  if (m.kind === "image") return file.bytes.length > MAX_IMAGE_INPUT_BYTES ? cannot : { kind: "image", mime: m.mime, base64: Buffer.from(file.bytes).toString("base64") };
+  if (m.kind === "pdf") return options.pdf && m.pages <= MAX_PDF_PAGES ? { kind: "pdf", base64: Buffer.from(file.bytes).toString("base64") } : cannot;
+  if (m.kind === "text") {
+    if (m.text.length <= MAX_TEXT_INPUT_CHARS) return { kind: "text", text: `The attached file ${named}:\n${m.text}` };
+    // Never between the two halves of a surrogate pair.
+    const end = /[\ud800-\udbff]/.test(m.text[MAX_TEXT_INPUT_CHARS - 1]!) ? MAX_TEXT_INPUT_CHARS - 1 : MAX_TEXT_INPUT_CHARS;
+    return { kind: "text", text: `The attached file ${named}:\n${m.text.slice(0, end)}\n\n[Cut here: the file goes on for ${m.text.length - end} more characters, past what one model call takes.]` };
   }
   return cannot;
 }

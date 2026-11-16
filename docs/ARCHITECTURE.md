@@ -1170,9 +1170,12 @@
   anything else (or a file gone) a line saying so, for Anthropic, OpenAI Responses and chat
   completions alike (`fileInput`). Within bounds that keep a call from being refused, which would
   end the session and every later turn (the history is sent again): an image of at most 3.75 MB,
-  text cut at 100,000 characters, 16 MiB of files per call with the newest messages' first
-  (`budgetFiles`), and no PDF to an OpenAI-compatible server, which may not take one; past them
-  the file is a line too. A CLI session's `session.send` carries `files` (attachment id
+  a PDF of at most 100 pages (`pdfPages`: its page tree's `/Count`, else its page objects, 100
+  when compressed out of sight), text cut at 100,000 characters per file, and per call 16 MiB of
+  files and 300,000 characters of text (a PDF page counts as 3,000), the newest messages' first
+  (`budgetFiles`); no PDF to an OpenAI-compatible server, which may not take one. Past them the
+  file is a line too. Tokens aren't counted: these keep a chat's files well within a context
+  window, not exactly to it. A CLI session's `session.send` carries `files` (attachment id
   and path, `attachmentPath`: `.dispand/attachments/<id>/file<.ext>`, `isAttachmentPath` checked
   by `chatFiles` and the protocol schema) and a text that names the paths with the original names
   as words. The runner fetches each file at `GET /runner/attachments/<id>` (runner token; served
