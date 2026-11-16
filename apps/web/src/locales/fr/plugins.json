@@ -311,6 +311,7 @@
     "clearsSignIn": "Efface sa connexion, et ses en-têtes enregistrés quand l’origine ou le transport change : saisissez-les à nouveau sur la page de l’outil.",
     "skillTells_one": "Ce que la compétence {{name}} lui dit ({{count}} fichier)",
     "skillTells_other": "Ce que la compétence {{name}} lui dit ({{count}} fichiers)",
+    "later": "Arrive plus tard",
     "additions": "Nouveau dans cette version",
     "additionsNote": "La mise à jour n’en crée aucun. Mettre en place s’ouvre ensuite : il montre ce que chacun aurait le droit de faire, et crée ceux que vous choisissez.",
     "wording_one": "{{count}} changement de formulation",

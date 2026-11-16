@@ -273,6 +273,14 @@ test("the fixture's agents are set up as the plugin's, with their tables, skill 
   remove();
 });
 
+test("an agent whose consult the pick leaves out is made without it, and Set up says when it joins", async () => {
+  const { ctx, pluginId, remove } = await installed();
+  const harnessId = await cloudHarness(ctx);
+  const preview = await call(router.plugins.setupPreview, { id: pluginId, pick: { primitives: ["Clients", "Matters", "Research"], agents: [{ name: "Drafting", harnessId }] } }, { context: ctx });
+  expect(preview.waiting).toEqual([{ definition: "agent:Drafting", reason: say("plugins.setup.waiting.noConsult", { agent: "Intake and research" }) }]);
+  remove();
+});
+
 test("an agent on a table the pick leaves out gets the workspace table of that name, or waits for it", async () => {
   const { ctx, pluginId, remove } = await installed();
   const harnessId = await cloudHarness(ctx);

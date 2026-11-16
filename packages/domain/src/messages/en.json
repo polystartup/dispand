@@ -196,7 +196,9 @@
       "parentOther": "Its parent is another field naming the same table: make {{field}} the parent by hand.",
       "tableCount_one": "A table with {{count}} field.",
       "tableCount_other": "A table with {{count}} fields.",
-      "startsJobs": "Starts Jobs of {{agent}}."
+      "startsJobs": "Starts Jobs of {{agent}}.",
+      "laterAdded": "{{element}} names “{{name}}”, which this version adds: it joins {{element}} at the next update after you set “{{name}}” up.",
+      "laterCatalog": "{{element}} names the catalog tool “{{tool}}”, which you haven't added: it joins {{element}} at the next update after you add it in Settings → Tools."
     },
     "table": {
       "ownField": "A field of yours is called so.",
@@ -257,8 +259,9 @@
         "updateToAdd": "Update the plugin to add it.",
         "noTable": "No table “{{table}}” is set up or in the workspace: pick it too, or make it.",
         "noSkill": "Its skill “{{skill}}” wasn't installed with the plugin: the agent is made without it.",
-        "noTool": "“{{tool}}” isn't added as a tool yet: the agent is made without it.",
-        "noConsult": "It consults “{{agent}}”, which isn't set up yet: pick it too, or set it up again afterwards.",
+        "noTool": "“{{tool}}” isn't added as a tool yet: the agent is made without it, and gets it at the next update after you add it.",
+        "noCatalogTool": "The catalog tool “{{tool}}” isn't added yet: the agent is made without it, and gets it at the next update after you add it in Settings → Tools.",
+        "noConsult": "It consults “{{agent}}”, which isn't set up yet: pick it too, or it joins at the next update after you set it up.",
         "noAgent": "Its agent “{{agent}}” isn't set up: pick it too.",
         "noField": "Its field “{{field}}” isn't there yet: set it up again afterwards.",
         "noPollTool": "“{{tool}}” isn't added as a tool yet.",

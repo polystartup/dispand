@@ -465,6 +465,27 @@ test("a skill an agent gains with a new version is on the update's screen whole:
   }
 });
 
+test("the update's screen says what a definition names that only arrives later: an element this version adds, a catalog tool the owner lacks", async () => {
+  const { ctx, pluginId, files, preview, publish, remove } = await setUp();
+  try {
+    publish({
+      "com.dispand/agents/billing.md": NEW_AGENT,
+      "com.dispand/primitives/invoices.json": NEW_TABLE,
+      [DRAFTING]: edited(edited(files[DRAFTING]!, "tools: [\"catalog:gmail\"]", "tools: [\"catalog:gmail\", \"catalog:github\"]"), "    ask: false\n", "    ask: false\n  - agent: Billing\n    ask: true\n"),
+    });
+    const shown = await preview();
+    expect(shown.later).toEqual([
+      say("plugins.update.laterCatalog", { element: "Drafting", tool: "GitHub" }),
+      say("plugins.update.laterAdded", { element: "Drafting", name: "Billing" }),
+    ]);
+    // The update links neither: they join at the update after the owner adds the tool and sets Billing up.
+    await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed }, { context: ctx });
+    expect((await preview()).later).toEqual([say("plugins.update.laterCatalog", { element: "Drafting", tool: "GitHub" })]);
+  } finally {
+    remove();
+  }
+});
+
 test("a value written to a field after the update's screen was read refuses its removal: the screen is shown again", async () => {
   const { ctx, pluginId, files, preview, publish, remove } = await setUp();
   try {

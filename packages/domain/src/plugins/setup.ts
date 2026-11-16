@@ -350,7 +350,7 @@ async function agentSetup(
     for (const t of new Set(d.tools)) {
       const tool = toolOf.get(t);
       if (tool && !toolIds.some((id) => canonicalRef(id) === canonicalRef(tool))) toolIds.push(tool);
-      else waiting.push({ definition: key, reason: say("plugins.setup.waiting.noTool", { tool: t }) });
+      else waiting.push({ definition: key, reason: t.startsWith("catalog:") ? say("plugins.setup.waiting.noCatalogTool", { tool: catalogEntry(t.slice(8))?.name ?? t.slice(8) }) : say("plugins.setup.waiting.noTool", { tool: t }) });
     }
     const consults: { agentId: Ref; ask: boolean }[] = [];
     for (const c of d.consults) {

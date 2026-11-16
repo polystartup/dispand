@@ -196,7 +196,9 @@
       "parentOther": "Son parent est un autre champ qui désigne la même table : faites de {{field}} le parent à la main.",
       "tableCount_one": "Une table de {{count}} champ.",
       "tableCount_other": "Une table de {{count}} champs.",
-      "startsJobs": "Lance des Jobs de {{agent}}."
+      "startsJobs": "Lance des Jobs de {{agent}}.",
+      "laterAdded": "{{element}} nomme « {{name}} », que cette version ajoute : il le rejoint à la prochaine mise à jour, une fois « {{name}} » mis en place.",
+      "laterCatalog": "{{element}} nomme l’outil du catalogue « {{tool}} », que vous n’avez pas ajouté : il le rejoint à la prochaine mise à jour, une fois l’outil ajouté dans Réglages → Outils."
     },
     "table": {
       "ownField": "Un de vos champs porte déjà ce nom.",
@@ -257,8 +259,9 @@
         "updateToAdd": "Mettez le plugin à jour pour l’ajouter.",
         "noTable": "Aucune table « {{table}} » n’est configurée ni dans l’espace de travail : choisissez-la aussi, ou créez-la.",
         "noSkill": "Sa compétence « {{skill}} » n’a pas été installée avec le plugin : l’agent est créé sans elle.",
-        "noTool": "« {{tool}} » n’est pas encore ajouté comme outil : l’agent est créé sans lui.",
-        "noConsult": "Il consulte « {{agent}} », qui n’est pas encore configuré : choisissez-le aussi, ou configurez à nouveau ensuite.",
+        "noTool": "« {{tool}} » n’est pas encore ajouté comme outil : l’agent est créé sans lui, et l’obtient à la prochaine mise à jour une fois l’outil ajouté.",
+        "noCatalogTool": "L’outil du catalogue « {{tool}} » n’est pas encore ajouté : l’agent est créé sans lui, et l’obtient à la prochaine mise à jour une fois l’outil ajouté dans Réglages → Outils.",
+        "noConsult": "Il consulte « {{agent}} », qui n’est pas encore configuré : choisissez-le aussi, ou il le rejoint à la prochaine mise à jour une fois configuré.",
         "noAgent": "Son agent « {{agent}} » n’est pas configuré : choisissez-le aussi.",
         "noField": "Son champ « {{field}} » n’existe pas encore : configurez à nouveau ensuite.",
         "noPollTool": "« {{tool}} » n’est pas encore ajouté comme outil.",

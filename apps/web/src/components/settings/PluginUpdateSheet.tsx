@@ -58,6 +58,7 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
             busy={busy}
             onTake={(key, taken) => setTake((prev) => (taken ? [...prev.filter((k) => k !== key), key] : prev.filter((k) => k !== key)))}
             additions={preview.additions}
+            later={preview.later}
             stem={stem}
             onStem={(key, handed) => setStem((prev) => (handed ? [...prev.filter((k) => k !== key), key] : prev.filter((k) => k !== key)))}
           />

@@ -953,7 +953,9 @@ async function tablePlans(db: Db | Tx, ownerId: string, row: PluginRow, contents
 /** What an update to the plugin's current commit would do, for the owner to see: `reviewed` binds the update to it. */
 async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: boolean }, row: PluginRow) {
   const read = await latest(context, row);
-  const elements = await elementPlans(context.db, context.ownerId, row, read.contents, []);
+  const additions = additionsOf(row, read.contents);
+  const elements = await elementPlans(context.db, context.ownerId, row, read.contents, [], additions.map((a) => a.key));
+  const later = elements.flatMap((e) => e.later);
   const skill = await skillPlan(context.db, row, read.contents, []);
   const conflicts: ShownConflict[] = [...elements.flatMap((e) => e.plan.conflicts), ...(skill?.conflicts ?? [])];
   const changes: ShownChange[] = [...elements.flatMap((e) => e.plan.changes), ...(skill?.changes ?? [])];
@@ -971,7 +973,6 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
       return { name: p.name, files: files.map((f) => ({ path: f.path, text: shownFile(f.content) })) };
     });
   }
-  const additions = additionsOf(row, read.contents);
   const leaving = await leavingOf(context.db, context.ownerId, row, read.contents);
   const after = afterOf(elements);
   const removals = leaving.size ? await inUse(context.db, context.ownerId, row.id, leaving, after) : [];
@@ -983,7 +984,7 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
   // The plugin's own words for the version it goes to, when its changelog names it; the two commits either way.
   const { version } = read.contents;
   const releaseNotes = { from: row.sha, to: read.sha, version, text: version && read.changelog ? changelogSection(read.changelog, version) : null };
-  return { ...read, conflicts, changes, additions, leaving, after, removals, tables, shownTables, reviewed, releaseNotes, skillValues: skill?.values ?? {} };
+  return { ...read, conflicts, changes, additions, later, leaving, after, removals, tables, shownTables, reviewed, releaseNotes, skillValues: skill?.values ?? {} };
 }
 
 /**
@@ -1054,10 +1055,10 @@ const tableOf = (kind: UpdatableKind) => (kind === "agent" ? agentsTable : kind 
 
 const updatePreview = owner.input(Id).handler(async ({ input, context }) => {
   const row = await findPlugin(context.db, context.ownerId, input.id);
-  const { sha, conflicts, changes, additions, removals, shownTables, reviewed, releaseNotes } = await updatePlan(context, row);
+  const { sha, conflicts, changes, additions, later, removals, shownTables, reviewed, releaseNotes } = await updatePlan(context, row);
   // Where it is installed natively: named on the screen, moved with the update.
   const native = await nativeInstalls(context, row.id);
-  return { sha, conflicts, changes, additions, removals, tables: shownTables, reviewed, releaseNotes, native, names: await namesIn(context.db, context.ownerId, [conflicts, changes]) };
+  return { sha, conflicts, changes, additions, later, removals, tables: shownTables, reviewed, releaseNotes, native, names: await namesIn(context.db, context.ownerId, [conflicts, changes]) };
 });
 
 /** A name for each id of the owner's agents, tools, tables, fields and skill packages found in `values`, so the screen reads names. */

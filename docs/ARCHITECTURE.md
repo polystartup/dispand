@@ -1523,7 +1523,10 @@
   What the new version defines that the installed one didn't (`additionsOf`: definitions and
   HTTP servers) is returned as `additions` and is part of the token, but the update makes none
   of it: once it is applied, the row opens the plugin's Set up, whose items show what each new
-  element would be allowed to do and whose own `reviewed` token binds what is made. What the new version no longer has
+  element would be allowed to do and whose own `reviewed` token binds what is made. A definition of a staying agent or
+  trigger that names a catalog tool the owner lacks, or an element that version adds, is linked by no update until it
+  exists: `elementPlans` returns each as a `later` sentence, shown as `later` (informational, not in the token); Set up's
+  `waiting` says the same when it makes an agent without a tool or consult. What the new version no longer has
   (`leavingOf`: an agent, a table or a tool with no definition or component of its name; a
   trigger with no definition, or one that names another agent now) is returned as `removals`:
   `inUse` with that `leaving` set, so the plugin's elements the update keeps count as staying,

@@ -79,6 +79,7 @@ export function UpdatePlan({
   stem = [],
   onStem,
   additions = [],
+  later = [],
 }: {
   conflicts: UpdateConflict[];
   changes: UpdateChange[];
@@ -91,6 +92,8 @@ export function UpdatePlan({
   onStem?: (key: string, handed: boolean) => void;
   /** What this version adds: named here, made afterwards from the plugin's Set up. */
   additions?: UpdateAddition[];
+  /** What a definition names that only arrives at a later update. */
+  later?: Said[];
 }) {
   const { t } = useTranslation(["plugins", "messages"]);
   const { list } = useFormat();
@@ -171,6 +174,18 @@ export function UpdatePlan({
                 <span className="font-medium text-fg">{a.name}</span> <span className="text-faint">{t("update.dotKind", { kind: t(`update.added.${a.kind}`) })}</span>
                 {text(a.detail) && <span className="block text-muted">{text(a.detail)}</span>}
               </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {later.length > 0 && (
+        <section aria-labelledby="update-later" className="space-y-2">
+          <h3 id="update-later" className="font-medium text-muted">
+            {t("update.later")}
+          </h3>
+          <ul aria-labelledby="update-later" className="space-y-1 text-muted">
+            {later.map((l, i) => (
+              <li key={i}>{text(l)}</li>
             ))}
           </ul>
         </section>

@@ -154,7 +154,7 @@ test("plugins_install tells an agent its setup report in English sentences, neve
     pluginId: "plugin_1",
     setup: {
       outcomes: [{ $item: 0, tool: "tables_create", outcome: "refused", error: "It names an item that created nothing." }, { $item: 1, tool: "agents_create", outcome: "refused", error: "As it came" }, { $item: 2, tool: "x", outcome: "made" }],
-      waiting: [{ definition: "tool:a", reason: "“a” isn't added as a tool yet: the agent is made without it." }],
+      waiting: [{ definition: "tool:a", reason: "“a” isn't added as a tool yet: the agent is made without it, and gets it at the next update after you add it." }],
     },
   });
   expect(englishSetup({ pluginId: "plugin_1" })).toEqual({ pluginId: "plugin_1" });

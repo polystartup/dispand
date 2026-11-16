@@ -2,6 +2,8 @@ import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { Db, Tx } from "../db/client.ts";
 import { agentConsults, agents, agentSkills, agentTools, fields, skillPackages, skills, tables, tools, triggers } from "../db/schema.ts";
+import { say, type Text } from "../messages/index.ts";
+import { catalogEntry } from "../tools/catalog.ts";
 import { INTERACTION, TriggerConfig } from "../triggers/model.ts";
 import { hasPlaceholder } from "./components.ts";
 import { ELEMENT_FIELDS, type Overrides, sameValue, type Upstream } from "./overrides.ts";
@@ -82,7 +84,7 @@ export function planElement(kind: UpdatableKind, element: { id: string; name: st
 }
 
 type Plan = ReturnType<typeof planElement>;
-export type ElementPlan = { kind: UpdatableKind; id: string; name: string; plan: Plan; current: Record<string, unknown>; /** The plugin's values kept underneath before this update. */ previous: Upstream | null };
+export type ElementPlan = { kind: UpdatableKind; id: string; name: string; plan: Plan; current: Record<string, unknown>; /** The plugin's values kept underneath before this update. */ previous: Upstream | null; /** What its definition names that only arrives at a later update: said on the screen. */ later: Text[] };
 
 /** An agent's values as `agents.update` takes them, read now. */
 export async function agentValues(db: Db | Tx, agent: typeof agents.$inferSelect) {
@@ -112,9 +114,10 @@ const lower = (s: string) => s.toLowerCase();
  * The plan of every agent, tool and trigger of a plugin for an update to `contents`. A
  * definition's names are resolved to ids as a setup resolves them, by what the plugin's elements
  * are called in it; a name that finds nothing is left out, as a setup makes an agent without it.
- * `take`: the keys of the conflicts whose plugin value the owner takes.
+ * `take`: the keys of the conflicts whose plugin value the owner takes. `added`: the keys (`agent:`, `primitive:`,
+ * `server:` and a name) of what this version adds, which a definition may name before it is set up (`later`).
  */
-export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: string; layout: string }, contents: PluginContents, take: string[]): Promise<ElementPlan[]> {
+export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: string; layout: string }, contents: PluginContents, take: string[], added: string[] = []): Promise<ElementPlan[]> {
   const mine = (t: { pluginId: AnyPgColumn; ownerId: AnyPgColumn }) => and(eq(t.pluginId, plugin.id), eq(t.ownerId, ownerId));
   const [agentRows, toolRows, tableRows, triggerRows, [pkg]] = await Promise.all([
     db.select().from(agents).where(mine(agents)),
@@ -131,7 +134,7 @@ export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: s
     // A URL holding the owner's settings stays as they filled it.
     if (server?.type !== "http" || tool.url === null || tool.urlSealed !== null || hasPlaceholder(server.url) || !URL.canParse(server.url)) continue;
     const current = { name: tool.name, url: tool.url, transport: tool.transport };
-    plans.push({ kind: "tool", id: tool.id, name: tool.name, current, previous: tool.upstream, plan: planElement("tool", tool, tool, current, { url: server.url, transport: server.transport }, taken("tool", tool.id)) });
+    plans.push({ kind: "tool", id: tool.id, name: tool.name, current, previous: tool.upstream, later: [], plan: planElement("tool", tool, tool, current, { url: server.url, transport: server.transport }, taken("tool", tool.id)) });
   }
 
   // What a definition's names stand for, now.
@@ -141,6 +144,17 @@ export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: s
   const toolNamed = (name: string) => (name.startsWith("catalog:") ? catalog.find((t) => t.catalogId === name.slice("catalog:".length))?.id : toolRows.find((t) => t.pluginComponent === name)?.id);
   const agentNamed = (name: string) => agentRows.find((a) => a.pluginComponent !== null && lower(a.pluginComponent) === lower(name))?.id;
   const installed = pkg ? (await db.select({ name: skills.name }).from(skills).where(eq(skills.packageId, pkg.id))).map((s) => s.name) : [];
+  const adds = new Set(added.map(lower));
+  // What a definition names that isn't there yet: a catalog tool the owner lacks, or an element this version adds. Neither is linked until a later update.
+  const later = (element: string, toolNames: string[], agentNames: string[], tableNames: string[]): Text[] => [
+    ...toolNames.flatMap((n) => {
+      if (toolNamed(n)) return [];
+      if (n.startsWith("catalog:")) return [say("plugins.update.laterCatalog", { element, tool: catalogEntry(n.slice(8))?.name ?? n.slice(8) })];
+      return adds.has(`server:${lower(n)}`) ? [say("plugins.update.laterAdded", { element, name: n })] : [];
+    }),
+    ...agentNames.filter((n) => !agentNamed(n) && adds.has(`agent:${lower(n)}`)).map((name) => say("plugins.update.laterAdded", { element, name })),
+    ...tableNames.filter((n) => !tableNamed(n) && adds.has(`primitive:${lower(n)}`)).map((name) => say("plugins.update.laterAdded", { element, name })),
+  ];
   const found = <T>(values: (T | undefined)[]) => values.filter((v): v is T => v !== undefined);
 
   for (const agent of agentRows) {
@@ -165,7 +179,7 @@ export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: s
       : imported
         ? { systemPrompt: imported.systemPrompt }
         : null;
-    if (next) plans.push({ kind: "agent", id: agent.id, name: agent.name, current, previous: agent.upstream, plan: planElement("agent", agent, agent, current, next, taken("agent", agent.id)) });
+    if (next) plans.push({ kind: "agent", id: agent.id, name: agent.name, current, previous: agent.upstream, later: later(agent.name, d?.tools ?? [], d?.consults.map((c) => c.agent) ?? [], d && Array.isArray(d.tables) ? d.tables : []), plan: planElement("agent", agent, agent, current, next, taken("agent", agent.id)) });
   }
 
   for (const trigger of triggerRows) {
@@ -189,7 +203,7 @@ export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: s
     const parsed = config === undefined ? undefined : TriggerConfig.safeParse(config);
     if (parsed?.success) next.config = parsed.data;
     const current = { name: trigger.name, instructions: trigger.instructions, concurrency: trigger.concurrency, rateCap: trigger.rateCap, config: trigger.config };
-    plans.push({ kind: "trigger", id: trigger.id, name: trigger.name, current, previous: trigger.upstream, plan: planElement("trigger", trigger, trigger, current, next, taken("trigger", trigger.id)) });
+    plans.push({ kind: "trigger", id: trigger.id, name: trigger.name, current, previous: trigger.upstream, later: later(trigger.name, d.config.kind === "poll" ? [d.config.server ?? `catalog:${d.config.catalog}`] : [], [], d.config.kind === "primitive" && d.config.table !== INTERACTION ? [d.config.table] : []), plan: planElement("trigger", trigger, trigger, current, next, taken("trigger", trigger.id)) });
   }
   return plans;
 }
