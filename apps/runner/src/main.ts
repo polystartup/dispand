@@ -1,4 +1,5 @@
 import { commandSources, discoverCommands } from "./commands.ts";
+import { stagedSources } from "./native-skills.ts";
 import { discoverModels } from "./models.ts";
 // The runner's command line: `pair` once (install.sh runs it), then `run` (the systemd user unit).
 import { startUpdates } from "./updates.ts";
@@ -256,7 +257,7 @@ async function run(args: string[]) {
     onMessage: (msg) => {
       if (msg.type === "commands.request") {
         const catalog = msg.sessionId ? sessions.commands(msg.sessionId) : discoverCommands(msg.harness, msg.harness === "codex" ? codexPath : claudePath, env, config.roots[0]!);
-        void Promise.all([catalog, plugins.request({ action: "list" })]).then(([commands, report]) => commandSources(commands, msg.harness, report)).then(
+        void Promise.all([catalog, plugins.request({ action: "list" })]).then(([commands, report]) => stagedSources(commandSources(commands, msg.harness, report), msg.sessionId ? sessions.stagedPackages(msg.sessionId) : [])).then(
           (commands) => conn.reply({ type: "commands.replied", requestId: msg.requestId, commands }),
           () => conn.reply({ type: "commands.replied", requestId: msg.requestId, error: "Could not discover commands from the CLI" }),
         );

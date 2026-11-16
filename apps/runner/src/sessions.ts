@@ -17,7 +17,7 @@ import { writeDurable } from "./durable.ts";
 import type { RunnerConfig } from "./config.ts";
 import type { HarnessSession } from "./outcome.ts";
 import { codexMcpServers, mcpConfigFor, withJobServer } from "./mcp.ts";
-import { fetchPackages, removeSkills, sessionPluginsDir, writeSkills } from "./skills.ts";
+import { fetchPackages, removeSkills, sessionPluginsDir, type SkillPackage, writeSkills } from "./skills.ts";
 import { resolveWorkdir } from "./workdir.ts";
 import { fallbackPackages, nativeSkillAliases, resolveSkillAlias } from "./native-skills.ts";
 import type { NativePlugins } from "./plugins.ts";
@@ -106,6 +106,8 @@ export class Sessions {
   private readonly live = new Map<string, HarnessSession>();
   /** Each live session's run folder: a chat message's files are copied there. */
   private readonly folders = new Map<string, string>();
+  /** The skill packages each live session got as files (`writeSkills`), not through a native installation. */
+  private readonly staged = new Map<string, SkillPackage[]>();
   private readonly stopping = new Set<string>();
   // No parameter properties: `node src/main.ts` runs this file with type stripping only.
   private readonly config: RunnerConfig;
@@ -210,6 +212,10 @@ export class Sessions {
       if (this.queues.get(id) === settled) this.queues.delete(id);
     });
     return done;
+  }
+
+  stagedPackages(sessionId: string): SkillPackage[] {
+    return this.staged.get(sessionId) ?? [];
   }
 
   async commands(sessionId: string) {
@@ -381,6 +387,7 @@ export class Sessions {
       session.send = (text) => send(resolve(text));
       this.live.set(start.sessionId, session);
       this.folders.set(start.sessionId, cwd);
+      this.staged.set(start.sessionId, fallback);
       this.toldNotRunning.delete(start.sessionId);
       // One line at the start and one at the end: ids, the harness and the outcome only (no prompt, result or error text).
       const named = `session ${start.sessionId} of run ${start.cwd.runKey} (${start.harness})`;
@@ -394,6 +401,7 @@ export class Sessions {
         .finally(() => {
           this.live.delete(start.sessionId);
           this.folders.delete(start.sessionId);
+          this.staged.delete(start.sessionId);
           this.ending.delete(ended);
           const stopped = this.stopping.delete(start.sessionId);
           console.log(`dispand-runner: ${named} ended: ${stopped ? "stopped" : this.shuttingDown ? "aborted" : outcome}`);

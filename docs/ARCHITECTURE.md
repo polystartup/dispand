@@ -1826,8 +1826,13 @@ Native command bindings use verified installation source keys, never a matching 
 alone. The runner annotates catalog entries from its native inventory; the server compares
 those keys with the stored plugin revision or workspace package digest before attaching a
 Dispand skill id. An unrelated native command with the same invocation keeps precedence without
-granting access to the unrelated Dispand package or its tools. Exact Codex catalog identities
-also take precedence over compatibility aliases. Protocol 25 covers command discovery and all
+granting access to the unrelated Dispand package or its tools. A package the runner wrote into
+the live session as files carries the key Dispand sent with it on its own `<package>:<skill>`
+commands (a `~<hash>` name stays unbound), so choosing it again refreshes its required tools; a
+package a native installation replaced at the start was never written, and binds only through
+that installation. Exact Codex catalog identities also take precedence over compatibility
+aliases, the runner's package aliases included: Codex applies one only when no catalog name
+matches exactly. Protocol 25 covers command discovery and all
 of these identity fields together; the intermediate commits were not distributed as releases.
 
 ## English and French
