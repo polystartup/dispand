@@ -283,7 +283,7 @@ describe("bounds", () => {
         case "string": {
           if (!hasMax) unbounded.push(path);
           // Postgres text and JSONB can't hold U+0000 or a lone surrogate: every protocol string must refuse both.
-          const sample = ["a", "/a", "https://a", "a.md", "workspace", "eA=="].find((candidate) => schema.safeParse(candidate).success);
+          const sample = ["a", "/a", "https://a", "a.md", "workspace", "eA==", ".dispand/attachments/a/file"].find((candidate) => schema.safeParse(candidate).success);
           if (sample === undefined) unbounded.push(`${path} (no valid sample)`);
           else if (schema.safeParse(`${sample}\u0000`).success) unbounded.push(`${path} (accepts NUL)`);
           else if (schema.safeParse(`${sample}\ud800`).success) unbounded.push(`${path} (accepts a lone surrogate)`);
