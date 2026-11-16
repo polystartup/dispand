@@ -40,6 +40,17 @@ test("native rule snapshots are bounded and require a Job token", () => {
   for (const bad of [{ allow: ["x".repeat(1001)], deny: [] }, { allow: Array(201).fill("Bash"), deny: [] }, { allow: [], deny: Array(201).fill("Edit") }, { allow: ["Bash\u0000"], deny: [] }]) expect(() => parseServerMessage(message({ jobToken: "dj_abc", rules: bad }))).toThrow(ProtocolError);
 });
 
+/** The message of the ProtocolError `raw` is refused with. */
+function refusalOf(raw: string): string {
+  try {
+    parseRunnerMessage(raw);
+  } catch (error) {
+    if (error instanceof ProtocolError) return error.message;
+    throw error;
+  }
+  throw new Error("Message was accepted");
+}
+
 const serverMessages: ServerToRunner[] = [
   { type: "plugin.request", requestId: "req_native", operation: { action: "list" } },
   { type: "plugin.request", requestId: "req_preview", operation: { action: "remove", name: "demo", targets: ["codex"], dryRun: true } },
@@ -251,18 +262,20 @@ describe("bounds", () => {
       liveSessions: Array.from({ length: 500_000 }, (_, i) => i % 10),
     });
     const heap = process.memoryUsage().heapUsed;
-    const started = performance.now();
-    expect(() => parseRunnerMessage(raw)).toThrow(ProtocolError);
-    expect(performance.now() - started).toBeLessThan(500);
+    // One issue, not one per item: the length is checked before the (all invalid) items.
+    const refusal = refusalOf(raw);
+    expect(refusal.match(/✖/g)).toHaveLength(1);
+    expect(refusal).toContain("→ at liveSessions");
     expect(process.memoryUsage().heapUsed - heap).toBeLessThan(64 * 1024 * 1024);
   });
 
   test("a record with too many entries is refused before its entries are parsed", () => {
     const values = Object.fromEntries(Array.from({ length: 200_000 }, (_, i) => [`k${i}`, i]));
     const raw = JSON.stringify({ type: "event", seq: 1, sessionId: "s", event: { type: "outputs-accepted", values } });
-    const started = performance.now();
-    expect(() => parseRunnerMessage(raw)).toThrow(/at most 100 entries/);
-    expect(performance.now() - started).toBeLessThan(500);
+    // One issue, not one per entry: every value is a number where text is expected.
+    const refusal = refusalOf(raw);
+    expect(refusal.match(/✖/g)).toHaveLength(1);
+    expect(refusal).toContain("at most 100 entries");
   });
 
   test("every string, array, record and free-form value in the protocol has a maximum", () => {
