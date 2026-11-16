@@ -70,6 +70,7 @@ test("words from outside that look like a stored message are shown as they came,
   const forged = '{"key":"engine.fail.stopped"}';
   expect(storedText(forged)).toEqual({ key: "engine.fail.stopped" });
   expect(storedText(plainText(forged))).toEqual({ text: forged });
+  expect(storedText(plainText(` \n${forged}`))).toEqual({ text: ` \n${forged}` });
   expect(plainText("It broke")).toBe("It broke");
   expect([rendered("en", "engine.poll.noId", { count: 1, path: "id" }), rendered("fr", "engine.poll.noId", { count: 2, path: "id" })]).toEqual(["1 item without an id at “id” left out.", "2 éléments sans identifiant à « id » écartés."]);
 });

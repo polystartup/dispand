@@ -53,7 +53,7 @@ export function pollCaller(installed: InstalledTools, hub: Pick<RunnerHub, "call
         if (typeof target === "object" && "error" in target) return { ok: false, error: target.error };
         try {
           const reply = await hub.call(tool.runnerId!, { type: "tool.call", requestId: newId("req"), tool: target, action, arguments: args }, POLL_TIMEOUT_MS);
-          if (reply.error !== undefined) return { ok: false, error: reply.error };
+          if (reply.error !== undefined) return { ok: false, error: plainText(reply.error) };
           if (reply.isError) return { ok: false, error: stored("tools.poll.actionError") };
           const text = (reply.content ?? []).find((c) => c.type === "text" && typeof c.text === "string");
           return text ? parse(text.text as string, reply.hasMore === true) : { ok: false, error: stored("tools.poll.noText") };

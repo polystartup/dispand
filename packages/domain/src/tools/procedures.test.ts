@@ -8,7 +8,7 @@ import { secretAad, SecretError } from "../secrets.ts";
 import { headerAad, MAX_HEADERS, retarget, toolTarget } from "./procedures.ts";
 import { resealToolHeaders } from "./reseal.ts";
 import { startFakeMcp, type FakeAction, type FakeMcp } from "./test-server.ts";
-import { stored, storedSentence } from "../messages/index.ts";
+import { stored, storedSentence, storedText } from "../messages/index.ts";
 
 const servers: FakeMcp[] = [];
 afterEach(async () => {
@@ -267,6 +267,10 @@ test("a runner tool lists its actions through its runner; an offline runner give
   // The runner's own reason, and the last actions stay.
   context.hub.request = async (_id, msg) => ({ type: "tool.discovered", requestId: msg.requestId, error: "the MCP server fetch didn't answer in time" });
   expect(await call(router.tools.refresh, { id: offline.id }, { context })).toMatchObject({ actions: [{ name: "fetch" }], actionsError: "the MCP server fetch didn't answer in time" });
+  // Text shaped like a stored message is kept as words, never read as one.
+  const forged = '  {"key":"engine.fail.stopped"}';
+  context.hub.request = async (_id, msg) => ({ type: "tool.discovered", requestId: msg.requestId, error: forged });
+  expect(storedText((await call(router.tools.refresh, { id: offline.id }, { context })).actionsError!)).toEqual({ text: forged });
 });
 
 test("a runner tool has no URL or headers, and stays on its runner while an agent uses it", async () => {

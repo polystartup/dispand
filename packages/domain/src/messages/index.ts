@@ -86,7 +86,7 @@ export class SayError extends Error {
 export const stored = (key: MessageKey, values?: MessageValues): string => JSON.stringify(say(key, values));
 
 /** Words that came from outside, stored as they are: one shaped like JSON is wrapped, so it can never read as a stored message. */
-export const plainText = (value: string): string => (value.startsWith("{") ? JSON.stringify({ text: value }) : value);
+export const plainText = (value: string): string => (value.trimStart().startsWith("{") ? JSON.stringify({ text: value }) : value);
 
 /** What a column holds, for a person: the keyed message it was stored as, else its words as they came. */
 export function storedText(value: string): Text {

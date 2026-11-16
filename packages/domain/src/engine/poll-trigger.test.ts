@@ -12,7 +12,7 @@ import type { TriggerConfig } from "../triggers/model.ts";
 import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { MAX_WALK_PAGES, Scheduler, SCHEDULER_TICK_MS } from "./scheduler.ts";
-import { stored } from "../messages/index.ts";
+import { stored, storedText } from "../messages/index.ts";
 
 class FakeAdapter implements HarnessAdapter {
   starts: { harness: Harness; start: StartParams }[] = [];
@@ -88,11 +88,12 @@ async function setup() {
   const runnerCalls: unknown[] = [];
   // A runner whose `mail` server answers like the fake one, refusing a call while one to the same tool is under way, as runners do.
   const calling = new Set<string>();
-  const during: { call?: () => Promise<unknown>; hasMore?: boolean } = {};
+  const during: { call?: () => Promise<unknown>; hasMore?: boolean; error?: string } = {};
   const hub: Pick<RunnerHub, "call"> = {
     call: async (_runnerId, msg) => {
       runnerCalls.push(msg);
       await during.call?.();
+      if (during.error !== undefined) return { type: "tool.called", requestId: msg.requestId, error: during.error };
       const tool = JSON.stringify(msg.tool);
       if (calling.has(tool)) return { type: "tool.called", requestId: msg.requestId, error: "busy" };
       calling.add(tool);
@@ -406,6 +407,17 @@ test("a poll waiting for another of its runner's tool is checked again before it
   expect(s.runnerCalls).toHaveLength(1);
   const statuses = [...(await s.pollsOf(a.id)), ...(await s.pollsOf(b.id))].map((p) => p.status).sort();
   expect(statuses).toEqual(["baseline", "skipped"]);
+});
+
+test("a runner's error text shaped like a stored message is recorded as its words, never read as one", async () => {
+  const s = await setup();
+  await onRunner(s);
+  const trigger = await s.watch({ toolId: "tool_runner_mail", action: "list-mail-messages", arguments: { top: 10 } });
+  s.during.error = '{"key":"engine.fail.stopped"}';
+  await s.scheduler().tick();
+  const [poll] = await s.pollsOf(trigger.id);
+  expect(poll).toMatchObject({ status: "failed" });
+  expect(storedText(poll!.message!)).toEqual({ text: '{"key":"engine.fail.stopped"}' });
 });
 
 test("saving a poll trigger as it is, its arguments' keys in another order, keeps its waiting items", async () => {

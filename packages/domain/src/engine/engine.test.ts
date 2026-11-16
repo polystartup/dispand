@@ -21,7 +21,7 @@ import { captureTelemetry } from "../telemetry/testing.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
 import { Engine, RESUME_PROMPT, STOPPED, TOOL_RESTARTED } from "./engine.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, type StartParams } from "./harness.ts";
-import { stored } from "../messages/index.ts";
+import { stored, storedText } from "../messages/index.ts";
 
 /** Records what the engine asks of the harness. Online, every message reaches it at once; offline, none does. */
 class FakeAdapter implements HarnessAdapter {
@@ -219,6 +219,14 @@ test("events from another runner or a replayed seq are ignored", async () => {
   expect(run.status).toBe("running");
   const transcript = await engine.db.select().from(messages).where(eq(messages.runId, runId));
   expect(transcript.map((m) => m.text)).toEqual(["a"]);
+});
+
+test("a runner's error text shaped like a stored message fails the step with its words", async () => {
+  const { adapter, engine, emit, workflow } = await setup(buttonThenStep);
+  const runId = await engine.startRun(workflow.id);
+  await emit(adapter.starts[0]!.start.sessionId, { type: "error", message: '{"key":"engine.fail.stopped"}' });
+  const { steps } = await runOf(engine, runId);
+  expect(storedText(steps.n_note!.error!)).toEqual({ text: '{"key":"engine.fail.stopped"}' });
 });
 
 test("error fails the run", async () => {
