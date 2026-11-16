@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useFormat } from "../../lib/format.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
+import { ChatTranscript } from "../chat/Thread.tsx";
 import { Status } from "../workflow/Runs.tsx";
 
 type Step = RunSnapshot["steps"][number];
@@ -120,14 +121,7 @@ function StepCard({ step, name, agent, state }: { step: Step; name: string; agen
         )}
         {transcript.length > 0 && (
           <Fold title={t("transcript", { count: transcript.length })}>
-            <ol className="flex flex-col gap-2">
-              {transcript.map((m) => (
-                <li key={m.id} className="text-[13px]">
-                  <span className="mr-2 font-medium capitalize text-muted">{t(`role.${m.role}`)}</span>
-                  <span className="whitespace-pre-wrap break-words">{m.text}</span>
-                </li>
-              ))}
-            </ol>
+            <ChatTranscript messages={transcript} />
           </Fold>
         )}
         {asked.length > 0 && (

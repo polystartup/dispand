@@ -121,8 +121,8 @@ changes it updates this file.
   wrote is shown in many places; whatever a renderer makes of it, the browser can't be made
   to fetch from, or send to, another host. Scripts and styles are not restricted by it. A
   served file keeps its own stricter policy (`default-src 'none'; sandbox`).
-- **An agent's text is shown formatted, and loads nothing.** In the chat an agent's words go
-  through one component (`components/chat/AgentText.tsx`): an image shows only when its
+- **An agent's text is shown formatted, and loads nothing.** In the chat and in a Job's
+  transcript on its run page, an agent's words go through one component (`components/chat/AgentText.tsx`): an image shows only when its
   address is one of the app's own files (`/files/<id>`, nothing else: no scheme, no host, no
   `..`), and is otherwise replaced by its description; a link is never an anchor but a
   button that shows its destination and opens it in a new window on a click, and only for

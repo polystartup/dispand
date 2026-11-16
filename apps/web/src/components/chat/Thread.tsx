@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { createContext, type ComponentProps, type ReactNode, type RefObject, useContext, useEffect, useMemo, useState } from "react";
 import { orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
-import { CONSULT_TOOL, heldAttachments, QUESTION_TOOL, threadMessages, TRACE_TOOL, useRunThread } from "../../lib/assistant-runtime.ts";
+import { CONSULT_TOOL, heldAttachments, QUESTION_TOOL, threadMessages, TRACE_TOOL, useRunThread, useTranscript } from "../../lib/assistant-runtime.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import { ProposalItems } from "../questions/ProposalItems.tsx";
 import { approvalWords, QuestionForm } from "../questions/QuestionForm.tsx";
@@ -287,6 +287,20 @@ export function ChatThread({ run, chatStepId, canSend, onSend, onAttach, childre
           </ThreadPrimitive.Root>
         </ComposerApproval.Provider>
       </Questions.Provider>
+    </AssistantRuntimeProvider>
+  );
+}
+
+/** A step's conversation on the run page, read-only: the chat's messages without its composer. Its questions show in their own section. */
+export function ChatTranscript({ messages }: { messages: RunSnapshot["messages"] }) {
+  const runtime = useTranscript(messages);
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      <ThreadPrimitive.Root>
+        <div role="list" className="flex flex-col gap-4">
+          <ThreadPrimitive.Messages components={{ UserMessage: OwnerMessage, AssistantMessage: AgentMessage }} />
+        </div>
+      </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>
   );
 }

@@ -387,7 +387,9 @@
   messages and questions into thread messages, a tool's trace and a question as tool-call
   parts; `useRunThread` feeds `useExternalStoreRuntime`), and `components/chat/Thread.tsx`
   renders it over the library's unstyled primitives, a question through `QuestionForm` and
-  `questions.answer`. A pending Approval of a proposal carries its `proposalView` in the run's
+  `questions.answer`. A Job's run page shows each step's transcript on the same thread,
+  read-only (`ChatTranscript` over `useTranscript`: the step's messages only, no composer;
+  its questions keep their own section). A pending Approval of a proposal carries its `proposalView` in the run's
   snapshot and stream (`runs.get`, `runs.stream`): the thread shows it whole (`ProposalItems`,
   no control of its own) and, while it is the chat's one waiting question (`composerApproval`; with
   several, each card keeps `QuestionForm`'s own controls), `ChatPanel`'s composer answers it, Approve or Mod+Enter on an

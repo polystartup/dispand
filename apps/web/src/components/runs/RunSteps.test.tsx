@@ -2,9 +2,10 @@
 import { addStep, defaultWorkflowDef, type WorkflowDef } from "@dispand/domain/workflows/model";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { createI18n } from "../../lib/i18n.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
+import "../../test/jsdom-shims.ts";
 import { RunSteps } from "./RunSteps.tsx";
 
 afterEach(cleanup);
@@ -131,4 +132,32 @@ test("the steps are in French: iterations, status, the running time and the fold
   expect(screen.getAllByText("Sorties").length).toBeGreaterThan(0);
   expect(screen.getAllByText(/toujours en cours/).length).toBeGreaterThan(0);
   expect(screen.getByText("en attente d’une réponse")).toBeTruthy();
+});
+
+test("a step's transcript is the chat's thread, read-only: the owner's words with their files, the tools used, the agent's formatted text", async () => {
+  seconds = 0;
+  const msg = (id: string, role: "user" | "assistant" | "tool", text: string, s: number, files?: { id: string; name: string }[]) =>
+    ({ id, runId: "run_1", stepRunId: "s0", role, text, createdAt: new Date(2026, 10, 7, 9, 1, s), ...(files ? { files } : {}) }) as unknown as RunSnapshot["messages"][number];
+  const fetch = vi.spyOn(globalThis, "fetch");
+  const messages = [
+    msg("m1", "user", "Plan my day", 1, [{ id: "att_1", name: "agenda.pdf" }]),
+    msg("m2", "tool", "Read agenda.pdf", 2),
+    msg("m3", "assistant", "Here is **the plan**.\n\n![tracker](https://evil.example/pixel.png)\n\n[see](https://evil.example/page)", 3),
+  ];
+  const { container } = render(<RunSteps state={{ ...snapshot([row("s0", "n_brief", 0)]), messages }} def={workflow()} agentNames={new Map()} />);
+  const fold = screen.getByText("Transcript (3)").closest("details")!;
+  const items = within(fold).getAllByRole("listitem");
+  expect(items).toHaveLength(3);
+  expect(within(items[0]!).getByText("Plan my day")).toBeTruthy();
+  expect(within(items[0]!).getByText("agenda.pdf")).toBeTruthy();
+  expect(items[1]!.textContent).toBe("Read agenda.pdf");
+  expect((await within(items[2]!).findByText("the plan")).tagName).toBe("STRONG");
+  // Agent text loads nothing: the remote image is not an <img>, the link is a button that names where it goes.
+  expect(container.querySelector("img")).toBeNull();
+  expect(container.querySelector("a[href]")).toBeNull();
+  expect(within(items[2]!).getByText("[image not shown: tracker]")).toBeTruthy();
+  expect(within(items[2]!).getByRole("button", { name: /see/ }).getAttribute("title")).toBe("https://evil.example/page");
+  // Read-only: no composer.
+  expect(within(fold).queryByRole("textbox")).toBeNull();
+  expect(fetch).not.toHaveBeenCalled();
 });

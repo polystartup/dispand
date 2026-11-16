@@ -19,11 +19,6 @@
   "prompt": "Prompt",
   "transcript": "Transcript ({{count}})",
   "questions": "Questions ({{count}})",
-  "role": {
-    "user": "user",
-    "assistant": "assistant",
-    "tool": "tool"
-  },
   "page": {
     "failed": "Could not load this run.",
     "runs": "Runs",
