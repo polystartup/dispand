@@ -88,6 +88,8 @@ test("a tables refusal shows in French, with its plural and the name the person 
 
 test("a trigger refusal, a schedule's and a workflow's issue show in French, their values kept as typed", async () => {
   expect(await refusal((await client("fr")).fails.trigger())).toBe("Seul un agent doté de la Boîte de réception peut être lancé par des Questions : donnez-lui d’abord la Boîte de réception.");
+  const config = { kind: "primitive", tableId: "interaction", operations: ["updated"] };
+  expect(await refusal((await client("fr")).triggers.create({ agentId: "a", name: "T", config } as never))).toBe("Ces changements ne sont pas de ceux de ce que le déclencheur surveille.");
   expect(await refusal((await client("fr")).fails.schedule())).toBe("Utilisez 5 champs : minute heure jour mois jour de la semaine.");
   expect(await refusal((await client("fr")).fails.issue())).toBe("{{go.x}} : « go » est un bouton, il n’a pas de valeurs");
   expect(await refusal((await client("en")).fails.issue())).toBe("{{go.x}}: “go” is a button, it has no values");

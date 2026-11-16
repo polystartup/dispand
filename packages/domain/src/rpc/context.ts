@@ -4,7 +4,7 @@ import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
 import type { Engine } from "../engine/engine.ts";
 import { logError } from "../log.ts";
-import { type Message, message } from "../messages/index.ts";
+import { external, isMessageKey, type Message, message } from "../messages/index.ts";
 import type { RunnerHub } from "../runners/hub.ts";
 import type { SecretBox } from "../secrets.ts";
 import { annotate, meter, recordError, tracer } from "../telemetry/index.ts";
@@ -93,7 +93,7 @@ const traced = os.$context<InitialContext>().middleware(({ path, next }) => {
 });
 
 /** Zod's issue, as oRPC's ValidationError carries it (`issues` are Zod's own). */
-type Issue = { code: string; path: PropertyKey[]; origin?: string; minimum?: unknown; maximum?: unknown; divisor?: unknown; keys?: string[]; values?: unknown[] };
+type Issue = { code: string; message?: string; path: PropertyKey[]; origin?: string; minimum?: unknown; maximum?: unknown; divisor?: unknown; keys?: string[]; values?: unknown[] };
 
 /** An input its schema rejected, as the message of its first issue: `validation.<code>`, the field's path and limits as values. */
 export function validationKey(issue: Issue): Message {
@@ -132,6 +132,11 @@ const validation = os.$context<InitialContext>().middleware(async ({ next }) => 
     const cause: unknown = err instanceof ORPCError && err.code === "BAD_REQUEST" ? err.cause : undefined;
     const issue = cause instanceof ValidationError ? (cause.issues[0] as Issue | undefined) : undefined;
     if (!issue) throw err;
+    // A refinement's own message (a key, or words of an area not yet keyed) is kept; zod's default is not one.
+    if (issue.code === "custom" && issue.message && issue.message !== "Invalid input") {
+      if (isMessageKey(issue.message)) throw new ORPCError("BAD_REQUEST", message(issue.message));
+      throw new ORPCError("BAD_REQUEST", external(issue.message));
+    }
     const { key, values } = validationKey(issue);
     throw new ORPCError("BAD_REQUEST", message(key, values));
   }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { MessageKey } from "../messages/index.ts";
 import { StorableText } from "../text.ts";
 
 // Pure: what a trigger is, for the procedures, the engine and the web app.
@@ -41,10 +42,10 @@ export const TriggerConfig = z.discriminatedUnion("kind", [
       fields: z.array(z.string().max(100)).min(1).max(100).optional(),
     })
     .refine((c) => c.operations.every((o) => (c.tableId === INTERACTION ? INTERACTION_OPERATIONS : ROW_OPERATIONS).includes(o as never)), {
-      message: "These changes aren't ones of what the trigger watches",
+      message: "triggers.invalid.operations" satisfies MessageKey,
       path: ["operations"],
     })
-    .refine((c) => c.tableId !== INTERACTION || !c.fields, { message: "A Question or an Approval has no fields", path: ["fields"] }),
+    .refine((c) => c.tableId !== INTERACTION || !c.fields, { message: "triggers.invalid.noFields" satisfies MessageKey, path: ["fields"] }),
   /**
    * Fired by a poll: every `interval` seconds the scheduler calls `action` of the tool with
    * `arguments` (where `{{lastPoll}}` stands for the time the newest recorded item was found, and
@@ -57,7 +58,7 @@ export const TriggerConfig = z.discriminatedUnion("kind", [
     kind: z.literal("poll"),
     toolId: z.string().max(100),
     action: z.string().min(1).max(200),
-    arguments: z.record(z.string().max(200), z.unknown()).refine((a) => JSON.stringify(a).length <= MAX_POLL_ARGUMENTS, "The arguments are larger than 16 KiB").default({}),
+    arguments: z.record(z.string().max(200), z.unknown()).refine((a) => JSON.stringify(a).length <= MAX_POLL_ARGUMENTS, "triggers.invalid.argumentsTooLarge" satisfies MessageKey).default({}),
     itemsPath: z.string().trim().max(200).default(""),
     idPath: z.string().trim().min(1).max(200),
     interval: z.number().int().min(60).max(86_400).default(300),

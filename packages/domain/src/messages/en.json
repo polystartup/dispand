@@ -237,7 +237,12 @@
     "fieldNotInTable": "A watched field isn't one of the table's.",
     "cantReadTable": "The agent can't read this table: give it data on the table first.",
     "fieldChanged": "This field changed meanwhile.",
-    "kindFixed": "A trigger's kind can't change."
+    "kindFixed": "A trigger's kind can't change.",
+    "invalid": {
+      "operations": "These changes aren't ones of what the trigger watches.",
+      "noFields": "A Question or an Approval has no fields.",
+      "argumentsTooLarge": "The arguments are larger than 16 KiB."
+    }
   },
   "workflows": {
     "notFound": "This workflow doesn't exist.",

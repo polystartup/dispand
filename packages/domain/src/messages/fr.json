@@ -237,7 +237,12 @@
     "fieldNotInTable": "Un champ surveillé n’appartient pas à la table.",
     "cantReadTable": "L’agent ne peut pas lire cette table : donnez-lui d’abord l’accès aux données de la table.",
     "fieldChanged": "Ce champ a changé entre-temps.",
-    "kindFixed": "Le type d’un déclencheur ne peut pas changer."
+    "kindFixed": "Le type d’un déclencheur ne peut pas changer.",
+    "invalid": {
+      "operations": "Ces changements ne sont pas de ceux de ce que le déclencheur surveille.",
+      "noFields": "Une Question ou une Approbation n’a pas de champs.",
+      "argumentsTooLarge": "Les arguments dépassent 16 Kio."
+    }
   },
   "workflows": {
     "notFound": "Ce workflow n’existe pas.",

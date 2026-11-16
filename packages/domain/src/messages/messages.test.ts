@@ -3,7 +3,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import ts from "typescript";
 import { expect, test } from "vitest";
-import { validationKey } from "../rpc/context.ts";
+import { call } from "@orpc/server";
+import { z } from "zod";
+import { base, validationKey } from "../rpc/context.ts";
 import en from "./en.json";
 import fr from "./fr.json";
 import { external, isMessageKey, message, reasonOf } from "./index.ts";
@@ -115,4 +117,13 @@ test("the walk judges the message's form, not where it comes from", () => {
   expect(judge('new ORPCError("BAD_REQUEST", message("questions.notFound") + message("questions.answer.mismatch"))')).toBe(false);
   expect(judge('new EngineError("INVALID", "The chat is over")')).toBe(false);
   expect(judge('new EngineError("INVALID", message("questions.answer.chooseScope"))')).toBe(true);
+});
+
+test("a refinement's own message survives validation: a key as that message, other words as external text", async () => {
+  const keyed = base.input(z.string().refine(() => false, "questions.notFound")).handler(() => null);
+  const plain = base.input(z.string().refine(() => false, "Plain words")).handler(() => null);
+  const bare = base.input(z.string().refine(() => false)).handler(() => null);
+  await expect(call(keyed, "x", { context: {} as never })).rejects.toMatchObject({ message: "This question doesn't exist.", data: { key: "questions.notFound" } });
+  await expect(call(plain, "x", { context: {} as never })).rejects.toMatchObject({ message: "Plain words", data: { external: true } });
+  await expect(call(bare, "x", { context: {} as never })).rejects.toMatchObject({ data: { key: "validation.custom", values: { field: "input" } } });
 });
