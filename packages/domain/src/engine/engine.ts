@@ -1431,7 +1431,7 @@ export class Engine {
         .returning();
       if (!step) return null;
       annotate({ "dispand.job.id": step.runId, "dispand.step.id": step.id });
-      return { step, next: await this.apply(tx, step, event, out) };
+      return { step, next: await this.apply(tx, step, event, out, from.runnerId === CLOUD_SOURCE) };
     });
     if (!result) {
       // A replay of an event already applied: what it started may not have finished (advance
@@ -1808,7 +1808,8 @@ export class Engine {
    * Applies one new event inside its transaction. "advance": a step completed (the run may go
    * on); "resume": the runner doesn't have the session (it lost it), so it starts again.
    */
-  private async apply(tx: Tx, step: StepRow, event: HarnessEvent, out: Out[]): Promise<"advance" | "resume" | null> {
+  /** `own`: the event is Dispand's own (the cloud runner's), so its error message may be a stored one; a runner's words are stored as they came. */
+  private async apply(tx: Tx, step: StepRow, event: HarnessEvent, out: Out[], own = false): Promise<"advance" | "resume" | null> {
     // A closed step keeps its transcript and questions as they were.
     if (!OPEN_STEP.includes(step.status)) return null;
     switch (event.type) {
@@ -1929,7 +1930,7 @@ export class Engine {
           await this.unconfirm(tx, step);
           return "resume";
         }
-        await this.fail(tx, step, plainText(event.message), out);
+        await this.fail(tx, step, own ? event.message : plainText(event.message), out);
         return null;
     }
   }
