@@ -8,6 +8,8 @@ import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { PushSender, type PushPayload, type Send } from "./sender.ts";
 
+const tick = () => new Promise((resolve) => setTimeout(resolve, 3));
+
 const SECRET = "Ship the order to the customer at 12 Example Street?";
 
 /** The owner signed in, an agent "Drafting" with a Job, and a fake push service that records what reaches each endpoint. */
@@ -22,6 +24,8 @@ async function setup() {
   let n = 0;
   /** A new pending item of the Job: an Approval, or a Question with choices. */
   const ask = async (kind: "approval" | "question" = "question") => {
+    // PGlite's clock ticks in milliseconds: an item asked in the subscription's millisecond would tie with it.
+    await tick();
     const id = `q_push_${++n}`;
     await context.db.insert(questions).values({
       id,
@@ -50,8 +54,10 @@ async function setup() {
     }
     sent.push({ endpoint: subscription.endpoint, payload: JSON.parse(payload) as PushPayload });
   });
-  const subscribe = (device: string, language: "en" | "fr" = "en") =>
-    call(router.push.subscribe, { endpoint: `https://push.example.com/${device}`, keys: { p256dh: "p256dh-key", auth: "auth-key" }, language }, { context });
+  const subscribe = async (device: string, language: "en" | "fr" = "en") => {
+    await tick();
+    await call(router.push.subscribe, { endpoint: `https://push.example.com/${device}`, keys: { p256dh: "p256dh-key", auth: "auth-key" }, language }, { context });
+  };
   const sender = (windowMs = 10_000) => {
     const s = new PushSender(context.db, context.engine, context.secrets, { subject: "mailto:push@example.com", send, windowMs, retryMs: 60_000 });
     onTestFinished(() => s.stop());
