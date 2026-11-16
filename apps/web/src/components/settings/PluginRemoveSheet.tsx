@@ -51,7 +51,7 @@ function RemoveForm({ id, preview, onClose }: { id: string; preview: Preview; on
         const plan = await api.runners.workspacePlugin({ ...request, dryRun: true });
         if (plan.error || plan.blocked || !plan.revision) throw { code: "CONFLICT", message: plan.error ?? t("remove.blocked") };
         const result = await api.runners.workspacePlugin({ ...request, dryRun: false, revision: plan.revision });
-        if (result.error || result.results?.some((r) => r.status === "failed")) throw { code: "CONFLICT", message: result.error ?? t("remove.nativeFailed") };
+        if (result.error || result.blocked || result.results?.some((r) => r.status === "failed")) throw { code: "CONFLICT", message: result.error ?? t(result.blocked ? "remove.blocked" : "remove.nativeFailed") };
         setRemovedNative((prev) => new Set([...prev, target.harness.id]));
         void client.invalidateQueries({ queryKey: ["native-plugins"] });
       }

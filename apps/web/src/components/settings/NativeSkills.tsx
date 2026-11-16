@@ -83,10 +83,10 @@ export function NativePluginAction({ harnessId, resource, name, action, onDone }
       {action === "remove" && <p className="text-[13px] text-muted">{t("native.removeNote")}</p>}
       {preview.isPending && <p className="text-[13px] text-muted">{t("native.preparing")}</p>}
       {preview.data?.changes && !apply.isSuccess && <ul className="text-[13px]">{preview.data.changes.map((c, i) => <li key={i}>{t("native.change", { target: c.harness ?? t("native.plugin"), change: state(c.action) })}</li>)}</ul>}
-      {preview.data?.blocked && <p role="alert" className="text-[13px] text-danger">{t("native.blocked")}</p>}
+      {(preview.data?.blocked || result?.blocked) && <p role="alert" className="text-[13px] text-danger">{t("native.blocked")}</p>}
       {(preview.data?.error || result?.error || error) && <p role="alert" className="text-[13px] text-danger">{result?.error ?? preview.data?.error ?? refusal(error, t("native.failed"))}</p>}
       {result?.results && <ul aria-label={t("native.results")} className="text-[13px]">{result.results.map((r, i) => <li key={i}>{t("native.change", { target: r.harness ?? t("native.plugin"), change: state(r.status) })}</li>)}</ul>}
-      {apply.isSuccess && !result?.error && <p role="status" className="text-[13px]">{t("native.done")}</p>}
+      {apply.isSuccess && !result?.error && !result?.blocked && <p role="status" className="text-[13px]">{t("native.done")}</p>}
       <div className="flex gap-2">
         {!apply.isSuccess && !apply.isError && <Button type="button" disabled={!preview.data?.revision || preview.data.blocked || !!preview.data.error || apply.isPending} onClick={() => apply.mutate(preview.data!.revision!)}>{apply.isPending ? t("native.applying") : t(`native.apply_${action}`)}</Button>}
         <Button type="button" variant="ghost" disabled={apply.isPending} onClick={onDone}>{t("native.close")}</Button>
