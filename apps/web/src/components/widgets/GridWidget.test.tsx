@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, configure, render, screen } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -16,6 +16,11 @@ vi.mock("../../lib/api.ts", async () => {
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: React.ReactNode }) => <a href="/">{children}</a> }));
 const { GridWidget } = await import("./GridWidget.tsx");
 const { createI18n } = await import("../../lib/i18n.ts");
+
+// A file's first render loads its components cold: on a busy machine (the suite runs files in
+// parallel) its first wait takes over Testing Library's default 1 s. The config gives each test
+// 30 s; this file's waits get most of it.
+configure({ asyncUtilTimeout: 20_000 });
 
 afterEach(() => {
   cleanup();

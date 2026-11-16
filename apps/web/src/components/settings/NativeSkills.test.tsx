@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, configure, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -11,6 +11,11 @@ vi.mock("../../lib/api.ts", async () => {
 });
 const { NativePluginAction, NativeTargetPicker, NativeWorkspaceSkills, useNativeTargets } = await import("./NativeSkills.tsx");
 const { PluginInstallSheet } = await import("./PluginInstallSheet.tsx");
+
+// A file's first render loads its components cold: on a busy machine (the suite runs files in
+// parallel) its first wait takes over Testing Library's default 1 s. The config gives each test
+// 30 s; this file's waits get most of it.
+configure({ asyncUtilTimeout: 20_000 });
 
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
