@@ -184,9 +184,9 @@ test("tools.delete and skills.delete refused while an agent uses them", async ()
   const review = await skill(context, "review", ["tool_gh"]);
   const agent = await call(router.agents.create, { name: "Reviewer", harnessId: harness.id, systemPrompt: "", skillPackageIds: [review], toolIds: ["tool_fc"] }, { context });
   await expect(call(router.skills.delete, { packageId: review }, { context })).rejects.toMatchObject({ code: "CONFLICT", message: "The agent “Reviewer” uses this skill" });
-  await expect(call(router.tools.delete, { id: "tool_fc" }, { context })).rejects.toMatchObject({ code: "CONFLICT", message: "The agent “Reviewer” uses this tool" });
+  await expect(call(router.tools.delete, { id: "tool_fc" }, { context })).rejects.toMatchObject({ code: "CONFLICT", message: "The agent “Reviewer” uses this tool." });
   // Required by a skill: every agent with the skill gets it.
-  await expect(call(router.tools.delete, { id: "tool_gh" }, { context })).rejects.toMatchObject({ code: "CONFLICT", message: "The skill “review” requires this tool" });
+  await expect(call(router.tools.delete, { id: "tool_gh" }, { context })).rejects.toMatchObject({ code: "CONFLICT", message: "The skill “review” requires this tool." });
 
   await call(router.agents.delete, { id: agent.id }, { context });
   await call(router.skills.delete, { packageId: review }, { context });
@@ -206,10 +206,10 @@ test("runner tool on a cloud harness, or on another runner than the harness's, r
     call(router.agents.create, { name: "A", harnessId, systemPrompt: "", ...extra }, { context });
 
   expect(await agent(harness.id, { toolIds: ["tool_here"] })).toMatchObject({ harnessId: harness.id });
-  await expect(agent(cloud.id, { toolIds: ["tool_here"] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Runner tools only work with CLI harnesses: “tool_here” runs on a runner" });
-  await expect(agent(harness.id, { toolIds: ["tool_there"] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "The tool “tool_there” runs on another runner than the agent's harness" });
+  await expect(agent(cloud.id, { toolIds: ["tool_here"] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Runner tools only work with CLI harnesses: “tool_here” runs on a runner." });
+  await expect(agent(harness.id, { toolIds: ["tool_there"] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "The tool “tool_there” runs on another runner than the agent's harness." });
   const fetcher = await skill(context, "fetcher", ["tool_there"]);
-  await expect(agent(harness.id, { skillPackageIds: [fetcher] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "The tool “tool_there” runs on another runner than the agent's harness" });
+  await expect(agent(harness.id, { skillPackageIds: [fetcher] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "The tool “tool_there” runs on another runner than the agent's harness." });
   // Update too.
   const plain = await agent(cloud.id, {});
   await expect(call(router.agents.update, { ...plain, toolIds: ["tool_here"] }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });

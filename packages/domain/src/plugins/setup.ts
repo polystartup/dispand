@@ -432,7 +432,7 @@ async function agentSetup(
             ? await pollProblem(db, ownerId, agentId, toolId, t.config.action)
             : await toolPollProblem(db, ownerId, toolId, t.config.action, () => definitions.some((d) => same(d.name, t.agent) && d.tools.includes(name)));
         if (problem) {
-          wait({ text: problem });
+          wait(problem);
           continue;
         }
       }

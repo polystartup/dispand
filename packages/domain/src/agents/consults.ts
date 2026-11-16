@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { agentConsults, agents } from "../db/schema.ts";
+import { type Message, say } from "../messages/index.ts";
 
 // Consults: an agent asks another agent one question mid-Job. Who may consult whom is listed on
 // the asking agent (`agent_consults`), each entry a grant. A question steers the agent that
@@ -14,19 +15,19 @@ export type ConsultEntry = { agentId: string; ask: boolean };
  * both the owner's, and both with `configure` or both without, as the agents are now. Checked
  * when an entry is made, and again at each consult.
  */
-export async function pairProblem(db: Db | Tx, ownerId: string, askerId: string, consultedId: string): Promise<string | null> {
-  if (askerId === consultedId) return "An agent can't consult itself";
+export async function pairProblem(db: Db | Tx, ownerId: string, askerId: string, consultedId: string): Promise<Message | null> {
+  if (askerId === consultedId) return say("agent.consult.self");
   const rows = await db
     .select({ id: agents.id, name: agents.name, bundles: agents.bundles })
     .from(agents)
     .where(and(inArray(agents.id, [askerId, consultedId]), eq(agents.ownerId, ownerId)));
   const asker = rows.find((r) => r.id === askerId);
   const consulted = rows.find((r) => r.id === consultedId);
-  if (!asker || !consulted) return "Agent not found";
+  if (!asker || !consulted) return say("agent.notFound");
   const configures = (a: { bundles: string[] }) => a.bundles.includes("configure");
   if (configures(asker) !== configures(consulted)) {
     const [has, hasNot] = configures(asker) ? [asker, consulted] : [consulted, asker];
-    return `${has.name} changes the workspace and ${hasNot.name} doesn't: an agent that changes the workspace and one that doesn't never consult each other`;
+    return say("agent.consult.sides", { changes: has.name, keeps: hasNot.name });
   }
   return null;
 }
@@ -45,7 +46,7 @@ export async function consultsOf(db: Db | Tx, agentId: string): Promise<ConsultE
  * (refused with the reason); one it keeps stays even if a bundle change broke the pair since:
  * it is shown inactive and refused at the call.
  */
-export async function setConsults(tx: Tx, ownerId: string, agentId: string, entries: ConsultEntry[]): Promise<string | null> {
+export async function setConsults(tx: Tx, ownerId: string, agentId: string, entries: ConsultEntry[]): Promise<Message | null> {
   const kept = new Set((await consultsOf(tx, agentId)).map((e) => e.agentId));
   for (const entry of entries) {
     if (kept.has(entry.agentId)) continue;

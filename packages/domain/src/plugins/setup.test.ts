@@ -325,7 +325,7 @@ test("a consult between an agent that changes the workspace and one that doesn't
   const { outcomes } = await setUp(ctx, pluginId, pick);
   expect(outcomes).toEqual([
     { $item: 0, tool: "agents_create", from: "agent:Helper", outcome: "made", id: expect.any(String) },
-    { $item: 1, tool: "agents_create", from: "agent:Builder", outcome: "refused", error: { text: "Builder changes the workspace and Helper doesn't: an agent that changes the workspace and one that doesn't never consult each other" } },
+    { $item: 1, tool: "agents_create", from: "agent:Builder", outcome: "refused", error: { key: "agent.consult.sides", values: { changes: "Builder", keeps: "Helper" } } },
   ]);
   expect((await call(router.agents.list, undefined, { context: ctx })).map((a) => a.name)).toEqual(["Helper"]);
   plugin.remove();
@@ -452,7 +452,7 @@ test("a poll its tool wouldn't let run is listed as waiting, even when its agent
     await call(router.tools.setActionEnabled, { toolId: gmail.id, action: "search_threads", enabled: false }, { context: ctx });
     const pick = { ...ALL, agents: AGENTS.map((name) => ({ name, harnessId })), triggers: TRIGGERS };
     const preview = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
-    expect(preview.waiting).toContainEqual({ definition: "trigger:New client email", reason: { text: "This action is disabled workspace-wide" } });
+    expect(preview.waiting).toContainEqual({ definition: "trigger:New client email", reason: { key: "tools.poll.disabled" } });
     const { outcomes } = await setUp(ctx, pluginId, pick);
     expect(outcomes.filter((o) => o.outcome !== "made")).toEqual([]);
     expect((await ctx.db.select({ name: triggersTable.name }).from(triggersTable)).map((t) => t.name).sort()).toEqual(["Matter changed", "Research recorded"]);

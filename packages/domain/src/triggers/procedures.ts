@@ -5,7 +5,7 @@ import type { Db, Tx } from "../db/client.ts";
 import { agents, eventFires, fields, plugins, pollItems, polls, tables, triggerFires, triggers as triggersTable } from "../db/schema.ts";
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
-import { external, message } from "../messages/index.ts";
+import { message } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
 import { pollProblem } from "../tools/pollable.ts";
 import { cronProblem, nextFireAfter } from "../workflows/schedule.ts";
@@ -45,8 +45,7 @@ async function checkConfig(db: Db | Tx, ownerId: string, agent: Awaited<ReturnTy
   }
   if (config.kind === "poll") {
     const problem = await pollProblem(db, ownerId, agent.id, config.toolId, config.action);
-    // shortcut: the poll refusal is the tools area's unkeyed text, shown as it is until that area keys it.
-    if (problem) throw new ORPCError("BAD_REQUEST", external(problem));
+    if (problem) throw new ORPCError("BAD_REQUEST", message(problem.key, problem.values));
   }
   if (config.kind !== "primitive") return;
   // Questions and Approvals (the built-in `interaction`): only an agent with `inbox` is started by them.
@@ -185,8 +184,7 @@ async function view(db: Db, row: Row, forJob: boolean) {
 /** Refuses a change of the Assistant's chat (`agents/builtin.ts`), with its reason. */
 async function guard(db: Db | Tx, ownerId: string, agentId: string, change: Extract<AgentChange, { kind: "trigger" }>) {
   const refused = await assistantGuard(db, ownerId, agentId, change);
-  // shortcut: the guard's reasons are the agents area's unkeyed text, shown as they are until that area keys them.
-  if (refused) throw new ORPCError("FORBIDDEN", external(refused));
+  if (refused) throw new ORPCError("FORBIDDEN", message(refused.key, refused.values));
 }
 
 async function find(db: Db, ownerId: string, id: string) {

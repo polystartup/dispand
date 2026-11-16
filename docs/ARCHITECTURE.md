@@ -1825,7 +1825,12 @@ same keys.
   plugin's, another area's not yet keyed, `reasonOf(err)`); the page renders it with `useText()`
   (`lib/message.ts`). The same holds for what the workflow editor shows: a workflow issue
   (`WorkflowIssue.message`), a refused link (`connect`) and a schedule's problem (`cronProblem`) are
-  keyed messages, which the procedures that refuse a save or a start throw as they are. An input its Zod schema rejects answers with `validation.<code>` and the
+  keyed messages, which the procedures that refuse a save or a start throw as they are. So are the
+  Assistant's guard reasons (`assistantGuard`), why a consult isn't allowed (`pairProblem`), what
+  still holds a tool (`toolHolder`) and why a poll may not read an action (`pollProblem`): each
+  returns a `Message`, and what stores one (a skipped poll's reason) keeps its English sentence
+  (`pollProblemText`). A tool result for an agent shows every such text as its English sentence
+  (`sentence`, a tool's `filter`, `issues` for a refinement's key and its `params`), never a key. An input its Zod schema rejects answers with `validation.<code>` and the
   field's path and limits (`rpc/context.ts`, `validationKey`). `messages/messages.test.ts` walks
   the domain for every `new ORPCError(` and `new EngineError(` and fails on one whose message
   isn't a single `message()` key, external text or an engine error passed on (`passOn(err)`, typed

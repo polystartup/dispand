@@ -209,6 +209,12 @@ export function englishSetup(output: unknown): unknown {
   return { ...out, setup: { outcomes: outcomes.map((o) => (o.error ? { ...o, error: sentence(o.error) } : o)), waiting: waiting.map((w) => ({ ...w, reason: sentence(w.reason) })) } };
 }
 
+/** An agent's consults with why each is inactive as an English sentence, for an agent: its tool results stay English, never keys. */
+export function englishConsults(output: unknown): unknown {
+  const out = output as { consults: { inactive: Text | null }[] };
+  return { ...out, consults: out.consults.map((c) => ({ ...c, inactive: c.inactive && sentence(c.inactive) })) };
+}
+
 /**
  * What a proposed plugin install's agents may do, read from the plugin now: the owner approves
  * these, and the install's token (checked here and again when it runs) makes them what is made.
@@ -275,7 +281,7 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("fields.update", "configure", "Renames a field or changes its choices.", { tables: tableOfField, write: true }),
   tool("fields.reorder", "configure", "Sets the order of a table's fields: give every field id, in the new order.", { tables: named("tableId"), write: true }),
   tool("agents.list", "configure", "Lists the agents, with their ids, harness, instructions and what their Jobs may do.", { tables: none }),
-  tool("agents.get", "configure", "Gives one agent by its id, with its skills and tools.", { tables: none }),
+  tool("agents.get", "configure", "Gives one agent by its id, with its skills and tools.", { tables: none, filter: englishConsults }),
   tool("agents.create", "configure", `Creates an agent. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("agents.toolAsk", "configure", "Lists the actions of each tool an agent chose, with their Run, Ask or Off permissions.", { tables: none }),
   tool("harnesses.limits", "configure", "Lists every harness: whether it is a CLI on a runner (with the runner's name and whether it is connected now) or a cloud provider, its kind and model, how many of its sessions may work at once, and how many work and wait now.", { tables: none }),

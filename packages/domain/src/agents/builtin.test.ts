@@ -81,14 +81,14 @@ test("no input makes or unmakes an Assistant: builtIn is in no agent schema", as
 test("the owner can't delete the Assistant or strip its bundles, tables or chat", async () => {
   const { context, agentId, triggerId, fields } = await withAssistant();
   const refused = (p: Promise<unknown>, message: string) => expect(p).rejects.toMatchObject({ code: "FORBIDDEN", message });
-  await refused(call(router.agents.delete, { id: agentId }, { context }), "The Assistant can't be deleted");
-  await refused(call(router.agents.update, { ...fields, bundles: ["data"] }, { context }), "The Assistant keeps working on data and changing tables");
-  await refused(call(router.agents.update, { ...fields, bundles: [] }, { context }), "The Assistant keeps working on data and changing tables");
+  await refused(call(router.agents.delete, { id: agentId }, { context }), "The Assistant can't be deleted.");
+  await refused(call(router.agents.update, { ...fields, bundles: ["data"] }, { context }), "The Assistant keeps working on data and changing tables.");
+  await refused(call(router.agents.update, { ...fields, bundles: [] }, { context }), "The Assistant keeps working on data and changing tables.");
   const { id: tableId } = await call(router.tables.create, { name: "Matters" }, { context });
-  await refused(call(router.agents.update, { ...fields, dataTables: [tableId] }, { context }), "The Assistant keeps working on all tables");
-  await refused(call(router.triggers.delete, { id: triggerId }, { context }), "The Assistant's chat can't be deleted");
-  await refused(call(router.triggers.update, { id: triggerId, enabled: false }, { context }), "The Assistant's chat can't be turned off");
-  await refused(call(router.triggers.update, { id: triggerId, config: { kind: "manual", placement: "button" } }, { context }), "The Assistant's chat stays a chat");
+  await refused(call(router.agents.update, { ...fields, dataTables: [tableId] }, { context }), "The Assistant keeps working on all tables.");
+  await refused(call(router.triggers.delete, { id: triggerId }, { context }), "The Assistant's chat can't be deleted.");
+  await refused(call(router.triggers.update, { id: triggerId, enabled: false }, { context }), "The Assistant's chat can't be turned off.");
+  await refused(call(router.triggers.update, { id: triggerId, config: { kind: "manual", placement: "button" } }, { context }), "The Assistant's chat stays a chat.");
 
   const [row] = await context.db.select().from(agents).where(eq(agents.id, agentId));
   expect(row).toMatchObject({ bundles: ["data", "configure"], dataTables: "all" });
@@ -181,7 +181,7 @@ test("the Assistant's review exists off, Mondays at 09:00, one at a time; the ow
   const rows = await context.db.select().from(triggers).where(eq(triggers.agentId, agentId));
   expect(rows.filter((t) => t.kind === "schedule")).toEqual([expect.objectContaining({ id: reviewTriggerId, name: "Monday review", enabled: true })]);
 
-  await expect(call(router.triggers.delete, { id: reviewTriggerId! }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: "The Assistant's review can't be deleted: turn it off instead" });
+  await expect(call(router.triggers.delete, { id: reviewTriggerId! }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: "The Assistant's review can't be deleted: turn it off instead." });
   await call(router.triggers.update, { id: reviewTriggerId!, enabled: false }, { context });
   expect((await call(router.triggers.get, { id: reviewTriggerId! }, { context })).enabled).toBe(false);
   // Nor through a proposal.

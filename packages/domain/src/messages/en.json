@@ -3,7 +3,88 @@
     "assistant": {
       "name": "Stem"
     },
-    "tablesFull": "This agent already works on {{max}} tables, the most it may have: ask the owner to take one away before you create another."
+    "tablesFull": "This agent already works on {{max}} tables, the most it may have: ask the owner to take one away before you create another.",
+    "notFound": "This agent doesn't exist.",
+    "harnessNotFound": "This harness doesn't exist.",
+    "skillNotFound": "This skill doesn't exist.",
+    "toolNotFound": "This tool doesn't exist.",
+    "workflowUses": "A workflow uses this agent.",
+    "toolChanged": "A tool changed since this setup was reviewed: propose or review the setup again.",
+    "permissionTool": "Each tool permission must name a chosen tool.",
+    "permissionOnce": "List each tool's permissions once.",
+    "runnerNeedsCli": "Runner tools only work with CLI harnesses: “{{tool}}” runs on a runner.",
+    "runnerElsewhere": "The tool “{{tool}}” runs on another runner than the agent's harness.",
+    "actionDisabled": "An action is disabled workspace-wide.",
+    "actionDenied": "An action is disabled: change its permission explicitly before granting it.",
+    "ofAgent": "of the agent {{agent}}",
+    "consult": {
+      "self": "An agent can't consult itself.",
+      "sides": "{{changes}} changes the workspace and {{keeps}} doesn't: an agent that changes the workspace and one that doesn't never consult each other."
+    },
+    "guard": {
+      "delete": "The Assistant can't be deleted.",
+      "bundles": "The Assistant keeps working on data and changing tables.",
+      "tables": "The Assistant keeps working on all tables.",
+      "skill": "The Assistant keeps its platform skill.",
+      "reviewDelete": "The Assistant's review can't be deleted: turn it off instead.",
+      "chatDelete": "The Assistant's chat can't be deleted.",
+      "chatOff": "The Assistant's chat can't be turned off.",
+      "chatStays": "The Assistant's chat stays a chat."
+    }
+  },
+  "tools": {
+    "notFound": "This tool doesn't exist.",
+    "runnerNotFound": "This runner doesn't exist.",
+    "notInCatalog": "This isn't in the catalog.",
+    "exists": "A tool is already called “{{name}}”.",
+    "changed": "The tool changed meanwhile: open it again.",
+    "noAction": "The tool has no action {{action}}.",
+    "name": "A tool needs a name of 1 to 100 characters.",
+    "notUrl": "Not an http(s) URL.",
+    "headersInvalid": "The headers aren't valid.",
+    "oneLine": "One line of text.",
+    "headerOneLine": "A header value is one line of text.",
+    "headersMax": "At most 20 headers.",
+    "settingsMax": "At most 20 settings.",
+    "headerTwice": "The header {{header}} is given twice.",
+    "headerNoValue": "The header {{header}} has no value.",
+    "credentialsInUrl": "Put credentials in a header, not in the URL.",
+    "headersHttps": "Headers are only sent to an https:// URL.",
+    "settingMissing": "{{label}} is required.",
+    "noSettings": "This tool has no settings to fill.",
+    "addressChanged": "This tool no longer calls its catalog entry's address.",
+    "pickRunner": "Pick the runner and its MCP server.",
+    "runnerNoServer": "The runner doesn't report an MCP server named {{runnerTool}}: add it to the runner's config.json, then restart the runner.",
+    "runnerNoUrl": "A runner tool has no URL or headers: its runner's config.json says how to start it.",
+    "httpNoRunner": "An HTTP tool doesn't run on a runner.",
+    "oauthNoHeaders": "A tool that signs in with OAuth has no headers.",
+    "oauthOrNoneNoHeaders": "A tool that signs in with OAuth, or not at all, has no headers.",
+    "oauthNoSecretUrl": "A tool whose URL holds a secret can't sign in with OAuth.",
+    "notOauth": "This tool doesn't sign in with OAuth.",
+    "noSignIn": "{{host}} doesn't ask for a sign-in: choose no sign-in instead.",
+    "notRunnerEntry": "Not a runner entry of the catalog.",
+    "catalogNotListed": "Not in the catalog: tools_catalog lists its entries.",
+    "catalogOnMachine": "{{name}} runs on the owner's machine: they add this under mcpServers in their runner's config.json, then pick the runner in Settings → Tools. {{snippet}}",
+    "holder": {
+      "agent": "The agent “{{name}}” uses this tool.",
+      "skill": "The skill “{{name}}” requires this tool.",
+      "workflow": "The workflow “{{name}}” uses this tool.",
+      "run": "A run of the workflow “{{name}}” still uses this tool.",
+      "stays": {
+        "agent": "The agent “{{name}}” uses this tool: it stays on its runner.",
+        "skill": "The skill “{{name}}” requires this tool: it stays on its runner.",
+        "workflow": "The workflow “{{name}}” uses this tool: it stays on its runner.",
+        "run": "A run of the workflow “{{name}}” still uses this tool: it stays on its runner."
+      }
+    },
+    "onRunner": "on a runner",
+    "poll": {
+      "gone": "The tool no longer exists.",
+      "disabled": "This action is disabled workspace-wide.",
+      "agentLacks": "The agent doesn't have this tool.",
+      "notReadable": "A poll may not read this action: the tool doesn't let polls read it, or an agent must ask before using it."
+    },
+    "urlCredentials": "The URL can't carry credentials."
   },
   "plugins": {
     "notFound": "This plugin doesn't exist.",

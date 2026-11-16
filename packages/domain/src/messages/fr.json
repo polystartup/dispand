@@ -3,7 +3,88 @@
     "assistant": {
       "name": "Stem"
     },
-    "tablesFull": "Cet agent travaille déjà sur {{max}} tables, le maximum : demandez au propriétaire d'en retirer une avant d'en créer une autre."
+    "tablesFull": "Cet agent travaille déjà sur {{max}} tables, le maximum : demandez au propriétaire d'en retirer une avant d'en créer une autre.",
+    "notFound": "Cet agent n’existe pas.",
+    "harnessNotFound": "Ce harnais n’existe pas.",
+    "skillNotFound": "Cette compétence n’existe pas.",
+    "toolNotFound": "Cet outil n’existe pas.",
+    "workflowUses": "Un workflow utilise cet agent.",
+    "toolChanged": "Un outil a changé depuis la relecture de cette configuration : proposez-la ou relisez-la à nouveau.",
+    "permissionTool": "Chaque permission d’outil doit désigner un outil choisi.",
+    "permissionOnce": "Indiquez une seule fois les permissions de chaque outil.",
+    "runnerNeedsCli": "Les outils de runner ne fonctionnent qu’avec des harnais CLI : « {{tool}} » s’exécute sur un runner.",
+    "runnerElsewhere": "L’outil « {{tool}} » s’exécute sur un autre runner que celui du harnais de l’agent.",
+    "actionDisabled": "Une action est désactivée pour tout l’espace de travail.",
+    "actionDenied": "Une action est désactivée : changez sa permission explicitement avant de l’accorder.",
+    "ofAgent": "de l’agent {{agent}}",
+    "consult": {
+      "self": "Un agent ne peut pas se consulter lui-même.",
+      "sides": "{{changes}} modifie l’espace de travail et {{keeps}} ne le modifie pas : un agent qui modifie l’espace de travail et un agent qui ne le modifie pas ne se consultent jamais."
+    },
+    "guard": {
+      "delete": "L’Assistant ne peut pas être supprimé.",
+      "bundles": "L’Assistant continue de travailler sur les données et de modifier les tables.",
+      "tables": "L’Assistant continue de travailler sur toutes les tables.",
+      "skill": "L’Assistant garde sa compétence de plateforme.",
+      "reviewDelete": "La revue de l’Assistant ne peut pas être supprimée : désactivez-la plutôt.",
+      "chatDelete": "Le chat de l’Assistant ne peut pas être supprimé.",
+      "chatOff": "Le chat de l’Assistant ne peut pas être désactivé.",
+      "chatStays": "Le chat de l’Assistant reste un chat."
+    }
+  },
+  "tools": {
+    "notFound": "Cet outil n’existe pas.",
+    "runnerNotFound": "Ce runner n’existe pas.",
+    "notInCatalog": "Cet élément n’est pas dans le catalogue.",
+    "exists": "Un outil s’appelle déjà « {{name}} ».",
+    "changed": "L’outil a changé entre-temps : rouvrez-le.",
+    "noAction": "L’outil n’a pas d’action {{action}}.",
+    "name": "Un outil a besoin d’un nom de 1 à 100 caractères.",
+    "notUrl": "Ce n’est pas une URL http(s).",
+    "headersInvalid": "Les en-têtes ne sont pas valides.",
+    "oneLine": "Une seule ligne de texte.",
+    "headerOneLine": "La valeur d’un en-tête tient sur une seule ligne de texte.",
+    "headersMax": "20 en-têtes au plus.",
+    "settingsMax": "20 réglages au plus.",
+    "headerTwice": "L’en-tête {{header}} est donné deux fois.",
+    "headerNoValue": "L’en-tête {{header}} n’a pas de valeur.",
+    "credentialsInUrl": "Mettez les identifiants dans un en-tête, pas dans l’URL.",
+    "headersHttps": "Les en-têtes ne sont envoyés qu’à une URL en https://.",
+    "settingMissing": "{{label}} est obligatoire.",
+    "noSettings": "Cet outil n’a aucun réglage à remplir.",
+    "addressChanged": "Cet outil n’appelle plus l’adresse de son entrée du catalogue.",
+    "pickRunner": "Choisissez le runner et son serveur MCP.",
+    "runnerNoServer": "Le runner ne signale aucun serveur MCP nommé {{runnerTool}} : ajoutez-le au config.json du runner, puis redémarrez le runner.",
+    "runnerNoUrl": "Un outil de runner n’a ni URL ni en-têtes : le config.json de son runner indique comment le démarrer.",
+    "httpNoRunner": "Un outil HTTP ne s’exécute pas sur un runner.",
+    "oauthNoHeaders": "Un outil qui se connecte avec OAuth n’a pas d’en-têtes.",
+    "oauthOrNoneNoHeaders": "Un outil qui se connecte avec OAuth, ou sans connexion, n’a pas d’en-têtes.",
+    "oauthNoSecretUrl": "Un outil dont l’URL contient un secret ne peut pas se connecter avec OAuth.",
+    "notOauth": "Cet outil ne se connecte pas avec OAuth.",
+    "noSignIn": "{{host}} ne demande pas de connexion : choisissez plutôt aucune connexion.",
+    "notRunnerEntry": "Ce n’est pas une entrée de runner du catalogue.",
+    "catalogNotListed": "Absent du catalogue : tools_catalog en liste les entrées.",
+    "catalogOnMachine": "{{name}} s’exécute sur la machine du propriétaire : il l’ajoute sous mcpServers dans le config.json de son runner, puis choisit le runner dans Réglages → Outils. {{snippet}}",
+    "holder": {
+      "agent": "L’agent « {{name}} » utilise cet outil.",
+      "skill": "La compétence « {{name}} » exige cet outil.",
+      "workflow": "Le workflow « {{name}} » utilise cet outil.",
+      "run": "Une exécution du workflow « {{name}} » utilise encore cet outil.",
+      "stays": {
+        "agent": "L’agent « {{name}} » utilise cet outil : il reste sur son runner.",
+        "skill": "La compétence « {{name}} » exige cet outil : il reste sur son runner.",
+        "workflow": "Le workflow « {{name}} » utilise cet outil : il reste sur son runner.",
+        "run": "Une exécution du workflow « {{name}} » utilise encore cet outil : il reste sur son runner."
+      }
+    },
+    "onRunner": "sur un runner",
+    "poll": {
+      "gone": "L’outil n’existe plus.",
+      "disabled": "Cette action est désactivée pour tout l’espace de travail.",
+      "agentLacks": "L’agent n’a pas cet outil.",
+      "notReadable": "Une relève ne peut pas lire cette action : l’outil ne laisse pas les relèves la lire, ou un agent doit demander avant de l’utiliser."
+    },
+    "urlCredentials": "L’URL ne peut pas contenir d’identifiants."
   },
   "plugins": {
     "notFound": "Ce plugin n’existe pas.",

@@ -4,6 +4,7 @@ import { platformSkillOf, syncPlatformSkill } from "../assistant/skill.ts";
 import { agents, agentSkills, triggers } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
+import { type Message, say } from "../messages/index.ts";
 import type { Bundle, TableScope } from "../platform/bundles.ts";
 import { emitLog, inSpan, tracer } from "../telemetry/index.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
@@ -65,27 +66,27 @@ async function reviewTriggerOf(db: Db | Tx, agentId: string): Promise<string | n
  * keeps what makes it one. The Assistant can't be deleted, lose `data` or `configure`, be limited
  * to some tables, lose its platform skill, or lose its chat (deleted, turned off or made a button).
  */
-export async function assistantGuard(db: Db | Tx, ownerId: string, agentId: string, change: AgentChange): Promise<string | null> {
+export async function assistantGuard(db: Db | Tx, ownerId: string, agentId: string, change: AgentChange): Promise<Message | null> {
   const [agent] = await db
     .select({ builtIn: agents.builtIn })
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)));
   if (agent?.builtIn !== "assistant") return null;
-  if (change.kind === "delete") return "The Assistant can't be deleted";
+  if (change.kind === "delete") return say("agent.guard.delete");
   if (change.kind === "update") {
-    if (change.bundles && !ASSISTANT_BUNDLES.every((b) => change.bundles!.includes(b))) return "The Assistant keeps working on data and changing tables";
-    if (change.dataTables !== undefined && change.dataTables !== "all") return "The Assistant keeps working on all tables";
+    if (change.bundles && !ASSISTANT_BUNDLES.every((b) => change.bundles!.includes(b))) return say("agent.guard.bundles");
+    if (change.dataTables !== undefined && change.dataTables !== "all") return say("agent.guard.tables");
     if (change.skillPackageIds) {
       const platform = await platformSkillOf(db, ownerId);
-      if (platform && !change.skillPackageIds.includes(platform)) return "The Assistant keeps its platform skill";
+      if (platform && !change.skillPackageIds.includes(platform)) return say("agent.guard.skill");
     }
     return null;
   }
-  if (change.delete && (await reviewTriggerOf(db, agentId)) === change.triggerId) return "The Assistant's review can't be deleted: turn it off instead";
+  if (change.delete && (await reviewTriggerOf(db, agentId)) === change.triggerId) return say("agent.guard.reviewDelete");
   if (change.triggerId !== (await chatTriggerOf(db, agentId))) return null;
-  if (change.delete) return "The Assistant's chat can't be deleted";
-  if (change.enabled === false) return "The Assistant's chat can't be turned off";
-  if (change.config && !isChat(change.config)) return "The Assistant's chat stays a chat";
+  if (change.delete) return say("agent.guard.chatDelete");
+  if (change.enabled === false) return say("agent.guard.chatOff");
+  if (change.config && !isChat(change.config)) return say("agent.guard.chatStays");
   return null;
 }
 

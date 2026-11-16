@@ -6,7 +6,7 @@ import type { Db } from "../db/client.ts";
 import { agents, agentTools, type CREATED_KINDS, fields, harnesses, plugins, proposals, runners, skillPackages, tables, tools as toolsTable, triggers, type PluginCreated, type ProposalItem } from "../db/schema.ts";
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
-import { say, type Text } from "../messages/index.ts";
+import { english, isMessageKey, type MessageValues, say, sentence, type Text } from "../messages/index.ts";
 import { canonical } from "./approvals.ts";
 import { catalogEntry, defaultDisabled, defaultUnasked } from "../tools/catalog.ts";
 import { FROZEN_REVISION, heldUnasked, strictTargets, toolPermissionTarget } from "../agents/tool-ask.ts";
@@ -47,7 +47,8 @@ export const ProposeInput = z.object({
 export const ApplyInput = z.object({ proposalId: z.string().describe("The id propose gave you, of a proposal the owner approved") });
 
 /** A Zod error in the words a direct call gives: each problem, at its path. */
-export const issues = (error: z.ZodError): string => error.issues.map((e) => `${e.path.join(".") || "input"}: ${e.message}`).join("; ");
+/** A refinement's message may be a key (`params` its values): an agent reads it as its English sentence. */
+export const issues = (error: z.ZodError): string => error.issues.map((e) => `${e.path.join(".") || "input"}: ${isMessageKey(e.message) ? english(e.message, e.code === "custom" ? (e.params as MessageValues | undefined) : undefined) : e.message}`).join("; ");
 
 /** `{ "$item": n }`: what item `n` of the same proposal created. */
 type ItemRef = { $item: number };
@@ -260,7 +261,7 @@ export async function createProposal(app: PlatformApp, job: JobIdentity, tools: 
     // What the Assistant can't lose is refused now, with the reason, not after a person approved it.
     const change = await agentChangeOf(db, job.ownerId, tool.name, given.data);
     const refused = change && (await assistantGuard(db, job.ownerId, change[0], change[1]));
-    if (refused) return { error: `${at}: ${refused}` };
+    if (refused) return { error: `${at}: ${sentence(refused)}` };
     const kept = restoreRefs(given.data, placeholders);
     // A reference stands only where its text was kept whole: an id, not inside another text.
     if (!everyString(kept, (s) => !s.includes(nonce))) return { error: `${at}: a reference stands only where an id goes` };
@@ -527,7 +528,7 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
   // A catalog entry, by its name and where its tool's calls go.
   for (const id of wanted.get("catalog") ?? []) {
     const entry = catalogEntry(id);
-    if (entry) names[id] = { kind: "catalog", name: entry.name, detail: { text: entry.kind === "http" ? entry.url : "on a runner" } };
+    if (entry) names[id] = { kind: "catalog", name: entry.name, detail: entry.kind === "http" ? { text: entry.url } : say("tools.onRunner") };
   }
   const found = async <T extends { id: string }>(kind: ProposalName["kind"], load: (ids: string[]) => Promise<T[]>, name: (row: T) => Omit<ProposalName, "kind">) => {
     const ids = [...(wanted.get(kind) ?? [])];
@@ -551,7 +552,7 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
   await found(
     "tool",
     (w) => db.select({ id: toolsTable.id, name: toolsTable.name, kind: toolsTable.kind, url: toolsTable.url }).from(toolsTable).where(and(inArray(toolsTable.id, w), eq(toolsTable.ownerId, ownerId))),
-    (r) => ({ name: r.name, detail: { text: r.kind === "http" ? (r.url ?? "") : "on a runner" } }),
+    (r) => ({ name: r.name, detail: r.kind === "http" ? { text: r.url ?? "" } : say("tools.onRunner") }),
   );
   await found(
     "plugin",
@@ -586,7 +587,7 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
         .from(triggers)
         .innerJoin(agents, eq(agents.id, triggers.agentId))
         .where(and(inArray(triggers.id, w), eq(triggers.ownerId, ownerId))),
-    (r) => ({ name: r.name, detail: { text: `of the agent ${r.agent}` } }),
+    (r) => ({ name: r.name, detail: say("agent.ofAgent", { agent: r.agent }) }),
   );
   return {
     items: items.map(({ tool, input, usedAt, createdId, failed, toolPermissions, shown }) => ({

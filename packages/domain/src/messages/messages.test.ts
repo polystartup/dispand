@@ -42,7 +42,6 @@ test("a rejected input's issue becomes a validation message, its plural chosen b
 // per file: each Task 4 pull request keys an area and takes its files out. Exact counts, so a new
 // unkeyed error fails, and so does a keyed one left counted.
 const UNKEYED: Record<string, number> = {
-  "agents/procedures.ts": 20,
   "assistant/commands.ts": 3,
   "assistant/invoke.ts": 4,
   "audit/procedures.ts": 1,
@@ -57,7 +56,6 @@ const UNKEYED: Record<string, number> = {
   "runners/procedures.ts": 10,
   "runners/workspace-plugin.ts": 10,
   "skills/procedures.ts": 13,
-  "tools/procedures.ts": 18,
 };
 
 const src = join(import.meta.dirname, "..");

@@ -3,6 +3,7 @@ import type { Db, Tx } from "../db/client.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import { heldUnasked, strictTargets } from "../agents/tool-ask.ts";
 import { agents, agentTools, tools } from "../db/schema.ts";
+import { type Message, say, sentence } from "../messages/index.ts";
 
 // Polls only read (design 6.7): the scheduler calls a tool outside any Job, so an action it may
 // call is one the owner lets polls read, and never one an agent must ask before using.
@@ -39,16 +40,22 @@ export async function isPollable(db: Db | Tx, ownerId: string, toolId: string, a
  * the owner's, the agent holds it, and the action is pollable. Checked when a poll trigger is
  * made or changed, before each call, before each Job, and before each start of a poll Job's session.
  */
-export async function pollProblem(db: Db | Tx, ownerId: string, agentId: string, toolId: string, action: string): Promise<string | null> {
+export async function pollProblem(db: Db | Tx, ownerId: string, agentId: string, toolId: string, action: string): Promise<Message | null> {
   return toolPollProblem(db, ownerId, toolId, action, async () => (await skillsAndTools(db, agentId)).tools.some((t) => t.toolId === toolId));
 }
 
+/** `pollProblem` as the English sentence a stored record keeps (a skipped poll's or item's reason). */
+export async function pollProblemText(db: Db | Tx, ownerId: string, agentId: string, toolId: string, action: string): Promise<string | null> {
+  const problem = await pollProblem(db, ownerId, agentId, toolId, action);
+  return problem && sentence(problem);
+}
+
 /** `pollProblem` for an agent that isn't made yet: `holds` says whether it will have the tool. */
-export async function toolPollProblem(db: Db | Tx, ownerId: string, toolId: string, action: string, holds: () => boolean | Promise<boolean>): Promise<string | null> {
+export async function toolPollProblem(db: Db | Tx, ownerId: string, toolId: string, action: string, holds: () => boolean | Promise<boolean>): Promise<Message | null> {
   const [tool] = await db.select({ id: tools.id, disabled: tools.disabled }).from(tools).where(and(eq(tools.id, toolId), eq(tools.ownerId, ownerId)));
-  if (!tool) return "The tool no longer exists";
-  if (tool.disabled.includes(action)) return "This action is disabled workspace-wide";
-  if (!(await holds())) return "The agent doesn't have this tool";
-  if (!(await isPollable(db, ownerId, toolId, action))) return "A poll may not read this action: the tool doesn't let polls read it, or an agent must ask before using it";
+  if (!tool) return say("tools.poll.gone");
+  if (tool.disabled.includes(action)) return say("tools.poll.disabled");
+  if (!(await holds())) return say("tools.poll.agentLacks");
+  if (!(await isPollable(db, ownerId, toolId, action))) return say("tools.poll.notReadable");
   return null;
 }

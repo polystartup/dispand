@@ -495,7 +495,7 @@ test("a trigger is created, changed and deleted only on approved items, and the 
   const q = await s.ask({ message: "May I?", proposal: proposalId });
   const { proposal } = (await call(router.questions.list, { status: "pending" }, { context })).find((i) => i.id === q)!;
   expect(proposal!.items[0]).toMatchObject({ refs: ["id"], input: { instructions: "Read the mail, file it, and draft replies." } });
-  expect(proposal!.names[id]).toEqual({ kind: "trigger", name: "Every morning", detail: { text: "of the agent Clerk" } });
+  expect(proposal!.names[id]).toEqual({ kind: "trigger", name: "Every morning", detail: { key: "agent.ofAgent", values: { agent: "Clerk" } } });
   await s.answer(q, "allow");
   expect(await s.tool("triggers_update", { id, instructions: "Read the mail, file it, and draft replies." })).toMatchObject({ ok: true });
   expect(await s.tool("triggers_delete", { id })).toMatchObject({ ok: true });

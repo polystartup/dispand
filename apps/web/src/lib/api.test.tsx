@@ -37,6 +37,12 @@ const failing = {
       });
       throw new ORPCError("BAD_REQUEST", message(issue!.message.key, issue!.message.values));
     }),
+    guard: os.handler(() => {
+      throw new ORPCError("FORBIDDEN", message("agent.guard.delete"));
+    }),
+    holder: os.handler(() => {
+      throw new ORPCError("CONFLICT", message("tools.holder.stays.agent", { name: "Searcher" }));
+    }),
     rows: os.handler(() => {
       throw new ORPCError("BAD_REQUEST", message("data.table.parentRowsMissing", { count: 3, parent: "Clients" }));
     }),
@@ -93,6 +99,15 @@ test("a trigger refusal, a schedule's and a workflow's issue show in French, the
   expect(await refusal((await client("fr")).fails.schedule())).toBe("Utilisez 5 champs : minute heure jour mois jour de la semaine.");
   expect(await refusal((await client("fr")).fails.issue())).toBe("{{go.x}} : « go » est un bouton, il n’a pas de valeurs");
   expect(await refusal((await client("en")).fails.issue())).toBe("{{go.x}}: “go” is a button, it has no values");
+});
+
+test("an agents refusal and a tools refusal show in French, the agent's name as typed", async () => {
+  expect(await refusal((await client("fr")).fails.guard())).toBe("L’Assistant ne peut pas être supprimé.");
+  expect(await refusal((await client("fr")).fails.holder())).toBe("L’agent « Searcher » utilise cet outil : il reste sur son runner.");
+  expect(await refusal((await client("en")).fails.holder())).toBe("The agent “Searcher” uses this tool: it stays on its runner.");
+  // A refinement of the tools area, through the server's own validation.
+  const add = { name: "A", url: "https://u:p@example.com/mcp", transport: "streamable-http" } as const;
+  expect(await refusal((await client("fr")).tools.add(add))).toBe("L’URL ne peut pas contenir d’identifiants.");
 });
 
 test("an input its Zod schema rejects shows a validation message in French", async () => {

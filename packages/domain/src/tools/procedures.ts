@@ -9,6 +9,7 @@ import { agentTools, plugins, runners, tools as toolsTable } from "../db/schema.
 import { isLoopback } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
 import { logError } from "../log.ts";
+import { external, message, type MessageKey, type MessageValues } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
 import { type RunnerHub, RunnerRequestFailed } from "../runners/hub.ts";
 import { secretAad, type SecretBox } from "../secrets.ts";
@@ -49,14 +50,22 @@ export const Url = z.url({ protocol: /^https?$/ }).max(2000);
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}$/;
 // No control characters but tab: a value is one header line.
 const oneLine = (v: string) => [...v].every((c) => c === "\t" || (c >= " " && c !== "\u007f"));
-export const HeaderValue = z.string().trim().max(4000).refine(oneLine, "A header value is one line of text");
+export const HeaderValue = z.string().trim().max(4000).refine(oneLine, "tools.headerOneLine" satisfies MessageKey);
 /** Header name → value. On update, "" removes the header and an absent name keeps it. */
 export const Headers = z
-  .record(z.string().regex(HEADER_NAME, "Not a valid header name"), HeaderValue)
-  .refine((h) => Object.keys(h).length <= MAX_HEADERS, `At most ${MAX_HEADERS} headers`);
+  .record(z.string().regex(HEADER_NAME), HeaderValue)
+  .refine((h) => Object.keys(h).length <= MAX_HEADERS, "tools.headersMax" satisfies MessageKey);
 
-function bad(message: string): never {
-  throw new ORPCError("BAD_REQUEST", { message });
+/** The key of a holder's message when the tool stays on its runner. */
+const STAYS: Record<string, MessageKey> = {
+  "tools.holder.agent": "tools.holder.stays.agent",
+  "tools.holder.skill": "tools.holder.stays.skill",
+  "tools.holder.workflow": "tools.holder.stays.workflow",
+  "tools.holder.run": "tools.holder.stays.run",
+};
+
+function bad(key: MessageKey, values?: MessageValues): never {
+  throw new ORPCError("BAD_REQUEST", message(key, values));
 }
 
 type PluginRef = { id: string; name: string };
@@ -109,7 +118,7 @@ function normalize(headers: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [name, value] of Object.entries(headers)) {
     const key = name.toLowerCase();
-    if (key in out) bad(`The header ${key} is given twice`);
+    if (key in out) bad("tools.headerTwice", { header: key });
     out[key] = value;
   }
   return out;
@@ -121,8 +130,8 @@ function normalize(headers: Record<string, string>): Record<string, string> {
  */
 function checkTarget(url: string, hasSecrets: boolean) {
   const parsed = new URL(url);
-  if (parsed.username || parsed.password) bad("Put credentials in a header, not in the URL");
-  if (hasSecrets && parsed.protocol === "http:" && !isLoopback(parsed)) bad("Headers are only sent to an https:// URL");
+  if (parsed.username || parsed.password) bad("tools.credentialsInUrl");
+  if (hasSecrets && parsed.protocol === "http:" && !isLoopback(parsed)) bad("tools.headersHttps");
 }
 
 async function find(db: Db, ownerId: string, id: string): Promise<Row> {
@@ -130,13 +139,13 @@ async function find(db: Db, ownerId: string, id: string): Promise<Row> {
     .select()
     .from(toolsTable)
     .where(and(eq(toolsTable.id, id), eq(toolsTable.ownerId, ownerId)));
-  if (!row) throw new ORPCError("NOT_FOUND");
+  if (!row) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
   return row;
 }
 
 function nameTaken(error: unknown, name: string): never {
   const e = error as { code?: string; cause?: { code?: string } };
-  if (e.code === "23505" || e.cause?.code === "23505") throw new ORPCError("CONFLICT", { message: `A tool is already called “${name}”` });
+  if (e.code === "23505" || e.cause?.code === "23505") throw new ORPCError("CONFLICT", message("tools.exists", { name }));
   throw error;
 }
 
@@ -191,7 +200,7 @@ export async function refreshActions(db: Db, secrets: SecretBox, connector: Tool
     .where(and(eq(toolsTable.id, row.id), eq(toolsTable.ownerId, row.ownerId)))
     .returning();
   // Deleted meanwhile: what was listed belongs to nobody.
-  if (!updated) throw new ORPCError("NOT_FOUND");
+  if (!updated) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
   return updated;
 }
 
@@ -216,7 +225,7 @@ export async function refreshRunnerActions(db: Db, hub: Pick<RunnerHub, "request
     .set(values)
     .where(and(eq(toolsTable.id, row.id), eq(toolsTable.ownerId, row.ownerId)))
     .returning();
-  if (!updated) throw new ORPCError("NOT_FOUND");
+  if (!updated) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
   return updated;
 }
 
@@ -234,9 +243,9 @@ async function requireRunnerTool(db: Db | Tx, ownerId: string, runnerId: string,
     .select({ tools: runners.tools })
     .from(runners)
     .where(and(eq(runners.id, runnerId), eq(runners.ownerId, ownerId), isNull(runners.revokedAt)));
-  if (!runner) throw new ORPCError("NOT_FOUND", { message: "Runner not found" });
+  if (!runner) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
   if (!runner.tools.includes(runnerTool)) {
-    bad(`The runner doesn't report an MCP server named ${runnerTool}: add it to the runner's config.json, then restart the runner`);
+    bad("tools.runnerNoServer", { runnerTool });
   }
 }
 
@@ -269,12 +278,12 @@ const NO_OAUTH = { oauthSealed: null, oauthStatus: null, oauthStateHash: null, o
  */
 export async function insertTool(db: Db | Tx, secrets: SecretBox, ownerId: string, input: ToolFields): Promise<Row> {
   // Every path in (form, catalog, plugin) is held to the form's rules.
-  if (!Name.safeParse(input.name).success) bad("A tool needs a name of 1 to 100 characters");
-  if (!Url.safeParse(input.secretUrl?.url ?? input.url).success || input.url.length > 2000) bad("Not an http(s) URL");
-  if (!Headers.safeParse(input.headers).success) bad("The headers aren't valid");
+  if (!Name.safeParse(input.name).success) bad("tools.name");
+  if (!Url.safeParse(input.secretUrl?.url ?? input.url).success || input.url.length > 2000) bad("tools.notUrl");
+  if (!Headers.safeParse(input.headers).success) bad("tools.headersInvalid");
   const headers = normalize(input.headers);
-  for (const [name, value] of Object.entries(headers)) if (!value) bad(`The header ${name} has no value`);
-  if (input.oauth && (Object.keys(headers).length > 0 || input.secretUrl)) bad("A tool that signs in with OAuth has no headers");
+  for (const [name, value] of Object.entries(headers)) if (!value) bad("tools.headerNoValue", { header: name });
+  if (input.oauth && (Object.keys(headers).length > 0 || input.secretUrl)) bad("tools.oauthNoHeaders");
   checkTarget(input.secretUrl?.url ?? input.url, Object.keys(headers).length > 0 || input.secretUrl !== undefined || input.oauth === true);
   const id = newId("tool");
   const headersSealed = Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, secrets.seal(value, headerAad(id, name, input.url))]));
@@ -317,7 +326,7 @@ const toolColumn = (field: string) => (field === "url" ? toolsTable.url : field 
 
 /** Points the tool at a new (plain) URL, under the same rules as `update`; its actions are listed again afterwards. */
 export async function retarget(db: Db | Tx, row: Row, url: string, transport: ToolTransport): Promise<Row> {
-  if (!Url.safeParse(url).success) bad("Not an http(s) URL");
+  if (!Url.safeParse(url).success) bad("tools.notUrl");
   // As in `update`: another origin or transport starts without the headers.
   const headersSealed = originOf(url) !== originOf(row.url!) || transport !== row.transport ? {} : row.headersSealed;
   checkTarget(url, Object.keys(headersSealed).length > 0 || row.auth === "oauth");
@@ -326,7 +335,7 @@ export async function retarget(db: Db | Tx, row: Row, url: string, transport: To
     .set({ url, urlSealed: null, transport, headersSealed, auth: authOf(row.auth === "oauth", headersSealed), permissionRevision: sql`${toolsTable.permissionRevision} + 1`, actions: [], refreshedAt: null, ...(row.auth === "oauth" ? { ...NO_OAUTH, oauthStatus: "authorize" as const } : {}) })
     .where(and(eq(toolsTable.id, row.id), eq(toolsTable.ownerId, row.ownerId)))
     .returning();
-  if (!updated) throw new ORPCError("NOT_FOUND");
+  if (!updated) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
   await askAgain(db, updated.id);
   return updated;
 }
@@ -346,7 +355,7 @@ const RunnerTool = z.object({
   catalogId: z
     .string()
     .max(64)
-    .refine((id) => catalogEntry(id)?.kind === "runner", "Not a runner entry of the catalog")
+    .refine((id) => catalogEntry(id)?.kind === "runner", "tools.notRunnerEntry" satisfies MessageKey)
     .optional(),
 });
 
@@ -394,7 +403,7 @@ const add = owner
       url: Url.refine((u) => {
         const parsed = URL.parse(u);
         return parsed !== null && parsed.username === "" && parsed.password === "";
-      }, "The URL can't carry credentials"),
+      }, "tools.urlCredentials" satisfies MessageKey),
       transport: z.enum(TRANSPORTS),
     }),
   )
@@ -427,12 +436,12 @@ const installFromCatalog = owner
     z.object({
       catalogId: z.string().max(64),
       name: Name.optional(),
-      settings: z.record(z.string().max(64), HeaderValue).refine((s) => Object.keys(s).length <= MAX_HEADERS, `At most ${MAX_HEADERS} settings`),
+      settings: z.record(z.string().max(64), HeaderValue).refine((s) => Object.keys(s).length <= MAX_HEADERS, "tools.settingsMax" satisfies MessageKey),
     }),
   )
   .handler(async ({ input, context }): Promise<{ tool: ToolView } | { runnerSnippet: string }> => {
     const entry = CATALOG.find((e) => e.id === input.catalogId);
-    if (!entry) throw new ORPCError("NOT_FOUND", { message: "Not in the catalog" });
+    if (!entry) throw new ORPCError("NOT_FOUND", message("tools.notInCatalog"));
     if (entry.kind === "runner") return { runnerSnippet: runnerSnippet(entry) };
     // An OAuth entry is connected afterwards, on the tool's page, with the owner's own client.
     if (entry.oauth) return { tool: await createTool(context, { ...fromEntry(entry, input.name), oauth: true }) };
@@ -440,7 +449,7 @@ const installFromCatalog = owner
     try {
       headers = fillHeaders(entry, input.settings);
     } catch (error) {
-      if (error instanceof MissingSetting) bad(error.message);
+      if (error instanceof MissingSetting) bad("tools.settingMissing", { label: error.label });
       throw error;
     }
     const tool = await createTool(context, { ...fromEntry(entry, input.name), headers });
@@ -461,11 +470,12 @@ const addFromCatalog = owner
         .max(64)
         .superRefine((id, ctx) => {
           const entry = catalogEntry(id);
-          if (!entry) ctx.addIssue({ code: "custom", message: "Not in the catalog: tools_catalog lists its entries" });
+          if (!entry) ctx.addIssue({ code: "custom", message: "tools.catalogNotListed" satisfies MessageKey });
           else if (entry.kind === "runner") {
             ctx.addIssue({
               code: "custom",
-              message: `${entry.name} runs on the owner's machine: they add this under mcpServers in their runner's config.json, then pick the runner in Settings → Tools. ${runnerSnippet(entry)}`,
+              message: "tools.catalogOnMachine" satisfies MessageKey,
+              params: { name: entry.name, snippet: runnerSnippet(entry) },
             });
           }
         }),
@@ -482,18 +492,18 @@ const addFromCatalog = owner
  * lists its actions: the first listing that succeeds replaces the ones it was added with.
  */
 const fillSettings = owner
-  .input(z.object({ id: z.string(), settings: z.record(z.string().max(64), HeaderValue).refine((s) => Object.keys(s).length <= MAX_HEADERS, `At most ${MAX_HEADERS} settings`) }))
+  .input(z.object({ id: z.string(), settings: z.record(z.string().max(64), HeaderValue).refine((s) => Object.keys(s).length <= MAX_HEADERS, "tools.settingsMax" satisfies MessageKey) }))
   .handler(async ({ input, context }) => {
     const current = await find(context.db, context.ownerId, input.id);
     const entry = catalogEntry(current.catalogId);
-    if (current.kind !== "http" || entry?.kind !== "http" || entry.settings.length === 0 || current.auth === "oauth") bad("This tool has no settings to fill");
+    if (current.kind !== "http" || entry?.kind !== "http" || entry.settings.length === 0 || current.auth === "oauth") bad("tools.noSettings");
     // Still at its entry's address (a tool pointed elsewhere loses its entry), and only there.
-    if (current.url !== entry.url || current.transport !== entry.transport || current.urlSealed !== null) bad("This tool no longer calls its catalog entry's address");
+    if (current.url !== entry.url || current.transport !== entry.transport || current.urlSealed !== null) bad("tools.addressChanged");
     let headers: Record<string, string>;
     try {
       headers = fillHeaders(entry, input.settings);
     } catch (error) {
-      if (error instanceof MissingSetting) bad(error.message);
+      if (error instanceof MissingSetting) bad("tools.settingMissing", { label: error.label });
       throw error;
     }
     checkTarget(entry.url, true);
@@ -514,7 +524,7 @@ const fillSettings = owner
         ),
       )
       .returning();
-    if (!row) throw new ORPCError("CONFLICT", { message: "The tool changed meanwhile: open it again" });
+    if (!row) throw new ORPCError("CONFLICT", message("tools.changed"));
     return view(context.db, await refreshActions(context.db, context.secrets, context.tools, row));
   });
 
@@ -527,11 +537,11 @@ async function updateRunnerTool(context: Pick<InitialContext, "db" | "hub" | "en
   const runnerTool = input.runnerTool ?? current.runnerTool;
   const moved = runnerId !== current.runnerId || runnerTool !== current.runnerTool;
   if (moved) {
-    if (runnerId === null || runnerTool === null) bad("Pick the runner and its MCP server");
+    if (runnerId === null || runnerTool === null) bad("tools.pickRunner");
     await requireRunnerTool(context.db, context.ownerId, runnerId, runnerTool);
     if (runnerId !== current.runnerId) {
       const holder = await toolHolder(context.db, context.ownerId, current.id);
-      if (holder) throw new ORPCError("CONFLICT", { message: `${holder}: it stays on its runner` });
+      if (holder) throw new ORPCError("CONFLICT", message(STAYS[holder.key]!, holder.values));
     }
   }
   const [row] = await context.db
@@ -540,7 +550,7 @@ async function updateRunnerTool(context: Pick<InitialContext, "db" | "hub" | "en
     .where(and(eq(toolsTable.id, current.id), eq(toolsTable.ownerId, context.ownerId)))
     .returning()
     .catch((e: unknown) => nameTaken(e, input.name ?? current.name));
-  if (!row) throw new ORPCError("NOT_FOUND");
+  if (!row) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
   if (moved) {
     await askAgain(context.db, row.id);
     await context.engine.narrowOwnerSessions(context.ownerId, context.db);
@@ -565,11 +575,11 @@ const update = owner
     const current = await find(context.db, context.ownerId, input.id);
     if (current.kind === "runner") {
       if (input.url !== undefined || input.transport !== undefined || input.headers !== undefined || input.auth !== undefined) {
-        bad("A runner tool has no URL or headers: its runner's config.json says how to start it");
+        bad("tools.runnerNoUrl");
       }
       return updateRunnerTool(context, current, input);
     }
-    if (input.runnerId !== undefined || input.runnerTool !== undefined) bad("An HTTP tool doesn't run on a runner");
+    if (input.runnerId !== undefined || input.runnerTool !== undefined) bad("tools.httpNoRunner");
     const url = input.url ?? current.url!;
     const transport = input.transport ?? current.transport!;
     // Headers are for the server they were entered for: at another origin, or over another
@@ -579,14 +589,14 @@ const update = owner
     // An OAuth tool sends no header (they would reach its authorization server too); "none" drops them.
     const headersSealed = elsewhere || oauth || input.auth === "none" ? {} : { ...current.headersSealed };
     for (const [name, value] of Object.entries(normalize(input.headers ?? {}))) {
-      if (value && (oauth || input.auth === "none")) bad("A tool that signs in with OAuth, or not at all, has no headers");
+      if (value && (oauth || input.auth === "none")) bad("tools.oauthOrNoneNoHeaders");
       if (value) headersSealed[name] = context.secrets.seal(value, headerAad(current.id, name, url));
       else delete headersSealed[name];
     }
-    if (Object.keys(headersSealed).length > MAX_HEADERS) bad(`At most ${MAX_HEADERS} headers`);
+    if (Object.keys(headersSealed).length > MAX_HEADERS) bad("tools.headersMax");
     // A new URL replaces the secret one; the same template keeps it.
     const urlSealed = url === current.url ? current.urlSealed : null;
-    if (oauth && urlSealed !== null) bad("A tool whose URL holds a secret can't sign in with OAuth");
+    if (oauth && urlSealed !== null) bad("tools.oauthNoSecretUrl");
     checkTarget(urlSealed === null ? url : toolTarget(current, context.secrets).url, Object.keys(headersSealed).length > 0 || urlSealed !== null || oauth);
     const moved = url !== current.url || transport !== current.transport;
     // A sign-in is for the server it was made with: another server, or another way, starts over.
@@ -610,7 +620,7 @@ const update = owner
       .where(and(eq(toolsTable.id, current.id), eq(toolsTable.ownerId, context.ownerId), ...(context.expectField ? [eq(toolColumn(context.expectField.field), context.expectField.value as string)] : [])))
       .returning()
       .catch((e: unknown) => nameTaken(e, input.name ?? current.name));
-    if (!row) throw context.expectField ? new ORPCError("CONFLICT", { message: "This field changed meanwhile" }) : new ORPCError("NOT_FOUND");
+    if (!row) throw context.expectField ? new ORPCError("CONFLICT", message("triggers.fieldChanged")) : new ORPCError("NOT_FOUND", message("tools.notFound"));
     if (moved) {
       await askAgain(context.db, row.id);
       await context.engine.narrowOwnerSessions(context.ownerId, context.db);
@@ -632,14 +642,14 @@ const authorize = owner
     z.object({
       id: z.string(),
       client: z
-        .object({ clientId: z.string().trim().min(1).max(500).refine(oneLine, "One line of text"), clientSecret: z.string().trim().max(2000).refine(oneLine, "One line of text").optional() })
+        .object({ clientId: z.string().trim().min(1).max(500).refine(oneLine, "tools.oneLine" satisfies MessageKey), clientSecret: z.string().trim().max(2000).refine(oneLine, "tools.oneLine" satisfies MessageKey).optional() })
         .nullable()
         .optional(),
     }),
   )
   .handler(async ({ input, context }) => {
     const row = await find(context.db, context.ownerId, input.id);
-    if (row.kind !== "http" || row.auth !== "oauth") bad("This tool doesn't sign in with OAuth");
+    if (row.kind !== "http" || row.auth !== "oauth") bad("tools.notOauth");
     const store = oauthStore(context.db, context.secrets, row);
     if (input.client !== undefined) {
       const client = input.client;
@@ -656,10 +666,10 @@ const authorize = owner
       try {
         started = await context.tools.authorize({ ...toolTarget(row, context.secrets), oauth: store });
       } catch (error) {
-        if (error instanceof ToolError) bad(error.message);
+        if (error instanceof ToolError) throw new ORPCError("BAD_REQUEST", external(error.message));
         throw error;
       }
-      if (!started) bad(`${new URL(row.url!).host} doesn't ask for a sign-in: choose no sign-in instead`);
+      if (!started) bad("tools.noSignIn", { host: new URL(row.url!).host });
       const pending = started.pending;
       await store.change((state) => {
         state.pending = pending;
@@ -683,10 +693,10 @@ const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input,
       .from(toolsTable)
       .where(and(eq(toolsTable.id, input.id), eq(toolsTable.ownerId, context.ownerId)))
       .for("update");
-    if (!row) throw new ORPCError("NOT_FOUND");
+    if (!row) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
     await refuseOwnDelete(tx, row.pluginId);
     const holder = await toolHolder(tx, context.ownerId, row.id);
-    if (holder) throw new ORPCError("CONFLICT", { message: holder });
+    if (holder) throw new ORPCError("CONFLICT", message(holder.key, holder.values));
     await tx.delete(toolsTable).where(eq(toolsTable.id, row.id));
   });
 });
@@ -705,7 +715,7 @@ const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, co
 /** Each action of a tool with whether a poll may read it, and why not. */
 const pollable = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const actions = await pollableActions(context.db, context.ownerId, input.id);
-  if (!actions) throw new ORPCError("NOT_FOUND");
+  if (!actions) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
   return actions;
 });
 
@@ -714,7 +724,7 @@ const setPollable = owner.input(z.object({ id: z.string(), actions: z.array(z.st
   const row = await find(context.db, context.ownerId, input.id);
   const known = new Set(row.actions.map((a) => a.name));
   const unknown = input.actions.find((a) => !known.has(a));
-  if (unknown !== undefined) throw new ORPCError("BAD_REQUEST", { message: `The tool has no action ${unknown.slice(0, 100)}` });
+  if (unknown !== undefined) throw new ORPCError("BAD_REQUEST", message("tools.noAction", { action: unknown.slice(0, 100) }));
   await context.db.update(toolsTable).set({ pollable: [...new Set(input.actions)] }).where(eq(toolsTable.id, row.id));
   // Found above, so it lists the actions.
   return (await pollableActions(context.db, context.ownerId, row.id))!;
@@ -724,7 +734,7 @@ const setPollable = owner.input(z.object({ id: z.string(), actions: z.array(z.st
 const setActionEnabled = owner.input(z.object({ toolId: z.string(), action: z.string(), enabled: z.boolean() })).handler(async ({ input, context }) => {
   const row = await context.db.transaction(async (tx) => {
     const [tool] = await tx.select().from(toolsTable).where(and(eq(toolsTable.id, input.toolId), eq(toolsTable.ownerId, context.ownerId))).for("update");
-    if (!tool?.actions.some((a) => a.name === input.action)) throw new ORPCError("NOT_FOUND");
+    if (!tool?.actions.some((a) => a.name === input.action)) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
     if (tool.disabled.includes(input.action) === !input.enabled) return tool;
     const disabled = tool.disabled.filter((name) => name !== input.action);
     if (!input.enabled) disabled.push(input.action);
