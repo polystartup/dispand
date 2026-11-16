@@ -66,3 +66,12 @@ test("the URL's filters become the list's: the days cover whole local days", () 
 test("every action family has its words in English and French", () => {
   for (const lang of ["en", "fr"] as const) for (const f of AUDIT_FAMILIES) expect((resources[lang].audit.family as Record<string, string>)[f], `${lang} ${f}`).toBeTruthy();
 });
+
+test("the page's URL parameters keep valid filters and drop bad ones, impossible days included", async () => {
+  const { Route } = await import("../../routes/_app.audit.tsx");
+  const parse = (s: unknown) => (Route.options.validateSearch as { parse: (s: unknown) => unknown }).parse(s);
+  expect(parse({ action: "job", jobId: "run_1", agentId: "agent_1", from: "2026-11-12", to: "2026-11-13", result: "ok", actorType: "user", resourceType: "table" })).toEqual({
+    action: "job", jobId: "run_1", agentId: "agent_1", from: "2026-11-12", to: "2026-11-13", result: "ok", actorType: "user", resourceType: "table",
+  });
+  expect(parse({ action: "nope", result: "bad", actorType: "x", resourceType: "y", from: "2026-02-30", to: "yesterday", jobId: "x".repeat(201) })).toEqual({});
+});
