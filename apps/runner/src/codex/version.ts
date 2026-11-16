@@ -13,8 +13,8 @@ export const CODEX_TESTED = "0.166.0";
 export const MIN_CODEX = "0.166.0";
 
 /**
- * The Codex a restricted session's switches (`config.ts` `RESTRICTED`) were checked on: a newer one
- * runs, with a warning, until `restricted-tools.test.ts` is run again on it.
+ * The Codex a restricted session's switches (`config.ts` `RESTRICTED`) were checked on: any other one
+ * (from the minimum up) runs, with a warning, until `restricted-tools.test.ts` is run again on it.
  */
 export const RESTRICTED_CODEX = "0.169.0";
 /** The oldest Codex a restricted session runs on: an older one may ignore a switch it doesn't know. */

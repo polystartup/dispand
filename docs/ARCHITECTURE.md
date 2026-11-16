@@ -1702,7 +1702,7 @@ names from `config/read`), a read-only profile without network, and `environment
 `turn/start`, so the `apply_patch` the model's catalog entry adds (no switch removes it) fails
 before touching a file. `codex/restricted-tools.test.ts` runs the machine's Codex against a
 stand-in Responses API and checks every tool the model is offered; the runner refuses a
-restricted Codex start below `RESTRICTED_MIN_CODEX` (0.167.0) and warns above `RESTRICTED_CODEX` (0.169.0, where it was checked), until that test
+restricted Codex start below `RESTRICTED_MIN_CODEX` (0.167.0) and warns on any version but `RESTRICTED_CODEX` (0.169.0, where it was checked), until that test
 is run again on the new version (runner protocol 29: an older
 runner refuses restricted Codex starts and shows as outdated). A start that fails fails the Job,
 and its conflicts are the owner's again. On the element's page (`StemMarks`, from

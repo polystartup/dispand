@@ -207,7 +207,7 @@ changes it updates this file.
   file, and a file-change approval would be declined), the clock, the MCP resource tools (which reach only the Job's
   server), `submit_outputs` and the Job's server. The runner answers no command, file-change or question request and no
   dynamic tool but `submit_outputs`, bypass or not. A restricted Codex start needs Codex ≥ 0.167.0 (`RESTRICTED_MIN_CODEX`):
-  an older one may ignore a switch it doesn't know, so the runner refuses it. On a newer one it runs and the runner logs
+  an older one may ignore a switch it doesn't know, so the runner refuses it. On any other one (from 0.167.0 up) it runs and the runner logs
   a warning: after every Codex update, run `codex/restricted-tools.test.ts` on the runner machine, and change the
   switches if it fails.
 - **A consult reaches only an agent its Job may consult, and nothing answers in that agent's
