@@ -458,6 +458,10 @@
       "needsKey": "An API key is required.",
       "keyHttps": "A key is only sent to an https:// base URL.",
       "temperature": "Temperature is only for OpenAI-compatible providers."
+    },
+    "models": {
+      "unreachable": "Couldn't reach {{host}}.",
+      "keyRefused": "The provider refused the key."
     }
   },
   "auth": {
@@ -475,7 +479,17 @@
     "noEntry": "There is no entry {{path}}.",
     "removed": "This entry is removed already.",
     "acceptOnly": "Only an agent's entry, not removed, can be accepted.",
-    "notRemoved": "This entry isn't removed."
+    "notRemoved": "This entry isn't removed.",
+    "entry": {
+      "pathRule": "The path must be a relative path ending in .md, at most 120 characters, without .., . or empty parts, \\ or a .claude or .mcp.json folder, and not MEMORY.md, CLAUDE.md, AGENTS.md or AGENTS.override.md.",
+      "nameEmpty": "The name can't be empty.",
+      "nameTooLong": "The name is at most {{nameMax}} characters.",
+      "descriptionEmpty": "The description can't be empty.",
+      "descriptionTooLong": "The description is at most {{descriptionMax}} characters.",
+      "descriptionOneLine": "The description is one line.",
+      "typeOneOf": "The type is one of {{types}}.",
+      "bodyTooLong": "The body is at most {{bodyMax}} characters."
+    }
   },
   "jobs": {
     "manualOnly": "Only a manual trigger can be started by hand.",
@@ -491,7 +505,27 @@
     "pluginSkill": "A plugin's skill is changed file by file, on its page.",
     "editedFromForm": "This skill is edited from its form.",
     "fileNotFound": "This file doesn't exist.",
-    "usedByAgent": "The agent “{{agent}}” uses this skill."
+    "usedByAgent": "The agent “{{agent}}” uses this skill.",
+    "package": {
+      "empty": "A skill package needs at least one skill.",
+      "tooManyFiles": "A skill package holds at most {{max}} files.",
+      "tooBig": "A skill package holds at most 8 MiB.",
+      "skillTooManyFiles": "The skill “{{path}}” holds at most {{max}} files.",
+      "unsafePath": "“{{path}}” is not a safe path.",
+      "outsideFolder": "“{{path}}” is not inside a skill's folder: every file must be.",
+      "badFolder": "The folder of “{{path}}” must be lowercase letters, digits and hyphens, at most 64.",
+      "twice": "“{{path}}” is in the package twice.",
+      "folderName": "“{{path}}” has the name of a folder of the package.",
+      "fileTooBig": "“{{path}}” is larger than 2 MiB.",
+      "noSkillMd": "“{{path}}” is missing: every skill folder needs a SKILL.md.",
+      "notUtf8": "“{{path}}” isn't UTF-8 text.",
+      "noFrontmatter": "“{{path}}” must start with a YAML frontmatter between --- lines.",
+      "badYaml": "The frontmatter of “{{path}}” isn't valid YAML.",
+      "notMapping": "The frontmatter of “{{path}}” must be a YAML mapping.",
+      "nameMismatch": "The frontmatter's name in “{{path}}” must be “{{folder}}”, its folder.",
+      "noDescription": "The frontmatter of “{{path}}” needs a description.",
+      "descriptionLong": "The description in “{{path}}” must be at most {{max}} characters of text."
+    }
   },
   "runners": {
     "usedByHarness": "A harness uses this runner.",

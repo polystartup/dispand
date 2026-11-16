@@ -4,7 +4,7 @@ import { agents, memories, memoryRevisions, tables } from "../db/schema.ts";
 import { recordAudit } from "../audit/record.ts";
 import { newId } from "../ids.ts";
 import { meter, tracer } from "../telemetry/index.ts";
-import { MAX_MEMORY_ENTRIES, MEMORY_TYPE_LABELS, MEMORY_TYPES, type MemoryAuthor, MemoryEntryInput, type MemoryEntryFields, type MemoryScope } from "./model.ts";
+import { MAX_MEMORY_ENTRIES, MEMORY_TYPE_LABELS, MEMORY_TYPES, type MemoryAuthor, ENTRY_VALUES, MemoryEntryInput, type MemoryEntryFields, type MemoryScope } from "./model.ts";
 import { english, type Message, type MessageKey, type MessageValues, say } from "../messages/index.ts";
 
 // The one way memory is written (design 6.5): the owner's procedures and the agents' tools both
@@ -143,7 +143,7 @@ function fieldsOf(r: Pick<MemoryEntry, "path" | "name" | "description" | "type" 
 export function writeMemory(db: Db | Tx, ownerId: string, where: MemoryScope, entry: unknown, author: MemoryAuthor, mode: "add" | "update" | "upsert"): Promise<{ id: string } | Refusal> {
   return recorded(where.scope, mode === "update" ? "update" : "add", async (setOp) => {
     const parsed = MemoryEntryInput.safeParse(entry);
-    if (!parsed.success) return { error: parsed.error.issues[0]!.message };
+    if (!parsed.success) return refuse(parsed.error.issues[0]!.message as MessageKey, ENTRY_VALUES);
     const fields = parsed.data;
     return db.transaction(async (tx) => {
       await lockScope(tx, ownerId, where);

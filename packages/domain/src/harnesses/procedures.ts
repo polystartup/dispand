@@ -10,7 +10,7 @@ import { authed, base } from "../rpc/context.ts";
 import type { SecretBox } from "../secrets.ts";
 import { StorableText } from "../workflows/model.ts";
 import { apiKeyAad, CLOUD_KINDS, loadCloudHarness, type CloudKind } from "./cloud.ts";
-import { external, message, type MessageKey, type MessageValues } from "../messages/index.ts";
+import { message, type MessageKey, type MessageValues } from "../messages/index.ts";
 
 const owner = base.use(authed);
 
@@ -232,7 +232,7 @@ const models = owner
     try {
       return await listModels(target.kind, target.baseUrl, target.apiKey);
     } catch (error) {
-      if (error instanceof ModelListError) throw new ORPCError("BAD_REQUEST", external(error.message));
+      if (error instanceof ModelListError) throw new ORPCError("BAD_REQUEST", message(error.say.key, error.say.values));
       throw new ORPCError("INTERNAL_SERVER_ERROR", message("harness.modelsFailed"));
     }
   });

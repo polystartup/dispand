@@ -53,9 +53,9 @@ test("paths an agent or a person may try are refused with the path rule; a 101st
   const tries = ["CLAUDE.md", "notes/claude.md", "x/AGENTS.override.md", ".claude/x.md", "../x.md", "/x.md", "a//b.md", "a\\b.md", "x.txt", "MEMORY.md", `${"a".repeat(118)}.md`];
   for (const path of tries) {
     await expect(call(router.memories.write, { where, entry: entry(path) }, { context }), path).rejects.toMatchObject({ code: "BAD_REQUEST", message: PATH_RULE });
-    expect(await writeMemory(db, ownerId, where, entry(path), agentAuthor, "add")).toEqual({ error: PATH_RULE });
+    expect(await writeMemory(db, ownerId, where, entry(path), agentAuthor, "add")).toMatchObject({ error: PATH_RULE });
   }
-  expect(await writeMemory(db, ownerId, where, { ...entry("x.md"), description: "two\nlines" }, agentAuthor, "add")).toEqual({ error: "The description is one line." });
+  expect(await writeMemory(db, ownerId, where, { ...entry("x.md"), description: "two\nlines" }, agentAuthor, "add")).toMatchObject({ error: "The description is one line." });
   for (let i = 0; i < MAX_MEMORY_ENTRIES; i++) await writeMemory(db, ownerId, where, entry(`e${i}.md`), agentAuthor, "add");
   const cap = `This memory holds ${MAX_MEMORY_ENTRIES} entries already: remove one first.`;
   await expect(call(router.memories.write, { where, entry: entry("one-more.md") }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST", message: cap, data: { key: "memory.full" } });

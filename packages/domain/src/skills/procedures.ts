@@ -11,7 +11,7 @@ import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { StorableText } from "../workflows/model.ts";
 import { MAX_DESCRIPTION, MAX_FILE_BYTES, MAX_FILES, PackageError, SKILL_NAME, skillMd, type SkillFile, splitSkillMd, validatePackage } from "./package.ts";
-import { external, message } from "../messages/index.ts";
+import { message } from "../messages/index.ts";
 
 const owner = base.use(authed);
 
@@ -64,7 +64,7 @@ function checked(files: SkillFile[]) {
   try {
     return validatePackage(files);
   } catch (e) {
-    if (e instanceof PackageError) throw new ORPCError("BAD_REQUEST", external(e.message));
+    if (e instanceof PackageError) throw new ORPCError("BAD_REQUEST", message(e.say.key, e.say.values));
     throw e;
   }
 }

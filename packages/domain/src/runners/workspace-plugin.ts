@@ -95,7 +95,7 @@ export const workspacePlugin = base.use(authed).input(z.object({
         if (matching) operation = PluginOperation.parse({ ...operation, name: matching.name });
       }
     }
-    if (blocked) return PluginReport.parse({ blocked: true, results: already, error: "A native binding already exists but is disabled, pending, missing or uses another source. Inspect it in the native client, or explicitly uninstall it before reinstalling." });
+    if (blocked) return PluginReport.parse({ blocked: true, results: already });
     const pending = targets.filter((kind) => !already.some((p) => p.harness === kind));
     if (!pending.length) return PluginReport.parse({ changes: already.map(({ name, harness }) => ({ name, harness, action: "already_installed" })), results: already });
     operation = PluginOperation.parse({ ...operation, targets: pending });

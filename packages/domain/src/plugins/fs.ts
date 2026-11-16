@@ -177,7 +177,7 @@ function skillFiles(root: string, rel: string, skill: string, notImported: Notes
     }
     for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
       // A skill holds at most MAX_FILES files: past twice that many entries, it isn't one.
-      if (++visited > MAX_FILES * 2) throw new PackageError(`a skill holds at most ${MAX_FILES} files`, skill);
+      if (++visited > MAX_FILES * 2) throw new PackageError("skills.package.skillTooManyFiles", skill, { max: MAX_FILES });
       const path = `${prefix}/${entry.name}`;
       const full = join(dir, entry.name);
       if (!isSafeRelativePath(path)) {

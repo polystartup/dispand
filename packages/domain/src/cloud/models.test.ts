@@ -34,16 +34,16 @@ test("models maps a provider 401 to a clean error", async () => {
   for (const status of [401, 403]) {
     const error = await listModels("openai", undefined, KEY, fake(status, body)).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ModelListError);
-    expect((error as Error).message).toBe("The provider refused the key");
+    expect((error as Error).message).toBe("The provider refused the key.");
   }
   for (const [status, reply] of [[500, body], [200, `not json ${KEY}`], [200, { data: `${KEY}` }]] as const) {
     const error = (await listModels("openai", "https://llm.test/v1", KEY, fake(status, reply)).catch((e: unknown) => e)) as Error;
-    expect(error.message).toBe("Couldn't reach llm.test");
+    expect(error.message).toBe("Couldn't reach llm.test.");
     expect(error.message).not.toContain(KEY);
   }
   const down = (async () => {
     throw new Error(`connect ECONNREFUSED with ${KEY}`);
   }) as typeof fetch;
   const error = (await listModels("anthropic", "https://llm.test", KEY, down).catch((e: unknown) => e)) as Error;
-  expect(error.message).toBe("Couldn't reach llm.test");
+  expect(error.message).toBe("Couldn't reach llm.test.");
 });

@@ -90,7 +90,8 @@ export async function seedMarketplaces(tx: Tx, ownerId: string): Promise<void> {
 
 /** A failure the owner can act on (a fetch, a marketplace or a plugin that isn't readable): BAD_REQUEST with its words. */
 function asBadRequest(e: unknown): never {
-  if (e instanceof GitError || e instanceof MarketplaceError || e instanceof PluginError || e instanceof PackageError || e instanceof WellKnownError) {
+  if (e instanceof PackageError) throw new ORPCError("BAD_REQUEST", message(e.say.key, e.say.values));
+  if (e instanceof GitError || e instanceof MarketplaceError || e instanceof PluginError || e instanceof WellKnownError) {
     throw new ORPCError("BAD_REQUEST", external(e.message));
   }
   throw e;

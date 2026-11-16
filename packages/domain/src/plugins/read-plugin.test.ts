@@ -76,7 +76,7 @@ test("a skill that doesn't validate is listed with its reason", () => {
   const root = tree({ "skills/a/SKILL.md": skillMd("b"), "skills/Bad_Name/SKILL.md": skillMd("Bad_Name") });
   expect(readPlugin(root, entry()).notImported).toEqual([
     { component: "skill", name: "Bad_Name", reason: "Its name isn't lowercase letters, digits and hyphens" },
-    { component: "skill", name: "a", reason: 'a/SKILL.md: the frontmatter\'s name must be "a", its folder' },
+    { component: "skill", name: "a", reason: "The frontmatter's name in “a/SKILL.md” must be “a”, its folder." },
   ]);
 });
 
@@ -168,7 +168,7 @@ test("a folder listed many times is read once; a huge one stops early; what isn'
   for (let i = 0; i < 1100; i++) files[`skills/bad/f${i}\\x`] = "";
   const root = tree(files);
   const got = readPlugin(root, entry({ skills: Array.from({ length: 200 }, () => "skills/bad") }));
-  expect(got.notImported).toEqual([{ component: "skill", name: "bad", reason: "bad: a skill holds at most 500 files" }]);
+  expect(got.notImported).toEqual([{ component: "skill", name: "bad", reason: "The skill “bad” holds at most 500 files." }]);
 
   const many: Record<string, string> = { "skills/ok/SKILL.md": skillMd("ok") };
   for (let i = 0; i < 300; i++) many[`skills/ok/f${i}\\x`] = "";

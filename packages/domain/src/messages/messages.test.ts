@@ -8,7 +8,10 @@ import { z } from "zod";
 import { base, validationKey } from "../rpc/context.ts";
 import en from "./en.json";
 import fr from "./fr.json";
-import { external, isMessageKey, message, reasonOf } from "./index.ts";
+import { ModelListError } from "../cloud/models.ts";
+import { ENTRY_VALUES } from "../memory/model.ts";
+import { PackageError } from "../skills/package.ts";
+import { external, isMessageKey, message, reasonOf, rendered } from "./index.ts";
 
 /** Every key of a resource, plural forms included, as dotted paths. */
 const keys = (value: unknown, prefix = ""): string[] =>
@@ -36,6 +39,14 @@ test("a rejected input's issue becomes a validation message, its plural chosen b
   expect([short(1), short(3)]).toEqual(["“answer.message” needs at least 1 character.", "“answer.message” needs at least 3 characters."]);
   expect(validationKey({ code: "too_big", origin: "number", maximum: 5, path: [] })).toEqual({ key: "validation.too_big.number", values: { field: "input", maximum: 5 } });
   expect(validationKey({ code: "something_new", path: ["a", 0] })).toEqual({ key: "validation.custom", values: { field: "a.0" } });
+});
+
+test("errors that carry a message say it in French too, and in English for agents", () => {
+  const unsafe = new PackageError("skills.package.unsafePath", "../x");
+  expect([unsafe.message, rendered("fr", unsafe.say.key, unsafe.say.values)]).toEqual(["“../x” is not a safe path.", "« ../x » n’est pas un chemin sûr."]);
+  const model = new ModelListError("harness.models.unreachable", { host: "api.example.com" });
+  expect([model.message, rendered("fr", model.say.key, model.say.values)]).toEqual(["Couldn't reach api.example.com.", "Impossible de joindre api.example.com."]);
+  expect(rendered("fr", "memory.entry.typeOneOf", ENTRY_VALUES)).toBe("Le type est l’un de : business, practice, fact, reference.");
 });
 
 // Errors whose text may reach a person and isn't a `message()` key or text marked as external, per

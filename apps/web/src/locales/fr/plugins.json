@@ -45,6 +45,7 @@
     "reading": "Lecture du plugin…",
     "nativeFailed": "L’installation native a échoué. Vérifiez l’inventaire du harnais avant de réessayer ; certains changements ont pu aboutir.",
     "nativeIncomplete": "L’installation native n’a pas abouti. Vérifiez l’inventaire du harnais avant de réessayer.",
+    "nativeBlocked": "Une liaison native existe déjà, mais elle est désactivée, en attente, absente ou utilise une autre source. Examinez-la dans le client natif, ou désinstallez-la explicitement avant de réinstaller.",
     "failed": "Impossible d’installer le plugin.",
     "setupStopped": "La mise en place s’est arrêtée : {{error}}",
     "setupRefused": "La mise en place s’est arrêtée : un élément a été refusé",

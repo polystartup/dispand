@@ -458,6 +458,10 @@
       "needsKey": "Une clé d’API est requise.",
       "keyHttps": "Une clé n’est envoyée qu’à une URL de base en https://.",
       "temperature": "La température ne concerne que les fournisseurs compatibles OpenAI."
+    },
+    "models": {
+      "unreachable": "Impossible de joindre {{host}}.",
+      "keyRefused": "Le fournisseur a refusé la clé."
     }
   },
   "auth": {
@@ -475,7 +479,17 @@
     "noEntry": "Il n’y a pas d’entrée {{path}}.",
     "removed": "Cette entrée est déjà supprimée.",
     "acceptOnly": "Seule une entrée d’agent, non supprimée, peut être acceptée.",
-    "notRemoved": "Cette entrée n’est pas supprimée."
+    "notRemoved": "Cette entrée n’est pas supprimée.",
+    "entry": {
+      "pathRule": "Le chemin doit être un chemin relatif se terminant par .md, de 120 caractères au plus, sans .., . ni partie vide, sans \\ ni dossier .claude ou .mcp.json, et ne pas être MEMORY.md, CLAUDE.md, AGENTS.md ou AGENTS.override.md.",
+      "nameEmpty": "Le nom ne peut pas être vide.",
+      "nameTooLong": "Le nom fait au plus {{nameMax}} caractères.",
+      "descriptionEmpty": "La description ne peut pas être vide.",
+      "descriptionTooLong": "La description fait au plus {{descriptionMax}} caractères.",
+      "descriptionOneLine": "La description tient sur une seule ligne.",
+      "typeOneOf": "Le type est l’un de : {{types}}.",
+      "bodyTooLong": "Le corps fait au plus {{bodyMax}} caractères."
+    }
   },
   "jobs": {
     "manualOnly": "Seul un déclencheur manuel peut être lancé à la main.",
@@ -491,7 +505,27 @@
     "pluginSkill": "La compétence d’un plugin se modifie fichier par fichier, sur sa page.",
     "editedFromForm": "Cette compétence se modifie depuis son formulaire.",
     "fileNotFound": "Ce fichier n’existe pas.",
-    "usedByAgent": "L’agent « {{agent}} » utilise cette compétence."
+    "usedByAgent": "L’agent « {{agent}} » utilise cette compétence.",
+    "package": {
+      "empty": "Un paquet de compétences a besoin d’au moins une compétence.",
+      "tooManyFiles": "Un paquet de compétences contient au plus {{max}} fichiers.",
+      "tooBig": "Un paquet de compétences pèse au plus 8 Mio.",
+      "skillTooManyFiles": "La compétence « {{path}} » contient au plus {{max}} fichiers.",
+      "unsafePath": "« {{path}} » n’est pas un chemin sûr.",
+      "outsideFolder": "« {{path}} » n’est pas dans le dossier d’une compétence : chaque fichier doit l’être.",
+      "badFolder": "Le dossier de « {{path}} » doit être en lettres minuscules, chiffres et tirets, 64 au plus.",
+      "twice": "« {{path}} » est deux fois dans le paquet.",
+      "folderName": "« {{path}} » porte le nom d’un dossier du paquet.",
+      "fileTooBig": "« {{path}} » pèse plus de 2 Mio.",
+      "noSkillMd": "« {{path}} » manque : chaque dossier de compétence a besoin d’un SKILL.md.",
+      "notUtf8": "« {{path}} » n’est pas du texte UTF-8.",
+      "noFrontmatter": "« {{path}} » doit commencer par un frontmatter YAML entre deux lignes ---.",
+      "badYaml": "Le frontmatter de « {{path}} » n’est pas du YAML valide.",
+      "notMapping": "Le frontmatter de « {{path}} » doit être un mapping YAML.",
+      "nameMismatch": "Le nom du frontmatter de « {{path}} » doit être « {{folder}} », son dossier.",
+      "noDescription": "Le frontmatter de « {{path}} » a besoin d’une description.",
+      "descriptionLong": "La description de « {{path}} » doit faire au plus {{max}} caractères de texte."
+    }
   },
   "runners": {
     "usedByHarness": "Un harnais utilise ce runner.",

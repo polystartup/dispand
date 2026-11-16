@@ -45,6 +45,7 @@
     "reading": "Reading the plugin…",
     "nativeFailed": "Native installation failed. Check Harness inventory before retrying; some changes may have completed.",
     "nativeIncomplete": "Native installation did not complete. Check Harness inventory before retrying.",
+    "nativeBlocked": "A native binding already exists but is disabled, pending, missing or uses another source. Inspect it in the native client, or explicitly uninstall it before reinstalling.",
     "failed": "Could not install the plugin.",
     "setupStopped": "Setting it up stopped: {{error}}",
     "setupRefused": "Setting it up stopped: an item was refused",
