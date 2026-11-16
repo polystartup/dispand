@@ -1,6 +1,7 @@
 import { join, normalize, posix } from "node:path";
 import { storable } from "@dispand/runner-protocol";
 import { z } from "zod";
+import { type Message, type MessageKey, say } from "../messages/index.ts";
 import { isLoopback } from "../harnesses/procedures.ts";
 import { Headers } from "../tools/procedures.ts";
 import { FOLDER, readDefinitions, readExtension } from "./definitions.ts";
@@ -59,10 +60,10 @@ function readManifest(root: string, notImported: Notes): { mcpSchema: string; ve
   const rules = typeof raw.$schema === "string" ? VERSIONS[raw.$schema] : undefined;
   if (!rules) throw new PluginError("pluginRead.manifest.version");
   for (const key of Object.keys(raw)) {
-    if (!MANIFEST_FIELDS.has(key)) notImported.push({ component: "manifest", name: storable(key) ? cut(key, 100) : "…", reason: "Not a field of plugin.json: ignored" });
+    if (!MANIFEST_FIELDS.has(key)) notImported.push({ component: "manifest", name: storable(key) ? cut(key, 100) : "…", reason: say("notImported.notManifestField") });
   }
   if (raw.extensions !== undefined && !isObject(raw.extensions)) {
-    notImported.push({ component: "manifest", name: "extensions", reason: "Not an object: ignored" });
+    notImported.push({ component: "manifest", name: "extensions", reason: say("notImported.extensionNotObject") });
   }
   // `com.dispand` is the one namespace Dispand implements; every other is never read.
   const description = isObject(raw.extensions) ? readExtension(raw.extensions[FOLDER], notImported) : undefined;
@@ -80,7 +81,7 @@ function readSkills(root: string, notImported: Notes): PluginContents["skills"] 
   const kind = kindAt(root, "skills");
   if (kind === "absent") return [];
   if (kind !== "dir") {
-    notImported.push({ component: "skill", name: "skills", reason: "Not a folder: no skill is read" });
+    notImported.push({ component: "skill", name: "skills", reason: say("notImported.skillsNotFolder") });
     return [];
   }
   const folders = list(join(root, "skills"))
@@ -127,20 +128,20 @@ function isRemoteUrl(url: string): boolean {
 }
 
 function readServer(root: string, name: string, raw: unknown): PluginMcpServer | NotImported {
-  const skip = (reason: string): NotImported => ({ component: "mcp-server", name, reason });
-  if (!isObject(raw)) return skip("Not an object");
-  if (raw.type === undefined) return skip("It has no type");
+  const skip = (reason: Message): NotImported => ({ component: "mcp-server", name, reason });
+  if (!isObject(raw)) return skip(say("notImported.serverNotObject"));
+  if (raw.type === undefined) return skip(say("notImported.serverNoType"));
   const fields = raw.type === "stdio" ? STDIO_FIELDS : raw.type === "streamable-http" || raw.type === "sse" ? REMOTE_FIELDS : null;
-  if (!fields) return skip("Its type isn't stdio, streamable-http or sse");
+  if (!fields) return skip(say("notImported.serverTypeNotStdio"));
   const unknown = Object.keys(raw).find((key) => !fields.has(key));
-  if (unknown !== undefined) return skip(`It has a field its type doesn't take${storable(unknown) ? `: ${cut(unknown, 100)}` : ""}`);
-  if (!allStorable(raw)) return skip("Its settings aren't readable");
+  if (unknown !== undefined) return skip(storable(unknown) ? say("notImported.serverFieldNamed", { field: cut(unknown, 100) }) : say("notImported.serverField"));
+  if (!allStorable(raw)) return skip(say("notImported.settings"));
   if (raw.type === "stdio") {
-    if (typeof raw.command !== "string" || !isCommand(root, raw.command)) return skip("Its command isn't one name or one ./ path inside the plugin");
-    if (raw.args !== undefined && !strings(raw.args)) return skip("Its arguments aren't a list of strings");
-    if (raw.env !== undefined && !stringRecord(raw.env)) return skip("Its environment isn't an object of strings");
-    if (raw.env && Object.keys(raw.env).some((key) => RESERVED_ENV.has(key))) return skip("Its environment sets PLUGIN_ROOT or PLUGIN_DATA");
-    if (raw.cwd !== undefined && (typeof raw.cwd !== "string" || !isCwd(raw.cwd))) return skip("Its working directory isn't inside the plugin or its data folder");
+    if (typeof raw.command !== "string" || !isCommand(root, raw.command)) return skip(say("notImported.serverCommand"));
+    if (raw.args !== undefined && !strings(raw.args)) return skip(say("notImported.serverArgs"));
+    if (raw.env !== undefined && !stringRecord(raw.env)) return skip(say("notImported.serverEnv"));
+    if (raw.env && Object.keys(raw.env).some((key) => RESERVED_ENV.has(key))) return skip(say("notImported.serverEnvReserved"));
+    if (raw.cwd !== undefined && (typeof raw.cwd !== "string" || !isCwd(raw.cwd))) return skip(say("notImported.serverCwd"));
     return {
       name,
       type: "stdio",
@@ -151,13 +152,13 @@ function readServer(root: string, name: string, raw: unknown): PluginMcpServer |
       settings: [],
     };
   }
-  if (typeof raw.url !== "string" || !isRemoteUrl(raw.url)) return skip("Its URL isn't absolute http(s), https unless loopback, without credentials or fragment");
+  if (typeof raw.url !== "string" || !isRemoteUrl(raw.url)) return skip(say("notImported.serverUrl"));
   const headers = raw.headers ?? {};
-  if (!stringRecord(headers) || !Headers.safeParse(headers).success) return skip("Its headers aren't valid HTTP headers");
+  if (!stringRecord(headers) || !Headers.safeParse(headers).success) return skip(say("notImported.serverHeaders"));
   const names = Object.keys(headers).map((h) => h.toLowerCase());
-  if (new Set(names).size !== names.length) return skip("It names a header twice");
+  if (new Set(names).size !== names.length) return skip(say("notImported.serverHeaderTwice"));
   // The standard expands nothing in a URL or a header, where Dispand's installer reads `${…}` as a setting.
-  if ([raw.url, ...Object.values(headers)].some((s) => s.includes("${"))) return skip("Its URL or headers hold ${…}, which Dispand would read as a setting");
+  if ([raw.url, ...Object.values(headers)].some((s) => s.includes("${"))) return skip(say("notImported.serverUrlSetting"));
   return { name, type: "http", url: raw.url, transport: raw.type === "sse" ? "sse" : "streamable-http", headers, settings: [] };
 }
 
@@ -165,31 +166,31 @@ function readServer(root: string, name: string, raw: unknown): PluginMcpServer |
 function readServers(root: string, mcpSchema: string, notImported: Notes): PluginMcpServer[] {
   const kind = kindAt(root, "mcp.json");
   if (kind === "absent") return [];
-  const disable = (reason: string) => {
-    notImported.push({ component: "mcp-server", name: "mcp.json", reason: `${reason}: no MCP server is read` });
+  const disable = (key: Extract<MessageKey, `notImported.mcpFile.${string}`>) => {
+    notImported.push({ component: "mcp-server", name: "mcp.json", reason: say(key) });
     return [];
   };
-  if (kind !== "file") return disable("Not a regular file");
+  if (kind !== "file") return disable("notImported.mcpFile.notFile");
   const bytes = readRegular(root, "mcp.json", MAX_JSON_BYTES);
-  if (!bytes) return disable("Larger than 1 MiB");
+  if (!bytes) return disable("notImported.mcpFile.tooLarge");
   let raw: unknown;
   try {
     raw = JSON.parse(bytes.toString("utf8"));
   } catch {
-    return disable("Not valid JSON");
+    return disable("notImported.mcpFile.notJson");
   }
-  if (!isObject(raw)) return disable("Not a JSON object");
-  if (typeof raw.$schema !== "string" || !MCP_SCHEMAS.has(raw.$schema)) return disable("Its $schema isn't an Agent Plugins version Dispand supports");
-  if (raw.$schema !== mcpSchema) return disable("It targets another Agent Plugins version than plugin.json");
-  if (!isObject(raw.mcpServers)) return disable("Its mcpServers isn't an object");
-  if (Object.keys(raw).some((key) => key !== "$schema" && key !== "mcpServers")) return disable("It has a field mcp.json doesn't take");
+  if (!isObject(raw)) return disable("notImported.mcpFile.notObject");
+  if (typeof raw.$schema !== "string" || !MCP_SCHEMAS.has(raw.$schema)) return disable("notImported.mcpFile.schema");
+  if (raw.$schema !== mcpSchema) return disable("notImported.mcpFile.otherVersion");
+  if (!isObject(raw.mcpServers)) return disable("notImported.mcpFile.serversNotObject");
+  if (Object.keys(raw).some((key) => key !== "$schema" && key !== "mcpServers")) return disable("notImported.mcpFile.field");
   const servers: PluginMcpServer[] = [];
   let count = 0;
   for (const [name, entry] of Object.entries(raw.mcpServers)) {
     spend(1);
     if (++count > MAX_SERVERS) throw new PluginError("pluginRead.tooManyServers", { max: MAX_SERVERS });
     if (name.length === 0 || name.length > 100 || !storable(name)) {
-      notImported.push({ component: "mcp-server", name: storable(name) ? cut(name, 100) || "…" : "…", reason: "Its name is empty, longer than 100 characters or unreadable" });
+      notImported.push({ component: "mcp-server", name: storable(name) ? cut(name, 100) || "…" : "…", reason: say("notImported.serverName") });
       continue;
     }
     const server = readServer(root, name, entry);
@@ -211,7 +212,7 @@ export function readStandardPlugin(root: string, links: string[]): PluginContent
   if (links.includes("plugin.json")) throw new PluginError("pluginRead.manifest.link");
   const { mcpSchema, version, description } = readManifest(root, notImported);
   // The checkout's links are gone from it (`fetchGit`): listed here, never read.
-  notImported.push(...links.map((name): NotImported => ({ component: "file", name, reason: "A symbolic link" })));
+  notImported.push(...links.map((name): NotImported => ({ component: "file", name, reason: say("notImported.symlink") })));
   const skills = readSkills(root, notImported);
   const mcpServers = readServers(root, mcpSchema, notImported);
   const definitions = readDefinitions(root, { skills: skills.map((s) => s.name), servers: mcpServers.map((s) => s.name) }, notImported);

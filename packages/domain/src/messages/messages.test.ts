@@ -66,6 +66,13 @@ test("a refusal of the Git, plugin and tool errors is said in French, a stored f
   expect(storedSentence(stored("engine.fail.stopped"))).toBe("Stopped.");
 });
 
+test("a poll's own failure and a not-imported reason are said in French", () => {
+  const failed = storedText(stored("tools.poll.nextNotText", { path: "page.next" })) as Message;
+  expect([storedSentence(stored("tools.poll.notJson")), rendered("fr", failed.key, failed.values)]).toEqual(["The action's result isn't JSON.", "La page suivante du résultat, à « page.next », n’est pas un texte."]);
+  expect(rendered("fr", "notImported.more", { count: 3 })).toBe("et 3 autres non importés");
+  expect(rendered("fr", "pluginRead.tooManyDefinitions", { max: 100, folder: "com.dispand/agents" })).toBe("Le plugin contient plus de 100 définitions dans com.dispand/agents.");
+});
+
 test("words from outside that look like a stored message are shown as they came, and plural forms are chosen by the count", () => {
   const forged = '{"key":"engine.fail.stopped"}';
   expect(storedText(forged)).toEqual({ key: "engine.fail.stopped" });

@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
+import { inEnglish } from "./test-notes.ts";
 import { fakeSite, skillMd } from "./test-support.ts";
 import { readWellKnownIndex, readWellKnownSkills, wellKnownIndexUrl } from "./well-known.ts";
 
@@ -28,7 +29,7 @@ test("reads every listed skill's files and checks each skill on its own", async 
   });
   const { contents, sha } = await readWellKnownSkills(site);
   expect(contents.skills.map((s) => [s.name, s.files.map((f) => f.path)])).toEqual([["greet", ["greet/SKILL.md", "greet/references/tone.md"]]]);
-  expect(contents.notImported).toEqual([
+  expect(inEnglish(contents.notImported)).toEqual([
     { component: "skill", name: "broken", reason: "“broken/SKILL.md” is missing: every skill folder needs a SKILL.md." },
     { component: "skill", name: "sneaky", reason: "One of its files has a path a skill can't hold" },
     { component: "skill", name: "Bad Name", reason: "Its name isn't lowercase letters, digits and hyphens, or is listed twice" },

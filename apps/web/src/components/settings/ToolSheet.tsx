@@ -34,8 +34,7 @@ type Props = {
 
 export function errorMessage(e: unknown, fallback: string): string {
   if (typeof e === "object" && e !== null && "code" in e && "message" in e && (e.code === "BAD_REQUEST" || e.code === "CONFLICT")) {
-    const message = String(e.message);
-    if (message !== "Input validation failed") return message;
+    return String(e.message);
   }
   return fallback;
 }

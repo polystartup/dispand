@@ -1,4 +1,5 @@
 import { call } from "@orpc/server";
+import { inEnglish } from "./test-notes.ts";
 import { contentDigest } from "@dispand/runner-protocol/digest";
 import type { ServerToRunner } from "@dispand/runner-protocol";
 import { eq } from "drizzle-orm";
@@ -115,7 +116,7 @@ test("a plugin larger than a runner takes installs and updates, keeping no files
     const { pluginId } = await installReviewed(fx.ctx, { marketplaceId: fx.market.id, entryName: "law-firm", skills: ["legal-research"] });
     const [row] = await fx.ctx.db.select().from(pluginsTable).where(eq(pluginsTable.id, pluginId));
     expect(row!.digest).toBeNull();
-    expect(row!.notImported).toContainEqual({ component: "mcp-server", name: "notes", reason: "The plugin is larger than a runner takes (500 files or 11 MiB): this server can't run as a runner tool" });
+    expect(inEnglish(row!.notImported)).toContainEqual({ component: "mcp-server", name: "notes", reason: "The plugin is larger than a runner takes (500 files or 11 MiB): this server can't run as a runner tool" });
     expect(await fx.ctx.db.select().from(pluginFiles).where(eq(pluginFiles.pluginId, pluginId))).toEqual([]);
     const { previewWaiting } = await addOnRunner(fx, pluginId);
     expect(previewWaiting).toEqual([{ definition: "tool:notes", reason: { key: "plugins.setup.waiting.noFiles" } }]);

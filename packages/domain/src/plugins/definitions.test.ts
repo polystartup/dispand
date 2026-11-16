@@ -1,4 +1,5 @@
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { inEnglish } from "./test-notes.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, onTestFinished, test } from "vitest";
@@ -29,7 +30,7 @@ const read = (files: Record<string, FixtureFile>) =>
     }),
     entry,
   );
-const reasons = (got: ReturnType<typeof read>) => got.notImported.map((n) => `${n.component} ${n.name}: ${n.reason}`);
+const reasons = (got: ReturnType<typeof read>) => inEnglish(got.notImported).map((n) => `${n.component} ${n.name}: ${n.reason}`);
 const names = (got: ReturnType<typeof read>) => ({
   agents: got.definitions.agents.map((d) => d.name),
   primitives: got.definitions.primitives.map((d) => d.name),
@@ -192,10 +193,10 @@ test("a definition is parsed with its procedure's rules, refinements included", 
     "definition com.dispand/primitives/twice.json: It has two fields called “a”",
     "definition com.dispand/agents/model.md: It has a field it doesn't take",
     "definition com.dispand/agents/no-frontmatter.md: It has no frontmatter",
-    "definition com.dispand/triggers/both.json: config.server: A poll names one server or one catalog entry",
-    "definition com.dispand/triggers/interaction.json: config.fields: A Question or an Approval has no fields",
+    "definition com.dispand/triggers/both.json: config.server: A poll names one server or one catalog entry.",
+    "definition com.dispand/triggers/interaction.json: config.fields: A Question or an Approval has no fields.",
     "definition com.dispand/triggers/tool-id.json: It has a field it doesn't take in config",
-    "definition com.dispand/triggers/wrong-op.json: config.operations: These changes aren't ones of what the trigger watches",
+    "definition com.dispand/triggers/wrong-op.json: config.operations: These changes aren't ones of what the trigger watches.",
     "definition com.dispand/triggers/no-field.json: “Phone” isn't a field of “Clients”",
   ]);
 });
@@ -235,7 +236,7 @@ test("a com.dispand that isn't a folder, or a kind that isn't one, reads no defi
 
 test("a plugin holds at most 100 definitions of a kind", () => {
   const many = Object.fromEntries(Array.from({ length: 101 }, (_, i) => [`com.dispand/primitives/t${i}.json`, json({ name: `T${i}`, primitive: false })]));
-  expect(() => read(many)).toThrow("more than 100 primitives definitions");
+  expect(() => read(many)).toThrow("more than 100 definitions in com.dispand/primitives");
 });
 
 test("the Claude layout has no definitions, whatever com.dispand/ holds", () => {

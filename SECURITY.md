@@ -902,7 +902,7 @@ changes it updates this file.
 - **Every input is validated** by its procedure's Zod schema; errors don't leak internals:
   anything but an `ORPCError` reaches the page as the generic message (oRPC sends no text, the
   log only `logError`'s summary), and so does an `ORPCError` with no message key (the page shows
-  only keyed messages and text marked external), and a server message's values render as text, never markup.
+  only keyed messages and text marked external), and a server message's values render as text, never markup. Text from outside stored in a failure column goes through `plainText`, so one shaped like JSON can never read as a stored message.
 - **One owner account per install; every row is owner-scoped,** and procedures only return the session owner's rows.
 - **The server's secrets come from its environment** (`deploy/README.md`), never from git,
   logs or client bundles.

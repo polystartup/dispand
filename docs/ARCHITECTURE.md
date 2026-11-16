@@ -1995,7 +1995,7 @@ same keys.
   an error without a key, or a key the page doesn't know, shows the generic message, whatever its code. Values are text:
   React escapes them; a list value is formatted by the page (`Intl.ListFormat`). Person-facing text a
   procedure returns as data (an uninstall's reasons, an update's refusals, a setup's waiting
-  definitions, why a cell value doesn't fit its field, a proposal's "of the table X") is a `Text`: `say(key, values)`, or `{ text }` for words that came as they are (a
+  definitions, why a cell value doesn't fit its field, a proposal's "of the table X", why a plugin's element isn't imported: `NotImported.reason` is a `Message`, so the compiler refuses a sentence) is a `Text`: `say(key, values)`, or `{ text }` for words that came as they are (a
   plugin's, another area's not yet keyed, `reasonOf(err)`); the page renders it with `useText()`
   (`lib/message.ts`). The same holds for what the workflow editor shows: a workflow issue
   (`WorkflowIssue.message`), a refused link (`connect`) and a schedule's problem (`cronProblem`) are
@@ -2013,7 +2013,8 @@ same keys.
   stored message: the key and values as JSON in the same text column (`stored(key, values)`),
   which the page renders in its language (`useStored()`, `storedText`). A row written before
   holds plain words, shown as stored; text that came from elsewhere (a runner's error event, a
-  tool's own answer, git's own words) is stored as it came, or passed as a value of a keyed
+  tool's own answer, git's own words) is stored as it came (wrapped by `plainText` when it looks
+  like JSON, so it never reads as a stored message), or passed as a value of a keyed
   sentence. A tool result for an agent shows every such text as its English sentence
   (`sentence`, a tool's `filter`, `issues` for a refinement's key and its `params`), never a key. An input its Zod schema rejects answers with `validation.<code>` and the
   field's path and limits (`rpc/context.ts`, `validationKey`). `messages/messages.test.ts` walks

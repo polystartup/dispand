@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { isSafeRelativePath, storable } from "@dispand/runner-protocol";
 import { z } from "zod";
-import { SayError } from "../messages/index.ts";
+import { say, SayError } from "../messages/index.ts";
 import { MAX_DESCRIPTION, MAX_FILES, MAX_FILE_BYTES, PackageError, SKILL_NAME, type SkillFile, validatePackage } from "../skills/package.ts";
 import type { NotImported, PluginContents } from "./read-plugin.ts";
 import { NO_DEFINITIONS } from "./definitions.ts";
@@ -135,13 +135,13 @@ export async function readWellKnownSkills(indexUrl: string): Promise<{ contents:
   const seen = new Set<string>();
   for (const skill of listed) {
     if (!SKILL_NAME.test(skill.name) || seen.has(skill.name)) {
-      notImported.push({ component: "skill", name: storable(skill.name) ? skill.name : "?", reason: "Its name isn't lowercase letters, digits and hyphens, or is listed twice" });
+      notImported.push({ component: "skill", name: storable(skill.name) ? skill.name : "?", reason: say("notImported.skillNameOrListed") });
       continue;
     }
     seen.add(skill.name);
     const unsafe = skill.files.find((f) => !isSafeRelativePath(`${skill.name}/${f}`));
     if (unsafe !== undefined) {
-      notImported.push({ component: "skill", name: skill.name, reason: "One of its files has a path a skill can't hold" });
+      notImported.push({ component: "skill", name: skill.name, reason: say("notImported.skillFilePath") });
       continue;
     }
     const files: SkillFile[] = [];
@@ -155,7 +155,7 @@ export async function readWellKnownSkills(indexUrl: string): Promise<{ contents:
       skills.push({ name: skill.name, description: checked!.description, files });
     } catch (e) {
       if (!(e instanceof PackageError)) throw e;
-      notImported.push({ component: "skill", name: skill.name, reason: e.message });
+      notImported.push({ component: "skill", name: skill.name, reason: e.say });
     }
   }
   const hash = createHash("sha256");

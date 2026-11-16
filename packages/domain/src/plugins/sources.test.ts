@@ -1,4 +1,5 @@
 import { call } from "@orpc/server";
+import { inEnglish } from "./test-notes.ts";
 import { afterEach, expect, test, vi } from "vitest";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
@@ -25,7 +26,7 @@ test("a Git repository of skills (no marketplace file) is one entry, its skills/
   expect(found!.entry).toMatchObject({ name, source: { supported: true } });
   const preview = await call(router.plugins.preview, { marketplaceId: market.id, entryName: name }, { context: ctx });
   expect(preview.skills.map((s) => s.name)).toEqual(["plain-words", "review"]);
-  expect(preview.notImported).toEqual([{ component: "hook", name: "hooks", reason: "Hooks run commands on the machine" }]);
+  expect(inEnglish(preview.notImported)).toEqual([{ component: "hook", name: "hooks", reason: "Hooks run commands on the machine" }]);
   await installReviewed(ctx, { marketplaceId: market.id, entryName: name, skills: ["plain-words"] });
   const [pkg] = await call(router.skills.list, undefined, { context: ctx });
   expect(pkg).toMatchObject({ skills: [{ name: "plain-words" }], plugin: { name } });

@@ -1,4 +1,6 @@
 import { join } from "node:path";
+import type { Message } from "../messages/index.ts";
+import { say } from "../messages/index.ts";
 import { storable } from "@dispand/runner-protocol";
 import type { PluginEntry } from "@dispand/runner-protocol/digest";
 import { parse } from "yaml";
@@ -92,15 +94,15 @@ const record = (v: unknown): Record<string, string> | null =>
   typeof v === "object" && v !== null && !Array.isArray(v) && Object.values(v).every((x) => typeof x === "string") ? (v as Record<string, string>) : null;
 
 function readServer(name: string, raw: unknown): PluginMcpServer | NotImported {
-  const skip = (reason: string): NotImported => ({ component: "mcp-server", name, reason });
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return skip("Its settings aren't readable");
-  if (!allStorable(raw)) return skip("Its settings aren't readable");
-  if (JSON.stringify(raw).includes(PLUGIN_ROOT_VAR)) return skip("It runs the plugin's own files");
+  const skip = (reason: Message): NotImported => ({ component: "mcp-server", name, reason });
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return skip(say("notImported.settings"));
+  if (!allStorable(raw)) return skip(say("notImported.settings"));
+  if (JSON.stringify(raw).includes(PLUGIN_ROOT_VAR)) return skip(say("notImported.ownFiles"));
   const s = raw as Record<string, unknown>;
   if (typeof s.url === "string") {
-    if (s.type !== undefined && s.type !== "http" && s.type !== "sse" && s.type !== "streamable-http") return skip("Its type isn't supported");
+    if (s.type !== undefined && s.type !== "http" && s.type !== "sse" && s.type !== "streamable-http") return skip(say("notImported.typeUnsupported"));
     const headers = s.headers === undefined ? {} : record(s.headers);
-    if (!headers) return skip("Its headers aren't readable");
+    if (!headers) return skip(say("notImported.headersUnreadable"));
     return {
       name,
       type: "http",
@@ -113,10 +115,10 @@ function readServer(name: string, raw: unknown): PluginMcpServer | NotImported {
   if (typeof s.command === "string") {
     const args = s.args === undefined ? [] : strings(s.args);
     const env = s.env === undefined ? {} : record(s.env);
-    if (!args || !env) return skip("Its arguments or environment aren't readable");
+    if (!args || !env) return skip(say("notImported.argsEnvUnreadable"));
     return { name, type: "stdio", command: s.command, args, env, settings: settingsOf([s.command, ...args, ...Object.values(env)]) };
   }
-  return skip("Its type isn't supported");
+  return skip(say("notImported.typeUnsupported"));
 }
 
 /** The servers of a `.mcp.json`-shaped value: `{ mcpServers: { … } }` or the map itself. */
@@ -173,7 +175,7 @@ function readAgents(root: string, notImported: Notes): PluginAgent[] {
     if (!file.endsWith(".md")) continue;
     const bytes = readRegular(root, `agents/${file}`, MAX_FILE_BYTES);
     if (!bytes) {
-      notImported.push({ component: "file", name: `agents/${file}`, reason: "Not a regular file, or larger than 2 MiB" });
+      notImported.push({ component: "file", name: `agents/${file}`, reason: say("notImported.notRegularOrLarge") });
       continue;
     }
     const text = bytes.toString("utf8");
@@ -187,7 +189,7 @@ function readAgents(root: string, notImported: Notes): PluginAgent[] {
     }
     const body = (parts ? parts.body : text).trim();
     if (body.length > MAX_AGENT_PROMPT || !storable(body)) {
-      notImported.push({ component: "file", name: `agents/${file}`, reason: "Its prompt is longer than 100,000 characters" });
+      notImported.push({ component: "file", name: `agents/${file}`, reason: say("notImported.promptTooLong") });
       continue;
     }
     const name = typeof meta.name === "string" && meta.name.trim() && storable(meta.name) ? cut(meta.name.trim(), 100) : file.slice(0, -3);
@@ -201,16 +203,16 @@ function readAgents(root: string, notImported: Notes): PluginAgent[] {
 /** What Dispand never imports, because it would run code the owner never approved. */
 function listNotRun(root: string, manifest: Record<string, unknown>, notImported: Notes) {
   if (manifest.hooks !== undefined || readRegular(root, "hooks/hooks.json", MAX_JSON_BYTES) || isDir(join(root, "hooks"))) {
-    notImported.push({ component: "hook", name: "hooks", reason: "Hooks run commands on the machine" });
+    notImported.push({ component: "hook", name: "hooks", reason: say("notImported.hooks") });
   }
   if (isDir(join(root, "commands"))) {
     for (const file of list(join(root, "commands")).map((d) => d.name).sort()) {
-      if (file.endsWith(".md")) notImported.push({ component: "command", name: file.slice(0, -3), reason: "Commands aren't imported" });
+      if (file.endsWith(".md")) notImported.push({ component: "command", name: file.slice(0, -3), reason: say("notImported.commands") });
     }
   } else if (manifest.commands !== undefined) {
-    notImported.push({ component: "command", name: "commands", reason: "Commands aren't imported" });
+    notImported.push({ component: "command", name: "commands", reason: say("notImported.commands") });
   }
-  if (isDir(join(root, "bin"))) notImported.push({ component: "bin", name: "bin/", reason: "Runs the plugin's own programs" });
+  if (isDir(join(root, "bin"))) notImported.push({ component: "bin", name: "bin/", reason: say("notImported.bin") });
 }
 
 /**
@@ -246,7 +248,7 @@ function readWithin(root: string, entry: MarketplaceEntry, links: string[]): Plu
   };
   const notImported = new Notes();
   // The checkout's links are gone from it (`fetchGit`): listed here, never read.
-  notImported.push(...links.map((name): NotImported => ({ component: "file", name, reason: "A symbolic link" })));
+  notImported.push(...links.map((name): NotImported => ({ component: "file", name, reason: say("notImported.symlink") })));
   const skills = readSkills(root, entry, notImported);
   const mcpServers = readServers(root, manifest, notImported);
   const agents = readAgents(root, notImported);

@@ -33,7 +33,7 @@ const toolLabel = (tool: { name: string; plugin: { name: string } | null } | und
 /** Why the server refused the change, when it says so for a person to read; else `fallback`. */
 function refusal(e: unknown, fallback: string): string {
   const { code, message } = (typeof e === "object" && e !== null ? e : {}) as { code?: unknown; message?: unknown };
-  const readable = (code === "FORBIDDEN" || code === "BAD_REQUEST") && typeof message === "string" && !message.startsWith("Input validation");
+  const readable = (code === "FORBIDDEN" || code === "BAD_REQUEST") && typeof message === "string";
   return readable ? message : fallback;
 }
 

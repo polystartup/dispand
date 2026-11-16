@@ -168,7 +168,7 @@ async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry, allowF
     const notes = new Notes();
     const files = stdio.length ? withBudget(() => readRunnerFiles(root, notes)) : undefined;
     // Too large for a runner: the plugin installs all the same, keeping none (adding such a server is refused, `noFiles`).
-    if (files === null) for (const s of stdio) notes.push({ component: "mcp-server", name: s.name, reason: `The plugin is larger than a runner takes (${MAX_RUNNER_FILES} files or 11 MiB): this server can't run as a runner tool` });
+    if (files === null) for (const s of stdio) notes.push({ component: "mcp-server", name: s.name, reason: say("notImported.runnerTooLarge", { max: MAX_RUNNER_FILES }) });
     const read = { ...contents, notImported: [...contents.notImported, ...notes.list()] };
     return { contents: read, ...(files ? { files } : {}), url, sha: checkout.sha, nativeRoot: prefix || ".", changelog: readChangelog(root) };
   } finally {

@@ -1,4 +1,5 @@
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { inEnglish } from "./test-notes.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, onTestFinished, test } from "vitest";
@@ -25,7 +26,7 @@ const manifest = (more: Record<string, unknown> = {}) => JSON.stringify({ $schem
 const mcp = (servers: Record<string, unknown>, more: Record<string, unknown> = {}) => JSON.stringify({ $schema: MCP_SCHEMA, mcpServers: servers, ...more });
 /** Reads a standard plugin made of `files` (with a minimal `plugin.json` unless given). */
 const read = (files: Record<string, FixtureFile>, links: string[] = []) => readPlugin(tree({ "plugin.json": manifest(), ...files }), entry, links);
-const reasons = (got: ReturnType<typeof read>) => got.notImported.map((n) => `${n.component} ${n.name}: ${n.reason}`);
+const reasons = (got: ReturnType<typeof read>) => inEnglish(got.notImported).map((n) => `${n.component} ${n.name}: ${n.reason}`);
 
 test("loads a plugin from a directory and enforces the filesystem-resolved boundary", () => {
   const outside = tree({ "secret/SKILL.md": skillMd("secret") });
@@ -239,7 +240,7 @@ test("resolves stdio commands as single executable tokens", () => {
   const got = read({ "mcp.json": mcp(Object.fromEntries([...valid, ...invalid].map((c, i) => [`s${i}`, server(c)]))) });
   expect(got.mcpServers.map((s) => s.type === "stdio" && s.command)).toEqual(valid);
   expect(got.notImported).toHaveLength(invalid.length);
-  expect(new Set(got.notImported.map((n) => n.reason))).toEqual(new Set(["Its command isn't one name or one ./ path inside the plugin"]));
+  expect(new Set(inEnglish(got.notImported).map((n) => n.reason))).toEqual(new Set(["Its command isn't one name or one ./ path inside the plugin"]));
 });
 
 test("enforces cwd containment and remote URL and header rules", () => {
@@ -281,7 +282,7 @@ test("enforces cwd containment and remote URL and header rules", () => {
   const cwd = "Its working directory isn't inside the plugin or its data folder";
   const url = "Its URL isn't absolute http(s), https unless loopback, without credentials or fragment";
   const headers = "Its headers aren't valid HTTP headers";
-  expect(Object.fromEntries(got.notImported.map((n) => [n.name, n.reason]))).toEqual({
+  expect(Object.fromEntries(inEnglish(got.notImported).map((n) => [n.name, n.reason]))).toEqual({
     cwdBare: cwd,
     cwdAbs: cwd,
     cwdUp: cwd,

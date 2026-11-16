@@ -1,4 +1,5 @@
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { inEnglish } from "./test-notes.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, onTestFinished, test } from "vitest";
@@ -43,7 +44,7 @@ test("without a list, the skills are skills/*; hooks, commands and bin/ are list
   });
   const got = readPlugin(root, entry());
   expect(got.skills.map((s) => s.name)).toEqual(["brainstorming", "tdd"]);
-  expect(got.notImported).toEqual([
+  expect(inEnglish(got.notImported)).toEqual([
     { component: "hook", name: "hooks", reason: "Hooks run commands on the machine" },
     { component: "command", name: "plan", reason: "Commands aren't imported" },
     { component: "bin", name: "bin/", reason: "Runs the plugin's own programs" },
@@ -62,7 +63,7 @@ test("symlinked file is skipped, and so are a linked skill folder and files a sk
   });
   const got = readPlugin(root, entry({ skills: ["skills/x", "skills/linked", "../escape"] }));
   expect(got.skills.map((s) => [s.name, s.files.map((f) => f.path)])).toEqual([["x", ["x/SKILL.md", "x/hooks/hooks.json"]]]);
-  expect(got.notImported).toEqual(
+  expect(inEnglish(got.notImported)).toEqual(
     expect.arrayContaining([
       { component: "file", name: "x/host", reason: "A symbolic link" },
       { component: "file", name: "x/.mcp.json", reason: "Its path isn't allowed in a skill" },
@@ -75,7 +76,7 @@ test("symlinked file is skipped, and so are a linked skill folder and files a sk
 
 test("a skill that doesn't validate is listed with its reason", () => {
   const root = tree({ "skills/a/SKILL.md": skillMd("b"), "skills/Bad_Name/SKILL.md": skillMd("Bad_Name") });
-  expect(readPlugin(root, entry()).notImported).toEqual([
+  expect(inEnglish(readPlugin(root, entry()).notImported)).toEqual([
     { component: "skill", name: "Bad_Name", reason: "Its name isn't lowercase letters, digits and hyphens" },
     { component: "skill", name: "a", reason: "The frontmatter's name in “a/SKILL.md” must be “a”, its folder." },
   ]);
@@ -115,7 +116,7 @@ test("readPlugin parses .mcp.json servers with their ${VAR} settings and agents/
     { name: "search", type: "stdio", command: "npx", args: ["-y", "brave"], env: { BRAVE_API_KEY: "${BRAVE_API_KEY}" }, settings: ["BRAVE_API_KEY"] },
     { name: "events", type: "http", url: "https://x.example/${TENANT}/sse", transport: "sse", headers: {}, settings: ["TENANT"] },
   ]);
-  expect(got.notImported).toEqual([{ component: "mcp-server", name: "own", reason: "It runs the plugin's own files" }]);
+  expect(inEnglish(got.notImported)).toEqual([{ component: "mcp-server", name: "own", reason: "It runs the plugin's own files" }]);
   expect(got.agents).toEqual([
     { name: "plain", description: "", systemPrompt: "Just a prompt." },
     { name: "code-reviewer", description: "Reviews code.", systemPrompt: "You review code." },
@@ -169,13 +170,13 @@ test("a folder listed many times is read once; a huge one stops early; what isn'
   for (let i = 0; i < 1100; i++) files[`skills/bad/f${i}\\x`] = "";
   const root = tree(files);
   const got = readPlugin(root, entry({ skills: Array.from({ length: 200 }, () => "skills/bad") }));
-  expect(got.notImported).toEqual([{ component: "skill", name: "bad", reason: "The skill “bad” holds at most 500 files." }]);
+  expect(inEnglish(got.notImported)).toEqual([{ component: "skill", name: "bad", reason: "The skill “bad” holds at most 500 files." }]);
 
   const many: Record<string, string> = { "skills/ok/SKILL.md": skillMd("ok") };
   for (let i = 0; i < 300; i++) many[`skills/ok/f${i}\\x`] = "";
   const capped = readPlugin(tree(many), entry()).notImported;
   expect(capped).toHaveLength(201);
-  expect(capped.at(-1)).toEqual({ component: "file", name: "…", reason: "and 100 more not imported" });
+  expect(inEnglish(capped).at(-1)).toEqual({ component: "file", name: "…", reason: "and 100 more not imported" });
 });
 
 test("one read has a budget: too many skills, files or bytes, or a file named again and again, can't make it do more", () => {

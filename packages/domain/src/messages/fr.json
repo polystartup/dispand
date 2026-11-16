@@ -82,11 +82,16 @@
       "gone": "L’outil n’existe plus.",
       "disabled": "Cette action est désactivée pour tout l’espace de travail.",
       "agentLacks": "L’agent n’a pas cet outil.",
-      "notReadable": "Une relève ne peut pas lire cette action : l’outil ne laisse pas les relèves la lire, ou un agent doit demander avant de l’utiliser.",
+      "notReadable": "Une interrogation ne peut pas lire cette action : l’outil ne laisse pas les interrogations la lire, ou un agent doit demander avant de l’utiliser.",
       "actionError": "L’action a signalé une erreur.",
       "noText": "Le résultat de l’action ne contient pas de texte.",
       "noList": "Le résultat n’a pas de liste à « {{path}} ».",
-      "notList": "Le résultat n’est pas une liste."
+      "notList": "Le résultat n’est pas une liste.",
+      "notJson": "Le résultat de l’action n’est pas du JSON.",
+      "nextNotText": "La page suivante du résultat, à « {{path}} », n’est pas un texte.",
+      "nextNotLink": "La page suivante du résultat, à « {{path}} », n’est pas un lien.",
+      "nextNoQuery": "La page suivante du résultat n’a pas de « {{query}} ».",
+      "nextTooLong": "Le jeton de la page suivante du résultat est trop long pour être suivi."
     },
     "urlCredentials": "L’URL ne peut pas contenir d’identifiants.",
     "plugin": {
@@ -266,7 +271,7 @@
         "noField": "Son champ « {{field}} » n’existe pas encore : configurez à nouveau ensuite.",
         "noPollTool": "« {{tool}} » n’est pas encore ajouté comme outil.",
         "addedBySetup": "« {{tool}} » est ajouté par cette configuration : configurez le déclencheur une fois que l’outil liste ses actions.",
-        "pollUnasked": "Sa relève exécute « {{action}} » sans demander, ce que l’installation n’accorde pas : laissez {{agent}} l’exécuter, puis configurez le déclencheur.",
+        "pollUnasked": "Son interrogation exécute « {{action}} » sans demander, ce que l’installation n’accorde pas : laissez {{agent}} l’exécuter, puis configurez le déclencheur.",
         "noFiles": "Dispand ne garde aucun fichier de ce plugin pour l’exécuter sur un runner : ajoutez-le depuis les serveurs MCP de ce runner (Réglages → Outils → Ajouter un outil de runner), ou mettez le plugin à jour s’il suit le standard Agent Plugins."
       }
     },
@@ -398,7 +403,9 @@
     "invalid": {
       "operations": "Ces changements ne sont pas de ceux de ce que le déclencheur surveille.",
       "noFields": "Une Question, une Approbation ou un Job n’a pas de champs.",
-      "argumentsTooLarge": "Les arguments dépassent 16 Kio."
+      "argumentsTooLarge": "Les arguments dépassent 16 Kio.",
+      "interactionNoFields": "Une Question ou une Approbation n’a pas de champs.",
+      "pollSource": "Une interrogation nomme un serveur ou une entrée du catalogue, pas les deux."
     }
   },
   "workflows": {
@@ -497,7 +504,8 @@
     "invalid_key": "« {{field}} » contient une clé qui n’est pas valide.",
     "invalid_element": "« {{field}} » contient un élément qui n’est pas valide.",
     "invalid_value": "« {{field}} » doit valoir l’un de : {{values}}.",
-    "custom": "« {{field}} » n’est pas valide."
+    "custom": "« {{field}} » n’est pas valide.",
+    "choicesDifferent": "Les choix doivent être différents."
   },
   "push": {
     "question_one": "{{agent}} a une question pour vous.",
@@ -553,15 +561,15 @@
       "loopTooMany": "La liste compte {{items}} éléments ; cette boucle en traite {{max}} au plus."
     },
     "poll": {
-      "failed": "La consultation a échoué.",
-      "changed": "Le déclencheur a changé pendant sa consultation.",
+      "failed": "L’interrogation a échoué.",
+      "changed": "Le déclencheur a changé pendant son interrogation.",
       "itemLarge": "L’élément dépasse {{kib}} Kio.",
-      "pages": "{{pages}} pages lues : le reste à la prochaine consultation.",
+      "pages": "{{pages}} pages lues : le reste à la prochaine interrogation.",
       "triggerOff": "Le déclencheur est désactivé.",
       "noId_one": "{{count}} élément sans identifiant à « {{path}} » écarté.",
       "noId_other": "{{count}} éléments sans identifiant à « {{path}} » écartés.",
-      "noIdAndPages_one": "{{count}} élément sans identifiant à « {{path}} » écarté ; {{pages}} pages lues : le reste à la prochaine consultation.",
-      "noIdAndPages_other": "{{count}} éléments sans identifiant à « {{path}} » écartés ; {{pages}} pages lues : le reste à la prochaine consultation."
+      "noIdAndPages_one": "{{count}} élément sans identifiant à « {{path}} » écarté ; {{pages}} pages lues : le reste à la prochaine interrogation.",
+      "noIdAndPages_other": "{{count}} éléments sans identifiant à « {{path}} » écartés ; {{pages}} pages lues : le reste à la prochaine interrogation."
     },
     "fire": {
       "changed": "Le déclencheur a été modifié : il lit autre chose maintenant.",
@@ -729,7 +737,7 @@
     "tooManyServers": "Le plugin propose plus de {{max}} serveurs MCP.",
     "tooManyAgents": "Le plugin propose plus de {{max}} agents.",
     "tooManySkills": "Le plugin propose plus de {{max}} compétences.",
-    "tooManyDefinitions": "Le plugin contient plus de {{max}} définitions de type {{kind}}."
+    "tooManyDefinitions": "Le plugin contient plus de {{max}} définitions dans {{folder}}."
   },
   "marketplaceFile": {
     "missing": "Ce dépôt n’a pas de .claude-plugin/marketplace.json.",
@@ -761,6 +769,92 @@
       "providerError": "Le fournisseur a répondu par une erreur ({{status}}).",
       "unreachable": "Impossible de joindre {{host}}.",
       "unreachableProvider": "Impossible de joindre le fournisseur."
+    }
+  },
+  "notImported": {
+    "settings": "Ses paramètres ne sont pas lisibles",
+    "ownFiles": "Il exécute les propres fichiers du plugin",
+    "typeUnsupported": "Son type n’est pas pris en charge",
+    "headersUnreadable": "Ses en-têtes ne sont pas lisibles",
+    "argsEnvUnreadable": "Ses arguments ou son environnement ne sont pas lisibles",
+    "hooks": "Les hooks exécutent des commandes sur la machine",
+    "commands": "Les commandes ne sont pas importées",
+    "bin": "Exécute les propres programmes du plugin",
+    "symlink": "Un lien symbolique",
+    "notRegularOrLarge": "Pas un fichier ordinaire, ou plus de 2 Mio",
+    "promptTooLong": "Son prompt dépasse 100 000 caractères",
+    "skillPath": "Son chemin n’est pas autorisé dans un skill",
+    "notRegular": "Pas un fichier ordinaire",
+    "larger": "Plus de 2 Mio",
+    "folderOutside": "Son dossier est en dehors du plugin",
+    "folderMissing": "Son dossier n’est pas dans le plugin (ou c’est un lien)",
+    "skillName": "Son nom n’est pas fait de lettres minuscules, de chiffres et de tirets",
+    "skillNameOrListed": "Son nom n’est pas fait de lettres minuscules, de chiffres et de tirets, ou il figure deux fois dans la liste",
+    "skillDuplicate": "Un autre skill du plugin porte ce nom",
+    "skillFilePath": "Un de ses fichiers a un chemin qu’un skill ne peut pas contenir",
+    "runnerPath": "Son chemin n’en est pas un qu’un runner écrit : ses serveurs stdio s’exécutent sans lui",
+    "runnerTooLarge": "Le plugin est plus grand que ce qu’un runner accepte ({{max}} fichiers ou 11 Mio) : ce serveur ne peut pas tourner comme outil de runner",
+    "more_one": "et {{count}} autre non importé",
+    "more_other": "et {{count}} autres non importés",
+    "definitionKindNotFolder": "Pas un dossier : aucune définition n’y est lue",
+    "definitionsNotFolder": "Pas un dossier : aucune définition n’est lue",
+    "notExtension": "Pas un fichier {{extension}}",
+    "unstorable": "Il contient un caractère que Dispand ne peut pas enregistrer",
+    "definitionDuplicate": "Une autre définition s’appelle « {{name}} »",
+    "notJson": "JSON invalide",
+    "notJsonObject": "Pas un objet JSON",
+    "noFrontmatter": "Il n’a pas d’en-tête (frontmatter)",
+    "yamlInvalid": "Son en-tête n’est pas du YAML valide sans alias",
+    "frontmatterNotMapping": "Son en-tête n’est pas un objet",
+    "unknownField": "Il a un champ qu’il n’accepte pas",
+    "unknownFieldIn": "Il a un champ qu’il n’accepte pas dans {{path}}",
+    "invalidAt": "{{path}} : {{words}}",
+    "invalid": "{{words}}",
+    "twoFields": "Il a deux champs appelés « {{field}} »",
+    "referenceField": "Son champ « {{field}} » : un champ de référence, et lui seul, nomme la table qu’il référence",
+    "choicesField": "Son champ « {{field}} » : seule une sélection unique a des choix",
+    "parentNeedsPrimitive": "Seule une table primitive a un parent",
+    "parentNotReference": "Son parent « {{field}} » n’est pas l’un de ses champs de référence",
+    "ownParent": "Une table ne peut pas être son propre parent",
+    "parentNotPrimitive": "Sa table parente « {{table}} » n’est pas une primitive du plugin",
+    "notCatalog": "« {{tool}} » n’est pas une entrée du catalogue de Dispand",
+    "notServer": "« {{tool}} » n’est pas un serveur du mcp.json du plugin",
+    "notSkill": "« {{skill}} » n’est pas un skill du plugin",
+    "consultsSelf": "Un agent ne peut pas se consulter lui-même",
+    "consultNotAgent": "Il consulte « {{agent}} », qui n’est pas un agent du plugin",
+    "triggerNotAgent": "Son agent « {{agent}} » n’est pas un agent du plugin",
+    "tableSkipped": "Sa table « {{table}} » est une définition du plugin qui n’a pas été lue",
+    "tableNotPrimitive": "« {{table}} » n’est pas une primitive : aucun déclencheur ne la surveille",
+    "notTableField": "« {{field}} » n’est pas un champ de « {{table}} »",
+    "extensionNotObject": "Pas un objet : ignoré",
+    "extensionField": "Il a un champ autre que description : ignoré",
+    "extensionDescription": "Pas un texte de 1 000 caractères au plus : ignoré",
+    "notManifestField": "Pas un champ de plugin.json : ignoré",
+    "skillsNotFolder": "Pas un dossier : aucun skill n’est lu",
+    "serverNotObject": "Pas un objet",
+    "serverNoType": "Il n’a pas de type",
+    "serverTypeNotStdio": "Son type n’est ni stdio, ni streamable-http, ni sse",
+    "serverFieldNamed": "Il a un champ que son type n’accepte pas : {{field}}",
+    "serverField": "Il a un champ que son type n’accepte pas",
+    "serverCommand": "Sa commande n’est pas un nom seul ni un chemin ./ dans le plugin",
+    "serverArgs": "Ses arguments ne sont pas une liste de textes",
+    "serverEnv": "Son environnement n’est pas un objet de textes",
+    "serverEnvReserved": "Son environnement définit PLUGIN_ROOT ou PLUGIN_DATA",
+    "serverCwd": "Son dossier de travail n’est ni dans le plugin ni dans son dossier de données",
+    "serverUrl": "Son URL n’est pas un http(s) absolu, https sauf en boucle locale, sans identifiants ni fragment",
+    "serverHeaders": "Ses en-têtes ne sont pas des en-têtes HTTP valides",
+    "serverHeaderTwice": "Il nomme un en-tête deux fois",
+    "serverUrlSetting": "Son URL ou ses en-têtes contiennent ${…}, que Dispand lirait comme un paramètre",
+    "serverName": "Son nom est vide, dépasse 100 caractères ou est illisible",
+    "mcpFile": {
+      "notFile": "Pas un fichier ordinaire : aucun serveur MCP n’est lu",
+      "tooLarge": "Plus de 1 Mio : aucun serveur MCP n’est lu",
+      "notJson": "JSON invalide : aucun serveur MCP n’est lu",
+      "notObject": "Pas un objet JSON : aucun serveur MCP n’est lu",
+      "schema": "Son $schema n’est pas une version d’Agent Plugins que Dispand prend en charge : aucun serveur MCP n’est lu",
+      "otherVersion": "Il cible une autre version d’Agent Plugins que plugin.json : aucun serveur MCP n’est lu",
+      "serversNotObject": "Son mcpServers n’est pas un objet : aucun serveur MCP n’est lu",
+      "field": "Il a un champ que mcp.json n’accepte pas : aucun serveur MCP n’est lu"
     }
   }
 }

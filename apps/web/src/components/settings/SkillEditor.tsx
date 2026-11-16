@@ -30,7 +30,7 @@ async function toUpload(file: File): Promise<Upload> {
 function reason(e: unknown, fallback: string): string {
   if (typeof e === "object" && e !== null && "code" in e) {
     const { code, message } = e as { code: unknown; message?: unknown };
-    if ((code === "BAD_REQUEST" || code === "CONFLICT") && typeof message === "string" && !message.startsWith("Input validation")) return message;
+    if ((code === "BAD_REQUEST" || code === "CONFLICT") && typeof message === "string") return message;
   }
   return fallback;
 }

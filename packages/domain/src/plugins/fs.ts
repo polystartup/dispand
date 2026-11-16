@@ -1,12 +1,12 @@
 import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { basename, isAbsolute, join, normalize, relative, sep } from "node:path";
 import { isSafeRelativePath, storable } from "@dispand/runner-protocol";
-import { SayError } from "../messages/index.ts";
+import { type Message, say, SayError } from "../messages/index.ts";
 import { MAX_FILE_BYTES, MAX_FILES, PackageError, SKILL_NAME, type SkillFile, validatePackage } from "../skills/package.ts";
 
 /** What both plugin readers share: the root, the read's budget, regular files and skill folders. */
 
-export type NotImported = { component: "manifest" | "hook" | "command" | "bin" | "mcp-server" | "skill" | "definition" | "file"; name: string; reason: string };
+export type NotImported = { component: "manifest" | "hook" | "command" | "bin" | "mcp-server" | "skill" | "definition" | "file"; name: string; reason: Message };
 
 export type PluginSkill = { name: string; description: string; files: SkillFile[] };
 
@@ -74,7 +74,7 @@ export class Notes {
   }
 
   list(): NotImported[] {
-    return this.more > 0 ? [...this.items, { component: "file", name: "…", reason: `and ${this.more} more not imported` }] : this.items;
+    return this.more > 0 ? [...this.items, { component: "file", name: "…", reason: say("notImported.more", { count: this.more }) }] : this.items;
   }
 }
 
@@ -179,14 +179,14 @@ function skillFiles(root: string, rel: string, skill: string, notImported: Notes
       const path = `${prefix}/${entry.name}`;
       const full = join(dir, entry.name);
       if (!isSafeRelativePath(path)) {
-        notImported.push({ component: "file", name: path, reason: "Its path isn't allowed in a skill" });
+        notImported.push({ component: "file", name: path, reason: say("notImported.skillPath") });
         continue;
       }
       const stat = lstatSync(full);
-      if (stat.isSymbolicLink()) notImported.push({ component: "file", name: path, reason: "A symbolic link" });
+      if (stat.isSymbolicLink()) notImported.push({ component: "file", name: path, reason: say("notImported.symlink") });
       else if (stat.isDirectory()) walk(full, path);
-      else if (!stat.isFile()) notImported.push({ component: "file", name: path, reason: "Not a regular file" });
-      else if (stat.size > MAX_FILE_BYTES) notImported.push({ component: "file", name: path, reason: "Larger than 2 MiB" });
+      else if (!stat.isFile()) notImported.push({ component: "file", name: path, reason: say("notImported.notRegular") });
+      else if (stat.size > MAX_FILE_BYTES) notImported.push({ component: "file", name: path, reason: say("notImported.larger") });
       else {
         spend(0, stat.size);
         files.push({ path, content: new Uint8Array(readFileSync(full)) });
@@ -211,7 +211,7 @@ export function readSkillFolders(root: string, folders: string[], notImported: N
     seen.add(key);
     const name = basename(rel ?? folder);
     if (rel === null || rel === ".") {
-      notImported.push({ component: "skill", name: folder, reason: "Its folder is outside the plugin" });
+      notImported.push({ component: "skill", name: folder, reason: say("notImported.folderOutside") });
       continue;
     }
     const full = join(root, rel);
@@ -220,19 +220,19 @@ export function readSkillFolders(root: string, folders: string[], notImported: N
       if (!lstatSync(full).isDirectory()) throw new Error();
       real = realpathSync(full);
     } catch {
-      notImported.push({ component: "skill", name, reason: "Its folder isn't in the plugin (or is a link)" });
+      notImported.push({ component: "skill", name, reason: say("notImported.folderMissing") });
       continue;
     }
     if (!inside(root, real)) {
-      notImported.push({ component: "skill", name, reason: "Its folder is outside the plugin" });
+      notImported.push({ component: "skill", name, reason: say("notImported.folderOutside") });
       continue;
     }
     if (!SKILL_NAME.test(name)) {
-      notImported.push({ component: "skill", name, reason: "Its name isn't lowercase letters, digits and hyphens" });
+      notImported.push({ component: "skill", name, reason: say("notImported.skillName") });
       continue;
     }
     if (names.has(name)) {
-      notImported.push({ component: "skill", name, reason: "Another skill of the plugin has its name" });
+      notImported.push({ component: "skill", name, reason: say("notImported.skillDuplicate") });
       continue;
     }
     names.add(name);
@@ -244,7 +244,7 @@ export function readSkillFolders(root: string, folders: string[], notImported: N
       skills.push({ name, description: skill!.description, files });
     } catch (e) {
       if (!(e instanceof PackageError)) throw e;
-      notImported.push({ component: "skill", name, reason: e.message });
+      notImported.push({ component: "skill", name, reason: e.say });
     }
   }
   return skills;
@@ -274,7 +274,7 @@ export function readRunnerFiles(root: string, notImported: Notes): { path: strin
       const full = join(dir, entry.name);
       const stat = lstatSync(full);
       if (stat.isDirectory()) walk(full, path);
-      else if (stat.isFile() && !isSafeRelativePath(path)) notImported.push({ component: "file", name: path, reason: "Its path isn't one a runner writes: its stdio servers run without it" });
+      else if (stat.isFile() && !isSafeRelativePath(path)) notImported.push({ component: "file", name: path, reason: say("notImported.runnerPath") });
       else if (stat.isFile()) {
         bytes += stat.size;
         if (files.length >= MAX_RUNNER_FILES || bytes > MAX_RUNNER_BYTES) throw tooLarge;

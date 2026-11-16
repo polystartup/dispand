@@ -1,4 +1,4 @@
-import { english, isMessageKey } from "../messages/index.ts";
+import { english, isMessageKey, type Message, type MessageKey, say } from "../messages/index.ts";
 import { storable } from "@dispand/runner-protocol";
 import { parse } from "yaml";
 import { z } from "zod";
@@ -70,17 +70,17 @@ const PrimitiveConfig = z
   })
   .strict()
   .refine((c) => c.operations.every((o) => (c.table === INTERACTION ? INTERACTION_OPERATIONS : ROW_OPERATIONS).includes(o as never)), {
-    message: "These changes aren't ones of what the trigger watches",
+    message: "triggers.invalid.operations" satisfies MessageKey,
     path: ["operations"],
   })
-  .refine((c) => c.table !== INTERACTION || !c.fields, { message: "A Question or an Approval has no fields", path: ["fields"] });
+  .refine((c) => c.table !== INTERACTION || !c.fields, { message: "triggers.invalid.interactionNoFields" satisfies MessageKey, path: ["fields"] });
 
 const [Manual, Schedule, , Poll] = TriggerConfig.options;
 /** A poll's config with the plugin's server (an `mcp.json` name) or a catalog entry in place of the tool's id. */
 const PollConfig = Poll.omit({ toolId: true })
   .extend({ server: Name.optional(), catalog: Name.optional() })
   .strict()
-  .refine((c) => (c.server === undefined) !== (c.catalog === undefined), { message: "A poll names one server or one catalog entry", path: ["server"] });
+  .refine((c) => (c.server === undefined) !== (c.catalog === undefined), { message: "triggers.invalid.pollSource" satisfies MessageKey, path: ["server"] });
 
 const TriggerDefinition = TriggerFields.omit({ config: true })
   .extend({ agent: Name, config: z.union([Manual.strict(), Schedule.strict(), PrimitiveConfig, PollConfig]) })
@@ -107,14 +107,20 @@ type Read<T> = { file: string; value: T };
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-/** The first problem of a parse, in a few words: the field's path and Zod's message, never the value. */
-function problem(error: z.ZodError): string {
+/** A definition that didn't read: why, as a message. */
+class Bad {
+  constructor(readonly reason: Message) {}
+}
+const bad = (...args: Parameters<typeof say>) => new Bad(say(...args));
+
+/** The first problem of a parse, in a few words: the field's path and Zod's message (its own English), never the value. */
+function problem(error: z.ZodError): Bad {
   const issue = error.issues[0];
   const path = issue?.path.filter((p) => typeof p === "string" || typeof p === "number").join(".");
-  if (issue?.code === "unrecognized_keys") return `It has a field it doesn't take${path ? ` in ${path}` : ""}`;
+  if (issue?.code === "unrecognized_keys") return path ? bad("notImported.unknownFieldIn", { path }) : bad("notImported.unknownField");
   // A refinement may carry a message key (the trigger model's): shown as its English sentence.
-  const words = issue?.message && isMessageKey(issue.message) ? english(issue.message) : (issue?.message ?? "not valid");
-  return `${path ? `${path}: ` : ""}${words}`.slice(0, 200);
+  const words = (issue?.message && isMessageKey(issue.message) ? english(issue.message) : (issue?.message ?? "not valid")).slice(0, 200);
+  return path ? bad("notImported.invalidAt", { path, words }) : bad("notImported.invalid", { words });
 }
 
 /** The files of `com.dispand/<kind>/` ending in `extension`, read as regular files of at most 2 MiB. */
@@ -123,7 +129,7 @@ function readFiles(root: string, kind: string, extension: string, notImported: N
   const at = kindAt(root, folder);
   if (at === "absent") return [];
   if (at !== "dir") {
-    notImported.push({ component: "definition", name: folder, reason: "Not a folder: no definition of it is read" });
+    notImported.push({ component: "definition", name: folder, reason: say("notImported.definitionKindNotFolder") });
     return [];
   }
   const names = list(`${root}/${folder}`)
@@ -133,62 +139,62 @@ function readFiles(root: string, kind: string, extension: string, notImported: N
   for (const name of names) {
     const file = `${folder}/${name}`;
     if (!storable(name) || !name.endsWith(extension)) {
-      notImported.push({ component: "definition", name: storable(file) ? file : `${folder}/…`, reason: `Not a ${extension} file` });
+      notImported.push({ component: "definition", name: storable(file) ? file : `${folder}/…`, reason: say("notImported.notExtension", { extension }) });
       continue;
     }
     const bytes = readRegular(root, file, MAX_FILE_BYTES);
     if (!bytes) {
-      notImported.push({ component: "definition", name: file, reason: "Not a regular file, or larger than 2 MiB" });
+      notImported.push({ component: "definition", name: file, reason: say("notImported.notRegularOrLarge") });
       continue;
     }
-    if (files.length >= MAX_DEFINITIONS) throw new PluginError("pluginRead.tooManyDefinitions", { max: MAX_DEFINITIONS, kind });
+    if (files.length >= MAX_DEFINITIONS) throw new PluginError("pluginRead.tooManyDefinitions", { max: MAX_DEFINITIONS, folder });
     files.push({ file, text: bytes.toString("utf8") });
   }
   return files;
 }
 
 /** Parses each file with `parse`, skipping (and listing) one that fails or reuses a name. */
-function parseAll<T extends { name: string }>(files: { file: string; text: string }[], notImported: Notes, parseOne: (text: string) => T | string): Read<T>[] {
+function parseAll<T extends { name: string }>(files: { file: string; text: string }[], notImported: Notes, parseOne: (text: string) => T | Bad): Read<T>[] {
   const read: Read<T>[] = [];
   for (const { file, text } of files) {
-    const value = storable(text) ? parseOne(text) : "It holds a character Dispand can't store";
-    if (typeof value === "string") notImported.push({ component: "definition", name: file, reason: value });
+    const value = storable(text) ? parseOne(text) : bad("notImported.unstorable");
+    if (value instanceof Bad) notImported.push({ component: "definition", name: file, reason: value.reason });
     else if (read.some((r) => r.value.name.toLowerCase() === value.name.toLowerCase())) {
-      notImported.push({ component: "definition", name: file, reason: `Another definition is called “${value.name}”` });
+      notImported.push({ component: "definition", name: file, reason: say("notImported.definitionDuplicate", { name: value.name }) });
     } else read.push({ file, value });
   }
   return read;
 }
 
-function parseJson<T>(schema: z.ZodType<T>, text: string): T | string {
+function parseJson<T>(schema: z.ZodType<T>, text: string): T | Bad {
   let raw: unknown;
   try {
     raw = JSON.parse(text);
   } catch {
-    return "Not valid JSON";
+    return bad("notImported.notJson");
   }
-  if (!isObject(raw)) return "Not a JSON object";
-  if (!allStorable(raw)) return "It holds a character Dispand can't store";
+  if (!isObject(raw)) return bad("notImported.notJsonObject");
+  if (!allStorable(raw)) return bad("notImported.unstorable");
   const parsed = schema.safeParse(raw);
   return parsed.success ? parsed.data : problem(parsed.error);
 }
 
-function parseAgent(text: string): AgentDefinition | string {
+function parseAgent(text: string): AgentDefinition | Bad {
   const parts = splitSkillMd(text);
-  if (!parts) return "It has no frontmatter";
+  if (!parts) return bad("notImported.noFrontmatter");
   let meta: unknown;
   try {
     // No alias at all: one can make a value that holds itself, or one that doubles at each level.
     meta = parse(parts.frontmatter, { maxAliasCount: 0 });
   } catch {
-    return "Its frontmatter isn't valid YAML without aliases";
+    return bad("notImported.yamlInvalid");
   }
-  if (!isObject(meta)) return "Its frontmatter isn't a mapping";
-  if (!allStorable(meta)) return "It holds a character Dispand can't store";
+  if (!isObject(meta)) return bad("notImported.frontmatterNotMapping");
+  if (!allStorable(meta)) return bad("notImported.unstorable");
   const parsed = AgentFrontmatter.safeParse(meta);
   if (!parsed.success) return problem(parsed.error);
   const prompt = AgentFields.shape.systemPrompt.safeParse(parts.body.trim());
-  if (!prompt.success) return "Its prompt is longer than 100,000 characters";
+  if (!prompt.success) return bad("notImported.promptTooLong");
   return { ...parsed.data, systemPrompt: prompt.data };
 }
 
@@ -196,7 +202,7 @@ function parseAgent(text: string): AgentDefinition | string {
  * Drops, until none is left, each item `problemOf` finds a problem with among those still kept:
  * a definition naming one that was skipped is skipped too, with its own reason.
  */
-function prune<T>(items: Read<T>[], notImported: Notes, problemOf: (item: T, kept: Read<T>[]) => string | null): Read<T>[] {
+function prune<T>(items: Read<T>[], notImported: Notes, problemOf: (item: T, kept: Read<T>[]) => Message | null): Read<T>[] {
   let kept = items;
   for (;;) {
     const next = kept.filter((item) => {
@@ -211,54 +217,54 @@ function prune<T>(items: Read<T>[], notImported: Notes, problemOf: (item: T, kep
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
-function primitiveProblem(p: PrimitiveDefinition, kept: Read<PrimitiveDefinition>[]): string | null {
+function primitiveProblem(p: PrimitiveDefinition, kept: Read<PrimitiveDefinition>[]): Message | null {
   const names = new Set<string>();
   for (const f of p.fields) {
-    if (names.has(f.name.toLowerCase())) return `It has two fields called “${f.name}”`;
+    if (names.has(f.name.toLowerCase())) return say("notImported.twoFields", { field: f.name });
     names.add(f.name.toLowerCase());
-    if ((f.type === "reference") !== (f.references !== undefined)) return `Its field “${f.name}”: a reference field, and only it, names the table it references`;
-    if (f.choices?.length && f.type !== "single-select") return `Its field “${f.name}”: only a single select has choices`;
+    if ((f.type === "reference") !== (f.references !== undefined)) return say("notImported.referenceField", { field: f.name });
+    if (f.choices?.length && f.type !== "single-select") return say("notImported.choicesField", { field: f.name });
   }
   if (!p.parent) return null;
-  if (!p.primitive) return "Only a primitive table has a parent";
+  if (!p.primitive) return say("notImported.parentNeedsPrimitive");
   const field = p.fields.find((f) => same(f.name, p.parent!.field));
-  if (field?.type !== "reference") return `Its parent “${p.parent.field}” isn't one of its reference fields`;
+  if (field?.type !== "reference") return say("notImported.parentNotReference", { field: p.parent.field });
   // A parent is the plugin's own primitive: what a primitive is built under comes with it.
-  if (same(field.references!, p.name)) return "A table can't be its own parent";
-  if (!kept.some((k) => k.value.primitive && same(k.value.name, field.references!))) return `Its parent table “${field.references}” isn't a primitive of the plugin`;
+  if (same(field.references!, p.name)) return say("notImported.ownParent");
+  if (!kept.some((k) => k.value.primitive && same(k.value.name, field.references!))) return say("notImported.parentNotPrimitive", { table: field.references! });
   return null;
 }
 
-function toolProblem(tool: string, names: PluginNames): string | null {
-  if (tool.startsWith("catalog:")) return catalogEntry(tool.slice("catalog:".length)) ? null : `“${tool}” isn't an entry of Dispand's catalog`;
-  return names.servers.includes(tool) ? null : `“${tool}” isn't a server of the plugin's mcp.json`;
+function toolProblem(tool: string, names: PluginNames): Message | null {
+  if (tool.startsWith("catalog:")) return catalogEntry(tool.slice("catalog:".length)) ? null : say("notImported.notCatalog", { tool });
+  return names.servers.includes(tool) ? null : say("notImported.notServer", { tool });
 }
 
-function agentProblem(a: AgentDefinition, kept: Read<AgentDefinition>[], names: PluginNames): string | null {
+function agentProblem(a: AgentDefinition, kept: Read<AgentDefinition>[], names: PluginNames): Message | null {
   const skill = a.skills.find((s) => !names.skills.includes(s));
-  if (skill) return `“${skill}” isn't a skill of the plugin`;
+  if (skill) return say("notImported.notSkill", { skill });
   for (const tool of a.tools) {
     const reason = toolProblem(tool, names);
     if (reason) return reason;
   }
   for (const c of a.consults) {
-    if (same(c.agent, a.name)) return "An agent can't consult itself";
-    if (!kept.some((k) => same(k.value.name, c.agent))) return `It consults “${c.agent}”, which isn't an agent of the plugin`;
+    if (same(c.agent, a.name)) return say("notImported.consultsSelf");
+    if (!kept.some((k) => same(k.value.name, c.agent))) return say("notImported.consultNotAgent", { agent: c.agent });
   }
   return null;
 }
 
-function triggerProblem(t: TriggerDefinition, agents: Read<AgentDefinition>[], primitives: Read<PrimitiveDefinition>[], skipped: string[], names: PluginNames): string | null {
-  if (!agents.some((a) => same(a.value.name, t.agent))) return `Its agent “${t.agent}” isn't an agent of the plugin`;
+function triggerProblem(t: TriggerDefinition, agents: Read<AgentDefinition>[], primitives: Read<PrimitiveDefinition>[], skipped: string[], names: PluginNames): Message | null {
+  if (!agents.some((a) => same(a.value.name, t.agent))) return say("notImported.triggerNotAgent", { agent: t.agent });
   const { config } = t;
   if (config.kind === "primitive") {
     // A table the plugin doesn't define is looked for in the workspace when it is set up; one it
     // defines but skipped is no workspace table.
-    if (skipped.some((name) => same(name, config.table))) return `Its table “${config.table}” is a definition of the plugin that wasn't read`;
+    if (skipped.some((name) => same(name, config.table))) return say("notImported.tableSkipped", { table: config.table });
     const table = primitives.find((p) => same(p.value.name, config.table))?.value;
-    if (table && !table.primitive) return `“${table.name}” isn't a primitive: no trigger watches it`;
+    if (table && !table.primitive) return say("notImported.tableNotPrimitive", { table: table.name });
     const field = table && config.fields?.find((f) => !table.fields.some((tf) => same(tf.name, f)));
-    if (field) return `“${field}” isn't a field of “${table!.name}”`;
+    if (field) return say("notImported.notTableField", { field, table: table!.name });
   }
   if (config.kind === "poll") return toolProblem(config.server ?? `catalog:${config.catalog}`, names);
   return null;
@@ -268,15 +274,15 @@ function triggerProblem(t: TriggerDefinition, agents: Read<AgentDefinition>[], p
 export function readExtension(value: unknown, notImported: Notes): string | undefined {
   if (value === undefined) return undefined;
   if (!isObject(value)) {
-    notImported.push({ component: "manifest", name: `extensions.${FOLDER}`, reason: "Not an object: ignored" });
+    notImported.push({ component: "manifest", name: `extensions.${FOLDER}`, reason: say("notImported.extensionNotObject") });
     return undefined;
   }
   for (const key of Object.keys(value)) {
-    if (key !== "description") notImported.push({ component: "manifest", name: `extensions.${FOLDER}`, reason: "It has a field other than description: ignored" });
+    if (key !== "description") notImported.push({ component: "manifest", name: `extensions.${FOLDER}`, reason: say("notImported.extensionField") });
   }
   const description = StorableText(1000).safeParse(value.description);
   if (value.description !== undefined && !description.success) {
-    notImported.push({ component: "manifest", name: `extensions.${FOLDER}.description`, reason: "Not text of at most 1,000 characters: ignored" });
+    notImported.push({ component: "manifest", name: `extensions.${FOLDER}.description`, reason: say("notImported.extensionDescription") });
   }
   return description.success ? description.data : undefined;
 }
@@ -291,7 +297,7 @@ export function readDefinitions(root: string, names: PluginNames, notImported: N
   const at = kindAt(root, FOLDER);
   if (at === "absent") return { agents: [], primitives: [], triggers: [] };
   if (at !== "dir") {
-    notImported.push({ component: "definition", name: FOLDER, reason: "Not a folder: no definition is read" });
+    notImported.push({ component: "definition", name: FOLDER, reason: say("notImported.definitionsNotFolder") });
     return { agents: [], primitives: [], triggers: [] };
   }
   const parsedPrimitives = parseAll(readFiles(root, "primitives", ".json", notImported), notImported, (text) => parseJson(PrimitiveDefinition, text));

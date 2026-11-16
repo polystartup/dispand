@@ -29,13 +29,13 @@ export type PollCall = { ok: true; data: unknown; hasMore: boolean } | { ok: fal
 export type PollCaller = { call(tool: ToolRow, action: string, args: Record<string, unknown>): Promise<PollCall> };
 
 /** Where no connector is configured: every poll fails, nothing is called. */
-export const noPolls: PollCaller = { call: async () => ({ ok: false, error: "Polls can't run here: no tool connector is configured" }) };
+export const noPolls: PollCaller = { call: async () => ({ ok: false, error: stored("tools.call.noConnector") }) };
 
 function parse(text: string, hasMore: boolean): PollCall {
   try {
     return { ok: true, data: JSON.parse(text) as unknown, hasMore };
   } catch {
-    return { ok: false, error: "The action's result isn't JSON" };
+    return { ok: false, error: stored("tools.poll.notJson") };
   }
 }
 
@@ -136,19 +136,19 @@ export function itemsOf(data: unknown, itemsPath: string, idPath: string): { ite
 export function nextToken(data: unknown, continuation: PollContinuation): { token: string | null } | { error: string } {
   const value = at(data, continuation.path);
   if (value === undefined || value === null || value === "") return { token: null };
-  if (typeof value !== "string") return { error: `The result's next page at “${continuation.path}” isn't text` };
+  if (typeof value !== "string") return { error: stored("tools.poll.nextNotText", { path: continuation.path }) };
   let token = value;
   if (continuation.query) {
     let link: URL;
     try {
       link = new URL(value);
     } catch {
-      return { error: `The result's next page at “${continuation.path}” isn't a link` };
+      return { error: stored("tools.poll.nextNotLink", { path: continuation.path }) };
     }
     const param = link.searchParams.get(continuation.query);
-    if (!param) return { error: `The result's next page has no “${continuation.query}”` };
+    if (!param) return { error: stored("tools.poll.nextNoQuery", { query: continuation.query }) };
     token = param;
   }
-  if (token.length > MAX_TOKEN || !storable(token)) return { error: "The result's next page token is too long to follow" };
+  if (token.length > MAX_TOKEN || !storable(token)) return { error: stored("tools.poll.nextTooLong") };
   return { token };
 }

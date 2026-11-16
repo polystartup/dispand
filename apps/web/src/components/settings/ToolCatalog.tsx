@@ -95,7 +95,7 @@ function InstallHttp({ entry, onInstalled }: { entry: Extract<Entry, { kind: "ht
       if ("tool" in result) onInstalled(result.tool);
     } catch (e) {
       const known = typeof e === "object" && e !== null && "code" in e && (e.code === "BAD_REQUEST" || e.code === "CONFLICT") && "message" in e;
-      setError(known && String(e.message) !== "Input validation failed" ? String(e.message) : t("catalog.installFailed"));
+      setError(known ? String(e.message) : t("catalog.installFailed"));
     }
   }
 

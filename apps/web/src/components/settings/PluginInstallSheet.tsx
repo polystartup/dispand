@@ -21,7 +21,7 @@ export const pluginTabs = [
 export function refusal(e: unknown, fallback: string): string {
   if (typeof e === "object" && e !== null && "code" in e) {
     const { code, message } = e as { code: unknown; message?: unknown };
-    if ((code === "BAD_REQUEST" || code === "CONFLICT" || code === "FORBIDDEN" || code === "NOT_FOUND") && typeof message === "string" && !message.startsWith("Input validation")) {
+    if ((code === "BAD_REQUEST" || code === "CONFLICT" || code === "FORBIDDEN" || code === "NOT_FOUND") && typeof message === "string") {
       return message;
     }
   }
@@ -347,7 +347,7 @@ function InstallForm({
               <li key={i} className="px-3 py-2 text-[13px]">
                 <span className="text-muted">{t(`component.${n.component}`)} </span>
                 <span className="break-all font-mono">{n.name}</span>
-                <span className="block text-faint">{n.reason}</span>
+                <span className="block text-faint">{text(n.reason)}</span>
               </li>
             ))}
           </ul>

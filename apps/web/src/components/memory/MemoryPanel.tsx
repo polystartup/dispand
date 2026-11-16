@@ -37,7 +37,7 @@ const unread = (e: Pick<Entry, "author" | "acceptedAt" | "removedAt">) => e.auth
 function reason(e: unknown, fallback: string): string {
   if (typeof e === "object" && e !== null && "code" in e) {
     const { code, message } = e as { code: unknown; message?: unknown };
-    if (code === "BAD_REQUEST" && typeof message === "string" && !message.startsWith("Input validation")) return message;
+    if (code === "BAD_REQUEST" && typeof message === "string") return message;
   }
   return fallback;
 }

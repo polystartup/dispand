@@ -86,7 +86,12 @@
       "actionError": "The action reported an error.",
       "noText": "The action's result has no text.",
       "noList": "The result has no list at “{{path}}”.",
-      "notList": "The result isn't a list."
+      "notList": "The result isn't a list.",
+      "notJson": "The action's result isn't JSON.",
+      "nextNotText": "The result's next page at “{{path}}” isn't text.",
+      "nextNotLink": "The result's next page at “{{path}}” isn't a link.",
+      "nextNoQuery": "The result's next page has no “{{query}}”.",
+      "nextTooLong": "The result's next page token is too long to follow."
     },
     "urlCredentials": "The URL can't carry credentials.",
     "plugin": {
@@ -398,7 +403,9 @@
     "invalid": {
       "operations": "These changes aren't ones of what the trigger watches.",
       "noFields": "A Question, an Approval or a Job has no fields.",
-      "argumentsTooLarge": "The arguments are larger than 16 KiB."
+      "argumentsTooLarge": "The arguments are larger than 16 KiB.",
+      "interactionNoFields": "A Question or an Approval has no fields.",
+      "pollSource": "A poll names one server or one catalog entry."
     }
   },
   "workflows": {
@@ -497,7 +504,8 @@
     "invalid_key": "“{{field}}” has a key that is not valid.",
     "invalid_element": "“{{field}}” has an element that is not valid.",
     "invalid_value": "“{{field}}” must be one of: {{values}}.",
-    "custom": "“{{field}}” is not valid."
+    "custom": "“{{field}}” is not valid.",
+    "choicesDifferent": "Choices must be different."
   },
   "push": {
     "question_one": "{{agent}} has a question for you.",
@@ -729,7 +737,7 @@
     "tooManyServers": "The plugin offers more than {{max}} MCP servers.",
     "tooManyAgents": "The plugin offers more than {{max}} agents.",
     "tooManySkills": "The plugin offers more than {{max}} skills.",
-    "tooManyDefinitions": "The plugin holds more than {{max}} {{kind}} definitions."
+    "tooManyDefinitions": "The plugin holds more than {{max}} definitions in {{folder}}."
   },
   "marketplaceFile": {
     "missing": "This repository has no .claude-plugin/marketplace.json.",
@@ -761,6 +769,92 @@
       "providerError": "The provider answered with an error ({{status}}).",
       "unreachable": "Couldn't reach {{host}}.",
       "unreachableProvider": "Couldn't reach the provider."
+    }
+  },
+  "notImported": {
+    "settings": "Its settings aren't readable",
+    "ownFiles": "It runs the plugin's own files",
+    "typeUnsupported": "Its type isn't supported",
+    "headersUnreadable": "Its headers aren't readable",
+    "argsEnvUnreadable": "Its arguments or environment aren't readable",
+    "hooks": "Hooks run commands on the machine",
+    "commands": "Commands aren't imported",
+    "bin": "Runs the plugin's own programs",
+    "symlink": "A symbolic link",
+    "notRegularOrLarge": "Not a regular file, or larger than 2 MiB",
+    "promptTooLong": "Its prompt is longer than 100,000 characters",
+    "skillPath": "Its path isn't allowed in a skill",
+    "notRegular": "Not a regular file",
+    "larger": "Larger than 2 MiB",
+    "folderOutside": "Its folder is outside the plugin",
+    "folderMissing": "Its folder isn't in the plugin (or is a link)",
+    "skillName": "Its name isn't lowercase letters, digits and hyphens",
+    "skillNameOrListed": "Its name isn't lowercase letters, digits and hyphens, or is listed twice",
+    "skillDuplicate": "Another skill of the plugin has its name",
+    "skillFilePath": "One of its files has a path a skill can't hold",
+    "runnerPath": "Its path isn't one a runner writes: its stdio servers run without it",
+    "runnerTooLarge": "The plugin is larger than a runner takes ({{max}} files or 11 MiB): this server can't run as a runner tool",
+    "more_one": "and {{count}} more not imported",
+    "more_other": "and {{count}} more not imported",
+    "definitionKindNotFolder": "Not a folder: no definition of it is read",
+    "definitionsNotFolder": "Not a folder: no definition is read",
+    "notExtension": "Not a {{extension}} file",
+    "unstorable": "It holds a character Dispand can't store",
+    "definitionDuplicate": "Another definition is called “{{name}}”",
+    "notJson": "Not valid JSON",
+    "notJsonObject": "Not a JSON object",
+    "noFrontmatter": "It has no frontmatter",
+    "yamlInvalid": "Its frontmatter isn't valid YAML without aliases",
+    "frontmatterNotMapping": "Its frontmatter isn't a mapping",
+    "unknownField": "It has a field it doesn't take",
+    "unknownFieldIn": "It has a field it doesn't take in {{path}}",
+    "invalidAt": "{{path}}: {{words}}",
+    "invalid": "{{words}}",
+    "twoFields": "It has two fields called “{{field}}”",
+    "referenceField": "Its field “{{field}}”: a reference field, and only it, names the table it references",
+    "choicesField": "Its field “{{field}}”: only a single select has choices",
+    "parentNeedsPrimitive": "Only a primitive table has a parent",
+    "parentNotReference": "Its parent “{{field}}” isn't one of its reference fields",
+    "ownParent": "A table can't be its own parent",
+    "parentNotPrimitive": "Its parent table “{{table}}” isn't a primitive of the plugin",
+    "notCatalog": "“{{tool}}” isn't an entry of Dispand's catalog",
+    "notServer": "“{{tool}}” isn't a server of the plugin's mcp.json",
+    "notSkill": "“{{skill}}” isn't a skill of the plugin",
+    "consultsSelf": "An agent can't consult itself",
+    "consultNotAgent": "It consults “{{agent}}”, which isn't an agent of the plugin",
+    "triggerNotAgent": "Its agent “{{agent}}” isn't an agent of the plugin",
+    "tableSkipped": "Its table “{{table}}” is a definition of the plugin that wasn't read",
+    "tableNotPrimitive": "“{{table}}” isn't a primitive: no trigger watches it",
+    "notTableField": "“{{field}}” isn't a field of “{{table}}”",
+    "extensionNotObject": "Not an object: ignored",
+    "extensionField": "It has a field other than description: ignored",
+    "extensionDescription": "Not text of at most 1,000 characters: ignored",
+    "notManifestField": "Not a field of plugin.json: ignored",
+    "skillsNotFolder": "Not a folder: no skill is read",
+    "serverNotObject": "Not an object",
+    "serverNoType": "It has no type",
+    "serverTypeNotStdio": "Its type isn't stdio, streamable-http or sse",
+    "serverFieldNamed": "It has a field its type doesn't take: {{field}}",
+    "serverField": "It has a field its type doesn't take",
+    "serverCommand": "Its command isn't one name or one ./ path inside the plugin",
+    "serverArgs": "Its arguments aren't a list of strings",
+    "serverEnv": "Its environment isn't an object of strings",
+    "serverEnvReserved": "Its environment sets PLUGIN_ROOT or PLUGIN_DATA",
+    "serverCwd": "Its working directory isn't inside the plugin or its data folder",
+    "serverUrl": "Its URL isn't absolute http(s), https unless loopback, without credentials or fragment",
+    "serverHeaders": "Its headers aren't valid HTTP headers",
+    "serverHeaderTwice": "It names a header twice",
+    "serverUrlSetting": "Its URL or headers hold ${…}, which Dispand would read as a setting",
+    "serverName": "Its name is empty, longer than 100 characters or unreadable",
+    "mcpFile": {
+      "notFile": "Not a regular file: no MCP server is read",
+      "tooLarge": "Larger than 1 MiB: no MCP server is read",
+      "notJson": "Not valid JSON: no MCP server is read",
+      "notObject": "Not a JSON object: no MCP server is read",
+      "schema": "Its $schema isn't an Agent Plugins version Dispand supports: no MCP server is read",
+      "otherVersion": "It targets another Agent Plugins version than plugin.json: no MCP server is read",
+      "serversNotObject": "Its mcpServers isn't an object: no MCP server is read",
+      "field": "It has a field mcp.json doesn't take: no MCP server is read"
     }
   }
 }

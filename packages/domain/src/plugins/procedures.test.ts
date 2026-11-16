@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { inEnglish } from "./test-notes.ts";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
@@ -129,7 +130,7 @@ test("install reads skills/ of a url-sourced plugin at its sha; hooks and comman
   const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
   const preview = await call(router.plugins.preview, { marketplaceId: market.id, entryName: "superpowers" }, { context: ctx });
   expect(preview.skills.map((s) => s.name)).toEqual(["brainstorming", "tdd"]);
-  expect(preview.notImported).toEqual([
+  expect(inEnglish(preview.notImported)).toEqual([
     { component: "hook", name: "hooks", reason: "Hooks run commands on the machine" },
     { component: "command", name: "plan", reason: "Commands aren't imported" },
   ]);
@@ -312,7 +313,7 @@ test("symlinked file is skipped: a link in a fetched plugin is listed, never imp
   });
   const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
   const preview = await call(router.plugins.preview, { marketplaceId: market.id, entryName: "peek" }, { context: ctx });
-  expect(preview.notImported).toEqual([
+  expect(inEnglish(preview.notImported)).toEqual([
     { component: "file", name: "skills/peek/host", reason: "A symbolic link" },
     { component: "file", name: "skills/peek/keys", reason: "A symbolic link" },
   ]);
@@ -379,7 +380,7 @@ test("plugin-root server not imported; an HTTP server is installed with its sett
     { name: "fetch", type: "stdio", settings: ["KEY"] },
   ]);
   expect(preview.reviewed).toMatch(/^[0-9a-f]{64}$/);
-  expect(preview.notImported).toContainEqual({ component: "mcp-server", name: "local", reason: "It runs the plugin's own files" });
+  expect(inEnglish(preview.notImported)).toContainEqual({ component: "mcp-server", name: "local", reason: "It runs the plugin's own files" });
   await expect(call(router.plugins.install, { ...ref, reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["local"] }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   await expect(call(router.plugins.install, { ...ref, reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["github"] }, { context: ctx })).rejects.toMatchObject({
     code: "BAD_REQUEST",

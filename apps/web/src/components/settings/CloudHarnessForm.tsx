@@ -93,7 +93,7 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
       onSaved(saved, !harness);
     } catch (e) {
       const message = typeof e === "object" && e !== null && "code" in e && e.code === "BAD_REQUEST" && "message" in e ? String(e.message) : null;
-      setError(message && message !== "Input validation failed" ? message : t("sheet.saveFailed"));
+      setError(message ? message : t("sheet.saveFailed"));
     }
   }
 

@@ -22,7 +22,7 @@ function toBase64(text: string): string {
 /** Why the server refused (a file's path and what is wrong with it), when it says; else `fallback`. */
 function reason(e: unknown, fallback: string): string {
   const { code, message } = (typeof e === "object" && e !== null ? e : {}) as { code?: unknown; message?: unknown };
-  return (code === "BAD_REQUEST" || code === "NOT_FOUND") && typeof message === "string" && !message.startsWith("Input validation") ? message : fallback;
+  return (code === "BAD_REQUEST" || code === "NOT_FOUND") && typeof message === "string" ? message : fallback;
 }
 
 /**

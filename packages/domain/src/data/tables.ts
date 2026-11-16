@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
 import { attachments, fields as fieldsTable, rows as rowsTable, runs, tables as tablesTable, workflows, workflowVersions } from "../db/schema.ts";
 import { newId } from "../ids.ts";
-import { message } from "../messages/index.ts";
+import { type MessageKey, message } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
 import { tableIdsOf, type TableSchema } from "../workflows/data-steps.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
@@ -29,7 +29,7 @@ const Choices = z
   .superRefine((choices, ctx) => {
     const ids = new Set(choices.map((c) => c.id));
     const labels = new Set(choices.map((c) => c.label.toLowerCase()));
-    if (ids.size < choices.length || labels.size < choices.length) ctx.addIssue({ code: "custom", message: "Choices must be different" });
+    if (ids.size < choices.length || labels.size < choices.length) ctx.addIssue({ code: "custom", message: "validation.choicesDifferent" satisfies MessageKey });
   });
 
 type FieldRow = typeof fieldsTable.$inferSelect;

@@ -4,6 +4,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { say } from "@dispand/domain/messages/index.ts";
+import { I18nextProvider } from "react-i18next";
 
 const fake = vi.hoisted(() => ({ plugins: { preview: vi.fn(), install: vi.fn() }, harnesses: { list: vi.fn() }, runners: { list: vi.fn(), plugins: vi.fn() }, skills: {}, tools: {}, agents: {} }));
 vi.mock("../../lib/api.ts", async () => {
@@ -11,6 +12,7 @@ vi.mock("../../lib/api.ts", async () => {
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
 const { PluginInstallSheet } = await import("./PluginInstallSheet.tsx");
+const { createI18n } = await import("../../lib/i18n.ts");
 
 afterEach(() => {
   cleanup();
@@ -64,4 +66,26 @@ test("what the setup didn't make is listed after the install, which stays open o
   await userEvent.click(screen.getByRole("button", { name: /Install/ }));
   expect((await screen.findByRole("list", { name: "Not made yet" })).textContent).toContain("tool:case-law: It wasn't ticked with the install");
   expect(onClose).not.toHaveBeenCalled();
+});
+
+test("what a plugin leaves out is explained in the page's language", async () => {
+  fake.harnesses.list.mockResolvedValue([]);
+  fake.runners.list.mockResolvedValue([]);
+  fake.plugins.preview.mockResolvedValue({
+    skills: [],
+    mcpServers: [],
+    agents: [],
+    definitions: { primitives: [], agents: [], triggers: [] },
+    notImported: [{ component: "hook", name: "hooks", reason: say("notImported.hooks") }],
+    reviewed: "r".repeat(64),
+    nativeAvailable: false,
+  });
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <QueryClientProvider client={new QueryClient()}>
+        <PluginInstallSheet marketplaceId="mkt_1" entryName="law-firm" onClose={vi.fn()} />
+      </QueryClientProvider>
+    </I18nextProvider>,
+  );
+  expect(await screen.findByText("Les hooks exécutent des commandes sur la machine")).toBeTruthy();
 });
