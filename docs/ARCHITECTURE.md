@@ -1171,7 +1171,8 @@
   completions alike (`fileInput`). Within bounds that keep a call from being refused, which would
   end the session and every later turn (the history is sent again): an image of at most 3.75 MB,
   a PDF of at most 100 pages (`pdfPages`: pdf.js reads its current revision's page tree, once per
-  attachment; one it can't read isn't sent; `pdfjs-dist` stays outside the server bundle, as its
+  attachment, in a child process with no environment, a 96 MB heap and 5 s, so a crafted PDF can't
+  block or exhaust the server; one it can't read in those limits isn't sent; `pdfjs-dist` stays outside the server bundle, as its
   worker module loads beside it), text cut at 100,000 characters per file, and per call 16 MiB of
   files and 300,000 characters of text (a PDF page counts as 3,000 where the provider takes PDFs),
   the newest messages' first (`budgetFiles`); no PDF to an OpenAI-compatible server, which may

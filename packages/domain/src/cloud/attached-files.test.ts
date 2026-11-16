@@ -116,6 +116,18 @@ test("pdf.js counts a PDF's pages in its current revision; one it can't read cou
   expect(await pdfPages(Buffer.from("%PDF-1.7\n" + "/Type /Pages ".repeat(10_000)))).toBeNull();
 });
 
+test("pdf.js reads a PDF outside the server's process: a slow one never blocks it", async () => {
+  // About 10 MB of objects, which pdf.js takes over a second to scan.
+  const slow = Buffer.from("%PDF-1.7\n" + "1 0 obj << >> endobj\n".repeat(500_000));
+  let ticks = 0;
+  const timer = setInterval(() => ticks++, 20);
+  const started = Date.now();
+  expect(await pdfPages(slow)).toBeNull();
+  clearInterval(timer);
+  // The event loop kept turning all along.
+  expect(ticks).toBeGreaterThan((Date.now() - started) / 20 / 2);
+});
+
 test("a PDF past 100 pages, or unreadable, becomes a line; its pages count in the call's text budget where the provider takes PDFs", async () => {
   const items: ChatItem[] = [
     { role: "user", text: "old", files: [{ id: "t1", name: "notes.txt", bytes: Buffer.from("z".repeat(10)) }, { id: "p1", name: "one.pdf", bytes: pdfOf(1) }] },

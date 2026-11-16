@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { detectImage, type ImageType } from "../data/files.ts";
 import type { CloudHarnessConfig } from "../harnesses/cloud.ts";
 import { oneLine } from "../text.ts";
@@ -101,22 +102,35 @@ export const MAX_FILE_INPUT_BYTES = 16 * 1024 * 1024;
 export const MAX_TEXT_CHARS_PER_CALL = 300_000;
 const PDF_PAGE_CHARS = 3_000;
 
+/** How long, and with how much memory, pdf.js may read one PDF's pages. */
+const PDF_READ_MS = 5_000;
+const PDF_READ_HEAP_MB = 96;
+
+/** The child that reads a PDF's pages: its bytes on stdin, the count on stdout. */
+const PDF_PAGES_SCRIPT = `
+const chunks = [];
+process.stdin.on("data", (c) => chunks.push(c)).on("end", async () => {
+  const { getDocument } = await import(process.argv[1]);
+  const doc = await getDocument({ data: new Uint8Array(Buffer.concat(chunks)), verbosity: 0 }).promise;
+  process.stdout.write(String(doc.numPages));
+  process.exit(0);
+});`;
+
 /**
  * A PDF's pages as pdf.js reads them (its current revision, compressed page trees included); null
- * for one it can't read. In-process: pdf.js reads only the cross-reference table and the page
- * tree for this, not the pages.
+ * for one it can't read. The PDF may come from anyone, so pdf.js reads it in a child process with
+ * no environment, a 96 MB heap and 5 seconds: a crafted file can neither block the server nor
+ * exhaust its memory, and one past those limits counts as unreadable.
  */
 export async function pdfPages(bytes: Uint8Array): Promise<number | null> {
-  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  // A copy: pdf.js takes the buffer it is given.
-  const task = getDocument({ data: new Uint8Array(bytes), verbosity: 0 });
-  try {
-    return (await task.promise).numPages;
-  } catch {
-    return null;
-  } finally {
-    await task.destroy();
-  }
+  const pdfjs = import.meta.resolve("pdfjs-dist/legacy/build/pdf.mjs");
+  return new Promise((resolve) => {
+    const child = execFile(process.execPath, [`--max-old-space-size=${PDF_READ_HEAP_MB}`, "--input-type=module", "-e", PDF_PAGES_SCRIPT, pdfjs], { env: {}, timeout: PDF_READ_MS, killSignal: "SIGKILL", maxBuffer: 64 }, (err, stdout) => {
+      const pages = Number(stdout);
+      resolve(!err && Number.isSafeInteger(pages) && pages >= 0 ? pages : null);
+    });
+    child.stdin?.on("error", () => undefined).end(bytes);
+  });
 }
 
 type Measured = { kind: "image"; mime: ImageType } | { kind: "pdf" } | { kind: "text"; text: string } | { kind: "other" };

@@ -660,7 +660,8 @@ changes it updates this file.
   in the transaction that writes the message (`takeChatFiles`: the owner's held files only, all
   or none, within 20 files of 10 MiB and the Job's totals, under the attachments lock); a Job
   can't name any (`FORBIDDEN`). A cloud model gets them as image, PDF or text input, read from
-  disk at each model call and never stored in its transcript. A CLI session gets each one copied
+  disk at each model call and never stored in its transcript; a PDF's pages are read by pdf.js in
+  a child process with no environment, a 96 MB heap and 5 seconds, never in the server's own. A CLI session gets each one copied
   by its runner to `.dispand/attachments/<attachment id>/file<.ext>` in the run folder, every part
   made by Dispand (the original name gives only its extension, letters and digits); the original
   name is words in the message, never a path. Both the server (before it names a path,
