@@ -1368,7 +1368,7 @@
   `marketplaces_add` (`marketplaces.add`, a Git marketplace or skill repository, or with
   `kind: "well-known"` a skill site) is a grant too: its `shown` hook resolves the address as the
   add will (`marketplaceUrl`, `wellKnownIndexUrl`) without fetching it, so the Inbox shows the
-  address that will be read and an invalid skill site is refused when proposed; its Audit rows
+  address that will be read and an address the add would refuse (not https, credentials) is refused when proposed; its Audit rows
   are about a `marketplace`. Listing, syncing and removing marketplaces stay the owner's.
   What a setup makes is the plugin's from its insert: `runItemsAsOwner` passes
   `context.pluginElement` (a value no input sets) and `tables.create`, `fields.create` and

@@ -1048,8 +1048,10 @@ test("an agent adds a marketplace or a skill site only on an approved item: read
   const skills = { url: site, kind: "well-known" };
   // Unapproved: refused, and nothing is added.
   for (const input of [git, skills]) expect(((await s.tool("marketplaces_add", input)) as { error: string }).error).toMatch(NEEDS);
-  // A skill site that isn't https is refused when proposed.
+  // An address that isn't https, or that holds credentials, is refused when proposed.
   expect(await s.propose([{ tool: "marketplaces_add", input: { url: "http://skills.example", kind: "well-known" } }])).toMatchObject({ ok: false, error: expect.stringContaining("https://") });
+  expect(await s.propose([{ tool: "marketplaces_add", input: { url: "http://example.com/plugins.git" } }])).toMatchObject({ ok: false, error: expect.stringContaining("https://") });
+  expect(await s.propose([{ tool: "marketplaces_add", input: { url: "https://user:pass@example.com/plugins.git" } }])).toMatchObject({ ok: false, error: expect.stringContaining("credentials") });
   const id = s.idOf(await s.propose([{ tool: "marketplaces_add", input: git }, { tool: "marketplaces_add", input: skills }]));
   // The owner reads each address as it will be read, and nothing was fetched for it.
   expect((await proposalView(s.context.db, s.context.ownerId, id))!.items.map((i) => i.shown)).toEqual([{ url: repo.url }, { url: `${site}/.well-known/skills/index.json` }]);

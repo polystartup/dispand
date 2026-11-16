@@ -157,7 +157,7 @@ changes it updates this file.
   only on an approved item, like any grant: the item holds the exact address and kind, so an
   approval for one address never adds another, and the owner reads the address as the server
   will read it (`shown`: GitHub's `owner/repo` made whole, a skill site's index URL; nothing is
-  fetched before the approval, and a skill site that isn't https is refused when proposed).
+  fetched before the approval, and an address that isn't https, or holds credentials, is refused when proposed).
   The snapshot binds the grant to the tool's target and permission revision; retargeting
   increments the revision atomically, including when pointed back later. Agent writes check
   the binding while holding a shared lock on the tool, so retargeting cannot restore an old grant.

@@ -16,6 +16,7 @@ import { sentence, type Text } from "../messages/index.ts";
 import { type Decision, decide } from "../plugins/resolve.ts";
 import { marketplaceUrl } from "../plugins/procedures.ts";
 import { wellKnownIndexUrl, WellKnownError } from "../plugins/well-known.ts";
+import { checkGitUrl, GitError } from "../plugins/git.ts";
 
 export { BUNDLES, type Bundle, type TableScope } from "./bundles.ts";
 
@@ -226,12 +227,15 @@ async function pluginRights(app: PlatformApp, job: JobIdentity, input: unknown):
 }
 
 /** The address a proposed marketplace is read from, as the add resolves it (nothing is fetched): what the owner approves. */
-async function marketplaceAddress(_app: PlatformApp, _job: JobIdentity, input: unknown): Promise<unknown> {
+async function marketplaceAddress(app: PlatformApp, _job: JobIdentity, input: unknown): Promise<unknown> {
   const { url, kind } = input as { url: string; kind: "git" | "well-known" };
   try {
-    return { url: kind === "well-known" ? wellKnownIndexUrl(url) : marketplaceUrl(url) };
+    if (kind === "well-known") return { url: wellKnownIndexUrl(url) };
+    const git = marketplaceUrl(url);
+    checkGitUrl(git, !!app.gitFileUrls);
+    return { url: git };
   } catch (err) {
-    if (err instanceof WellKnownError) return err.message;
+    if (err instanceof WellKnownError || err instanceof GitError) return err.message;
     throw err;
   }
 }
