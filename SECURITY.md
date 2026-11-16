@@ -616,6 +616,11 @@ changes it updates this file.
   stdio servers Codex starts (checked on Codex 0.167). A server that doesn't connect ends the
   session before its first turn, naming the server only (the CLI's message may quote a URL that
   holds a secret). Codex has no SSE transport: an SSE server in a Codex session is refused.
+  Codex merges a session's server key by key into a same-named one of the user's `config.toml`
+  (its headers, token variable or `enabled` would mix into ours), so a Codex session whose
+  servers (`job`, `job_tools` or a tool's) the user's config already names is refused before its
+  thread starts (`mcpNameRefused`, checked through `config/read` on Codex 0.167). Claude Code's
+  `setMcpServers` replaces a same-named user server for the session instead.
   Managed Job tools follow their per-agent Run / Ask settings in every permission mode,
   including `bypassPermissions`. Unasked actions proceed; other actions ask one call at a time,
   and remembering an approval changes that agent's permission. Other MCP tools ask outside

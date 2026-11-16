@@ -45,6 +45,9 @@ const SUBMIT_OUTPUTS = "submit_outputs";
 const SUBAGENT_ASKS_PARENT = "You are a subagent: you can't ask the person. Return your question to the agent that started you; it decides whether to ask them.";
 export const PROFILE_REFUSED = "Codex didn't apply Dispand's permission profile: remove sandbox_mode from ~/.codex/config.toml";
 
+/** A server of the session's that Codex's own config.toml already names: the two can't both run. */
+export const mcpNameRefused = (name: string) => `Codex's config.toml already has an MCP server named ${name}, which this session needs: rename it in ~/.codex/config.toml`;
+
 const isObject = (v: unknown): v is Record<string, JsonValue> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** The name a tool item is reported under, or undefined for an item that isn't a tool call. */
@@ -364,9 +367,14 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       codex.onServerRequest(onServerRequest);
       const roots = deps.pluginRoots ?? [];
       if (roots.length > 0) await codex.request("skills/extraRoots/set", { extraRoots: roots.map((root) => join(root, "skills")) });
-      // Restricted: every MCP server of the user's config is off, the Job's alone stays.
-      const configured = restricted ? Object.keys(((await codex.request("config/read", { cwd })).config.mcp_servers ?? {}) as object) : [];
-      const mcpServers = { ...Object.fromEntries(configured.map((name) => [name, { enabled: false }])), ...deps.mcp?.servers };
+      // Codex merges our servers key by key into a same-named one of the user's config.toml: a
+      // stdio one fails the config, any other mixes its settings (headers, enabled) into ours.
+      const ours = Object.keys(deps.mcp?.servers ?? {});
+      const configured = restricted || ours.length > 0 ? Object.keys(((await codex.request("config/read", { cwd })).config.mcp_servers ?? {}) as object) : [];
+      const clash = ours.find((name) => configured.includes(name));
+      if (clash !== undefined) return finish({ type: "error", message: mcpNameRefused(clash) });
+      // Restricted: every other MCP server of the user's config is off, the Job's alone stays.
+      const mcpServers = restricted ? { ...Object.fromEntries(configured.map((name) => [name, { enabled: false }])), ...deps.mcp?.servers } : { ...deps.mcp?.servers };
       const overrides = {
         cwd,
         model: start.model ?? null,
