@@ -2,6 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 
 const fake = vi.hoisted(() => ({ questions: { list: vi.fn(), answer: vi.fn() }, plugins: { resolveConflict: vi.fn() }, agents: {}, tools: {}, triggers: {} }));
@@ -41,10 +42,16 @@ const item = (status: string, items: unknown[], answer: unknown = null) => ({
 
 const entry = (id: string, name: string, field: string, merged: string) => ({ id, kind: "agent", elementId: "agent_1", name, field, status: "approval", mine: "Mine", next: "Next", merged, reviewed: `r_${id}` });
 
+/** The Inbox keeps what an answer couldn't make, by question; here, one item's. */
+function Kept({ value }: { value: unknown }) {
+  const [notices, setNotices] = useState<string[]>([]);
+  return <InboxItem item={value as never} notices={notices} onNotices={(said) => setNotices((prev) => [...prev, ...said])} />;
+}
+
 function mount(value: unknown) {
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <InboxItem item={value as never} />
+      <Kept value={value} />
     </QueryClientProvider>,
   );
 }

@@ -58,15 +58,13 @@ function useInboxText() {
 }
 
 /** One Question or Approval of the Inbox: answerable while it waits, then shown with its answer, who gave it and when. */
-export function InboxItem({ item }: { item: InboxEntry }) {
+export function InboxItem({ item, notices = [], onNotices }: { item: InboxEntry; /** What an answer to a plugin update's item couldn't make: kept by the Inbox, since this item moves to Done once answered. */ notices?: string[]; onNotices?: (notices: string[]) => void }) {
   const { t } = useTranslation("questions");
   const { t: tm } = useTranslation("messages");
   const format = useFormat();
   const { askedText, answerLine } = useInboxText();
   const queryClient = useQueryClient();
   const [conflict, setConflict] = useState(false);
-  // What an answer to a plugin update's item couldn't make: kept here, since the item may leave the list.
-  const [notices, setNotices] = useState<string[]>([]);
   const refresh = () => void queryClient.invalidateQueries({ queryKey: orpc.questions.key() });
   const answer = useMutation(
     orpc.questions.answer.mutationOptions({
@@ -117,7 +115,7 @@ export function InboxItem({ item }: { item: InboxEntry }) {
           {t("answeredElsewhere")}
         </p>
       ) : open && item.update ? (
-        <PluginUpdateItem update={item.update} onNotices={setNotices} />
+        <PluginUpdateItem update={item.update} onNotices={onNotices} />
       ) : open ? (
         <QuestionForm question={item} busy={answer.isPending} error={answer.error?.message ?? null} onAnswer={(a) => answer.mutate({ questionId: item.id, answer: a })} />
       ) : (
