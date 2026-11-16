@@ -147,7 +147,7 @@ export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: s
   const adds = new Set(added.map(lower));
   // What a definition names that isn't there yet: a catalog tool the owner lacks, or an element this version adds. Neither is linked until a later update.
   const later = (element: string, toolNames: string[], agentNames: string[], tableNames: string[]): Text[] => [
-    ...toolNames.flatMap((n) => {
+    ...[...new Set(toolNames)].flatMap((n) => {
       if (toolNamed(n)) return [];
       if (n.startsWith("catalog:")) return [say("plugins.update.laterCatalog", { element, tool: catalogEntry(n.slice(8))?.name ?? n.slice(8) })];
       return adds.has(`server:${lower(n)}`) ? [say("plugins.update.laterAdded", { element, name: n })] : [];

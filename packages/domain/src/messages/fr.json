@@ -197,8 +197,8 @@
       "tableCount_one": "Une table de {{count}} champ.",
       "tableCount_other": "Une table de {{count}} champs.",
       "startsJobs": "Lance des Jobs de {{agent}}.",
-      "laterAdded": "{{element}} nomme « {{name}} », que cette version ajoute : il le rejoint à la prochaine mise à jour, une fois « {{name}} » mis en place.",
-      "laterCatalog": "{{element}} nomme l’outil du catalogue « {{tool}} », que vous n’avez pas ajouté : il le rejoint à la prochaine mise à jour, une fois l’outil ajouté dans Réglages → Outils."
+      "laterAdded": "{{element}} nomme « {{name}} », que cette version ajoute : le lien se fera à la prochaine mise à jour, une fois « {{name}} » mis en place.",
+      "laterCatalog": "{{element}} nomme l’outil du catalogue « {{tool}} », que vous n’avez pas ajouté : le lien se fera à la prochaine mise à jour, une fois l’outil ajouté dans Réglages → Outils."
     },
     "table": {
       "ownField": "Un de vos champs porte déjà ce nom.",

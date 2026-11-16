@@ -486,6 +486,44 @@ test("the update's screen says what a definition names that only arrives later: 
   }
 });
 
+test("a definition's names are said once each, whether a catalog tool, a server or a table this version adds", async () => {
+  const { files, preview, publish, remove } = await setUp();
+  try {
+    publish({
+      "mcp.json": edited(files["mcp.json"]!, '"case-law":', '"extra": { "type": "streamable-http", "url": "https://extra.example.com/mcp" },\n    "case-law":'),
+      "com.dispand/primitives/invoices.json": NEW_TABLE,
+      [DRAFTING]: edited(edited(files[DRAFTING]!, "tools: [\"catalog:gmail\"]", "tools: [\"catalog:gmail\", \"catalog:github\", \"catalog:github\", extra]"), "tables: [Matters, Research]", "tables: [Matters, Research, Invoices]"),
+    });
+    expect((await preview()).later).toEqual([
+      say("plugins.update.laterCatalog", { element: "Drafting", tool: "GitHub" }),
+      say("plugins.update.laterAdded", { element: "Drafting", name: "extra" }),
+      say("plugins.update.laterAdded", { element: "Drafting", name: "Invoices" }),
+    ]);
+  } finally {
+    remove();
+  }
+});
+
+test("Set up says an agent is made without a catalog tool that runs on the owner's machine, and a tool added after reaches the agent at the next update", async () => {
+  const { ctx, pluginId, harness, files, preview, publish, remove } = await setUp();
+  try {
+    const MAILER = "---\nname: Mailer\ndescription: Sends mail.\nharness: cloud\ntools: [\"catalog:gmail-runner\"]\n---\n\nSend the mail.\n";
+    publish({ "com.dispand/agents/mailer.md": MAILER });
+    await call(router.plugins.update, { id: pluginId, reviewed: (await preview()).reviewed }, { context: ctx });
+    const setup = await call(router.plugins.setupPreview, { id: pluginId, pick: { agents: [{ name: "Mailer", harnessId: harness.id }] } }, { context: ctx });
+    expect(setup.waiting).toContainEqual({ definition: "agent:Mailer", reason: say("plugins.setup.waiting.noCatalogTool", { tool: "Gmail (on a runner)" }) });
+
+    // The owner adds a catalog tool a definition names: the next update gives it to the agent, shown as a change to confirm.
+    publish({ [DRAFTING]: edited(files[DRAFTING]!, "tools: [\"catalog:gmail\"]", "tools: [\"catalog:gmail\", \"catalog:github\"]") });
+    await call(router.plugins.update, { id: pluginId, reviewed: (await preview()).reviewed }, { context: ctx });
+    expect((await preview()).changes).toEqual([]);
+    await call(router.tools.addFromCatalog, { catalogId: "github" } as never, { context: ctx });
+    expect((await preview()).changes).toMatchObject([{ kind: "agent", name: "Drafting", field: "toolIds", class: "widening" }]);
+  } finally {
+    remove();
+  }
+});
+
 test("a value written to a field after the update's screen was read refuses its removal: the screen is shown again", async () => {
   const { ctx, pluginId, files, preview, publish, remove } = await setUp();
   try {
