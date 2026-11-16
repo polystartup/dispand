@@ -8,7 +8,7 @@ import { machineConfigPaths } from "../config.ts";
 import { CODEX_DENIAL_UNSUPPORTED } from "../native-permissions.ts";
 import { fakeCodex } from "../fixtures/fake-codex-bin.ts";
 import { BypassRefused, type HarnessSession } from "../outcome.ts";
-import { type CodexDeps, type CodexSessionStart, PROFILE_REFUSED, startCodexSession } from "./session.ts";
+import { type CodexDeps, type CodexSessionStart, mcpNameRefused, PROFILE_REFUSED, startCodexSession } from "./session.ts";
 
 // Each test spawns a fake Codex process and waits on what it sends: on a busy machine (CI runs the
 // runner's test files in parallel, several spawning processes) that takes over Vitest's default 1 s.
@@ -170,7 +170,7 @@ test("a restricted session starts with only submit_outputs, the Job's server and
     // A machine that allows bypass, and a start that asks for it: a restricted session is sandboxed all the same.
     start: { restricted: true, jobToken: "dj_test", permissionMode: "bypassPermissions", consults: [{ agentId: "agt_a", name: "A", description: "" }] },
     deps: { allowBypass: true, jobServer: "job", mcp: { servers: { job: { url: "https://dispand.test/mcp/job" } }, env: {} } },
-    env: { FAKE_CODEX_CONFIG: JSON.stringify({ mcp_servers: { node_repl: { command: "node" }, job: { command: "x" } } }) },
+    env: { FAKE_CODEX_CONFIG: JSON.stringify({ mcp_servers: { node_repl: { command: "node" } } }) },
     answer: () => ({ kind: "permission", decision: "allow" }),
   });
   await s.ended();
@@ -232,6 +232,20 @@ test("profile not active → refused, before any turn", async () => {
   expect(PROFILE_REFUSED).toContain("sandbox_mode");
   expect(await s.sent("turn/start")).toEqual([]);
   await s.session.done;
+});
+
+test("an MCP server of the session that the user's config.toml also names → refused before the thread, even a disabled one", async () => {
+  const servers = { job: { url: "http://127.0.0.1:1/mcp/job" }, job_tools: { url: "http://127.0.0.1:1/mcp/job/tools" } };
+  // Codex would merge ours into it key by key: its `enabled = false` would switch Dispand's off.
+  const s = await run({ deps: { mcp: { servers, env: {} } }, env: { FAKE_CODEX_CONFIG: JSON.stringify({ mcp_servers: { other: { command: "x" }, job_tools: { command: "x", enabled: false } } }) } });
+  await s.ended();
+  expect(s.events).toEqual([{ type: "error", message: mcpNameRefused("job_tools") }]);
+  expect(await s.sent("thread/start")).toEqual([]);
+  await s.session.done;
+  // Any other name runs.
+  const ok = await run({ turns: [[message("Done")]], deps: { mcp: { servers, env: {} } }, env: { FAKE_CODEX_CONFIG: JSON.stringify({ mcp_servers: { other: { command: "x" } } }) } });
+  await ok.ended();
+  expect(ok.events.at(-1)).toEqual({ type: "result", text: "Done" });
 });
 
 test("bypass refused without allowBypass; with it, Codex runs unsandboxed through the approval broker", async () => {

@@ -625,7 +625,9 @@
   included); a token names its Job only while the Job is running or waiting. The start carries
   it as `jobToken` (protocol 5) and no address: the runner adds the Job server to the
   session's MCP servers itself (`withJobServer` in `apps/runner/src/mcp.ts`: `/mcp/job` of its
-  configured server, named `job`, a name starts can't use), and lets `mcp__job__*` tools run
+  configured server, named `job`, a name starts can't use; a same-named server of the user's
+  own CLI config is replaced for the session on Claude Code, and refuses the session on Codex,
+  which would merge the two), and lets `mcp__job__*` tools run
   without a question (Claude Code: `canUseTool` and the `PreToolUse` hook; Codex: its approval
   request for that server is accepted); every other MCP tool asks as before. The agent's page
   sets the bundles and tables (`components/settings/JobRights.tsx`).
