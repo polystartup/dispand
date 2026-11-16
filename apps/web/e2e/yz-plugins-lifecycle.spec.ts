@@ -176,8 +176,9 @@ test("install a plugin with its definitions, override an agent, update, uninstal
 
   await page.goto(drafting);
   await expect(page.getByLabel("System prompt")).toHaveValue(mine);
-  await page.goto("/settings/data");
-  await page.getByRole("link", { name: /Clients/ }).first().click();
+  // The plugin's table, not a Clients that earlier specs left.
+  const clients = (await rpc<{ id: string; name: string }[]>(page, "tables/list")).find((t) => t.name === "Clients" && !before.tables.has(t.id))!;
+  await page.goto(`/settings/data/${clients.id}`);
   await expect(page.getByRole("columnheader", { name: "Phone" })).toBeVisible();
   // The skill file the owner changed kept their line, not the plugin's new one.
   await page.goto("/settings/skills");
