@@ -243,3 +243,11 @@ test("the Claude layout has no definitions, whatever com.dispand/ holds", () => 
   expect(got.layout).toBe("claude");
   expect(got.definitions).toEqual({ agents: [], primitives: [], triggers: [] });
 });
+
+test("a refinement's message key reads as its English sentence in a definition's reason", () => {
+  const got = read({
+    "com.dispand/agents/a.md": agentMd("name: A"),
+    "com.dispand/triggers/big.json": json({ agent: "A", name: "Big", config: { kind: "poll", server: "search", action: "list", idPath: "id", arguments: { q: "x".repeat(17 * 1024) } } }),
+  });
+  expect(reasons(got)).toEqual(["definition com.dispand/triggers/big.json: config.arguments: The arguments are larger than 16 KiB."]);
+});
