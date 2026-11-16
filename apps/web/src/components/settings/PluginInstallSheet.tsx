@@ -189,7 +189,7 @@ function InstallForm({
           if (!h) return row;
           const outcome = report.results?.find((r) => r.harness === h.kind);
           const installed = outcome?.status === "installed" || outcome?.status === "already_installed";
-          return { ...row, status: installed ? "installed" : "failed", error: installed ? undefined : report.error ?? t("install.nativeIncomplete") };
+          return { ...row, status: installed ? "installed" : "failed", error: installed ? undefined : report.error ?? t(report.blocked ? "install.nativeBlocked" : "install.nativeIncomplete") };
         }));
         await queryClient.invalidateQueries({ queryKey: ["native-plugins", group[0]!.runnerId] });
       }));

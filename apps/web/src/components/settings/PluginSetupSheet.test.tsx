@@ -4,8 +4,9 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { say } from "@dispand/domain/messages/index.ts";
+import "../../test/jsdom-shims.ts";
 
-const fake = vi.hoisted(() => ({ plugins: { setupPreview: vi.fn(), setUp: vi.fn() }, tables: {}, agents: {}, harnesses: { list: vi.fn() } }));
+const fake = vi.hoisted(() => ({ plugins: { setupPreview: vi.fn(), setUp: vi.fn() }, tables: {}, agents: {}, harnesses: { list: vi.fn() }, runners: { list: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -151,4 +152,23 @@ test("a server of the plugin that isn't a tool yet is offered with its address, 
   expect(fake.plugins.setupPreview).not.toHaveBeenCalled();
   await userEvent.click(server);
   await vi.waitFor(() => expect(fake.plugins.setupPreview.mock.calls.at(-1)![0]).toEqual({ id: "plugin_1", pick: { primitives: [], servers: [{ name: "case-law" }] } }));
+});
+
+test("a standard plugin's stdio server is offered with its command, and picked with the runner it runs on", async () => {
+  fake.harnesses.list.mockResolvedValue([]);
+  fake.runners.list.mockResolvedValue([{ id: "runner_1", name: "Workstation" }]);
+  fake.plugins.setupPreview.mockResolvedValue({ reviewed: "r", items: [], names: {}, waiting: [] });
+  mount({
+    ...plugin,
+    definitions: { primitives: [], agents: [], triggers: [] },
+    available: { skills: [], agents: [], mcpServers: [{ name: "notes", type: "stdio", settings: [], entry: { command: "./server.mjs", args: ["--stdio"] } }] },
+  });
+  const user = userEvent.setup();
+  const server = screen.getByRole("checkbox", { name: /notes/ }) as HTMLInputElement;
+  expect(server.closest("label")!.textContent).toContain("./server.mjs --stdio");
+  await user.click(server);
+  await vi.waitFor(() => expect(fake.plugins.setupPreview.mock.calls.at(-1)![0]).toEqual({ id: "plugin_1", pick: { primitives: [], servers: [{ name: "notes" }] } }));
+  await user.click(screen.getByRole("combobox", { name: "The runner notes runs on" }));
+  await user.click(await screen.findByRole("option", { name: "Workstation" }));
+  await vi.waitFor(() => expect(fake.plugins.setupPreview.mock.calls.at(-1)![0]).toEqual({ id: "plugin_1", pick: { primitives: [], servers: [{ name: "notes", runnerId: "runner_1" }] } }));
 });

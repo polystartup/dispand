@@ -1,15 +1,16 @@
+// Node only (`node:crypto`): imported as `@dispand/runner-protocol/digest`, never from the index the web bundle reads.
 import { createHash } from "node:crypto";
-import type { z } from "zod";
-import type { PluginEntry as Entry } from "./config.ts";
 
-export type PluginEntry = z.infer<typeof Entry>;
+/** A plugin's stdio launch entry, as its `mcp.json` gives it (the standard's fields). */
+export type PluginEntry = { command: string; args?: string[]; env?: Record<string, string>; cwd?: string };
 
 /**
  * A plugin's content digest: `sha256:` and the hex SHA-256 of, for each file sorted by its
- * path's UTF-8 bytes, the path, a NUL, the length in decimal, a NUL, then the bytes. Computed by
- * the runner over the files it was given, never taken from the server.
+ * path's UTF-8 bytes, the path, a NUL, the length in decimal, a NUL, then the bytes. The runner
+ * computes it over the files it was given, never taking the server's word; Dispand computes it
+ * over the files it stores, to show the owner what to allow.
  */
-export function contentDigest(files: { path: string; content: Buffer }[]): string {
+export function contentDigest(files: { path: string; content: Uint8Array }[]): string {
   const hash = createHash("sha256");
   const sorted = [...files].sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
   for (const file of sorted) {

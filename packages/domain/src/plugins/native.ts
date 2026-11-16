@@ -88,7 +88,7 @@ export async function moveNative(context: Context, pluginId: string, shown: stri
     const plan = await call(workspacePlugin, { ...request, dryRun: true }, { context });
     if (plan.error || plan.blocked || !plan.revision) throw new StepFailed(plan.error ? { text: plan.error } : say("plugins.update.nativeBlocked"));
     const result = await call(workspacePlugin, { ...request, dryRun: false, revision: plan.revision }, { context });
-    if (result.error || result.results?.some((r) => r.status === "failed")) throw new StepFailed(result.error ? { text: result.error } : say("plugins.update.nativeFailed"));
+    if (result.error || result.blocked || result.results?.some((r) => r.status === "failed")) throw new StepFailed(result.error ? { text: result.error } : say(result.blocked ? "plugins.update.nativeApplyBlocked" : "plugins.update.nativeFailed"));
   };
   for (const harness of installs.harnesses.filter((h) => shown.includes(h.id))) {
     try {

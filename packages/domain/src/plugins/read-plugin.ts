@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { storable } from "@dispand/runner-protocol";
+import type { PluginEntry } from "@dispand/runner-protocol/digest";
 import { parse } from "yaml";
 import { MAX_FILE_BYTES, splitSkillMd } from "../skills/package.ts";
 import { isDir, kindAt, list, MAX_JSON_BYTES, type NotImported, Notes, PluginError, type PluginSkill, pluginPath, readJson, readRegular, readSkillFolders, resolvePluginRoot, spend, withBudget } from "./fs.ts";
@@ -32,8 +33,11 @@ export type PluginContents = {
 /** A summary of what a plugin offers: what Installed lists and the install sheet ticks. */
 export type PluginComponents = {
   skills: { name: string; description: string }[];
-  /** `url` (an HTTP server's, with its placeholders) is where its settings would go: the install sheet shows it. */
-  mcpServers: { name: string; type: "http" | "stdio"; settings: string[]; url?: string; transport?: "streamable-http" | "sse" }[];
+  /**
+   * `url` (an HTTP server's, with its placeholders) is where its settings would go: the install
+   * sheet shows it. `entry`: a standard plugin's stdio launch entry, what a runner must allow.
+   */
+  mcpServers: { name: string; type: "http" | "stdio"; settings: string[]; url?: string; transport?: "streamable-http" | "sse"; entry?: PluginEntry }[];
   agents: { name: string; description: string }[];
   /** The names of its `com.dispand` definitions, registered on install (absent from rows stored before them). */
   definitions?: { agents: string[]; primitives: string[]; triggers: string[] };
@@ -42,7 +46,12 @@ export type PluginComponents = {
 export function componentsOf(contents: PluginContents): PluginComponents {
   return {
     skills: contents.skills.map(({ name, description }) => ({ name, description })),
-    mcpServers: contents.mcpServers.map((s) => ({ name: s.name, type: s.type, settings: s.settings, ...(s.type === "http" ? { url: s.url, transport: s.transport } : {}) })),
+    mcpServers: contents.mcpServers.map((s) => ({
+      name: s.name,
+      type: s.type,
+      settings: s.settings,
+      ...(s.type === "http" ? { url: s.url, transport: s.transport } : contents.layout === "standard" ? { entry: { command: s.command, args: s.args, env: s.env, ...(s.cwd !== undefined ? { cwd: s.cwd } : {}) } } : {}),
+    })),
     agents: contents.agents.map(({ name, description }) => ({ name, description })),
     definitions: {
       agents: contents.definitions.agents.map((d) => d.name),

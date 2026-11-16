@@ -8,7 +8,10 @@ import { z } from "zod";
 import { base, validationKey } from "../rpc/context.ts";
 import en from "./en.json";
 import fr from "./fr.json";
-import { external, isMessageKey, message, reasonOf } from "./index.ts";
+import { ModelListError } from "../cloud/models.ts";
+import { ENTRY_VALUES } from "../memory/model.ts";
+import { PackageError } from "../skills/package.ts";
+import { external, isMessageKey, message, reasonOf, rendered } from "./index.ts";
 
 /** Every key of a resource, plural forms included, as dotted paths. */
 const keys = (value: unknown, prefix = ""): string[] =>
@@ -38,23 +41,17 @@ test("a rejected input's issue becomes a validation message, its plural chosen b
   expect(validationKey({ code: "something_new", path: ["a", 0] })).toEqual({ key: "validation.custom", values: { field: "a.0" } });
 });
 
-// Errors whose text may reach a person and isn't yet a `message()` key or text marked as external,
-// per file: each Task 4 pull request keys an area and takes its files out. Exact counts, so a new
-// unkeyed error fails, and so does a keyed one left counted.
-const UNKEYED: Record<string, number> = {
-  "assistant/commands.ts": 3,
-  "assistant/invoke.ts": 4,
-  "audit/procedures.ts": 1,
-  "harnesses/procedures.ts": 6,
-  "jobs/procedures.ts": 7,
-  "memory/procedures.ts": 4,
-  "pages/procedures.ts": 13,
-  "rpc/context.ts": 1,
-  "rpc/router.ts": 3,
-  "runners/procedures.ts": 10,
-  "runners/workspace-plugin.ts": 10,
-  "skills/procedures.ts": 13,
-};
+test("errors that carry a message say it in French too, and in English for agents", () => {
+  const unsafe = new PackageError("skills.package.unsafePath", "../x");
+  expect([unsafe.message, rendered("fr", unsafe.say.key, unsafe.say.values)]).toEqual(["“../x” is not a safe path.", "« ../x » n’est pas un chemin sûr."]);
+  const model = new ModelListError("harness.models.unreachable", { host: "api.example.com" });
+  expect([model.message, rendered("fr", model.say.key, model.say.values)]).toEqual(["Couldn't reach api.example.com.", "Impossible de joindre api.example.com."]);
+  expect(rendered("fr", "memory.entry.typeOneOf", ENTRY_VALUES)).toBe("Le type est l’un de : business, practice, fact, reference.");
+});
+
+// Errors whose text may reach a person and isn't a `message()` key or text marked as external, per
+// file with exact counts: none is left, so a new unkeyed error fails.
+const UNKEYED: Record<string, number> = {};
 
 const src = join(import.meta.dirname, "..");
 const files = (dir: string): string[] =>

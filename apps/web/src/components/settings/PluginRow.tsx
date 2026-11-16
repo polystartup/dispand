@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import type { Text } from "@dispand/domain";
@@ -9,7 +9,7 @@ import { refusal } from "./PluginInstallSheet.tsx";
 import { PluginRemoveSheet } from "./PluginRemoveSheet.tsx";
 import { PluginSetupSheet } from "./PluginSetupSheet.tsx";
 import { api, orpc } from "../../lib/api.ts";
-import { needsReview } from "./PluginUpdate.tsx";
+import { needsReview, says } from "./PluginUpdate.tsx";
 import { PluginUpdateSheet, type UpdatePreview } from "./PluginUpdateSheet.tsx";
 
 type Plugin = Awaited<ReturnType<typeof api.plugins.list>>[number];
@@ -42,7 +42,10 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string[] | null>(null);
   const [settingUp, setSettingUp] = useState(false);
-  const busy = update.isPending || looking;
+  // What of the plugin's tables an update didn't apply (declined, or undone since): each with "Apply".
+  const differences = useQuery(orpc.plugins.tableChanges.queryOptions({ input: { id: p.id }, enabled: p.tables.length > 0 }));
+  const [applying, setApplying] = useState<string | null>(null);
+  const busy = update.isPending || looking || applying !== null;
   const available = [
     ...p.available.skills.map((s) => t("row.availableSkill", { name: s.name })),
     ...p.available.mcpServers.map((s) => t("row.availableServer", { name: s.name })),
@@ -174,6 +177,51 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
           {t("row.neverImported", { count: p.notImported.length, components: list([...new Set(p.notImported.map((n) => n.component))]) })}
         </p>
       )}
+      {differences.data?.map((table) => (
+        <div key={table.tableId} className="space-y-1 text-[13px]">
+          <p className="text-muted">{t("row.notApplied", { table: table.name })}</p>
+          <ul className="space-y-1">
+            {table.changes.map((c) => {
+              const change = says(t, c);
+              const blocked = c.stale ? text(c.stale) : c.waiting ? t("update.waits", { table: c.waiting }) : undefined;
+              return (
+                <li key={c.key} className="flex flex-wrap items-start gap-x-3 gap-y-1">
+                  <span className="min-w-0 flex-1">
+                    {change}
+                    {c.loses ? <span className="block text-danger">{t("row.applyLoses", { count: c.loses })}</span> : null}
+                    {c.stops?.length ? <span className="block text-danger">{t(c.kind === "retype" ? "row.applyMayStop" : "row.applyStops", { count: c.stops.length, workflows: list(c.stops) })}</span> : null}
+                    {blocked && <span className="block text-muted">{blocked}</span>}
+                  </span>
+                  {!blocked && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={t("row.applyLabel", { table: table.name, change })}
+                      disabled={busy}
+                      onClick={() =>
+                        void run(async () => {
+                          setApplying(c.key);
+                          try {
+                            const result = await api.plugins.applyTableChange({ id: p.id, tableId: table.tableId, key: c.key, reviewed: c.reviewed });
+                            const item = (f: { name: string; reason: Text }) => t("row.failedItem", { name: f.name, reason: text(f.reason) });
+                            setNote([result.failed?.length ? t("row.appliedExcept", { failed: list(result.failed.map(item)) }) : t("row.applied", { table: table.name })]);
+                          } finally {
+                            // Refused as changed since, too: the row shows the changes as they are now.
+                            void refresh();
+                            setApplying(null);
+                          }
+                        }, t("row.applyFailed"))
+                      }
+                    >
+                      {applying === c.key ? t("row.applying") : t("row.apply")}
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
       {note && (
         <div role="status" className="space-y-1 text-[13px] text-muted">
           {note.map((line) => (

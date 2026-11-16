@@ -11,6 +11,7 @@ import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { StorableText } from "../workflows/model.ts";
 import { MAX_DESCRIPTION, MAX_FILE_BYTES, MAX_FILES, PackageError, SKILL_NAME, skillMd, type SkillFile, splitSkillMd, validatePackage } from "./package.ts";
+import { message } from "../messages/index.ts";
 
 const owner = base.use(authed);
 
@@ -47,13 +48,13 @@ async function requireTools(tx: Tx, ownerId: string, ids: string[]): Promise<voi
     .from(toolsTable)
     .where(and(inArray(toolsTable.id, unique), eq(toolsTable.ownerId, ownerId)))
     .for("share");
-  if (found.length !== unique.length) throw new ORPCError("NOT_FOUND", { message: "Tool not found" });
+  if (found.length !== unique.length) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
 }
 
 function nameTaken(name: string) {
   return (err: unknown): never => {
     const e = err as { code?: unknown; cause?: { code?: unknown } };
-    if (e.code === "23505" || e.cause?.code === "23505") throw new ORPCError("CONFLICT", { message: `A skill is already called “${name}”` });
+    if (e.code === "23505" || e.cause?.code === "23505") throw new ORPCError("CONFLICT", message("skills.nameTaken", { name }));
     throw err;
   };
 }
@@ -63,7 +64,7 @@ function checked(files: SkillFile[]) {
   try {
     return validatePackage(files);
   } catch (e) {
-    if (e instanceof PackageError) throw new ORPCError("BAD_REQUEST", { message: e.message });
+    if (e instanceof PackageError) throw new ORPCError("BAD_REQUEST", message(e.say.key, e.say.values));
     throw e;
   }
 }
@@ -96,14 +97,14 @@ async function find(db: Db | Tx, ownerId: string, packageId: string, lock = fals
     .from(skillPackages)
     .where(and(eq(skillPackages.id, packageId), eq(skillPackages.ownerId, ownerId)));
   const [row] = lock ? await query.for("update") : await query;
-  if (!row) throw new ORPCError("NOT_FOUND", { message: "Skill not found" });
+  if (!row) throw new ORPCError("NOT_FOUND", message("agent.skillNotFound"));
   return row;
 }
 
 /** A plugin's package is changed file by file and goes with its plugin, the platform skill only with the application. */
 function refuseReadOnly(row: typeof skillPackages.$inferSelect) {
-  if (row.builtIn) throw new ORPCError("FORBIDDEN", { message: "The platform skill is built in: it is read-only" });
-  if (row.pluginId !== null) throw new ORPCError("FORBIDDEN", { message: "A plugin's skill is changed file by file, on its page" });
+  if (row.builtIn) throw new ORPCError("FORBIDDEN", message("skills.builtIn"));
+  if (row.pluginId !== null) throw new ORPCError("FORBIDDEN", message("skills.pluginSkill"));
 }
 
 /** Stores a plugin's files as the plugin has them, in place of the ones kept before. */
@@ -144,7 +145,7 @@ async function writeFiles(tx: Tx, packageId: string, files: SkillFile[]) {
 /** The plugin's package to change file by file, locked, with its files in effect. */
 async function pluginPackage(tx: Tx, ownerId: string, packageId: string) {
   const row = await find(tx, ownerId, packageId, true);
-  if (row.builtIn || row.pluginId === null) throw new ORPCError("BAD_REQUEST", { message: "This skill is edited from its form" });
+  if (row.builtIn || row.pluginId === null) throw new ORPCError("BAD_REQUEST", message("skills.editedFromForm"));
   const files = await tx.select({ path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(eq(skillFiles.packageId, packageId));
   return { row, files };
 }
@@ -164,7 +165,7 @@ const setFile = owner.input(FilePath.extend({ base64: UploadedFile.shape.base64 
 const removeFile = owner.input(FilePath).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
     const { files } = await pluginPackage(tx, context.ownerId, input.packageId);
-    if (!files.some((f) => f.path === input.path)) throw new ORPCError("NOT_FOUND", { message: "File not found" });
+    if (!files.some((f) => f.path === input.path)) throw new ORPCError("NOT_FOUND", message("skills.fileNotFound"));
     await writeFiles(tx, input.packageId, files.filter((f) => f.path !== input.path));
   });
   await context.engine.narrowOwnerSessions(context.ownerId, context.db);
@@ -174,7 +175,7 @@ const removeFile = owner.input(FilePath).handler(async ({ input, context }) => {
 export async function resetFile(tx: Tx, ownerId: string, packageId: string, path: string) {
   const { files } = await pluginPackage(tx, ownerId, packageId);
   const [upstream] = await tx.select().from(skillFileUpstream).where(and(eq(skillFileUpstream.packageId, packageId), eq(skillFileUpstream.path, path)));
-  if (!upstream && !files.some((f) => f.path === path)) throw new ORPCError("NOT_FOUND", { message: "File not found" });
+  if (!upstream && !files.some((f) => f.path === path)) throw new ORPCError("NOT_FOUND", message("skills.fileNotFound"));
   await writeFiles(tx, packageId, [...files.filter((f) => f.path !== path), ...(upstream ? [{ path, content: upstream.content }] : [])]);
 }
 
@@ -182,7 +183,7 @@ export async function resetFile(tx: Tx, ownerId: string, packageId: string, path
 const readFile = owner.input(FilePath).handler(async ({ input, context }) => {
   await find(context.db, context.ownerId, input.packageId);
   const [file] = await context.db.select({ content: skillFiles.content }).from(skillFiles).where(and(eq(skillFiles.packageId, input.packageId), eq(skillFiles.path, input.path)));
-  if (!file) throw new ORPCError("NOT_FOUND", { message: "File not found" });
+  if (!file) throw new ORPCError("NOT_FOUND", message("skills.fileNotFound"));
   try {
     return { text: new TextDecoder("utf-8", { fatal: true }).decode(file.content) };
   } catch {
@@ -192,7 +193,7 @@ const readFile = owner.input(FilePath).handler(async ({ input, context }) => {
 
 /** The platform skill's name stays free for it (`assistant/skill.ts`). */
 function refuseReservedName(name: string) {
-  if (name === PLATFORM_SKILL) throw new ORPCError("CONFLICT", { message: `A skill is already called “${name}”` });
+  if (name === PLATFORM_SKILL) throw new ORPCError("CONFLICT", message("skills.nameTaken", { name }));
 }
 
 const create = owner.input(Fields).handler(async ({ input, context }) => {
@@ -229,7 +230,7 @@ const update = owner.input(Fields.extend(PackageId.shape)).handler(async ({ inpu
       // A package kept from an uninstalled plugin may hold other skills: they stay as they are.
       const others = current.filter((f) => !f.path.startsWith(prefix)).map((f) => ({ path: f.path, content: f.content }));
       if (others.some((f) => f.path.startsWith(`${fields.name}/`))) {
-        throw new ORPCError("CONFLICT", { message: `This package already holds a skill called “${fields.name}”` });
+        throw new ORPCError("CONFLICT", message("skills.packageNameTaken", { name: fields.name }));
       }
       // Keeps the current files but SKILL.md, under the (maybe new) name.
       const extra = fields.files
@@ -256,7 +257,7 @@ const remove = owner.input(PackageId).handler(async ({ input, context }) => {
     await refuseOwnDelete(tx, row.pluginId);
     refuseReadOnly(row);
     const agent = await agentUsingPackage(tx, input.packageId);
-    if (agent) throw new ORPCError("CONFLICT", { message: `The agent “${agent}” uses this skill` });
+    if (agent) throw new ORPCError("CONFLICT", message("skills.usedByAgent", { agent }));
     await tx.delete(skillPackages).where(eq(skillPackages.id, input.packageId));
   });
   await context.engine.narrowOwnerSessions(context.ownerId, context.db);

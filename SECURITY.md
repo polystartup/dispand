@@ -121,8 +121,8 @@ changes it updates this file.
   wrote is shown in many places; whatever a renderer makes of it, the browser can't be made
   to fetch from, or send to, another host. Scripts and styles are not restricted by it. A
   served file keeps its own stricter policy (`default-src 'none'; sandbox`).
-- **An agent's text is shown formatted, and loads nothing.** In the chat an agent's words go
-  through one component (`components/chat/AgentText.tsx`): an image shows only when its
+- **An agent's text is shown formatted, and loads nothing.** In the chat and in a Job's
+  transcript on its run page, an agent's words go through one component (`components/chat/AgentText.tsx`): an image shows only when its
   address is one of the app's own files (`/files/<id>`, nothing else: no scheme, no host, no
   `..`), and is otherwise replaced by its description; a link is never an anchor but a
   button that shows its destination and opens it in a new window on a click, and only for
@@ -185,11 +185,31 @@ changes it updates this file.
   applies only while the field still holds the owner's value and the plugin's value it was handed
   off against; a decision that is neither value, or that changes an agent's rights (they combine,
   so two decisions within bounds could give together what neither version did), waits for the
-  owner's Approval; a tool it gives an agent starts with every action on Ask. On a runner it runs
-  only on Claude Code, as a restricted session (protocol 26): the runner itself gives it no
-  built-in tool (nor the CLI's server-side advisor, switched off in its environment), none of the user's settings, no skill, memory
-  or consult, and no MCP server but the Job's own, whatever the start holds. Codex, whose native tools have no such switch here, is
-  refused.
+  owner's Approval: one Approval in the Inbox per update, each value answered on its own by the
+  owner (never by an agent, never whole), applied only while the field still holds the owner's
+  value it was decided on, else that value is the owner's to decide again; a tool it gives an
+  agent starts with every action on Ask. A plugin's table handed to it is decided as a list of
+  the change keys the update showed (any other key refuses the whole decision); a change that
+  removes values never applies without the owner's yes on that Approval, which shows the field's
+  values, and it applies in one transaction under the table's lock that every field operation
+  and row write takes: planned again (a change gone stale is skipped), claimed as the owner read
+  it, and only while the field still holds exactly those values (any difference asks again). The Job is
+  given the changes' keys and counts, never a row's value. On a runner it runs
+  as a restricted session (protocol 26; on Codex, protocol 29), on Claude Code or Codex: the runner itself gives it no skill, memory or consult, no MCP
+  server but the Job's own, and no way to the shell, files or network, whatever the start holds. On Claude Code: no
+  built-in tool (nor the CLI's server-side advisor, switched off in its environment) and none of the user's settings. On
+  Codex (checked with 0.167.0 on what the model is sent, `codex/restricted-tools.test.ts`): every native tool a switch
+  removes is off (shell, view_image, web search, image generation, browser and computer use, apps and plugins, subagents,
+  goals, sleep, asking the person), as are hooks, memories, the skills catalog and every MCP server of the user's config;
+  its turns get no execution environment, under a read-only profile with no network. What the model keeps is code
+  mode's `exec`/`wait` (an isolate with no file system or network that calls only the tools listed here), `apply_patch`
+  (the model's catalog entry adds it and no switch removes it: with no environment every call fails before touching a
+  file, and a file-change approval would be declined), the clock, the MCP resource tools (which reach only the Job's
+  server), `submit_outputs` and the Job's server. The runner answers no command, file-change or question request and no
+  dynamic tool but `submit_outputs`, bypass or not. A restricted Codex start needs Codex ≥ 0.167.0 (`RESTRICTED_CODEX`):
+  an older one may ignore a switch it doesn't know, so the runner refuses it. On a newer one it runs and the runner logs
+  a warning: after every Codex update, run `codex/restricted-tools.test.ts` on the runner machine, and change the
+  switches if it fails.
 - **A consult reaches only an agent its Job may consult, and nothing answers in that agent's
   place.** A Job's `consult` tool (cloud and runner sessions; absent when its agent may consult
   none, and in workflow steps) names an agent by id. A runner sends a consult only for an agent
@@ -222,13 +242,19 @@ changes it updates this file.
   reconnect or a restart included. Changing the checkpoint is a grant: an agent does it only
   through a proposal a person approved.
 - **What can't be undone, what removes a question and what starts Jobs are grants too.**
-  Deleting a table or a field, changing an action's asking flag, and creating, changing or
+  Deleting a table, a field or an agent, changing a field's type, changing an action's asking flag, and creating, changing or
   deleting a trigger (what starts an agent's Jobs, and what the agent is told then) are in the registry with the same mark as
   creating or changing an agent, so the same gate refuses them without an approved item. One
   exception, which we decided because it only takes away what the agent does: a call that
   only turns off (`enabled: false`, no other field) a trigger of the Job's own agent runs
   without an item, checked on its parsed input against the trigger's stored agent, and leaves
-  the same Audit row as any call; turning a trigger on stays a grant. An
+  the same Audit row as any call; turning a trigger on stays a grant. A field's dry run
+  (`fields_retype` with `dryRun: true`) only counts and changes nothing, so it runs without an
+  item too, and can't be proposed. Deleting an agent runs the owner's own `agents.delete` (its
+  Jobs still going stop, its triggers go), and is refused when proposed for the built-in agent
+  (`assistantGuard`) and for the Job's own agent. Accepted: a consulted Job may propose deleting
+  its asker's agent; applied, that stops the asker and so, down the consult chain, the
+  consulted Job too, as any stop of the asker does. An
   item is also checked against the Job's tables when it is proposed, like any call: a Job
   limited to some tables can't put another table's deletion in front of the owner.
 - **A trigger on Jobs gets no content.** A Job created, finished or failed is an event of
@@ -599,6 +625,11 @@ changes it updates this file.
   stdio servers Codex starts (checked on Codex 0.167). A server that doesn't connect ends the
   session before its first turn, naming the server only (the CLI's message may quote a URL that
   holds a secret). Codex has no SSE transport: an SSE server in a Codex session is refused.
+  Codex merges a session's server key by key into a same-named one of the user's `config.toml`
+  (its headers, token variable or `enabled` would mix into ours), so a Codex session whose
+  servers (`job`, `job_tools` or a tool's) the user's config already names is refused before its
+  thread starts (`mcpNameRefused`, checked through `config/read` on Codex 0.167). Claude Code's
+  `setMcpServers` replaces a same-named user server for the session instead.
   Managed Job tools follow their per-agent Run / Ask settings in every permission mode,
   including `bypassPermissions`. Unasked actions proceed; other actions ask one call at a time,
   and remembering an approval changes that agent's permission. Other MCP tools ask outside
@@ -764,8 +795,15 @@ changes it updates this file.
   plugin or its data folder, and expands only `${PLUGIN_ROOT}` and `${PLUGIN_DATA}`, once, in
   `args`, `env` values and `cwd`. The record proves the plugin's files and its command line, not
   what that command downloads when it runs (`npx some-package`): `allow-plugin` says so whenever
-  the command isn't a file of the plugin. Until Dispand delivers plugin servers to runners, no
-  plugin command is stored or run, as the next paragraph says.
+  the command isn't a file of the plugin, and so does the tool's page. Dispand delivers such a
+  server as a runner tool (protocol 30): a `plugin` reference (tool id, plugin name, digest,
+  entry) in a session start, `tool.discover` or a poll's `tool.call`. The runner checks the
+  reference against its record first, then launches the folder it already wrote for that digest
+  (named by the digest it computed over what it wrote) or fetches the files
+  (`GET /runner/plugins/<tool id>`, its own token, a plugin runner tool on that runner only, no
+  redirect, 16 MiB) and recomputes their digest. A session's CLI starts it behind the runner's
+  MCP proxy, as any runner tool; a poll calls only what its server marks read-only, and paths in
+  a poll's arguments are resolved from the plugin's working directory for the runner's guard.
 - **Workspace plugin imports bring files, never code that runs.** Marketplaces and plugins are fetched with
   `fetchGit` (`packages/domain/src/plugins/git.ts`): `https://` only (no credentials in the URL;
   `file://` only in a development build with `DISPAND_GIT_FILE_URLS=1`, for e2e fixtures),
@@ -774,7 +812,12 @@ changes it updates this file.
   Agent Plugins layout (a root `plugin.json`) is read with that standard's rules. A schema-less root object may use the Claude loader when a named Claude manifest exists; explicit schemas never fall back. Both loaders run under the same
   limits: its `$schema` ids are known, never fetched; a linked `plugin.json` rejects it; its
   stdio servers are read (a `./` command and `cwd` that stay inside the plugin, or a `cwd` in
-  its data folder) but, like every command a plugin names, never stored or run. Its `com.dispand`
+  its data folder). Dispand runs none of a plugin's commands itself; it keeps a standard plugin's
+  files when it has a stdio server (`plugin_files`, at most 500 files and 11 MiB, so their base64 fits the runner's 16 MiB response cap; a larger
+  plugin installs keeping none, and its stdio servers can't be added; links, `.git` and paths a
+  runner can't write left out and listed), and a runner runs such a
+  server only as the paragraph above says. A plugin in the Claude layout keeps none: its stdio
+  servers are added from a runner's own `mcpServers`, as today. Its `com.dispand`
   definitions (tables, agents, triggers) are data and grant nothing: install only stores them,
   each read as a regular file within the same budget and checked alone. What is made from one is
   made by the procedure a direct call uses, by the owner or through an approved proposal, with
@@ -790,7 +833,9 @@ changes it updates this file.
   each element's own procedure, and never replaces an overridden field unasked. A tool it gives
   an existing agent starts with every action on Ask, whatever its server calls read-only. What a
   new version adds is made by no update: only by a setup, whose items show each grant. A plugin's HTTP server becomes a tool only through `plugins.addServer` (or its setup
-  item), with no credentials and only at the URL and transport the owner reviewed in the item. Links are checked out
+  item), with no credentials and only at the URL and transport the owner reviewed in the item; a
+  stdio server only as a runner tool on one of the owner's runners, with the digest the owner
+  reviewed in the item, and it runs nothing until that machine's record allows it. Links are checked out
   as plain files (`core.symlinks=false`), then removed from the checkout and listed as not
   imported: nothing is ever written or read through one, and a file name that isn't UTF-8 refuses
   the fetch. Every file is read with `lstat`, any other non-regular file is skipped, and a plugin or skill folder whose real path leaves the

@@ -22,6 +22,9 @@ function Inbox() {
   const done = items.data?.filter((q) => q.status !== "pending") ?? [];
   const { item } = Route.useSearch();
   const loaded = !!items.data;
+  // What answers to a plugin update's items couldn't make, by question: kept here, as an answered Approval moves from Waiting to Done.
+  const [notices, setNotices] = useState<Record<string, string[]>>({});
+  const noticesOf = (id: string) => ({ notices: notices[id], onNotices: (said: string[]) => setNotices((prev) => ({ ...prev, [id]: [...(prev[id] ?? []), ...said] })) });
   useEffect(() => {
     if (loaded && item) document.getElementById(`item-${item}`)?.scrollIntoView({ block: "center" });
   }, [loaded, item]);
@@ -39,7 +42,7 @@ function Inbox() {
           <ul className="flex flex-col gap-4">
             {open.map((q) => (
               <li key={q.id} id={`item-${q.id}`}>
-                <InboxItem item={q} />
+                <InboxItem item={q} {...noticesOf(q.id)} />
               </li>
             ))}
           </ul>
@@ -51,7 +54,7 @@ function Inbox() {
           <ul className="flex flex-col gap-4">
             {done.map((q) => (
               <li key={q.id} id={`item-${q.id}`}>
-                <InboxItem item={q} />
+                <InboxItem item={q} {...noticesOf(q.id)} />
               </li>
             ))}
           </ul>

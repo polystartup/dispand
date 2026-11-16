@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { parseRunnerMessage, PROTOCOL_VERSION } from "@dispand/runner-protocol";
-import { contentDigest } from "./plugin-digest.ts";
+import { contentDigest } from "@dispand/runner-protocol/digest";
 import { expect, test, vi } from "vitest";
 import { WebSocketServer } from "ws";
 

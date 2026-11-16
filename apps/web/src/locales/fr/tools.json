@@ -18,7 +18,8 @@
     "notConnected": "Pas encore connecté",
     "needsSignIn": "Connexion nécessaire : saisissez ses réglages",
     "reauthorize": "À réautoriser : sa connexion ne fonctionne plus",
-    "refresh": "Actualiser {{name}}"
+    "refresh": "Actualiser {{name}}",
+    "pluginRunner": "Runner · le serveur du plugin {{plugin}}"
   },
   "catalog": {
     "title": "Catalogue d’outils",
@@ -144,6 +145,15 @@
     "notReported": "Ce runner ne signale pas {{server}} : ajoutez l’extrait à son config.json, puis redémarrez-le.",
     "serverHint": "Les noms sous mcpServers dans le config.json du runner.",
     "pickServer": "Choisir le serveur",
-    "addTool": "Ajouter l’outil"
+    "addTool": "Ajouter l’outil",
+    "pluginDescription": "Un serveur stdio du plugin {{plugin}}. Votre runner ne l’exécute qu’une fois que cette machine autorise ses fichiers et son entrée de lancement : lancez-y la commande ci-dessous, puis redémarrez le runner.",
+    "removedDescription": "Un serveur stdio d’un plugin qui a été retiré : plus rien ne l’exécute, sauf si vous le faites pointer vers un des serveurs MCP du runner.",
+    "command": "Commande",
+    "digest": "Empreinte des fichiers du plugin",
+    "allow": "Pour l’autoriser, lancez sur la machine du runner",
+    "notAFile": "Sa commande n’est pas un des fichiers du plugin : l’autoriser couvre la ligne de commande, pas ce que cette commande exécute ou télécharge.",
+    "copy": "Copier",
+    "copied": "Copié",
+    "noServerDescription": "Un serveur stdio que son plugin ne propose plus, ou dont il ne garde pas les fichiers : mettez le plugin à jour, ou faites pointer cet outil vers un des serveurs MCP du runner."
   }
 }

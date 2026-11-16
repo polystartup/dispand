@@ -52,6 +52,13 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
   const busy = actionEnabled.isPending || create.isPending || update.isPending || del.isPending || refresh.isPending;
 
   const runner = runners.data?.find((r) => r.id === runnerId);
+  // A plugin's stdio server: no server of the runner's own to pick; its runner must allow it (`allow-plugin`).
+  const server = current?.pluginServer;
+  // Without its plugin's server (removed, or no longer offered): the owner may point it at one of the runner's own.
+  const fromPlugin = !!server;
+  const orphan = !!current && current.kind === "runner" && !current.runnerTool && !server;
+  const allowLine = current && server ? `dispand-runner allow-plugin ${current.id} ${server.plugin}@${server.digest}` : "";
+  const [copied, setCopied] = useState(false);
   // The servers the picked runner reports, and the saved one even if it no longer does.
   const servers = [...new Set([...(runner?.tools ?? []), ...(current && current.runnerId === runnerId && current.runnerTool ? [current.runnerTool] : [])])];
 
@@ -59,7 +66,7 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
     setError(null);
     try {
       const saved = current
-        ? await update.mutateAsync({ id: current.id, name, runnerId, runnerTool })
+        ? await update.mutateAsync({ id: current.id, name, runnerId, ...(fromPlugin ? {} : { runnerTool }) })
         : await create.mutateAsync({ kind: "runner", name, runnerId, runnerTool, ...(suggested?.catalogId ? { catalogId: suggested.catalogId } : {}) });
       onSaved(saved);
     } catch (e) {
@@ -93,7 +100,7 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
       <SheetContent className="w-full overflow-y-auto bg-surface sm:max-w-lg">
         <SheetHeader className="px-6 pt-6">
           <SheetTitle className="text-[20px] tracking-tight">{current ? current.name : t("runnerSheet.add")}</SheetTitle>
-          <SheetDescription>{t("runnerSheet.description")}</SheetDescription>
+          <SheetDescription>{server ? t("runnerSheet.pluginDescription", { plugin: server.plugin }) : orphan ? t(current.plugin ? "runnerSheet.noServerDescription" : "runnerSheet.removedDescription") : t("runnerSheet.description")}</SheetDescription>
         </SheetHeader>
         <div className="space-y-8 px-6 pb-6">
           <form
@@ -126,7 +133,7 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
                 </SelectContent>
               </Select>
             </FormField>
-            <FormField
+            {!fromPlugin && <FormField
               label={t("runnerSheet.server")}
               htmlFor="runner-tool-server"
               hint={
@@ -149,14 +156,38 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
                   ))}
                 </SelectContent>
               </Select>
-            </FormField>
+            </FormField>}
+            {server && (
+              <div className="space-y-3 text-[13px]">
+                <FormField label={t("runnerSheet.command")} htmlFor="runner-tool-command">
+                  <code id="runner-tool-command" className="block break-all rounded-lg bg-surface-2 px-3 py-2">{[server.entry.command, ...(server.entry.args ?? [])].join(" ")}</code>
+                </FormField>
+                {!server.commandIsFile && <p role="note" className="text-danger">{t("runnerSheet.notAFile")}</p>}
+                <FormField label={t("runnerSheet.digest")} htmlFor="runner-tool-digest">
+                  <code id="runner-tool-digest" className="block break-all rounded-lg bg-surface-2 px-3 py-2">{server.digest}</code>
+                </FormField>
+                <FormField label={t("runnerSheet.allow")} htmlFor="runner-tool-allow">
+                  <div className="flex items-start gap-2">
+                    <code id="runner-tool-allow" className="block min-w-0 flex-1 break-all rounded-lg bg-surface-2 px-3 py-2">{allowLine}</code>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void navigator.clipboard?.writeText(allowLine).then(() => setCopied(true), () => undefined)}
+                    >
+                      {copied ? t("runnerSheet.copied") : t("runnerSheet.copy")}
+                    </Button>
+                  </div>
+                </FormField>
+              </div>
+            )}
             {error && (
               <p role="alert" className="text-[13px] text-danger">
                 {error}
               </p>
             )}
             <div className="flex items-center gap-2 pt-1">
-              <Button type="submit" disabled={busy || !name.trim() || !runnerId || !servers.includes(runnerTool)}>
+              <Button type="submit" disabled={busy || !name.trim() || !runnerId || (!fromPlugin && !servers.includes(runnerTool))}>
                 {current ? t("sheet.save") : t("runnerSheet.addTool")}
               </Button>
               <Button type="button" variant="ghost" onClick={onClose}>

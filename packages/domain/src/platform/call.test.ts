@@ -146,7 +146,7 @@ test("invalid input is refused with the schema's message, and an unknown tool by
   expect(bad).toMatchObject({ ok: false });
   expect((bad as { error: string }).error).toMatch(/limit/);
   expect(await tool("rows_stream", { tableIds: [t1.id] })).toEqual({ ok: false, error: "Unknown tool" });
-  expect(await tool("agents_delete", {})).toEqual({ ok: false, error: "Unknown tool" });
+  expect(await tool("jobs_start", {})).toEqual({ ok: false, error: "Unknown tool" });
   // Changing an agent is a `configure` tool (and needs a proposal): not this Job's.
   expect(await tool("agents_update", {})).toEqual({ ok: false, error: "This agent may not use agents_update" });
 });
@@ -160,11 +160,10 @@ test("a configure Job creates a table and a field, and can't delete either on it
   expect(await tool("rows_create", { tableId })).toMatchObject({ ok: true });
   expect(await tool("fields_update", { id: name.id, name: "Full name" })).toMatchObject({ ok: true });
   expect(await tool("tables_rename", { id: t1.id, name: "People" })).toMatchObject({ ok: true });
-  // Deleting takes a proposal a person approved; changing a field's type is not a tool at all.
-  for (const [toolName, input] of [["tables_delete", { id: tableId }], ["fields_delete", { id: name.id }]] as const) {
+  // Deleting and changing a field's type take a proposal a person approved.
+  for (const [toolName, input] of [["tables_delete", { id: tableId }], ["fields_delete", { id: name.id }], ["fields_retype", { id: name.id, type: "number", dryRun: false }]] as const) {
     expect(((await tool(toolName, input)) as { error: string }).error).toMatch(/needs the owner's approval/);
   }
-  expect(await tool("fields_retype", { id: name.id, type: "number", dryRun: false })).toEqual({ ok: false, error: "Unknown tool" });
   expect((await call(router.tables.list, undefined, { context })).map((t) => t.name).sort()).toEqual(["Invoices", "Matters", "People"]);
 });
 

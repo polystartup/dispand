@@ -19,11 +19,6 @@
   "prompt": "Prompt",
   "transcript": "Transcription ({{count}})",
   "questions": "Questions ({{count}})",
-  "role": {
-    "user": "utilisateur",
-    "assistant": "assistant",
-    "tool": "outil"
-  },
   "page": {
     "failed": "Impossible de charger cette exécution.",
     "runs": "Exécutions",

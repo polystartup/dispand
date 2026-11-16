@@ -4,11 +4,14 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect as baseExpect, test, type Page } from "@playwright/test";
-import { startFakeModel, type FakeModel } from "./fake-model.ts";
+import { lastResult, startFakeModel, type FakeModel } from "./fake-model.ts";
 
-// The plugin lifecycle's acceptance, on the law-firm fixture: install with its definitions, override
-// an agent, update from a new commit (a conflict, a widening change, a table field, a wording change),
-// uninstall keeping the overridden agent, then run a Job of it. Cloud harness on a scripted model.
+// The plugin lifecycle's acceptance, on the law-firm fixture: Stem installs it with its definitions
+// on a proposal the owner approves in the chat, override an agent and a skill file, update from a new
+// commit (a conflict, a widening change, a table field, a wording change, a skill file the owner also
+// changed), uninstall keeping the overridden agent, then run a Job of it. Cloud harness on a scripted
+// model. Runs after settings.spec.ts, which starts the Assistant (Stem): it is moved to this
+// spec's harness, and back.
 const WAIT_MS = 20_000;
 const expect = baseExpect.configure({ timeout: WAIT_MS });
 test.describe.configure({ timeout: 180_000 });
@@ -74,53 +77,86 @@ test("install a plugin with its definitions, override an agent, update, uninstal
   // The agents of the plugin are written for a cloud harness; this app has none yet (settings.spec.ts makes its own later).
   const harness = await rpc<{ id: string }>(page, "harnesses/create", { type: "cloud", name: "Lifecycle model", kind: "openai-compatible", baseUrl: model.baseUrl, model: "lifecycle-model", systemPrompt: "" });
 
-  // 1. Add the marketplace and install the plugin with its definitions.
+  // 1. Add the marketplace; Stem proposes the install, the owner approves it in the chat.
   await page.goto("/settings/plugins");
   await page.waitForLoadState("networkidle");
   await page.getByLabel("Marketplace Git URL").fill(market.url);
   await page.getByRole("button", { name: "Add marketplace" }).click();
   await expect(page.getByRole("button", { name: "Remove firms" })).toBeVisible();
-  await page.getByRole("button", { name: "Install law-firm" }).click();
-  const sheet = page.getByRole("dialog");
-  for (const table of ["Clients", "Matters", "Research"]) await expect(sheet.getByRole("checkbox", { name: new RegExp(`^${table} Not set up`) })).toBeChecked();
-  for (const agent of ["Drafting", "Matter upkeep", "Intake and research"]) {
-    await expect(sheet.getByRole("checkbox", { name: new RegExp(`^${agent} `) })).toBeChecked();
-    await expect(sheet.getByLabel(`Harness of ${agent}`)).toContainText("Lifecycle model");
-  }
-  await expect(sheet.getByRole("list", { name: "What Drafting may do" })).toContainText("Tools: catalog:gmail");
-  await expect(sheet.getByRole("checkbox", { name: /^New client email/ })).toBeChecked();
-  // Its server is ticked once its URL is seen, so that "Intake and research" has its tool.
-  await expect(sheet.getByText("https://case-law.example.com/mcp")).toBeVisible();
-  await sheet.getByRole("checkbox", { name: /case-law/ }).check();
-  // No CLI harness here to install the native plugin on.
-  await sheet.getByRole("checkbox", { name: /Install the complete native plugin/ }).uncheck();
-  await sheet.getByRole("button", { name: "Install" }).click();
-  // A poll trigger runs a tool the install doesn't grant: it waits for its owner, and the rest is made.
-  await expect(sheet.getByRole("list", { name: "Not made yet" })).toContainText("New client email: Its poll runs");
-  await sheet.getByRole("button", { name: "Done" }).click();
-  await expect(sheet).toBeHidden();
-  await page.getByRole("link", { name: "Installed", exact: true }).click();
+  const marketplaceId = (await rpc<{ id: string; name: string }[]>(page, "marketplaces/list")).find((m) => m.name === "firms")!.id;
+  // Stem works on this spec's harness for now (alone, the Assistant is made here).
+  const { agentId } = await rpc<{ agentId: string }>(page, "agents/ensureAssistant", { harnessId: harness.id });
+  const stem = await rpc<{ name: string; harnessId: string; systemPrompt: string; skills: { packageId: string }[] }>(page, "agents/get", { id: agentId });
+  // Stem and its skill are never deleted (made here only when this spec runs alone).
+  before.agents.add(agentId);
+  for (const k of stem.skills) before.skills.add(k.packageId);
+  const stemUpdate = (harnessId: string) => rpc(page, "agents/update", { id: agentId, name: stem.name, harnessId, systemPrompt: stem.systemPrompt, skillPackageIds: stem.skills.map((k) => k.packageId), toolIds: [] });
+  await stemUpdate(harness.id);
+  const install = (m: Parameters<typeof lastResult>[0]) => ({
+    tool: "plugins_install",
+    input: { marketplaceId, entryName: "law-firm", reviewed: lastResult<{ reviewed: string }>(m).reviewed, skills: ["legal-research"], setup: { primitives: ["Clients", "Matters", "Research"], agents: ["Drafting", "Matter upkeep", "Intake and research"].map((name) => ({ name, harnessId: harness.id })) } },
+  });
+  model.script(
+    () => ({ call: { name: "plugins_preview", args: { marketplaceId, entryName: "law-firm" } } }),
+    (m) => ({ call: { name: "propose", args: { items: [install(m)] } } }),
+    (m) => ({ call: { name: "request_approval", args: { message: "I propose installing the law-firm plugin with its tables and agents. Shall I go ahead?", proposal: lastResult<{ proposalId: string }>(m).proposalId } } }),
+    (m) => ({ call: { name: "proposal_apply", args: { proposalId: (JSON.parse(m.findLast((x) => x.tool_calls)!.tool_calls![0]!.function.arguments) as { proposal: string }).proposal } } }),
+    () => ({ text: "The law-firm plugin is installed." }),
+  );
+  await page.goto("/assistant?run=new");
+  const chat = page.getByRole("region", { name: "Stem" });
+  await chat.getByRole("combobox", { name: "Message", exact: true }).fill("Install the law-firm plugin.");
+  await chat.getByRole("button", { name: "Send" }).click();
+  const card = chat.getByRole("region", { name: "Proposal" });
+  // One install item, shown with what its setup makes.
+  await expect(card).toContainText("Install a plugin, and set up what it defines");
+  for (const text of ["Clients", "Drafting", "Matter upkeep", "Intake and research"]) await expect(card).toContainText(text);
+  // Nothing is installed until the owner approves.
+  expect((await rpc<{ name: string }[]>(page, "agents/list")).map((a) => a.name)).not.toContain("Drafting");
+  await chat.getByRole("button", { name: "Approve" }).click();
+  await expect(chat.getByText("The law-firm plugin is installed.")).toBeVisible();
+  await page.goto("/settings/plugins/installed");
   const row = page.getByRole("listitem", { name: "law-firm" });
   await expect(row).toContainText("From firms");
+  expect((await rpc<{ name: string }[]>(page, "agents/list")).map((a) => a.name)).toEqual(expect.arrayContaining(["Drafting", "Matter upkeep", "Intake and research"]));
 
   // 2. Override Drafting's instructions.
   await page.goto("/settings/agents");
   await page.getByRole("link", { name: /Drafting/ }).click();
   await expect(page.getByText("It is law-firm's.", { exact: false })).toBeVisible();
-  await page.waitForLoadState("networkidle");
   const mine = "Draft the reply in our firm's tone, signed by the partner.";
-  await page.getByLabel("System prompt").fill(mine);
+  // No networkidle here: Stem's chat keeps a stream open. Filled again until the page has taken it.
+  const prompt = page.getByLabel("System prompt");
+  await expect(async () => {
+    await prompt.fill(mine);
+    await expect(prompt).toHaveValue(mine, { timeout: 1000 });
+  }).toPass();
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Instructions: yours, kept through updates")).toBeVisible();
   const drafting = page.url();
+
+  // 2b. Override the skill's SKILL.md: a file of the owner's from now on.
+  const ownerLine = "Cite the court and the year.";
+  await page.goto("/settings/skills");
+  await page.getByRole("button", { name: "Files of law-firm" }).click();
+  const skillFiles = page.getByRole("dialog");
+  await skillFiles.getByRole("button", { name: "Edit legal-research/SKILL.md" }).click();
+  const content = skillFiles.getByLabel("Content");
+  await content.fill(`${await content.inputValue()}\n${ownerLine}\n`);
+  await skillFiles.getByRole("button", { name: "Save" }).click();
+  await expect(skillFiles.getByText("Yours: changed")).toBeVisible();
+  await skillFiles.getByRole("button", { name: "Close" }).first().click();
+  await expect(skillFiles).toBeHidden();
 
   // 3. A second commit: Drafting reworded, another agent's description reworded, a tool added, a field added.
   const next = { ...files };
   next["com.dispand/agents/drafting.md"] = files["com.dispand/agents/drafting.md"]!.replace("Draft the reply to the client from the research recorded, as a draft in the mailbox.", "Write the client's reply from the research recorded, and leave it as a draft.");
   next["com.dispand/agents/matter-upkeep.md"] = files["com.dispand/agents/matter-upkeep.md"]!.replace("Keeps each matter's conclusions up to date.", "Keeps every matter's conclusions current.").replace("tables: [Matters]", 'tools: ["catalog:gmail"]\ntables: [Matters]');
   next["com.dispand/primitives/clients.json"] = JSON.stringify({ name: "Clients", primitive: true, fields: [{ name: "Email", type: "text" }, { name: "Phone", type: "text" }] });
+  next["skills/legal-research/SKILL.md"] = `${files["skills/legal-research/SKILL.md"]!}\nRecord each decision's holding.\n`;
+  next["skills/legal-research/references/courts.md"] = "The courts to search, by level.\n";
   const changed = Object.fromEntries(Object.entries(next).filter(([path, text]) => text !== files[path]));
-  expect(Object.keys(changed)).toHaveLength(3);
+  expect(Object.keys(changed)).toHaveLength(5);
   plugin.commit(changed);
   await page.goto("/settings/plugins/installed");
 
@@ -143,9 +179,21 @@ test("install a plugin with its definitions, override an agent, update, uninstal
 
   await page.goto(drafting);
   await expect(page.getByLabel("System prompt")).toHaveValue(mine);
-  await page.goto("/settings/data");
-  await page.getByRole("link", { name: /Clients/ }).first().click();
+  // The plugin's table, not a Clients that earlier specs left.
+  const clients = (await rpc<{ id: string; name: string }[]>(page, "tables/list")).find((t) => t.name === "Clients" && !before.tables.has(t.id))!;
+  await page.goto(`/settings/data/${clients.id}`);
   await expect(page.getByRole("columnheader", { name: "Phone" })).toBeVisible();
+  // The skill file the owner changed kept their line, not the plugin's new one.
+  await page.goto("/settings/skills");
+  await page.getByRole("button", { name: "Files of law-firm" }).click();
+  await expect(skillFiles.getByText("Yours: changed")).toBeVisible();
+  // The update did reach the skill: a file the plugin added arrived, beside the owner's kept override.
+  await expect(skillFiles.getByText("legal-research/references/courts.md")).toBeVisible();
+  await skillFiles.getByRole("button", { name: "Edit legal-research/SKILL.md" }).click();
+  await expect(content).toHaveValue(new RegExp(ownerLine));
+  await expect(content).not.toHaveValue(/Record each decision's holding/);
+  await page.keyboard.press("Escape");
+  await expect(skillFiles).toBeHidden();
 
   // 5. Uninstall, keeping Drafting: what it needs is listed under it, the rest goes.
   await page.goto("/settings/plugins/installed");
@@ -175,7 +223,7 @@ test("install a plugin with its definitions, override an agent, update, uninstal
   model.script(() => ({ text: "Drafted." }));
   const { runId } = await rpc<{ runId: string }>(page, "jobs/start", { triggerId: trigger.id });
   await expect.poll(async () => (await rpc<{ status: string }>(page, "jobs/get", { id: runId })).status).toBe("succeeded");
-  expect(model.requests[0]![0]!.content).toContain(mine);
+  expect(model.requests.at(-1)![0]!.content).toContain(mine);
 
   // Leave the app as the next specs expect it: what this spec made goes (only that), with its harness and marketplace.
   for (const a of await rpc<{ id: string }[]>(page, "agents/list")) if (!before.agents.has(a.id)) await rpc(page, "agents/delete", { id: a.id });
@@ -187,7 +235,9 @@ test("install a plugin with its definitions, override an agent, update, uninstal
   }
   for (const k of await rpc<{ packageId: string }[]>(page, "skills/list")) if (!before.skills.has(k.packageId)) await rpc(page, "skills/delete", { packageId: k.packageId });
   for (const t of await rpc<{ id: string }[]>(page, "tools/list")) if (!before.tools.has(t.id)) await rpc(page, "tools/delete", { id: t.id });
-  await rpc(page, "harnesses/delete", { id: harness.id });
+  await stemUpdate(stem.harnessId);
+  // Alone, Stem was made on this harness: it stays.
+  if (stem.harnessId !== harness.id) await rpc(page, "harnesses/delete", { id: harness.id });
   await page.goto("/settings/plugins");
   await page.getByRole("button", { name: "Remove firms" }).click();
   await expect(page.getByRole("button", { name: "Remove firms" })).toBeHidden();

@@ -589,6 +589,13 @@
       "when": 1794805978816,
       "tag": "0083_chat_attachments",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1794840948049,
+      "tag": "0084_plugin_files",
+      "breakpoints": true
     }
   ]
 }

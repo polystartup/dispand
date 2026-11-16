@@ -41,7 +41,7 @@ test("create a skill with a file, see it in the list, edit it and delete it", as
   // A file the runner's boundary protects is refused by the server, which names it.
   await sheet.getByLabel("Add files").setInputFiles({ name: ".mcp.json", mimeType: "application/json", buffer: Buffer.from("{}") });
   await sheet.getByRole("button", { name: "Create skill" }).click();
-  await expect(sheet.getByRole("alert")).toContainText("hello-check/.mcp.json: unsafe path");
+  await expect(sheet.getByRole("alert")).toContainText("“hello-check/.mcp.json” is not a safe path.");
   await sheet.getByRole("button", { name: "Remove .mcp.json" }).click();
   await sheet.getByLabel("Add files").setInputFiles({ name: "greet.sh", mimeType: "text/x-sh", buffer: Buffer.from("echo HELLO-CHECK\n") });
   await expect(sheet.getByText("greet.sh", { exact: true })).toBeVisible();

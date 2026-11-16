@@ -84,7 +84,11 @@
       "agentLacks": "The agent doesn't have this tool.",
       "notReadable": "A poll may not read this action: the tool doesn't let polls read it, or an agent must ask before using it."
     },
-    "urlCredentials": "The URL can't carry credentials."
+    "urlCredentials": "The URL can't carry credentials.",
+    "plugin": {
+      "removed": "Its plugin was removed: this tool no longer has a server to run.",
+      "noServer": "Its plugin no longer offers the stdio server {{server}}, or keeps no files for it: update the plugin."
+    }
   },
   "plugins": {
     "notFound": "This plugin doesn't exist.",
@@ -125,11 +129,12 @@
       "changed": "{{plugin}} changed since you looked: look at what updating it changes again.",
       "notApplicable": "This is not a change of this table that can be applied.",
       "notConflict": "This is not a field in conflict.",
-      "stemScope": "Stem decides fields of agents, tools and triggers in conflict, that you didn't take.",
+      "stemScope": "Stem decides the fields of agents, tools and triggers in conflict that you didn't take, and the tables you ticked nothing of.",
       "assistantFirst": "Set the Assistant up first: Stem is the Assistant.",
       "notShown": "It wasn't on the update's screen.",
       "unreachable": "Its runner couldn't be asked, or the install changed since.",
       "nativeBlocked": "The native preview was blocked.",
+      "nativeApplyBlocked": "The native step was blocked.",
       "nativeFailed": "The native step failed.",
       "parentMissing": "Its parent field {{field}} isn't there: tick its addition too.",
       "parentOther": "Its parent is another field naming the same table: make {{field}} the parent by hand.",
@@ -142,7 +147,9 @@
       "ownerField": "You changed this field.",
       "unsupported": "It can't be applied here: change the field by hand.",
       "order": "You changed the order.",
-      "changed": "You changed it."
+      "changed": "You changed it.",
+      "changedSince": "{{plugin}} or its table changed since you looked: look at the change again.",
+      "valuesChanged": "Values of this table changed since Stem decided: look at what its changes would remove again."
     },
     "override": {
       "forbidden": "It is {{plugin}}'s: uninstall the plugin to remove it.",
@@ -156,10 +163,13 @@
     },
     "server": {
       "notFound": "The plugin has no MCP server “{{name}}”.",
-      "onRunner": "{{name}} runs on a runner: add it from the plugin's page.",
+      "onRunner": "{{name}} runs on a runner: pick the runner it runs on.",
       "needsSetting": "{{name}}'s URL needs a setting: add it from the plugin's page.",
       "updateToAdd": "Update the plugin to add {{name}}.",
-      "changed": "{{name}} changed since you reviewed it: look at it again."
+      "changed": "{{name}} changed since you reviewed it: look at it again.",
+      "noFiles": "{{name}} can't run as a runner tool: Dispand keeps no files of this plugin for runners. Update the plugin if it follows the Agent Plugins standard.",
+      "entryTooLarge": "{{name}}'s launch entry is larger than a runner takes.",
+      "badName": "{{name}} can't run on a runner: its plugin's name isn't one the Agent Plugins standard allows."
     },
     "component": {
       "needsSetting": "The MCP server {{server}} needs {{name}}.",
@@ -186,7 +196,7 @@
         "onMachine": "{{name}} runs on your machine: add it in Settings → Tools.",
         "notInCatalog": "It isn't in the catalog.",
         "notTicked": "It wasn't ticked with the install: add it from Set up, where its address is shown.",
-        "onRunner": "It runs on a runner: add it from that runner's own MCP servers (Settings → Tools → Add runner tool), or install the plugin natively on a runner's harness.",
+        "onRunner": "It runs on a runner: pick its runner in Set up to add it as a runner tool, then allow it on that machine as the tool's page shows.",
         "needsSetting": "Its URL needs a setting: add it from the plugin's page.",
         "updateToAdd": "Update the plugin to add it.",
         "noTable": "No table “{{table}}” is set up or in the workspace: pick it too, or make it.",
@@ -197,7 +207,8 @@
         "noField": "Its field “{{field}}” isn't there yet: set it up again afterwards.",
         "noPollTool": "“{{tool}}” isn't added as a tool yet.",
         "addedBySetup": "“{{tool}}” is added by this setup: set the trigger up once it lists its actions.",
-        "pollUnasked": "Its poll runs “{{action}}” unasked, which the install doesn't grant: let {{agent}} run it, then set the trigger up."
+        "pollUnasked": "Its poll runs “{{action}}” unasked, which the install doesn't grant: let {{agent}} run it, then set the trigger up.",
+        "noFiles": "Dispand keeps no files of this plugin to run it on a runner: add it from a runner's own MCP servers (Settings → Tools → Add runner tool), or update the plugin if it follows the Agent Plugins standard."
       }
     },
     "reason": {
@@ -242,7 +253,8 @@
       "tooLong": "The answer is too long (at most about {{max}} characters).",
       "chooseScope": "Choose a remember scope for this tool permission.",
       "cannotRemember": "This permission changed or cannot be remembered: refresh and answer again.",
-      "notPending": "This question is no longer waiting for an answer."
+      "notPending": "This question is no longer waiting for an answer.",
+      "itemByItem": "Answer this Approval item by item, in the Inbox."
     }
   },
   "data": {
@@ -448,6 +460,109 @@
       "onRunner": "{{kind}}, on {{runner}}",
       "mode": "{{kind}}, permission mode {{mode}}",
       "both": "{{kind}}, on {{runner}}, permission mode {{mode}}"
+    },
+    "usedByAgent": "An agent uses this harness.",
+    "modelsUnavailable": "Could not list models. Check that the runner is connected and signed in, or enter a model ID.",
+    "modelsFailed": "The models couldn't be listed.",
+    "kindFixed": "A harness can't change between CLI and cloud.",
+    "cloud": {
+      "needsBaseUrl": "An OpenAI-compatible provider needs a base URL.",
+      "needsKey": "An API key is required.",
+      "keyHttps": "A key is only sent to an https:// base URL.",
+      "temperature": "Temperature is only for OpenAI-compatible providers."
+    },
+    "models": {
+      "unreachable": "Couldn't reach {{host}}.",
+      "keyRefused": "The provider refused the key."
     }
+  },
+  "auth": {
+    "signIn": "Sign in to continue.",
+    "setupRefused": "Setup is not allowed.",
+    "ownerOnly": "Only the owner can do this, not an agent."
+  },
+  "audit": {
+    "badCursor": "This cursor isn't valid: start the list again."
+  },
+  "memory": {
+    "notFound": "This memory doesn't exist.",
+    "full": "This memory holds {{max}} entries already: remove one first.",
+    "exists": "An entry {{path}} exists already.",
+    "noEntry": "There is no entry {{path}}.",
+    "removed": "This entry is removed already.",
+    "acceptOnly": "Only an agent's entry, not removed, can be accepted.",
+    "notRemoved": "This entry isn't removed.",
+    "entry": {
+      "pathRule": "The path must be a relative path ending in .md, at most 120 characters, without .., . or empty parts, \\ or a .claude or .mcp.json folder, and not MEMORY.md, CLAUDE.md, AGENTS.md or AGENTS.override.md.",
+      "nameEmpty": "The name can't be empty.",
+      "nameTooLong": "The name is at most {{nameMax}} characters.",
+      "descriptionEmpty": "The description can't be empty.",
+      "descriptionTooLong": "The description is at most {{descriptionMax}} characters.",
+      "descriptionOneLine": "The description is one line.",
+      "typeOneOf": "The type is one of {{types}}.",
+      "bodyTooLong": "The body is at most {{bodyMax}} characters."
+    }
+  },
+  "jobs": {
+    "manualOnly": "Only a manual trigger can be started by hand.",
+    "disabled": "This trigger is disabled.",
+    "notFound": "This Job doesn't exist."
+  },
+  "skills": {
+    "toolsUnavailable": "This skill requires tools unavailable on this harness.",
+    "tooMany": "A conversation can load at most {{max}} skill packages.",
+    "nameTaken": "A skill is already called “{{name}}”.",
+    "packageNameTaken": "This package already holds a skill called “{{name}}”.",
+    "builtIn": "The platform skill is built in: it is read-only.",
+    "pluginSkill": "A plugin's skill is changed file by file, on its page.",
+    "editedFromForm": "This skill is edited from its form.",
+    "fileNotFound": "This file doesn't exist.",
+    "usedByAgent": "The agent “{{agent}}” uses this skill.",
+    "package": {
+      "empty": "A skill package needs at least one skill.",
+      "tooManyFiles": "A skill package holds at most {{max}} files.",
+      "tooBig": "A skill package holds at most 8 MiB.",
+      "skillTooManyFiles": "The skill “{{path}}” holds at most {{max}} files.",
+      "unsafePath": "“{{path}}” is not a safe path.",
+      "outsideFolder": "“{{path}}” is not inside a skill's folder: every file must be.",
+      "badFolder": "The folder of “{{path}}” must be lowercase letters, digits and hyphens, at most 64.",
+      "twice": "“{{path}}” is in the package twice.",
+      "folderName": "“{{path}}” has the name of a folder of the package.",
+      "fileTooBig": "“{{path}}” is larger than 2 MiB.",
+      "noSkillMd": "“{{path}}” is missing: every skill folder needs a SKILL.md.",
+      "notUtf8": "“{{path}}” isn't UTF-8 text.",
+      "noFrontmatter": "“{{path}}” must start with a YAML frontmatter between --- lines.",
+      "badYaml": "The frontmatter of “{{path}}” isn't valid YAML.",
+      "notMapping": "The frontmatter of “{{path}}” must be a YAML mapping.",
+      "nameMismatch": "The frontmatter's name in “{{path}}” must be “{{folder}}”, its folder.",
+      "noDescription": "The frontmatter of “{{path}}” needs a description.",
+      "descriptionLong": "The description in “{{path}}” must be at most {{max}} characters of text."
+    }
+  },
+  "runners": {
+    "usedByHarness": "A harness uses this runner.",
+    "nativeOwnerOnly": "Native installation requires an owner session.",
+    "targetNeedsHarness": "Each target needs a CLI harness on this runner.",
+    "unavailable": "Runner unavailable or operation timed out. Refresh inventory before retrying; native changes may have completed.",
+    "noUpdate": "No update available or runner unreachable.",
+    "harnessNotFound": "This CLI harness doesn't exist.",
+    "groupByRunner": "Group native installation targets by runner.",
+    "noNativeSource": "This plugin has no supported HTTPS Git source for native installation.",
+    "wholePlugin": "Install or remove the whole native plugin instead of copying its skills separately.",
+    "refreshInventory": "Refresh native inventory before changing plugins; the runner could not verify its managed bindings."
+  },
+  "pages": {
+    "notFound": "This page doesn't exist.",
+    "widgetNotFound": "This widget doesn't exist.",
+    "tooMany": "At most {{max}} pages.",
+    "homeRename": "Home can't be renamed.",
+    "homeDelete": "Home can't be deleted.",
+    "fieldTwice": "A field is chosen twice.",
+    "fieldNotInTable": "A chosen field isn't a field of this table.",
+    "coverFiles": "The cover must be a files field of this table.",
+    "manualTriggerForm": "Only a manual trigger can have a form.",
+    "manualWorkflowForm": "Only a manual workflow can have a form.",
+    "formNoFields": "A form has no fields to choose.",
+    "widgetTooWide": "A widget is wider than the {{grid}} grid."
   }
 }

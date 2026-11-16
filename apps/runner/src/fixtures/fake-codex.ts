@@ -3,6 +3,7 @@
 // Behavior, from the environment:
 // - FAKE_CODEX_VERSION: what `--version` prints after `codex-cli ` (default 0.166.0).
 // - FAKE_CODEX_ACCOUNT: the `account/read` result, as JSON.
+// - FAKE_CODEX_CONFIG: the effective config `config/read` returns, as JSON (default {}).
 // - FAKE_CODEX_SERVER_REQUESTS: JSON array of `{ method, params }` sent as server requests
 //   (ids "s0", "s1"...) once `initialized` arrives.
 // - FAKE_CODEX_EXIT_ON: a method that makes it exit at once, without replying.
@@ -100,6 +101,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     reply({ userAgent: "fake", codexHome: "/nonexistent", platformFamily: "unix", platformOs: "linux" });
   } else if (!initialized) send({ id: msg.id, error: { code: -32600, message: "Not initialized" } });
   else if (msg.method === "account/read") reply(account);
+  else if (msg.method === "config/read") reply({ config: JSON.parse(env.FAKE_CODEX_CONFIG ?? "{}"), origins: {}, layers: null });
   else if (msg.method === "thread/start" || msg.method === "thread/resume") {
     const id = (msg.params?.threadId as string | undefined) ?? "thr_1";
     reply({ thread: { id }, activePermissionProfile: profile ? { id: profile, extends: ":workspace" } : null });

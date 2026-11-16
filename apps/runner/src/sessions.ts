@@ -12,12 +12,13 @@ import {
 } from "@dispand/runner-protocol";
 import { BypassRefused, type ClaudeDeps, startClaudeSession } from "./claude.ts";
 import { type CodexDeps, startCodexSession } from "./codex/session.ts";
-import { codexRequired } from "./codex/version.ts";
+import { codexRequired, RESTRICTED_CODEX } from "./codex/version.ts";
 import { writeDurable } from "./durable.ts";
 import type { RunnerConfig } from "./config.ts";
 import type { HarnessSession } from "./outcome.ts";
-import { codexMcpServers, mcpConfigFor, withJobServer } from "./mcp.ts";
-import { fetchPackages, removeSkills, sessionPluginsDir, writeSkills } from "./skills.ts";
+import { codexMcpServers, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
+import { fetchPlugin, type Launch, launchPluginServer } from "./plugin-servers.ts";
+import { fetchPackages, removeSkills, sessionPluginsDir, type SkillPackage, writeSkills } from "./skills.ts";
 import { resolveWorkdir } from "./workdir.ts";
 import { fallbackPackages, nativeSkillAliases, resolveSkillAlias } from "./native-skills.ts";
 import type { NativePlugins } from "./plugins.ts";
@@ -106,6 +107,8 @@ export class Sessions {
   private readonly live = new Map<string, HarnessSession>();
   /** Each live session's run folder: a chat message's files are copied there. */
   private readonly folders = new Map<string, string>();
+  /** The skill packages each live session got as files (`writeSkills`), not through a native installation. */
+  private readonly staged = new Map<string, SkillPackage[]>();
   private readonly stopping = new Set<string>();
   // No parameter properties: `node src/main.ts` runs this file with type stripping only.
   private readonly config: RunnerConfig;
@@ -187,7 +190,7 @@ export class Sessions {
       const preparing = this.starting.get(msg.sessionId);
       if (preparing) {
         preparing.mcpServers = preparing.mcpServers.filter((ref) => {
-          if (ref.type !== "runner") return true;
+          if (ref.type === "http") return true;
           const current = msg.servers.find((s) => s.name === ref.name);
           if (!current) return false;
           const denied = [...new Set([...(ref.denied ?? []), ...(current.denied ?? [])])];
@@ -210,6 +213,10 @@ export class Sessions {
       if (this.queues.get(id) === settled) this.queues.delete(id);
     });
     return done;
+  }
+
+  stagedPackages(sessionId: string): SkillPackage[] {
+    return this.staged.get(sessionId) ?? [];
   }
 
   async commands(sessionId: string) {
@@ -269,16 +276,20 @@ export class Sessions {
     if (start.skills.length > 0 && !this.options.skills) return emit({ type: "error", message: "this runner can't load skills" });
     if (start.harness === "codex") {
       const codex = this.options.codex;
-      const problem = codex ? codexRequired(codex.version) : "Codex isn't installed on this machine, or doesn't run";
+      const problem = codex ? codexRequired(codex.version, start.restricted) : "Codex isn't installed on this machine, or doesn't run";
       if (problem) return emit({ type: "error", message: problem });
+      if (start.restricted && codex!.version !== RESTRICTED_CODEX) {
+        console.warn(`dispand-runner: restricted session ${start.sessionId} runs on Codex ${codex!.version}, its switches were checked on ${RESTRICTED_CODEX}: run restricted-tools.test.ts on this version`);
+      }
     } else if (!atLeast(this.options.claudeVersion, MIN_CLAUDE)) {
       return emit({ type: "error", message: `Claude Code ≥ ${MIN_CLAUDE} required (found ${this.options.claudeVersion ?? "none"}): update claude on this machine` });
     }
-    // A restricted session holds nothing but the Job's own server: Codex has no switch for its native tools here.
-    if (start.restricted && start.harness !== "claude-code") return emit({ type: "error", message: "A restricted session runs on Claude Code only" });
     if (start.permissionMode === "bypassPermissions" && !this.config.allowBypass) {
       return emit({ type: "error", message: new BypassRefused().message });
     }
+    // A plugin's stdio servers, launched once the start is registered (in the `try` below): until then they are left out of the checks.
+    const launches = new Map<string, Launch>();
+    let launched = false;
     // The session's MCP servers: a runner tool must be one of this machine's own (ToolRefused).
     let claudeMcp: ReturnType<typeof mcpConfigFor> = {};
     let codexMcp: ReturnType<typeof codexMcpServers> | undefined;
@@ -288,9 +299,9 @@ export class Sessions {
       // Restricted: no server of the start's and not the Job's tools server, only the Job's own (`job`).
       const refs = start.restricted
         ? withJobServer([], this.config.server, start.jobToken).filter((r) => r.name === JOB_SERVER_NAME)
-        : withJobServer(start.mcpServers, this.config.server, start.jobToken);
+        : withJobServer(start.mcpServers.filter((r) => launched || r.type !== "plugin"), this.config.server, start.jobToken);
       // A Job's runner tools hand their files to that Job, at this runner's own server.
-      const options = start.jobToken === undefined ? {} : { files: { url: new URL(JOB_FILES_PATH, this.config.server).href, token: start.jobToken } };
+      const options = { launches, ...(start.jobToken === undefined ? {} : { files: { url: new URL(JOB_FILES_PATH, this.config.server).href, token: start.jobToken } }) };
       if (refs.length > 0) {
         if (start.harness === "codex") codexMcp = codexMcpServers(refs, this.config.mcpServers, options);
         else claudeMcp = mcpConfigFor(refs, this.config.mcpServers, options);
@@ -320,6 +331,13 @@ export class Sessions {
       return Promise.all([memory, dropSkills()]).then(() => undefined);
     };
     try {
+      // Fetched, checked against this machine's record and written before the run folder exists, the start registered meanwhile.
+      for (const ref of start.restricted ? [] : start.mcpServers) {
+        if (ref.type !== "plugin") continue;
+        if (!skills) throw new ToolRefused("this runner can't start plugin servers");
+        launches.set(ref.name, await launchPluginServer(this.config, skills.stateDir, ref, (id) => fetchPlugin(skills.server, skills.token, id)));
+      }
+      launched = true;
       // Fetched before the run folder exists: a failed fetch leaves nothing behind.
       const packages = skills && pluginsDir && !start.restricted ? await (skills.fetch ?? fetchPackages)(skills.server, skills.token, start.skills) : [];
       const cwd = await resolveWorkdir(this.config, start.cwd, this.options.forbidden, resuming);
@@ -343,7 +361,9 @@ export class Sessions {
         ? await this.options.nativePlugins.request({ action: "list" }) : {};
       const fallback = fallbackPackages(packages, start.harness, native);
       const aliases = nativeSkillAliases(packages, start.harness, native);
-      start.prompt = resolveSkillAlias(start.prompt, aliases);
+      // Codex resolves aliases itself, after its exact catalog names (a scope can share an alias).
+      const resolve = (text: string) => start.harness === "codex" ? text : resolveSkillAlias(text, aliases);
+      start.prompt = resolve(start.prompt);
       const pluginRoots = pluginsDir ? await writeSkills(pluginsDir, fallback) : [];
       // Writing them took time: check again that the runner may still launch.
       if (this.shuttingDown) return cleanUp();
@@ -353,6 +373,8 @@ export class Sessions {
       }
       // A permission update may have narrowed the start while its files were fetched/written.
       prepareMcp();
+      // Where each plugin server starts: paths in its arguments are read from there by the guards.
+      const serverDirs = Object.fromEntries([...launches].map(([name, launch]) => [name, launch.cwd]));
       const jobServer = start.jobToken === undefined ? {} : { jobServer: JOB_SERVER_NAME, ...(start.unasked ? { unasked: start.unasked } : {}) };
       const session =
         start.harness === "codex"
@@ -363,6 +385,8 @@ export class Sessions {
               secrets: this.options.forbidden ?? [],
               ...(pluginsDir ? { pluginsDir } : {}),
               pluginRoots,
+              serverDirs,
+              skillAliases: aliases,
               ...(codexMcp ? { mcp: codexMcp } : {}),
               ...jobServer,
             })
@@ -371,13 +395,15 @@ export class Sessions {
               secrets: this.options.forbidden ?? [],
               allowBypass: this.config.allowBypass,
               pluginRoots,
+              serverDirs,
               mcpServers: claudeMcp,
               ...jobServer,
             });
       const send = session.send.bind(session);
-      session.send = (text) => send(resolveSkillAlias(text, aliases));
+      session.send = (text) => send(resolve(text));
       this.live.set(start.sessionId, session);
       this.folders.set(start.sessionId, cwd);
+      this.staged.set(start.sessionId, fallback);
       this.toldNotRunning.delete(start.sessionId);
       // One line at the start and one at the end: ids, the harness and the outcome only (no prompt, result or error text).
       const named = `session ${start.sessionId} of run ${start.cwd.runKey} (${start.harness})`;
@@ -391,6 +417,7 @@ export class Sessions {
         .finally(() => {
           this.live.delete(start.sessionId);
           this.folders.delete(start.sessionId);
+          this.staged.delete(start.sessionId);
           this.ending.delete(ended);
           const stopped = this.stopping.delete(start.sessionId);
           console.log(`dispand-runner: ${named} ended: ${stopped ? "stopped" : this.shuttingDown ? "aborted" : outcome}`);

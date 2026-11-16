@@ -530,3 +530,97 @@ test("install, update and uninstall are one span and one count each, with the pl
     remove();
   }
 });
+
+/** Matters published with a field added and one removed, and updated with neither ticked. */
+async function declined(s: Awaited<ReturnType<typeof setUp>>) {
+  const [matters] = await s.ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Matters"));
+  const definition = JSON.parse(s.files[MATTERS]!) as { fields: { name: string; type: string }[] };
+  definition.fields = [...definition.fields.filter((f) => f.name !== "Conclusions"), { name: "Fee", type: "number" }];
+  s.publish({ [MATTERS]: JSON.stringify(definition) });
+  await call(router.plugins.update, { id: s.pluginId, reviewed: (await s.preview()).reviewed }, { context: s.ctx });
+  const shown = () => call(router.plugins.tableChanges, { id: s.pluginId }, { context: s.ctx });
+  return { matters: matters!, definition, shown };
+}
+
+test("a table change declined in an update shows on the plugin's row, and Apply makes it as the update would", async () => {
+  const s = await setUp();
+  try {
+    const { matters, shown } = await declined(s);
+    const row = await shown();
+    // Only what was declined: the tables as set up match their definitions.
+    expect(row).toEqual([
+      {
+        tableId: matters.id,
+        name: "Matters",
+        changes: [
+          { key: "add:Fee", kind: "add", field: "Fee", ticked: true, reviewed: expect.stringMatching(/^[0-9a-f]{64}$/) },
+          { key: "remove:Conclusions", kind: "remove", field: "Conclusions", ticked: false, reviewed: expect.stringMatching(/^[0-9a-f]{64}$/) },
+        ],
+      },
+    ]);
+    const fee = row[0]!.changes[0]!;
+    expect(await call(router.plugins.applyTableChange, { id: s.pluginId, tableId: matters.id, key: fee.key, reviewed: fee.reviewed }, { context: s.ctx })).toEqual({});
+    const fields = await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters.id));
+    expect(fields.find((f) => f.name === "Fee")).toMatchObject({ type: "number", pluginField: "Fee" });
+    // Recorded as the update records a field it adds.
+    const [plugin] = await s.ctx.db.select({ created: schema.plugins.created }).from(schema.plugins).where(eq(schema.plugins.id, s.pluginId));
+    expect(plugin!.created.from).toMatchObject({ "field:Matters.Fee": fields.find((f) => f.name === "Fee")!.id });
+    expect((await shown())[0]!.changes.map((c) => c.key)).toEqual(["remove:Conclusions"]);
+    // The update's screen still has nothing to offer: the definition kept is the plugin's.
+    expect((await s.preview()).tables).toEqual([]);
+  } finally {
+    s.remove();
+  }
+});
+
+test("Apply's token covers the table and the plugin's version: one read before a table edit, or before an update changing that table, is refused", async () => {
+  const s = await setUp();
+  try {
+    const { matters, definition, shown } = await declined(s);
+    const tokenOf = async (key: string) => (await shown())[0]!.changes.find((c) => c.key === key)!.reviewed;
+    const apply = (key: string, reviewed: string) => call(router.plugins.applyTableChange, { id: s.pluginId, tableId: matters.id, key, reviewed }, { context: s.ctx });
+
+    const beforeEdit = await tokenOf("add:Fee");
+    await call(router.fields.create, { tableId: matters.id, name: "Notes", type: "text" }, { context: s.ctx });
+    await expect(apply("add:Fee", beforeEdit)).rejects.toMatchObject({ code: "CONFLICT", data: { key: "plugins.table.changedSince" } });
+
+    const beforeUpdate = await tokenOf("add:Fee");
+    // The new version makes the fee a long text: the same key, another change.
+    s.publish({ [MATTERS]: JSON.stringify({ ...definition, fields: definition.fields.map((f) => (f.name === "Fee" ? { ...f, type: "long-text" } : f)) }) });
+    await call(router.plugins.update, { id: s.pluginId, reviewed: (await s.preview()).reviewed }, { context: s.ctx });
+    await expect(apply("add:Fee", beforeUpdate)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect((await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters.id))).some((f) => f.name === "Fee")).toBe(false);
+
+    await apply("add:Fee", await tokenOf("add:Fee"));
+    expect((await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters.id))).find((f) => f.name === "Fee")).toMatchObject({ type: "long-text" });
+  } finally {
+    s.remove();
+  }
+});
+
+test("an order the owner changed shows as a move Apply restores, unless a plugin field is first: the first field stays first", async () => {
+  const s = await setUp();
+  try {
+    const [matters] = await s.ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Matters"));
+    const shown = () => call(router.plugins.tableChanges, { id: s.pluginId }, { context: s.ctx });
+    const byName = async () => Object.fromEntries((await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters!.id))).map((f) => [f.name, f.id]));
+    const ids = await byName();
+    const order = async (names: string[]) => call(router.fields.reorder, { tableId: matters!.id, fieldIds: names.map((n) => ids[n]!) }, { context: s.ctx });
+
+    await order(["Conclusions", "Name", "Clients"]);
+    const [blocked] = (await shown())[0]!.changes;
+    expect(blocked).toMatchObject({ key: "move", stale: say("plugins.table.order") });
+    await expect(call(router.plugins.applyTableChange, { id: s.pluginId, tableId: matters!.id, key: "move", reviewed: blocked!.reviewed }, { context: s.ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    await order(["Name", "Conclusions", "Clients"]);
+    const [move] = (await shown())[0]!.changes;
+    expect(move).toMatchObject({ key: "move", ticked: true });
+    expect(move!.stale).toBeUndefined();
+    await call(router.plugins.applyTableChange, { id: s.pluginId, tableId: matters!.id, key: "move", reviewed: move!.reviewed }, { context: s.ctx });
+    const now = await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters!.id)).orderBy(schema.fields.position);
+    expect(now.map((f) => f.name)).toEqual(["Name", "Clients", "Conclusions"]);
+    expect(await shown()).toEqual([]);
+  } finally {
+    s.remove();
+  }
+});

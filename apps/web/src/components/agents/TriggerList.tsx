@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
-import { type api, orpc } from "../../lib/api.ts";
+import { api, orpc } from "../../lib/api.ts";
 import { Empty, List } from "../settings/parts.tsx";
 import { useAt } from "../workflow/panels/ScheduleTriggerPanel.tsx";
-import { TriggerSheet } from "./TriggerSheet.tsx";
+import { localTimezone, TriggerSheet } from "./TriggerSheet.tsx";
 
 export type Trigger = Awaited<ReturnType<typeof api.triggers.list>>[number];
 
@@ -32,6 +33,14 @@ export function TriggerList({ agentId }: { agentId: string }) {
   const triggers = useQuery(orpc.triggers.list.queryOptions({ input: { agentId } }));
   const home = useQuery(orpc.pages.home.queryOptions());
   const addToHome = useMutation(orpc.widgets.create.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.pages.key() }) }));
+  const navigate = useNavigate();
+  const start = useMutation({
+    mutationFn: (triggerId: string) => api.jobs.start({ triggerId, timezone: localTimezone() }),
+    onSuccess: ({ runId }) => {
+      void queryClient.invalidateQueries({ queryKey: orpc.triggers.key() });
+      void navigate({ to: "/settings/workflows/runs/$runId", params: { runId } });
+    },
+  });
   // undefined: closed; null: a new trigger.
   const [open, setOpen] = useState<Trigger | null | undefined>(undefined);
   const onHome = (id: string) => home.data?.widgets.some((w) => w.type === "trigger-form" && w.triggerId === id) ?? false;
@@ -71,6 +80,11 @@ export function TriggerList({ agentId }: { agentId: string }) {
                       </span>
                     )}
                   </button>
+                  {tr.config.kind === "manual" && tr.config.placement === "button" && (
+                    <Button variant="outline" size="sm" aria-label={t("triggers.startLabel", { name: tr.name })} disabled={!tr.enabled || start.isPending} onClick={() => start.mutate(tr.id)}>
+                      {t("triggers.start")}
+                    </Button>
+                  )}
                   {tr.config.kind === "manual" &&
                     (onHome(tr.id) ? (
                       <span className="text-[13px] text-muted">{t("triggers.onHome")}</span>
@@ -89,9 +103,9 @@ export function TriggerList({ agentId }: { agentId: string }) {
               );
             })}
           </List>
-          {addToHome.error && (
+          {(addToHome.error ?? start.error) && (
             <p role="alert" className="mt-3 text-[13px] text-danger">
-              {addToHome.error.message}
+              {(addToHome.error ?? start.error)!.message}
             </p>
           )}
         </>

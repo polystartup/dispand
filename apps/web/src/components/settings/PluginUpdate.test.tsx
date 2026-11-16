@@ -150,3 +150,16 @@ test("a skill an agent gains shows what it tells it, file by file", async () => 
   await userEvent.click(screen.getByText(/What the skill legal tells it \(1 file\)/));
   expect(screen.getByText("Cite the court.")).toBeTruthy();
 });
+
+test("a table can be handed to Stem: its boxes are then left to it, unticked and disabled", async () => {
+  const { TableChanges } = await import("./PluginUpdate.tsx");
+  const tables = [{ tableId: "tbl_1", name: "Matters", changes: [{ key: "add:Fee", kind: "add" as const, field: "Fee", ticked: true }] }];
+  const onStem = vi.fn();
+  const { rerender } = render(<TableChanges tables={tables} ticked={{ tbl_1: ["add:Fee"] }} busy={false} onTick={() => {}} stem={[]} onStem={onStem} />);
+  await userEvent.click(screen.getByRole("checkbox", { name: "Let Stem deal with it" }));
+  expect(onStem).toHaveBeenCalledWith("tbl_1", true);
+  rerender(<TableChanges tables={tables} ticked={{ tbl_1: ["add:Fee"] }} busy={false} onTick={() => {}} stem={["table:tbl_1"]} onStem={onStem} />);
+  const fee = screen.getByRole("checkbox", { name: /Add the field Fee/ }) as HTMLInputElement;
+  expect([fee.checked, fee.disabled]).toEqual([false, true]);
+  expect(screen.getByText(/Stem picks which of these changes apply after the update/)).toBeTruthy();
+});

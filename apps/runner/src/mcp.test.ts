@@ -304,3 +304,13 @@ test("raw runner action names are literal namespaced grants, never CLI rules", (
   narrowUnasked(claude.names, claude.servers, [{ name: "mail", unasked: [] }], "claude-code");
   expect([...claude.names]).toEqual([]);
 });
+
+test("a plugin's server starts behind the proxy from its launch; its grants and denials count as a runner tool's; poll paths resolve from its folder", () => {
+  const ref = { name: "notes", type: "plugin" as const, tool: "tool_1", plugin: "notes", digest: `sha256:${"0".repeat(64)}`, entry: { command: "./server" }, unasked: ["search"], denied: ["write"] };
+  const launch = { command: "/state/plugins/notes/0/server", args: [], env: { PLUGIN_ROOT: "/state/plugins/notes/0", PLUGIN_DATA: "/state/plugin-data/notes" }, cwd: "/state/plugins/notes/0" };
+  expect(mcpConfigFor([ref], undefined, { entry, launches: new Map([["notes", launch]]) })).toEqual({ notes: { type: "stdio", ...entry, env: { DISPAND_PROXY: JSON.stringify(launch) } } });
+  expect(() => mcpConfigFor([ref], undefined, { entry })).toThrow(ToolRefused);
+  expect(unaskedTools([ref], undefined, "claude-code").names).toEqual(new Set(["mcp__notes__search"]));
+  expect(deniedTools([ref], "claude-code").blocks("mcp__notes__write")).toBe(true);
+  expect(runnerArgumentsAllowed({ path: "../../config.json" }, ["/state/config.json"], "/state/plugins/notes")).toBe(false);
+});

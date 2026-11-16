@@ -5,7 +5,11 @@ import { strictPermissionsOf } from "../agents/tool-ask.ts";
 import { toolHolder, type Holder } from "../agents/usage.ts";
 import type { Db, Tx } from "../db/client.ts";
 import { McpServerName } from "@dispand/runner-protocol";
-import { agentTools, plugins, runners, tools as toolsTable } from "../db/schema.ts";
+import { posix } from "node:path";
+import { PluginServer } from "@dispand/runner-protocol";
+import { agentTools, pluginFiles, plugins, runners, tools as toolsTable } from "../db/schema.ts";
+import type { PluginComponents } from "../plugins/read-plugin.ts";
+import { runnerTarget } from "../plugins/runner-servers.ts";
 import { isLoopback } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
 import { logError } from "../log.ts";
@@ -69,12 +73,18 @@ function bad(key: MessageKey, values?: MessageValues): never {
 }
 
 type PluginRef = { id: string; name: string };
+/**
+ * A plugin's stdio server on a runner, as its page shows it: the plugin's name, the launch
+ * entry and the digest the runner must allow, and whether the command is one of the plugin's
+ * files (else the runner's record covers the command line, not what it runs).
+ */
+type PluginServerView = { plugin: string; entry: NonNullable<PluginComponents["mcpServers"][number]["entry"]>; digest: string; commandIsFile: boolean };
 
 /**
  * The owner's view: header names only, never their values (sealed or not). A secret URL shows
  * as its template, with `urlSet`.
  */
-function toView(row: Row, plugin: PluginRef | null) {
+function toView(row: Row, plugin: PluginRef | null, pluginServer: PluginServerView | null = null) {
   return {
     id: row.id,
     name: row.name,
@@ -99,6 +109,7 @@ function toView(row: Row, plugin: PluginRef | null) {
     runnerId: row.runnerId,
     runnerTool: row.runnerTool,
     plugin,
+    pluginServer,
     createdAt: row.createdAt,
   };
 }
@@ -107,11 +118,21 @@ export type ToolView = ReturnType<typeof toView>;
 /** The views of `rows`, with the plugin each came from. */
 async function views(db: Db, rows: Row[]): Promise<ToolView[]> {
   const ids = [...new Set(rows.flatMap((r) => (r.pluginId ? [r.pluginId] : [])))];
-  const found = ids.length ? await db.select({ id: plugins.id, name: plugins.name }).from(plugins).where(inArray(plugins.id, ids)) : [];
-  return rows.map((r) => toView(r, found.find((p) => p.id === r.pluginId) ?? null));
+  const found = ids.length ? await db.select({ id: plugins.id, name: plugins.name, digest: plugins.digest, components: plugins.components }).from(plugins).where(inArray(plugins.id, ids)) : [];
+  return Promise.all(
+    rows.map(async (r) => {
+      const plugin = found.find((p) => p.id === r.pluginId);
+      const entry = r.kind === "runner" && r.runnerTool === null ? plugin?.components.mcpServers.find((s) => s.type === "stdio" && s.name === r.pluginComponent)?.entry : undefined;
+      const file = entry?.command.startsWith("./") ? await db.select({ path: pluginFiles.path }).from(pluginFiles).where(and(eq(pluginFiles.pluginId, plugin!.id), eq(pluginFiles.path, posix.normalize(entry.command)))) : [];
+      // Only what its runner would be sent (`PluginServer`): its name and digest go into a command the owner copies.
+      const server = plugin && PluginServer.safeParse({ tool: r.id, plugin: plugin.name, digest: plugin.digest, entry }).success ? { plugin: plugin.name, entry: entry!, digest: plugin.digest!, commandIsFile: file.length > 0 } : null;
+      return toView(r, plugin ? { id: plugin.id, name: plugin.name } : null, server);
+    }),
+  );
 }
 
 const view = async (db: Db, row: Row) => (await views(db, [row]))[0]!;
+export { view as toolView };
 
 /** Lower-cased names; two spellings of one name are refused. */
 function normalize(headers: Record<string, string>): Record<string, string> {
@@ -143,7 +164,7 @@ async function find(db: Db, ownerId: string, id: string): Promise<Row> {
   return row;
 }
 
-function nameTaken(error: unknown, name: string): never {
+export function nameTaken(error: unknown, name: string): never {
   const e = error as { code?: string; cause?: { code?: string } };
   if (e.code === "23505" || e.cause?.code === "23505") throw new ORPCError("CONFLICT", message("tools.exists", { name }));
   throw error;
@@ -210,10 +231,11 @@ export async function refreshActions(db: Db, secrets: SecretBox, connector: Tool
  */
 export async function refreshRunnerActions(db: Db, hub: Pick<RunnerHub, "request">, row: Row): Promise<Row> {
   let values: Partial<Row>;
-  if (row.runnerId === null || row.runnerTool === null) values = { actionsError: "Not on a runner yet" };
+  const target = await runnerTarget(db, row);
+  if (typeof target === "object" && "error" in target) values = { actionsError: target.error };
   else {
     try {
-      const reply = await hub.request(row.runnerId, { type: "tool.discover", requestId: newId("req"), tool: row.runnerTool });
+      const reply = await hub.request(row.runnerId!, { type: "tool.discover", requestId: newId("req"), tool: target });
       values = reply.actions ? { actions: reply.actions, actionsError: null, refreshedAt: new Date() } : { actionsError: reply.error ?? "The runner listed no actions" };
     } catch (error) {
       if (!(error instanceof RunnerRequestFailed)) throw error;
@@ -238,13 +260,13 @@ function refreshAny(context: Pick<InitialContext, "db" | "secrets" | "tools" | "
  * Checks that `runnerTool` is an MCP server the owner's runner `runnerId` reported in its last
  * `hello`: a runner tool is only ever one the machine's own config names.
  */
-async function requireRunnerTool(db: Db | Tx, ownerId: string, runnerId: string, runnerTool: string) {
+async function requireRunnerTool(db: Db | Tx, ownerId: string, runnerId: string, runnerTool: string | null) {
   const [runner] = await db
     .select({ tools: runners.tools })
     .from(runners)
     .where(and(eq(runners.id, runnerId), eq(runners.ownerId, ownerId), isNull(runners.revokedAt)));
   if (!runner) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
-  if (!runner.tools.includes(runnerTool)) {
+  if (runnerTool !== null && !runner.tools.includes(runnerTool)) {
     bad("tools.runnerNoServer", { runnerTool });
   }
 }
@@ -537,7 +559,8 @@ async function updateRunnerTool(context: Pick<InitialContext, "db" | "hub" | "en
   const runnerTool = input.runnerTool ?? current.runnerTool;
   const moved = runnerId !== current.runnerId || runnerTool !== current.runnerTool;
   if (moved) {
-    if (runnerId === null || runnerTool === null) bad("tools.pickRunner");
+    // A plugin's stdio server (no `runnerTool`) runs on any of the owner's runners that allows it.
+    if (runnerId === null || (runnerTool === null && current.pluginComponent === null)) bad("tools.pickRunner");
     await requireRunnerTool(context.db, context.ownerId, runnerId, runnerTool);
     if (runnerId !== current.runnerId) {
       const holder = await toolHolder(context.db, context.ownerId, current.id);

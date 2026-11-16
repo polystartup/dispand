@@ -5,9 +5,10 @@ import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { say } from "../messages/index.ts";
 import { afterEach, expect, onTestFinished, test } from "vitest";
-import { MAX_FILE_BYTES, sweepAttachments } from "../data/files.ts";
+import { MAX_FILE_BYTES, MAX_JOB_BYTES, sweepAttachments } from "../data/files.ts";
 import { writeRow } from "../data/rows.ts";
 import { attachments, runs } from "../db/schema.ts";
+import { newId } from "../ids.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp, type FakeMcp } from "../tools/test-server.ts";
@@ -220,10 +221,12 @@ test("two results at once that each fit the Job's total alone, but not together:
 test("a Job's bytes count too: a result that would pass 200 MiB is refused whole", async () => {
   const s = await setup();
   const { runId, send } = await s.job();
-  const big = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `big${i}`, bytes: Buffer.alloc(MAX_FILE_BYTES) }));
-  for (let i = 0; i < 2; i++) await textOf(await send(big(9)));
-  expect(await textOf(await send(big(3)))).toBe("None of the files in this result were kept: with them, this Job's files would pass 200 MiB, the most a Job keeps.");
-  expect(await ownedBy(s, runId)).toHaveLength(18);
+  // The Job already keeps 199 MiB (a row's size counts, its bytes needn't fill the disk).
+  const MIB = 1024 * 1024;
+  await s.context.db.insert(attachments).values({ id: newId("att"), ownerId: s.context.ownerId, jobId: runId, name: "earlier", mime: "application/octet-stream", size: MAX_JOB_BYTES - MIB, image: false });
+  expect(await textOf(await send(files(1, MIB / 2)))).toContain("kept for this Job");
+  expect(await textOf(await send(files(2, MIB / 2)))).toBe("None of the files in this result were kept: with them, this Job's files would pass 200 MiB, the most a Job keeps.");
+  expect(await ownedBy(s, runId)).toHaveLength(2);
 });
 
 test("many Jobs each under their total are refused once the install's total is reached", async () => {

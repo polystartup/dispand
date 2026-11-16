@@ -1,5 +1,6 @@
 import { isMemoryPath, MAX_MEMORY_PATH_LENGTH } from "@dispand/runner-protocol";
 import { z } from "zod";
+import { english, type MessageKey } from "../messages/index.ts";
 
 // Memory (design 6.5): the workspace, each Data table and each agent keep entries, one fact
 // each, with a name, a one-line description and a type; the index is made from them. Pure: what
@@ -36,21 +37,26 @@ export type MemoryScope = { scope: "workspace" } | { scope: "table"; tableId: st
 /** Who wrote a revision: a person, or a Job (its agent and run, and whether it had `configure`). */
 export type MemoryAuthor = { type: "user" } | { type: "agent"; agentId: string; runId: string; configure: boolean };
 
-export const PATH_RULE =
-  "The path must be a relative path ending in .md, at most 120 characters, without .., . or empty parts, \\ or a .claude or .mcp.json folder, and not MEMORY.md, CLAUDE.md, AGENTS.md or AGENTS.override.md.";
+export const PATH_RULE = english("memory.entry.pathRule");
+
+/** The values of the entry's refusals (`memory.entry.*`), whichever field they are about. */
+export const ENTRY_VALUES = { nameMax: MAX_MEMORY_NAME, descriptionMax: MAX_MEMORY_DESCRIPTION, bodyMax: MAX_MEMORY_BODY, types: MEMORY_TYPES.join(", ") };
+
+/** A refusal's message key as the schema's message: the store says it in English to agents and in a message to a person. */
+const key = (k: MessageKey): string => k;
 
 /** An entry as written; every writer checks it with this schema, so a refusal reads the same whoever wrote. */
 export const MemoryEntryInput = z.object({
-  path: z.string().refine(isMemoryPath, PATH_RULE),
-  name: z.string().trim().min(1, "The name can't be empty.").max(MAX_MEMORY_NAME, `The name is at most ${MAX_MEMORY_NAME} characters.`),
+  path: z.string().refine(isMemoryPath, key("memory.entry.pathRule")),
+  name: z.string().trim().min(1, key("memory.entry.nameEmpty")).max(MAX_MEMORY_NAME, key("memory.entry.nameTooLong")),
   description: z
     .string()
     .trim()
-    .min(1, "The description can't be empty.")
-    .max(MAX_MEMORY_DESCRIPTION, `The description is at most ${MAX_MEMORY_DESCRIPTION} characters.`)
-    .refine((d) => !/[\r\n]/.test(d), "The description is one line."),
-  type: z.enum(MEMORY_TYPES, `The type is one of ${MEMORY_TYPES.join(", ")}.`),
-  body: z.string().max(MAX_MEMORY_BODY, `The body is at most ${MAX_MEMORY_BODY} characters.`),
+    .min(1, key("memory.entry.descriptionEmpty"))
+    .max(MAX_MEMORY_DESCRIPTION, key("memory.entry.descriptionTooLong"))
+    .refine((d) => !/[\r\n]/.test(d), key("memory.entry.descriptionOneLine")),
+  type: z.enum(MEMORY_TYPES, key("memory.entry.typeOneOf")),
+  body: z.string().max(MAX_MEMORY_BODY, key("memory.entry.bodyTooLong")),
 });
 export type MemoryEntryFields = z.infer<typeof MemoryEntryInput>;
 

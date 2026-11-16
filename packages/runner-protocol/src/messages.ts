@@ -19,7 +19,7 @@ export const HarnessCommands = z.array(z.object({
 })).max(1000);
 export type HarnessCommand = z.infer<typeof HarnessCommands>[number];
 
-export const PROTOCOL_VERSION = 28;
+export const PROTOCOL_VERSION = 30;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -50,7 +50,47 @@ export const McpServerName = id()
  */
 const SessionServerName = McpServerName.regex(/^[a-zA-Z0-9-]+(?:_[a-zA-Z0-9-]+)*$/, "a server name is words joined by single underscores");
 
-/** An MCP server a session gets: by URL (with its headers), or one of the runner's own (`mcpServers` in its config). */
+/**
+ * A plugin's stdio server on a runner (a runner tool added from a plugin): the tool's id, which
+ * the runner fetches the plugin's files by (`GET /runner/plugins/<tool>`), the plugin's name, the
+ * digest Dispand computed over those files and the launch entry of its `mcp.json`. The runner
+ * starts it only when its own record (`allowedPlugins`) holds that name, the digest it computes
+ * itself over the files it gets and that entry: nothing here is taken on trust.
+ */
+export const PluginServer = z.object({
+  tool: id().regex(/^[A-Za-z0-9_-]{1,64}$/),
+  // The standard's name rule (`allowedPlugins` holds no other): lowercase words, so a command a person copies with it never needs quoting.
+  plugin: string(64).regex(/^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/),
+  digest: string(71).regex(/^sha256:[0-9a-f]{64}$/),
+  entry: z.strictObject({
+    command: string(1024).min(1),
+    args: z.array(string(4096)).max(100).optional(),
+    env: record(string(4096), 50).optional(),
+    cwd: string(1024).optional(),
+  }),
+});
+export type PluginServer = z.infer<typeof PluginServer>;
+
+/** The grants of a session's runner tool, whatever starts it. */
+const ToolGrants = {
+  /**
+   * Actions of this server that run without a question, by their name
+   * there. The runner makes the CLI's names itself (`mcp__<name>__<action>`), so nothing here
+   * can name a command, a file tool or a server the runner didn't start from its own config.
+   * Jobs may use agent or run grants; workflow sessions use explicit run grants only.
+   */
+  unasked: z
+    .array(id())
+    .max(500)
+    .optional(),
+  /** Disabled actions, by their full server-local names. Denials only restrict access. */
+  denied: z.array(id()).max(500).optional(),
+};
+
+/**
+ * An MCP server a session gets: by URL (with its headers), one of the runner's own (`mcpServers`
+ * in its config), or a plugin's stdio server the runner allowed (`PluginServer`).
+ */
 export const McpServerRef = z.discriminatedUnion("type", [
   z.object({
     name: SessionServerName,
@@ -63,19 +103,9 @@ export const McpServerRef = z.discriminatedUnion("type", [
     name: SessionServerName,
     type: z.literal("runner"),
     tool: McpServerName,
-    /**
-     * Actions of this server that run without a question, by their name
-     * there. The runner makes the CLI's names itself (`mcp__<name>__<action>`), so nothing here
-     * can name a command, a file tool or a server the runner didn't start from its own config.
-     * Jobs may use agent or run grants; workflow sessions use explicit run grants only.
-     */
-    unasked: z
-      .array(id())
-      .max(500)
-      .optional(),
-    /** Disabled actions, by their full server-local names. Denials only restrict access. */
-    denied: z.array(id()).max(500).optional(),
+    ...ToolGrants,
   }),
+  z.object({ name: SessionServerName, type: z.literal("plugin"), ...PluginServer.shape, ...ToolGrants }),
 ]);
 export type McpServerRef = z.infer<typeof McpServerRef>;
 
@@ -165,7 +195,7 @@ const StartFields = {
   /**
    * A Job limited to some of Dispand's tools (a Stem Job): the session gets no native tool of the
    * CLI, no settings, skill, memory or MCP server but the Job's own (`job`), whatever else the
-   * start holds. The runner enforces it; Claude Code only.
+   * start holds. The runner enforces it, on Claude Code and on Codex.
    */
   restricted: z.literal(true).optional(),
 };
@@ -213,13 +243,13 @@ export const ServerToRunner = z.discriminatedUnion("type", [
   /** Ends the session now (its run was stopped): the CLI is stopped, and nothing is said back for a session that isn't running. */
   z.object({ type: z.literal("session.stop"), sessionId: id() }),
   z.object({ type: z.literal("ack"), seq: z.int().min(0).max(MAX_SEQ) }),
-  /** Lists a runner tool's actions (not numbered, not acked: a lost reply times out on the server). */
-  z.object({ type: z.literal("tool.discover"), requestId: id().min(1), tool: McpServerName }),
+  /** Lists a runner tool's actions, its own server's (by name) or a plugin's (not numbered, not acked: a lost reply times out on the server). */
+  z.object({ type: z.literal("tool.discover"), requestId: id().min(1), tool: z.union([McpServerName, PluginServer]) }),
   /**
    * Calls one action of a runner tool, for a poll, outside any session: the runner makes it only
    * for an action its own server marks read-only, or its config lists as pollable.
    */
-  z.object({ type: z.literal("tool.call"), requestId: id().min(1), tool: McpServerName, action: id(), arguments: jsonObject(64 * 1024) }),
+  z.object({ type: z.literal("tool.call"), requestId: id().min(1), tool: z.union([McpServerName, PluginServer]), action: id(), arguments: jsonObject(64 * 1024) }),
 ]);
 export type ServerToRunner = z.infer<typeof ServerToRunner>;
 

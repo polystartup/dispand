@@ -177,8 +177,9 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
         defaults = [...(entry?.unasked ?? [])];
         if (entry?.kind === "http") target = toolPermissionTarget({ kind: "http", url: entry.url, transport: entry.transport });
       } else if (source?.tool === "tools_add" || source?.tool === "plugins_add_server") {
-        const fields = source.input as { url: string; transport?: string };
-        target = toolPermissionTarget({ kind: "http", url: fields.url, transport: fields.transport ?? "streamable-http" });
+        const fields = source.input as { url?: string; transport?: string; runnerId?: string };
+        // A plugin's stdio server becomes a runner tool on the runner picked, with no server name of the runner's.
+        target = fields.runnerId !== undefined ? toolPermissionTarget({ kind: "runner", runnerId: fields.runnerId }) : toolPermissionTarget({ kind: "http", url: fields.url, transport: fields.transport ?? "streamable-http" });
       }
     }
     return { toolId, unasked: (given.find((p) => key(p.toolId) === key(toolId))?.unasked ?? kept.get(key(toolId))?.unasked ?? defaults).filter((name) => !disabledFor(toolId).includes(name)), target, ...(strictTarget ? { strictTarget } : {}) };
@@ -199,6 +200,7 @@ async function agentChangeOf(db: Db, ownerId: string, tool: string, input: unkno
     config?: TriggerConfig;
   };
   if (tool === "agents_update") return [id, { kind: "update", bundles, dataTables, skillPackageIds }];
+  if (tool === "agents_delete") return [id, { kind: "delete" }];
   if (tool !== "triggers_update" && tool !== "triggers_delete") return null;
   const [trigger] = await db
     .select({ agentId: triggers.agentId })
@@ -443,6 +445,7 @@ export type ProposalName = { kind: "agent" | "harness" | "tool" | "skill" | "tab
 const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
   agents_create: { harnessId: "harness", toolIds: "tool", skillPackageIds: "skill", dataTables: "table" },
   agents_update: { id: "agent", harnessId: "harness", toolIds: "tool", skillPackageIds: "skill", dataTables: "table" },
+  agents_delete: { id: "agent" },
   agents_set_tool_permission: { agentId: "agent", toolId: "tool" },
   harnesses_set_limit: { id: "harness" },
   tables_rename: { id: "table" },
@@ -452,6 +455,7 @@ const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
   fields_update: { id: "field" },
   fields_reorder: { tableId: "table", fieldIds: "field" },
   fields_delete: { id: "field" },
+  fields_retype: { id: "field" },
   triggers_create: { agentId: "agent" },
   triggers_update: { id: "trigger" },
   triggers_delete: { id: "trigger" },
@@ -461,6 +465,9 @@ const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
   memory_add: { tableId: "table" },
   memory_update: { tableId: "table" },
 };
+
+/** The fields of an agent an update shows before and after. */
+const BEFORE_KEYS = ["name", "description", "harnessId", "systemPrompt", "model", "bundles", "dataTables", "selfLearning"] as const;
 
 /** What each creating tool creates (its output's `id`): what `{ "$item": n }` may name, and how a reference reads: "the table item 2 creates". */
 export const CREATES: Record<string, (typeof CREATED_KINDS)[number]> = {
@@ -490,7 +497,21 @@ export async function proposalView(db: Db, ownerId: string, proposalId: string) 
 /** Items as their owner reads them, as in a proposal (`proposalView`): a plugin's setup shows its own so. */
 export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) {
   const wanted = new Map<ProposalName["kind"], Set<string>>();
+  // An agent's change shown against what it is now: the fields the item gives, as they stand.
+  const updated = strings(items.filter((i) => i.tool === "agents_update").map((i) => (i.input as { id?: unknown } | null)?.id));
+  const current = new Map((updated.length ? await db.select().from(agents).where(and(inArray(agents.id, updated), eq(agents.ownerId, ownerId))) : []).map((a) => [a.id, a]));
+  const beforeOf = (item: ProposalItem) => {
+    const input = (item.input ?? {}) as Record<string, unknown>;
+    const row = item.tool === "agents_update" && typeof input.id === "string" ? current.get(input.id) : undefined;
+    if (!row) return undefined;
+    return Object.fromEntries(BEFORE_KEYS.filter((k) => k in input).map((k) => [k, row[k]]));
+  };
   for (const item of items) {
+    const before = beforeOf(item);
+    if (before) {
+      if (typeof before.harnessId === "string") (wanted.get("harness") ?? wanted.set("harness", new Set()).get("harness")!).add(before.harnessId);
+      if (Array.isArray(before.dataTables)) for (const id of before.dataTables as string[]) (wanted.get("table") ?? wanted.set("table", new Set()).get("table")!).add(id);
+    }
     for (const [key, kind] of Object.entries(REFS[item.tool] ?? {})) {
       const ids = strings(((item.input ?? {}) as Record<string, unknown>)[key]).filter((id) => !(key === "dataTables" && id === "all"));
       if (!wanted.has(kind)) wanted.set(kind, new Set());
@@ -594,7 +615,10 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
     (r) => ({ name: r.name, detail: say("agent.ofAgent", { agent: r.agent }) }),
   );
   return {
-    items: items.map(({ tool, input, usedAt, createdId, failed, toolPermissions, shown }) => ({
+    items: items.map((item) => {
+      const { tool, input, usedAt, createdId, failed, toolPermissions, shown } = item;
+      const before = beforeOf(item);
+      return {
       tool,
       input,
       used: usedAt !== undefined,
@@ -604,7 +628,9 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
       createdId: createdId ?? null,
       ...(toolPermissions ? { tools: toolPermissions.map((p) => ({ toolId: p.toolId, runs: p.unasked })) } : {}),
       ...(shown !== undefined ? { shown } : {}),
-    })),
+      ...(before ? { before } : {}),
+      };
+    }),
     names,
   };
 }

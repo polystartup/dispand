@@ -7,6 +7,7 @@ import { agents, questions as questionsTable, runs, stepRuns, triggers, workflow
 import { answerText, EngineError, passOn, questionView } from "../engine/engine.ts";
 import { jobAgentNameSql } from "../jobs/agent-name.ts";
 import { proposalView } from "../platform/proposals.ts";
+import { approvalView, PLUGIN_UPDATE } from "../plugins/resolve.ts";
 import { message } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
 import { nodesOf, type WorkflowDef } from "../workflows/model.ts";
@@ -101,7 +102,9 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]) })).handl
   const names = (def: WorkflowDef | undefined) => new Map((def ? nodesOf(def) : []).map((n) => [n.id, n.name]));
   const stepName = async (r: (typeof rows)[number]) => {
     // A checkpoint's Approval is about its root cause, not a step.
-    if (r.q.rootId || !r.nodeId) return "Checkpoint";
+    if (r.q.rootId) return "Checkpoint";
+    // A plugin update's Approval is its Stem Job's, of no step.
+    if (!r.nodeId) return r.agentName ?? undefined;
     if (r.def || !r.workflowId) return names(r.def ?? undefined).get(r.nodeId);
     const key = `${r.workflowId}:${r.version}`;
     if (!versions.has(key)) {
@@ -126,9 +129,11 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]) })).handl
       answeredAt: r.q.answeredAt,
       answeredBy: r.q.answeredBy,
       run: { id: r.q.runId },
-      step: { name: (await stepName(r)) ?? r.nodeId! },
+      step: { name: (await stepName(r)) ?? r.nodeId ?? "" },
       // What the owner approves when the Approval is for a proposal: its items, from the server's row.
       proposal: r.q.proposalId ? await proposalView(context.db, context.ownerId, r.q.proposalId) : null,
+      // A plugin update's Approval: the plugin, and each of Stem's values still waiting, answered on its own.
+      update: r.q.payload.kind === "permission" && r.q.payload.toolName === PLUGIN_UPDATE ? await approvalView(context.db, context.ownerId, r.q) : null,
     });
   }
   return out;

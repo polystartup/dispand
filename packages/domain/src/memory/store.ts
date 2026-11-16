@@ -4,7 +4,8 @@ import { agents, memories, memoryRevisions, tables } from "../db/schema.ts";
 import { recordAudit } from "../audit/record.ts";
 import { newId } from "../ids.ts";
 import { meter, tracer } from "../telemetry/index.ts";
-import { MAX_MEMORY_ENTRIES, MEMORY_TYPE_LABELS, MEMORY_TYPES, type MemoryAuthor, MemoryEntryInput, type MemoryEntryFields, type MemoryScope } from "./model.ts";
+import { MAX_MEMORY_ENTRIES, MEMORY_TYPE_LABELS, MEMORY_TYPES, type MemoryAuthor, ENTRY_VALUES, MemoryEntryInput, type MemoryEntryFields, type MemoryScope } from "./model.ts";
+import { english, type Message, type MessageKey, type MessageValues, say } from "../messages/index.ts";
 
 // The one way memory is written (design 6.5): the owner's procedures and the agents' tools both
 // go through these functions. Writes to one scope are serialized (a transaction lock per scope),
@@ -14,8 +15,9 @@ import { MAX_MEMORY_ENTRIES, MEMORY_TYPE_LABELS, MEMORY_TYPES, type MemoryAuthor
 export type MemoryEntry = typeof memories.$inferSelect;
 export type MemoryRevision = typeof memoryRevisions.$inferSelect;
 
-/** Why a write was refused, in words a person or an agent can act on; `NOT_FOUND` when its target isn't the owner's. */
-export type Refusal = { error: string };
+/** Why a write was refused, in words a person or an agent can act on (`error`, English) and as a message for a person (`say`); `NOT_FOUND` when its target isn't the owner's. */
+export type Refusal = { error: string; say?: Message };
+const refuse = (key: MessageKey, values?: MessageValues): Refusal => ({ error: english(key, values), say: say(key, values) });
 export const NOT_FOUND = "Not found";
 
 const traces = tracer("memory");
@@ -94,7 +96,7 @@ export async function scopeExists(db: Db | Tx, ownerId: string, where: MemorySco
 /** Refuses a write that would make one more entry live in a full scope. */
 async function full(tx: Tx, ownerId: string, where: MemoryScope): Promise<Refusal | null> {
   const [live] = await tx.select({ n: count() }).from(memories).where(and(inScope(ownerId, where), isNull(memories.removedAt)));
-  return live && live.n >= MAX_MEMORY_ENTRIES ? { error: `This memory holds ${MAX_MEMORY_ENTRIES} entries already: remove one first.` } : null;
+  return live && live.n >= MAX_MEMORY_ENTRIES ? refuse("memory.full", { max: MAX_MEMORY_ENTRIES }) : null;
 }
 
 /**
@@ -141,7 +143,7 @@ function fieldsOf(r: Pick<MemoryEntry, "path" | "name" | "description" | "type" 
 export function writeMemory(db: Db | Tx, ownerId: string, where: MemoryScope, entry: unknown, author: MemoryAuthor, mode: "add" | "update" | "upsert"): Promise<{ id: string } | Refusal> {
   return recorded(where.scope, mode === "update" ? "update" : "add", async (setOp) => {
     const parsed = MemoryEntryInput.safeParse(entry);
-    if (!parsed.success) return { error: parsed.error.issues[0]!.message };
+    if (!parsed.success) return refuse(parsed.error.issues[0]!.message as MessageKey, ENTRY_VALUES);
     const fields = parsed.data;
     return db.transaction(async (tx) => {
       await lockScope(tx, ownerId, where);
@@ -149,8 +151,8 @@ export function writeMemory(db: Db | Tx, ownerId: string, where: MemoryScope, en
       const [row] = await tx.select().from(memories).where(and(inScope(ownerId, where), eq(memories.path, fields.path)));
       const live = row && !row.removedAt;
       setOp(live ? "update" : "add");
-      if (live && mode === "add") return { error: `An entry ${fields.path} exists already.` };
-      if (!live && mode === "update") return { error: `There is no entry ${fields.path}.` };
+      if (live && mode === "add") return refuse("memory.exists", { path: fields.path });
+      if (!live && mode === "update") return refuse("memory.noEntry", { path: fields.path });
       if (!live) {
         const refused = await full(tx, ownerId, where);
         if (refused) return refused;
@@ -190,7 +192,7 @@ async function onEntry(db: Db | Tx, ownerId: string, id: string, op: Op, write: 
 
 export function removeMemoryById(db: Db | Tx, ownerId: string, id: string, author: MemoryAuthor) {
   return onEntry(db, ownerId, id, "remove", async (tx, row) => {
-    if (row.removedAt) return { error: "This entry is removed already." };
+    if (row.removedAt) return refuse("memory.removed");
     return commit(tx, ownerId, scopeOf(row), row, fieldsOf(row), author, true, "remove");
   });
 }
@@ -198,7 +200,7 @@ export function removeMemoryById(db: Db | Tx, ownerId: string, id: string, autho
 /** A person accepts an agent's entry as it is now, so it may instruct agents that configure the workspace. */
 export function acceptMemory(db: Db | Tx, ownerId: string, id: string) {
   return onEntry(db, ownerId, id, "accept", async (tx, row) => {
-    if (row.removedAt || row.author.type !== "agent") return { error: "Only an agent's entry, not removed, can be accepted." };
+    if (row.removedAt || row.author.type !== "agent") return refuse("memory.acceptOnly");
     await tx.update(memories).set({ acceptedAt: new Date() }).where(eq(memories.id, row.id));
     await auditWrite(tx, ownerId, scopeOf(row), row.id, "accept", USER);
     return { id: row.id };
@@ -229,7 +231,7 @@ export function revertMemory(db: Db | Tx, ownerId: string, id: string) {
 /** Brings a removed entry back as it last was, its author included. */
 export function restoreMemory(db: Db | Tx, ownerId: string, id: string) {
   return onEntry(db, ownerId, id, "restore", async (tx, row) => {
-    if (!row.removedAt) return { error: "This entry isn't removed." };
+    if (!row.removedAt) return refuse("memory.notRemoved");
     const where = scopeOf(row);
     const refused = await full(tx, ownerId, where);
     if (refused) return refused;

@@ -108,4 +108,8 @@ test("Codex older than the minimum is refused", () => {
   expect(codexRequired(undefined)).toMatch(/found none/);
   expect(codexRequired("0.166.0")).toBeUndefined();
   expect(codexRequired("0.200.0")).toBeUndefined();
+  // A restricted session needs the Codex its switches were checked on, or a newer one.
+  expect(codexRequired("0.166.9", true)).toBe("A restricted session needs Codex ≥ 0.167.0 (found 0.166.9): update codex on this machine");
+  expect(codexRequired("0.167.0", true)).toBeUndefined();
+  expect(codexRequired("0.168.0", true)).toBeUndefined();
 });

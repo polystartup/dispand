@@ -2,6 +2,10 @@ import { defineConfig } from "@playwright/test";
 
 /** Where the app sends its telemetry during the tests: `e2e/collector.mjs`, which zzz-telemetry.spec.ts reads. */
 const COLLECTOR = "http://127.0.0.1:3199";
+// Never reuse a server already on a port: the specs need fresh databases (custom-setup and
+// assistant a first launch), and a server another checkout left there runs other code. A taken
+// port fails the run at once, with Playwright saying which port is already used.
+const reuseExistingServer = false;
 
 const server = (port: number) => ({
   command: `pnpm exec vite dev --port ${port} --strictPort`,
@@ -17,7 +21,7 @@ const server = (port: number) => ({
     OTEL_BLRP_SCHEDULE_DELAY: "200",
     OTEL_METRIC_EXPORT_INTERVAL: "1000",
   },
-  reuseExistingServer: !process.env.CI,
+  reuseExistingServer,
 });
 
 export default defineConfig({
@@ -33,5 +37,5 @@ export default defineConfig({
     { name: "custom-setup", testMatch: /custom-setup\.spec\.ts/, use: { baseURL: "http://localhost:3101" } },
     { name: "assistant", testMatch: /\/assistant\.spec\.ts/, use: { baseURL: "http://localhost:3102" } },
   ],
-  webServer: [{ command: "node e2e/collector.mjs", url: `${COLLECTOR}/health`, reuseExistingServer: !process.env.CI }, server(3100), server(3101), server(3102)],
+  webServer: [{ command: "node e2e/collector.mjs", url: `${COLLECTOR}/health`, reuseExistingServer }, server(3100), server(3101), server(3102)],
 });

@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 import { constants, realpathSync, statSync } from "node:fs";
 import { chmod, lstat, mkdir, open, rename, rm, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { isSafeRelativePath } from "@dispand/runner-protocol";
+import { isSafeRelativePath, type PluginServer } from "@dispand/runner-protocol";
+import { z } from "zod";
 import { inside, realOf } from "./boundary.ts";
-import { PLUGIN_NAME, type RunnerConfig } from "./config.ts";
-import { canonicalEntry, contentDigest, type PluginEntry } from "./plugin-digest.ts";
-import { unlock } from "./skills.ts";
+import { PLUGIN_NAME, PluginEntry as PluginEntryConfig, type RunnerConfig } from "./config.ts";
+import { canonicalEntry, contentDigest, type PluginEntry } from "@dispand/runner-protocol/digest";
+import { readCapped, unlock } from "./skills.ts";
 
 /**
  * A plugin's stdio server, run only when this machine's own record (`allowedPlugins`) holds the
@@ -51,8 +52,7 @@ export function checkPluginFiles(name: string, files: { path: string; content: B
 export async function materializePlugin(stateDir: string, name: string, files: { path: string; content: Buffer }[]): Promise<string> {
   checkPluginFiles(name, files);
   const parent = join(stateDir, "plugins", name);
-  // The hex part only: a `:` in the root would split PATH-like values a server builds from it.
-  const dir = join(parent, contentDigest(files).slice("sha256:".length));
+  const dir = rootOf(stateDir, name, contentDigest(files));
   if (await stat(dir).then(() => true, () => false)) return dir;
   await mkdir(parent, { recursive: true, mode: 0o700 });
   const tmp = join(parent, `.tmp-${randomUUID()}`);
@@ -93,23 +93,37 @@ export async function materializePlugin(stateDir: string, name: string, files: {
   return dir;
 }
 
+/** Where this runner writes a digest of the plugin `name` (`materializePlugin`). The hex part only: a `:` would split PATH-like values a server builds from it. */
+function rootOf(stateDir: string, name: string, digest: string): string {
+  return join(stateDir, "plugins", name, digest.slice("sha256:".length));
+}
+
+/** Refuses (`PluginRefused`) unless this machine's record of `name` holds `digest` and canonicalizes as `entry` does. */
+function checkRecord(config: Pick<RunnerConfig, "allowedPlugins">, name: string, digest: string, entry: PluginEntry): void {
+  const record = config.allowedPlugins?.find((r) => r.name === name);
+  if (!record) refuse(`No record on this runner allows the plugin ${JSON.stringify(name)}: run dispand-runner allow-plugin on that machine.`);
+  if (digest !== record.digest) refuse(`The files of the plugin ${name} have the digest ${digest}, not ${record.digest} that this runner allowed.`);
+  if (canonicalEntry(entry) !== canonicalEntry(record.entry)) refuse(`The launch entry of the plugin ${name} isn't the one this runner allowed.`);
+}
+
 /**
  * How to start the plugin `name`'s stdio server, or `PluginRefused`. First, with nothing written:
  * the record of that name must exist, the digest of `files` equal its digest, and `entry`
- * canonicalize as its entry does. Then the files are materialized, a `./` command must be a file
- * whose real path is inside the plugin root (any other command is one bare name), `cwd` (default
- * the root) must stay inside the root or `<stateDir>/plugin-data/<name>/` (created here, kept
- * across digests). `${PLUGIN_ROOT}` and `${PLUGIN_DATA}` are expanded once, only in `args`, `env`
- * values and `cwd`, and both variables are set last over the entry's `env`.
+ * canonicalize as its entry does. Then the files are materialized and the launch made (`launchIn`).
  */
 export async function pluginLaunch(config: Pick<RunnerConfig, "allowedPlugins">, stateDir: string, name: string, files: { path: string; content: Buffer }[], entry: PluginEntry): Promise<Launch> {
-  const record = config.allowedPlugins?.find((r) => r.name === name);
-  if (!record) refuse(`No record on this runner allows the plugin ${JSON.stringify(name)}: run dispand-runner allow-plugin on that machine.`);
-  const digest = contentDigest(files);
-  if (digest !== record.digest) refuse(`The files of the plugin ${name} have the digest ${digest}, not ${record.digest} that this runner allowed.`);
-  if (canonicalEntry(entry) !== canonicalEntry(record.entry)) refuse(`The launch entry of the plugin ${name} isn't the one this runner allowed.`);
+  checkRecord(config, name, contentDigest(files), entry);
+  return launchIn(realpathSync(await materializePlugin(stateDir, name, files)), stateDir, name, entry);
+}
 
-  const root = realpathSync(await materializePlugin(stateDir, name, files));
+/**
+ * A materialized plugin's launch: a `./` command must be a file whose real path is inside the
+ * plugin root (any other command is one bare name), `cwd` (default the root) must stay inside the
+ * root or `<stateDir>/plugin-data/<name>/` (created here, kept across digests). `${PLUGIN_ROOT}`
+ * and `${PLUGIN_DATA}` are expanded once, only in `args`, `env` values and `cwd`, and both
+ * variables are set last over the entry's `env`.
+ */
+async function launchIn(root: string, stateDir: string, name: string, entry: PluginEntry): Promise<Launch> {
   const dataDir = join(stateDir, "plugin-data", name);
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
   const data = realpathSync(dataDir);
@@ -132,4 +146,52 @@ export async function pluginLaunch(config: Pick<RunnerConfig, "allowedPlugins">,
   if (!inside(cwd, root) && !inside(cwd, data)) refuse(`The working directory of the plugin ${name} isn't inside the plugin or its data folder.`);
   const env = Object.fromEntries(Object.entries(entry.env ?? {}).map(([key, value]) => [key, expand(value)]));
   return { command, args: (entry.args ?? []).map(expand), env: { ...env, PLUGIN_ROOT: root, PLUGIN_DATA: data }, cwd };
+}
+
+/** A plugin's files as the server's route of a plugin runner tool returns them, within a skill package's caps. */
+const FetchedPlugin = z.object({
+  name: z.string(),
+  entry: PluginEntryConfig,
+  files: z.array(z.object({ path: z.string().max(255), base64: z.base64() })).max(500),
+});
+export type FetchedPlugin = { name: string; entry: PluginEntry; files: { path: string; content: Buffer }[] };
+
+/**
+ * `GET <server>/runner/plugins/<tool id>` with the runner's token: the tool's plugin name, launch
+ * entry and files. Redirects are refused and the body is capped; throws an error in the runner's
+ * words. Nothing in it is trusted: `pluginLaunch` checks it against the machine's record.
+ */
+export async function fetchPlugin(server: string, token: string, toolId: string): Promise<FetchedPlugin> {
+  let res: Response;
+  try {
+    res = await fetch(`${server}/runner/plugins/${encodeURIComponent(toolId)}`, { headers: { authorization: `Bearer ${token}` }, redirect: "error", signal: AbortSignal.timeout(30_000) });
+  } catch (err) {
+    throw new PluginRefused(`can't reach ${server}: ${(err as Error).message}`);
+  }
+  if (res.status !== 200) {
+    await res.body?.cancel();
+    throw new PluginRefused(`Dispand refused the plugin of tool ${toolId} (HTTP ${res.status})`);
+  }
+  let parsed: z.infer<typeof FetchedPlugin>;
+  try {
+    parsed = FetchedPlugin.parse(JSON.parse(await readCapped(res, 16 * 1024 * 1024)));
+  } catch {
+    throw new PluginRefused(`the plugin of tool ${toolId} isn't readable or is too large`);
+  }
+  return { name: parsed.name, entry: parsed.entry, files: parsed.files.map((f) => ({ path: f.path, content: Buffer.from(f.base64, "base64") })) };
+}
+
+/**
+ * How to start a `plugin` reference (`PluginServer`), or `PluginRefused`: refused at once when
+ * this machine's record doesn't hold its name, digest and entry. Started from the folder this
+ * runner already wrote for that digest (named by the digest it computed over what it wrote),
+ * else from the files it fetches, whose digest it computes again (`pluginLaunch`).
+ */
+export async function launchPluginServer(config: Pick<RunnerConfig, "allowedPlugins">, stateDir: string, ref: PluginServer, fetch: (toolId: string) => Promise<FetchedPlugin>): Promise<Launch> {
+  checkRecord(config, ref.plugin, ref.digest, ref.entry);
+  const root = rootOf(stateDir, ref.plugin, ref.digest);
+  if (await stat(root).then(() => true, () => false)) return launchIn(realpathSync(root), stateDir, ref.plugin, ref.entry);
+  const fetched = await fetch(ref.tool);
+  if (fetched.name !== ref.plugin) refuse(`The tool ${ref.tool} runs the plugin ${fetched.name}, not ${ref.plugin}.`);
+  return pluginLaunch(config, stateDir, ref.plugin, fetched.files, ref.entry);
 }

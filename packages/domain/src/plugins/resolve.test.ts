@@ -1,11 +1,11 @@
 import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import * as schema from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
-import { answerApproval, answerConflict, decide, reopenChanged } from "./resolve.ts";
+import { answerConflict, closeStemJob, decide, reopenChanged } from "./resolve.ts";
 import { lawFirmMarket } from "./test-support.ts";
 import { writeFields } from "./write-field.ts";
 import { rememberAllowedAction } from "../agents/tool-ask.ts";
@@ -92,34 +92,106 @@ test("a decision on a field the owner changed since, or whose plugin value chang
   }
 });
 
-test("the Approval's yes applies the merged value, its no keeps the owner's, and one edited meanwhile applies nothing; an update changing a field reopens it", async () => {
+/** A Stem Job of the owner's (a Job of Drafting stands in), whose conflicts these are; `end` is its end, which asks the Approval. */
+async function stemJob(s: Awaited<ReturnType<typeof setUp>>) {
+  const trigger = await call(router.triggers.create, { agentId: s.agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: s.ctx });
+  const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context: s.ctx });
+  const handOff = (id: string) => s.ctx.db.update(schema.pluginConflicts).set({ runId, status: "stem", merged: null }).where(eq(schema.pluginConflicts.id, id));
+  // The Approval is asked once its Job is over, as a Stem Job's end asks it.
+  await vi.waitFor(async () => expect(["succeeded", "failed"]).toContain((await s.ctx.db.select({ status: schema.runs.status }).from(schema.runs).where(eq(schema.runs.id, runId)))[0]!.status), { timeout: 10_000 });
+  const end = () => s.ctx.db.transaction((tx) => closeStemJob(tx, runId));
+  const approval = async () => (await call(router.questions.list, { status: "all" }, { context: s.ctx })).filter((q) => q.update);
+  return { runId, handOff, end, approval };
+}
+
+/** Drafting's description overridden too, as "Mine too" over the plugin's "Next too": two texts in conflict. */
+async function twoMerged(s: Awaited<ReturnType<typeof setUp>>) {
+  await s.set({ description: "Mine too", overridden: ["systemPrompt", "description"], upstream: { ...(await s.drafting()).upstream, description: "Next too" } });
+  const job = await stemJob(s);
+  const prompt = await s.conflict("systemPrompt", "Mine", "Next");
+  const description = await s.conflict("description", "Mine too", "Next too");
+  await job.handOff(prompt);
+  await job.handOff(description);
+  expect(await decide(s.ctx, s.actor, prompt, { kind: "merge", value: "Mine, and Next" }, job.runId)).toBe("approval");
+  expect(await decide(s.ctx, s.actor, description, { kind: "merge", value: "Mine too, and Next too" }, job.runId)).toBe("approval");
+  return { ...job, prompt, description };
+}
+
+test("two merged texts of one update make one Inbox Approval with two items: a yes applies one, a no keeps the owner's, and the Approval is done once both are answered", async () => {
   const s = await setUp();
   try {
-    const trigger = await call(router.triggers.create, { agentId: s.agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: s.ctx });
-    const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context: s.ctx });
-    const id = await s.conflict("systemPrompt", "Mine", "Next");
-    const handOff = (field: string) => s.ctx.db.update(schema.pluginConflicts).set({ runId, status: "stem", merged: null }).where(eq(schema.pluginConflicts.id, `conflict_${field}`));
-    await handOff("systemPrompt");
-    expect(await decide(s.ctx, s.actor, id, { kind: "merge", value: "Mine, and Next" })).toBe("approval");
-    expect(await answerApproval(s.ctx, s.actor, runId, false)).toEqual({ applied: 0, reopened: 0 });
-    expect((await s.drafting()).systemPrompt).toBe("Mine");
+    const job = await twoMerged(s);
+    // Nothing in the Inbox while the Job decides; one Approval when it ends.
+    expect(await job.approval()).toEqual([]);
+    expect(await job.end()).toMatchObject({ kind: "approval", status: "pending" });
+    const [item] = await job.approval();
+    expect(item).toMatchObject({ status: "pending", kind: "approval", update: { plugin: { name: "law-firm" } } });
+    expect(item!.update!.items).toEqual([
+      expect.objectContaining({ id: job.prompt, kind: "agent", elementId: s.agent.id, name: "Drafting", field: "systemPrompt", mine: "Mine", merged: "Mine, and Next" }),
+      expect.objectContaining({ id: job.description, field: "description", mine: "Mine too", merged: "Mine too, and Next too" }),
+    ]);
+    expect(await call(router.questions.count, undefined, { context: s.ctx })).toEqual({ count: 1 });
+    // Not answered whole.
+    await expect(call(router.questions.answer, { questionId: item!.id, answer: { kind: "permission", decision: "allow" } }, { context: s.ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
-    const again = await s.conflict("systemPrompt", "Mine", "Next");
-    await handOff("systemPrompt");
-    await decide(s.ctx, s.actor, again, { kind: "merge", value: "Mine, and Next" });
-    expect(await answerApproval(s.ctx, s.actor, runId, true)).toEqual({ applied: 1, reopened: 0 });
+    const answer = async (id: string, choice: "accept" | "decline") => {
+      const [shown] = await job.approval();
+      await call(router.plugins.resolveConflict, { id, choice, reviewed: shown!.update!.items.find((i) => i.id === id)!.reviewed }, { context: s.ctx });
+    };
+    await answer(job.prompt, "accept");
     expect((await s.drafting()).systemPrompt).toBe("Mine, and Next");
+    const [left] = await job.approval();
+    expect(left).toMatchObject({ status: "pending" });
+    expect(left!.update!.items.map((i) => i.id)).toEqual([job.description]);
+    await answer(job.description, "decline");
+    expect((await s.drafting()).description).toBe("Mine too");
+    const [done] = await job.approval();
+    expect(done).toMatchObject({ status: "answered", answeredBy: { type: "user", userId: s.ctx.ownerId }, update: { items: [] } });
+    expect(await call(router.questions.count, undefined, { context: s.ctx })).toEqual({ count: 0 });
+  } finally {
+    s.remove();
+  }
+});
 
-    const third = await s.conflict("systemPrompt", "Mine, and Next", "Next");
-    await handOff("systemPrompt");
-    await decide(s.ctx, s.actor, third, { kind: "merge", value: "Something else" });
+test("an owner edit meanwhile reopens that item only; the element's page links to the Approval; an update reopening the last item takes the Approval out of the Inbox", async () => {
+  const s = await setUp();
+  try {
+    const job = await twoMerged(s);
+    const listed = () => call(router.plugins.conflicts, { kind: "agent", id: s.agent.id }, { context: s.ctx });
+    // Before the Job ends there is no Approval to link to yet.
+    expect((await listed()).map((c) => c.approvalId)).toEqual([null, null]);
+    const approval = await job.end();
+    expect((await listed()).map((c) => [c.field, c.approvalId])).toEqual([["description", approval!.id], ["systemPrompt", approval!.id]]);
+
     await s.set({ systemPrompt: "Edited meanwhile" });
-    expect(await answerApproval(s.ctx, s.actor, runId, true)).toEqual({ applied: 0, reopened: 1 });
+    expect(await answerConflict(s.ctx, s.actor, job.prompt, true)).toBe("reopened");
     expect((await s.drafting()).systemPrompt).toBe("Edited meanwhile");
+    expect(await s.status(job.prompt)).toBe("open");
+    expect(await s.status(job.description)).toBe("approval");
+    const [item] = await job.approval();
+    expect(item).toMatchObject({ status: "pending" });
+    expect(item!.update!.items.map((i) => i.id)).toEqual([job.description]);
 
-    await s.ctx.db.update(schema.pluginConflicts).set({ status: "stem" }).where(eq(schema.pluginConflicts.id, third));
+    // An update that changes the plugin's description: its item is the owner's again, and nothing is left to approve.
+    await reopenChanged(s.ctx.db, "agent", s.agent.id, ["description"]);
+    expect(await s.status(job.description)).toBe("open");
+    expect(await job.approval()).toEqual([expect.objectContaining({ status: "expired" })]);
+    expect((await s.drafting()).description).toBe("Mine too");
+  } finally {
+    s.remove();
+  }
+});
+
+test("a Stem Job's end with nothing waiting asks nothing; an update changing a field reopens what Stem was deciding", async () => {
+  const s = await setUp();
+  try {
+    const job = await stemJob(s);
+    const id = await s.conflict("systemPrompt", "Mine", "Next");
+    await job.handOff(id);
     await reopenChanged(s.ctx.db, "agent", s.agent.id, ["systemPrompt"]);
-    expect(await s.status(third)).toBe("open");
+    expect(await s.status(id)).toBe("open");
+    expect(await job.end()).toBeNull();
+    expect(await job.approval()).toEqual([]);
   } finally {
     s.remove();
   }

@@ -45,6 +45,7 @@
     "reading": "Reading the plugin…",
     "nativeFailed": "Native installation failed. Check Harness inventory before retrying; some changes may have completed.",
     "nativeIncomplete": "Native installation did not complete. Check Harness inventory before retrying.",
+    "nativeBlocked": "A native binding already exists but is disabled, pending, missing or uses another source. Inspect it in the native client, or explicitly uninstall it before reinstalling.",
     "failed": "Could not install the plugin.",
     "setupStopped": "Setting it up stopped: {{error}}",
     "setupRefused": "Setting it up stopped: an item was refused",
@@ -165,7 +166,20 @@
     "isSetUp": "{{name}} (set up)",
     "available": "Available, not imported: ",
     "neverImported_one": "Never imported: {{count}} item ({{components}})",
-    "neverImported_other": "Never imported: {{count}} items ({{components}})"
+    "neverImported_other": "Never imported: {{count}} items ({{components}})",
+    "notApplied": "Not applied to {{table}} from the plugin",
+    "apply": "Apply",
+    "applyLabel": "Apply to {{table}}: {{change}}",
+    "applying": "Applying…",
+    "applyLoses_one": "Applied, it removes the values of {{count}} row.",
+    "applyLoses_other": "Applied, it removes the values of {{count}} rows.",
+    "applyStops_one": "Applied, it stops the workflow {{workflows}}: its data step names this field.",
+    "applyStops_other": "Applied, it stops the workflows {{workflows}}: their data steps name this field.",
+    "applyMayStop_one": "Applied, it may stop the workflow {{workflows}}: its data step names this field.",
+    "applyMayStop_other": "Applied, it may stop the workflows {{workflows}}: their data steps name this field.",
+    "applied": "Applied to {{table}}.",
+    "appliedExcept": "Not applied: {{failed}}.",
+    "applyFailed": "Could not apply the change. It may have changed since: look at it again."
   },
   "removal": {
     "kind": {
@@ -244,7 +258,10 @@
     "notMade": "Not made",
     "settingUp": "Setting up…",
     "submit": "Set up",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "stdioServer": "A command it runs on the runner you pick, once that machine allows it: {{command}}",
+    "runnerFor": "The runner {{name}} runs on",
+    "pickRunner": "Pick its runner"
   },
   "update": {
     "nativeTitle": "Native installs",
@@ -272,7 +289,8 @@
       "instructions": "What the agent is told",
       "config": "When it fires",
       "concurrency": "Jobs at once",
-      "rateCap": "Jobs an hour"
+      "rateCap": "Jobs an hour",
+      "changes": "Changes"
     },
     "none": "none",
     "asksFirst": "{{agent}} (asks first)",
@@ -329,7 +347,8 @@
     "removals": "No longer in this version",
     "updating": "Updating…",
     "submit": "Update",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "stemTable": "{{assistant}} picks which of these changes apply after the update. One that removes values waits for your approval; what it leaves out is declined, as an unticked box."
   },
   "skillSheet": {
     "notText": "{{path}} isn't text: it can be removed, not edited here",

@@ -5,10 +5,11 @@ import type { RunSnapshot } from "./run-state.ts";
 
 const fake = vi.hoisted(() => ({ runs: { stream: vi.fn(), get: vi.fn() } }));
 vi.mock("./api.ts", () => ({ api: fake }));
-const { MAX_RUN_STREAMS, useRun } = await import("./run-watch.ts");
+const { MAX_RUN_STREAMS, STREAM_WAIT_MS, useRun } = await import("./run-watch.ts");
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.resetAllMocks();
 });
 
@@ -66,4 +67,19 @@ test("a run that ends is read once more, so its last changes (an expired questio
   const hook = renderHook(() => useRun("run_x"));
   await waitFor(() => expect(hook.result.current?.questions[0]?.status).toBe("expired"));
   expect(fake.runs.get).toHaveBeenCalledTimes(1);
+});
+
+test("a stream held back on the way (a buffering proxy) gives way to polling, so the run still shows", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  fake.runs.stream.mockImplementation(async (_: unknown, { signal }: { signal: AbortSignal }) =>
+    (async function* () {
+      await new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
+      yield { type: "snapshot" as const, ...snap("run_h") };
+    })(),
+  );
+  fake.runs.get.mockImplementation(async () => snap("run_h"));
+  const hook = renderHook(() => useRun("run_h"));
+  await vi.advanceTimersByTimeAsync(STREAM_WAIT_MS);
+  await waitFor(() => expect(hook.result.current?.run.id).toBe("run_h"));
+  expect(fake.runs.stream).toHaveBeenCalledTimes(1);
 });

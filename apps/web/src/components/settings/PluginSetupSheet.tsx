@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useText } from "../../lib/message.ts";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ProposalItems } from "../questions/ProposalItems.tsx";
 import { type api, orpc } from "../../lib/api.ts";
@@ -32,10 +33,14 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
   const queryClient = useQueryClient();
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   const definitions = useDefinitionPicks(plugin.definitions, harnesses.data);
-  // The plugin's servers that aren't tools yet and can be added as they are: over HTTP, with no setting to enter. Ticked by the owner, once they see where its calls go.
-  const servers = (plugin.available?.mcpServers ?? []).filter((s) => s.type === "http" && s.settings.length === 0);
+  // The plugin's servers that aren't tools yet and can be added as they are: over HTTP, with no
+  // setting to enter, or a standard plugin's stdio server, on the runner the owner picks. Ticked
+  // by the owner, once they see where its calls go or what it runs.
+  const servers = (plugin.available?.mcpServers ?? []).filter((s) => (s.type === "http" && s.settings.length === 0) || (s.type === "stdio" && s.entry));
+  const runners = useQuery({ ...orpc.runners.list.queryOptions(), enabled: servers.some((s) => s.type === "stdio") });
   const [pickedServers, setPickedServers] = useState(() => new Set<string>());
-  const serverPicks = servers.filter((s) => pickedServers.has(s.name)).map((s) => ({ name: s.name }));
+  const [runnerOf, setRunnerOf] = useState<Record<string, string>>({});
+  const serverPicks = servers.filter((s) => pickedServers.has(s.name)).map((s) => ({ name: s.name, ...(s.type === "stdio" && runnerOf[s.name] ? { runnerId: runnerOf[s.name] } : {}) }));
   const pick = { ...definitions.pick, ...(serverPicks.length ? { servers: serverPicks } : {}) };
   const any = definitions.any || serverPicks.length > 0;
   const preview = useQuery({ ...orpc.plugins.setupPreview.queryOptions({ input: { id: plugin.id, pick } }), enabled: any, retry: false });
@@ -92,8 +97,27 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
                 <Section id="setup-servers" title={t("setup.tools")}>
                   <ul className="space-y-2">
                     {servers.map((s) => (
-                      <li key={s.name}>
-                        <Check checked={pickedServers.has(s.name)} onChange={() => setPickedServers((prev) => toggled(prev, s.name))} label={s.name} detail={t("setup.server", { url: s.url ?? "" })} />
+                      <li key={s.name} className="space-y-2">
+                        <Check
+                          checked={pickedServers.has(s.name)}
+                          onChange={() => setPickedServers((prev) => toggled(prev, s.name))}
+                          label={s.name}
+                          detail={s.type === "stdio" ? t("setup.stdioServer", { command: [s.entry!.command, ...(s.entry!.args ?? [])].join(" ") }) : t("setup.server", { url: s.url ?? "" })}
+                        />
+                        {s.type === "stdio" && pickedServers.has(s.name) && (
+                          <Select value={runnerOf[s.name] ?? ""} onValueChange={(v) => setRunnerOf((prev) => ({ ...prev, [s.name]: v }))}>
+                            <SelectTrigger aria-label={t("setup.runnerFor", { name: s.name })} className="w-full">
+                              <SelectValue placeholder={t("setup.pickRunner")} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {runners.data?.map((r) => (
+                                <SelectItem key={r.id} value={r.id}>
+                                  {r.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
                       </li>
                     ))}
                   </ul>

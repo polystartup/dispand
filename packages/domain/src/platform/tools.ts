@@ -13,7 +13,7 @@ import { AnswerInput, answerQuestion, getQuestion, GetInput, listQuestions, List
 import { readMemory, ReadInput, refuseProposedWrite, RemoveInput, removeMemoryTool, tablesOf, WriteInput, writeMemoryTool } from "../memory/tools.ts";
 import type { Rights } from "./rights.ts";
 import { sentence, type Text } from "../messages/index.ts";
-import { type Decision, decide } from "../plugins/resolve.ts";
+import { type Decision, decide, type Refused } from "../plugins/resolve.ts";
 import { marketplaceUrl } from "../plugins/procedures.ts";
 import { wellKnownIndexUrl, WellKnownError } from "../plugins/well-known.ts";
 import { checkGitUrl, GitError } from "../plugins/git.ts";
@@ -291,6 +291,13 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("agents.setToolPermission", "configure", `Sets one action of an agent's tool to run without asking, ask before use, or be off. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("tables.delete", "configure", `Deletes a table with its rows: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: named("id"), grant: true }),
   tool("fields.delete", "configure", `Deletes a field with its values in every row: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: tableOfField, grant: true }),
+  tool("fields.retype", "configure", `Changes a field's type and converts its value in every row; a value the new type can't hold is cleared, and that can't be undone. With dryRun: true it only counts (converted, cleared), changes nothing and runs at once: call it so first, and give the counts when you ask. With dryRun: false: ${NEEDS_PROPOSAL}`, {
+    tables: tableOfField,
+    grant: true,
+    // A dry run only reads.
+    direct: async (_db, _job, input) => (input as { dryRun: boolean }).dryRun,
+    shown: async (_app, _job, input) => ((input as { dryRun: boolean }).dryRun ? "A dry run changes nothing and needs no approval: call fields_retype with dryRun: true directly, and propose dryRun: false" : undefined),
+  }),
   tool("triggers.list", "configure", "Lists an agent's triggers: what starts its Jobs (a button, a chat, a schedule), with their instructions.", { tables: none }),
   tool("triggers.get", "configure", "Gives one trigger by its id.", { tables: none }),
   tool("triggers.create", "configure", `Creates a trigger for an agent: what starts a Job and what the agent is told then. ${NEEDS_PROPOSAL}`, { tables: async (_db, _ownerId, input) => watchedBy((input as { config?: unknown })?.config), grant: true }),
@@ -313,6 +320,12 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("tools.addFromCatalog", "configure", `Adds a tool from the catalog by its id, with no credentials: the owner enters them, or signs in, on the tool's page afterwards (its signInPath). It starts with the actions its entry declares, so their flags and poll triggers can be set at once. An entry that runs on a runner can't be added this way. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("tools.add", "configure", `Adds a tool: an MCP server reached at a URL, with no credentials (the owner enters those afterwards). ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("tools.delete", "configure", `Deletes a tool no agent uses, with its saved headers: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool("agents.delete", "configure", `Deletes an agent and its triggers (the skills and tools it uses stay); its Jobs still going stop, its past Jobs stay: this can't be undone. The built-in agent, an agent a workflow uses and your own agent can't be deleted. ${NEEDS_PROPOSAL}`, {
+    tables: none,
+    grant: true,
+    // Its own deletion would stop the Job in the middle of its call.
+    shown: async (_app, job, input) => ((input as { id: string }).id === job.agentId ? "An agent can't delete itself: the owner deletes it on its page" : undefined),
+  }),
   tool("agents.update", "configure", `Changes an agent: give every field, as agents_get shows them. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("marketplaces.add", "configure", `Adds a marketplace, where plugins_discover finds plugins: a Git repository (its URL, or GitHub's owner/repo) with a .claude-plugin/marketplace.json or a skills/ folder, or with kind "well-known" a skill site (an https address serving /.well-known/skills/index.json). Nothing is read from it before the owner approves. ${NEEDS_PROPOSAL}`, { tables: none, grant: true, shown: marketplaceAddress }),
   tool("plugins.discover", "configure", "Lists what the owner's marketplaces offer (each entry with its marketplace's id), with whether it is installed; a query narrows them by name or description.", { tables: none }),
@@ -396,14 +409,19 @@ export const PLUGIN_DECIDE: PlatformTool = {
   name: "plugin_decide",
   bundle: null,
   available: () => false,
-  description: "Decides one field the owner handed you, by its conflict id: reset to take the plugin's new value, or merge with the value to keep. A value that is neither the owner's nor the plugin's, or that changes an agent's rights (its bundles, tables, tools, skills, self-learning or consults), waits for the owner's approval.",
+  description:
+    "Decides one field the owner handed you, by its conflict id: reset to take the plugin's new value, or merge with the value to keep. A value that is neither the owner's nor the plugin's, or that changes an agent's rights (its bundles, tables, tools, skills, self-learning or consults), waits for the owner's approval. For a table (field `changes`), merge with the list of change keys to apply, among those listed as applicable (reset applies them all); a change that removes values waits for the owner's approval, and the others are declined.",
   input: DecideInput,
   tables: none,
   run: async (app, job, input) => {
     const { conflictId, decision } = DecideInput.parse(input);
     const context = { ...app, job, ownerId: job.ownerId, headers: new Headers(), resHeaders: new Headers() };
-    const outcome = await decide(context, { type: "job", runId: job.runId }, conflictId, decision as Decision, job.runId);
-    return outcome === "gone" ? { ok: false, error: "Not a field handed to this Job" } : { ok: true, output: { outcome } };
+    const report = { refused: [] as Refused[] };
+    const outcome = await decide(context, { type: "job", runId: job.runId }, conflictId, decision as Decision, job.runId, report);
+    if (outcome === "refused") return { ok: false, error: "Not a list of change keys shown as applicable for this table: nothing was applied" };
+    if (outcome === "gone") return { ok: false, error: "Not a field handed to this Job" };
+    // A table change its operation refused wasn't made: said by key and reason, offered again by the next update.
+    return { ok: true, output: { outcome, ...(report.refused.length ? { refused: report.refused.map((r) => ({ key: r.key, reason: sentence(r.reason) })) } : {}) } };
   },
 };
 
@@ -501,9 +519,6 @@ export const NOT_TOOLS: string[] = [
   "tools.pollable",
   "tools.setPollable",
   "tools.setActionEnabled",
-  // What grants authority or can't be undone: a person does it (later, through a proposal).
-  "fields.retype",
-  "agents.delete",
   // Saved native CLI permissions belong to the owner, never to Job tools.
   "agents.cliRules",
   "agents.removeCliRule",
@@ -527,6 +542,8 @@ export const NOT_TOOLS: string[] = [
   "plugins.resetOverride",
   "plugins.conflicts",
   "plugins.resolveConflict",
+  "plugins.tableChanges",
+  "plugins.applyTableChange",
   "skills.setFile",
   "skills.removeFile",
   "skills.readFile",

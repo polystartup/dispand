@@ -213,6 +213,7 @@
     "recorded": "What these items create is recorded in the plugin <0>{{plugin}}</0>.",
     "refused": "refused",
     "done": "done",
+    "undone": "This can't be undone.",
     "runsWithout": "Runs without asking: {{runs}}",
     "othersAsk": "Other enabled actions ask",
     "titles": {
@@ -238,7 +239,9 @@
       "plugins_install": "Install a plugin, and set up what it defines",
       "marketplaces_add": "Add a marketplace: where plugins and skills are read from",
       "memory_add": "Add an entry to a memory: what later Jobs start from",
-      "memory_update": "Rewrite an entry of a memory: what later Jobs start from"
+      "memory_update": "Rewrite an entry of a memory: what later Jobs start from",
+      "fields_retype": "Change a field's type: a value the new type can't hold is cleared",
+      "agents_delete": "Delete an agent, with its triggers: its Jobs still going stop"
     },
     "labelsOf": {
       "tables_create": {
@@ -341,6 +344,13 @@
         "path": "Path",
         "type": "Type",
         "body": "What it says"
+      },
+      "fields_retype": {
+        "id": "Field",
+        "type": "New type"
+      },
+      "agents_delete": {
+        "id": "Agent"
       }
     },
     "labels": {
@@ -356,7 +366,46 @@
       "dataTables": "Tables",
       "consults": "May consult",
       "selfLearning": "Learns"
-    }
+    },
+    "sentences": {
+      "tables_create": "Create a table named {{name}}.",
+      "tables_rename": "Rename <0/> to {{name}}.",
+      "tables_set_primitive_on": "Make <0/> a primitive table.",
+      "tables_set_primitive_off": "Stop <0/> being a primitive table.",
+      "tables_delete": "Delete the table <0/> and its rows.",
+      "fields_create": "Add the field {{name}}, of type {{type}}, to <0/>.",
+      "fields_create_names": "Add the field {{name}}, of type {{type}}, to <0/>, naming rows of <1/>.",
+      "fields_update": "Change the field <0/>.",
+      "fields_reorder": "Reorder the fields of <0/>.",
+      "fields_delete": "Delete the field <0/> and its values.",
+      "fields_retype": "Change the type of the field <0/> to {{type}}; a value the new type can't hold is cleared.",
+      "agents_create": "Create an agent named {{name}}.",
+      "agents_update": "Change the agent <0/>.",
+      "agents_delete": "Delete the agent <0/> and its triggers.",
+      "agents_set_tool_permission_run": "Let <0/> run the action {{action}} of <1/> without asking.",
+      "agents_set_tool_permission_ask": "Make <0/> ask before it runs the action {{action}} of <1/>.",
+      "agents_set_tool_permission_off": "Turn off the action {{action}} of <1/> for <0/>.",
+      "tools_add": "Add the tool {{name}}, a server Dispand will call at {{url}}.",
+      "tools_add_from_catalog": "Add a tool from the catalog entry <0/>.",
+      "tools_delete": "Delete the tool <0/> and its saved headers.",
+      "plugins_add_server": "Add the server {{server}} of <0/> as a tool, called at {{url}}.",
+      "triggers_create": "Create a trigger that starts Jobs of <0/>.",
+      "triggers_update": "Change the trigger <0/>.",
+      "triggers_delete": "Delete the trigger <0/>.",
+      "plugins_install": "Install the plugin {{entryName}} and set up what it defines.",
+      "marketplaces_add": "Add the marketplace at {{url}}, where plugins and skills are read from.",
+      "memory_add": "Add the memory entry {{path}}.",
+      "memory_add_table": "Add the memory entry {{path}} of <0/>.",
+      "memory_update": "Rewrite the memory entry {{path}}.",
+      "memory_update_table": "Rewrite the memory entry {{path}} of <0/>.",
+      "plugins_add_server_runner": "Add the server {{server}} of <0/> as a tool that runs on a runner.",
+      "harnesses_set_limit_one": "Let <0/> work on {{count}} session at once.",
+      "harnesses_set_limit_other": "Let <0/> work on {{count}} sessions at once."
+    },
+    "was": "Was:",
+    "becomes": "Becomes:",
+    "added": "Added:",
+    "removed": "Removed:"
   },
   "inbox": {
     "title": "Inbox",
@@ -375,5 +424,21 @@
       "turnOn": "Turn on",
       "failed": "Notifications could not be turned on in this browser. Try again."
     }
+  },
+  "update": {
+    "intro": "{{assistant}} merged these values for the update of {{plugin}}. Answer each one: until you accept it, yours stays.",
+    "introUnnamed": "{{assistant}} merged these values for a plugin’s update. Answer each one: until you accept it, yours stays.",
+    "asked": "{{assistant}} merged values for the update of {{plugin}}.",
+    "askedUnnamed": "{{assistant}} merged values for a plugin’s update.",
+    "answered": "You answered each value.",
+    "expired": "Nothing waits any more: a later change took these values back to the element’s page.",
+    "failed": "Could not record your answer.",
+    "removes_one": "It may remove values: the field holds this one now, in {{count}} row:",
+    "removes_other": "It may remove values: the field holds these now, in {{count}} rows:",
+    "removesNone": "No row holds a value there now.",
+    "moreValues_one": "And {{count}} more row.",
+    "moreValues_other": "And {{count}} more rows.",
+    "refusedChange": "“{{change}}” wasn’t made: {{reason}} The plugin’s next update offers it again.",
+    "staleChange": "“{{change}}” was skipped: the field changed since it was approved."
   }
 }

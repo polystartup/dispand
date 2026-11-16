@@ -106,3 +106,8 @@ export function useRunThread(options: { run: RunSnapshot | null; chatStepId: str
     ...(options.attachments ? { adapters: { attachments: options.attachments } } : {}),
   });
 }
+
+/** A step's messages as a thread nobody writes to: the run page's transcript. */
+export function useTranscript(messages: readonly Message[]) {
+  return useExternalStoreRuntime({ messages: messages.map((m) => kept(m, ofMessage)), convertMessage: same, isDisabled: true, onNew: async () => {} });
+}

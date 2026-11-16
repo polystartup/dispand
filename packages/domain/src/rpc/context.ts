@@ -155,7 +155,7 @@ export const authed = os.$context<InitialContext>().middleware(async ({ context,
     returnHeaders: true,
   });
   for (const cookie of headers.getSetCookie()) context.resHeaders.append("set-cookie", cookie);
-  if (!session) throw new ORPCError("UNAUTHORIZED");
+  if (!session) throw new ORPCError("UNAUTHORIZED", message("auth.signIn"));
   annotate({ "dispand.owner.id": session.user.id });
   return next({ context: { ownerId: session.user.id } satisfies Pick<Context, "ownerId"> });
 });

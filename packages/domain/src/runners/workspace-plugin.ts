@@ -7,9 +7,10 @@ import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { RunnerRequestFailed } from "./hub.ts";
 import { pluginNativeKey, workspaceNativeKey } from "../skills/native.ts";
+import { message } from "../messages/index.ts";
 
 export const workspaceSkills = base.use(authed).handler(async ({ context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN");
+  if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
   const packages = await context.db.select().from(skillPackages).where(eq(skillPackages.ownerId, context.ownerId)).orderBy(asc(skillPackages.name));
   const ids = packages.map((p) => p.id);
   const standalone = packages.filter((p) => !p.pluginId);
@@ -44,30 +45,30 @@ export const workspacePlugin = base.use(authed).input(z.object({
   revision: z.string().min(1).max(200).optional(),
 }).refine((input) => input.dryRun || input.revision !== undefined, "Apply requires a native preview revision")
   .refine((input) => input.action === "add" || input.harnessIds.length === 1, "Uninstall one harness at a time")).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN", { message: "Native installation requires an owner session" });
+  if (context.job) throw new ORPCError("FORBIDDEN", message("runners.nativeOwnerOnly"));
   const selected = await context.db.select({ runnerId: runners.id, kind: harnesses.kind }).from(harnesses)
     .innerJoin(runners, eq(runners.id, harnesses.runnerId))
     .where(and(inArray(harnesses.id, input.harnessIds), eq(harnesses.ownerId, context.ownerId), eq(runners.ownerId, context.ownerId), isNull(runners.revokedAt)))
     .orderBy(asc(harnesses.id));
-  if (selected.length !== input.harnessIds.length || selected.some((h) => h.kind !== "claude-code" && h.kind !== "codex")) throw new ORPCError("NOT_FOUND", { message: "CLI harness not found" });
+  if (selected.length !== input.harnessIds.length || selected.some((h) => h.kind !== "claude-code" && h.kind !== "codex")) throw new ORPCError("NOT_FOUND", message("runners.harnessNotFound"));
   const runnerId = selected[0]!.runnerId;
-  if (selected.some((h) => h.runnerId !== runnerId)) throw new ORPCError("BAD_REQUEST", { message: "Group native installation targets by runner" });
+  if (selected.some((h) => h.runnerId !== runnerId)) throw new ORPCError("BAD_REQUEST", message("runners.groupByRunner"));
   const targets = [...new Set(selected.map((h) => h.kind))];
   const common = { name: `dispand-${input.resource.id}`, targets, dryRun: input.dryRun, revision: input.revision };
   let operation: PluginOperation;
   let sourceKey: string | undefined;
   if (input.resource.kind === "plugin") {
     const [plugin] = await context.db.select().from(plugins).where(and(eq(plugins.id, input.resource.id), eq(plugins.ownerId, context.ownerId)));
-    if (!plugin) throw new ORPCError("NOT_FOUND", { message: "Plugin not found" });
+    if (!plugin) throw new ORPCError("NOT_FOUND", message("plugins.notFound"));
     sourceKey = pluginNativeKey(plugin);
     if (input.action === "add") {
-      if (!sourceKey || !PluginSource.safeParse(plugin.url).success || !plugin.sha || !plugin.entryName) throw new ORPCError("BAD_REQUEST", { message: "This plugin has no supported HTTPS Git source for native installation" });
+      if (!sourceKey || !PluginSource.safeParse(plugin.url).success || !plugin.sha || !plugin.entryName) throw new ORPCError("BAD_REQUEST", message("runners.noNativeSource"));
       operation = PluginOperation.parse({ action: "add", ...common, source: plugin.url, sourceRef: plugin.sha, plugin: plugin.entryName, ...(plugin.nativeRoot !== "." ? { sourcePath: plugin.nativeRoot } : {}) });
     } else operation = PluginOperation.parse({ action: "remove", ...common });
   } else {
     const [pkg] = await context.db.select().from(skillPackages).where(and(eq(skillPackages.id, input.resource.id), eq(skillPackages.ownerId, context.ownerId)));
-    if (!pkg) throw new ORPCError("NOT_FOUND", { message: "Skill not found" });
-    if (pkg.pluginId) throw new ORPCError("BAD_REQUEST", { message: "Install or remove the whole native plugin instead of copying its skills separately" });
+    if (!pkg) throw new ORPCError("NOT_FOUND", message("agent.skillNotFound"));
+    if (pkg.pluginId) throw new ORPCError("BAD_REQUEST", message("runners.wholePlugin"));
     const files = await context.db.select({ path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(eq(skillFiles.packageId, pkg.id));
     sourceKey = workspaceNativeKey(files.map((f) => ({ path: f.path, base64: Buffer.from(f.content).toString("base64") })));
     operation = PluginOperation.parse(input.action === "add"
@@ -76,7 +77,7 @@ export const workspacePlugin = base.use(authed).input(z.object({
   }
   try {
     const inventory = (await context.hub.plugins(runnerId, { type: "plugin.request", requestId: newId("req"), operation: { action: "list" } })).report;
-    if (inventory.error) throw new ORPCError("CONFLICT", { message: "Refresh native inventory before changing plugins; the runner could not verify its managed bindings" });
+    if (inventory.error) throw new ORPCError("CONFLICT", message("runners.refreshInventory"));
     const already: NonNullable<PluginReport["results"]> = [];
     let blocked = false;
     for (const kind of targets) {
@@ -94,7 +95,7 @@ export const workspacePlugin = base.use(authed).input(z.object({
         if (matching) operation = PluginOperation.parse({ ...operation, name: matching.name });
       }
     }
-    if (blocked) return PluginReport.parse({ blocked: true, results: already, error: "A native binding already exists but is disabled, pending, missing or uses another source. Inspect it in the native client, or explicitly uninstall it before reinstalling." });
+    if (blocked) return PluginReport.parse({ blocked: true, results: already });
     const pending = targets.filter((kind) => !already.some((p) => p.harness === kind));
     if (!pending.length) return PluginReport.parse({ changes: already.map(({ name, harness }) => ({ name, harness, action: "already_installed" })), results: already });
     operation = PluginOperation.parse({ ...operation, targets: pending });
@@ -102,6 +103,6 @@ export const workspacePlugin = base.use(authed).input(z.object({
     return already.length ? PluginReport.parse({ ...report, results: [...already, ...(report.results ?? [])] }) : report;
   } catch (error) {
     if (!(error instanceof RunnerRequestFailed)) throw error;
-    throw new ORPCError("CONFLICT", { message: "Runner unavailable or operation timed out. Refresh inventory before retrying; native changes may have completed." });
+    throw new ORPCError("CONFLICT", message("runners.unavailable"));
   }
 });

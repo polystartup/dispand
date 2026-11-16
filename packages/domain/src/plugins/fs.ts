@@ -177,7 +177,7 @@ function skillFiles(root: string, rel: string, skill: string, notImported: Notes
     }
     for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
       // A skill holds at most MAX_FILES files: past twice that many entries, it isn't one.
-      if (++visited > MAX_FILES * 2) throw new PackageError(`a skill holds at most ${MAX_FILES} files`, skill);
+      if (++visited > MAX_FILES * 2) throw new PackageError("skills.package.skillTooManyFiles", skill, { max: MAX_FILES });
       const path = `${prefix}/${entry.name}`;
       const full = join(dir, entry.name);
       if (!isSafeRelativePath(path)) {
@@ -250,4 +250,46 @@ export function readSkillFolders(root: string, folders: string[], notImported: N
     }
   }
   return skills;
+}
+
+/**
+ * What a runner takes of one plugin (`apps/runner/src/plugin-servers.ts`): files, and bytes in
+ * all, so that their base64 in the files route's JSON stays within the runner's 16 MiB response cap.
+ */
+export const MAX_RUNNER_FILES = 500;
+export const MAX_RUNNER_BYTES = 11 * 1024 * 1024;
+
+/**
+ * Every regular file under `root` a runner can write (`isSafeRelativePath`), for a plugin's stdio
+ * servers: links, other non-regular files and `.git` are left out, and a path a runner can't
+ * write is listed in `notImported`. Past `MAX_RUNNER_FILES` files or `MAX_RUNNER_BYTES` bytes,
+ * null: a runner would refuse them, and the plugin installs without them.
+ */
+export function readRunnerFiles(root: string, notImported: Notes): { path: string; content: Uint8Array }[] | null {
+  const files: { path: string; content: Uint8Array }[] = [];
+  let bytes = 0;
+  const tooLarge = new Error("too large");
+  const walk = (dir: string, prefix: string) => {
+    for (const entry of list(dir)) {
+      if (entry.name === ".git") continue;
+      const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const full = join(dir, entry.name);
+      const stat = lstatSync(full);
+      if (stat.isDirectory()) walk(full, path);
+      else if (stat.isFile() && !isSafeRelativePath(path)) notImported.push({ component: "file", name: path, reason: "Its path isn't one a runner writes: its stdio servers run without it" });
+      else if (stat.isFile()) {
+        bytes += stat.size;
+        if (files.length >= MAX_RUNNER_FILES || bytes > MAX_RUNNER_BYTES) throw tooLarge;
+        spend(0, stat.size);
+        files.push({ path, content: new Uint8Array(readFileSync(full)) });
+      }
+    }
+  };
+  try {
+    walk(root, "");
+  } catch (e) {
+    if (e !== tooLarge) throw e;
+    return null;
+  }
+  return files;
 }

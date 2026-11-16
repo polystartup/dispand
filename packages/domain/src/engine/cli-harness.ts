@@ -79,7 +79,8 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
       mcpServers: runnerServers(tooling, runnerId).map((t) => {
         const grants = tooling.jobId ? t.unasked : (t.runUnasked ?? []);
         const unasked = t.actions.filter((a) => grants.includes(a.name) && a.name.length <= 200 && t.actions.filter((other) => mcpActionName(other.name, kind) === mcpActionName(a.name, kind)).every((other) => grants.includes(other.name))).map((a) => a.name).slice(0, 500);
-        return { name: t.server, type: "runner" as const, tool: t.tool, ...(t.denied.length ? { denied: t.denied } : {}), ...(unasked.length ? { unasked } : {}) };
+        const own = { ...(t.denied.length ? { denied: t.denied } : {}), ...(unasked.length ? { unasked } : {}) };
+        return t.plugin ? { name: t.server, type: "plugin" as const, ...t.plugin, ...own } : { name: t.server, type: "runner" as const, tool: t.tool, ...own };
       }),
       // The actions the agent lets run unasked, under the names the tools endpoint lists them:
       // the CLI doesn't prompt for these. As many as the protocol carries; it prompts for the
@@ -124,7 +125,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
   async narrowPermissions(sessionId: string, db: Db = this.db): Promise<boolean> {
     const runnerId = await this.runnerOf(sessionId);
     const { mcpServers } = await this.tooling(sessionId, runnerId, db);
-    return this.deliver(runnerId, { type: "session.permissions", sessionId, servers: mcpServers.flatMap((ref) => ref.type === "runner" ? [{ name: ref.name, unasked: ref.unasked ?? [], ...(ref.denied?.length ? { denied: ref.denied } : {}) }] : []) });
+    return this.deliver(runnerId, { type: "session.permissions", sessionId, servers: mcpServers.flatMap((ref) => ref.type !== "http" ? [{ name: ref.name, unasked: ref.unasked ?? [], ...(ref.denied?.length ? { denied: ref.denied } : {}) }] : []) });
   }
 
   async send(sessionId: string, text: string, files: MessageFile[] = []): Promise<boolean> {

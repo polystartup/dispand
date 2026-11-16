@@ -92,10 +92,11 @@ async function setup() {
     call: async (_runnerId, msg) => {
       runnerCalls.push(msg);
       await during.call?.();
-      if (calling.has(msg.tool)) return { type: "tool.called", requestId: msg.requestId, error: "busy" };
-      calling.add(msg.tool);
+      const tool = JSON.stringify(msg.tool);
+      if (calling.has(tool)) return { type: "tool.called", requestId: msg.requestId, error: "busy" };
+      calling.add(tool);
       await new Promise((resolve) => setTimeout(resolve, 20));
-      calling.delete(msg.tool);
+      calling.delete(tool);
       return { type: "tool.called", requestId: msg.requestId, content: [{ type: "text", text: JSON.stringify({ value: mailbox }) }], ...(during.hasMore ? { hasMore: true } : {}) };
     },
   };

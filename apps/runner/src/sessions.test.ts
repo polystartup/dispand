@@ -6,7 +6,9 @@ import type { Options, query, SDKMessage, SDKUserMessage } from "@anthropic-ai/c
 import { type HarnessEvent, MAX_LIVE_SESSIONS, type SessionStart } from "@dispand/runner-protocol";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import { Sessions, type SessionsOptions } from "./sessions.ts";
-import { clearSessions, SkillsRefused, sessionPluginsDir } from "./skills.ts";
+import { clearSessions, SkillsRefused, sessionPluginsDir, unlock } from "./skills.ts";
+import type { RunnerConfig } from "./config.ts";
+import { contentDigest } from "@dispand/runner-protocol/digest";
 import { fakeCodex } from "./fixtures/fake-codex-bin.ts";
 
 // These tests spawn processes or run sessions and wait on what they do: on a busy machine (CI runs
@@ -50,14 +52,14 @@ function fakeQuery(onStart?: (options: Options) => void) {
   return { query: fn as unknown as typeof query, calls, servers, inputs };
 }
 
-async function setup(skills?: SessionsOptions["skills"], mcpServers?: Record<string, { command: string }>, onStart?: (options: Options) => void) {
+async function setup(skills?: SessionsOptions["skills"], mcpServers?: Record<string, { command: string }>, onStart?: (options: Options) => void, more: Partial<RunnerConfig> = {}) {
   const base = await realpath(await mkdtemp(join(tmpdir(), "sessions-")));
   made.push(base);
   const events: [string, HarnessEvent][] = [];
   const fake = fakeQuery(onStart);
   const resumeMap = join(base, "state", "sessions.json");
   const sessions = new Sessions(
-    { server: "https://dispand.test", roots: [join(base, "root")], allowBypass: false, ...(mcpServers ? { mcpServers } : {}) },
+    { server: "https://dispand.test", roots: [join(base, "root")], allowBypass: false, ...(mcpServers ? { mcpServers } : {}), ...more },
     (sessionId, event) => events.push([sessionId, event]),
     { claude: { query: fake.query }, resumeMap, claudeVersion: "2.1.311", ...(skills ? { skills } : {}) },
   );
@@ -361,6 +363,73 @@ test("token absent from state dir: a session's MCP servers reach the CLI, and no
   for (const file of written) expect(readFileSync(file, "utf8"), file).not.toContain("s3cret");
 });
 
+/** A plugin `notes` this runner allows, the route that serves its files (`served`, altered when asked), and a fresh state folder. */
+async function pluginRunner(served = [{ path: "server.sh", content: Buffer.from("#!/bin/sh\n") }]) {
+  const stateDir = await realpath(await mkdtemp(join(tmpdir(), "plugin-state-")));
+  // Its plugin folders are read-only (0555): unlocked before they go.
+  onTestFinished(async () => {
+    await unlock(stateDir);
+    await rm(stateDir, { recursive: true, force: true });
+  });
+  const files = [{ path: "server.sh", content: Buffer.from("#!/bin/sh\n") }];
+  const entry = { command: "./server.sh", args: ["${PLUGIN_DATA}"] };
+  const digest = contentDigest(files);
+  const route = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () => Response.json({ name: "notes", entry, files: served.map((f) => ({ path: f.path, base64: f.content.toString("base64") })) }));
+  vi.stubGlobal("fetch", route);
+  onTestFinished(() => void vi.unstubAllGlobals());
+  const ctx = await setup({ server: "https://dispand.test", token: "t0ken", stateDir, fetch: vi.fn() }, undefined, undefined, { allowedPlugins: [{ name: "notes", digest, entry }] });
+  const ref = { name: "notes", type: "plugin" as const, tool: "tool_1", plugin: "notes", digest, entry };
+  return { ...ctx, stateDir, digest, route, ref };
+}
+
+test("a plugin's stdio server starts behind the proxy from its own folder, once fetched and checked against this runner's record", async () => {
+  const { events, fake, sessions, stateDir, digest, route, ref } = await pluginRunner();
+  await sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), mcpServers: [ref] } });
+  await ended(events, "ses_1");
+  expect(route).toHaveBeenCalledWith("https://dispand.test/runner/plugins/tool_1", expect.objectContaining({ redirect: "error", headers: { authorization: "Bearer t0ken" } }));
+  const root = join(stateDir, "plugins", "notes", digest.slice("sha256:".length));
+  const data = join(stateDir, "plugin-data", "notes");
+  const server = fake.servers[0]!.notes as { command: string; args: string[]; env: Record<string, string> };
+  expect(server).toMatchObject({ type: "stdio", command: process.execPath, args: expect.arrayContaining(["mcp-proxy"]) });
+  expect(JSON.parse(server.env.DISPAND_PROXY!)).toEqual({ command: join(root, "server.sh"), args: [data], env: { PLUGIN_ROOT: root, PLUGIN_DATA: data }, cwd: root });
+  // The next start launches the folder it already wrote for that digest, without fetching again.
+  await sessions.handle({ type: "session.start", start: { ...start("ses_2", "run_b"), mcpServers: [ref] } });
+  await ended(events, "ses_2");
+  expect(route).toHaveBeenCalledTimes(1);
+  expect(fake.servers[1]!.notes).toEqual(server);
+});
+
+test("a permission update while a plugin's files are fetched narrows the start it waits on", async () => {
+  const { events, fake, sessions, route, ref } = await pluginRunner();
+  const served = route.getMockImplementation()!;
+  let release!: () => void;
+  route.mockImplementation(async (...args) => {
+    await new Promise<void>((r) => (release = r));
+    return served(...args);
+  });
+  const started = sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), mcpServers: [{ ...ref, unasked: ["search"] }] } });
+  await waitFor(() => expect(route).toHaveBeenCalled());
+  await sessions.handle({ type: "session.permissions", sessionId: "ses_1", servers: [] });
+  release();
+  await started;
+  await ended(events, "ses_1");
+  expect(fake.calls).toHaveLength(1);
+  expect(fake.servers[0]?.notes).toBeUndefined();
+});
+
+test.each([
+  ["one byte changed in the files, under the digest this runner allowed", (ref: { digest: string }) => ref, [{ path: "server.sh", content: Buffer.from("#!/bin/sh\n#") }], /^The files of the plugin notes have the digest sha256:[0-9a-f]{64}, not sha256:[0-9a-f]{64} that this runner allowed\.$/],
+  ["an entry that gained an argument", (ref: { entry: object }) => ({ ...ref, entry: { ...ref.entry, args: ["${PLUGIN_DATA}", "--write"] } }), undefined, /^The launch entry of the plugin notes isn't the one this runner allowed\.$/],
+  ["another plugin's name", (ref: object) => ({ ...ref, plugin: "other" }), undefined, /^No record on this runner allows the plugin "other"/],
+])("a plugin server refused for %s ends the start before any folder is made", async (_name, change, served, message) => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const { base, events, fake, sessions, ref } = await pluginRunner(served);
+  await sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), mcpServers: [change(ref) as typeof ref] } });
+  expect(events).toEqual([["ses_1", { type: "error", message: expect.stringMatching(message) }]]);
+  expect(fake.calls).toHaveLength(0);
+  await expect(stat(join(base, "root", "runs", "run_a"))).rejects.toThrow();
+});
+
 test("a session's skills are fetched, loaded as plugins, readable during it, and gone after it", async () => {
   const stateDir = await realpath(await mkdtemp(join(tmpdir(), "skills-state-")));
   made.push(stateDir);
@@ -523,16 +592,24 @@ test("a start with a Job token gives the CLI the Job server at the runner's own 
   expect(Object.keys(fake.servers[1] ?? {})).not.toContain("job");
 });
 
-test("a restricted start gets the Job's own server alone, whatever MCP servers or memory it holds; on Codex it is refused", async () => {
+test("a restricted start gets the Job's own server alone, whatever MCP servers or memory it holds, on Claude Code and on Codex", async () => {
   const { events, fake, sessions } = await setup();
   const files = [{ scope: "agent" as const, path: "MEMORY.md", text: "# This agent\n" }];
   await sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), jobToken: "dj_token", restricted: true, memory: files, mcpServers: [{ name: "mail", type: "runner" as const, tool: "gmail", unasked: ["draft_email"] }] } });
   await ended(events, "ses_1");
   // The Job's own server and the session's answer tool: no runner tool, no Job tools server.
   expect(Object.keys(fake.servers[0] ?? {})).toEqual(["job", "dispand"]);
-  const { events: codexEvents, sessions: codexSessions, codexStart } = await codexSetup("0.166.0", {});
-  await codexSessions.handle({ type: "session.start", start: { ...codexStart("ses_2", "run_b"), jobToken: "dj_token", restricted: true } });
-  await waitFor(() => expect(codexEvents).toContainEqual(["ses_2", { type: "error", message: "A restricted session runs on Claude Code only" }]));
+  const { codex, events: codexEvents, sessions: codexSessions, codexStart } = await codexSetup("0.167.0", {});
+  await codexSessions.handle({ type: "session.start", start: { ...codexStart("ses_2", "run_b"), jobToken: "dj_token", restricted: true, memory: files, mcpServers: [{ name: "mail", type: "runner" as const, tool: "gmail", unasked: ["draft_email"] }] } });
+  await ended(codexEvents, "ses_2");
+  const thread = (await codex.received()).find((m) => m.method === "thread/start")!;
+  expect(Object.keys((thread.params as { config: { mcp_servers: object } }).config.mcp_servers)).toEqual(["job"]);
+  expect(codexEvents.filter(([, e]) => e.type === "error")).toEqual([]);
+  // On a Codex older than the one its switches were checked on, it is refused before anything starts.
+  const old = await codexSetup("0.166.0", {});
+  await old.sessions.handle({ type: "session.start", start: { ...old.codexStart("ses_3", "run_c"), jobToken: "dj_token", restricted: true } });
+  expect(old.events).toEqual([["ses_3", { type: "error", message: "A restricted session needs Codex ≥ 0.167.0 (found 0.166.0): update codex on this machine" }]]);
+  expect((await old.codex.received()).some((m) => m.method === "thread/start")).toBe(false);
 });
 
 test("a consult waits across a reconnection to Dispand, and its answer then reaches the session's tool call", async () => {

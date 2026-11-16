@@ -4,12 +4,13 @@ import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { fields as fieldsTable, pages as pagesTable, tables as tablesTable, triggers, widgets as widgetsTable, workflows, workflowVersions } from "../db/schema.ts";
 import { queryProblem } from "../data/query.ts";
-import { english } from "../messages/index.ts";
+import { message, type MessageKey, type MessageValues } from "../messages/index.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
 import { StorableText } from "../text.ts";
 import { GridConfig, TableConfig } from "./config.ts";
 import { BREAKPOINTS, fits, GridPos, placeBelow, type Breakpoint } from "./layout.ts";
+
 
 const owner = base.use(authed);
 
@@ -30,7 +31,7 @@ async function requirePage(db: Db, ownerId: string, id: string) {
     .select()
     .from(pagesTable)
     .where(and(eq(pagesTable.id, id), eq(pagesTable.ownerId, ownerId)));
-  if (!row) throw new ORPCError("NOT_FOUND");
+  if (!row) throw new ORPCError("NOT_FOUND", message("pages.notFound"));
   return row;
 }
 
@@ -39,7 +40,7 @@ async function requireWidget(db: Db, ownerId: string, id: string) {
     .select()
     .from(widgetsTable)
     .where(and(eq(widgetsTable.id, id), eq(widgetsTable.ownerId, ownerId)));
-  if (!row) throw new ORPCError("NOT_FOUND");
+  if (!row) throw new ORPCError("NOT_FOUND", message("pages.widgetNotFound"));
   return row;
 }
 
@@ -90,7 +91,7 @@ const createPage = owner.input(z.object({ title: PageTitle })).handler(async ({ 
       .select({ n: count() })
       .from(pagesTable)
       .where(and(eq(pagesTable.ownerId, context.ownerId), eq(pagesTable.kind, "page")));
-    if (n!.n >= MAX_PAGES) throw new ORPCError("BAD_REQUEST", { message: `At most ${MAX_PAGES} pages` });
+    if (n!.n >= MAX_PAGES) throw new ORPCError("BAD_REQUEST", message("pages.tooMany", { max: MAX_PAGES }));
     const [page] = await tx
       .insert(pagesTable)
       .values({ id: newId("page"), ownerId: context.ownerId, kind: "page", title: input.title })
@@ -101,14 +102,14 @@ const createPage = owner.input(z.object({ title: PageTitle })).handler(async ({ 
 
 const renamePage = owner.input(z.object({ id: z.string(), title: PageTitle })).handler(async ({ input, context }) => {
   const page = await requirePage(context.db, context.ownerId, input.id);
-  if (page.kind === "home") throw new ORPCError("FORBIDDEN", { message: "Home can't be renamed" });
+  if (page.kind === "home") throw new ORPCError("FORBIDDEN", message("pages.homeRename"));
   await context.db.update(pagesTable).set({ title: input.title }).where(eq(pagesTable.id, page.id));
 });
 
 /** Deletes a page and, by cascade, its widgets; Home is fixed. */
 const removePage = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const page = await requirePage(context.db, context.ownerId, input.id);
-  if (page.kind === "home") throw new ORPCError("FORBIDDEN", { message: "Home can't be deleted" });
+  if (page.kind === "home") throw new ORPCError("FORBIDDEN", message("pages.homeDelete"));
   await context.db.delete(pagesTable).where(and(eq(pagesTable.id, page.id), eq(pagesTable.ownerId, context.ownerId)));
 });
 
@@ -125,18 +126,18 @@ async function checkConfig(db: Db, ownerId: string, tableId: string, config: Gri
     .select({ name: tablesTable.name })
     .from(tablesTable)
     .where(and(eq(tablesTable.id, tableId), eq(tablesTable.ownerId, ownerId)));
-  if (!table) throw new ORPCError("NOT_FOUND", { message: "Table not found" });
+  if (!table) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
   const fields = (await db.select().from(fieldsTable).where(eq(fieldsTable.tableId, tableId))).map((f) => ({ id: f.id, name: f.name, type: f.type, choices: f.choices }));
   const byId = new Map(fields.map((f) => [f.id, f]));
-  const bad = (message: string) => new ORPCError("BAD_REQUEST", { message });
-  if (new Set(config.fieldIds).size !== config.fieldIds.length) throw bad("A field is chosen twice");
-  if (config.fieldIds.some((id) => !byId.has(id))) throw bad("A chosen field isn't a field of this table");
+  const bad = (key: MessageKey, values?: MessageValues) => new ORPCError("BAD_REQUEST", message(key, values));
+  if (new Set(config.fieldIds).size !== config.fieldIds.length) throw bad("pages.fieldTwice");
+  if (config.fieldIds.some((id) => !byId.has(id))) throw bad("pages.fieldNotInTable");
   if ("coverFieldId" in config && config.coverFieldId !== undefined && byId.get(config.coverFieldId)?.type !== "attachment") {
-    throw bad("The cover must be a files field of this table");
+    throw bad("pages.coverFiles");
   }
   if ("sort" in config && config.sort) {
     const problem = queryProblem({ filters: [], sort: [config.sort] }, fields);
-    if (problem) throw bad(english(problem.key, problem.values));
+    if (problem) throw bad(problem.key, problem.values);
   }
   return table;
 }
@@ -148,9 +149,9 @@ const create = owner.input(z.discriminatedUnion("type", [createForm, createTrigg
       .select({ name: triggers.name, config: triggers.config })
       .from(triggers)
       .where(and(eq(triggers.id, input.triggerId), eq(triggers.ownerId, context.ownerId)));
-    if (!trigger) throw new ORPCError("NOT_FOUND", { message: "Trigger not found" });
+    if (!trigger) throw new ORPCError("NOT_FOUND", message("triggers.notFound"));
     const { config } = trigger;
-    if (config.kind !== "manual") throw new ORPCError("BAD_REQUEST", { message: "Only a manual trigger can have a form" });
+    if (config.kind !== "manual") throw new ORPCError("BAD_REQUEST", message("pages.manualTriggerForm"));
     // One form per trigger on a page, serialized per page like workflow forms.
     const row = await context.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`dispand:widgets:${input.pageId}`}))`);
@@ -202,8 +203,8 @@ const create = owner.input(z.discriminatedUnion("type", [createForm, createTrigg
     .from(workflows)
     .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, workflows.id), eq(workflowVersions.version, workflows.currentVersion)))
     .where(and(eq(workflows.id, input.workflowId), eq(workflows.ownerId, context.ownerId)));
-  if (!wf) throw new ORPCError("NOT_FOUND", { message: "Workflow not found" });
-  if (wf.def.trigger.type !== "manual") throw new ORPCError("BAD_REQUEST", { message: "Only a manual workflow can have a form" });
+  if (!wf) throw new ORPCError("NOT_FOUND", message("workflows.notFound"));
+  if (wf.def.trigger.type !== "manual") throw new ORPCError("BAD_REQUEST", message("pages.manualWorkflowForm"));
   // One form per workflow on a page: asking again returns it (a double click, a second visit).
   // Serialized per page, so two concurrent creates can't both insert (older duplicates stay as they are).
   const row = await context.db.transaction(async (tx) => {
@@ -240,7 +241,7 @@ const update = owner
     const widget = await requireWidget(context.db, context.ownerId, input.id);
     let config: GridConfig | TableConfig | undefined;
     if (input.config) {
-      if (widget.type === "workflow-form" || widget.type === "trigger-form") throw new ORPCError("BAD_REQUEST", { message: "A form has no fields to choose" });
+      if (widget.type === "workflow-form" || widget.type === "trigger-form") throw new ORPCError("BAD_REQUEST", message("pages.formNoFields"));
       // Only what the widget's type keeps: a Grid has a cover, a Table a sort.
       const { fieldIds, coverFieldId, sort } = input.config;
       config = widget.type === "grid" ? { fieldIds, coverFieldId } : { fieldIds, sort };
@@ -267,7 +268,7 @@ const saveLayout = owner.input(z.object({ pageId: z.string(), layouts: Layouts }
   await requirePage(context.db, context.ownerId, input.pageId);
   for (const bp of BREAKPOINTS) {
     for (const item of input.layouts[bp] ?? []) {
-      if (!fits(bp, item)) throw new ORPCError("BAD_REQUEST", { message: `A widget is wider than the ${bp} grid` });
+      if (!fits(bp, item)) throw new ORPCError("BAD_REQUEST", message("pages.widgetTooWide", { grid: bp }));
     }
   }
   const ids = [...new Set(BREAKPOINTS.flatMap((bp) => (input.layouts[bp] ?? []).map((item) => item.i)))];

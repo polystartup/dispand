@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { eq, sql } from "drizzle-orm";
 import { say } from "../messages/index.ts";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { agents, agentTools, audit, marketplaces, fields as fieldsTable, plugins as pluginsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, user } from "../db/schema.ts";
+import { agents, agentTools, audit, marketplaces, fields as fieldsTable, plugins as pluginsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, triggers, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { fakeSite, fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd } from "../plugins/test-support.ts";
@@ -146,7 +146,7 @@ test("a proposal that can't be made is refused with the reason, and nothing is s
   const cases: [unknown, RegExp][] = [
     [[], /at least one/],
     // The refusal names what can be proposed, so the agent finds its way.
-    [[{ tool: "agents_delete", input: {} }], /agents_delete is not a write you can propose.*agents_create.*tables_delete/],
+    [[{ tool: "jobs_start", input: {} }], /jobs_start is not a write you can propose.*agents_create.*tables_delete/],
     // A read is never an item: it is called directly.
     [[{ tool: "tables_list", input: {} }], /tables_list is not a write you can propose.*tables_create/],
     // The item's input is checked as a direct call checks it, with the same words.
@@ -270,7 +270,7 @@ test("an agent turns its own trigger off directly; turning it on, any other chan
 test("every tool marked as a grant is refused without a proposal", async () => {
   const s = await setup(["data", "configure"]);
   const grants = PLATFORM_TOOLS.filter((t) => t.grant);
-  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_permission", "agents_update", "fields_delete", "harnesses_set_limit", "marketplaces_add", "plugins_install", "tables_delete", "tools_add", "tools_add_from_catalog", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
+  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_delete", "agents_set_tool_permission", "agents_update", "fields_delete", "fields_retype", "harnesses_set_limit", "marketplaces_add", "plugins_install", "tables_delete", "tools_add", "tools_add_from_catalog", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
   const table = await call(router.tables.create, { name: "Clients" }, { context: s.context });
   const field = (await call(router.tables.get, { id: table.id }, { context: s.context })).fields[0]!;
   const inputs: Record<string, unknown> = {
@@ -279,6 +279,8 @@ test("every tool marked as a grant is refused without a proposal", async () => {
     agents_set_tool_permission: { agentId: s.agent.id, toolId: "tool_x", action: "send", permission: "run" },
     tables_delete: { id: table.id },
     fields_delete: { id: field.id },
+    fields_retype: { id: field.id, type: "number", dryRun: false },
+    agents_delete: { id: s.agent.id },
     triggers_create: { agentId: s.agent.id, name: "Daily", instructions: "Work.", config: { kind: "manual", placement: "button" } },
     triggers_update: { id: "trigger_x", enabled: false },
     triggers_delete: { id: "trigger_x" },
@@ -543,6 +545,51 @@ test("an agent adds a tool only on an approved item: an address and no credentia
   await s.answer(q2, "allow");
   expect(await s.tool("tools_delete", { id: toolId })).toMatchObject({ ok: true });
   expect(await call(router.tools.list, undefined, { context })).toEqual([]);
+});
+
+test("a field's type changes through an approved proposal; its dry run only counts, at once and with no proposal", async () => {
+  const s = await setup();
+  const table = await call(router.tables.create, { name: "Invoices" }, { context: s.context });
+  const field = await call(router.fields.create, { tableId: table.id, name: "Amount", type: "text" }, { context: s.context });
+  for (const value of ["12", "unpaid"]) await call(router.rows.create, { tableId: table.id, values: { [field.id]: value } }, { context: s.context });
+  const typeOf = async () => (await s.context.db.select().from(fieldsTable).where(eq(fieldsTable.id, field.id)))[0]!.type;
+  const dry = { id: field.id, type: "number", dryRun: true };
+  expect(await s.tool("fields_retype", dry)).toMatchObject({ ok: true, output: { converted: 1, cleared: 1 } });
+  expect(await typeOf()).toBe("text");
+  expect(await s.context.db.select().from(proposals)).toEqual([]);
+  // A dry run is never an item: there is nothing to approve.
+  expect(await s.propose([{ tool: "fields_retype", input: dry }])).toMatchObject({ ok: false, error: expect.stringContaining("dry run") });
+  const real = { ...dry, dryRun: false };
+  expect(((await s.tool("fields_retype", real)) as { error: string }).error).toMatch(NEEDS);
+  expect(await typeOf()).toBe("text");
+  const id = s.idOf(await s.propose([{ tool: "fields_retype", input: real }]));
+  const q = await s.ask({ message: "May I make Amount a number?", proposal: id });
+  const { proposal } = (await call(router.questions.list, { status: "pending" }, { context: s.context })).find((i) => i.id === q)!;
+  expect(proposal!.items[0]!.refs).toEqual(["id"]);
+  expect(proposal!.names[field.id]).toMatchObject({ kind: "field", name: "Amount" });
+  // Asked, not approved yet: still refused.
+  expect(((await s.tool("fields_retype", real)) as { error: string }).error).toMatch(NEEDS);
+  await s.answer(q, "allow");
+  expect(await s.tool("fields_retype", real)).toMatchObject({ ok: true, output: { converted: 1, cleared: 1, field: { type: "number" } } });
+  expect(await typeOf()).toBe("number");
+  // Once only: the same call again finds no unused item.
+  expect(((await s.tool("fields_retype", real)) as { error: string }).error).toMatch(NEEDS);
+});
+
+test("an agent is deleted through an approved proposal, as the owner's delete does it; never its own", async () => {
+  const s = await setup();
+  const clerk = await call(router.agents.create, { ...s.base, name: "Clerk" }, { context: s.context });
+  await call(router.triggers.create, { agentId: clerk.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: s.context });
+  expect(((await s.tool("agents_delete", { id: clerk.id })) as { error: string }).error).toMatch(NEEDS);
+  expect(await s.propose([{ tool: "agents_delete", input: { id: s.agent.id } }])).toMatchObject({ ok: false, error: expect.stringContaining("can't delete itself") });
+  const id = s.idOf(await s.propose([{ tool: "agents_delete", input: { id: clerk.id } }]));
+  const view = await proposalView(s.context.db, s.context.ownerId, id);
+  expect(view!.items[0]!.refs).toEqual(["id"]);
+  expect(view!.names[clerk.id]).toMatchObject({ kind: "agent", name: "Clerk" });
+  await s.settle(id, "approved");
+  expect(await s.tool("proposal_apply", { proposalId: id })).toMatchObject({ ok: true, output: { items: [{ outcome: "made" }] } });
+  expect(await s.context.db.select().from(agents).where(eq(agents.id, clerk.id))).toEqual([]);
+  expect(await s.context.db.select().from(triggers).where(eq(triggers.agentId, clerk.id))).toEqual([]);
 });
 
 test("a harness's limit changes through an approved proposal, which names the harness", async () => {
@@ -1087,4 +1134,13 @@ test("a harness's detail is a whole sentence by what is known of it", () => {
     { key: "harness.detail.onRunner", values: { kind: "codex", runner: "Mac", mode: "" } },
     { key: "harness.detail.both", values: { kind: "codex", runner: "Mac", mode: "plan" } },
   ]);
+});
+
+test("an agent update's view carries the fields it gives as they stand now, and names their ids", async () => {
+  const s = await setup();
+  const update = { ...s.newAgent, id: s.agent.id, systemPrompt: "Be brief.", toolIds: [] };
+  const id = s.idOf(await s.propose([{ tool: "agents_update", input: update }]));
+  const view = await proposalView(s.context.db, s.context.ownerId, id);
+  expect(view!.items[0]!.before).toMatchObject({ name: "Builder", harnessId: s.harness.id, systemPrompt: "", dataTables: "all" });
+  expect(view!.names[s.harness.id]?.name).toBe("Claude");
 });

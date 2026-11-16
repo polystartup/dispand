@@ -12,7 +12,7 @@
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with
-  `Authorization: Bearer <token>` and `Dispand-Protocol: 28` (`PROTOCOL_VERSION`, bumped by
+  `Authorization: Bearer <token>` and `Dispand-Protocol: 29` (`PROTOCOL_VERSION`, bumped by
   every change an older runner can't parse or honor). An older runner is refused with 426 "update
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
@@ -387,7 +387,9 @@
   messages and questions into thread messages, a tool's trace and a question as tool-call
   parts; `useRunThread` feeds `useExternalStoreRuntime`), and `components/chat/Thread.tsx`
   renders it over the library's unstyled primitives, a question through `QuestionForm` and
-  `questions.answer`. A pending Approval of a proposal carries its `proposalView` in the run's
+  `questions.answer`. A Job's run page shows each step's transcript on the same thread,
+  read-only (`ChatTranscript` over `useTranscript`: the step's messages only, no composer;
+  its questions keep their own section). A pending Approval of a proposal carries its `proposalView` in the run's
   snapshot and stream (`runs.get`, `runs.stream`): the thread shows it whole (`ProposalItems`,
   no control of its own) and, while it is the chat's one waiting question (`composerApproval`; with
   several, each card keeps `QuestionForm`'s own controls), `ChatPanel`'s composer answers it, Approve or Mod+Enter on an
@@ -623,7 +625,9 @@
   included); a token names its Job only while the Job is running or waiting. The start carries
   it as `jobToken` (protocol 5) and no address: the runner adds the Job server to the
   session's MCP servers itself (`withJobServer` in `apps/runner/src/mcp.ts`: `/mcp/job` of its
-  configured server, named `job`, a name starts can't use), and lets `mcp__job__*` tools run
+  configured server, named `job`, a name starts can't use; a same-named server of the user's
+  own CLI config is replaced for the session on Claude Code, and refuses the session on Codex,
+  which would merge the two), and lets `mcp__job__*` tools run
   without a question (Claude Code: `canUseTool` and the `PreToolUse` hook; Codex: its approval
   request for that server is accepted); every other MCP tool asks as before. The agent's page
   sets the bundles and tables (`components/settings/JobRights.tsx`).
@@ -636,7 +640,7 @@
   existing ones. `assistantGuard` is the one check of what may change on it (its bundles, its
   tables, its platform skill, its chat): `agents.update`,
   `agents.delete`, `triggers.update`, `triggers.delete` and `createProposal` (for
-  `agents_update` and `triggers_*` items, refused when proposed with the reason) call it. We
+  `agents_update`, `agents_delete` and `triggers_*` items, refused when proposed with the reason) call it. We
   decided its self-learning isn't one of those: the owner may untick `workspace` on its page.
   It keeps the business in the workspace's memory: the platform skill's day-one proposal ends
   with a `memory_add` of the business (`type: "business"`) in place of a change of its own
@@ -812,15 +816,19 @@
   writing. Old pending agent grants lacking a permissions snapshot must be proposed again.
   A tool of the
   registry marked `grant` (`agents.create`, `agents.update`, `agents.setToolPermission`,
-  `tables.delete`, `fields.delete`, `triggers.create`, `triggers.update`, `triggers.delete`, `tools.add` (an address and no
+  `agents.delete`, `tables.delete`, `fields.delete`, `fields.retype`, `triggers.create`, `triggers.update`, `triggers.delete`, `tools.add` (an address and no
   headers; `tools.create` stays the owner's) and `tools.delete`;
   a tool's name is its path in lower case with `_`) is refused by `callPlatformTool`
   unless `takeItem` uses up a matching item of an approved proposal of the Job: one
   transaction that locks the Job's approved proposals and marks the first unused item with
   that tool and canonically equal input (`canonical`, `platform/approvals.ts`). Without an
-  item, a grant still runs when its `direct` check passes: only `triggers.update` has one
+  item, a grant still runs when its `direct` check passes: `triggers.update` has one
   (`ownTriggerOff`: the parsed input is `id` and `enabled: false` alone, on a trigger of the
-  owner's whose agent is the Job's). `propose`, a
+  owner's whose agent is the Job's), and `fields.retype` another (`dryRun: true`, which only
+  counts; its `shown` refuses proposing a dry run). `agents.delete`'s `shown` refuses the Job's
+  own agent, whose deletion would stop the Job in the middle of its call; the Inbox marks the
+  items that can't be undone (deleting a table, a field, a tool or an agent, and changing a
+  field's type). `propose`, a
   tool with no router path (`PROPOSE`, handled in `callPlatformTool`), stores a draft through
   `createProposal`: configuration writes of the Job's bundles only (`grant` tools, and the
   others marked `write`: `tables.create`, `tables.rename`, `tables.setPrimitive`,
@@ -878,7 +886,11 @@
   (`cloud/builtins.ts`); on a runner it is a tool of the runner's own `dispand` server (Claude
   Code) or a dynamic tool (Codex), which asks the owner itself (`requestApproval` in
   `apps/runner/src/outcome.ts`) in every permission mode, bypass included, and is never
-  allowed for the session. We decided a subagent asks the agent that started it, which decides
+  allowed for the session. The call waits for the answer however long it takes: Codex puts no
+  timeout on a dynamic tool, and the `dispand` server's tools have Claude Code's longest one
+  (`DISPAND_TOOL_TIMEOUT_MS`, about 24 days) instead of its default of about 28 hours or a
+  lower `MCP_TOOL_TIMEOUT` from the user's environment (checked on Claude Code 2.1.311 and
+  Codex 0.167). We decided a subagent asks the agent that started it, which decides
   whether to ask the person: on Codex, a `request_approval` call from a subagent's thread asks
   nobody and fails with a text telling it to return its question to that agent. On Claude Code, the other tool calls of a turn that asks for an
   approval wait for the answer (from the moment the CLI is about to call the tool), and aren't
@@ -992,7 +1004,8 @@
   when its own record allows exactly that code. `allowedPlugins` in the machine's config holds,
   per plugin name, the content digest and the launch entry; `dispand-runner allow-plugin <tool
   id> <name>@<digest>` writes it after fetching the files itself (`GET /runner/plugins/<tool
-  id>`), recomputing the digest and a typed yes. `plugin-digest.ts` computes the digest
+  id>`), recomputing the digest and a typed yes. `@dispand/runner-protocol/digest` (Node only, shared with
+  the server, which computes the digest it shows) computes the digest
   (`sha256:` over every file sorted by its path's UTF-8 bytes: path, NUL, length, NUL, bytes) and
   the canonical entry (keys sorted, `env` keys sorted, `cwd` default `./`). `pluginLaunch`
   (`plugin-servers.ts`) checks the record, the digest and the entry before writing anything, then
@@ -1001,9 +1014,30 @@
   by real path inside that root, keeps `cwd` inside it or `<state>/plugin-data/<name>/` (kept
   across digests), expands `${PLUGIN_ROOT}` and `${PLUGIN_DATA}` once in `args`, `env` values and
   `cwd` only, and sets both last over `env`. A refusal is a `PluginRefused` whose message names
-  only the plugin and digests, logged by the runner. No protocol message carries a plugin server
-  yet: the files route, the `plugin` server ref and the tool's page come with it, and call
-  `pluginLaunch` for sessions, `tool.discover` and polls.
+  only the plugin and digests, logged by the runner, and it comes back as the session's error or
+  the tool's `actionsError`. `launchPluginServer` takes a `plugin` reference (protocol 30, in
+  `McpServerRef` and in `tool.discover`/`tool.call`): it checks the record against the reference
+  first, launches the folder it already wrote for that digest, or else fetches the files
+  (`fetchPlugin`) and calls `pluginLaunch`. Sessions launch every plugin reference before
+  anything else and hand `mcp.ts` the launches, which start behind the MCP proxy from the
+  plugin's own `cwd` and `env`; `tool.discover` and a poll's `tool.call` start the launch directly.
+- **A plugin's stdio server on a runner (server side):** install and update keep a standard
+  plugin's files when it has a stdio server (`plugin_files`, `plugins.digest`; at most 500 files
+  and 11 MiB, so their base64 fits the runner's 16 MiB response cap; a larger plugin installs and
+  updates keeping none, noted in `notImported`, and adding its stdio servers is refused (`noFiles`); `fs.ts` `readRunnerFiles`), and `components.mcpServers[].entry` holds
+  the launch entry. We decided against a launch column on the tool: the entry is read from the
+  plugin, so an update that changes it changes the digest and needs a new `allow-plugin`.
+  `plugins.addServer` with a `runnerId` and the reviewed digest (or a setup item from a server
+  picked with its runner) adds a runner tool with no `runner_tool`, linked by `plugin_id` and
+  `plugin_component`. `plugins/runner-servers.ts` `runnerTarget` is the one place that turns a
+  runner tool into what its runner is sent: its own server's name, a `PluginServer`, or why not
+  (its plugin was removed: uninstalling keeps the tool, which then reports so). Sessions
+  (`engine/tooling.ts`), listings (`refreshRunnerActions`) and polls (`tools/poll.ts`) go through
+  it, and `GET /runner/plugins/<tool id>` (`pluginForRunner`, its span and
+  `dispand.runner.plugin_files`) serves the files to that tool's runner only. The tool's page shows
+  the command, the digest, the `allow-plugin` line and, when the command isn't a file of the
+  plugin, that the record covers the command line only. A plugin in the Claude layout keeps no
+  files: its stdio servers stay runner config entries.
 - **Runner distribution:** `pnpm build` bundles the runner with esbuild into
   `dispand-runner.tgz` and copies it with `install/install.sh` into
   `apps/web/public/runner/` (gitignored), so the web app serves `/runner/install.sh` and
@@ -1509,8 +1543,18 @@
   whose values it takes away; one the owner already changed is `stale`, and one naming a table
   that isn't there yet `waiting`. `plugins.update` takes the ticked keys per table (`tables`),
   part of the `reviewed` token, applies each through the field or table operation a person uses
-  (`applyTable`), then keeps the new definition, but for what waits, which the next update offers
-  again. A declined change isn't offered again. Set up also offers the plugin's HTTP servers
+  (`applyTable`), then keeps the new definition of every table the version still defines, but
+  for what waits, which the next update offers again. A declined change isn't offered again by
+  an update: it shows on the plugin's row (`plugins.tableChanges`, the same `tablePlan` from the
+  table as it is now to the definition kept), each with "Apply" (`plugins.applyTableChange`,
+  through `applyTable`, leaving the definition kept as it is). We decided its token covers the
+  table now (its fields, flags and, for a change that takes values away, those values), the
+  plugin's installed commit, the definition kept and the change: one read before a table edit,
+  or before an update that changes that table's definition, is refused. As in the update, the
+  token is checked and the change then made through the field operation, under that operation's
+  own lock: a value written in between to a field being removed goes with it, which we accept
+  (removing the field is what was asked). A move that would have to move the table's first field
+  is `stale`: the update's reorder keeps the first field first. Set up also offers the plugin's HTTP servers
   that aren't tools yet and need no setting, unticked (`pick.servers`). A tool an update gives
   an existing agent is attached with every action on Ask (`toolPermissions` with nothing
   unasked): the update's screen shows the tool gained, not which actions would run unasked.
@@ -1609,8 +1653,18 @@ only while the field is still `mine` and the element's `upstream` for it still `
 conflict is `open`, the owner's again); a reset takes the plugin's value; a decision applies at
 once when its value is `mine` or `next`, except a change to an agent's rights (bundles, tables,
 tools, skills, self-learning, consults), which combine and so always wait; anything else waits in
-`merged` for the owner's Approval, which `answerApproval` applies (yes) or drops ("Keep mine") per conflict, with
-the same check. The write holds only while the field still has the owner's value: the element's update checks
+`merged` for the owner's Approval. We decided on one Approval in the Inbox per update: when the
+Stem Job ends (`closeStemJob`, from the engine's end of run), its conflicts waiting in `merged`
+become one `questions` row (an Approval of no step, its payload's `toolName` `plugin_update`,
+so one push per update), whose items are the conflicts of that `runId` still waiting. Each item
+is answered on its own through `plugins.resolveConflict` (`answerConflict` applies a yes, drops a
+no as "Keep mine"), with the same check; the engine refuses a whole answer. The Approval is
+answered once its last item is, and expires when the last leaves otherwise (`settleApprovals`,
+which locks the Approval's row before counting its items, so two removals at once still close it).
+A decision of Stem's writes only while the conflict is still Stem's: one landing after its Job was
+stopped writes nothing.
+The element's page links to it (`approvalId`). A later kind of conflict feeds the same Approval
+by keeping its rows in `plugin_conflicts` with the Job's `runId`. The write holds only while the field still has the owner's value: the element's update checks
 `context.expectField` (server-owned) under its row lock, or in its write for a tool, and a save
 that got there first refuses it and reopens the conflict. A tool an agent gains by a decision starts with every action on Ask. Each
 decision is an Audit row (`plugin.decided`: the element, the field's name and the decision's
@@ -1635,19 +1689,68 @@ bundle, memory or consult; `withMemory` gives it no memory to read either, since
 `configure` to filter what other agents wrote by), and `allowed` gives a limited Job those tools and no other, so the
 Job server and the cloud listing offer `plugin_decide` alone; a call of another tool is refused.
 `plugin_decide` takes only the Job's own conflicts and goes through `decide`. When the Job ends,
-however it ends, what it didn't decide is `open` again (`reopenUndecided`, in `finishRun`). On a
+however it ends, what it didn't decide is `open` again, and what waits becomes its Approval (`closeStemJob`, in `finishRun`). On a
 runner, the start says `restricted` (runner protocol 26), and the runner enforces it from its own
 start arguments: on Claude Code, no built-in tool (`tools: []`, and the CLI's server-side
 `advisor` switched off with `CLAUDE_CODE_DISABLE_ADVISOR_TOOL`, since neither `tools` nor
 `disallowedTools` removes it), no settings source,
 `strictMcpConfig`, no skill package, memory file or consult, and the Job's own `job` server
-alone; on Codex the start is refused (`startProblem` refuses it first), the Job fails and its
-conflicts are the owner's again. On the element's page (`StemMarks`, from
+alone; on Codex (`codex/config.ts` `RESTRICTED`, checked with 0.167.0), the same, with
+`submit_outputs` its only dynamic tool, every native tool a switch removes turned off through
+`features` and config keys, every MCP server of the user's config set `enabled = false` (their
+names from `config/read`), a read-only profile without network, and `environments: []` on every
+`turn/start`, so the `apply_patch` the model's catalog entry adds (no switch removes it) fails
+before touching a file. `codex/restricted-tools.test.ts` runs the machine's Codex against a
+stand-in Responses API and checks every tool the model is offered; the runner refuses a
+restricted Codex start below `RESTRICTED_CODEX` (0.167.0) and warns above it, until that test
+is run again on the new version (runner protocol 29: an older
+runner refuses restricted Codex starts and shows as outdated). A start that fails fails the Job,
+and its conflicts are the owner's again. On the element's page (`StemMarks`, from
 `plugins.conflicts`), each conflict says where it is: Stem is looking; Stem's merged value waits
-for the owner, who accepts it or keeps theirs (`plugins.resolveConflict`, `answerConflict`, with
-the same check); or it is theirs again, with the three choices of the update's screen (keep
+for the owner in the update's Approval, in the Inbox, which the page links to (`approvalId`, once
+the Job ended) and where each value is accepted or declined (`plugins.resolveConflict`,
+`answerConflict`, with the same check); or it is theirs again, with the three choices of the update's screen (keep
 theirs, take the plugin's, or hand it to Stem once more against the values as they are now). Not
-yet built: tables' and skill files' conflicts.
+yet built: skill files' conflicts.
+
+A plugin's table can be handed to Stem too, whole: on the update's screen its "Let Stem deal with
+it" box leaves its change boxes to Stem (`stem` takes `table:<id>`, refused with ticks for that
+table). The update applies nothing of it and leaves its `definition` as it was merged, and
+`handToStem` keeps one conflict for it (`kind: "table"`, field `changes`, no migration: `kind` is
+plain text): `old` the definition it was merged with, `mine` its fields then, `next` the plugin's
+definition with the changes shown. The Job is given each change by key with its kind, field,
+whether it applies and how many rows would lose values, never a row's value. `plugin_decide`
+takes a list of keys (a reset: every applicable one); any key the screen didn't show as
+applicable refuses the whole decision, which applies nothing. `decideTable` plans the table again
+(`plugins/table-apply.ts`, shared with the update and the plugin row's Apply) from the
+definition it keeps to the plugin's current one, which must still be the two the conflict holds
+(else an update merged it again and the conflict is gone); a key whose change is stale by now is
+skipped. A change that removes values (a field removed or retyped, choices dropped), whatever the
+row count, waits in the update's Approval with its field's values (`merged`: how many rows hold
+one, the first 50 with their row ids to show, a digest of all); the rest apply now through the
+field operations, and one an operation refuses (the field limit, say) is in `plugin_decide`'s
+result (`refused`, by key and reason) and stays offered. The definition the table keeps takes
+what Stem decided and declined, but keeps what waits or was refused as it was. What Stem leaves
+out counts as declined, as an unticked box. The Approval's answer (`answerTable`) is one
+transaction with the table locked `for update`, the lock every field operation takes and a row's
+write takes `for share`, so nothing lands in between: it plans the changes again against the
+definition the table keeps (an update that merged it since leaves nothing), claims the item
+(deleted only while still in `approval` with the `merged` the owner answered on), and on a yes
+reads the values again (another digest stores the values now, rolls the claim back and asks
+again, CONFLICT), then runs each change's field operation in that transaction (`removeFieldIn`,
+`retypeIn`, `updateFieldIn`, the bodies `fields.delete`, `fields.retype` and `fields.update` run
+under their own lock), each in a savepoint. A change that went stale meanwhile (the field retyped
+or its choices edited since) is skipped and declined; one its operation refuses stays out of the
+definition, offered again; both are in `resolveConflict`'s answer (`stale`, `refused`), which the
+Inbox item says. A no declines the Approval's changes as an unticked box; the plugin's row still
+offers each with Apply. Either way only the Approval's changes are answered (one that failed
+earlier stays offered). The values shown are the field's as they are: a choice change or a
+retype may keep some. A table conflict is never `open`: when the Job ends without deciding it
+(`closeStemJob`), it is dropped, and since the definition still lacks its changes, the next update
+offers them again as the checklist, with their loss as it is then. Every update that plans a
+table drops its pending conflict (`forgetConflicts`), so an old decision never applies onto a
+table merged since. The element pages have no Stem mark for tables: the update's Approval is
+where a table's decision waits.
 
 Native support currently requires `plugins.native_root = '.'`, recorded from the resolved Git
 checkout when importing or updating. Legacy rows have null until updated. Nested imports are
@@ -1826,8 +1929,13 @@ Native command bindings use verified installation source keys, never a matching 
 alone. The runner annotates catalog entries from its native inventory; the server compares
 those keys with the stored plugin revision or workspace package digest before attaching a
 Dispand skill id. An unrelated native command with the same invocation keeps precedence without
-granting access to the unrelated Dispand package or its tools. Exact Codex catalog identities
-also take precedence over compatibility aliases. Protocol 25 covers command discovery and all
+granting access to the unrelated Dispand package or its tools. A package the runner wrote into
+the live session as files carries the key Dispand sent with it on its own `<package>:<skill>`
+commands (a `~<hash>` name stays unbound), so choosing it again refreshes its required tools; a
+package a native installation replaced at the start was never written, and binds only through
+that installation. Exact Codex catalog identities also take precedence over compatibility
+aliases, the runner's package aliases included: Codex applies one only when no catalog name
+matches exactly. Protocol 25 covers command discovery and all
 of these identity fields together; the intermediate commits were not distributed as releases.
 
 ## English and French

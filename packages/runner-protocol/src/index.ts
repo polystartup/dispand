@@ -16,6 +16,7 @@ export {
   McpAction,
   McpServerName,
   McpServerRef,
+  PluginServer,
   parseRunnerMessage,
   parseServerMessage,
   JOB_SERVER_NAME,

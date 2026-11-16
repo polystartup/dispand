@@ -31,17 +31,24 @@ export type CodexDeps = {
   /** This session's skill packages (`skills.ts` `writeSkills`): the folder holding them, and each package's root. */
   pluginsDir?: string;
   pluginRoots?: string[];
+  /** Where each plugin server of the session starts, by its name: paths in its arguments are read from there. */
+  serverDirs?: Record<string, string>;
   /** The session's MCP servers (`mcp.ts` `codexMcpServers`): the config, and the header values for the app-server's environment. */
   mcp?: { servers: Record<string, JsonValue>; env: Record<string, string> };
   /** The name of Dispand's Job server among them, when the session has one: its tools run without a question. */
   jobServer?: string;
   /** With `jobServer`: the tools of the Job's tools server that run without a question, by their name there. */
   unasked?: string[];
+  /** Dispand package aliases of verified native installations, resolved after exact catalog names. */
+  skillAliases?: { alias: string; namespace: string }[];
 };
 
 const SUBMIT_OUTPUTS = "submit_outputs";
 const SUBAGENT_ASKS_PARENT = "You are a subagent: you can't ask the person. Return your question to the agent that started you; it decides whether to ask them.";
 export const PROFILE_REFUSED = "Codex didn't apply Dispand's permission profile: remove sandbox_mode from ~/.codex/config.toml";
+
+/** A server of the session's that Codex's own config.toml already names: the two can't both run. */
+export const mcpNameRefused = (name: string) => `Codex's config.toml already has an MCP server named ${name}, which this session needs: rename it in ~/.codex/config.toml`;
 
 const isObject = (v: unknown): v is Record<string, JsonValue> => typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -61,8 +68,10 @@ function toolName(item: ThreadItem): string | undefined {
  * `submit_outputs` dynamic tool.
  */
 export function startCodexSession(start: CodexSessionStart, cwd: string, sessionEmit: (e: HarnessEvent) => void, deps: CodexDeps): HarnessSession {
-  const bypass = start.permissionMode === "bypassPermissions";
-  if (bypass && !deps.allowBypass) throw new BypassRefused();
+  if (start.permissionMode === "bypassPermissions" && !deps.allowBypass) throw new BypassRefused();
+  /** A limited Job (a Stem Job): `submit_outputs` and the Job's server, nothing else (`config.ts` `RESTRICTED`). */
+  const restricted = start.restricted === true;
+  const bypass = start.permissionMode === "bypassPermissions" && !restricted;
   /** What the session may neither read nor write, symlinks inside followed: its profile and file changes deny it. */
   const denied = codexDenied(deps.secrets);
   const mcpDenied = [...denied, ...codexDenied([join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...(deps.pluginRoots ?? [])])];
@@ -132,8 +141,9 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     lastText = "";
     const started = ++turnsStarted;
     try {
-      const skills = text.startsWith("/") ? (await rpc.request("skills/list", { cwds: [cwd], forceReload: true })).data.flatMap((entry) => entry.skills) : [];
-      const { turn } = await rpc.request("turn/start", { threadId, input: skillInputs(text, skills) });
+      const skills = text.startsWith("/") && !restricted ? (await rpc.request("skills/list", { cwds: [cwd], forceReload: true })).data.flatMap((entry) => entry.skills) : [];
+      // Restricted: no environment, so no native tool (apply_patch included) reaches a file or a command.
+      const { turn } = await rpc.request("turn/start", { threadId, input: skillInputs(text, skills, deps.skillAliases), ...(restricted ? { environments: [] } : {}) });
       if (running && started === turnsStarted) learnTurn(turn.id);
     } catch (err) {
       finish({ type: "error", message: err instanceof Error ? err.message : String(err) });
@@ -219,6 +229,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   async function handle(r: ServerRequest, signal: AbortSignal): Promise<unknown> {
     switch (r.method) {
       case "item/commandExecution/requestApproval": {
+        if (restricted) return { decision: "decline" };
         const p = r.params;
         const key = `${p.itemId}/${p.approvalId ?? ""}`;
         // A second approval for one command is Codex offering to run it again outside the sandbox
@@ -240,6 +251,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         return { decision: decision === "allow-always" ? "acceptForSession" : decision === "allow" ? "accept" : "decline" };
       }
       case "item/fileChange/requestApproval": {
+        if (restricted) return { decision: "decline" };
         const changes = fileChanges.get(r.params.itemId) ?? [];
         const paths = changes.flatMap((c) => [c.path, ...(c.kind.type === "update" && c.kind.move_path ? [c.kind.move_path] : [])]);
         if (paths.length === 0 || paths.some((path) => codexDeniedEdit(cwd, path, denied))) return { decision: "decline" };
@@ -258,8 +270,8 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         return { permissions: {}, scope: "turn" };
       case "item/tool/requestUserInput": {
         const asked = r.params.questions;
-        // A secret never goes through Dispand.
-        if (asked.some((q) => q.isSecret)) return { answers: {} };
+        // A secret never goes through Dispand; a restricted session asks nobody.
+        if (restricted || asked.some((q) => q.isSecret)) return { answers: {} };
         const shown = asked.map((q) => ({
           question: q.question,
           header: q.header,
@@ -285,12 +297,13 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         const tool = typeof meta.tool_name === "string" ? meta.tool_name : "";
         const toolName = `mcp__${p.serverName}__${tool}`;
         if (deniedToolsState.blocks(toolName)) return decline;
+        if (restricted && p.serverName !== deps.jobServer) return decline;
         // Dispand's own tools: authorized by Dispand on every call, so the owner isn't asked.
         if (deps.jobServer !== undefined && p.serverName === deps.jobServer) return { action: "accept" as const, content: {}, _meta: null };
         // An action the agent lets run unasked: no question (the tools server runs it without an approval).
         const input = isObject(meta.tool_params) ? meta.tool_params : {};
         const runnerTool = agentServers.includes(p.serverName) && p.serverName !== "job_tools";
-        if (runnerTool && !runnerArgumentsAllowed(input, mcpDenied)) return decline;
+        if (runnerTool && !runnerArgumentsAllowed(input, mcpDenied, deps.serverDirs?.[p.serverName])) return decline;
         if (unasked.has(toolName)) return { action: "accept" as const, content: {}, _meta: null };
         const jobTool = agentServers.includes(p.serverName);
         if (bypass && !jobTool) return { action: "accept" as const, content: {}, _meta: null };
@@ -311,6 +324,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       }
       case "item/tool/call": {
         const p = r.params;
+        if (restricted && p.tool !== SUBMIT_OUTPUTS) return { contentItems: [{ type: "inputText", text: `unknown tool ${p.tool}` }], success: false };
         if (p.tool === REQUEST_APPROVAL && p.namespace === null && p.threadId === threadId) {
           const asked = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? (p.arguments as Record<string, unknown>) : {};
           const outcome = await requestApproval(ask, asked, signal);
@@ -355,13 +369,21 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       codex.onServerRequest(onServerRequest);
       const roots = deps.pluginRoots ?? [];
       if (roots.length > 0) await codex.request("skills/extraRoots/set", { extraRoots: roots.map((root) => join(root, "skills")) });
+      // Codex merges our servers key by key into a same-named one of the user's config.toml: a
+      // stdio one fails the config, any other mixes its settings (headers, enabled) into ours.
+      const ours = Object.keys(deps.mcp?.servers ?? {});
+      const configured = restricted || ours.length > 0 ? Object.keys(((await codex.request("config/read", { cwd })).config.mcp_servers ?? {}) as object) : [];
+      const clash = ours.find((name) => configured.includes(name));
+      if (clash !== undefined) return finish({ type: "error", message: mcpNameRefused(clash) });
+      // Restricted: every other MCP server of the user's config is off, the Job's alone stays.
+      const mcpServers = restricted ? { ...Object.fromEntries(configured.map((name) => [name, { enabled: false }])), ...deps.mcp?.servers } : { ...deps.mcp?.servers };
       const overrides = {
         cwd,
         model: start.model ?? null,
         // Keep MCP approvals enabled even when native commands bypass questions.
         approvalPolicy: "untrusted" as const,
         approvalsReviewer: "user" as const,
-        config: codexConfig({ codexHome: (deps.env ?? process.env).CODEX_HOME, denied: sandboxDenied(denied, deps.codexPath), ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}), bypass, ...(deps.mcp ? { mcpServers: deps.mcp.servers } : {}) }),
+        config: codexConfig({ codexHome: (deps.env ?? process.env).CODEX_HOME, denied: sandboxDenied(denied, deps.codexPath), ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}), bypass, restricted, mcpServers }),
         developerInstructions: start.systemPrompt || null,
       };
       const approvalSpec = {
@@ -407,7 +429,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       // `Sessions` passes a CLI session id only for a thread the runner recorded for this run folder.
       const opened = start.resumeCliSessionId
         ? await codex.request("thread/resume", { threadId: start.resumeCliSessionId, ...overrides })
-        : await codex.request("thread/start", { ...overrides, dynamicTools: [spec, approvalSpec, ...(consults.length > 0 ? [consultSpec] : [])] });
+        : await codex.request("thread/start", { ...overrides, dynamicTools: restricted ? [spec] : [spec, approvalSpec, ...(consults.length > 0 ? [consultSpec] : [])] });
       // A `sandbox_mode` in the user's config.toml makes Codex ignore profiles: no turn runs then.
       if (opened.activePermissionProfile?.id !== (bypass ? BYPASS_PROFILE : PROFILE)) return finish({ type: "error", message: PROFILE_REFUSED });
       threadId = opened.thread.id;

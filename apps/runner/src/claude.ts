@@ -34,6 +34,8 @@ export type ClaudeDeps = {
   claudePath?: string;
   /** This session's skill packages, written as plugins (`skills.ts` `writeSkills`): loaded, readable, never editable. */
   pluginRoots?: string[];
+  /** Where each plugin server of the session starts, by its name: paths in its arguments are read from there. */
+  serverDirs?: Record<string, string>;
   /** The session's MCP servers (`mcp.ts` `mcpConfigFor`): each must connect before the first turn. */
   mcpServers?: Record<string, McpServerConfig>;
   /** The name of Dispand's Job server among them, when the session has one: its tools run without a question. */
@@ -64,6 +66,8 @@ const SUBMIT_OUTPUTS = "mcp__dispand__submit_outputs";
 const SHELL_TOOLS = new Set(["Bash", "Monitor", "PowerShell", "Workflow"]);
 const SHELL_ASK = "Dispand asks the owner about every shell command.";
 const REQUEST_APPROVAL_TOOL = `mcp__dispand__${REQUEST_APPROVAL}`;
+/** The longest tool-call timeout Claude Code takes (its cap, the largest `setTimeout` delay). */
+export const DISPAND_TOOL_TIMEOUT_MS = 2_147_483_647;
 const CONSULT_TOOL = `mcp__dispand__${CONSULT}`;
 const MCP_ASK = "Dispand asks the owner about every MCP tool call.";
 /** An MCP server's tool, Dispand's own (`submit_outputs`, `request_approval`, `consult`) aside: each call asks the owner. */
@@ -238,7 +242,8 @@ export function startClaudeSession(
   let permissionsVersion = 0;
   const runnerTool = (name: string) => agentServers.some((server) => server !== "job_tools" && name.startsWith(`mcp__${server}__`));
   const mcpDenied = codexDenied([...(deps.secrets ?? []), join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...pluginRoots]);
-  const protectedArgs = (name: string, args: unknown) => runnerTool(name) && !runnerArgumentsAllowed(args, mcpDenied);
+  const dirOf = (name: string) => Object.entries(deps.serverDirs ?? {}).find(([server]) => name.startsWith(`mcp__${server}__`))?.[1];
+  const protectedArgs = (name: string, args: unknown) => runnerTool(name) && !runnerArgumentsAllowed(args, mcpDenied, dirOf(name));
   const isAgentTool = (name: string) => agentServers.some((server) => name.startsWith(`mcp__${server}__`));
   const isAllowedMcpTool = (name: string) => (deps.jobServer !== undefined && name.startsWith(`mcp__${deps.jobServer}__`)) || unasked.has(name);
 
@@ -382,7 +387,9 @@ export function startClaudeSession(
 
   // Restricted (a Stem Job): its answer only, no approval request or consult of its own.
   const restricted = start.restricted === true;
-  const sdkServers = { dispand: createSdkMcpServer({ name: "dispand", tools: restricted ? [submitOutputs] : [submitOutputs, requestApprovalTool, ...(consults.length > 0 ? [consultTool] : [])] }) };
+  // Its tools wait on the owner or another Job for as long as it takes: the CLI's longest timeout,
+  // not its default (about 28 hours) or a lower MCP_TOOL_TIMEOUT from the user's environment.
+  const sdkServers = { dispand: createSdkMcpServer({ name: "dispand", timeout: DISPAND_TOOL_TIMEOUT_MS, tools: restricted ? [submitOutputs] : [submitOutputs, requestApprovalTool, ...(consults.length > 0 ? [consultTool] : [])] }) };
   const queryAbort = new AbortController();
   const q = (deps.query ?? query)({
     prompt: input.iterable,

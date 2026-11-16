@@ -212,7 +212,7 @@ function fakeRunner(gmail: { threadId: string }[], outlook: Mail[], calls: { too
   const text = (body: unknown) => [{ type: "text", text: JSON.stringify(body) }];
   return {
     call: async (_runnerId, msg) => {
-      calls.push({ tool: msg.tool, arguments: msg.arguments });
+      calls.push({ tool: msg.tool as string, arguments: msg.arguments });
       if (msg.tool === "gmail-runner" && msg.action === "list_inbox_threads") {
         return { type: "tool.called", requestId: msg.requestId, content: text({ resultCount: gmail.length, threads: gmail.map((t) => ({ ...t, snippet: "", messageCount: 1 })) }) };
       }
@@ -239,7 +239,7 @@ test("the runner entries: a tool set up from one keeps its entry, its flags and 
   w.context.hub.request = async (_id, msg) => ({
     type: "tool.discovered",
     requestId: msg.requestId,
-    actions: (SERVER_ACTIONS[msg.tool] ?? []).map((a) => ({ ...a, description: "", inputSchema: { type: "object" } })),
+    actions: (SERVER_ACTIONS[msg.tool as string] ?? []).map((a) => ({ ...a, description: "", inputSchema: { type: "object" } })),
   });
   const create = (catalogId: string) =>
     call(router.tools.create, { kind: "runner", name: entry(catalogId).name, runnerId: w.runnerId, runnerTool: catalogId, catalogId }, { context: w.context });

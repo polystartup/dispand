@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { basename, dirname } from "node:path";
+import { resolveSkillAlias } from "../native-skills.ts";
 import type { UserInput } from "./protocol/v2/UserInput.ts";
 
 type Skill = { name: string; path: string; enabled: boolean; pluginId?: string | null; scope?: string };
-/** A local fallback package has the same namespace as the Claude plugin written beside it. */
-const qualified = (s: Skill) => `${s.pluginId ?? basename(dirname(dirname(dirname(s.path))))}:${s.name}`;
+/** A local fallback package has the same namespace as the Claude plugin written beside it; Codex 0.167 already names a staged skill `<package>:<skill>`. */
+const qualified = (s: Skill) => s.name.includes(":") ? s.name : `${s.pluginId ?? basename(dirname(dirname(dirname(s.path))))}:${s.name}`;
 
 const staged = (s: Skill) => s.path.split(/[\\/]/).includes("plugins");
 function commandName(s: Skill, skills: Skill[]): string {
@@ -13,10 +14,15 @@ function commandName(s: Skill, skills: Skill[]): string {
   return skills.some((other) => other !== s && base(other) === name) ? `${name}~${createHash("sha256").update(s.path).digest("hex").slice(0, 12)}` : name;
 }
 
-export function skillInputs(text: string, skills: Skill[]): UserInput[] {
+const SLASH = /^\/([^\s]+)(?:\s+([\s\S]*))?$/;
+
+/** A package alias (`native-skills.ts`) applies only when no catalog name matches exactly. */
+export function skillInputs(text: string, skills: Skill[], aliases: { alias: string; namespace: string }[] = []): UserInput[] {
   const enabled = skills.filter((s) => s.enabled);
-  const match = /^\/([^\s]+)(?:\s+([\s\S]*))?$/.exec(text);
-  const exact = match ? enabled.filter((s) => commandName(s, enabled) === match[1]) : [];
+  const exactly = (t: string) => enabled.filter((s) => commandName(s, enabled) === SLASH.exec(t)?.[1]);
+  if (!exactly(text).length) text = resolveSkillAlias(text, aliases);
+  const match = SLASH.exec(text);
+  const exact = exactly(text);
   const found = exact.length ? exact : match ? enabled.filter((s) => s.name === match[1] || qualified(s) === match[1] || (s.pluginId?.includes("@") && `${s.pluginId.split("@")[0]}:${s.name}` === match[1])) : [];
   if (found.length !== 1) return [{ type: "text", text, text_elements: [] }];
   const selected = found[0]!;

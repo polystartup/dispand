@@ -18,7 +18,8 @@
     "notConnected": "Not connected yet",
     "needsSignIn": "Needs sign-in: enter its settings",
     "reauthorize": "Re-authorize: its sign-in stopped working",
-    "refresh": "Refresh {{name}}"
+    "refresh": "Refresh {{name}}",
+    "pluginRunner": "Runner · the plugin {{plugin}}'s server"
   },
   "catalog": {
     "title": "Tool catalog",
@@ -144,6 +145,15 @@
     "notReported": "This runner doesn't report {{server}}: add the snippet to its config.json, then restart it.",
     "serverHint": "The names under mcpServers in the runner's config.json.",
     "pickServer": "Pick the server",
-    "addTool": "Add tool"
+    "addTool": "Add tool",
+    "pluginDescription": "A stdio server of the plugin {{plugin}}. Your runner runs it only once that machine allows its files and launch entry: run the command below there, then restart the runner.",
+    "removedDescription": "A stdio server of a plugin that was removed: nothing runs it anymore, unless you point it at one of the runner's own MCP servers.",
+    "command": "Command",
+    "digest": "Digest of the plugin's files",
+    "allow": "To allow it, run on the runner's machine",
+    "notAFile": "Its command isn't one of the plugin's files: allowing it covers the command line, not what that command runs or downloads.",
+    "copy": "Copy",
+    "copied": "Copied",
+    "noServerDescription": "A stdio server its plugin no longer offers, or keeps no files for: update the plugin, or point this tool at one of the runner's own MCP servers."
   }
 }

@@ -301,7 +301,7 @@ export class Scheduler {
     const claimed = await this.db.transaction((tx) => this.claimPolls(tx, now));
     const queues = new Map<string, Claimed[]>();
     for (const c of claimed) {
-      const key = c.tool.kind === "runner" ? `${c.tool.runnerId}\u0000${c.tool.runnerTool}` : c.pollId;
+      const key = c.tool.kind === "runner" ? `${c.tool.runnerId}\u0000${c.tool.runnerTool ?? c.tool.id}` : c.pollId;
       queues.set(key, [...(queues.get(key) ?? []), c]);
     }
     const runs = [...queues.values()].map(async (queue) => {

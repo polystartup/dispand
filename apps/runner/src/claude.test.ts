@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
-import { BypassRefused, type ClaudeSession, pluginFailure, startClaudeSession } from "./claude.ts";
+import { BypassRefused, type ClaudeSession, DISPAND_TOOL_TIMEOUT_MS, pluginFailure, startClaudeSession } from "./claude.ts";
 import { claudeEnv } from "./config.ts";
 import { TOOL_SHAPES } from "./boundary.ts";
 
@@ -1437,6 +1437,18 @@ test("a request for approval that can't be asked never leaves the turn's other c
   for (const value of [123, null, undefined, { a: 1 }, "ok"]) expect(message.safeParse(value).success).toBe(true);
 });
 
+test("Dispand's own tools wait on the owner past the CLI's default and the user's MCP_TOOL_TIMEOUT", async () => {
+  let timeouts: unknown[] = [];
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    timeouts = Object.values(options.mcpServers as Record<string, { timeout?: number }>).map((server) => server.timeout);
+    yield result();
+  });
+  await startClaudeSession(start, "/work", () => {}, { query: fake.query, jobServer: "job" }).done;
+  expect(timeouts).toEqual([DISPAND_TOOL_TIMEOUT_MS]);
+  expect(DISPAND_TOOL_TIMEOUT_MS).toBe(2 ** 31 - 1);
+});
+
 test("an action the agent lets run unasked isn't asked about; the Job's other tools and look-alikes still ask", async () => {
   const decisions: unknown[] = [];
   const outputs: unknown[] = [];
@@ -1613,6 +1625,18 @@ test.each([true, false])("an unasked runner action protects configuration (Job c
     yield result();
   });
   const session = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "files", unasked: ["read_file"] }] }, "/work", () => undefined, { query: fake.query, ...(withJob ? { jobServer: "job" } : {}), secrets: ["/guarded/config.json"] });
+  await session.done;
+  expect(decision).toMatchObject({ behavior: "deny" });
+});
+
+test("a plugin server's relative paths are read from its own folder by the guard", async () => {
+  let decision: unknown;
+  const fake = fakeQuery(async function* ({ next, options }) {
+    await next();
+    decision = await options.canUseTool!("mcp__mail__read_file", { path: "../../config.json" }, ctx());
+    yield result();
+  });
+  const session = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "plugin" as const, tool: "tool_1", plugin: "notes", digest: `sha256:${"0".repeat(64)}`, entry: { command: "./server" }, unasked: ["read_file"] }] }, "/work", () => undefined, { query: fake.query, jobServer: "job", secrets: ["/guarded/config.json"], serverDirs: { mail: "/guarded/plugins/notes" } });
   await session.done;
   expect(decision).toMatchObject({ behavior: "deny" });
 });

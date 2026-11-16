@@ -1,8 +1,11 @@
-import { expect, test } from "@playwright/test";
+import { expect as baseExpect, test } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
 
 // Own app and database (see playwright.config.ts): first launch needs a fresh install.
 const SERVER = "http://localhost:3101";
+// Each page is compiled by the dev server on its first visit, which takes seconds on a busy
+// machine, and every page here is a first visit: waits get more than the default 5 s.
+const expect = baseExpect.configure({ timeout: 20_000 });
 
 let runner: FakeRunner | undefined;
 test.afterAll(() => runner?.close());

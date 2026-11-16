@@ -126,6 +126,7 @@ test("the Assistant's own Job can't propose stripping it: refused when proposed,
   expect(errorOf(await propose([{ tool: "agents_update", input: { ...fields, dataTables: [] } }]))).toContain("Item 1 (agents_update): The Assistant keeps working on all tables");
   expect(errorOf(await propose([{ tool: "triggers_delete", input: { id: triggerId } }]))).toContain("Item 1 (triggers_delete): The Assistant's chat can't be deleted");
   expect(errorOf(await propose([{ tool: "triggers_update", input: { id: triggerId, enabled: false } }]))).toContain("Item 1 (triggers_update): The Assistant's chat can't be turned off");
+  expect(errorOf(await propose([{ tool: "agents_delete", input: { id: agentId } }]))).toContain("Item 1 (agents_delete): The Assistant can't be deleted");
   expect(await context.db.select().from(proposals).where(eq(proposals.runId, job.runId))).toEqual([]);
 
   // What it may change is proposed as any write.

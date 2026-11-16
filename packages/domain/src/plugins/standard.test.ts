@@ -168,7 +168,7 @@ test("isolates invalid component types, skills and MCP entries", () => {
   expect(mixed.mcpServers.map((s) => s.name)).toEqual(["ok"]);
   expect(reasons(mixed)).toEqual([
     "skill Bad_Name: Its name isn't lowercase letters, digits and hyphens",
-    'skill wrong: wrong/SKILL.md: the frontmatter\'s name must be "wrong", its folder',
+    "skill wrong: The frontmatter's name in “wrong/SKILL.md” must be “wrong”, its folder.",
     "mcp-server bad: Its type isn't stdio, streamable-http or sse",
   ]);
 });

@@ -8,7 +8,7 @@ import { machineConfigPaths } from "../config.ts";
 import { CODEX_DENIAL_UNSUPPORTED } from "../native-permissions.ts";
 import { fakeCodex } from "../fixtures/fake-codex-bin.ts";
 import { BypassRefused, type HarnessSession } from "../outcome.ts";
-import { type CodexDeps, type CodexSessionStart, PROFILE_REFUSED, startCodexSession } from "./session.ts";
+import { type CodexDeps, type CodexSessionStart, mcpNameRefused, PROFILE_REFUSED, startCodexSession } from "./session.ts";
 
 // Each test spawns a fake Codex process and waits on what it sends: on a busy machine (CI runs the
 // runner's test files in parallel, several spawning processes) that takes over Vitest's default 1 s.
@@ -155,6 +155,50 @@ test("a session starts a thread with Dispand's profile and instructions, streams
   await s.session.done;
 });
 
+test("a restricted session starts with only submit_outputs, the Job's server and no environment, and answers nothing else", async () => {
+  const elicit = (serverName: string) => request("mcpServer/elicitation/request", { serverName, mode: "form", message: "Allow?", requestedSchema: { type: "object", properties: {} }, _meta: { codex_approval_kind: "mcp_tool_call", tool_name: "plugin_decide", tool_params: {} } });
+  const s = await run({
+    turns: [[
+      elicit("job"),
+      elicit("node_repl"),
+      request("item/commandExecution/requestApproval", { itemId: "c", kind: "command", command: "ls" }),
+      request("item/fileChange/requestApproval", { itemId: "f" }),
+      request("item/tool/requestUserInput", { itemId: "q", questions: [{ id: "q1", header: "Pick", question: "Which?", isOther: false, isSecret: false, options: [{ label: "A", description: "" }] }] }),
+      request("item/tool/call", { callId: "a", namespace: null, tool: "request_approval", arguments: { message: "May I?" } }),
+      message("Done"),
+    ]],
+    // A machine that allows bypass, and a start that asks for it: a restricted session is sandboxed all the same.
+    start: { restricted: true, jobToken: "dj_test", permissionMode: "bypassPermissions", consults: [{ agentId: "agt_a", name: "A", description: "" }] },
+    deps: { allowBypass: true, jobServer: "job", mcp: { servers: { job: { url: "https://dispand.test/mcp/job" } }, env: {} } },
+    env: { FAKE_CODEX_CONFIG: JSON.stringify({ mcp_servers: { node_repl: { command: "node" } } }) },
+    answer: () => ({ kind: "permission", decision: "allow" }),
+  });
+  await s.ended();
+  expect(questions(s.events)).toEqual([]);
+  const [thread] = await s.sent("thread/start");
+  const params = thread!.params as { config: Record<string, unknown>; dynamicTools: { name: string }[] };
+  expect(params.dynamicTools.map((t) => t.name)).toEqual(["submit_outputs"]);
+  expect(params.config).toMatchObject({
+    default_permissions: "dispand",
+    permissions: { dispand: { extends: ":read-only", network: { enabled: false } } },
+    mcp_servers: { node_repl: { enabled: false }, job: { url: "https://dispand.test/mcp/job" } },
+    features: { shell_tool: false, unified_exec: false, view_image: false, apps: false, plugins: false, multi_agent: false, multi_agent_v2: false, image_generation: false, browser_use: false, computer_use: false, hooks: false },
+    agents: { enabled: false },
+    web_search: "disabled",
+    tools: { experimental_request_user_input: { enabled: false } },
+    skills: { include_instructions: false },
+  });
+  expect(JSON.stringify(params.config)).not.toContain('"write"');
+  const [turn] = await s.sent("turn/start");
+  expect(turn!.params).toMatchObject({ environments: [] });
+  expect(await s.replyTo("r0")).toEqual({ action: "accept", content: {}, _meta: null });
+  expect(await s.replyTo("r1")).toEqual({ action: "decline", content: null, _meta: null });
+  expect(await s.replyTo("r2")).toEqual({ decision: "decline" });
+  expect(await s.replyTo("r3")).toEqual({ decision: "decline" });
+  expect(await s.replyTo("r4")).toEqual({ answers: {} });
+  expect(await s.replyTo("r5")).toMatchObject({ success: false });
+});
+
 test("thread/start denies every machine config path", async () => {
   const home = await realpath(await mkdtemp(join(tmpdir(), "codex-home-")));
   made.push(home);
@@ -188,6 +232,20 @@ test("profile not active → refused, before any turn", async () => {
   expect(PROFILE_REFUSED).toContain("sandbox_mode");
   expect(await s.sent("turn/start")).toEqual([]);
   await s.session.done;
+});
+
+test("an MCP server of the session that the user's config.toml also names → refused before the thread, even a disabled one", async () => {
+  const servers = { job: { url: "http://127.0.0.1:1/mcp/job" }, job_tools: { url: "http://127.0.0.1:1/mcp/job/tools" } };
+  // Codex would merge ours into it key by key: its `enabled = false` would switch Dispand's off.
+  const s = await run({ deps: { mcp: { servers, env: {} } }, env: { FAKE_CODEX_CONFIG: JSON.stringify({ mcp_servers: { other: { command: "x" }, job_tools: { command: "x", enabled: false } } }) } });
+  await s.ended();
+  expect(s.events).toEqual([{ type: "error", message: mcpNameRefused("job_tools") }]);
+  expect(await s.sent("thread/start")).toEqual([]);
+  await s.session.done;
+  // Any other name runs.
+  const ok = await run({ turns: [[message("Done")]], deps: { mcp: { servers, env: {} } }, env: { FAKE_CODEX_CONFIG: JSON.stringify({ mcp_servers: { other: { command: "x" } } }) } });
+  await ok.ended();
+  expect(ok.events.at(-1)).toEqual({ type: "result", text: "Done" });
 });
 
 test("bypass refused without allowBypass; with it, Codex runs unsandboxed through the approval broker", async () => {
@@ -751,6 +809,17 @@ test.each([true, false])("Codex runner grants protect configuration (Job context
   expect(await s.replyTo("r0")).toMatchObject({ action: "decline" });
   expect(await s.replyTo("r1")).toMatchObject({ action: "accept" });
   expect(questions(s.events)).toEqual([]);
+});
+
+test("a Codex plugin server's relative paths are read from its own folder by the guard", async () => {
+  const s = await run({
+    start: { mcpServers: [{ name: "mail", type: "plugin" as const, tool: "tool_1", plugin: "notes", digest: `sha256:${"0".repeat(64)}`, entry: { command: "./server" }, unasked: ["read_file"] }] },
+    deps: { jobServer: "job", secrets: ["/guarded/config.json"], serverDirs: { mail: "/guarded/plugins/notes" } },
+    turns: [[localApproval("read_file", { path: "../../config.json" }), localApproval("read_file", { path: "note.txt" }), message("Done")]],
+  });
+  await s.ended();
+  expect(await s.replyTo("r0")).toMatchObject({ action: "decline" });
+  expect(await s.replyTo("r1")).toMatchObject({ action: "accept" });
 });
 
 test("unasked Codex runner tools refuse targets linked from protected config directories", async () => {

@@ -1029,6 +1029,8 @@ export const plugins = pgTable(
     /** Its `com.dispand` definitions as last read: registered, made only when set up. */
     definitions: jsonb("definitions").$type<PluginDefinitions>().notNull().default({ agents: [], primitives: [], triggers: [] }),
     created: jsonb("created").$type<PluginCreated>().notNull().default({}),
+    /** The content digest of its `plugin_files` (`@dispand/runner-protocol/digest`), what a runner allows; null when none are kept. */
+    digest: text("digest"),
     installedAt: timestamp("installed_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -1053,7 +1055,9 @@ export const tools = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     // `http`: Dispand reaches it at `url`. `runner`: a runner runs it, the MCP server named
-    // `runnerTool` in that runner's own config; Dispand never knows its command.
+    // `runnerTool` in that runner's own config (Dispand never knows its command), or, with a
+    // null `runnerTool`, its plugin's stdio server `pluginComponent`, which the runner starts
+    // only as its own record allows (`plugins/servers.ts`).
     kind: text("kind").$type<"http" | "runner">().notNull(),
     // Retargeting invalidates reviewed grants, even when the tool is later pointed back.
     permissionRevision: integer("permission_revision").notNull().default(0),
@@ -1156,6 +1160,23 @@ export const skillFiles = pgTable(
 );
 
 /**
+ * A standard plugin's files, kept when it has a stdio server: a runner that allowed the plugin
+ * fetches them (`GET /runner/plugins/<tool id>`) and recomputes their digest. The plugin's own
+ * copy, no owner data: gone with the plugin.
+ */
+export const pluginFiles = pgTable(
+  "plugin_files",
+  {
+    pluginId: text("plugin_id")
+      .notNull()
+      .references(() => plugins.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    content: bytea("content").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.pluginId, t.path] })],
+);
+
+/**
  * A plugin's skill files as the plugin has them (`plugins/`), beside `skill_files`, which holds the
  * files in effect: a path whose content differs is its owner's change, one only there is a file
  * they added, one only here a file they removed. Empty for a package that is its owner's own.
@@ -1178,7 +1199,7 @@ export const pluginConflicts = pgTable(
     pluginId: text("plugin_id")
       .notNull()
       .references(() => plugins.id, { onDelete: "cascade" }),
-    kind: text("kind").$type<"agent" | "tool" | "trigger">().notNull(),
+    kind: text("kind").$type<"agent" | "tool" | "trigger" | "table">().notNull(),
     elementId: text("element_id").notNull(),
     field: text("field").notNull(),
     old: jsonb("old"),

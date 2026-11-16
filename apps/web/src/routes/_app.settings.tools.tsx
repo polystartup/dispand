@@ -80,7 +80,7 @@ function Tools() {
                   <span className="block truncate text-[15px] font-medium">{qualifiedName(tool.plugin?.name ?? null, tool.name)}</span>
                   <span className="block truncate text-[13px] text-muted">
                     {t("list.line", {
-                      where: tool.kind === "runner" ? (tool.runnerTool ? t("list.runner", { tool: tool.runnerTool }) : t("list.noRunner")) : tool.urlSet ? t("list.secretUrl") : t("list.mcp", { host: hostOf(tool.url ?? "") }),
+                      where: tool.kind === "runner" ? (tool.runnerTool ? t("list.runner", { tool: tool.runnerTool }) : tool.pluginServer ? t("list.pluginRunner", { plugin: tool.pluginServer.plugin }) : t("list.noRunner")) : tool.urlSet ? t("list.secretUrl") : t("list.mcp", { host: hostOf(tool.url ?? "") }),
                       actions: t("list.actions", { count: tool.actions.length }),
                     })}
                   </span>

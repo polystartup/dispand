@@ -213,6 +213,7 @@
     "recorded": "Ce que ces éléments créent est enregistré dans le plugin <0>{{plugin}}</0>.",
     "refused": "refusé",
     "done": "fait",
+    "undone": "Cette action est irréversible.",
     "runsWithout": "S’exécute sans demander : {{runs}}",
     "othersAsk": "Les autres actions activées demandent",
     "titles": {
@@ -238,7 +239,9 @@
       "plugins_install": "Installer un plugin et configurer ce qu’il définit",
       "marketplaces_add": "Ajouter une marketplace : là où les plugins et les compétences sont lus",
       "memory_add": "Ajouter une entrée à une mémoire : ce dont partent les Jobs suivants",
-      "memory_update": "Réécrire une entrée d’une mémoire : ce dont partent les Jobs suivants"
+      "memory_update": "Réécrire une entrée d’une mémoire : ce dont partent les Jobs suivants",
+      "fields_retype": "Changer le type d’un champ : une valeur que le nouveau type ne peut pas contenir est effacée",
+      "agents_delete": "Supprimer un agent, avec ses déclencheurs : ses Jobs en cours s’arrêtent"
     },
     "labelsOf": {
       "tables_create": {
@@ -341,6 +344,13 @@
         "path": "Chemin",
         "type": "Type",
         "body": "Ce qu’elle dit"
+      },
+      "fields_retype": {
+        "id": "Champ",
+        "type": "Nouveau type"
+      },
+      "agents_delete": {
+        "id": "Agent"
       }
     },
     "labels": {
@@ -356,7 +366,46 @@
       "dataTables": "Tables",
       "consults": "Peut consulter",
       "selfLearning": "Apprend"
-    }
+    },
+    "sentences": {
+      "tables_create": "Créer une table nommée {{name}}.",
+      "tables_rename": "Renommer <0/> en {{name}}.",
+      "tables_set_primitive_on": "Faire de <0/> une table primitive.",
+      "tables_set_primitive_off": "Ne plus faire de <0/> une table primitive.",
+      "tables_delete": "Supprimer la table <0/> et ses lignes.",
+      "fields_create": "Ajouter le champ {{name}}, de type {{type}}, à <0/>.",
+      "fields_create_names": "Ajouter le champ {{name}}, de type {{type}}, à <0/>, qui nomme des lignes de <1/>.",
+      "fields_update": "Modifier le champ <0/>.",
+      "fields_reorder": "Réordonner les champs de <0/>.",
+      "fields_delete": "Supprimer le champ <0/> et ses valeurs.",
+      "fields_retype": "Changer le type du champ <0/> en {{type}} ; une valeur que le nouveau type ne peut pas contenir est effacée.",
+      "agents_create": "Créer un agent nommé {{name}}.",
+      "agents_update": "Modifier l’agent <0/>.",
+      "agents_delete": "Supprimer l’agent <0/> et ses déclencheurs.",
+      "agents_set_tool_permission_run": "Laisser <0/> exécuter l’action {{action}} de <1/> sans demander.",
+      "agents_set_tool_permission_ask": "Faire demander <0/> avant d’exécuter l’action {{action}} de <1/>.",
+      "agents_set_tool_permission_off": "Désactiver l’action {{action}} de <1/> pour <0/>.",
+      "tools_add": "Ajouter l’outil {{name}}, un serveur que Dispand appellera à {{url}}.",
+      "tools_add_from_catalog": "Ajouter un outil depuis l’entrée du catalogue <0/>.",
+      "tools_delete": "Supprimer l’outil <0/> et ses en-têtes enregistrés.",
+      "plugins_add_server": "Ajouter le serveur {{server}} de <0/> comme outil, appelé à {{url}}.",
+      "triggers_create": "Créer un déclencheur qui lance des Jobs de <0/>.",
+      "triggers_update": "Modifier le déclencheur <0/>.",
+      "triggers_delete": "Supprimer le déclencheur <0/>.",
+      "plugins_install": "Installer le plugin {{entryName}} et configurer ce qu’il définit.",
+      "marketplaces_add": "Ajouter la place de marché à {{url}}, où les plugins et les skills sont lus.",
+      "memory_add": "Ajouter l’entrée de mémoire {{path}}.",
+      "memory_add_table": "Ajouter l’entrée de mémoire {{path}} de <0/>.",
+      "memory_update": "Réécrire l’entrée de mémoire {{path}}.",
+      "memory_update_table": "Réécrire l’entrée de mémoire {{path}} de <0/>.",
+      "plugins_add_server_runner": "Ajouter le serveur {{server}} de <0/> comme outil exécuté sur un runner.",
+      "harnesses_set_limit_one": "Laisser <0/> travailler sur {{count}} session à la fois.",
+      "harnesses_set_limit_other": "Laisser <0/> travailler sur {{count}} sessions à la fois."
+    },
+    "was": "Avant :",
+    "becomes": "Après :",
+    "added": "Ajouté :",
+    "removed": "Retiré :"
   },
   "inbox": {
     "title": "Boîte de réception",
@@ -375,5 +424,21 @@
       "turnOn": "Activer",
       "failed": "Les notifications n’ont pas pu être activées dans ce navigateur. Réessayez."
     }
+  },
+  "update": {
+    "intro": "{{assistant}} a fusionné ces valeurs pour la mise à jour de {{plugin}}. Répondez à chacune : tant que vous ne l’acceptez pas, la vôtre reste.",
+    "introUnnamed": "{{assistant}} a fusionné ces valeurs pour la mise à jour d’un plugin. Répondez à chacune : tant que vous ne l’acceptez pas, la vôtre reste.",
+    "asked": "{{assistant}} a fusionné des valeurs pour la mise à jour de {{plugin}}.",
+    "askedUnnamed": "{{assistant}} a fusionné des valeurs pour la mise à jour d’un plugin.",
+    "answered": "Vous avez répondu à chaque valeur.",
+    "expired": "Plus rien n’attend : un changement ultérieur a renvoyé ces valeurs sur la page de l’élément.",
+    "failed": "Impossible d’enregistrer votre réponse.",
+    "removes_one": "Il peut retirer des valeurs : le champ contient celle-ci pour l’instant, dans {{count}} ligne :",
+    "removes_other": "Il peut retirer des valeurs : le champ contient celles-ci pour l’instant, dans {{count}} lignes :",
+    "removesNone": "Aucune ligne n’y a de valeur pour l’instant.",
+    "moreValues_one": "Et {{count}} ligne de plus.",
+    "moreValues_other": "Et {{count}} lignes de plus.",
+    "refusedChange": "« {{change}} » n’a pas été fait : {{reason}} La prochaine mise à jour du plugin le propose à nouveau.",
+    "staleChange": "« {{change}} » a été ignoré : le champ a changé depuis l’approbation."
   }
 }

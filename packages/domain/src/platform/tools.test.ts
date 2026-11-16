@@ -43,6 +43,7 @@ test("the tools are exactly the data and configure ones, on tables, fields, rows
   expect(of("data")).toEqual(["rows_create", "rows_delete", "rows_get", "rows_list", "rows_update", "tables_get", "tables_list"]);
   expect(of("configure")).toEqual([
     "agents_create",
+    "agents_delete",
     "agents_get",
     "agents_list",
     "agents_set_tool_permission",
@@ -52,6 +53,7 @@ test("the tools are exactly the data and configure ones, on tables, fields, rows
     "fields_create",
     "fields_delete",
     "fields_reorder",
+    "fields_retype",
     "fields_update",
     "harnesses_limits",
     "harnesses_set_limit",
@@ -83,17 +85,17 @@ test("the tools are exactly the data and configure ones, on tables, fields, rows
     "workspace_review",
     "workspace_set_checkpoint",
   ]);
-  expect(PLATFORM_TOOLS).toHaveLength(47);
+  expect(PLATFORM_TOOLS).toHaveLength(49);
   expect(PLATFORM_TOOLS.every((t) => ["tables", "fields", "rows", "agents", "harnesses", "triggers", "tools", "workspace", "jobs", "workflows", "audit", "plugins", "marketplaces"].includes(t.path.split(".")[0]!))).toBe(true);
   // Of Jobs and workflows, only reads: an agent never starts, stops or answers one through these.
   expect(PLATFORM_TOOLS.filter((t) => t.path.startsWith("jobs.") || t.path.startsWith("workflows.")).map((t) => t.path).sort()).toEqual(["jobs.def", "jobs.get", "jobs.list", "workflows.list"]);
   // Of harnesses, only their limits (with what each is, never its key): an agent never changes a harness's runner, model or key.
   expect(PLATFORM_TOOLS.filter((t) => t.path.startsWith("harnesses.")).map((t) => t.path)).toEqual(["harnesses.limits", "harnesses.setLimit"]);
   // What changes what agents may do is marked: it runs only on a proposal a person approved.
-  expect(PLATFORM_TOOLS.filter((t) => t.grant).map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_permission", "agents_update", "fields_delete", "harnesses_set_limit", "marketplaces_add", "plugins_install", "tables_delete", "tools_add", "tools_add_from_catalog", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
+  expect(PLATFORM_TOOLS.filter((t) => t.grant).map((t) => t.name).sort()).toEqual(["agents_create", "agents_delete", "agents_set_tool_permission", "agents_update", "fields_delete", "fields_retype", "harnesses_set_limit", "marketplaces_add", "plugins_install", "tables_delete", "tools_add", "tools_add_from_catalog", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
   // What needs a person, and what agents never touch, are named as not tools. Audit retention is
   // the owner's only, not even a grant: shortening it erases the trail of what agents did.
-  for (const path of ["fields.retype", "auth.setup", "runners.create", "tools.create", "tools.update", "tools.refresh", "agents.delete", "jobs.start", "jobs.consults", "runs.get", "runs.list", "questions.list", "questions.answer", "files.upload", "audit.traceUrl", "workspace.auditRetention", "workspace.setAuditRetention", "workspace.strictPermissions", "workspace.setStrictPermissions"]) {
+  for (const path of ["auth.setup", "runners.create", "tools.create", "tools.update", "tools.refresh", "jobs.start", "jobs.consults", "runs.get", "runs.list", "questions.list", "questions.answer", "files.upload", "audit.traceUrl", "workspace.auditRetention", "workspace.setAuditRetention", "workspace.strictPermissions", "workspace.setStrictPermissions"]) {
     expect(NOT_TOOLS).toContain(path);
   }
 });
