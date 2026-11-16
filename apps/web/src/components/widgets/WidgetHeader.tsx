@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -8,6 +9,7 @@ import { orpc } from "../../lib/api.ts";
 
 /** The title of a widget; in edit mode it renames the widget, deletes it, and carries `extra`. */
 export function WidgetHeader({ widget, editing, extra }: { widget: { id: string; title: string }; editing: boolean; extra?: ReactNode }) {
+  const { t } = useTranslation("dashboard");
   const queryClient = useQueryClient();
   const [title, setTitle] = useState(widget.title);
   useEffect(() => setTitle(widget.title), [widget.title]);
@@ -23,7 +25,7 @@ export function WidgetHeader({ widget, editing, extra }: { widget: { id: string;
     <header className={cn("flex items-center gap-2 px-5 pb-2 pt-4", editing && "widget-drag cursor-grab")}>
       {editing ? (
         <Input
-          aria-label="Widget title"
+          aria-label={t("widget.titleLabel")}
           value={title}
           maxLength={100}
           onChange={(e) => setTitle(e.target.value)}
@@ -39,7 +41,7 @@ export function WidgetHeader({ widget, editing, extra }: { widget: { id: string;
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label={`Delete ${widget.title}`}
+          aria-label={t("widget.delete", { title: widget.title })}
           className="rounded-full text-muted"
           disabled={remove.isPending}
           onClick={() => remove.mutate({ id: widget.id })}

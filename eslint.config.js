@@ -14,27 +14,9 @@ export default tseslint.config(
     rules: { "no-restricted-imports": ["error", { patterns: [{ group: ["@opentelemetry/*"], message: "Use packages/domain/src/telemetry: it owns the SDK and redaction." }] }] },
   },
   // Translated areas: a user-visible literal in JSX text or in the attributes people read fails;
-  // its text belongs in `apps/web/src/locales/`. Add an area here once it is translated.
+  // its text belongs in `apps/web/src/locales/`. All of apps/web/src, tests apart.
   {
-    files: [
-      "apps/web/src/components/shell/**/*.tsx",
-      "apps/web/src/components/auth/**/*.tsx",
-      "apps/web/src/components/settings/**/*.tsx",
-      "apps/web/src/routes/_app.tsx",
-      "apps/web/src/routes/login.tsx",
-      "apps/web/src/routes/setup.tsx",
-      "apps/web/src/routes/_app.settings.{tools,skills,plugins.*,harnesses.*}.tsx",
-      "apps/web/src/components/{chat,assistant,questions,runs}/**/*.tsx",
-      "apps/web/src/routes/_app.{assistant,inbox}.tsx",
-      "apps/web/src/routes/_app.settings.workflows.runs.$runId.tsx",
-      "apps/web/src/components/{memory,audit}/**/*.tsx",
-      "apps/web/src/routes/_app.audit.tsx",
-      "apps/web/src/routes/_app.settings.{agents.*,data.*,memory,workflows.index,workflows.$id}.tsx",
-      "apps/web/src/components/{agents,data,workflow}/**/*.tsx",
-      "apps/web/src/components/Placeholder.tsx",
-      "apps/web/src/routes/_app.{help,index}.tsx",
-      "apps/web/src/routes/_app.settings.workflows.{runs.index,$id_.runs}.tsx",
-    ],
+    files: ["apps/web/src/**/*.tsx"],
     ignores: ["**/*.test.tsx"],
     plugins: { i18next },
     rules: {

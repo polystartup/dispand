@@ -1,5 +1,6 @@
 import type { Cell, FieldSchema } from "@dispand/domain/data/fields";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { orpc } from "../../lib/api.ts";
 import { fileUrl } from "../data/AttachmentCell.tsx";
 import { DataWidgetSettings } from "../dashboard/DataWidgetSettings.tsx";
@@ -8,17 +9,18 @@ import { type DataWidget, DataWidgetFrame, dataNotice, OpenInData, useDataWidget
 const LIMIT = 100;
 
 /** A card's title: its first field as plain text. */
-export function titleOf(field: FieldSchema, value: Cell | undefined): string {
+export function titleOf(field: FieldSchema, value: Cell | undefined, checked: string): string {
   if (value === undefined || value === null || Array.isArray(value)) return "";
   if (field.type === "single-select") return field.choices.find((c) => c.id === value)?.label ?? "";
-  if (field.type === "checkbox") return value === true ? "Checked" : "";
+  if (field.type === "checkbox") return value === true ? checked : "";
   return String(value).split("\n")[0]!;
 }
 
 /** The rows of a table as cards: the first chosen field is the title, the others follow, and a files field can be the cover. */
 export function GridWidget({ widget, editing }: { widget: Extract<DataWidget, { type: "grid" }>; editing: boolean }) {
+  const { t } = useTranslation(["dashboard", "common", "data"]);
   const { table, shown, all } = useDataWidget(widget);
-  const notice = dataNotice(table, shown);
+  const notice = dataNotice(t, table, shown);
   const cover = all.find((f) => f.id === widget.config.coverFieldId && f.type === "attachment");
   return (
     <DataWidgetFrame widget={widget} editing={editing} extra={<DataWidgetSettings widget={widget} />} notice={notice ?? undefined}>
@@ -29,15 +31,16 @@ export function GridWidget({ widget, editing }: { widget: Extract<DataWidget, { 
 }
 
 function Cards({ tableId, title, rest, cover }: { tableId: string; title: FieldSchema; rest: FieldSchema[]; cover?: FieldSchema }) {
+  const { t } = useTranslation(["dashboard", "common", "data"]);
   const rows = useQuery(orpc.rows.list.queryOptions({ input: { tableId, limit: LIMIT } }));
   if (rows.error && !rows.data) {
     return (
       <p role="alert" className="px-5 pb-5 text-[14px] text-muted">
-        Could not load the rows.
+        {t("widget.rowsFailed")}
       </p>
     );
   }
-  if (!rows.data) return <p className="px-5 pb-5 text-[14px] text-faint">Loading…</p>;
+  if (!rows.data) return <p className="px-5 pb-5 text-[14px] text-faint">{t("common:loading")}</p>;
   const { data } = rows;
   return (
     <>
@@ -48,7 +51,7 @@ function Cards({ tableId, title, rest, cover }: { tableId: string; title: FieldS
             <li key={row.id} className="overflow-hidden rounded-xl border border-line">
               {image && <img src={fileUrl(image)} alt={data.attachments[image]?.name ?? ""} className="aspect-video w-full object-cover" />}
               <div className="grid gap-1.5 p-3 text-[14px]">
-                <p className="truncate font-medium">{titleOf(title, row.values[title.id]) || <span className="text-faint">Untitled</span>}</p>
+                <p className="truncate font-medium">{titleOf(title, row.values[title.id], t("data:cell.checked")) || <span className="text-faint">{t("widget.untitled")}</span>}</p>
                 {rest.map((field) => {
                   const value = row.values[field.id] ?? null;
                   const empty = value === null || value === "" || (Array.isArray(value) && value.length === 0);
@@ -66,7 +69,7 @@ function Cards({ tableId, title, rest, cover }: { tableId: string; title: FieldS
           );
         })}
       </ul>
-      {data.rows.length === 0 && <p className="px-5 pb-2 text-[14px] text-muted">No rows yet.</p>}
+      {data.rows.length === 0 && <p className="px-5 pb-2 text-[14px] text-muted">{t("widget.noRows")}</p>}
       <OpenInData tableId={tableId} shown={data.rows.length} total={data.total} />
     </>
   );

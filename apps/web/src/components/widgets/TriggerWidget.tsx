@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { api, orpc } from "../../lib/api.ts";
 import { localTimezone } from "../agents/TriggerSheet.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
@@ -12,6 +13,7 @@ type Props = { widget: TriggerFormWidget; editing: boolean };
 
 /** An agent's manual trigger on a page: its button starts a Job, its chat holds the conversation. Disabled, it still shows the Job it ran last. */
 export function TriggerWidget({ widget, editing }: Props) {
+  const { t } = useTranslation(["dashboard", "common", "data"]);
   const trigger = useQuery({ ...orpc.triggers.get.queryOptions({ input: { id: widget.triggerId } }), retry: false });
   const jobs = useQuery(orpc.runs.list.queryOptions({ input: { triggerId: widget.triggerId } }));
   // undefined: follow the trigger's latest Job; null: a new conversation that hasn't started yet.
@@ -29,16 +31,16 @@ export function TriggerWidget({ widget, editing }: Props) {
       <WidgetHeader widget={widget} editing={editing} />
       {trigger.error ? (
         <p role="alert" className="px-5 pb-5 text-[14px] text-muted">
-          {(trigger.error as { code?: string }).code === "NOT_FOUND" ? "This trigger is no longer available." : "Could not load this trigger."}
+          {(trigger.error as { code?: string }).code === "NOT_FOUND" ? t("widget.triggerGone") : t("widget.triggerFailed")}
         </p>
       ) : jobs.error && !jobs.data ? (
         <p role="alert" className="px-5 pb-5 text-[14px] text-muted">
-          Could not load this trigger's Jobs.
+          {t("widget.triggerJobsFailed")}
         </p>
       ) : !trigger.data || !jobs.data || !shown ? (
-        <p className="px-5 pb-5 text-[14px] text-faint">Loading…</p>
+        <p className="px-5 pb-5 text-[14px] text-faint">{t("common:loading")}</p>
       ) : !trigger.data.enabled && !runId ? (
-        <p className="px-5 pb-5 text-[14px] text-muted">This trigger is disabled.</p>
+        <p className="px-5 pb-5 text-[14px] text-muted">{t("widget.triggerDisabled")}</p>
       ) : shown === "chat" ? (
         <ChatPanel start={start} runId={runId} onRunStarted={setChosen} onNewConversation={trigger.data.enabled ? () => setChosen(null) : undefined} />
       ) : (

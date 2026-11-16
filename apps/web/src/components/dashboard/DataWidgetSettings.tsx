@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Settings2 } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { orpc } from "../../lib/api.ts";
@@ -9,6 +10,7 @@ import { DataWidgetForm } from "./DataWidgetForm.tsx";
 
 /** In edit mode, the button that changes the fields a Grid or Table widget shows. */
 export function DataWidgetSettings({ widget }: { widget: DataWidget }) {
+  const { t } = useTranslation(["dashboard", "common"]);
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
   const save = useMutation(
@@ -21,7 +23,7 @@ export function DataWidgetSettings({ widget }: { widget: DataWidget }) {
   );
   return (
     <>
-      <Button variant="ghost" size="icon-sm" aria-label={`Settings of ${widget.title}`} className="rounded-full text-muted" onClick={() => setOpen(true)}>
+      <Button variant="ghost" size="icon-sm" aria-label={t("settings.label", { title: widget.title })} className="rounded-full text-muted" onClick={() => setOpen(true)}>
         <Settings2 aria-hidden />
       </Button>
       <Dialog
@@ -32,12 +34,12 @@ export function DataWidgetSettings({ widget }: { widget: DataWidget }) {
         }}
       >
         <DialogContent>
-          <DialogTitle>Widget settings</DialogTitle>
-          <DialogDescription>The table's rows are shown with these fields.</DialogDescription>
+          <DialogTitle>{t("settings.title")}</DialogTitle>
+          <DialogDescription>{t("settings.text")}</DialogDescription>
           <DataWidgetForm
             kind={widget.type}
             initial={{ tableId: widget.tableId, config: widget.config }}
-            submitLabel="Save"
+            submitLabel={t("common:actions.save")}
             pending={save.isPending}
             error={save.error?.message}
             onSubmit={({ config }) => save.mutate({ id: widget.id, config })}

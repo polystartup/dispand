@@ -1853,8 +1853,8 @@ same keys.
 - **Dates and numbers:** `lib/format.ts` formats them in the page's language (`useFormat`),
   never the browser's default locale.
 - **Lint:** `i18next/no-literal-string` fails a user-visible literal (JSX text, `placeholder`,
-  `aria-label`, `title`, `alt`) in the folders listed in `eslint.config.js`, the translated
-  ones; a folder joins the list when it is translated.
+  `aria-label`, `title`, `alt`) anywhere in `apps/web/src` (tests apart), so no area of the page
+  is left untranslated.
 - **Server messages:** an error whose text reaches a person carries a key of the `messages`
   files and its values, never a sentence: `new ORPCError(code, message(key, values))` or
   `new EngineError(code, message(key, values))` (`packages/domain/src/messages/index.ts`;

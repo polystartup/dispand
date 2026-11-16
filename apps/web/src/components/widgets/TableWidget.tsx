@@ -3,6 +3,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { orpc } from "../../lib/api.ts";
 import { DataWidgetSettings } from "../dashboard/DataWidgetSettings.tsx";
@@ -12,6 +13,7 @@ const PAGE = 50;
 
 /** A read-only table of the chosen fields. Header clicks sort for this viewer only: ascending, descending, then the widget's own order. */
 export function TableWidget({ widget, editing }: { widget: Extract<DataWidget, { type: "table" }>; editing: boolean }) {
+  const { t } = useTranslation(["dashboard", "common", "data"]);
   const { table, shown, all } = useDataWidget(widget);
   const { tableId } = widget;
   const navigate = useNavigate();
@@ -33,7 +35,7 @@ export function TableWidget({ widget, editing }: { widget: Extract<DataWidget, {
   const loaded = rows.data?.pages.flatMap((p) => p.rows) ?? [];
   const files = Object.assign({}, ...(rows.data?.pages.map((p) => p.attachments) ?? [])) as NonNullable<typeof rows.data>["pages"][number]["attachments"];
   const total = rows.data?.pages.at(-1)?.total ?? 0;
-  const notice = dataNotice(table, shown);
+  const notice = dataNotice(t, table, shown);
 
   const cycle = (fieldId: string) =>
     setViewSort((current) => (current?.fieldId !== fieldId ? { fieldId, dir: "asc" } : current.dir === "asc" ? { fieldId, dir: "desc" } : undefined));
@@ -43,10 +45,10 @@ export function TableWidget({ widget, editing }: { widget: Extract<DataWidget, {
     <DataWidgetFrame widget={widget} editing={editing} extra={<DataWidgetSettings widget={widget} />} notice={notice ?? undefined}>
       {rows.error && !rows.data ? (
         <p role="alert" className="px-5 pb-5 text-[14px] text-muted">
-          Could not load the rows.
+          {t("widget.rowsFailed")}
         </p>
       ) : !rows.data ? (
-        <p className="px-5 pb-5 text-[14px] text-faint">Loading…</p>
+        <p className="px-5 pb-5 text-[14px] text-faint">{t("common:loading")}</p>
       ) : (
         <>
           <div className="min-h-0 flex-1 overflow-auto px-2">
@@ -89,12 +91,12 @@ export function TableWidget({ widget, editing }: { widget: Extract<DataWidget, {
                 ))}
               </tbody>
             </table>
-            {loaded.length === 0 && <p className="px-3 py-2 text-[14px] text-muted">No rows yet.</p>}
+            {loaded.length === 0 && <p className="px-3 py-2 text-[14px] text-muted">{t("widget.noRows")}</p>}
           </div>
           {rows.hasNextPage && (
             <div className="px-5 pt-2">
               <Button variant="outline" size="sm" disabled={rows.isFetchingNextPage} onClick={() => void rows.fetchNextPage()}>
-                Load more
+                {t("widget.loadMore")}
               </Button>
             </div>
           )}
