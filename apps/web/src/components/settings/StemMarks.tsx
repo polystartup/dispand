@@ -18,8 +18,8 @@ export function StemMarks({ kind, id, labels, onResolved }: { kind: "agent" | "t
   const { t: tm } = useTranslation("messages");
   const assistant = tm("agent.assistant.name");
   const queryClient = useQueryClient();
-  // While Stem is looking, asked again until it is done.
-  const conflicts = useQuery({ ...orpc.plugins.conflicts.queryOptions({ input: { kind, id } }), refetchInterval: (q) => (q.state.data?.some((c) => c.status === "stem") ? 3000 : false) });
+  // While Stem is looking, or its Approval isn't in the Inbox yet, asked again until it is done.
+  const conflicts = useQuery({ ...orpc.plugins.conflicts.queryOptions({ input: { kind, id } }), refetchInterval: (q) => (q.state.data?.some((c) => c.status === "stem" || (c.status === "approval" && !c.approvalId)) ? 3000 : false) });
   const refresh = () => Promise.all([orpc.plugins, orpc.agents, orpc.tools, orpc.triggers].map((p) => queryClient.invalidateQueries({ queryKey: p.key() })));
   const resolve = useMutation(
     orpc.plugins.resolveConflict.mutationOptions({

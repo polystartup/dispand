@@ -147,7 +147,9 @@ export async function answerConflict(context: Context, actor: AuditActor, confli
   const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, conflictId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "approval")));
   if (!c) return "gone";
   const outcome = await answerOne(context, actor, c, approved);
-  if (await settleApprovals(context.db, [c.runId], actor.type === "user" ? actor : undefined)) context.engine.questionChanges.publish("changed", true);
+  await settleApprovals(context.db, [c.runId], actor.type === "user" ? actor : undefined);
+  // Every Inbox showing it hears that an item left, even while others still wait.
+  context.engine.questionChanges.publish("changed", true);
   return outcome;
 }
 
