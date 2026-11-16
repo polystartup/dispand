@@ -14,7 +14,8 @@ vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
-vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => children }));
+const navigate = vi.hoisted(() => vi.fn());
+vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => children, useNavigate: () => navigate }));
 const { TriggerList } = await import("./TriggerList.tsx");
 
 afterEach(() => {
@@ -91,4 +92,6 @@ test("TriggerList starts a manual button trigger and not a chat one", async () =
   expect(screen.getAllByRole("button", { name: /^Start / })).toHaveLength(1);
   await user.click(screen.getByRole("button", { name: "Start Run the report" }));
   expect(fake.jobs.start.mock.calls[0]![0]).toMatchObject({ triggerId: "trigger_3" });
+  // The started Job's page opens.
+  await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: "/settings/workflows/runs/$runId", params: { runId: "run_1" } }));
 });

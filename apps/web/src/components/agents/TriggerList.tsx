@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -32,9 +33,13 @@ export function TriggerList({ agentId }: { agentId: string }) {
   const triggers = useQuery(orpc.triggers.list.queryOptions({ input: { agentId } }));
   const home = useQuery(orpc.pages.home.queryOptions());
   const addToHome = useMutation(orpc.widgets.create.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.pages.key() }) }));
+  const navigate = useNavigate();
   const start = useMutation({
     mutationFn: (triggerId: string) => api.jobs.start({ triggerId, timezone: localTimezone() }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.triggers.key() }),
+    onSuccess: ({ runId }) => {
+      void queryClient.invalidateQueries({ queryKey: orpc.triggers.key() });
+      void navigate({ to: "/settings/workflows/runs/$runId", params: { runId } });
+    },
   });
   // undefined: closed; null: a new trigger.
   const [open, setOpen] = useState<Trigger | null | undefined>(undefined);
