@@ -644,9 +644,6 @@ export class Engine {
   async stopRun(runId: string): Promise<void> {
     const out: Out[] = [];
     const sessions = await this.db.transaction(async (tx) => {
-      // The root before the run, the order a declined checkpoint takes them in (`settleRoot`): the run's end event references the root.
-      const [rooted] = await tx.select({ rootId: runs.rootId }).from(runs).where(eq(runs.id, runId));
-      if (rooted?.rootId) await tx.select({ id: roots.id }).from(roots).where(eq(roots.id, rooted.rootId)).for("key share");
       const [run] = await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).for("update");
       if (!run) throw new EngineError("NOT_FOUND", "Run not found");
       if (!ACTIVE_RUN.includes(run.status)) throw new EngineError("CLOSED", "This run is over");
@@ -1236,7 +1233,8 @@ export class Engine {
     const decision = answer.kind === "permission" ? answer.decision : "deny";
     const answered = decision === "allow-always" ? "dont-ask" : decision === "allow" ? "approve" : "decline";
     counts.counter("dispand.checkpoints.answered").add(1, { "dispand.checkpoint.answer": answered });
-    const [root] = await tx.select().from(roots).where(eq(roots.id, rootId)).for("update");
+    // `NO KEY UPDATE`: a Job ending meanwhile (its run locked) still writes events referencing the root, so the decline's wait on its runs can't deadlock with it.
+    const [root] = await tx.select().from(roots).where(eq(roots.id, rootId)).for("no key update");
     if (!root || root.state !== "paused") return {};
     // The root's row, besides its Approval's `question.answered`: on a decline, with what it stopped.
     const audited = (details: { events?: number; jobs?: number } = {}) =>
