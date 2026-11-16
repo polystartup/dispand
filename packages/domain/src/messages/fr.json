@@ -448,6 +448,75 @@
       "onRunner": "{{kind}}, sur {{runner}}",
       "mode": "{{kind}}, mode d’autorisation {{mode}}",
       "both": "{{kind}}, sur {{runner}}, mode d’autorisation {{mode}}"
+    },
+    "usedByAgent": "Un agent utilise ce harnais.",
+    "modelsUnavailable": "Impossible de lister les modèles. Vérifiez que le runner est connecté et authentifié, ou saisissez l’identifiant d’un modèle.",
+    "modelsFailed": "Les modèles n’ont pas pu être listés.",
+    "kindFixed": "Un harnais ne peut pas passer de CLI à cloud, ni l’inverse.",
+    "cloud": {
+      "needsBaseUrl": "Un fournisseur compatible OpenAI a besoin d’une URL de base.",
+      "needsKey": "Une clé d’API est requise.",
+      "keyHttps": "Une clé n’est envoyée qu’à une URL de base en https://.",
+      "temperature": "La température ne concerne que les fournisseurs compatibles OpenAI."
     }
+  },
+  "auth": {
+    "signIn": "Connectez-vous pour continuer.",
+    "setupRefused": "La configuration initiale n’est pas autorisée.",
+    "ownerOnly": "Seul le propriétaire peut faire cela, pas un agent."
+  },
+  "audit": {
+    "badCursor": "Ce curseur n’est pas valide : reprenez la liste depuis le début."
+  },
+  "memory": {
+    "notFound": "Cette mémoire n’existe pas.",
+    "full": "Cette mémoire contient déjà {{max}} entrées : supprimez-en une d’abord.",
+    "exists": "Une entrée {{path}} existe déjà.",
+    "noEntry": "Il n’y a pas d’entrée {{path}}.",
+    "removed": "Cette entrée est déjà supprimée.",
+    "acceptOnly": "Seule une entrée d’agent, non supprimée, peut être acceptée.",
+    "notRemoved": "Cette entrée n’est pas supprimée."
+  },
+  "jobs": {
+    "manualOnly": "Seul un déclencheur manuel peut être lancé à la main.",
+    "disabled": "Ce déclencheur est désactivé.",
+    "notFound": "Ce Job n’existe pas."
+  },
+  "skills": {
+    "toolsUnavailable": "Cette compétence exige des outils indisponibles sur ce harnais.",
+    "tooMany": "Une conversation peut charger au plus {{max}} paquets de compétences.",
+    "nameTaken": "Une compétence s’appelle déjà « {{name}} ».",
+    "packageNameTaken": "Ce paquet contient déjà une compétence nommée « {{name}} ».",
+    "builtIn": "La compétence de plateforme est intégrée : elle est en lecture seule.",
+    "pluginSkill": "La compétence d’un plugin se modifie fichier par fichier, sur sa page.",
+    "editedFromForm": "Cette compétence se modifie depuis son formulaire.",
+    "fileNotFound": "Ce fichier n’existe pas.",
+    "usedByAgent": "L’agent « {{agent}} » utilise cette compétence."
+  },
+  "runners": {
+    "usedByHarness": "Un harnais utilise ce runner.",
+    "nativeOwnerOnly": "L’installation native exige une session de propriétaire.",
+    "targetNeedsHarness": "Chaque cible a besoin d’un harnais CLI sur ce runner.",
+    "unavailable": "Runner indisponible ou opération expirée. Actualisez l’inventaire avant de réessayer : les changements natifs ont pu aboutir.",
+    "noUpdate": "Aucune mise à jour disponible ou runner injoignable.",
+    "harnessNotFound": "Ce harnais CLI n’existe pas.",
+    "groupByRunner": "Regroupez les cibles de l’installation native par runner.",
+    "noNativeSource": "Ce plugin n’a pas de source Git HTTPS prise en charge pour l’installation native.",
+    "wholePlugin": "Installez ou supprimez le plugin natif en entier plutôt que d’en copier les compétences séparément.",
+    "refreshInventory": "Actualisez l’inventaire natif avant de modifier les plugins : le runner n’a pas pu vérifier ses liaisons gérées."
+  },
+  "pages": {
+    "notFound": "Cette page n’existe pas.",
+    "widgetNotFound": "Ce widget n’existe pas.",
+    "tooMany": "{{max}} pages au maximum.",
+    "homeRename": "Accueil ne peut pas être renommé.",
+    "homeDelete": "Accueil ne peut pas être supprimé.",
+    "fieldTwice": "Un champ est choisi deux fois.",
+    "fieldNotInTable": "Un champ choisi n’est pas un champ de cette table.",
+    "coverFiles": "La couverture doit être un champ de fichiers de cette table.",
+    "manualTriggerForm": "Seul un déclencheur manuel peut avoir un formulaire.",
+    "manualWorkflowForm": "Seul un workflow manuel peut avoir un formulaire.",
+    "formNoFields": "Un formulaire n’a pas de champs à choisir.",
+    "widgetTooWide": "Un widget est plus large que la grille {{grid}}."
   }
 }

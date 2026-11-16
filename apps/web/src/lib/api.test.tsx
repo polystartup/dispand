@@ -49,6 +49,12 @@ const failing = {
     taken: os.handler(() => {
       throw new ORPCError("CONFLICT", message("data.table.nameTaken", { name: "Clients" }));
     }),
+    setup: os.handler(() => {
+      throw new ORPCError("FORBIDDEN", message("auth.setupRefused"));
+    }),
+    runnerUsed: os.handler(() => {
+      throw new ORPCError("CONFLICT", message("runners.usedByHarness"));
+    }),
     markup: os.handler(() => {
       throw new ORPCError("BAD_REQUEST", message("plugins.uninstall.choose", { name: "<b>case-law</b>" }));
     }),
@@ -108,6 +114,14 @@ test("an agents refusal and a tools refusal show in French, the agent's name as 
   // A refinement of the tools area, through the server's own validation.
   const add = { name: "A", url: "https://u:p@example.com/mcp", transport: "streamable-http" } as const;
   expect(await refusal((await client("fr")).tools.add(add))).toBe("L’URL ne peut pas contenir d’identifiants.");
+});
+
+test("an auth refusal and a runners refusal show in French", async () => {
+  expect(await refusal((await client("fr")).fails.setup())).toBe("La configuration initiale n’est pas autorisée.");
+  expect(await refusal((await client("fr")).fails.runnerUsed())).toBe("Un harnais utilise ce runner.");
+  // Through the real router: a Job passes `authed` but can't ask a runner to update.
+  expect(await refusal((await client("fr")).runners.installUpdate({ runnerId: "r" }))).toBe("Seul le propriétaire peut faire cela, pas un agent.");
+  expect(await refusal((await client("en")).runners.installUpdate({ runnerId: "r" }))).toBe("Only the owner can do this, not an agent.");
 });
 
 test("an input its Zod schema rejects shows a validation message in French", async () => {

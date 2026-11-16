@@ -38,23 +38,9 @@ test("a rejected input's issue becomes a validation message, its plural chosen b
   expect(validationKey({ code: "something_new", path: ["a", 0] })).toEqual({ key: "validation.custom", values: { field: "a.0" } });
 });
 
-// Errors whose text may reach a person and isn't yet a `message()` key or text marked as external,
-// per file: each Task 4 pull request keys an area and takes its files out. Exact counts, so a new
-// unkeyed error fails, and so does a keyed one left counted.
-const UNKEYED: Record<string, number> = {
-  "assistant/commands.ts": 3,
-  "assistant/invoke.ts": 4,
-  "audit/procedures.ts": 1,
-  "harnesses/procedures.ts": 6,
-  "jobs/procedures.ts": 7,
-  "memory/procedures.ts": 4,
-  "pages/procedures.ts": 13,
-  "rpc/context.ts": 1,
-  "rpc/router.ts": 3,
-  "runners/procedures.ts": 10,
-  "runners/workspace-plugin.ts": 10,
-  "skills/procedures.ts": 13,
-};
+// Errors whose text may reach a person and isn't a `message()` key or text marked as external, per
+// file with exact counts: none is left, so a new unkeyed error fails.
+const UNKEYED: Record<string, number> = {};
 
 const src = join(import.meta.dirname, "..");
 const files = (dir: string): string[] =>

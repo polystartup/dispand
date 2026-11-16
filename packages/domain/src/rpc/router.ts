@@ -25,6 +25,7 @@ import { triggers } from "../triggers/procedures.ts";
 import { skills } from "../skills/procedures.ts";
 import { runs, workflows } from "../workflows/procedures.ts";
 import { authed, base } from "./context.ts";
+import { message } from "../messages/index.ts";
 
 /** Constant-time comparison (digests have equal length whatever the inputs). */
 function sameSecret(given: string, expected: string): boolean {
@@ -43,10 +44,10 @@ const setup = base
   )
   .handler(async ({ input, context }) => {
     // Same error as "owner exists", so a wrong code reveals nothing. Checked before any work.
-    if (!sameSecret(input.setupCode, context.setupCode)) throw new ORPCError("FORBIDDEN", { message: "Setup is not allowed" });
+    if (!sameSecret(input.setupCode, context.setupCode)) throw new ORPCError("FORBIDDEN", message("auth.setupRefused"));
     // Cheap refusal first: a finished install must not spend a password hash per request.
     const [existing] = await context.db.select({ n: count() }).from(user);
-    if (existing && existing.n > 0) throw new ORPCError("FORBIDDEN", { message: "Setup is not allowed" });
+    if (existing && existing.n > 0) throw new ORPCError("FORBIDDEN", message("auth.setupRefused"));
     const ownerId = newId("user");
     const ctx = await context.auth.$context;
     const password = await ctx.password.hash(input.password);
@@ -55,7 +56,7 @@ const setup = base
       // (Checked again here: another request may have finished since the cheap check.)
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext('dispand:setup'))`);
       const [row] = await tx.select({ n: count() }).from(user);
-      if (row && row.n > 0) throw new ORPCError("FORBIDDEN", { message: "Setup is not allowed" });
+      if (row && row.n > 0) throw new ORPCError("FORBIDDEN", message("auth.setupRefused"));
       await tx.insert(user).values({ id: ownerId, name: input.name, email: input.email.toLowerCase() });
       await tx.insert(account).values({
         id: newId("acct"),

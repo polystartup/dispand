@@ -183,7 +183,7 @@ test("tools.delete and skills.delete refused while an agent uses them", async ()
   await withTools(context);
   const review = await skill(context, "review", ["tool_gh"]);
   const agent = await call(router.agents.create, { name: "Reviewer", harnessId: harness.id, systemPrompt: "", skillPackageIds: [review], toolIds: ["tool_fc"] }, { context });
-  await expect(call(router.skills.delete, { packageId: review }, { context })).rejects.toMatchObject({ code: "CONFLICT", message: "The agent “Reviewer” uses this skill" });
+  await expect(call(router.skills.delete, { packageId: review }, { context })).rejects.toMatchObject({ code: "CONFLICT", message: "The agent “Reviewer” uses this skill." });
   await expect(call(router.tools.delete, { id: "tool_fc" }, { context })).rejects.toMatchObject({ code: "CONFLICT", message: "The agent “Reviewer” uses this tool." });
   // Required by a skill: every agent with the skill gets it.
   await expect(call(router.tools.delete, { id: "tool_gh" }, { context })).rejects.toMatchObject({ code: "CONFLICT", message: "The skill “review” requires this tool." });

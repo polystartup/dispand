@@ -448,6 +448,75 @@
       "onRunner": "{{kind}}, on {{runner}}",
       "mode": "{{kind}}, permission mode {{mode}}",
       "both": "{{kind}}, on {{runner}}, permission mode {{mode}}"
+    },
+    "usedByAgent": "An agent uses this harness.",
+    "modelsUnavailable": "Could not list models. Check that the runner is connected and signed in, or enter a model ID.",
+    "modelsFailed": "The models couldn't be listed.",
+    "kindFixed": "A harness can't change between CLI and cloud.",
+    "cloud": {
+      "needsBaseUrl": "An OpenAI-compatible provider needs a base URL.",
+      "needsKey": "An API key is required.",
+      "keyHttps": "A key is only sent to an https:// base URL.",
+      "temperature": "Temperature is only for OpenAI-compatible providers."
     }
+  },
+  "auth": {
+    "signIn": "Sign in to continue.",
+    "setupRefused": "Setup is not allowed.",
+    "ownerOnly": "Only the owner can do this, not an agent."
+  },
+  "audit": {
+    "badCursor": "This cursor isn't valid: start the list again."
+  },
+  "memory": {
+    "notFound": "This memory doesn't exist.",
+    "full": "This memory holds {{max}} entries already: remove one first.",
+    "exists": "An entry {{path}} exists already.",
+    "noEntry": "There is no entry {{path}}.",
+    "removed": "This entry is removed already.",
+    "acceptOnly": "Only an agent's entry, not removed, can be accepted.",
+    "notRemoved": "This entry isn't removed."
+  },
+  "jobs": {
+    "manualOnly": "Only a manual trigger can be started by hand.",
+    "disabled": "This trigger is disabled.",
+    "notFound": "This Job doesn't exist."
+  },
+  "skills": {
+    "toolsUnavailable": "This skill requires tools unavailable on this harness.",
+    "tooMany": "A conversation can load at most {{max}} skill packages.",
+    "nameTaken": "A skill is already called “{{name}}”.",
+    "packageNameTaken": "This package already holds a skill called “{{name}}”.",
+    "builtIn": "The platform skill is built in: it is read-only.",
+    "pluginSkill": "A plugin's skill is changed file by file, on its page.",
+    "editedFromForm": "This skill is edited from its form.",
+    "fileNotFound": "This file doesn't exist.",
+    "usedByAgent": "The agent “{{agent}}” uses this skill."
+  },
+  "runners": {
+    "usedByHarness": "A harness uses this runner.",
+    "nativeOwnerOnly": "Native installation requires an owner session.",
+    "targetNeedsHarness": "Each target needs a CLI harness on this runner.",
+    "unavailable": "Runner unavailable or operation timed out. Refresh inventory before retrying; native changes may have completed.",
+    "noUpdate": "No update available or runner unreachable.",
+    "harnessNotFound": "This CLI harness doesn't exist.",
+    "groupByRunner": "Group native installation targets by runner.",
+    "noNativeSource": "This plugin has no supported HTTPS Git source for native installation.",
+    "wholePlugin": "Install or remove the whole native plugin instead of copying its skills separately.",
+    "refreshInventory": "Refresh native inventory before changing plugins; the runner could not verify its managed bindings."
+  },
+  "pages": {
+    "notFound": "This page doesn't exist.",
+    "widgetNotFound": "This widget doesn't exist.",
+    "tooMany": "At most {{max}} pages.",
+    "homeRename": "Home can't be renamed.",
+    "homeDelete": "Home can't be deleted.",
+    "fieldTwice": "A field is chosen twice.",
+    "fieldNotInTable": "A chosen field isn't a field of this table.",
+    "coverFiles": "The cover must be a files field of this table.",
+    "manualTriggerForm": "Only a manual trigger can have a form.",
+    "manualWorkflowForm": "Only a manual workflow can have a form.",
+    "formNoFields": "A form has no fields to choose.",
+    "widgetTooWide": "A widget is wider than the {{grid}} grid."
   }
 }

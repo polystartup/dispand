@@ -80,9 +80,9 @@ test("the platform skill is read-only to the owner, and its name is kept for it"
   const { packageId } = (await call(router.skills.list, undefined, { context })).find((p) => p.name === PLATFORM_SKILL)!;
   expect((await call(router.skills.list, undefined, { context })).find((p) => p.packageId === packageId)).toMatchObject({ builtIn: true, plugin: null });
   const fields = { name: PLATFORM_SKILL, description: "Mine.", instructions: "x", requiredToolIds: [] };
-  await expect(call(router.skills.update, { packageId, ...fields }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: "The platform skill is built in: it is read-only" });
+  await expect(call(router.skills.update, { packageId, ...fields }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: "The platform skill is built in: it is read-only." });
   await expect(call(router.skills.update, { packageId, ...fields, name: "renamed" }, { context })).rejects.toMatchObject({ code: "FORBIDDEN" });
-  await expect(call(router.skills.delete, { packageId }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: "The platform skill is built in: it is read-only" });
+  await expect(call(router.skills.delete, { packageId }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: "The platform skill is built in: it is read-only." });
   await expect(call(router.skills.create, fields, { context })).rejects.toMatchObject({ code: "CONFLICT" });
   const mine = await call(router.skills.create, { ...fields, name: "mine" }, { context });
   await expect(call(router.skills.update, { packageId: mine.packageId, ...fields }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
