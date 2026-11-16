@@ -95,18 +95,18 @@
       "other_other": "Work of your agents has led to <0>{{count}} Jobs</0>. It is paused until you say whether it goes on."
     },
     "textSince": {
-      "user_one": "A start by you has led to <0>{{count}} Job</0> since {since}. It is paused until you say whether it goes on.",
-      "user_other": "A start by you has led to <0>{{count}} Jobs</0> since {since}. It is paused until you say whether it goes on.",
-      "chat_one": "Your message in a chat has led to <0>{{count}} Job</0> since {since}. It is paused until you say whether it goes on.",
-      "chat_other": "Your message in a chat has led to <0>{{count}} Jobs</0> since {since}. It is paused until you say whether it goes on.",
-      "schedule_one": "A schedule has led to <0>{{count}} Job</0> since {since}. It is paused until you say whether it goes on.",
-      "schedule_other": "A schedule has led to <0>{{count}} Jobs</0> since {since}. It is paused until you say whether it goes on.",
-      "event_one": "A change to a table has led to <0>{{count}} Job</0> since {since}. It is paused until you say whether it goes on.",
-      "event_other": "A change to a table has led to <0>{{count}} Jobs</0> since {since}. It is paused until you say whether it goes on.",
-      "poll_one": "An item found by a poll has led to <0>{{count}} Job</0> since {since}. It is paused until you say whether it goes on.",
-      "poll_other": "An item found by a poll has led to <0>{{count}} Jobs</0> since {since}. It is paused until you say whether it goes on.",
-      "other_one": "Work of your agents has led to <0>{{count}} Job</0> since {since}. It is paused until you say whether it goes on.",
-      "other_other": "Work of your agents has led to <0>{{count}} Jobs</0> since {since}. It is paused until you say whether it goes on."
+      "user_one": "A start by you has led to <0>{{count}} Job</0> since {{since}}. It is paused until you say whether it goes on.",
+      "user_other": "A start by you has led to <0>{{count}} Jobs</0> since {{since}}. It is paused until you say whether it goes on.",
+      "chat_one": "Your message in a chat has led to <0>{{count}} Job</0> since {{since}}. It is paused until you say whether it goes on.",
+      "chat_other": "Your message in a chat has led to <0>{{count}} Jobs</0> since {{since}}. It is paused until you say whether it goes on.",
+      "schedule_one": "A schedule has led to <0>{{count}} Job</0> since {{since}}. It is paused until you say whether it goes on.",
+      "schedule_other": "A schedule has led to <0>{{count}} Jobs</0> since {{since}}. It is paused until you say whether it goes on.",
+      "event_one": "A change to a table has led to <0>{{count}} Job</0> since {{since}}. It is paused until you say whether it goes on.",
+      "event_other": "A change to a table has led to <0>{{count}} Jobs</0> since {{since}}. It is paused until you say whether it goes on.",
+      "poll_one": "An item found by a poll has led to <0>{{count}} Job</0> since {{since}}. It is paused until you say whether it goes on.",
+      "poll_other": "An item found by a poll has led to <0>{{count}} Jobs</0> since {{since}}. It is paused until you say whether it goes on.",
+      "other_one": "Work of your agents has led to <0>{{count}} Job</0> since {{since}}. It is paused until you say whether it goes on.",
+      "other_other": "Work of your agents has led to <0>{{count}} Jobs</0> since {{since}}. It is paused until you say whether it goes on."
     }
   },
   "other": "Other",

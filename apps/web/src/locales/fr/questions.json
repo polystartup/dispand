@@ -95,18 +95,18 @@
       "other_other": "Le travail de vos agents a mené à <0>{{count}} Jobs</0>. Il est en pause jusqu’à ce que vous disiez s’il continue."
     },
     "textSince": {
-      "user_one": "Un lancement de votre part a mené à <0>{{count}} Job</0> depuis {since}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
-      "user_other": "Un lancement de votre part a mené à <0>{{count}} Jobs</0> depuis {since}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
-      "chat_one": "Votre message dans une conversation a mené à <0>{{count}} Job</0> depuis {since}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
-      "chat_other": "Votre message dans une conversation a mené à <0>{{count}} Jobs</0> depuis {since}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
-      "schedule_one": "Une planification a mené à <0>{{count}} Job</0> depuis {since}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
-      "schedule_other": "Une planification a mené à <0>{{count}} Jobs</0> depuis {since}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
-      "event_one": "Un changement dans une table a mené à <0>{{count}} Job</0> depuis {since}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
-      "event_other": "Un changement dans une table a mené à <0>{{count}} Jobs</0> depuis {since}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
-      "poll_one": "Un élément trouvé par une interrogation a mené à <0>{{count}} Job</0> depuis {since}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
-      "poll_other": "Un élément trouvé par une interrogation a mené à <0>{{count}} Jobs</0> depuis {since}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
-      "other_one": "Le travail de vos agents a mené à <0>{{count}} Job</0> depuis {since}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
-      "other_other": "Le travail de vos agents a mené à <0>{{count}} Jobs</0> depuis {since}. Il est en pause jusqu’à ce que vous disiez s’il continue."
+      "user_one": "Un lancement de votre part a mené à <0>{{count}} Job</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "user_other": "Un lancement de votre part a mené à <0>{{count}} Jobs</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "chat_one": "Votre message dans une conversation a mené à <0>{{count}} Job</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "chat_other": "Votre message dans une conversation a mené à <0>{{count}} Jobs</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "schedule_one": "Une planification a mené à <0>{{count}} Job</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "schedule_other": "Une planification a mené à <0>{{count}} Jobs</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "event_one": "Un changement dans une table a mené à <0>{{count}} Job</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "event_other": "Un changement dans une table a mené à <0>{{count}} Jobs</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "poll_one": "Un élément trouvé par une interrogation a mené à <0>{{count}} Job</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "poll_other": "Un élément trouvé par une interrogation a mené à <0>{{count}} Jobs</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "other_one": "Le travail de vos agents a mené à <0>{{count}} Job</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue.",
+      "other_other": "Le travail de vos agents a mené à <0>{{count}} Jobs</0> depuis {{since}}. Il est en pause jusqu’à ce que vous disiez s’il continue."
     }
   },
   "other": "Autre",
