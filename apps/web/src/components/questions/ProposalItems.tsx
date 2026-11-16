@@ -155,12 +155,13 @@ function Sentence({ item, items, names }: { item: Items[number]; items: Items; n
   const { t, i18n } = useTranslation("questions");
   const fieldType = useFieldTypeLabel();
   const key = `proposal.sentences.${item.tool}${variantOf(item)}`;
-  if (!i18n.exists(`questions:${key}`)) return null;
+  const count = typeof (item.input as { maxWorking?: unknown } | null)?.maxWorking === "number" ? (item.input as { maxWorking: number }).maxWorking : undefined;
+  if (!i18n.exists(`questions:${key}`, { count })) return null;
   const input = (item.input ?? {}) as Record<string, unknown>;
   const ids = item.refs.filter((k) => typeof input[k] === "string" || isItemRef(input[k]));
   const values: Record<string, unknown> = { ...input, ...(item.tool === "marketplaces_add" && (item.shown as { url?: string } | undefined)?.url ? { url: (item.shown as { url: string }).url } : {}) };
   if (typeof input.type === "string" && item.tool.startsWith("fields_")) values.type = fieldType(input.type as FieldType);
-  return <p className="mt-1 text-[13px]"><Trans t={t} i18nKey={key as never} values={values} components={ids.map((k) => <Id value={input[k]} items={items} names={names} />)} /></p>;
+  return <p className="mt-1 text-[13px]"><Trans t={t} i18nKey={key as never} count={count} values={values} components={ids.map((k) => <Id value={input[k]} items={items} names={names} />)} /></p>;
 }
 
 /** A change to an agent's text: every line, only the lines that changed marked. */

@@ -385,7 +385,6 @@
       "agents_set_tool_permission_run": "Let <0/> run the action {{action}} of <1/> without asking.",
       "agents_set_tool_permission_ask": "Make <0/> ask before it runs the action {{action}} of <1/>.",
       "agents_set_tool_permission_off": "Turn off the action {{action}} of <1/> for <0/>.",
-      "harnesses_set_limit": "Let <0/> work on {{maxWorking}} sessions at once.",
       "tools_add": "Add the tool {{name}}, a server Dispand will call at {{url}}.",
       "tools_add_from_catalog": "Add a tool from the catalog entry <0/>.",
       "tools_delete": "Delete the tool <0/> and its saved headers.",
@@ -399,7 +398,9 @@
       "memory_add_table": "Add the memory entry {{path}} of <0/>.",
       "memory_update": "Rewrite the memory entry {{path}}.",
       "memory_update_table": "Rewrite the memory entry {{path}} of <0/>.",
-      "plugins_add_server_runner": "Add the server {{server}} of <0/> as a tool that runs on a runner."
+      "plugins_add_server_runner": "Add the server {{server}} of <0/> as a tool that runs on a runner.",
+      "harnesses_set_limit_one": "Let <0/> work on {{count}} session at once.",
+      "harnesses_set_limit_other": "Let <0/> work on {{count}} sessions at once."
     },
     "was": "Was:",
     "becomes": "Becomes:",

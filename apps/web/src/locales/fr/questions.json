@@ -385,7 +385,6 @@
       "agents_set_tool_permission_run": "Laisser <0/> exécuter l'action {{action}} de <1/> sans demander.",
       "agents_set_tool_permission_ask": "Faire demander <0/> avant d'exécuter l'action {{action}} de <1/>.",
       "agents_set_tool_permission_off": "Désactiver l'action {{action}} de <1/> pour <0/>.",
-      "harnesses_set_limit": "Laisser <0/> travailler sur {{maxWorking}} sessions à la fois.",
       "tools_add": "Ajouter l'outil {{name}}, un serveur que Dispand appellera à {{url}}.",
       "tools_add_from_catalog": "Ajouter un outil depuis l'entrée du catalogue <0/>.",
       "tools_delete": "Supprimer l'outil <0/> et ses en-têtes enregistrés.",
@@ -399,7 +398,9 @@
       "memory_add_table": "Ajouter l'entrée de mémoire {{path}} de <0/>.",
       "memory_update": "Réécrire l'entrée de mémoire {{path}}.",
       "memory_update_table": "Réécrire l'entrée de mémoire {{path}} de <0/>.",
-      "plugins_add_server_runner": "Ajouter le serveur {{server}} de <0/> comme outil exécuté sur un runner."
+      "plugins_add_server_runner": "Ajouter le serveur {{server}} de <0/> comme outil exécuté sur un runner.",
+      "harnesses_set_limit_one": "Laisser <0/> travailler sur {{count}} session à la fois.",
+      "harnesses_set_limit_other": "Laisser <0/> travailler sur {{count}} sessions à la fois."
     },
     "was": "Avant :",
     "becomes": "Après :",

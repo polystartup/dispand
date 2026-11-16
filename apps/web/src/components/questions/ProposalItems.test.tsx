@@ -388,6 +388,7 @@ const sentences: [string, Record<string, unknown>, string[], string][] = [
   ["agents_set_tool_permission", { agentId: "a1", toolId: "tool1", action: "send", permission: "ask" }, ["agentId", "toolId"], "Make Builder a1 ask before it runs the action send of Mail tool1."],
   ["agents_set_tool_permission", { agentId: "a1", toolId: "tool1", action: "send", permission: "off" }, ["agentId", "toolId"], "Turn off the action send of Mail tool1 for Builder a1."],
   ["harnesses_set_limit", { id: "h1", maxWorking: 3 }, ["id"], "Let Claude h1 work on 3 sessions at once."],
+  ["harnesses_set_limit", { id: "h1", maxWorking: 1 }, ["id"], "Let Claude h1 work on 1 session at once."],
   ["tools_add", { name: "Mail", url: "https://mail.example.com/mcp", transport: "http" }, [], "Add the tool Mail, a server Dispand will call at https://mail.example.com/mcp."],
   ["tools_add_from_catalog", { catalogId: "cat1" }, ["catalogId"], "Add a tool from the catalog entry Gmail cat1."],
   ["tools_delete", { id: "tool1" }, ["id"], "Delete the tool Mail tool1 and its saved headers."],
