@@ -37,7 +37,13 @@ export async function subscribeDevice(): Promise<void> {
     (await registration.pushManager.getSubscription()) ??
     (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes((await api.push.list()).publicKey) }));
   const { endpoint, keys } = subscription.toJSON();
-  await api.push.subscribe({ endpoint: endpoint!, keys: { p256dh: keys!.p256dh!, auth: keys!.auth! }, language: detectLanguage(navigator.languages) });
+  try {
+    await api.push.subscribe({ endpoint: endpoint!, keys: { p256dh: keys!.p256dh!, auth: keys!.auth! }, language: detectLanguage(navigator.languages) });
+  } catch (err) {
+    // Not known to the server: no push comes, so the open tab must keep alerting (it stays quiet while subscribed).
+    await subscription.unsubscribe().catch(() => {});
+    throw err;
+  }
 }
 
 /** Signing out: the server forgets this browser, then the browser drops its subscription. Never blocks signing out. */

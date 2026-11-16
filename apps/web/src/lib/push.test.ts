@@ -53,3 +53,12 @@ test("the service worker shows every push, and a click opens its item", async ()
   await hidden.dispatch("notificationclick", { notification: { close: () => {}, data: { itemId: "q_1" } } });
   expect(hidden.opened).toEqual(["/inbox?item=q_1"]);
 });
+
+test("a subscription the server refused is dropped, so the open tab keeps alerting", async () => {
+  const subscription = { toJSON: () => ({ endpoint: "https://push.example.com/phone", keys: { p256dh: "p", auth: "a" } }), unsubscribe: vi.fn(async () => true) };
+  fake.push.subscribe.mockRejectedValue(new Error("offline"));
+  Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: { register: async () => ({ pushManager: { getSubscription: async () => subscription } }), ready: Promise.resolve() } });
+  const { subscribeDevice } = await import("./push.ts");
+  await expect(subscribeDevice()).rejects.toThrow("offline");
+  expect(subscription.unsubscribe).toHaveBeenCalledOnce();
+});
