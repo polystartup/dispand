@@ -1522,7 +1522,11 @@
   through `applyTable`, leaving the definition kept as it is). We decided its token covers the
   table now (its fields, flags and, for a change that takes values away, those values), the
   plugin's installed commit, the definition kept and the change: one read before a table edit,
-  or before an update that changes that table's definition, is refused. Set up also offers the plugin's HTTP servers
+  or before an update that changes that table's definition, is refused. As in the update, the
+  token is checked and the change then made through the field operation, under that operation's
+  own lock: a value written in between to a field being removed goes with it, which we accept
+  (removing the field is what was asked). A move that would have to move the table's first field
+  is `stale`: the update's reorder keeps the first field first. Set up also offers the plugin's HTTP servers
   that aren't tools yet and need no setting, unticked (`pick.servers`). A tool an update gives
   an existing agent is attached with every action on Ask (`toolPermissions` with nothing
   unasked): the update's screen shows the tool gained, not which actions would run unasked.

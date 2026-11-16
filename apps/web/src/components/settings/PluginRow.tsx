@@ -203,10 +203,11 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
                           setApplying(c.key);
                           try {
                             const result = await api.plugins.applyTableChange({ id: p.id, tableId: table.tableId, key: c.key, reviewed: c.reviewed });
-                            void refresh();
                             const item = (f: { name: string; reason: Text }) => t("row.failedItem", { name: f.name, reason: text(f.reason) });
                             setNote([result.failed?.length ? t("row.appliedExcept", { failed: list(result.failed.map(item)) }) : t("row.applied", { table: table.name })]);
                           } finally {
+                            // Refused as changed since, too: the row shows the changes as they are now.
+                            void refresh();
                             setApplying(null);
                           }
                         }, t("row.applyFailed"))

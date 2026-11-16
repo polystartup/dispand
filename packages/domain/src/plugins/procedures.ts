@@ -1121,6 +1121,11 @@ async function tableDifferences(db: Db | Tx, ownerId: string, row: PluginRow) {
       ...(parentField ? { parent: { field: fields.find((f) => f.name === parentField)?.pluginField ?? parentField, required: t.parentRequired } } : {}),
     });
     const plan = await tablePlan(db, ownerId, t, keptOf, stored, tableExists);
+    // The table's first field stays first when the update puts fields in order: a plugin field the owner put first can't be moved from here.
+    const first = plan.fields[0]?.pluginField;
+    const firstInOrder = stored.fields.find((d) => plan.fields.some((f) => f.pluginField !== null && lower(f.pluginField) === lower(d.name)))?.name;
+    const move = plan.changes.find((c) => c.kind === "move");
+    if (move && first && firstInOrder && lower(first) !== lower(firstInOrder)) Object.assign(move, { ticked: false, stale: say("plugins.table.order") });
     const table = { name: t.name, primitive: t.primitive, parentFieldId: t.parentFieldId, parentRequired: t.parentRequired, fields: plan.fields };
     const reviewed = Object.fromEntries(plan.changes.map((c) => [c.key, createHash("sha256").update(canonical({ sha: row.sha, definition: stored, table, change: c, values: plan.values[c.key] ?? null })).digest("hex")]));
     if (plan.changes.length) out.push({ plan, reviewed });
@@ -1145,7 +1150,7 @@ const applyTableChange = owner.input(Id.extend({ tableId: z.string().max(64), ke
   if (!found || !change || found.reviewed[change.key] !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.table.changedSince", { plugin: row.name }));
   if (change.stale || change.waiting) throw new ORPCError("BAD_REQUEST", message("plugins.update.notApplicable"));
   const failed: { name: string; reason: Text }[] = [];
-  // The definition kept stays: a change refused here is still a difference, shown again.
+  // As the update: checked, then applied through the field operations, each under its own lock. The definition kept stays: a change refused here is still a difference, shown again.
   await applyTable(context, row, found.plan, [change.key], failed);
   return failed.length ? { failed } : {};
 }));

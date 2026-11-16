@@ -537,6 +537,8 @@ export const NOT_TOOLS: string[] = [
   "plugins.resetOverride",
   "plugins.conflicts",
   "plugins.resolveConflict",
+  "plugins.tableChanges",
+  "plugins.applyTableChange",
   "skills.setFile",
   "skills.removeFile",
   "skills.readFile",

@@ -597,3 +597,30 @@ test("Apply's token covers the table and the plugin's version: one read before a
     s.remove();
   }
 });
+
+test("an order the owner changed shows as a move Apply restores, unless a plugin field is first: the first field stays first", async () => {
+  const s = await setUp();
+  try {
+    const [matters] = await s.ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Matters"));
+    const shown = () => call(router.plugins.tableChanges, { id: s.pluginId }, { context: s.ctx });
+    const byName = async () => Object.fromEntries((await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters!.id))).map((f) => [f.name, f.id]));
+    const ids = await byName();
+    const order = async (names: string[]) => call(router.fields.reorder, { tableId: matters!.id, fieldIds: names.map((n) => ids[n]!) }, { context: s.ctx });
+
+    await order(["Conclusions", "Name", "Clients"]);
+    const [blocked] = (await shown())[0]!.changes;
+    expect(blocked).toMatchObject({ key: "move", stale: say("plugins.table.order") });
+    await expect(call(router.plugins.applyTableChange, { id: s.pluginId, tableId: matters!.id, key: "move", reviewed: blocked!.reviewed }, { context: s.ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    await order(["Name", "Conclusions", "Clients"]);
+    const [move] = (await shown())[0]!.changes;
+    expect(move).toMatchObject({ key: "move", ticked: true });
+    expect(move!.stale).toBeUndefined();
+    await call(router.plugins.applyTableChange, { id: s.pluginId, tableId: matters!.id, key: "move", reviewed: move!.reviewed }, { context: s.ctx });
+    const now = await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters!.id)).orderBy(schema.fields.position);
+    expect(now.map((f) => f.name)).toEqual(["Name", "Clients", "Conclusions"]);
+    expect(await shown()).toEqual([]);
+  } finally {
+    s.remove();
+  }
+});
