@@ -14,7 +14,7 @@ import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { lawFirm, lawFirmMarket } from "./test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
-import { answerConflict } from "./resolve.ts";
+import { answerConflict, fileValue } from "./resolve.ts";
 import { MAX_FIELDS } from "../data/tables.ts";
 import { writeFields } from "./write-field.ts";
 
@@ -395,4 +395,11 @@ test("a merged skill file the package's check refuses on yes says why and writes
   await expect(call(router.plugins.resolveConflict, { id: item!.id, choice: "accept", reviewed: item!.reviewed }, { context: s.ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   expect(await s.file()).toBe(s.mine);
   expect(await s.items()).toEqual([expect.objectContaining({ id: item!.id })]);
+});
+
+test("a file kept in a conflict is its text, or its size and digest when it isn't text jsonb can store", () => {
+  expect(fileValue(Buffer.from("Mine."))).toBe("Mine.");
+  expect(fileValue(undefined)).toBeNull();
+  expect(fileValue(Buffer.from("a\u0000b"))).toMatchObject({ bytes: 3, sha256: expect.any(String) });
+  expect(fileValue(Buffer.from([0xff, 0xfe]))).toMatchObject({ bytes: 2 });
 });

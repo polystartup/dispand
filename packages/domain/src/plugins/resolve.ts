@@ -488,10 +488,13 @@ async function answerTable(context: Context, actor: AuditActor, c: Conflict, app
 export function fileValue(content: Uint8Array | undefined): unknown {
   if (content === undefined) return null;
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(content);
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(content);
+    // A NUL can't be stored in jsonb: such a file is kept as one that isn't text.
+    if (!text.includes("\u0000")) return text;
   } catch {
-    return { bytes: content.length, sha256: createHash("sha256").update(content).digest("hex") };
+    // Not UTF-8: as below.
   }
+  return { bytes: content.length, sha256: createHash("sha256").update(content).digest("hex") };
 }
 
 const pathOf = (c: Conflict) => c.field.slice("file:".length);
