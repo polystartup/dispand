@@ -30,7 +30,8 @@ function useByline() {
   };
 }
 
-/** Written by a Job without `configure` and not accepted since: agents that configure don't read it (design 6.5). */const unread = (e: Pick<Entry, "author" | "acceptedAt" | "removedAt">) => e.author.type === "agent" && !e.author.configure && !e.acceptedAt && !e.removedAt;
+/** Written by a Job without `configure` and not accepted since: agents that configure don't read it (design 6.5). */
+const unread = (e: Pick<Entry, "author" | "acceptedAt" | "removedAt">) => e.author.type === "agent" && !e.author.configure && !e.acceptedAt && !e.removedAt;
 
 /** Why the procedure refused, when it says; else a generic line. */
 function reason(e: unknown, fallback: string): string {

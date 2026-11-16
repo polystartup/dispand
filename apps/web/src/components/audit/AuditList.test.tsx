@@ -135,6 +135,7 @@ test("the Audit list is in French", async () => {
   );
   expect(await screen.findByText("Job démarré")).toBeTruthy();
   expect(screen.getByText("Marketplace")).toBeTruthy();
+  expect(screen.getByText(/Writer/)).toBeTruthy();
   expect(screen.getByText("Harnais")).toBeTruthy();
   expect(screen.getByRole("link", { name: "son Job" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Copier l’id de la trace" })).toBeTruthy();
@@ -150,4 +151,11 @@ test("every action, resource and detail has its words in English and French", ()
     for (const r of AUDIT_RESOURCES) expect((words(l).resource as Record<string, string>)[r], `${l} ${r}`).toBeTruthy();
     for (const d of Object.keys(AuditDetails.shape)) expect((words(l).detail as Record<string, string>)[d], `${l} ${d}`).toBeTruthy();
   }
+});
+
+test("the built-in agent's rows show its label, not the stored name", async () => {
+  fake.audit.traceUrl.mockResolvedValue({ traceUrl: null });
+  fake.audit.list.mockResolvedValue({ rows: [row("aud_1", { agentName: "Assistant", agentBuiltIn: "assistant", actor: { type: "scheduler" } })], next: null });
+  mount(<AuditList />);
+  expect(await screen.findByText("Scheduler · for Stem")).toBeTruthy();
 });

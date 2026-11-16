@@ -28,7 +28,7 @@ export type AuditFilter = z.infer<typeof AuditFilter>;
 const Cursor = z.object({ at: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/), id: z.string().max(200) });
 
 /** A row as listed: `at` to the microsecond, and its agent's name as the agent is now, or as its Job kept it once deleted. */
-export type AuditRow = Omit<typeof audit.$inferSelect, "at"> & { at: string; agentName: string | null };
+export type AuditRow = Omit<typeof audit.$inferSelect, "at"> & { at: string; agentName: string | null; /** Set when that agent is the built-in one: the page shows its label, not the stored name. */ agentBuiltIn: "assistant" | null };
 
 /** A cursor that isn't one of ours. */
 export class AuditCursorError extends Error {}
@@ -68,7 +68,7 @@ export async function listAudit(db: Db | Tx, ownerId: string, filter: AuditFilte
     where.push(sql`(${audit.at}, ${audit.id}) < (${after.at}::timestamptz, ${after.id})`);
   }
   const rows = await db
-    .select({ row: audit, at: sql<string>`to_char(${audit.at} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`, agentName: jobAgentNameSql })
+    .select({ row: audit, at: sql<string>`to_char(${audit.at} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`, agentName: jobAgentNameSql, agentBuiltIn: agents.builtIn })
     .from(audit)
     .leftJoin(agents, and(eq(agents.id, audit.actorAgentId), eq(agents.ownerId, ownerId)))
     // A Job actor's run: its agent's name once the agent was deleted (`runs.agent_name`).
@@ -79,7 +79,7 @@ export async function listAudit(db: Db | Tx, ownerId: string, filter: AuditFilte
   const page = rows.slice(0, AUDIT_PAGE);
   const last = page.at(-1);
   return {
-    rows: page.map(({ row, at, agentName }) => ({ ...row, at, agentName })),
+    rows: page.map(({ row, at, agentName, agentBuiltIn }) => ({ ...row, at, agentName, agentBuiltIn })),
     next: rows.length > AUDIT_PAGE && last ? Buffer.from(JSON.stringify({ at: last.at, id: last.row.id })).toString("base64url") : null,
   };
 }

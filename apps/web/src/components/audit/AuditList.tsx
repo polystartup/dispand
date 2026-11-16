@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { type api, orpc } from "../../lib/api.ts";
 import { Empty } from "../settings/parts.tsx";
+import { useAgentName } from "../../lib/agent-name.ts";
 import { useFormat } from "../../lib/format.ts";
 import { Status } from "../workflow/Runs.tsx";
 
@@ -17,8 +18,9 @@ const shownAt = (at: string) => new Date(`${at.slice(0, 23)}Z`);
 
 function Actor({ row }: { row: Row }) {
   const { t } = useTranslation("audit");
+  const agentName = useAgentName();
   if (row.actor.type === "user") return <span>{t("actor.you")}</span>;
-  const agent = row.actorAgentId ? (row.agentName ?? t("actor.deletedAgent")) : null;
+  const agent = row.actorAgentId ? (row.agentName ? agentName({ name: row.agentName, builtIn: row.agentBuiltIn }) : t("actor.deletedAgent")) : null;
   if (row.actor.type === "scheduler") return <span>{agent ? t("actor.schedulerFor", { agent }) : t("actor.scheduler")}</span>;
   return (
     <span>

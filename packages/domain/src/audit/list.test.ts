@@ -70,3 +70,14 @@ test("rows that share their time list in the order they were written", async () 
   const second = await call(router.audit.list, { jobId: "run_1", cursor: first.next! }, { context });
   expect([...first.rows, ...second.rows].map((r) => r.details.item)).toEqual(Array.from({ length: 100 }, (_, i) => 99 - i));
 });
+
+test("a row of the built-in agent says so, so the page shows its label rather than the stored name", async () => {
+  const context = await ownerContext();
+  const { ownerId } = context;
+  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
+  const { agentId } = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context });
+  await recordAudit(context.db, { ownerId, actor: { type: "job", runId: "run_1" }, agentId, jobId: "run_1", action: "job.started", resource: { type: "job", id: "run_1" } });
+  const [row] = (await call(router.audit.list, {}, { context })).rows;
+  expect(row).toMatchObject({ agentName: "Assistant", agentBuiltIn: "assistant" });
+});
