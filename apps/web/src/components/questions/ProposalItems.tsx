@@ -145,6 +145,7 @@ function variantOf(item: Items[number]): string {
   if (item.tool === "tables_set_primitive") return input.primitive ? "_on" : "_off";
   if (item.tool === "agents_set_tool_permission") return `_${String(input.permission)}`;
   if (item.tool === "fields_create") return input.referencesTableId ? "_names" : "";
+  if (item.tool === "plugins_add_server") return input.url ? "" : "_runner";
   if (item.tool === "memory_add" || item.tool === "memory_update") return input.tableId ? "_table" : "";
   return "";
 }
@@ -163,14 +164,13 @@ function Sentence({ item, items, names }: { item: Items[number]; items: Items; n
 }
 
 /** A change to an agent's text: every line, only the lines that changed marked. */
-function LineDiff({ before, after }: { before: string; after: string }) {
+function LineDiff({ lines }: { lines: NonNullable<ReturnType<typeof lineDiff>> }) {
   const { t } = useTranslation("questions");
   return (
     <div className="rounded-lg bg-hover p-2 font-sans text-[13px]">
-      {lineDiff(before, after).map((l, i) => (
-        <div key={i} data-change={l.kind} className={`whitespace-pre-wrap break-words ${l.kind === "add" ? "bg-green-500/15" : l.kind === "del" ? "bg-red-500/15 line-through" : "text-muted"}`}>
+      {lines.map((l, i) => (
+        <div key={i} data-change={l.kind} className={`whitespace-pre-wrap break-words before:mr-1.5 before:select-none ${l.kind === "add" ? "bg-green-500/15 before:content-['+']" : l.kind === "del" ? "bg-red-500/15 line-through before:content-['−']" : "text-muted before:content-['_'] before:invisible"}`}>
           {l.kind !== "same" && <span className="sr-only">{t(l.kind === "add" ? "proposal.added" : "proposal.removed")}</span>}
-          <span aria-hidden className="mr-1.5 select-none">{l.kind === "add" ? "+" : l.kind === "del" ? "−" : " "}</span>
           {l.line}
         </div>
       ))}
@@ -178,14 +178,16 @@ function LineDiff({ before, after }: { before: string; after: string }) {
   );
 }
 
-/** A field of an agent that an update changes, as it was and as it becomes. */
+/** A field of an agent that an update gives, as it is now and as it becomes (kept visible when equal: nothing is hidden by comparing with the live row). */
 function Change({ before, after, ...rest }: { before: unknown; after: unknown; name: string; items: Items; names: ProposalView["names"]; isRef: boolean }) {
   const { t } = useTranslation("questions");
-  if (typeof before === "string" && typeof after === "string" && (before.includes("\n") || after.includes("\n") || before.length > 80 || after.length > 80)) return <LineDiff before={before} after={after} />;
+  const diff = typeof before === "string" && typeof after === "string" && (before.includes("\n") || after.includes("\n") || before.length > 80 || after.length > 80) ? lineDiff(before, after) : null;
+  if (diff) return <LineDiff lines={diff} />;
+  const show = (value: unknown) => (rest.name === "selfLearning" ? <Targets value={value} /> : <Value {...rest} value={value} address={false} />);
   return (
     <span className="flex flex-col gap-1">
-      <span><span className="text-muted">{t("proposal.was")} </span><Value {...rest} value={before} address={false} /></span>
-      <span><span className="text-muted">{t("proposal.becomes")} </span><Value {...rest} value={after} address={false} /></span>
+      <span><span className="text-muted">{t("proposal.was")} </span>{show(before)}</span>
+      <span><span className="text-muted">{t("proposal.becomes")} </span>{show(after)}</span>
     </span>
   );
 }
@@ -285,7 +287,7 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
             <PluginInstallItem input={item.input as never} shown={item.shown as never} />
           ) : (
           <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1.5 text-[13px]">
-            {Object.entries((item.input ?? {}) as Record<string, unknown>).filter(([name]) => !(item.tools && name === "toolPermissions") && !(item.tool === "fields_retype" && name === "dryRun") && !(item.before && name in item.before && JSON.stringify(item.before[name]) === JSON.stringify(((item.input ?? {}) as Record<string, unknown>)[name]))).map(([name, value]) => (
+            {Object.entries((item.input ?? {}) as Record<string, unknown>).filter(([name]) => !(item.tools && name === "toolPermissions") && !(item.tool === "fields_retype" && name === "dryRun")).map(([name, value]) => (
               <div key={name} className="contents">
                 <dt className="text-muted">{word(`proposal.labelsOf.${item.tool}.${name}`, word(`proposal.labels.${name}`, name))}</dt>
                 <dd className="min-w-0">

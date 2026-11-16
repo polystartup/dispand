@@ -398,7 +398,8 @@
       "memory_add": "Add the memory entry {{path}}.",
       "memory_add_table": "Add the memory entry {{path}} of <0/>.",
       "memory_update": "Rewrite the memory entry {{path}}.",
-      "memory_update_table": "Rewrite the memory entry {{path}} of <0/>."
+      "memory_update_table": "Rewrite the memory entry {{path}} of <0/>.",
+      "plugins_add_server_runner": "Add the server {{server}} of <0/> as a tool that runs on a runner."
     },
     "was": "Was:",
     "becomes": "Becomes:",

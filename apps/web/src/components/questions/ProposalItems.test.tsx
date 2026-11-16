@@ -396,6 +396,7 @@ const sentences: [string, Record<string, unknown>, string[], string][] = [
   ["triggers_update", { id: "trg1" }, ["id"], "Change the trigger Daily trg1."],
   ["triggers_delete", { id: "trg1" }, ["id"], "Delete the trigger Daily trg1."],
   ["marketplaces_add", { url: "https://git.example.com/x.git", kind: "git" }, [], "Add the marketplace at https://git.example.com/x.git, where plugins and skills are read from."],
+  ["plugins_add_server", { pluginId: "p1", server: "api", runnerId: "r1", digest: "d" }, ["pluginId"], "Add the server api of Pack p1 as a tool that runs on a runner."],
   ["memory_add", { scope: "workspace", path: "rules.md" }, [], "Add the memory entry rules.md."],
   ["memory_add", { scope: "data", tableId: "t1", path: "rules.md" }, ["tableId"], "Add the memory entry rules.md of Clients t1."],
   ["memory_update", { scope: "workspace", path: "rules.md" }, [], "Rewrite the memory entry rules.md."],
@@ -421,13 +422,13 @@ test("an agent's instruction change marks only its changed lines, other changed 
   const before = { name: "Builder", systemPrompt: "Be kind.\nAnswer fast.\nSign off.", harnessId: "h1", description: "" };
   const input = { id: "a1", name: "Builder", systemPrompt: "Be kind.\nAnswer carefully.\nSign off.", harnessId: "h1", description: "Builds" };
   const { container } = render(<ProposalItems proposal={{ id: "p", status: "asked", names: named, items: [{ tool: "agents_update", input, before, refs: ["id", "harnessId"], used: false }] }} />);
-  const marked = [...container.querySelectorAll("[data-change]")].map((e) => [e.getAttribute("data-change"), e.textContent?.replace(/^(Added:|Removed:)?[+− ] ?/, "")]);
+  const marked = [...container.querySelectorAll("[data-change]")].map((e) => [e.getAttribute("data-change"), e.textContent?.replace(/^(Added:|Removed:)/, "")]);
   expect(marked).toEqual([["same", "Be kind."], ["del", "Answer fast."], ["add", "Answer carefully."], ["same", "Sign off."]]);
   expect(container.querySelectorAll('[data-change="del"]')).toHaveLength(1);
   expect(container.textContent).toContain("Was: empty");
   expect(container.textContent).toContain("Becomes: Builds");
-  // Unchanged fields are not repeated.
-  expect(screen.queryByText("Claude")).toBeNull();
+  // Nothing is hidden by comparing with the live row: an unchanged field still shows.
+  expect(container.textContent).toContain("Claude");
 });
 
 test("agent-authored instructions render as text, never HTML", () => {
@@ -435,4 +436,10 @@ test("agent-authored instructions render as text, never HTML", () => {
   const { container } = render(<ProposalItems proposal={{ id: "p", status: "asked", names: named, items: [{ tool: "agents_update", input, before: { systemPrompt: "Old\nNew" }, refs: ["id"], used: false }] }} />);
   expect(container.querySelector("img")).toBeNull();
   expect(container.textContent).toContain("<img src=x onerror=alert(1)>");
+});
+
+test("a self-learning change keeps the words and the workspace warning", () => {
+  const { container } = render(<ProposalItems proposal={{ id: "p", status: "asked", names: named, items: [{ tool: "agents_update", input: { id: "a1", selfLearning: ["workspace"] }, before: { selfLearning: [] }, refs: ["id"], used: false }] }} />);
+  expect(container.textContent).toContain("The workspace's memory");
+  expect(container.textContent).toContain("What it writes steers every agent of the workspace.");
 });
