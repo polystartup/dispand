@@ -280,7 +280,12 @@
       "children_other": "{{count}} rows of “{{table}}” belong to it: delete or move them first."
     },
     "file": {
-      "tooLarge": "Files are at most 10 MiB."
+      "tooLarge": "Files are at most 10 MiB.",
+      "tooMany": "A message takes at most {{max}} files.",
+      "installFull": "This file can't be kept: with it, Dispand's files would pass {{limit}} MiB, the most this install keeps (a setting of its owner).",
+      "jobFull": "These files can't be sent: with them, this conversation would keep more than {{files}} files or {{mib}} MiB, the most a Job keeps.",
+      "gone": "An attached file is no longer available: attach it again.",
+      "agentOnly": "Only a person attaches files to a message."
     },
     "cell": {
       "tooLong": "“{{field}}” takes at most {{max}} characters, and this is {{length}}.",

@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { isMemoryPath, isSafeRelativePath } from "./paths.ts";
+import { attachmentPath, isAttachmentPath, isMemoryPath, isSafeRelativePath } from "./paths.ts";
+import { parseServerMessage } from "./messages.ts";
 
 test("accepts plain relative paths", () => {
   for (const p of ["SKILL.md", "pdf/SKILL.md", "pdf/scripts/fill.py", "a-b/c_d/e.f.txt", "x/.hidden", "x/..y"]) {
@@ -52,4 +53,37 @@ test("a memory path is a safe relative path to a .md file, never one a CLI loads
     `${"a".repeat(118)}.md`,
   ];
   for (const p of refused) expect(isMemoryPath(p), JSON.stringify(p)).toBe(false);
+});
+
+test("a file named .mcp.json, CLAUDE.md or AGENTS.md gets a generated name: only its extension stays", () => {
+  expect(attachmentPath("att_1", ".mcp.json")).toBe(".dispand/attachments/att_1/file.json");
+  expect(attachmentPath("att_1", "CLAUDE.md")).toBe(".dispand/attachments/att_1/file.md");
+  expect(attachmentPath("att_1", "AGENTS.md")).toBe(".dispand/attachments/att_1/file.md");
+  expect(attachmentPath("att_1", "photo.PNG")).toBe(".dispand/attachments/att_1/file.png");
+  expect(attachmentPath("att_1", "../../.claude/settings")).toBe(".dispand/attachments/att_1/file");
+  expect(attachmentPath("att_1", "notes.tar.gz/../x.\u202e")).toBe(".dispand/attachments/att_1/file");
+  for (const name of [".mcp.json", "CLAUDE.md", "AGENTS.md", ".codex", "a b.pdf", ""]) expect(isAttachmentPath(attachmentPath("att_1", name)), name).toBe(true);
+});
+
+test("a crafted target path naming a control file, or outside the attachments folder, is refused", () => {
+  for (const p of [
+    ".dispand/attachments/att_1/CLAUDE.md",
+    ".dispand/attachments/att_1/agents.md",
+    ".dispand/attachments/att_1/AGENTS.override.md",
+    ".dispand/attachments/att_1/.mcp.json",
+    ".dispand/attachments/.claude/settings.json",
+    ".dispand/attachments/.codex/config.toml",
+    ".dispand/attachments/att_1/../../CLAUDE.md",
+    ".claude/settings.json",
+    ".codex/config.toml",
+    ".mcp.json",
+    "CLAUDE.md",
+    ".dispand/memory/workspace/a.md",
+    ".dispand/attachments/att_1/a/b.txt",
+    "/tmp/.dispand/attachments/att_1/file.txt",
+  ]) {
+    expect(isAttachmentPath(p), p).toBe(false);
+    expect(() => parseServerMessage(JSON.stringify({ type: "session.send", sessionId: "ses_1", text: "hi", files: [{ attachmentId: "att_1", path: p }] })), p).toThrow();
+  }
+  expect(parseServerMessage(JSON.stringify({ type: "session.send", sessionId: "ses_1", text: "hi", files: [{ attachmentId: "att_1", path: ".dispand/attachments/att_1/file.md" }] }))).toMatchObject({ files: [{ path: ".dispand/attachments/att_1/file.md" }] });
 });

@@ -42,3 +42,31 @@ export function isMemoryPath(p: string): boolean {
   if (p.toLowerCase() === "memory.md") return false;
   return p.split("/").every((s) => !INSTRUCTION_FILES.has(s.toLowerCase()));
 }
+
+/** Where a session's chat attachments go, relative to its run folder. */
+export const ATTACHMENTS_DIR = ".dispand/attachments";
+
+/** Segments a CLI reads as configuration or instructions wherever they sit: never one of an attachment's path. */
+const CONTROL_SEGMENTS = new Set([...CONFIG_SEGMENTS, ...INSTRUCTION_FILES, ".codex"]);
+
+/**
+ * Where a chat attachment goes in the run folder: `.dispand/attachments/<attachment id>/file<.ext>`,
+ * every part made by Dispand. The original name gives only its extension (letters and digits, at
+ * most 16), so no name a person or an agent chose reaches the file system.
+ */
+export function attachmentPath(attachmentId: string, name: string): string {
+  const ext = /\.([A-Za-z0-9]{1,16})$/.exec(name)?.[1]?.toLowerCase();
+  return `${ATTACHMENTS_DIR}/${attachmentId}/file${ext ? `.${ext}` : ""}`;
+}
+
+/**
+ * Whether `p` is a path a chat attachment may have, the one rule for the server (before it names
+ * one to a runner) and the runner (before it writes one): `.dispand/attachments/<id>/<name>` with
+ * plain segments (`isSafeRelativePath`), and no segment a CLI reads as configuration or
+ * instructions (`.claude`, `.codex`, `.mcp.json`, `CLAUDE.md`, `AGENTS.md`, `AGENTS.override.md`,
+ * in any case), as the memory path rule refuses.
+ */
+export function isAttachmentPath(p: string): boolean {
+  if (!isSafeRelativePath(p) || !/^\.dispand\/attachments\/[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}(\.[A-Za-z0-9]{1,16})?$/.test(p)) return false;
+  return p.split("/").every((s) => !CONTROL_SEGMENTS.has(s.toLowerCase()));
+}

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "../../test/jsdom-shims.ts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -13,6 +13,7 @@ const fake = vi.hoisted(() => ({
   harnesses: { list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), models: vi.fn() },
   runners: { list: vi.fn() },
   runs: { sendChat: vi.fn(), stream: vi.fn(), list: vi.fn(), get: vi.fn() },
+  files: { hold: vi.fn() },
   jobs: { start: vi.fn(), def: vi.fn() },
   workflows: { get: vi.fn() },
   questions: { answer: vi.fn() },
@@ -106,6 +107,24 @@ test("the Assistant's chat starts a Job of its chat trigger with the first messa
   expect(fake.runs.list.mock.calls[0]![0]).toEqual({ triggerId: "trigger_chat", kind: "chat" });
   // The URL takes the conversation it started.
   expect(opened).toEqual(["run_1"]);
+});
+
+test("Stem's composer takes files: an image pasted before the first message goes with it", async () => {
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.runs.list.mockResolvedValue([]);
+  fake.jobs.start.mockResolvedValue({ runId: "run_1" });
+  fake.jobs.def.mockResolvedValue({ trigger: { type: "manual", field: { id: "trigger_chat", key: "trigger", type: "chat", label: "Chat", agentId: "agent_a", prompt: "" } }, steps: [], edges: [] });
+  fake.files.hold.mockResolvedValue({ id: "att_9", name: "screen.png", mime: "image/png", size: 3, image: true });
+  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.runs.stream.mockImplementation(idle);
+  const { user } = mount();
+  expect(await screen.findByRole("button", { name: "Attach a file" })).toBeTruthy();
+  const input = await screen.findByLabelText("Message");
+  // jsdom has no DataTransfer: the paste carries the clipboard's files as the browser gives them.
+  fireEvent.paste(input, { clipboardData: { files: [new File(["png"], "screen.png", { type: "image/png" })], getData: () => "" } });
+  expect(await screen.findByText("screen.png")).toBeTruthy();
+  await user.type(input, "What's wrong here?{Enter}");
+  await waitFor(() => expect(fake.runs.sendChat.mock.calls[0]![0]).toEqual({ runId: "run_1", text: "What's wrong here?", attachmentIds: ["att_9"] }));
 });
 
 test("Assistant settings changes the harness and model, preserves other edits, and can restore the harness default", async () => {

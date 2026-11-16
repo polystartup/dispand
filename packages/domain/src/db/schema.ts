@@ -519,6 +519,9 @@ export const stepRuns = pgTable(
 );
 
 /** Chat transcripts and step transcripts: assistant text (deltas appended), user messages, tool calls. */
+/** A file attached to a chat message: its attachment and the name it came with (metadata, never a path). */
+export type MessageFile = { id: string; name: string };
+
 export const messages = pgTable(
   "messages",
   {
@@ -535,6 +538,8 @@ export const messages = pgTable(
       .references(() => stepRuns.id, { onDelete: "cascade" }),
     role: text("role").$type<"assistant" | "user" | "tool">().notNull(),
     text: text("text").notNull(),
+    /** A user message's attached files: attachments of the run, by id, with the name they came with. */
+    files: jsonb("files").$type<MessageFile[]>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     // User messages: when the hub wrote them to the runner (null: resent on recovery).
     deliveredAt: timestamp("delivered_at"),
@@ -563,7 +568,7 @@ export const cloudSessions = pgTable("cloud_sessions", {
   // running: the loop works on it; waiting: on the owner's answer to `pending`; idle: a chat's turn ended; done.
   status: text("status").$type<"running" | "waiting" | "idle" | "done">().notNull(),
   // Chat messages that arrived during a turn: they join the history before the next model call.
-  queued: jsonb("queued").$type<string[]>().notNull().default([]),
+  queued: jsonb("queued").$type<(string | { text: string; files: MessageFile[] })[]>().notNull().default([]),
   // The question the session waits on, for the tool call `callId` of the last assistant item.
   // `key`: the tool a permission question is about, so its answer stays with that tool.
   pending: jsonb("pending").$type<{ questionId: string; callId: string; payload: QuestionPayload; key?: string } | null>(),

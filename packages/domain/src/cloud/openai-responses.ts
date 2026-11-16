@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import type { ResponseInputItem, ResponseOutputItem } from "openai/resources/responses/responses";
-import { parseArgs, strictCompatible, type ChatItem, type ClientDeps, type ClientHarness, type ModelClient, type ModelTurn } from "./model-client.ts";
+import { fileInput, parseArgs, strictCompatible, type ChatFile, type ChatItem, type ClientDeps, type ClientHarness, type ModelClient, type ModelTurn } from "./model-client.ts";
 
 // Responses API, stateless: `store: false`, so every turn sends the whole history, and the
 // output items (reasoning items carry their `encrypted_content` when nothing is stored) go
@@ -54,9 +54,19 @@ export function openAIClient(h: ClientHarness, baseURL: string, deps: ClientDeps
   });
 }
 
+function filePart(file: ChatFile): OpenAI.Responses.ResponseInputContent {
+  const input = fileInput(file);
+  if (input.kind === "image") return { type: "input_image", detail: "auto", image_url: `data:${input.mime};base64,${input.base64}` };
+  if (input.kind === "pdf") return { type: "input_file", filename: file.name.slice(0, 255), file_data: `data:application/pdf;base64,${input.base64}` };
+  return { type: "input_text", text: input.text };
+}
+
 function toInput(items: ChatItem[]): ResponseInputItem[] {
   return items.flatMap((item): ResponseInputItem[] => {
-    if (item.role === "user") return [{ role: "user", content: item.text }];
+    if (item.role === "user") {
+      if (!item.files?.length) return [{ role: "user", content: item.text }];
+      return [{ role: "user", content: [{ type: "input_text", text: item.text }, ...item.files.map(filePart)] }];
+    }
     if (item.role === "assistant") return item.raw as ResponseInputItem[];
     return [{ type: "function_call_output", call_id: item.callId, output: item.result }];
   });

@@ -3,12 +3,13 @@ import { nodesOf, type WorkflowDef } from "@dispand/domain/workflows/model";
 import { SHORT } from "@dispand/runner-protocol";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, Check, CircleAlert, Loader2, MessageSquarePlus, ShieldCheck } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { api, orpc } from "../../lib/api.ts";
 import { canReopen, type RunSnapshot } from "../../lib/run-state.ts";
 import { useRun } from "../../lib/run-watch.ts";
-import { ChatInput, ChatThread, composerApproval } from "../chat/Thread.tsx";
+import { ChatInput, ChatThread, ComposerAttachments, type ComposerFiles, composerApproval } from "../chat/Thread.tsx";
 
 type Step = RunSnapshot["steps"][number];
 
@@ -50,6 +51,20 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
   const [chosenSkill, setChosenSkill] = useState<{ name: string; skillId?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const { t } = useTranslation("chat");
+  // The composer's attached files, each held by Dispand as it is added, sent with the next message.
+  const files = useRef<ComposerFiles | null>(null);
+  const hold = useCallback(
+    async (file: File) => {
+      try {
+        return await api.files.hold({ file });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : t("attachFailed"));
+        throw err;
+      }
+    },
+    [t],
+  );
   // The chat step, or, while it waits for a slot of its harness, the step of the run's chat field.
   const chatField = runDef?.trigger.field.type === "chat" ? runDef.trigger.field.id : undefined;
   const chatStep = run?.steps.find((s) => s.interactive) ?? run?.steps.find((s) => s.nodeId === chatField && s.status === "pending");
@@ -123,7 +138,9 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
         onRunStarted(id);
         void queryClient.invalidateQueries({ queryKey: orpc.runs.list.key() });
       }
-      await api.runs.sendChat({ runId: id, text: message, ...(skillId ? { skillId } : {}) });
+      const attachmentIds = files.current?.ids() ?? [];
+      await api.runs.sendChat({ runId: id, text: message, ...(skillId ? { skillId } : {}), ...(attachmentIds.length ? { attachmentIds } : {}) });
+      if (attachmentIds.length) void files.current?.clear();
       // The conversation's list now has its title.
       void queryClient.invalidateQueries({ queryKey: orpc.runs.list.key() });
       // Only the draft that was sent: what was typed meanwhile (or a new conversation) stays.
@@ -169,6 +186,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
         chatStepId={chatStep?.id}
         canSend={canSend}
         onSend={sendText}
+        onAttach={hold}
         welcome={welcome}
         centeredWelcome={!!composerTools}
         composer={
@@ -214,6 +232,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
                   <MessageSquarePlus aria-hidden />
                 </Button>
               )}
+              {!approval && <ComposerAttachments handle={files} disabled={!canSend || sending} />}
               {assistantAgentId ? <AssistantInput agentId={assistantAgentId} runId={runId} onTextChange={setText} onSkillChange={setChosenSkill} inputProps={composerInput.props} /> : composerInput}
               {composerTools && <div className="min-w-0 flex-1">{composerTools}</div>}
               <Button type="submit" size="icon-sm" aria-label="Send" disabled={!canSend || sending || !text.trim()} className="rounded-full">

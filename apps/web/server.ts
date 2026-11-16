@@ -20,7 +20,7 @@ const built = (await import(new URL("./dist/server/server.js", import.meta.url).
 // Fails fast on missing settings, before listening.
 const config = built.loadServerConfig();
 
-// No request needs more than 1 MiB but an upload (`files.upload`, 10 MiB of file plus multipart
+// No request needs more than 1 MiB but an upload (`files.upload` and `files.hold`, 10 MiB of file plus multipart
 // overhead; `skills.create` and `skills.update`, 8 MiB of files in base64) and a runner tool's
 // result (`/mcp/job/files`, up to 20 files of 10 MiB in base64, kept or refused whole): the API
 // and auth take small JSON bodies. A body announced larger than its path's cap
@@ -29,7 +29,7 @@ const config = built.loadServerConfig();
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
 const MAX_UPLOAD_BODY_BYTES = 11 * 1024 * 1024;
 const { MAX_RESULT_BODY_BYTES } = built;
-const UPLOAD_PATHS = new Set(["/api/rpc/files/upload", "/api/rpc/skills/create", "/api/rpc/skills/update"]);
+const UPLOAD_PATHS = new Set(["/api/rpc/files/upload", "/api/rpc/files/hold", "/api/rpc/skills/create", "/api/rpc/skills/update"]);
 const capOf = (request: Request) => {
   const path = URL.parse(request.url)?.pathname ?? "";
   return path === "/mcp/job/files" ? MAX_RESULT_BODY_BYTES : UPLOAD_PATHS.has(path) ? MAX_UPLOAD_BODY_BYTES : MAX_REQUEST_BODY_BYTES;

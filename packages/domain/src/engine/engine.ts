@@ -44,6 +44,7 @@ import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
 import type { DataEvents } from "../data/events.ts";
 import { loadTableSchemas } from "../data/tables.ts";
+import { takeChatFiles } from "../data/files.ts";
 import { loadToolSchemas, noToolSteps, type ToolExecutor } from "../tools/executor.ts";
 import { tableIdsOf, validateDataSteps } from "../workflows/data-steps.ts";
 import { deriveExpectedOutputs, validateWorkflow, type WorkflowIssue } from "../workflows/derive.ts";
@@ -123,8 +124,8 @@ export function stepView(s: StepRow) {
   return { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, interactive: s.start?.interactive ?? false, prompt: s.start?.prompt ?? null, ...(s.cliSessionId ? { resumable: true as const } : {}) };
 }
 export function messageView(m: MessageRow) {
-  const { id, runId, stepRunId, role, text, createdAt } = m;
-  return { id, runId, stepRunId, role, text, createdAt };
+  const { id, runId, stepRunId, role, text, createdAt, files } = m;
+  return { id, runId, stepRunId, role, text, createdAt, ...(files?.length ? { files } : {}) };
 }
 export function questionView(q: QuestionRow) {
   // `rootId`: a checkpoint's Approval (`roots.ts`), and `consultId` a consult's, each told apart by it and never by its tool name.
@@ -259,7 +260,7 @@ export function resumePrompt(
   waiting: QuestionRow[],
 ): { prompt: string; answers: QuestionRow[]; messages: MessageRow[]; laterAnswers: QuestionRow[]; laterMessages: MessageRow[] } {
   // A native command must be the first text the harness sees, not quoted transcript prose.
-  if (original === null && !answered.length && !waiting.length && unsent[0]?.text.startsWith("/")) {
+  if (original === null && !answered.length && !waiting.length && unsent[0]?.text.startsWith("/") && !unsent[0].files?.length) {
     return { prompt: unsent[0].text, answers: [], messages: [unsent[0]], laterAnswers: [], laterMessages: unsent.slice(1) };
   }
   // An empty original (a chat whose trigger has no instructions) adds nothing.
@@ -280,7 +281,8 @@ export function resumePrompt(
     return false;
   };
   const answers = answered.filter((q) => fits(answerText(q)));
-  const messages = unsent.filter((m) => fits(`The owner wrote: ${m.text}`));
+  // A message with files goes as itself, which carries them (the prompt can't): it and the rest follow.
+  const messages = unsent.filter((m) => (m.files?.length ? ((full = true), false) : fits(`The owner wrote: ${m.text}`)));
   if (waitingLine && length + 2 + waitingLine.length <= TEXT) parts.push(waitingLine);
   return {
     prompt: parts.join("\n\n"),
@@ -689,7 +691,7 @@ export class Engine {
   }
 
   /** The owner's next chat message to the run's chat session. */
-  async sendChat(runId: string, text: string, skillId?: string): Promise<void> {
+  async sendChat(runId: string, text: string, skillId?: string, attachmentIds: string[] = []): Promise<void> {
     const steps = await this.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
     const candidate = steps.find((s) => s.start?.interactive && s.sessionId) ?? (await this.queuedChat(runId, steps));
     if (!candidate) throw new EngineError("CLOSED", "The chat is over");
@@ -723,7 +725,9 @@ export class Engine {
         const [updated] = await tx.update(stepRuns).set({ sessionId, start: { ...chat.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: chat.sessionId, ended: false } }).where(eq(stepRuns.id, chat.id)).returning();
         chat = updated!;
       }
-      const [row] = await tx.insert(messages).values({ id: newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text }).returning();
+      // Files held for the owner become the Job's with the message that carries them.
+      const files = await takeChatFiles(tx, chat.ownerId, runId, attachmentIds);
+      const [row] = await tx.insert(messages).values({ id: newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text, ...(files.length ? { files } : {}) }).returning();
       out.push({ type: "message", message: messageView(row!) });
       if (chat.resumeAfterSession) return { row: row!, working: false, chat };
       if (!chat.sessionId) return { row: row!, working: true, chat };
@@ -2355,7 +2359,7 @@ export class Engine {
     }
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`m:${m.id}`, async () => {
-      if ((await this.adapter.send(sessionId, m.text)) && (this.losses.get(sessionId) ?? 0) === losses) {
+      if ((await this.adapter.send(sessionId, m.text, m.files ?? [])) && (this.losses.get(sessionId) ?? 0) === losses) {
         await this.db.update(messages).set({ deliveredAt: new Date() }).where(eq(messages.id, m.id));
       }
     }).catch((err: unknown) => logError("chat message delivery failed", err, { ref: m.id }));

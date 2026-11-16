@@ -1,5 +1,5 @@
 import type OpenAI from "openai";
-import { parseArgs, type ChatItem, type ClientDeps, type ClientHarness, type ModelClient, type ModelTurn } from "./model-client.ts";
+import { fileInput, parseArgs, type ChatFile, type ChatItem, type ClientDeps, type ClientHarness, type ModelClient, type ModelTurn } from "./model-client.ts";
 import { openAIClient } from "./openai-responses.ts";
 
 type Message = OpenAI.Chat.ChatCompletionMessageParam;
@@ -71,9 +71,19 @@ export function createChatClient(h: ClientHarness, deps: ClientDeps): ModelClien
   };
 }
 
+function filePart(file: ChatFile): OpenAI.Chat.ChatCompletionContentPart {
+  const input = fileInput(file);
+  if (input.kind === "image") return { type: "image_url", image_url: { url: `data:${input.mime};base64,${input.base64}` } };
+  if (input.kind === "pdf") return { type: "file", file: { filename: file.name.slice(0, 255), file_data: `data:application/pdf;base64,${input.base64}` } };
+  return { type: "text", text: input.text };
+}
+
 function toMessages(items: ChatItem[]): Message[] {
   return items.map((item): Message => {
-    if (item.role === "user") return { role: "user", content: item.text };
+    if (item.role === "user") {
+      if (!item.files?.length) return { role: "user", content: item.text };
+      return { role: "user", content: [{ type: "text", text: item.text }, ...item.files.map(filePart)] };
+    }
     if (item.role === "assistant") return item.raw as Assistant;
     return { role: "tool", tool_call_id: item.callId, content: item.result };
   });

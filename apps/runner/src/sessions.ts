@@ -22,6 +22,7 @@ import { resolveWorkdir } from "./workdir.ts";
 import { fallbackPackages, nativeSkillAliases, resolveSkillAlias } from "./native-skills.ts";
 import type { NativePlugins } from "./plugins.ts";
 import { removeMemoryFiles, writeMemoryFiles } from "./memory.ts";
+import { copyAttachments } from "./attachments.ts";
 
 type Emit = (sessionId: string, event: HarnessEvent) => void;
 
@@ -103,6 +104,8 @@ export const STOPPED = "Stopped";
 
 export class Sessions {
   private readonly live = new Map<string, HarnessSession>();
+  /** Each live session's run folder: a chat message's files are copied there. */
+  private readonly folders = new Map<string, string>();
   private readonly stopping = new Set<string>();
   // No parameter properties: `node src/main.ts` runs this file with type stripping only.
   private readonly config: RunnerConfig;
@@ -226,7 +229,12 @@ export class Sessions {
     if (!session) return msg.type === "session.stop" ? this.emit(msg.sessionId, { type: "session-ended" }) : this.notRunning(msg.sessionId);
     if (msg.type === "session.stop") { this.stopping.add(msg.sessionId); return session.stop(STOPPED); }
     if (msg.type === "session.permissions") session.narrowPermissions?.(msg.servers);
-    else if (msg.type === "session.send") session.send(msg.text);
+    else if (msg.type === "session.send") {
+      // Its files are in place before the text that names them reaches the CLI (this session's messages wait meanwhile).
+      const cwd = this.folders.get(msg.sessionId);
+      const failed = msg.files?.length && cwd ? await copyAttachments(cwd, msg.files, this.options.skills) : undefined;
+      session.send(failed ? `${msg.text}\n\n${failed}` : msg.text);
+    }
     else if (msg.type === "session.answer") session.answer(msg.questionId, msg.answer);
     else await session.interrupt();
   }
@@ -365,6 +373,7 @@ export class Sessions {
       const send = session.send.bind(session);
       session.send = (text) => send(resolveSkillAlias(text, aliases));
       this.live.set(start.sessionId, session);
+      this.folders.set(start.sessionId, cwd);
       this.toldNotRunning.delete(start.sessionId);
       // One line at the start and one at the end: ids, the harness and the outcome only (no prompt, result or error text).
       const named = `session ${start.sessionId} of run ${start.cwd.runKey} (${start.harness})`;
@@ -377,6 +386,7 @@ export class Sessions {
         .catch(() => undefined)
         .finally(() => {
           this.live.delete(start.sessionId);
+          this.folders.delete(start.sessionId);
           this.ending.delete(ended);
           const stopped = this.stopping.delete(start.sessionId);
           console.log(`dispand-runner: ${named} ended: ${stopped ? "stopped" : this.shuttingDown ? "aborted" : outcome}`);

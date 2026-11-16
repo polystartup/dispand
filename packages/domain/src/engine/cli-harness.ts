@@ -1,8 +1,8 @@
-import { mcpActionName, parseRule, type Answer, type ServerToRunner, type SessionStart } from "@dispand/runner-protocol";
+import { attachmentPath, isAttachmentPath, mcpActionName, parseRule, type Answer, type ServerToRunner, type SessionFile, type SessionStart } from "@dispand/runner-protocol";
 import { and, eq, inArray } from "drizzle-orm";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
-import { agents, runs, stepRuns } from "../db/schema.ts";
+import { agents, runs, stepRuns, type MessageFile } from "../db/schema.ts";
 import { usedOnRunner } from "../skills/runner-access.ts";
 import { MAX_SESSION_SKILLS, runnerServers, sessionTooling } from "./tooling.ts";
 import { exposedName } from "../platform/exposed.ts";
@@ -18,6 +18,21 @@ import { connectorToolExecutor, InstalledTools } from "../tools/executor.ts";
 import type { ToolConnector } from "../tools/mcp.ts";
 import { type AgentAnswerer, CLOUD_SOURCE, type CliHarness, type HarnessAdapter, type StartParams } from "./harness.ts";
 import { RoutingAdapter } from "./routing-adapter.ts";
+import { oneLine } from "../text.ts";
+
+/**
+ * A chat message to a CLI session with its files: each at a path Dispand makes in the run folder
+ * (`attachmentPath`), which the text names, the original name only as words beside it. A path
+ * that isn't `isAttachmentPath` (one a CLI reads as configuration) is refused here, before any
+ * runner is told: the runner refuses it again.
+ */
+export function chatFiles(text: string, files: MessageFile[]): { text: string; files?: SessionFile[] } {
+  if (files.length === 0) return { text };
+  const sent = files.map((f) => ({ attachmentId: f.id, path: attachmentPath(f.id, f.name) }));
+  if (sent.some((f) => !isAttachmentPath(f.path))) throw new Error("an attachment's path isn't one a session may get");
+  const lines = sent.map((f, i) => `- ${f.path} (attached as “${oneLine(files[i]!.name)}”)`);
+  return { text: `${text}\n\nFiles attached to this message, copied into your working folder (paths relative to it):\n${lines.join("\n")}`, files: sent };
+}
 
 /** The frame a start message fits in, and what is left spare in it. */
 const MAX_FRAME_BYTES = 1024 * 1024;
@@ -112,8 +127,8 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
     return this.deliver(runnerId, { type: "session.permissions", sessionId, servers: mcpServers.flatMap((ref) => ref.type === "runner" ? [{ name: ref.name, unasked: ref.unasked ?? [], ...(ref.denied?.length ? { denied: ref.denied } : {}) }] : []) });
   }
 
-  async send(sessionId: string, text: string): Promise<boolean> {
-    return this.deliver(await this.runnerOf(sessionId), { type: "session.send", sessionId, text });
+  async send(sessionId: string, text: string, files: MessageFile[] = []): Promise<boolean> {
+    return this.deliver(await this.runnerOf(sessionId), { type: "session.send", sessionId, ...chatFiles(text, files) });
   }
 
   async answer(sessionId: string, questionId: string, answer: Answer, by?: AgentAnswerer): Promise<boolean> {
@@ -148,7 +163,7 @@ export function createEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEve
   const installed = deps.connector ? new InstalledTools(db, secrets, deps.connector) : undefined;
   // A cloud session's tools: the caller's (Dispand's own, in the app) and its agent's HTTP tools, called through the connector.
   const tools = installed ? combineToolCallers(deps.tools ?? noTools, installedToolCaller(db, installed, deps.filesDir)) : (deps.tools ?? noTools);
-  const cloud = new CloudRunner(db, secrets, { tools, ...(deps.client ? { client: deps.client } : {}) });
+  const cloud = new CloudRunner(db, secrets, { tools, ...(deps.client ? { client: deps.client } : {}), ...(deps.filesDir ? { filesDir: deps.filesDir } : {}) });
   const engine = new Engine(
     db,
     new RoutingAdapter(db, new CliHarnessAdapter(db, hub, secrets), cloud),

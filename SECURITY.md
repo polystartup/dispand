@@ -633,8 +633,8 @@ changes it updates this file.
   with that type. Everything else, SVG and HTML included whatever their name or declared type,
   is a download (`application/octet-stream`). Every file gets `X-Content-Type-Options: nosniff`
   and `Content-Security-Policy: default-src 'none'; sandbox`. A cell only holds files of its own
-  table. Files are at most 10 MiB. Agents never get a file's content: no tool,
-  prompt or runner message carries it. A Job with the `data` bundle sees a row's file names and
+  table. Files are at most 10 MiB. Agents get no file's content but the files a person attaches
+  to a chat message (below): no tool or prompt carries one. A Job with the `data` bundle sees a row's file names and
   ids, and can set a files cell to files already uploaded to that table (or empty it, after
   which the unused files are swept), like any other value of the row. Files in the result of a
   Job's HTTP tool call (images, embedded resources' blobs; at most 20 a result, each with the
@@ -653,6 +653,24 @@ changes it updates this file.
   yet, which then become that table's for good (`writeRow` takes the writer from the call, never
   from its input): never another Job's, nor one a person writes. The bytes are stored as the
   server sent them, not redacted like the result's text: only the owner can read them.
+- **A file attached in a chat reaches only that chat's agent, and never as configuration.** The
+  owner attaches files in any chat (`files.hold`, owner-only, refused to a Job, not a tool): each
+  is held for them (no table, no Job), counted in the install's total from then on, removed a day
+  later if no message carries it. `runs.sendChat` gives the files it names to the message's Job
+  in the transaction that writes the message (`takeChatFiles`: the owner's held files only, all
+  or none, within 20 files of 10 MiB and the Job's totals, under the attachments lock); a Job
+  can't name any (`FORBIDDEN`). A cloud model gets them as image, PDF or text input, read from
+  disk at each model call and never stored in its transcript. A CLI session gets each one copied
+  by its runner to `.dispand/attachments/<attachment id>/file<.ext>` in the run folder, every part
+  made by Dispand (the original name gives only its extension, letters and digits); the original
+  name is words in the message, never a path. Both the server (before it names a path,
+  `chatFiles`) and the runner (`session.send`'s schema, then again before writing,
+  `apps/runner/src/attachments.ts`) refuse a path that isn't `isAttachmentPath`: so never a
+  `.claude`, `.codex` or `.mcp.json` segment nor a `CLAUDE.md`, `AGENTS.md` or
+  `AGENTS.override.md` (in any case), which a CLI would read as configuration or instructions.
+  The runner writes only through a `.dispand` and folders below it that are real folders, with
+  `O_EXCL|O_NOFOLLOW`, read-only. It fetches the bytes at `GET /runner/attachments/<id>` with its
+  own token, which serves only a file given to a Job with a session on that runner.
 - **Skill files never name a path outside their skill.** Every file of a skill package, made in
   the app or imported from a plugin, passes `isSafeRelativePath` (`packages/runner-protocol/src/paths.ts`)
   before it is stored: relative POSIX paths only, no `..`, `.` or empty segment, no `\`, NUL or

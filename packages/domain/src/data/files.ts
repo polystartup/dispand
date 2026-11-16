@@ -1,12 +1,12 @@
 import { MAX_FILE_BYTES, MAX_RESULT_FILES, resultRefusal } from "@dispand/runner-protocol";
 import { ORPCError } from "@orpc/server";
 import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
-import { mkdir, open, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
-import { attachments, rows as rowsTable, runs, tables as tablesTable, workspaceSettings, type EventActor } from "../db/schema.ts";
+import { attachments, messages, rows as rowsTable, runs, stepRuns, tables as tablesTable, workspaceSettings, type EventActor, type MessageFile } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -17,13 +17,17 @@ import type { ToolResult } from "../tools/mcp.ts";
 // by the server, so nothing an upload says reaches the path. Whether a file is an image comes
 // from its first bytes only, never from its name or the type the browser sent; only those
 // images are ever served inline (see `apps/web/src/server/files.ts`). A file is a table's (uploaded
-// to it, or written in one of its rows) or, until then, the Job's a tool returned it to.
+// to it, or written in one of its rows) or, until then, the Job's a tool returned it to or a
+// chat message carried. A file attached in a chat is held for its owner (no table, no Job) until
+// the message that carries it is sent, which gives it to that message's Job.
 
 const owner = base.use(authed);
 
 export { MAX_FILE_BYTES, MAX_RESULT_FILES };
 /** An upload or an orphan file is kept this long before the sweep may remove it; a Job's files, this long after the Job ends. */
 const GRACE_MS = 3600_000;
+/** A file held for a chat message that was never sent (or left by a deleted Job) is kept this long. */
+const HELD_MS = 24 * 3600_000;
 const MIB = 1024 * 1024;
 /**
  * What one Job keeps in all, whatever a file came from: 200 MiB is ten results of large files,
@@ -75,6 +79,57 @@ const upload = owner.input(z.object({ tableId: z.string().max(64), file: z.file(
   counts.counter("dispand.attachments.stored").add(1, { "dispand.attachment.source": "upload" });
   return attachmentView(row);
 });
+
+/**
+ * A file attached in a chat, held for its owner until the message that carries it is sent
+ * (`takeChatFiles`), and removed a day later if it never is. It counts in the install's total
+ * from now on, so it is checked against it under the lock `keepJobFiles` takes.
+ */
+const hold = owner.input(z.object({ file: z.file() })).handler(async ({ input, context }) => {
+  if (context.job) throw new ORPCError("FORBIDDEN", message("data.file.agentOnly"));
+  if (input.file.size > MAX_FILE_BYTES) throw new ORPCError("BAD_REQUEST", message("data.file.tooLarge"));
+  const bytes = new Uint8Array(await input.file.arrayBuffer());
+  const row = await context.db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('dispand:attachments'))`);
+    const limit = await filesLimitOf(tx, context.ownerId);
+    const [all] = await tx.select({ bytes: sql<string>`coalesce(sum(${attachments.size}), 0)` }).from(attachments);
+    if (Number(all?.bytes ?? 0) + bytes.length > limit * MIB) return null;
+    return storeAttachment(tx, context.filesDir, { ownerId: context.ownerId, name: input.file.name, bytes });
+  });
+  if (!row) {
+    counts.counter("dispand.attachments.refused").add(1, { "dispand.attachment.limit": "install" });
+    throw new ORPCError("BAD_REQUEST", message("data.file.installFull", { limit: await filesLimitOf(context.db, context.ownerId) }));
+  }
+  counts.counter("dispand.attachments.stored").add(1, { "dispand.attachment.source": "chat" });
+  return attachmentView(row);
+});
+
+/**
+ * Gives files held for the owner (`hold`) to the Job a chat message of theirs goes to, in the
+ * transaction that writes the message: all or none, within a message's limits (20 files, 10 MiB
+ * each) and the Job's totals, under the lock `keepJobFiles` takes. Their bytes count in the
+ * install's total since they were held. Throws a person's message when they can't be given.
+ */
+export async function takeChatFiles(tx: Tx, ownerId: string, runId: string, ids: string[]): Promise<MessageFile[]> {
+  if (ids.length === 0) return [];
+  if (new Set(ids).size !== ids.length || ids.length > MAX_RESULT_FILES) throw new ORPCError("BAD_REQUEST", message("data.file.tooMany", { max: MAX_RESULT_FILES }));
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext('dispand:attachments'))`);
+  const held = await tx
+    .select()
+    .from(attachments)
+    .where(and(inArray(attachments.id, ids), eq(attachments.ownerId, ownerId), isNull(attachments.tableId), isNull(attachments.jobId)))
+    .for("update");
+  if (held.length !== ids.length) throw new ORPCError("BAD_REQUEST", message("data.file.gone"));
+  const size = held.reduce((n, f) => n + f.size, 0);
+  const now = await totals(tx, runId);
+  if (now.jobFiles + held.length > MAX_JOB_FILES || now.jobBytes + size > MAX_JOB_BYTES) {
+    counts.counter("dispand.attachments.refused").add(held.length, { "dispand.attachment.limit": "job" });
+    throw new ORPCError("BAD_REQUEST", message("data.file.jobFull", { files: MAX_JOB_FILES, mib: MAX_JOB_BYTES / MIB }));
+  }
+  await tx.update(attachments).set({ jobId: runId }).where(inArray(attachments.id, ids));
+  const byId = new Map(held.map((f) => [f.id, f]));
+  return ids.map((id) => ({ id, name: byId.get(id)!.name }));
+}
 
 /**
  * Stores one file (at most `MAX_FILE_BYTES`, checked by the caller) for a table or a Job: its type
@@ -161,7 +216,7 @@ export async function keepJobFiles(db: Db, filesDir: string, job: { ownerId: str
   return { ...rest, text: rest.text ? `${rest.text}\n\n${note}` : note };
 }
 
-export const files = { upload };
+export const files = { upload, hold };
 
 /**
  * Of these attachment ids, the ones that are attachments of this owner's table, locked
@@ -226,19 +281,54 @@ export async function openAttachment(
   }
 }
 
+/**
+ * A chat attachment as `GET RUNNER_ATTACHMENTS_PATH/<id>` sends it to a runner: only a file of
+ * the runner's owner given to a Job (`takeChatFiles`) that has a session on that runner; null
+ * (404) for anything else, so a runner learns nothing about other files.
+ */
+export async function attachmentForRunner(db: Db, filesDir: string, runnerId: string, id: string) {
+  const [found] = await db
+    .select({ ownerId: attachments.ownerId })
+    .from(attachments)
+    .innerJoin(stepRuns, and(eq(stepRuns.runId, attachments.jobId), eq(stepRuns.runnerId, runnerId), eq(stepRuns.ownerId, attachments.ownerId)))
+    .where(eq(attachments.id, id))
+    .limit(1);
+  return found ? openAttachment(db, filesDir, found.ownerId, id) : null;
+}
+
+/** The bytes of these files of the owner, by id: a file gone (swept, its Job deleted) is missing. */
+export async function attachmentBytes(db: Db, filesDir: string, ownerId: string, ids: string[]): Promise<Map<string, Uint8Array>> {
+  const found = ids.length === 0 ? [] : await db.select({ id: attachments.id }).from(attachments).where(and(inArray(attachments.id, ids), eq(attachments.ownerId, ownerId)));
+  const bytes = new Map<string, Uint8Array>();
+  for (const { id } of found) {
+    try {
+      bytes.set(id, await readFile(join(ownerDir(filesDir, ownerId), id)));
+    } catch (err) {
+      if (!missing(err)) throw err;
+    }
+  }
+  return bytes;
+}
+
 /** Some cell of the attachment's table holds its id. */
 const referenced = sql`exists (select 1 from ${rowsTable} where ${rowsTable.tableId} = ${attachments.tableId}
   and jsonb_path_exists(${rowsTable.values}, '$.*[*] ? (@ == $id)', jsonb_build_object('id', ${attachments.id})))`;
 
+/** A message of the attachment's Job carries it: the chat's history reads it at every turn. */
+const inMessage = sql`exists (select 1 from ${messages} where ${messages.runId} = ${attachments.jobId}
+  and ${messages.files} @> jsonb_build_array(jsonb_build_object('id', ${attachments.id})))`;
+
 /**
- * What the sweep removes, `cutoff` being an hour ago: a table's file no row of it references,
- * past an hour; a Job's file no table took, an hour after the Job ended (or, its Job deleted, an
- * hour after it came).
+ * What the sweep removes, `cutoff` being an hour ago and `heldCutoff` a day ago: a table's file no
+ * row of it references, past an hour; a Job's file no table took and no message of it carries, an
+ * hour after the Job ended (a chat's files stay with their Job, which a new message reopens); a
+ * file of no table and no Job (held for a chat message never sent, or its Job deleted), a day
+ * after it came.
  */
-const unused = (cutoff: Date) =>
+const unused = (cutoff: Date, heldCutoff: Date) =>
   sql`((${attachments.tableId} is not null and ${attachments.createdAt} < ${cutoff} and not ${referenced})
-    or (${attachments.tableId} is null and ${attachments.jobId} is null and ${attachments.createdAt} < ${cutoff})
-    or (${attachments.tableId} is null and exists (select 1 from ${runs} where ${runs.id} = ${attachments.jobId} and ${runs.finishedAt} < ${cutoff})))`;
+    or (${attachments.tableId} is null and ${attachments.jobId} is null and ${attachments.createdAt} < ${heldCutoff})
+    or (${attachments.tableId} is null and not ${inMessage} and exists (select 1 from ${runs} where ${runs.id} = ${attachments.jobId} and ${runs.finishedAt} < ${cutoff})))`;
 
 const missing = (err: unknown) => (err as NodeJS.ErrnoException).code === "ENOENT";
 
@@ -251,18 +341,19 @@ const missing = (err: unknown) => (err as NodeJS.ErrnoException).code === "ENOEN
  */
 export async function sweepAttachments(db: Db, filesDir: string, now: Date): Promise<{ removed: number }> {
   const cutoff = new Date(now.getTime() - GRACE_MS);
+  const heldCutoff = new Date(now.getTime() - HELD_MS);
   const gone = await db.transaction(async (tx) => {
     // Locked first, skipping any a write holds: that write may be about to reference it. Checked
     // again in a later statement, which sees every write that committed before the lock.
     const candidates = await tx
       .select({ id: attachments.id })
       .from(attachments)
-      .where(unused(cutoff))
+      .where(unused(cutoff, heldCutoff))
       .for("update", { skipLocked: true });
     if (candidates.length === 0) return [];
     return tx
       .delete(attachments)
-      .where(and(inArray(attachments.id, candidates.map((c) => c.id)), unused(cutoff)))
+      .where(and(inArray(attachments.id, candidates.map((c) => c.id)), unused(cutoff, heldCutoff)))
       .returning({ id: attachments.id, ownerId: attachments.ownerId });
   });
   for (const a of gone) await rm(join(ownerDir(filesDir, a.ownerId), a.id), { force: true });

@@ -12,7 +12,7 @@
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with
-  `Authorization: Bearer <token>` and `Dispand-Protocol: 27` (`PROTOCOL_VERSION`, bumped by
+  `Authorization: Bearer <token>` and `Dispand-Protocol: 28` (`PROTOCOL_VERSION`, bumped by
   every change an older runner can't parse or honor). An older runner is refused with 426 "update
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
@@ -1133,7 +1133,7 @@
   while a result's files are being kept (up to 120 s), the server's later lines wait. Its spec (the command, args, `env` and folder from the
   runner's config, and the files URL) is the `DISPAND_PROXY` variable, the Job's token
   `DISPAND_JOB_TOKEN` (Codex: `env_vars`); outside a Job it relays results untouched. A
-  plugin's stdio server can start from the same spec (`plugin-servers.ts` `Launch`). Runner protocol 27.
+  plugin's stdio server can start from the same spec (`plugin-servers.ts` `Launch`).
   `keepJobFiles` keeps a result whole or refuses it whole, with the reason as its text: a file
   over 10 MiB or more than 20 files (`resultRefusal`, shared with the proxy, which checks before
   sending), the Job's totals (`MAX_JOB_BYTES` 200 MiB, `MAX_JOB_FILES` 100, over every attachment
@@ -1151,11 +1151,31 @@
   checks the session itself) serves PNG, JPEG, GIF and WebP sniffed on upload inline and
   everything else as a download, all with `nosniff` and a sandbox CSP. `sweepAttachments` runs
   on boot and hourly: it removes attachments no row of their table references, a Job's files no
-  table took once the Job has ended, then files on disk with no row (a deleted table's), all after
-  an hour; it is the one mechanism for every way a
+  table took and no message of it carries once the Job has ended, then files on disk with no row
+  (a deleted table's), all after an hour, and files of no table and no Job (held for a chat
+  message never sent, or their Job deleted) after a day; it is the one mechanism for every way a
   file stops being used. `filesDir` is `DISPAND_FILES_DIR` (production: `/data/files`, in the
   `dispand-files` volume), `.data/files` in development. Bounds: 20 files per cell,
-  10 MiB per file (the production server takes 11 MiB bodies on `files.upload` only).
+  10 MiB per file (the production server takes 11 MiB bodies on `files.upload` and `files.hold` only).
+- **Chat attachments:** the composer of every chat (`components/chat/Thread.tsx`, the library's
+  attachment adapter, paste and an attach button) holds each file as it is added (`files.hold`:
+  an attachment row with no table and no Job, checked against the install's total). The next
+  message names their ids (`runs.sendChat` `attachmentIds`, at most 20); `engine.sendChat` gives
+  them to the Job in the transaction that writes the message (`takeChatFiles`, checked against
+  the Job's totals) and keeps `{id, name}` on the message (`messages.files`, migration 0083),
+  which the thread shows. A file held before a chat's first message goes to the Job that message
+  starts. Delivery goes through the harness: the cloud runner queues the message with its files
+  and, at each model call, reads their bytes (`attachmentBytes`) into the user item (`ChatFile`):
+  by first bytes, a raster image is image input, a PDF document input, UTF-8 text a text part,
+  anything else (or a file gone) a line saying so, for Anthropic, OpenAI Responses and chat
+  completions alike (`fileInput`). A CLI session's `session.send` carries `files` (attachment id
+  and path, `attachmentPath`: `.dispand/attachments/<id>/file<.ext>`, `isAttachmentPath` checked
+  by `chatFiles` and the protocol schema) and a text that names the paths with the original names
+  as words. The runner fetches each file at `GET /runner/attachments/<id>` (runner token; served
+  only for a Job with a session on that runner, `attachmentForRunner`, span
+  `runner.attachment`), writes it read-only in the run folder, then hands the text to the CLI;
+  if it can't, the text goes with a line saying so. The files stay with the run folder for later
+  turns and resumes. Runner protocol 28.
 - **Secrets at rest:** `packages/domain/src/secrets.ts` is the one secret box (the tool headers use it too). `createSecretBox(key)`
   seals with AES-256-GCM and a random 12-byte IV into `v1.<iv>.<ciphertext+tag>` (base64url);
   `seal` and `open` take an AAD, `secretAad(table, rowId, field, origin?)`, which binds the value

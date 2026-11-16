@@ -280,7 +280,12 @@
       "children_other": "{{count}} lignes de « {{table}} » en dépendent : supprimez-les ou déplacez-les d’abord."
     },
     "file": {
-      "tooLarge": "Les fichiers font au plus 10 Mio."
+      "tooLarge": "Les fichiers font au plus 10 Mio.",
+      "tooMany": "Un message prend au plus {{max}} fichiers.",
+      "installFull": "Ce fichier ne peut pas être gardé : avec lui, les fichiers de Dispand dépasseraient {{limit}} Mio, le maximum de cette installation (un réglage de son propriétaire).",
+      "jobFull": "Ces fichiers ne peuvent pas être envoyés : avec eux, cette conversation garderait plus de {{files}} fichiers ou {{mib}} Mio, le maximum d’un Job.",
+      "gone": "Un fichier joint n’est plus disponible : joignez-le de nouveau.",
+      "agentOnly": "Seule une personne joint des fichiers à un message."
     },
     "cell": {
       "tooLong": "« {{field}} » accepte au plus {{max}} caractères, et la valeur en compte {{length}}.",

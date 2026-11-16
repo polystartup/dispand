@@ -29,5 +29,6 @@ export { platformToolCaller } from "./platform/cloud.ts";
 export { handleJobMcp } from "./platform/mcp.ts";
 export { handleJobToolsMcp } from "./platform/tools-mcp.ts";
 export { handleJobFiles } from "./platform/job-files.ts";
+export { handleRunnerAttachment } from "./runners/attachments.ts";
 
 export { flushTelemetry, startTelemetry, stopTelemetry } from "./telemetry/index.ts";

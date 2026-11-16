@@ -1,12 +1,12 @@
-import { ActionBarPrimitive, AuiIf, AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, type TextMessagePartComponent, type ToolCallMessagePartComponent } from "@assistant-ui/react";
+import { ActionBarPrimitive, AttachmentPrimitive, AuiIf, AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, useAui, type TextMessagePartComponent, type ToolCallMessagePartComponent } from "@assistant-ui/react";
 import type { Answer } from "@dispand/runner-protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, Check, Copy, MessageSquare, Users, Wrench } from "lucide-react";
+import { ArrowDown, Check, Copy, MessageSquare, Paperclip, Users, Wrench, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { createContext, type ComponentProps, type ReactNode, useContext, useState } from "react";
+import { createContext, type ComponentProps, type ReactNode, type RefObject, useContext, useMemo, useState } from "react";
 import { orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
-import { CONSULT_TOOL, QUESTION_TOOL, threadMessages, TRACE_TOOL, useRunThread } from "../../lib/assistant-runtime.ts";
+import { CONSULT_TOOL, heldAttachments, QUESTION_TOOL, threadMessages, TRACE_TOOL, useRunThread } from "../../lib/assistant-runtime.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import { ProposalItems } from "../questions/ProposalItems.tsx";
 import { approvalWords, QuestionForm } from "../questions/QuestionForm.tsx";
@@ -154,11 +154,52 @@ function MessageActions() {
 
 /** The panel owns the draft and delivery; the library supplies sizing and focus behavior. */
 export function ChatInput(props: Omit<ComponentProps<typeof ComposerPrimitive.Input>, "submitOnEnter" | "submitMode">) {
-  return <ComposerPrimitive.Input maxRows={6} submitMode="none" cancelOnEscape={false} addAttachmentOnPaste={false} {...props} />;
+  return <ComposerPrimitive.Input maxRows={6} submitMode="none" cancelOnEscape={false} addAttachmentOnPaste {...props} />;
+}
+
+/** One attached file: its name, and in the composer a control that takes it off the message. */
+function FileChip({ removable }: { removable?: boolean }) {
+  const { t } = useTranslation("chat");
+  return (
+    <AttachmentPrimitive.Root className="flex max-w-56 items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1 text-[13px] text-muted">
+      <Paperclip size={13} className="shrink-0" aria-hidden />
+      <span className="min-w-0 truncate"><AttachmentPrimitive.Name /></span>
+      {removable && (
+        <AttachmentPrimitive.Remove aria-label={t("removeFile")} title={t("removeFile")} className="rounded p-0.5 hover:bg-hover hover:text-fg">
+          <X size={12} aria-hidden />
+        </AttachmentPrimitive.Remove>
+      )}
+    </AttachmentPrimitive.Root>
+  );
+}
+const RemovableChip = () => <FileChip removable />;
+const SentChip = () => <FileChip />;
+
+/** What the panel reads of the composer's files when it sends: their held ids, then clears them. */
+export type ComposerFiles = { ids: () => string[]; clear: () => Promise<void> };
+
+/** The composer's files, inside the thread's runtime: the button that attaches one, and each attached one. */
+export function ComposerAttachments({ handle, disabled }: { handle: RefObject<ComposerFiles | null>; disabled?: boolean }) {
+  const { t } = useTranslation("chat");
+  const aui = useAui();
+  handle.current = { ids: () => aui.composer().getState().attachments.map((a) => a.id), clear: () => aui.composer().clearAttachments() };
+  return (
+    <>
+      <ComposerPrimitive.AddAttachment multiple disabled={disabled} aria-label={t("attachFile")} title={t("attachFile")} className="rounded-full p-2 text-muted hover:bg-hover hover:text-fg disabled:opacity-60">
+        <Paperclip size={16} aria-hidden />
+      </ComposerPrimitive.AddAttachment>
+      <div className="order-first flex basis-full flex-wrap gap-1.5 empty:hidden">
+        <ComposerPrimitive.Attachments components={{ Attachment: RemovableChip }} />
+      </div>
+    </>
+  );
 }
 
 const OwnerMessage = () => (
   <MessagePrimitive.Root role="listitem">
+    <div className="mb-1 flex flex-wrap justify-end gap-1.5 empty:hidden">
+      <MessagePrimitive.Attachments components={{ Attachment: SentChip }} />
+    </div>
     <MessagePrimitive.Parts components={{ Text: OwnerText }} />
     <div className="flex justify-end"><MessageActions /></div>
   </MessagePrimitive.Root>
@@ -176,6 +217,8 @@ type Props = {
   chatStepId: string | undefined;
   canSend: boolean;
   onSend: (text: string) => Promise<void>;
+  /** Holds a file attached in the composer (`files.hold`): absent, the composer takes no file. */
+  onAttach?: (file: File) => Promise<{ id: string; image: boolean }>;
   /** What follows the messages inside the scrolling area: the failure, the steps after the chat. */
   children?: ReactNode;
   composer?: ReactNode;
@@ -185,9 +228,10 @@ type Props = {
 };
 
 /** The conversation of a run's chat step, on assistant-ui's thread: the owner's and the agent's words, the tools it used, its questions. */
-export function ChatThread({ run, chatStepId, canSend, onSend, children, composer, welcome, centeredWelcome }: Props) {
+export function ChatThread({ run, chatStepId, canSend, onSend, onAttach, children, composer, welcome, centeredWelcome }: Props) {
   const { t } = useTranslation("chat");
-  const runtime = useRunThread({ run, chatStepId, canSend, onSend });
+  const attachments = useMemo(() => (onAttach ? heldAttachments(onAttach) : undefined), [onAttach]);
+  const runtime = useRunThread({ run, chatStepId, canSend, onSend, ...(attachments ? { attachments } : {}) });
   // Nothing said yet, and nothing went wrong: the invitation to start.
   const empty = threadMessages(run, chatStepId).length === 0 && run?.steps.find((s) => s.id === chatStepId)?.status !== "failed";
   const questions = new Map((run?.questions ?? []).map((q) => [q.id, q]));

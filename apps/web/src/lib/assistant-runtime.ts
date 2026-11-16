@@ -1,4 +1,4 @@
-import { type AppendMessage, type ThreadMessageLike, useExternalStoreRuntime } from "@assistant-ui/react";
+import { type AppendMessage, type AttachmentAdapter, type ThreadMessageLike, useExternalStoreRuntime } from "@assistant-ui/react";
 import type { RunSnapshot } from "./run-state.ts";
 
 // The one place Dispand's runs meet assistant-ui. Dispand keeps its own messages, questions and
@@ -28,7 +28,9 @@ function ofMessage(m: Message): ThreadMessageLike {
   if (m.role === "tool") {
     return { id: m.id, role: "assistant", createdAt, content: [{ type: "tool-call", toolCallId: m.id, toolName: TRACE_TOOL, args: { text: m.text }, result: "done" }] };
   }
-  return { id: m.id, role: m.role, createdAt, content: [{ type: "text", text: m.text }] };
+  // A person's attached files show as the library's attachments of their message: names only.
+  const attachments = m.role === "user" && m.files?.length ? { attachments: m.files.map((f) => ({ id: f.id, type: "file", name: f.name, status: { type: "complete" as const }, content: [] })) } : {};
+  return { id: m.id, role: m.role, createdAt, content: [{ type: "text", text: m.text }], ...attachments };
 }
 
 function ofQuestion(q: Question): ThreadMessageLike {
@@ -74,7 +76,25 @@ export const textOf = (message: AppendMessage) => message.content.flatMap((part)
  * The library's runtime over a run's chat. `canSend`: false while the conversation cannot continue or a question waits; `onSend` sends the
  * owner's words through Dispand's own procedures.
  */
-export function useRunThread(options: { run: RunSnapshot | null; chatStepId: string | undefined; canSend: boolean; onSend: (text: string) => Promise<void> }) {
+/**
+ * The composer's attachments: each file is held by Dispand as it is added (`hold`, `files.hold`),
+ * under the id the message sends later; removing it from the composer leaves it to the sweep.
+ */
+export function heldAttachments(hold: (file: File) => Promise<{ id: string; image: boolean }>): AttachmentAdapter {
+  return {
+    accept: "*",
+    async add({ file }) {
+      const held = await hold(file);
+      return { id: held.id, type: held.image ? "image" : "file", name: file.name, contentType: file.type, file, status: { type: "requires-action", reason: "composer-send" } };
+    },
+    async remove() {},
+    async send(attachment) {
+      return { ...attachment, status: { type: "complete" }, content: [] };
+    },
+  };
+}
+
+export function useRunThread(options: { run: RunSnapshot | null; chatStepId: string | undefined; canSend: boolean; onSend: (text: string) => Promise<void>; attachments?: AttachmentAdapter }) {
   return useExternalStoreRuntime({
     messages: threadMessages(options.run, options.chatStepId),
     convertMessage: same,
@@ -83,5 +103,6 @@ export function useRunThread(options: { run: RunSnapshot | null; chatStepId: str
     // Subsequent stream events still replace its text through `messages`.
     isSendDisabled: !options.canSend,
     onNew: (message) => options.onSend(textOf(message)),
+    ...(options.attachments ? { adapters: { attachments: options.attachments } } : {}),
   });
 }

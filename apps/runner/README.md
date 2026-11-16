@@ -172,7 +172,12 @@ runner's MCP proxy (`dispand-runner mcp-proxy`, which the CLI starts in its plac
 folder, never the run folder (where the agent could plant an `.npmrc`), without any `DISPAND_*`
 variable. In a Job's session, the files its results carry (images, audio, embedded blobs) go to
 Dispand as the Job's attachments, and the agent gets their ids in their place; a result past a
-limit (10 MiB a file, 20 files, the Job's or the install's total) keeps none, and says why. Managed Job tools follow
+limit (10 MiB a file, 20 files, the Job's or the install's total) keeps none, and says why.
+Files a person attaches to a chat message are fetched from Dispand with the runner's token and
+written read-only to `.dispand/attachments/<id>/file<.ext>` in the run folder before the message
+reaches the CLI, which reads them with its file tools; the runner refuses any other path, and
+never one a CLI reads as configuration (`.claude`, `.codex`, `.mcp.json`, `CLAUDE.md`,
+`AGENTS.md`). Managed Job tools follow
 the agent's per-action permissions in every session mode: Run actions proceed, Ask actions ask
 each time, with an option to remember the permission for the agent. Other MCP tools ask each
 time outside `bypassPermissions`. Codex servers use `default_tools_approval_mode: "prompt"`

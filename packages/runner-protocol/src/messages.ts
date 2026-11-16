@@ -2,7 +2,8 @@ import { z } from "zod";
 import { id, jsonObject, record, short, string, text } from "./bounds.ts";
 import { Answer, HarnessEvent, OutputField } from "./harness.ts";
 import { PluginOperation, PluginReport } from "./plugins.ts";
-import { isMemoryPath } from "./paths.ts";
+import { MAX_RESULT_FILES } from "./files.ts";
+import { isAttachmentPath, isMemoryPath } from "./paths.ts";
 import { MAX_CLI_RULE_LENGTH } from "./rules.ts";
 
 /**
@@ -18,7 +19,7 @@ export const HarnessCommands = z.array(z.object({
 })).max(1000);
 export type HarnessCommand = z.infer<typeof HarnessCommands>[number];
 
-export const PROTOCOL_VERSION = 27;
+export const PROTOCOL_VERSION = 28;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -180,6 +181,13 @@ export const SessionStart = z.discriminatedUnion("harness", [
 export type SessionStart = z.infer<typeof SessionStart>;
 export type ClaudeSessionStart = Extract<SessionStart, { harness: "claude-code" }>;
 
+/** A chat attachment the runner copies into the run folder: never a path a CLI reads as configuration. */
+export const SessionFile = z.object({
+  attachmentId: id().regex(/^[A-Za-z0-9_-]{1,64}$/),
+  path: id().refine(isAttachmentPath, "not an attachment path"),
+});
+export type SessionFile = z.infer<typeof SessionFile>;
+
 /** A live session update can remove grants and add denials, never restore a removed server. */
 export const SessionToolPermissions = z.object({
   name: SessionServerName,
@@ -194,7 +202,12 @@ export const ServerToRunner = z.discriminatedUnion("type", [
   z.object({ type: z.literal("plugin.request"), requestId: id().min(1), operation: PluginOperation }),
   z.object({ type: z.literal("session.start"), start: SessionStart }),
   z.object({ type: z.literal("session.permissions"), sessionId: id(), servers: z.array(SessionToolPermissions).max(50) }),
-  z.object({ type: z.literal("session.send"), sessionId: id(), text: text() }),
+  /**
+   * A chat message. `files`: what the person attached to it, which the runner fetches from
+   * Dispand (`RUNNER_ATTACHMENTS_PATH`, by id) and writes at `path` in the run folder before the
+   * text goes to the CLI; the text names those paths. Every path is `isAttachmentPath`.
+   */
+  z.object({ type: z.literal("session.send"), sessionId: id(), text: text(), files: z.array(SessionFile).max(MAX_RESULT_FILES).optional() }),
   z.object({ type: z.literal("session.answer"), sessionId: id(), questionId: id(), answer: Answer }),
   z.object({ type: z.literal("session.interrupt"), sessionId: id() }),
   /** Ends the session now (its run was stopped): the CLI is stopped, and nothing is said back for a session that isn't running. */

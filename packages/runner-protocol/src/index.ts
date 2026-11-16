@@ -1,4 +1,4 @@
-export { isMemoryPath, isSafeRelativePath, MAX_MEMORY_PATH_LENGTH, MAX_PATH_LENGTH, MAX_PATH_SEGMENTS } from "./paths.ts";
+export { ATTACHMENTS_DIR, attachmentPath, isAttachmentPath, isMemoryPath, isSafeRelativePath, MAX_MEMORY_PATH_LENGTH, MAX_PATH_LENGTH, MAX_PATH_SEGMENTS } from "./paths.ts";
 export { type CliRule, type CliRuleCall, MAX_CLI_RULE_LENGTH, matchesRule, parseRule } from "./rules.ts";
 export { ID, PERMISSION_INPUT, SHORT, storable, TEXT } from "./bounds.ts";
 export { mcpActionName, Answer, HarnessEvent, OutputField, QuestionPayload, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING } from "./harness.ts";
@@ -24,9 +24,10 @@ export {
   ProtocolError,
   RunnerToServer,
   ServerToRunner,
+  SessionFile,
   SessionStart,
   SessionToolPermissions,
 } from "./messages.ts";
 
 export { PluginHarness, PluginName, PluginSource, PluginOperation, PluginReport, nativeSourceKey, workspacePluginContent } from "./plugins.ts";
-export { JOB_FILES_PATH, MAX_FILE_BYTES, MAX_RESULT_BODY_BYTES, MAX_RESULT_FILES, resultRefusal } from "./files.ts";
+export { JOB_FILES_PATH, RUNNER_ATTACHMENTS_PATH, MAX_FILE_BYTES, MAX_RESULT_BODY_BYTES, MAX_RESULT_FILES, resultRefusal } from "./files.ts";

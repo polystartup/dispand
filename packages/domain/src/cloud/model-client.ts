@@ -1,4 +1,6 @@
+import { detectImage, type ImageType } from "../data/files.ts";
 import type { CloudHarnessConfig } from "../harnesses/cloud.ts";
+import { oneLine } from "../text.ts";
 import { createAnthropicClient } from "./anthropic.ts";
 import { createChatClient } from "./openai-chat.ts";
 import { createResponsesClient } from "./openai-responses.ts";
@@ -7,8 +9,11 @@ export type ToolSpec = { name: string; description: string; inputSchema: Record<
 export type ToolCall = { id: string; name: string; args: unknown };
 
 // `raw` is the provider-native assistant output, replayed unchanged: the history is append-only.
+/** A file attached to a user message: its attachment and name, with its bytes read for each model call (never stored in the transcript). */
+export type ChatFile = { id: string; name: string; bytes?: Uint8Array };
+
 export type ChatItem =
-  | { role: "user"; text: string }
+  | { role: "user"; text: string; files?: ChatFile[] }
   | { role: "assistant"; text: string; toolCalls: ToolCall[]; raw: unknown }
   | { role: "tool"; callId: string; name: string; result: string; isError: boolean };
 
@@ -72,4 +77,30 @@ export function parseArgs(text: string): unknown {
   } catch {
     return { __invalid: text };
   }
+}
+
+/**
+ * What a model is given for an attached file, by its first bytes (never its name): a raster image
+ * as image input, a PDF as document input, UTF-8 text as text; anything else, and a file gone, as
+ * a line saying so. Every provider takes these three kinds of input.
+ */
+export type FileInput =
+  | { kind: "image"; mime: ImageType; base64: string }
+  | { kind: "pdf"; base64: string }
+  | { kind: "text"; text: string }
+  | { kind: "note"; text: string };
+
+export function fileInput(file: ChatFile): FileInput {
+  const named = `“${oneLine(file.name)}”`;
+  if (!file.bytes) return { kind: "note", text: `The attached file ${named} is no longer available.` };
+  const image = detectImage(file.bytes);
+  if (image) return { kind: "image", mime: image, base64: Buffer.from(file.bytes).toString("base64") };
+  if (Buffer.from(file.bytes.subarray(0, 5)).toString("latin1") === "%PDF-") return { kind: "pdf", base64: Buffer.from(file.bytes).toString("base64") };
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(file.bytes);
+    if (!text.includes("\0")) return { kind: "text", text: `The attached file ${named}:\n${text}` };
+  } catch {
+    // Not UTF-8: a binary file.
+  }
+  return { kind: "note", text: `The attached file ${named} (${file.bytes.length} bytes) is in a format this model can't read: only images, PDFs and text are.` };
 }

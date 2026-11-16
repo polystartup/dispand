@@ -28,5 +28,8 @@
   "howCanIHelp": "How can I help you today?",
   "sayHello": "Say hello to start.",
   "sayHelloText": "Ask a question or describe what you want to get done.",
-  "jump": "Jump to latest message"
+  "jump": "Jump to latest message",
+  "attachFile": "Attach a file",
+  "removeFile": "Remove this file",
+  "attachFailed": "The file couldn't be attached."
 }

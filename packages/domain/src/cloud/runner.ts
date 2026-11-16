@@ -1,7 +1,8 @@
 import { type Answer, type HarnessEvent, ID, type QuestionPayload, SHORT, TEXT } from "@dispand/runner-protocol";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
-import { cloudSessions, runs, stepRuns } from "../db/schema.ts";
+import { cloudSessions, runs, stepRuns, type MessageFile } from "../db/schema.ts";
+import { attachmentBytes } from "../data/files.ts";
 import { answerText } from "../engine/engine.ts";
 import type { AgentAnswerer, CloudHarness, HarnessAdapter, StartParams } from "../engine/harness.ts";
 import { loadCloudHarness } from "../harnesses/cloud.ts";
@@ -156,12 +157,16 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   private readonly client: (h: ClientHarness) => ModelClient;
   private readonly tools: ToolCaller;
 
+  /** Where attachments are kept: a chat message's files are read from there at each model call. */
+  private readonly filesDir: string | undefined;
+
   constructor(
     private readonly db: Db,
     private readonly secrets: SecretBox,
-    deps: { tools: ToolCaller; client?: (h: ClientHarness) => ModelClient },
+    deps: { tools: ToolCaller; client?: (h: ClientHarness) => ModelClient; filesDir?: string },
   ) {
     this.tools = deps.tools;
+    this.filesDir = deps.filesDir;
     this.client = deps.client ?? ((h) => createModelClient(h));
   }
 
@@ -230,12 +235,12 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     return true;
   }
 
-  async send(sessionId: string, text: string): Promise<boolean> {
+  async send(sessionId: string, text: string, files: MessageFile[] = []): Promise<boolean> {
     const known = await this.locked(sessionId, async () => {
       const [row] = await this.db.select().from(cloudSessions).where(eq(cloudSessions.id, sessionId));
       if (!row) return false;
       if (row.status === "done") return true;
-      await this.write(sessionId, { queued: [...row.queued, text], ...(row.status === "idle" ? { status: "running" as const } : {}) });
+      await this.write(sessionId, { queued: [...row.queued, files.length ? { text, files } : text], ...(row.status === "idle" ? { status: "running" as const } : {}) });
       return true;
     });
     if (known) this.kick(sessionId);
@@ -363,6 +368,14 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     }
   }
 
+  /** The transcript with its attached files' bytes, read for this model call only: the stored items keep their ids. */
+  private async withFileBytes(ownerId: string, items: ChatItem[]): Promise<ChatItem[]> {
+    const ids = items.flatMap((x) => (x.role === "user" ? (x.files ?? []).map((f) => f.id) : []));
+    if (ids.length === 0) return items;
+    const bytes = this.filesDir ? await attachmentBytes(this.db, this.filesDir, ownerId, ids) : new Map<string, Uint8Array>();
+    return items.map((x) => (x.role === "user" && x.files?.length ? { ...x, files: x.files.map((f) => ({ id: f.id, name: f.name, ...(bytes.has(f.id) ? { bytes: bytes.get(f.id) } : {}) })) } : x));
+  }
+
   private async specs(sessionId: string) {
     const specs = await this.tools.specs(sessionId);
     const names = toolNames(specs.map(({ key, label }) => ({ key, label })));
@@ -382,7 +395,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     await this.locked(id, async () => {
       const [now] = await this.db.select({ queued: cloudSessions.queued }).from(cloudSessions).where(eq(cloudSessions.id, id));
       if (now && now.queued.length > 0) {
-        items = [...items, ...now.queued.map((text): ChatItem => ({ role: "user", text }))];
+        items = [...items, ...now.queued.map((q): ChatItem => (typeof q === "string" ? { role: "user", text: q } : { role: "user", text: q.text, files: q.files }))];
         await this.write(id, { items, queued: [] });
       }
     });
@@ -418,10 +431,11 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         ...(skills.length > 0 ? [readSkillSpec] : []),
         ...specs.map((s) => ({ ...s.spec, name: names.toName(s.key) })),
       ];
+      const sent = await this.withFileBytes(row.ownerId, items);
       turn = await modelCall(harness.kind, id, () =>
         this.client(harness).turn({
           system: [harness.systemPrompt, start.systemPrompt, skillsPrompt(skills)].filter(Boolean).join("\n\n"),
-          items,
+          items: sent,
           tools,
           signal: new AbortController().signal,
           onText: text.push,

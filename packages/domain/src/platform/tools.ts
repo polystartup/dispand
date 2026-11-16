@@ -533,6 +533,7 @@ export const NOT_TOOLS: string[] = [
   "plugins.addServer",
   // Files and streams.
   "files.upload",
+  "files.hold",
   "rows.editFiles",
   "rows.stream",
   // The owner's pages.

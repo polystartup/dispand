@@ -1,6 +1,7 @@
 import { ORPCError } from "@orpc/server";
 import { and, asc, count, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import { MAX_RESULT_FILES } from "@dispand/runner-protocol";
 import type { Db } from "../db/client.ts";
 import type { Tx } from "../db/client.ts";
 import {
@@ -304,11 +305,13 @@ const start = owner.input(z.object({ workflowId: z.string() })).handler(async ({
 });
 
 const sendChat = owner
-  .input(z.object({ runId: z.string(), text: StorableText(100_000).trim().min(1), skillId: z.string().max(64).optional() }))
+  .input(z.object({ runId: z.string(), text: StorableText(100_000).trim().min(1), skillId: z.string().max(64).optional(), attachmentIds: z.array(z.string().max(64)).max(MAX_RESULT_FILES).optional() }))
   .handler(async ({ input, context }) => {
     await requireRun(context.db, context.ownerId, input.runId);
     if (context.job && input.skillId) throw new ORPCError("FORBIDDEN", message("workflows.ownerSkill"));
-    await context.engine.sendChat(input.runId, input.text, input.skillId).catch(engineError);
+    // Files held for the owner (`files.hold`) go only with the owner's own message.
+    if (context.job && input.attachmentIds?.length) throw new ORPCError("FORBIDDEN", message("data.file.agentOnly"));
+    await context.engine.sendChat(input.runId, input.text, input.skillId, input.attachmentIds ?? []).catch(engineError);
   });
 
 /** Stops a run or a Job still going: its open steps fail with "Stopped" and its sessions end. */

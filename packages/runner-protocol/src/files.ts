@@ -5,6 +5,11 @@
  * file may be ten times a frame.
  */
 export const JOB_FILES_PATH = "/mcp/job/files";
+/**
+ * Where a runner fetches a chat attachment named in a `session.send` (`GET <path>/<id>`, with
+ * its runner token): only a file of a Job that has a session on that runner.
+ */
+export const RUNNER_ATTACHMENTS_PATH = "/runner/attachments";
 /** The largest file a tool result keeps. */
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 /** The most files one tool result holds. */

@@ -33,6 +33,7 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth.$'
 import { Route as ApiRpcSplatRouteImport } from './routes/api/rpc.$'
 import { Route as McpJobFilesRouteImport } from './routes/mcp/job_.files'
 import { Route as McpJobToolsRouteImport } from './routes/mcp/job_.tools'
+import { Route as RunnerAttachmentsIdRouteImport } from './routes/runner/attachments.$id'
 import { Route as RunnerPackagesIdRouteImport } from './routes/runner/packages.$id'
 import { Route as AppSettingsAgentsIndexRouteImport } from './routes/_app.settings.agents.index'
 import { Route as AppSettingsAgentsIdRouteImport } from './routes/_app.settings.agents.$id'
@@ -168,6 +169,11 @@ const McpJobToolsRoute = McpJobToolsRouteImport.update({
   path: '/mcp/job/tools',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RunnerAttachmentsIdRoute = RunnerAttachmentsIdRouteImport.update({
+  id: '/runner/attachments/$id',
+  path: '/runner/attachments/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RunnerPackagesIdRoute = RunnerPackagesIdRouteImport.update({
   id: '/runner/packages/$id',
   path: '/runner/packages/$id',
@@ -275,6 +281,7 @@ export interface FileRoutesByFullPath {
   '/api/rpc/$': typeof ApiRpcSplatRoute
   '/mcp/job/files': typeof McpJobFilesRoute
   '/mcp/job/tools': typeof McpJobToolsRoute
+  '/runner/attachments/$id': typeof RunnerAttachmentsIdRoute
   '/runner/packages/$id': typeof RunnerPackagesIdRoute
   '/settings/agents/$id': typeof AppSettingsAgentsIdRoute
   '/settings/agents/new': typeof AppSettingsAgentsNewRoute
@@ -315,6 +322,7 @@ export interface FileRoutesByTo {
   '/api/rpc/$': typeof ApiRpcSplatRoute
   '/mcp/job/files': typeof McpJobFilesRoute
   '/mcp/job/tools': typeof McpJobToolsRoute
+  '/runner/attachments/$id': typeof RunnerAttachmentsIdRoute
   '/runner/packages/$id': typeof RunnerPackagesIdRoute
   '/settings/agents/$id': typeof AppSettingsAgentsIdRoute
   '/settings/agents/new': typeof AppSettingsAgentsNewRoute
@@ -357,6 +365,7 @@ export interface FileRoutesById {
   '/api/rpc/$': typeof ApiRpcSplatRoute
   '/mcp/job_/files': typeof McpJobFilesRoute
   '/mcp/job_/tools': typeof McpJobToolsRoute
+  '/runner/attachments/$id': typeof RunnerAttachmentsIdRoute
   '/runner/packages/$id': typeof RunnerPackagesIdRoute
   '/_app/settings/agents/$id': typeof AppSettingsAgentsIdRoute
   '/_app/settings/agents/new': typeof AppSettingsAgentsNewRoute
@@ -399,6 +408,7 @@ export interface FileRouteTypes {
     | '/api/rpc/$'
     | '/mcp/job/files'
     | '/mcp/job/tools'
+    | '/runner/attachments/$id'
     | '/runner/packages/$id'
     | '/settings/agents/$id'
     | '/settings/agents/new'
@@ -439,6 +449,7 @@ export interface FileRouteTypes {
     | '/api/rpc/$'
     | '/mcp/job/files'
     | '/mcp/job/tools'
+    | '/runner/attachments/$id'
     | '/runner/packages/$id'
     | '/settings/agents/$id'
     | '/settings/agents/new'
@@ -480,6 +491,7 @@ export interface FileRouteTypes {
     | '/api/rpc/$'
     | '/mcp/job_/files'
     | '/mcp/job_/tools'
+    | '/runner/attachments/$id'
     | '/runner/packages/$id'
     | '/_app/settings/agents/$id'
     | '/_app/settings/agents/new'
@@ -512,6 +524,7 @@ export interface RootRouteChildren {
   ApiRpcSplatRoute: typeof ApiRpcSplatRoute
   McpJobFilesRoute: typeof McpJobFilesRoute
   McpJobToolsRoute: typeof McpJobToolsRoute
+  RunnerAttachmentsIdRoute: typeof RunnerAttachmentsIdRoute
   RunnerPackagesIdRoute: typeof RunnerPackagesIdRoute
 }
 
@@ -683,6 +696,13 @@ declare module '@tanstack/react-router' {
       path: '/mcp/job/tools'
       fullPath: '/mcp/job/tools'
       preLoaderRoute: typeof McpJobToolsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/runner/attachments/$id': {
+      id: '/runner/attachments/$id'
+      path: '/runner/attachments/$id'
+      fullPath: '/runner/attachments/$id'
+      preLoaderRoute: typeof RunnerAttachmentsIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/runner/packages/$id': {
@@ -864,6 +884,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiRpcSplatRoute: ApiRpcSplatRoute,
   McpJobFilesRoute: McpJobFilesRoute,
   McpJobToolsRoute: McpJobToolsRoute,
+  RunnerAttachmentsIdRoute: RunnerAttachmentsIdRoute,
   RunnerPackagesIdRoute: RunnerPackagesIdRoute,
 }
 export const routeTree = rootRouteImport
