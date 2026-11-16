@@ -111,6 +111,8 @@ test("install a plugin with its definitions, override an agent, update, uninstal
   // One install item, shown with what its setup makes.
   await expect(card).toContainText("Install a plugin, and set up what it defines");
   for (const text of ["Clients", "Drafting", "Matter upkeep", "Intake and research"]) await expect(card).toContainText(text);
+  // Nothing is installed until the owner approves.
+  expect((await rpc<{ name: string }[]>(page, "agents/list")).map((a) => a.name)).not.toContain("Drafting");
   await chat.getByRole("button", { name: "Approve" }).click();
   await expect(chat.getByText("The law-firm plugin is installed.")).toBeVisible();
   await page.goto("/settings/plugins/installed");
@@ -152,8 +154,9 @@ test("install a plugin with its definitions, override an agent, update, uninstal
   next["com.dispand/agents/matter-upkeep.md"] = files["com.dispand/agents/matter-upkeep.md"]!.replace("Keeps each matter's conclusions up to date.", "Keeps every matter's conclusions current.").replace("tables: [Matters]", 'tools: ["catalog:gmail"]\ntables: [Matters]');
   next["com.dispand/primitives/clients.json"] = JSON.stringify({ name: "Clients", primitive: true, fields: [{ name: "Email", type: "text" }, { name: "Phone", type: "text" }] });
   next["skills/legal-research/SKILL.md"] = `${files["skills/legal-research/SKILL.md"]!}\nRecord each decision's holding.\n`;
+  next["skills/legal-research/references/courts.md"] = "The courts to search, by level.\n";
   const changed = Object.fromEntries(Object.entries(next).filter(([path, text]) => text !== files[path]));
-  expect(Object.keys(changed)).toHaveLength(4);
+  expect(Object.keys(changed)).toHaveLength(5);
   plugin.commit(changed);
   await page.goto("/settings/plugins/installed");
 
@@ -184,6 +187,8 @@ test("install a plugin with its definitions, override an agent, update, uninstal
   await page.goto("/settings/skills");
   await page.getByRole("button", { name: "Files of law-firm" }).click();
   await expect(skillFiles.getByText("Yours: changed")).toBeVisible();
+  // The update did reach the skill: a file the plugin added arrived, beside the owner's kept override.
+  await expect(skillFiles.getByText("legal-research/references/courts.md")).toBeVisible();
   await skillFiles.getByRole("button", { name: "Edit legal-research/SKILL.md" }).click();
   await expect(content).toHaveValue(new RegExp(ownerLine));
   await expect(content).not.toHaveValue(/Record each decision's holding/);
