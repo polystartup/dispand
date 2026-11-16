@@ -68,13 +68,16 @@ async function lockTable(tx: Tx, ownerId: string, id: string) {
 
 /**
  * With `expectValues` (an approved change that removes values): the field's values must be those,
- * read under the table's lock, which a row's write takes shared, so none lands in between.
+ * and the table's merged definition the one approved against, read under the table's lock, which
+ * a row's write takes shared, so none lands in between.
  */
-async function checkValues(tx: Tx, context: { expectValues?: [string, unknown][] }, field: FieldRow) {
+async function checkValues(tx: Tx, context: { expectValues?: { values: [string, unknown][]; definition: unknown } }, field: FieldRow) {
   if (!context.expectValues) return;
+  const [table] = await tx.select({ definition: tablesTable.definition }).from(tablesTable).where(eq(tablesTable.id, field.tableId));
+  if (canonical(table?.definition ?? null) !== canonical(context.expectValues.definition)) throw new ORPCError("CONFLICT", message("plugins.table.valuesChanged"));
   const rows = await tx.select({ id: rowsTable.id, values: rowsTable.values }).from(rowsTable).where(eq(rowsTable.tableId, field.tableId)).orderBy(asc(rowsTable.id));
   const now = rows.flatMap((r) => (r.values[field.id] === undefined || r.values[field.id] === null ? [] : [[r.id, r.values[field.id]]]));
-  if (canonical(now) !== canonical(context.expectValues)) throw new ORPCError("CONFLICT", message("plugins.table.valuesChanged"));
+  if (canonical(now) !== canonical(context.expectValues.values)) throw new ORPCError("CONFLICT", message("plugins.table.valuesChanged"));
 }
 
 /** Locks the field's table, then reads the field again (it may have gone meanwhile). */

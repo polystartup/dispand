@@ -11,7 +11,7 @@ const shown = (value: unknown) => (typeof value === "string" ? value : JSON.stri
 
 type Item = NonNullable<InboxEntry["update"]>["items"][number];
 
-/** A table's changes Stem picked that remove values, each with the values it would remove, as plain text. */
+/** A table's changes Stem picked that remove values, each with the field's values now (what it may remove), as plain text. */
 function TableRemovals({ item }: { item: Item }) {
   const { t } = useTranslation(["questions", "plugins"]);
   const { t: tp } = useTranslation("plugins");

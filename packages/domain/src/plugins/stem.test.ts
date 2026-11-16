@@ -217,3 +217,14 @@ test("a removal's Approval answered no keeps the field, and the next update does
   // Declined, as an unticked box: Fee, which Stem left out, is declined too.
   expect((await s.preview()).tables).toEqual([]);
 });
+
+test("an approved removal checks, under the table's lock, that the table still keeps the definition it was approved against", async () => {
+  const s = await tableSetUp(say("Nothing."));
+  const [table] = await s.ctx.db.select().from(schema.tables).where(eq(schema.tables.id, s.matters.id));
+  const values: [string, unknown][] = [[s.row.id, "Settled."]];
+  // An update merged the table since: its definition is another one.
+  await expect(call(router.fields.delete, { id: s.conclusions.id }, { context: { ...s.ctx, expectValues: { values, definition: { ...table!.definition!, primitive: !table!.definition!.primitive } } } })).rejects.toMatchObject({ code: "CONFLICT" });
+  expect(await s.field("Conclusions")).toBeDefined();
+  await call(router.fields.delete, { id: s.conclusions.id }, { context: { ...s.ctx, expectValues: { values, definition: table!.definition } } });
+  expect(await s.field("Conclusions")).toBeUndefined();
+});

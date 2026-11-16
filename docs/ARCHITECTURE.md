@@ -1732,11 +1732,15 @@ the table keeps takes what Stem decided and declined, but keeps what waits as it
 leaves out counts as declined, as an unticked box. On the Approval's yes, `answerTable` reads the
 values again: any difference stores the values now and asks again (CONFLICT, the item shown
 anew); else each change runs through its field operation with `context.expectValues`
-(server-owned), which `fields.delete`, `fields.retype` and `fields.update` check after locking
-the table `for update`, the lock a row's write takes `for share`, so a write racing the apply
+(server-owned: the values, and the definition the table kept when approved), which
+`fields.delete`, `fields.retype` and `fields.update` check after locking the table `for update`, the lock a row's write takes `for share`, so a write racing the apply
 waits for it, and one that landed first refuses that change, which then stays out of the
 definition and is offered again. A no declines them as an unticked box; the plugin's row still
-offers each with Apply. A table conflict is never `open`: when the Job ends without deciding it
+offers each with Apply. Either way only the Approval's changes are answered (one that failed
+earlier stays offered), and the definition is written only while it is still the one the
+conflict was planned from, so an update that merged the table since wins. The Approval shows
+the field's values as they are (all of them, a snapshot for the check): a choice change or a
+retype may keep some. A table conflict is never `open`: when the Job ends without deciding it
 (`closeStemJob`), it is dropped, and since the definition still lacks its changes, the next update
 offers them again as the checklist, with their loss as it is then. Every update that plans a
 table drops its pending conflict (`forgetConflicts`), so an old decision never applies onto a

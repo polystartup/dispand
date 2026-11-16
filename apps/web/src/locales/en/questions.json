@@ -433,8 +433,8 @@
     "answered": "You answered each value.",
     "expired": "Nothing waits any more: a later change took these values back to the element’s page.",
     "failed": "Could not record your answer.",
-    "removes_one": "It removes this value, of {{count}} row:",
-    "removes_other": "It removes these values, of {{count}} rows:",
+    "removes_one": "It may remove values: the field holds this one now, in {{count}} row:",
+    "removes_other": "It may remove values: the field holds these now, in {{count}} rows:",
     "removesNone": "No row holds a value there now."
   }
 }

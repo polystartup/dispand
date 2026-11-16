@@ -81,7 +81,7 @@ test("a table's item shows each change Stem picked that removes values, with the
   const li = screen.getByRole("listitem", { name: "Matters: Changes" });
   expect(within(li).getByText("Remove the field Conclusions")).toBeTruthy();
   expect(within(li).queryByText(/Add the field Fee/)).toBeNull();
-  expect(within(li).getByText(/It removes this value, of 1 row/)).toBeTruthy();
+  expect(within(li).getByText(/the field holds this one now, in 1 row/)).toBeTruthy();
   expect(within(li).getByText("<b>Settled.</b>")).toBeTruthy();
   await userEvent.click(within(li).getByRole("button", { name: "Accept Stem's" }));
   expect(fake.plugins.resolveConflict).toHaveBeenCalledWith(expect.objectContaining({ id: "c3", choice: "accept", reviewed: "r_c3" }), expect.anything());

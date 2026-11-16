@@ -61,7 +61,7 @@ export async function tablePlan(db: Db | Tx, ownerId: string, t: typeof tablesTa
  * as they were in that definition too. `expected`: for a change the owner approved with the values
  * it removes, those values, which its field operation checks under the table's lock.
  */
-export async function applyTable(context: InitialContext & { ownerId: string }, row: { id: string }, plan: TablePlan, ticked: string[], failed: { name: string; reason: Text }[], held: string[] = [], expected: Record<string, [string, unknown][]> = {}): Promise<PrimitiveDefinition> {
+export async function applyTable(context: InitialContext & { ownerId: string }, row: { id: string }, plan: TablePlan, ticked: string[], failed: { name: string; reason: Text }[], held: string[] = [], expected: Record<string, { values: [string, unknown][]; definition: unknown }> = {}): Promise<PrimitiveDefinition> {
   const lower = (s: string | null) => (s ?? "").toLowerCase();
   // The keys of the changes that failed: their part of the definition stays as it was, so the next update offers them again.
   const refused = new Set<string>();

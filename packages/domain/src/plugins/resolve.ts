@@ -322,6 +322,11 @@ async function tableNow(db: Db | Tx, c: Conflict) {
   return tablePlan(db, c.ownerId, t, () => t.definition!, next, tableExists);
 }
 
+/** The definition the table keeps as merged from now on, written only while it is still the one the conflict was planned from: an update that merged the table since wins. */
+async function keepDefinition(db: Db | Tx, c: Conflict, definition: PrimitiveDefinition) {
+  await db.update(tablesTable).set({ definition }).where(and(eq(tablesTable.id, c.elementId), sql`${tablesTable.definition} = ${JSON.stringify(c.old)}::jsonb`));
+}
+
 /** Each row's value of the table's field, by row id; empty cells left out. */
 async function valuesOf(db: Db | Tx, tableId: string, fieldId: string | undefined): Promise<[string, unknown][]> {
   if (!fieldId) return [];
@@ -358,7 +363,7 @@ async function decideTable(context: Context, actor: AuditActor, c: Conflict, dec
     : await context.db.delete(pluginConflicts).where(held).returning({ id: pluginConflicts.id });
   if (!claimed.length) return "gone";
   const definition = await applyTable(context, { id: c.pluginId }, plan, fresh.filter((ch) => !waiting.includes(ch.key)).map((ch) => ch.key), [], waiting);
-  await context.db.update(tablesTable).set({ definition }).where(eq(tablesTable.id, plan.tableId));
+  await keepDefinition(context.db, c, definition);
   // The Approval's answer reads the table against the definition it keeps from now on.
   if (waiting.length) await context.db.update(pluginConflicts).set({ old: definition }).where(eq(pluginConflicts.id, c.id));
   await audit(context, actor, c, waiting.length ? "approval" : decision.kind, c.runId);
@@ -391,8 +396,11 @@ async function answerTable(context: Context, actor: AuditActor, c: Conflict, app
     }
     keys = plan.changes.filter((ch) => held.keys.includes(ch.key) && !ch.stale && !ch.waiting).map((ch) => ch.key);
   }
-  const definition = await applyTable(context, { id: c.pluginId }, plan, keys, [], [], held.values);
-  await context.db.update(tablesTable).set({ definition }).where(eq(tablesTable.id, plan.tableId));
+  // Only this Approval's changes are answered: any other the table still lacks (one that failed earlier) stays offered.
+  const others = plan.changes.filter((ch) => !held.keys.includes(ch.key)).map((ch) => ch.key);
+  const expected = Object.fromEntries(keys.map((k) => [k, { values: held.values[k] ?? [], definition: c.old }]));
+  const definition = await applyTable(context, { id: c.pluginId }, plan, keys, [], others, expected);
+  await keepDefinition(context.db, c, definition);
   await context.db.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
   await audit(context, actor, c, approved ? "approved" : "declined", c.runId);
   return approved ? "applied" : "kept";
