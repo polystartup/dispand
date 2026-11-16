@@ -435,6 +435,10 @@
     "failed": "Impossible d’enregistrer votre réponse.",
     "removes_one": "Il peut retirer des valeurs : le champ contient celle-ci pour l’instant, dans {{count}} ligne :",
     "removes_other": "Il peut retirer des valeurs : le champ contient celles-ci pour l’instant, dans {{count}} lignes :",
-    "removesNone": "Aucune ligne n’y a de valeur pour l’instant."
+    "removesNone": "Aucune ligne n’y a de valeur pour l’instant.",
+    "moreValues_one": "Et {{count}} ligne de plus.",
+    "moreValues_other": "Et {{count}} lignes de plus.",
+    "refusedChange": "« {{change}} » n’a pas été fait : {{reason}} La prochaine mise à jour du plugin le propose à nouveau.",
+    "staleChange": "« {{change}} » a été ignoré : le champ a changé depuis l’approbation."
   }
 }

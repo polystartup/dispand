@@ -2,18 +2,19 @@ import { ORPCError } from "@orpc/server";
 import { createHash } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { agents as agentsTable, pluginConflicts, plugins as pluginsTable, questions, rows as rowsTable, tables as tablesTable, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
+import { agents as agentsTable, fields as fieldsTable, pluginConflicts, plugins as pluginsTable, questions, rows as rowsTable, tables as tablesTable, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
 import type { AuditActor } from "../audit/model.ts";
 import { recordAudit } from "../audit/record.ts";
 import { recordInteraction } from "../engine/interactions.ts";
-import { message } from "../messages/index.ts";
+import { message, reasonOf, type Text } from "../messages/index.ts";
+import { publish, removeFieldIn, retypeIn, updateFieldIn } from "../data/tables.ts";
 import { newId } from "../ids.ts";
 import { canonical } from "../platform/approvals.ts";
 import type { InitialContext } from "../rpc/context.ts";
 import { meter } from "../telemetry/index.ts";
 import { type ElementKind, sameValue } from "./overrides.ts";
 import type { PrimitiveDefinition } from "./definitions.ts";
-import { applyTable, tablePlan, tablesOf } from "./table-apply.ts";
+import { applyTable, definitionAfter, tablePlan, tablesOf } from "./table-apply.ts";
 import type { TableChange } from "./table-merge.ts";
 import { agentValues } from "./update.ts";
 import { writeFields } from "./write-field.ts";
@@ -121,13 +122,13 @@ async function reopen(context: Context, actor: AuditActor, c: Conflict): Promise
  * within the two values applies; any other merge waits for the owner's Approval (`merged`). A
  * conflict that changed since it was handed off applies nothing and is the owner's again.
  */
-export async function decide(context: Context, actor: AuditActor, conflictId: string, decision: Decision, runId?: string): Promise<DecisionOutcome> {
+export async function decide(context: Context, actor: AuditActor, conflictId: string, decision: Decision, runId?: string, /** Where a table's changes its operations refused are told. */ report?: { refused: Refused[] }): Promise<DecisionOutcome> {
   const [c] = await context.db
     .select()
     .from(pluginConflicts)
     .where(and(eq(pluginConflicts.id, conflictId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "stem"), ...(runId ? [eq(pluginConflicts.runId, runId)] : [])));
   if (!c) return "gone";
-  if (c.kind === "table") return decideTable(context, actor, c, decision);
+  if (c.kind === "table") return decideTable(context, actor, c, decision, report);
   const state = await fresh(context.db, c);
   if (state === "gone") {
     await context.db.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
@@ -159,19 +160,19 @@ export async function decide(context: Context, actor: AuditActor, conflictId: st
  * changed meanwhile is theirs again either way, the other items untouched. The Approval is done
  * once none waits.
  */
-export async function answerConflict(context: Context, actor: AuditActor, conflictId: string, approved: boolean, /** The merged value the owner answered on, when they read it first: another one now is shown again. */ seen?: unknown): Promise<"applied" | "kept" | "reopened" | "gone"> {
+export async function answerConflict(context: Context, actor: AuditActor, conflictId: string, approved: boolean, /** The merged value the owner answered on, when they read it first: another one now is shown again. */ seen?: unknown, /** Where a table's changes that went stale, or that their operations refused, are told. */ report?: { refused: Refused[]; stale: string[] }): Promise<"applied" | "kept" | "reopened" | "gone"> {
   const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, conflictId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "approval")));
   if (!c) return "gone";
   if (seen !== undefined && canonical(c.merged) !== canonical(seen)) throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
-  const outcome = await answerOne(context, actor, c, approved);
+  const outcome = await answerOne(context, actor, c, approved, report);
   await context.db.transaction((tx) => settleApprovals(tx, [c.runId], actor.type === "user" ? actor : undefined));
   // Every Inbox showing it hears that an item left, even while others still wait.
   context.engine.questionChanges.publish("changed", true);
   return outcome;
 }
 
-async function answerOne(context: Context, actor: AuditActor, c: Conflict, approved: boolean): Promise<"applied" | "kept" | "reopened" | "gone"> {
-  if (c.kind === "table") return answerTable(context, actor, c, approved);
+async function answerOne(context: Context, actor: AuditActor, c: Conflict, approved: boolean, report?: { refused: Refused[]; stale: string[] }): Promise<"applied" | "kept" | "reopened" | "gone"> {
+  if (c.kind === "table") return answerTable(context, actor, c, approved, report);
   const state = await fresh(context.db, c);
   if (state === "stale") {
     await context.db.update(pluginConflicts).set({ status: "open", merged: null }).where(eq(pluginConflicts.id, c.id));
@@ -301,8 +302,15 @@ export const TABLE_FIELD = "changes";
 
 /** What a table's conflict keeps of the update's screen: the plugin's definition and the changes shown against the table then. */
 export type HandedTable = { definition: PrimitiveDefinition; changes: TableChange[] };
-/** What waits in the Approval: the changes that remove values, and the values each would remove (each row's id with its value), as read when Stem decided. */
-type HeldTable = { keys: string[]; values: Record<string, [string, unknown][]> };
+/** A field's values as read when Stem decided: how many rows hold one, the first of them (each row's id with its value) to show, and a digest of all. */
+type Snapshot = { count: number; shown: [string, unknown][]; digest: string };
+/** What waits in the Approval: the changes that remove values, and the values of each one's field. */
+type HeldTable = { keys: string[]; values: Record<string, Snapshot> };
+/** A change of a table Stem picked or the owner approved that its operation refused, and why: reported, offered again by the next update. */
+export type Refused = { key: string; reason: Text };
+
+/** How many of a field's values an Approval keeps to show. */
+const SHOWN_VALUES = 50;
 
 /** A change that takes values away: a field removed, retyped, or losing choices. Never applied without the owner's Approval. */
 const removesValues = (c: TableChange) => c.kind === "remove" || c.kind === "retype" || (c.kind === "choices" && !c.ticked);
@@ -322,29 +330,26 @@ async function tableNow(db: Db | Tx, c: Conflict) {
   const { tableExists } = await tablesOf(db, c.ownerId, { id: c.pluginId });
   return tablePlan(db, c.ownerId, t, () => t.definition!, next, tableExists);
 }
+type Plan = NonNullable<Awaited<ReturnType<typeof tableNow>>>;
 
-/** The definition the table keeps as merged from now on, written only while it is still the one the conflict was planned from: an update that merged the table since wins. */
-async function keepDefinition(db: Db | Tx, c: Conflict, definition: PrimitiveDefinition) {
-  await db.update(tablesTable).set({ definition }).where(and(eq(tablesTable.id, c.elementId), sql`${tablesTable.definition} = ${JSON.stringify(c.old)}::jsonb`));
+const fieldOf = (plan: Plan, change: TableChange | undefined) => plan.fields.find((f) => change?.field && f.pluginField?.toLowerCase() === change.field.toLowerCase());
+
+/** The values of the field a change names, every row's: their count, the first to show, and a digest of all. */
+async function snapshotOf(db: Db | Tx, plan: Plan, change: TableChange | undefined): Promise<Snapshot> {
+  const fieldId = fieldOf(plan, change)?.id;
+  const rows = fieldId ? await db.select({ id: rowsTable.id, values: rowsTable.values }).from(rowsTable).where(eq(rowsTable.tableId, plan.tableId)).orderBy(asc(rowsTable.id)) : [];
+  const all = rows.flatMap((r) => (r.values[fieldId!] === undefined || r.values[fieldId!] === null ? [] : [[r.id, r.values[fieldId!]] as [string, unknown]]));
+  return { count: all.length, shown: all.slice(0, SHOWN_VALUES), digest: createHash("sha256").update(canonical(all)).digest("hex") };
 }
-
-/** Each row's value of the table's field, by row id; empty cells left out. */
-async function valuesOf(db: Db | Tx, tableId: string, fieldId: string | undefined): Promise<[string, unknown][]> {
-  if (!fieldId) return [];
-  const rows = await db.select({ id: rowsTable.id, values: rowsTable.values }).from(rowsTable).where(eq(rowsTable.tableId, tableId)).orderBy(asc(rowsTable.id));
-  return rows.flatMap((r) => (r.values[fieldId] === undefined || r.values[fieldId] === null ? [] : [[r.id, r.values[fieldId]] as [string, unknown]]));
-}
-
-const fieldIdOf = (plan: NonNullable<Awaited<ReturnType<typeof tableNow>>>, change: TableChange | undefined) => plan.fields.find((f) => change?.field && f.pluginField?.toLowerCase() === change.field.toLowerCase())?.id;
 
 /**
  * Stem's decision on a table: the change keys to apply (a reset: every one the update showed as
  * applicable). A key the update didn't show refuses the whole decision. A change the table no
  * longer allows is skipped; one that removes values waits for the owner's Approval, with the
- * values it would remove; the rest apply now. What Stem left out counts as declined, as an
- * unticked box does.
+ * values of its field; the rest apply now, and one its operation refuses is in `report`. What
+ * Stem left out counts as declined, as an unticked box does.
  */
-async function decideTable(context: Context, actor: AuditActor, c: Conflict, decision: Decision): Promise<DecisionOutcome> {
+async function decideTable(context: Context, actor: AuditActor, c: Conflict, decision: Decision, report?: { refused: Refused[] }): Promise<DecisionOutcome> {
   const shown = (c.next as HandedTable).changes.filter((ch) => !ch.stale && !ch.waiting).map((ch) => ch.key);
   const keys = decision.kind === "reset" ? shown : decision.value;
   if (!Array.isArray(keys) || keys.some((k) => typeof k !== "string" || !shown.includes(k))) return "refused";
@@ -357,57 +362,99 @@ async function decideTable(context: Context, actor: AuditActor, c: Conflict, dec
   const fresh = plan.changes.filter((ch) => keys.includes(ch.key) && !ch.stale && !ch.waiting);
   const waiting = fresh.filter(removesValues).map((ch) => ch.key);
   const values: HeldTable["values"] = {};
-  for (const key of waiting) values[key] = await valuesOf(context.db, plan.tableId, fieldIdOf(plan, plan.changes.find((ch) => ch.key === key)));
+  for (const key of waiting) values[key] = await snapshotOf(context.db, plan, plan.changes.find((ch) => ch.key === key));
   // Claimed first: a Job stopped meanwhile gave the table back (`closeStemJob`), and nothing of it applies.
   const claimed = waiting.length
     ? await context.db.update(pluginConflicts).set({ status: "approval", merged: { keys: waiting, values } satisfies HeldTable }).where(held).returning({ id: pluginConflicts.id })
     : await context.db.delete(pluginConflicts).where(held).returning({ id: pluginConflicts.id });
   if (!claimed.length) return "gone";
-  const definition = await applyTable(context, { id: c.pluginId }, plan, fresh.filter((ch) => !waiting.includes(ch.key)).map((ch) => ch.key), [], waiting);
-  await keepDefinition(context.db, c, definition);
+  const failed: { name: string; reason: Text; key?: string }[] = [];
+  const definition = await applyTable(context, { id: c.pluginId }, plan, fresh.filter((ch) => !waiting.includes(ch.key)).map((ch) => ch.key), failed, waiting);
+  report?.refused.push(...failed.map((f) => ({ key: f.key ?? "", reason: f.reason })));
+  // Written only while the table still keeps the definition the decision was planned from: an update that merged it since wins.
+  await context.db.update(tablesTable).set({ definition }).where(and(eq(tablesTable.id, c.elementId), sql`${tablesTable.definition} = ${JSON.stringify(c.old)}::jsonb`));
   // The Approval's answer reads the table against the definition it keeps from now on.
   if (waiting.length) await context.db.update(pluginConflicts).set({ old: definition }).where(eq(pluginConflicts.id, c.id));
   await audit(context, actor, c, waiting.length ? "approval" : decision.kind, c.runId);
   return waiting.length ? "approval" : "applied";
 }
 
+/** Thrown in an Approval's transaction when the values changed: it rolls the claim back, and the values now are stored. */
+class ValuesChanged extends Error {
+  constructor(readonly values: HeldTable["values"]) {
+    super("values changed");
+  }
+}
+
 /**
- * The owner's answer to a table's changes that remove values. On a yes, the values are read
- * again: any difference from what was stored applies nothing, stores the values now and asks
- * again (CONFLICT). Else the conflict is claimed, only while it is still the one answered (an
- * update drops it; values stored anew change it), and each change applies through its field operation, which reads the values
- * once more under the table's lock (a row's write takes it shared, so none lands in between) and
- * refuses on a difference: such a change stays out of the table's definition, offered again. On
- * a no they are declined, as an unticked box: the definition the table keeps takes them, and the
- * plugin's row still offers each with "Apply".
+ * The owner's answer to a table's changes that remove values, in one transaction with the table
+ * locked as every field operation locks it (a row's write takes that lock shared, so none lands
+ * in between): the changes are planned again against the definition the table keeps, the
+ * Approval's item is claimed as the owner answered it (an update that dropped it, or values
+ * stored anew since, leave nothing to claim), and on a yes the values are read again (any
+ * difference applies nothing, stores the values now and asks again, CONFLICT), then each change
+ * runs its field operation's change in that same transaction. A change that went stale (the field
+ * retyped or edited since) is skipped, declined; one its operation refuses is reported and stays
+ * out of the definition, offered again. On a no they are declined, as an unticked box: the
+ * definition the table keeps takes them, and the plugin's row still offers each with "Apply".
  */
-async function answerTable(context: Context, actor: AuditActor, c: Conflict, approved: boolean): Promise<"applied" | "kept" | "gone"> {
+async function answerTable(context: Context, actor: AuditActor, c: Conflict, approved: boolean, report?: { refused: Refused[]; stale: string[] }): Promise<"applied" | "kept" | "gone"> {
   const held = c.merged as HeldTable;
-  const asAnswered = and(eq(pluginConflicts.id, c.id), sql`${pluginConflicts.merged} = ${JSON.stringify(c.merged)}::jsonb`);
-  const plan = await tableNow(context.db, c);
-  if (!plan) {
-    await context.db.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
-    return "gone";
+  const asAnswered = and(eq(pluginConflicts.id, c.id), eq(pluginConflicts.status, "approval"), sql`${pluginConflicts.merged} = ${JSON.stringify(c.merged)}::jsonb`);
+  let done: { applied: { tableId: string; rowIds: string[] }[]; refused: Refused[]; stale: string[] } | "gone";
+  try {
+    done = await context.db.transaction(async (tx) => {
+      await tx.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.id, c.elementId)).for("update");
+      const plan = await tableNow(tx, c);
+      if (!plan) {
+        await tx.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
+        return "gone" as const;
+      }
+      if (!(await tx.delete(pluginConflicts).where(asAnswered).returning({ id: pluginConflicts.id })).length) throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
+      const applied: { tableId: string; rowIds: string[] }[] = [];
+      const refused: Refused[] = [];
+      const stale: string[] = [];
+      if (approved) {
+        const now: HeldTable["values"] = {};
+        for (const key of held.keys) now[key] = await snapshotOf(tx, plan, plan.changes.find((ch) => ch.key === key));
+        if (held.keys.some((k) => now[k]!.digest !== held.values[k]?.digest)) throw new ValuesChanged(now);
+        for (const key of held.keys) {
+          const change = plan.changes.find((ch) => ch.key === key);
+          const fieldId = fieldOf(plan, change)?.id;
+          const def = plan.next.fields.find((f) => change?.field && f.name.toLowerCase() === change.field.toLowerCase());
+          if (!change || change.stale || change.waiting || !fieldId) {
+            stale.push(key);
+            continue;
+          }
+          try {
+            // Each in a savepoint: one refused leaves the others.
+            const rowIds = await tx.transaction(async (sp) => {
+              const [field] = await sp.select().from(fieldsTable).where(eq(fieldsTable.id, fieldId));
+              if (change.kind === "remove") return (await removeFieldIn(sp, field!), []);
+              if (change.kind === "retype") return (await retypeIn(sp, field!, def!.type as never, false)).rowIds;
+              return (await updateFieldIn(sp, field!, { choices: def?.choices ?? [] })).cleared;
+            });
+            applied.push({ tableId: plan.tableId, rowIds });
+          } catch (err) {
+            if (!(err instanceof ORPCError)) throw err;
+            refused.push({ key, reason: reasonOf(err) });
+          }
+        }
+      }
+      // Only this Approval's changes are answered: any other the table still lacks (one that failed earlier) stays offered, and so does one refused now.
+      const again = plan.changes.filter((ch) => ch.waiting || !held.keys.includes(ch.key) || refused.some((r) => r.key === ch.key));
+      await tx.update(tablesTable).set({ definition: definitionAfter(plan, again) }).where(eq(tablesTable.id, plan.tableId));
+      return { applied, refused, stale };
+    });
+  } catch (err) {
+    if (!(err instanceof ValuesChanged)) throw err;
+    await context.db.update(pluginConflicts).set({ merged: { keys: held.keys, values: err.values } satisfies HeldTable }).where(asAnswered);
+    throw new ORPCError("CONFLICT", message("plugins.table.valuesChanged"));
   }
-  let keys: string[] = [];
-  if (approved) {
-    const now: HeldTable["values"] = {};
-    for (const key of held.keys) now[key] = await valuesOf(context.db, plan.tableId, fieldIdOf(plan, plan.changes.find((ch) => ch.key === key)));
-    if (canonical(now) !== canonical(held.values)) {
-      await context.db.update(pluginConflicts).set({ merged: { keys: held.keys, values: now } satisfies HeldTable }).where(and(asAnswered, eq(pluginConflicts.status, "approval")));
-      throw new ORPCError("CONFLICT", message("plugins.table.valuesChanged"));
-    }
-    keys = plan.changes.filter((ch) => held.keys.includes(ch.key) && !ch.stale && !ch.waiting).map((ch) => ch.key);
-  }
-  // Claimed before anything applies, as the owner answered it: an update that dropped it, or values stored anew since, leave nothing to claim.
-  if (!(await context.db.delete(pluginConflicts).where(and(asAnswered, eq(pluginConflicts.status, "approval"))).returning({ id: pluginConflicts.id })).length) {
-    throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
-  }
-  // Only this Approval's changes are answered: any other the table still lacks (one that failed earlier) stays offered.
-  const others = plan.changes.filter((ch) => !held.keys.includes(ch.key)).map((ch) => ch.key);
-  const expected = Object.fromEntries(keys.map((k) => [k, { values: held.values[k] ?? [], definition: c.old }]));
-  const definition = await applyTable(context, { id: c.pluginId }, plan, keys, [], others, expected);
-  await keepDefinition(context.db, c, definition);
+  if (done === "gone") return "gone";
+  for (const a of done.applied) publish(context.dataEvents, a.tableId, a.rowIds);
+  report?.refused.push(...done.refused);
+  report?.stale.push(...done.stale);
   await audit(context, actor, c, approved ? "approved" : "declined", c.runId);
   return approved ? "applied" : "kept";
 }

@@ -435,6 +435,10 @@
     "failed": "Could not record your answer.",
     "removes_one": "It may remove values: the field holds this one now, in {{count}} row:",
     "removes_other": "It may remove values: the field holds these now, in {{count}} rows:",
-    "removesNone": "No row holds a value there now."
+    "removesNone": "No row holds a value there now.",
+    "moreValues_one": "And {{count}} more row.",
+    "moreValues_other": "And {{count}} more rows.",
+    "refusedChange": "“{{change}}” wasn’t made: {{reason}} The plugin’s next update offers it again.",
+    "staleChange": "“{{change}}” was skipped: the field changed since it was approved."
   }
 }

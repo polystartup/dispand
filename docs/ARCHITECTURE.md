@@ -1726,22 +1726,25 @@ applicable refuses the whole decision, which applies nothing. `decideTable` plan
 definition it keeps to the plugin's current one, which must still be the two the conflict holds
 (else an update merged it again and the conflict is gone); a key whose change is stale by now is
 skipped. A change that removes values (a field removed or retyped, choices dropped), whatever the
-row count, waits in the update's Approval with the values it would remove (`merged`: each row's
-id and value of that field); the rest apply now through the field operations, and the definition
-the table keeps takes what Stem decided and declined, but keeps what waits as it was. What Stem
-leaves out counts as declined, as an unticked box. On the Approval's yes, `answerTable` reads the
-values again: any difference stores the values now and asks again (CONFLICT, the item shown
-anew); else the conflict is claimed (deleted only while it is still in `approval` with the
-`merged` the owner answered on, so an update that dropped it or values stored anew by another
-request leave nothing to apply), then each change runs through its field operation with `context.expectValues`
-(server-owned: the values, and the definition the table kept when approved), which
-`fields.delete`, `fields.retype` and `fields.update` check after locking the table `for update`, the lock a row's write takes `for share`, so a write racing the apply
-waits for it, and one that landed first refuses that change, which then stays out of the
-definition and is offered again. A no declines them as an unticked box; the plugin's row still
+row count, waits in the update's Approval with its field's values (`merged`: how many rows hold
+one, the first 50 with their row ids to show, a digest of all); the rest apply now through the
+field operations, and one an operation refuses (the field limit, say) is in `plugin_decide`'s
+result (`refused`, by key and reason) and stays offered. The definition the table keeps takes
+what Stem decided and declined, but keeps what waits or was refused as it was. What Stem leaves
+out counts as declined, as an unticked box. The Approval's answer (`answerTable`) is one
+transaction with the table locked `for update`, the lock every field operation takes and a row's
+write takes `for share`, so nothing lands in between: it plans the changes again against the
+definition the table keeps (an update that merged it since leaves nothing), claims the item
+(deleted only while still in `approval` with the `merged` the owner answered on), and on a yes
+reads the values again (another digest stores the values now, rolls the claim back and asks
+again, CONFLICT), then runs each change's field operation in that transaction (`removeFieldIn`,
+`retypeIn`, `updateFieldIn`, the bodies `fields.delete`, `fields.retype` and `fields.update` run
+under their own lock), each in a savepoint. A change that went stale meanwhile (the field retyped
+or its choices edited since) is skipped and declined; one its operation refuses stays out of the
+definition, offered again; both are in `resolveConflict`'s answer (`stale`, `refused`), which the
+Inbox item says. A no declines the Approval's changes as an unticked box; the plugin's row still
 offers each with Apply. Either way only the Approval's changes are answered (one that failed
-earlier stays offered), and the definition is written only while it is still the one the
-conflict was planned from, so an update that merged the table since wins. The Approval shows
-the field's values as they are (all of them, a snapshot for the check): a choice change or a
+earlier stays offered). The values shown are the field's as they are: a choice change or a
 retype may keep some. A table conflict is never `open`: when the Job ends without deciding it
 (`closeStemJob`), it is dropped, and since the definition still lacks its changes, the next update
 offers them again as the checklist, with their loss as it is then. Every update that plans a

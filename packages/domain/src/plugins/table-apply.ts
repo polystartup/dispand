@@ -58,20 +58,19 @@ export async function tablePlan(db: Db | Tx, ownerId: string, t: typeof tablesTa
  * operation a person would use, and gives the definition an update keeps as the one the table
  * was merged with: the new one, but for what waits for a table that isn't there yet or failed,
  * offered again by the next update. `held`: changes waiting for the owner's Approval, which stay
- * as they were in that definition too. `expected`: for a change the owner approved with the values
- * it removes, those values, which its field operation checks under the table's lock.
+ * as they were in that definition too. Each failure names its change (`key`).
  */
-export async function applyTable(context: InitialContext & { ownerId: string }, row: { id: string }, plan: TablePlan, ticked: string[], failed: { name: string; reason: Text }[], held: string[] = [], expected: Record<string, { values: [string, unknown][]; definition: unknown }> = {}): Promise<PrimitiveDefinition> {
+export async function applyTable(context: InitialContext & { ownerId: string }, row: { id: string }, plan: TablePlan, ticked: string[], failed: { name: string; reason: Text; key?: string }[], held: string[] = []): Promise<PrimitiveDefinition> {
   const lower = (s: string | null) => (s ?? "").toLowerCase();
   // The keys of the changes that failed: their part of the definition stays as it was, so the next update offers them again.
   const refused = new Set<string>();
   const run = async (key: string, path: string[], procedure: unknown, input: object, element?: { pluginId: string; component: string }): Promise<unknown> => {
     try {
-      return await call(procedure as never, input as never, { context: { ...context, ...(element ? { pluginElement: element } : {}), ...(expected[key] ? { expectValues: expected[key] } : {}) } as never, path });
+      return await call(procedure as never, input as never, { context: { ...context, ...(element ? { pluginElement: element } : {}) } as never, path });
     } catch (err) {
       if (!(err instanceof ORPCError)) throw err;
       refused.add(key);
-      failed.push({ name: plan.name, reason: reasonOf(err) });
+      failed.push({ name: plan.name, reason: reasonOf(err), key });
       return undefined;
     }
   };
@@ -108,7 +107,7 @@ export async function applyTable(context: InitialContext & { ownerId: string }, 
     if (isTicked("parent") && !parentTicked) {
       // Both stay offered: the parent can apply once its field is added.
       refused.add("parent").add(`add:${wanted!.field}`);
-      failed.push({ name: plan.name, reason: say("plugins.update.parentMissing", { field: wanted!.field }) });
+      failed.push({ name: plan.name, reason: say("plugins.update.parentMissing", { field: wanted!.field }), key: "parent" });
     }
     const current = table!.parentFieldId ? await context.db.select({ referencesTableId: fieldsTable.referencesTableId }).from(fieldsTable).where(eq(fieldsTable.id, table!.parentFieldId)).then((r) => r[0]) : undefined;
     const parent = parentTicked
@@ -120,12 +119,17 @@ export async function applyTable(context: InitialContext & { ownerId: string }, 
       const [after] = await context.db.select({ parentFieldId: tablesTable.parentFieldId }).from(tablesTable).where(eq(tablesTable.id, plan.tableId));
       if (parentTicked && wantedField && after?.parentFieldId !== wantedField.id) {
         refused.add("parent");
-        failed.push({ name: plan.name, reason: say("plugins.update.parentOther", { field: wanted!.field }) });
+        failed.push({ name: plan.name, reason: say("plugins.update.parentOther", { field: wanted!.field }), key: "parent" });
       }
     }
   }
   // What waits, or failed, stays as it was in the definition kept, so it is offered again; the rest is the new one, ticked or not.
-  const again = plan.changes.filter((c) => c.waiting || refused.has(c.key) || held.includes(c.key));
+  return definitionAfter(plan, plan.changes.filter((c) => c.waiting || refused.has(c.key) || held.includes(c.key)));
+}
+
+/** The definition a table keeps as merged after its changes: the plugin's new one, but for `again`, kept as they were so the next update offers them. */
+export function definitionAfter(plan: TablePlan, again: TableChange[]): PrimitiveDefinition {
+  const lower = (s: string | null) => (s ?? "").toLowerCase();
   const keptField = (name: string) => plan.kept.fields.find((f) => lower(f.name) === lower(name));
   const fieldsAfter = plan.next.fields
     .filter((f) => !again.some((c) => c.kind === "add" && lower(c.field ?? "") === lower(f.name)))

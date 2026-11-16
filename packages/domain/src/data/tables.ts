@@ -5,7 +5,6 @@ import type { Db, Tx } from "../db/client.ts";
 import { attachments, fields as fieldsTable, rows as rowsTable, runs, tables as tablesTable, workflows, workflowVersions } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
-import { canonical } from "../platform/approvals.ts";
 import { authed, base } from "../rpc/context.ts";
 import { tableIdsOf, type TableSchema } from "../workflows/data-steps.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
@@ -64,20 +63,6 @@ async function lockTable(tx: Tx, ownerId: string, id: string) {
     .for("update");
   if (!table) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
   return table;
-}
-
-/**
- * With `expectValues` (an approved change that removes values): the field's values must be those,
- * and the table's merged definition the one approved against, read under the table's lock, which
- * a row's write takes shared, so none lands in between.
- */
-async function checkValues(tx: Tx, context: { expectValues?: { values: [string, unknown][]; definition: unknown } }, field: FieldRow) {
-  if (!context.expectValues) return;
-  const [table] = await tx.select({ definition: tablesTable.definition }).from(tablesTable).where(eq(tablesTable.id, field.tableId));
-  if (canonical(table?.definition ?? null) !== canonical(context.expectValues.definition)) throw new ORPCError("CONFLICT", message("plugins.table.valuesChanged"));
-  const rows = await tx.select({ id: rowsTable.id, values: rowsTable.values }).from(rowsTable).where(eq(rowsTable.tableId, field.tableId)).orderBy(asc(rowsTable.id));
-  const now = rows.flatMap((r) => (r.values[field.id] === undefined || r.values[field.id] === null ? [] : [[r.id, r.values[field.id]]]));
-  if (canonical(now) !== canonical(context.expectValues.values)) throw new ORPCError("CONFLICT", message("plugins.table.valuesChanged"));
 }
 
 /** Locks the field's table, then reads the field again (it may have gone meanwhile). */
@@ -155,7 +140,7 @@ export async function workflowsUsingField(db: Db | Tx, ownerId: string, tableId:
   return [...new Set([...current, ...running].filter((w) => uses(w.def)).map((w) => w.name))].sort();
 }
 
-function publish(events: { publish(event: DataEvent): void }, tableId: string, rowIds: string[] = []) {
+export function publish(events: { publish(event: DataEvent): void }, tableId: string, rowIds: string[] = []) {
   if (rowIds.length > 0) events.publish({ type: "rows", tableId, rowIds });
   events.publish({ type: "schema", tableId });
 }
@@ -336,6 +321,36 @@ const createField = owner
     return fieldView(field);
   });
 
+/**
+ * `fields.update`'s change of a field already read under its table's lock, in the caller's
+ * transaction (a plugin's approved table change runs it so, `plugins/resolve.ts`).
+ */
+export async function updateFieldIn(tx: Tx, field: FieldRow, input: { name?: string; choices?: { id: string; label: string }[] }, byJob = false) {
+  let cleared: string[] = [];
+  if (input.choices) {
+    if (field.type !== "single-select") throw new ORPCError("BAD_REQUEST", message("data.field.choicesOnlySelect"));
+    const kept = new Set(input.choices.map((c) => c.id));
+    const removed = field.choices.filter((c) => !kept.has(c.id)).map((c) => c.id);
+    if (removed.length > 0) {
+      // A Job changes fields, not the rows under them: what clears values stays the owner's.
+      if (byJob) throw new ORPCError("BAD_REQUEST", message("data.field.choiceRemoval"));
+      const changed = await tx
+        .update(rowsTable)
+        .set({ values: sql`jsonb_set(${rowsTable.values}, array[${field.id}]::text[], 'null'::jsonb)`, updatedAt: sql`now()` })
+        .where(and(eq(rowsTable.tableId, field.tableId), inArray(sql`${rowsTable.values} ->> ${field.id}`, removed)))
+        .returning({ id: rowsTable.id });
+      cleared = changed.map((r) => r.id);
+    }
+  }
+  const [updated] = await tx
+    .update(fieldsTable)
+    .set({ name: input.name ?? field.name, choices: input.choices ?? field.choices })
+    .where(eq(fieldsTable.id, field.id))
+    .returning();
+  await touch(tx, field.tableId);
+  return { field: updated!, cleared };
+}
+
 /** Renames, or replaces a single select's choices; cells holding a removed choice are cleared. */
 const updateField = owner
   .input(z.object({ id: z.string(), name: Name.optional(), choices: Choices.optional() }))
@@ -343,30 +358,7 @@ const updateField = owner
     const { field, cleared } = await context.db
       .transaction(async (tx) => {
         const field = await lockField(tx, context.ownerId, input.id);
-        await checkValues(tx, context, field);
-        let cleared: string[] = [];
-        if (input.choices) {
-          if (field.type !== "single-select") throw new ORPCError("BAD_REQUEST", message("data.field.choicesOnlySelect"));
-          const kept = new Set(input.choices.map((c) => c.id));
-          const removed = field.choices.filter((c) => !kept.has(c.id)).map((c) => c.id);
-          if (removed.length > 0) {
-            // A Job changes fields, not the rows under them: what clears values stays the owner's.
-            if (context.job) throw new ORPCError("BAD_REQUEST", message("data.field.choiceRemoval"));
-            const changed = await tx
-              .update(rowsTable)
-              .set({ values: sql`jsonb_set(${rowsTable.values}, array[${field.id}]::text[], 'null'::jsonb)`, updatedAt: sql`now()` })
-              .where(and(eq(rowsTable.tableId, field.tableId), inArray(sql`${rowsTable.values} ->> ${field.id}`, removed)))
-              .returning({ id: rowsTable.id });
-            cleared = changed.map((r) => r.id);
-          }
-        }
-        const [updated] = await tx
-          .update(fieldsTable)
-          .set({ name: input.name ?? field.name, choices: input.choices ?? field.choices })
-          .where(eq(fieldsTable.id, field.id))
-          .returning();
-        await touch(tx, field.tableId);
-        return { field: updated!, cleared };
+        return updateFieldIn(tx, field, input, !!context.job);
       })
       .catch(nameTaken("data.field.nameTaken", input.name ?? ""));
     publish(context.dataEvents, field.tableId, cleared);
@@ -411,43 +403,44 @@ const retype = owner
   .handler(async ({ input, context }) => {
     // A reference names a table, which a retype can't say: a reference field is created as one.
     if (input.type === "reference") throw new ORPCError("BAD_REQUEST", message("data.field.retypeToReference"));
-    const result = await context.db.transaction(async (tx) => {
-      const field = await lockField(tx, context.ownerId, input.id);
-      await refuseIfParent(tx, field);
-      await checkValues(tx, context, field);
-      const stored = await tx
-        .select({ id: rowsTable.id, values: rowsTable.values })
-        .from(rowsTable)
-        .where(eq(rowsTable.tableId, field.tableId))
-        .orderBy(asc(rowsTable.createdAt), asc(rowsTable.id))
-        .for("update");
-      const from = schemaOf(field);
-      const to: FieldSchema = { ...from, type: input.type, choices: input.type === "single-select" && field.type === "single-select" ? field.choices : [] };
-      const cells = stored.map((r) => r.values[field.id] ?? null);
-      const converted = convertCells(cells, from, to, () => newId("choice"), from.type === "attachment" ? await attachmentNames(tx, field.tableId) : {});
-      const counts = { converted: cells.filter((c) => !isEmpty(c)).length - converted.cleared, cleared: converted.cleared };
-      if (input.dryRun) return { ...counts, field, rowIds: [] as string[] };
-      const changes = stored
-        .map((r, i) => ({ id: r.id, before: r.values[field.id], v: converted.cells[i]! }))
-        .filter((c) => c.before !== undefined && JSON.stringify(c.before) !== JSON.stringify(c.v));
-      if (changes.length > 0) {
-        // One statement for every changed cell; a JSON null in the record set is SQL NULL, hence the coalesce.
-        await tx.execute(sql`
-          update ${rowsTable} set "values" = jsonb_set(${rowsTable}."values", array[${field.id}]::text[], coalesce(c.v, 'null'::jsonb)), "updated_at" = now()
-          from jsonb_to_recordset(${JSON.stringify(changes.map(({ id, v }) => ({ id, v })))}::jsonb) as c(id text, v jsonb)
-          where ${rowsTable}."id" = c.id`);
-      }
-      const [updated] = await tx
-        .update(fieldsTable)
-        .set({ type: input.type, choices: input.type === "single-select" ? converted.choices : [], referencesTableId: null })
-        .where(eq(fieldsTable.id, field.id))
-        .returning();
-      await touch(tx, field.tableId);
-      return { ...counts, field: updated!, rowIds: changes.map((c) => c.id) };
-    });
+    const result = await context.db.transaction(async (tx) => retypeIn(tx, await lockField(tx, context.ownerId, input.id), input.type, input.dryRun));
     if (!input.dryRun) publish(context.dataEvents, result.field.tableId, result.rowIds);
     return { converted: result.converted, cleared: result.cleared, field: fieldView(result.field) };
   });
+
+/** `fields.retype`'s change of a field already read under its table's lock, in the caller's transaction. */
+export async function retypeIn(tx: Tx, field: FieldRow, type: (typeof FIELD_TYPES)[number], dryRun: boolean) {
+  await refuseIfParent(tx, field);
+  const stored = await tx
+    .select({ id: rowsTable.id, values: rowsTable.values })
+    .from(rowsTable)
+    .where(eq(rowsTable.tableId, field.tableId))
+    .orderBy(asc(rowsTable.createdAt), asc(rowsTable.id))
+    .for("update");
+  const from = schemaOf(field);
+  const to: FieldSchema = { ...from, type: type, choices: type === "single-select" && field.type === "single-select" ? field.choices : [] };
+  const cells = stored.map((r) => r.values[field.id] ?? null);
+  const converted = convertCells(cells, from, to, () => newId("choice"), from.type === "attachment" ? await attachmentNames(tx, field.tableId) : {});
+  const counts = { converted: cells.filter((c) => !isEmpty(c)).length - converted.cleared, cleared: converted.cleared };
+  if (dryRun) return { ...counts, field, rowIds: [] as string[] };
+  const changes = stored
+    .map((r, i) => ({ id: r.id, before: r.values[field.id], v: converted.cells[i]! }))
+    .filter((c) => c.before !== undefined && JSON.stringify(c.before) !== JSON.stringify(c.v));
+  if (changes.length > 0) {
+    // One statement for every changed cell; a JSON null in the record set is SQL NULL, hence the coalesce.
+    await tx.execute(sql`
+      update ${rowsTable} set "values" = jsonb_set(${rowsTable}."values", array[${field.id}]::text[], coalesce(c.v, 'null'::jsonb)), "updated_at" = now()
+      from jsonb_to_recordset(${JSON.stringify(changes.map(({ id, v }) => ({ id, v })))}::jsonb) as c(id text, v jsonb)
+      where ${rowsTable}."id" = c.id`);
+  }
+  const [updated] = await tx
+    .update(fieldsTable)
+    .set({ type: type, choices: type === "single-select" ? converted.choices : [], referencesTableId: null })
+    .where(eq(fieldsTable.id, field.id))
+    .returning();
+  await touch(tx, field.tableId);
+  return { ...counts, field: updated!, rowIds: changes.map((c) => c.id) };
+}
 
 /** Deletes a field and its cells in every row. A table keeps at least one field. */
 /** A table's parent field can't go or change type while it is the parent. */
@@ -457,24 +450,25 @@ async function refuseIfParent(tx: Tx, field: FieldRow) {
 }
 
 const removeField = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  const tableId = await context.db.transaction(async (tx) => {
-    const field = await lockField(tx, context.ownerId, input.id);
-    await refuseIfParent(tx, field);
-    await checkValues(tx, context, field);
-    const rest = (await fieldsOf(tx, field.tableId)).filter((f) => f.id !== field.id);
-    if (rest.length === 0) throw new ORPCError("BAD_REQUEST", message("data.table.lastField"));
-    await tx.delete(fieldsTable).where(eq(fieldsTable.id, field.id));
-    await tx
-      .update(rowsTable)
-      .set({ values: sql`${rowsTable.values} - ${field.id}::text` })
-      .where(and(eq(rowsTable.tableId, field.tableId), sql`(${rowsTable.values} -> ${field.id}::text) is not null`));
-    for (const [position, f] of rest.entries()) {
-      if (f.position !== position) await tx.update(fieldsTable).set({ position }).where(eq(fieldsTable.id, f.id));
-    }
-    await touch(tx, field.tableId);
-    return field.tableId;
-  });
+  const tableId = await context.db.transaction(async (tx) => removeFieldIn(tx, await lockField(tx, context.ownerId, input.id)));
   publish(context.dataEvents, tableId);
 });
+
+/** `fields.delete`'s change of a field already read under its table's lock, in the caller's transaction. */
+export async function removeFieldIn(tx: Tx, field: FieldRow): Promise<string> {
+  await refuseIfParent(tx, field);
+  const rest = (await fieldsOf(tx, field.tableId)).filter((f) => f.id !== field.id);
+  if (rest.length === 0) throw new ORPCError("BAD_REQUEST", message("data.table.lastField"));
+  await tx.delete(fieldsTable).where(eq(fieldsTable.id, field.id));
+  await tx
+    .update(rowsTable)
+    .set({ values: sql`${rowsTable.values} - ${field.id}::text` })
+    .where(and(eq(rowsTable.tableId, field.tableId), sql`(${rowsTable.values} -> ${field.id}::text) is not null`));
+  for (const [position, f] of rest.entries()) {
+    if (f.position !== position) await tx.update(fieldsTable).set({ position }).where(eq(fieldsTable.id, f.id));
+  }
+  await touch(tx, field.tableId);
+  return field.tableId;
+}
 
 export const fields = { create: createField, update: updateField, reorder, retype, delete: removeField };

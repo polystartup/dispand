@@ -13,7 +13,7 @@ import { AnswerInput, answerQuestion, getQuestion, GetInput, listQuestions, List
 import { readMemory, ReadInput, refuseProposedWrite, RemoveInput, removeMemoryTool, tablesOf, WriteInput, writeMemoryTool } from "../memory/tools.ts";
 import type { Rights } from "./rights.ts";
 import { sentence, type Text } from "../messages/index.ts";
-import { type Decision, decide } from "../plugins/resolve.ts";
+import { type Decision, decide, type Refused } from "../plugins/resolve.ts";
 import { marketplaceUrl } from "../plugins/procedures.ts";
 import { wellKnownIndexUrl, WellKnownError } from "../plugins/well-known.ts";
 import { checkGitUrl, GitError } from "../plugins/git.ts";
@@ -416,9 +416,12 @@ export const PLUGIN_DECIDE: PlatformTool = {
   run: async (app, job, input) => {
     const { conflictId, decision } = DecideInput.parse(input);
     const context = { ...app, job, ownerId: job.ownerId, headers: new Headers(), resHeaders: new Headers() };
-    const outcome = await decide(context, { type: "job", runId: job.runId }, conflictId, decision as Decision, job.runId);
+    const report = { refused: [] as Refused[] };
+    const outcome = await decide(context, { type: "job", runId: job.runId }, conflictId, decision as Decision, job.runId, report);
     if (outcome === "refused") return { ok: false, error: "Not a list of change keys shown as applicable for this table: nothing was applied" };
-    return outcome === "gone" ? { ok: false, error: "Not a field handed to this Job" } : { ok: true, output: { outcome } };
+    if (outcome === "gone") return { ok: false, error: "Not a field handed to this Job" };
+    // A table change its operation refused wasn't made: said by key and reason, offered again by the next update.
+    return { ok: true, output: { outcome, ...(report.refused.length ? { refused: report.refused.map((r) => ({ key: r.key, reason: sentence(r.reason) })) } : {}) } };
   },
 };
 

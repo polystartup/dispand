@@ -65,6 +65,8 @@ export function InboxItem({ item }: { item: InboxEntry }) {
   const { askedText, answerLine } = useInboxText();
   const queryClient = useQueryClient();
   const [conflict, setConflict] = useState(false);
+  // What an answer to a plugin update's item couldn't make: kept here, since the item may leave the list.
+  const [notices, setNotices] = useState<string[]>([]);
   const refresh = () => void queryClient.invalidateQueries({ queryKey: orpc.questions.key() });
   const answer = useMutation(
     orpc.questions.answer.mutationOptions({
@@ -115,7 +117,7 @@ export function InboxItem({ item }: { item: InboxEntry }) {
           {t("answeredElsewhere")}
         </p>
       ) : open && item.update ? (
-        <PluginUpdateItem update={item.update} />
+        <PluginUpdateItem update={item.update} onNotices={setNotices} />
       ) : open ? (
         <QuestionForm question={item} busy={answer.isPending} error={answer.error?.message ?? null} onAnswer={(a) => answer.mutate({ questionId: item.id, answer: a })} />
       ) : (
@@ -144,6 +146,11 @@ export function InboxItem({ item }: { item: InboxEntry }) {
           )}
         </div>
       )}
+      {notices.map((n) => (
+        <p key={n} role="status" className="text-[13px] text-danger">
+          {n}
+        </p>
+      ))}
     </article>
   );
 }

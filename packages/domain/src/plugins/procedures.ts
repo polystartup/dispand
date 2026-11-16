@@ -51,7 +51,7 @@ import { canonical } from "../platform/approvals.ts";
 import { runItemsAsOwner, SetupPick, setupItems } from "./setup.ts";
 import { addServer } from "./servers.ts";
 import { writeFields } from "./write-field.ts";
-import { answerConflict, approvalOf, conflictView, fieldNow, forgetConflicts, type HandedTable, ownerChoice, reopenChanged, settleApprovals, TABLE_FIELD } from "./resolve.ts";
+import { answerConflict, approvalOf, conflictView, fieldNow, forgetConflicts, type HandedTable, ownerChoice, reopenChanged, type Refused, settleApprovals, TABLE_FIELD } from "./resolve.ts";
 import { findAssistant } from "../agents/builtin.ts";
 import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, PluginError, type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
@@ -1279,8 +1279,10 @@ const resolveConflict = owner.input(z.object({ id: z.string().max(64), choice: z
   if (!row) throw new ORPCError("NOT_FOUND", message("plugins.override.conflictNotFound"));
   if ((await conflictView(context.db, row)).reviewed !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
   const actor = { type: "user" as const, userId: context.ownerId };
+  // A table's changes that went stale or were refused: said in the answer, not made.
+  const report = { refused: [] as Refused[], stale: [] as string[] };
   if (input.choice === "accept" || input.choice === "decline") {
-    if ((await answerConflict(context, actor, input.id, input.choice === "accept", row.merged)) === "gone") throw new ORPCError("NOT_FOUND", message("plugins.override.conflictNotFound"));
+    if ((await answerConflict(context, actor, input.id, input.choice === "accept", row.merged, report)) === "gone") throw new ORPCError("NOT_FOUND", message("plugins.override.conflictNotFound"));
   } else if (input.choice === "mine" || input.choice === "plugin") {
     await ownerChoice(context, actor, input.id, input.choice);
   } else {
@@ -1296,7 +1298,7 @@ const resolveConflict = owner.input(z.object({ id: z.string().max(64), choice: z
     await handToStem(context, c.pluginId, assistant.agentId, [{ key: `${c.kind}:${c.elementId}:${c.field}`, kind: c.kind as UpdatableKind, id: c.elementId, name: element?.name ?? c.kind, field: c.field, old: c.old, mine: now.value, next: now.plugin }]);
   }
   await context.engine.narrowOwnerSessions(context.ownerId, context.db);
-  return { ok: true };
+  return { ok: true, ...(report.refused.length ? { refused: report.refused } : {}), ...(report.stale.length ? { stale: report.stale } : {}) };
 });
 
 export const plugins = { discover, preview, install, list, uninstallPreview, uninstall, update, setupPreview, setUp, resetOverride, addServer, updatePreview, conflicts, resolveConflict, tableChanges: tableChangesOf, applyTableChange };

@@ -15,6 +15,7 @@ import { ownerContext } from "../runners/test-support.ts";
 import { lawFirm, lawFirmMarket } from "./test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { answerConflict } from "./resolve.ts";
+import { MAX_FIELDS } from "../data/tables.ts";
 import { writeFields } from "./write-field.ts";
 
 const DRAFTING = "com.dispand/agents/drafting.md";
@@ -163,7 +164,7 @@ test("a table handed to Stem: an addition it picks applies, a removal waits in t
     expect(await s.field("Fee")).toMatchObject({ pluginField: "Fee" });
     expect(await s.field("Conclusions")).toBeDefined();
     const [item] = (await call(router.questions.list, { status: "pending" }, { context: s.ctx })).flatMap((q) => q.update?.items ?? []);
-    expect(item).toMatchObject({ kind: "table", elementId: s.matters.id, name: "Matters", merged: { keys: ["remove:Conclusions"], values: { "remove:Conclusions": [[s.row.id, "Settled."]] } } });
+    expect(item).toMatchObject({ kind: "table", elementId: s.matters.id, name: "Matters", merged: { keys: ["remove:Conclusions"], values: { "remove:Conclusions": { count: 1, shown: [[s.row.id, "Settled."]] } } } });
     await call(router.plugins.resolveConflict, { id: item!.id, choice: "accept", reviewed: item!.reviewed }, { context: s.ctx });
     expect(await s.field("Conclusions")).toBeUndefined();
     expect(await s.ctx.db.select().from(schema.pluginConflicts).where(eq(schema.pluginConflicts.kind, "table"))).toEqual([]);
@@ -195,18 +196,20 @@ test("a value written to a removed field while its Approval waits makes it ask a
   await expect(call(router.plugins.resolveConflict, { id: before.id, choice: "accept", reviewed: before.reviewed }, { context: s.ctx })).rejects.toMatchObject({ code: "CONFLICT" });
   expect(await s.field("Conclusions")).toBeDefined();
   const again = await item();
-  expect(again.merged).toEqual({ keys: ["remove:Conclusions"], values: { "remove:Conclusions": [[s.row.id, "Settled, then appealed."]] } });
+  expect(again.merged).toMatchObject({ keys: ["remove:Conclusions"], values: { "remove:Conclusions": { count: 1, shown: [[s.row.id, "Settled, then appealed."]] } } });
   // Answered on what it shows now, it applies: the table locked, the values read and the field removed, in that order.
   // The same database, through a client that records what it sends (`recordingDb` would empty it).
   const statements: string[] = [];
   const recording = { statements, db: drizzle((s.ctx.db as unknown as { $client: PGlite }).$client, { schema, logger: { logQuery: (q) => statements.push(q) } }) as unknown as Db };
   await call(router.plugins.resolveConflict, { id: again.id, choice: "accept", reviewed: again.reviewed }, { context: { ...s.ctx, db: recording.db } });
   expect(await s.field("Conclusions")).toBeUndefined();
-  // From the field operation's lock of the table on: its rows' values read, then the field deleted.
+  // From the answer's lock of the table on, in its one transaction: the rows' values read, then the field deleted.
   const from = recording.statements.findIndex((q) => /^select .* from "tables" .* for update/s.test(q));
   const after = recording.statements.slice(from).map((q) => (/^select .* from "rows"/s.test(q) ? "rows" : /^delete from "fields"/.test(q) ? "delete" : null)).filter(Boolean);
   expect(from).toBeGreaterThanOrEqual(0);
-  expect(after.slice(0, 2)).toEqual(["rows", "delete"]);
+  const deleted = after.indexOf("delete");
+  expect(deleted).toBeGreaterThan(0);
+  expect(after.slice(0, deleted)).toContain("rows");
 });
 
 test("a removal's Approval answered no keeps the field, and the next update doesn't ask again", async () => {
@@ -219,15 +222,40 @@ test("a removal's Approval answered no keeps the field, and the next update does
   expect((await s.preview()).tables).toEqual([]);
 });
 
-test("an approved removal checks, under the table's lock, that the table still keeps the definition it was approved against", async () => {
-  const s = await tableSetUp(say("Nothing."));
-  const [table] = await s.ctx.db.select().from(schema.tables).where(eq(schema.tables.id, s.matters.id));
-  const values: [string, unknown][] = [[s.row.id, "Settled."]];
-  // An update merged the table since: its definition is another one.
-  await expect(call(router.fields.delete, { id: s.conclusions.id }, { context: { ...s.ctx, expectValues: { values, definition: { ...table!.definition!, primitive: !table!.definition!.primitive } } } })).rejects.toMatchObject({ code: "CONFLICT" });
+test("a field retyped after its removal was approved makes it stale: skipped and said, the field kept", async () => {
+  const s = await tableSetUp(decideTable(["remove:Conclusions"]), say("Removing Conclusions waits for you."));
+  await s.ended(await s.hand());
+  const [item] = (await call(router.questions.list, { status: "pending" }, { context: s.ctx })).flatMap((q) => q.update?.items ?? []);
+  // The owner retypes it after Stem decided; its values stay as they were.
+  await call(router.fields.retype, { id: s.conclusions.id, type: "text", dryRun: false }, { context: s.ctx });
+  const result = await call(router.plugins.resolveConflict, { id: item!.id, choice: "accept", reviewed: item!.reviewed }, { context: s.ctx });
+  expect(result).toMatchObject({ ok: true, stale: ["remove:Conclusions"] });
+  expect(await s.field("Conclusions")).toMatchObject({ type: "text" });
+});
+
+test("a removal its operation refuses when approved is reported, not made, and stays offered", async () => {
+  const s = await tableSetUp(decideTable(["remove:Conclusions"]), say("Removing Conclusions waits for you."));
+  await s.ended(await s.hand());
+  const [item] = (await call(router.questions.list, { status: "pending" }, { context: s.ctx })).flatMap((q) => q.update?.items ?? []);
+  // A table's parent field can't be removed: here, Conclusions stands as Matters' parent.
+  await s.ctx.db.update(schema.tables).set({ parentFieldId: s.conclusions.id }).where(eq(schema.tables.id, s.matters.id));
+  const result = await call(router.plugins.resolveConflict, { id: item!.id, choice: "accept", reviewed: item!.reviewed }, { context: s.ctx });
+  expect(result).toMatchObject({ ok: true, refused: [{ key: "remove:Conclusions", reason: expect.objectContaining({ key: "data.field.isParent" }) }] });
   expect(await s.field("Conclusions")).toBeDefined();
-  await call(router.fields.delete, { id: s.conclusions.id }, { context: { ...s.ctx, expectValues: { values, definition: table!.definition } } });
-  expect(await s.field("Conclusions")).toBeUndefined();
+  await s.ctx.db.update(schema.tables).set({ parentFieldId: null }).where(eq(schema.tables.id, s.matters.id));
+  expect((await s.preview()).tables[0]!.changes).toEqual([expect.objectContaining({ key: "remove:Conclusions" })]);
+});
+
+test("a change Stem picked that its operation refuses is said by plugin_decide, not reported as made", async () => {
+  const s = await tableSetUp(decideTable(["add:Fee"]), say("Fee couldn't be added."));
+  // Matters is full: no field can be added.
+  const now = (await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, s.matters.id))).length;
+  await s.ctx.db.insert(schema.fields).values(Array.from({ length: MAX_FIELDS - now }, (_, i) => ({ id: `fld_fill${i}`, ownerId: s.ctx.ownerId, tableId: s.matters.id, name: `Filler ${i}`, type: "text" as const, choices: [], position: now + i })));
+  await s.ended(await s.hand());
+  expect(await s.field("Fee")).toBeUndefined();
+  const result = s.model.inputs[1]!.items.at(-1) as { role: string; isError: boolean; result: string };
+  expect(result).toMatchObject({ role: "tool", isError: false });
+  expect(result.result).toContain('"refused":[{"key":"add:Fee"');
 });
 
 test("a removal's Approval answers only as the owner read it: values stored anew since, or an update that dropped it, apply nothing", async () => {
@@ -236,7 +264,7 @@ test("a removal's Approval answers only as the owner read it: values stored anew
   const [item] = (await call(router.questions.list, { status: "pending" }, { context: s.ctx })).flatMap((q) => q.update?.items ?? []);
   const actor = { type: "user" as const, userId: s.ctx.ownerId };
   // Another request stored other values after this one read them.
-  await expect(answerConflict(s.ctx, actor, item!.id, true, { keys: ["remove:Conclusions"], values: { "remove:Conclusions": [] } })).rejects.toMatchObject({ code: "CONFLICT" });
+  await expect(answerConflict(s.ctx, actor, item!.id, true, { keys: ["remove:Conclusions"], values: {} })).rejects.toMatchObject({ code: "CONFLICT" });
   expect(await s.field("Conclusions")).toBeDefined();
   // An update plans the table again: the Approval's item is dropped, and the old answer finds nothing.
   const again = await s.preview();
