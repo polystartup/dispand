@@ -27,6 +27,9 @@ Status: Prototype
     latest missed time, never once per missed time.
   - A schedule that falls due while a run of the same workflow is still going is **skipped**,
     and the skip shows in the workflow's recent fires.
+  - Any agent may have a trigger on **other agents' Jobs** (created, finished, or failed or
+    stopped): its Job is told the other Job's id, agent and status, never its result or error,
+    which it reads only through `jobs_get` if it may. An agent's own Jobs never fire it.
   - An agent's schedule trigger set to **one at a time** skips a time that comes while its Job
     is still going, and the skip shows in the trigger's recent fires; set to parallel, every
     time starts a Job. (Firings from data events, when they exist, will wait instead of being

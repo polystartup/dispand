@@ -231,6 +231,12 @@ changes it updates this file.
   the same Audit row as any call; turning a trigger on stays a grant. An
   item is also checked against the Job's tables when it is proposed, like any call: a Job
   limited to some tables can't put another table's deletion in front of the owner.
+- **A trigger on Jobs gets no content.** A Job created, finished or failed is an event of
+  ids, its cause's kind and its status, never its result, error or transcript, and the Job it
+  starts is told only those and its agent's name, so any agent may have such a trigger without
+  a bundle. Reading what the Job did stays `jobs_get`'s, under `configure` and every table. A
+  Job's own agent is never fired by its event, and a chain of Jobs firing on Jobs stays in its
+  root, so it stops at that root's checkpoint until a person approves.
 - **A Question reaches another agent only within what it may read.** Asking, answering and
   expiring a Question or an Approval is an event of ids and kinds, never its text, options or
   answer. An agent's trigger on them starts a Job only for a Question it may read

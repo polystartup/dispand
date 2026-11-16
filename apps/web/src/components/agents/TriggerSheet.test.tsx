@@ -130,7 +130,7 @@ test("TriggerSheet creates a table-change trigger on a primitive table: its chan
   await user.type(screen.getByLabelText("Instructions"), "Welcome them.");
   await user.click(screen.getByRole("radio", { name: "Table change" }));
   // Only primitive tables are offered, and Questions and Approvals.
-  expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Pick a table", "A Question or an Approval", "Clients"]);
+  expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Pick a table", "A Question or an Approval", "Another agent's Job", "Clients"]);
   await user.click(screen.getByRole("button", { name: "Create trigger" }));
   expect(screen.getByRole("alert").textContent).toBe("Pick the table whose changes start the Job");
   await user.selectOptions(screen.getByLabelText("Table"), "tbl_1");
@@ -165,6 +165,23 @@ test("TriggerSheet creates a trigger on Questions and Approvals, with their oper
   expect(screen.queryByRole("checkbox", { name: "Any field" })).toBeNull();
   await user.click(screen.getByRole("button", { name: "Create trigger" }));
   expect(fake.triggers.create.mock.calls[0]![0]).toMatchObject({ config: { kind: "primitive", tableId: "interaction", operations: ["created", "answered"] } });
+  expect(fake.tables.get).not.toHaveBeenCalled();
+});
+
+test("TriggerSheet creates a trigger on other agents' Jobs, with their operations and no fields", async () => {
+  fake.triggers.create.mockResolvedValue({});
+  fake.tables.list.mockResolvedValue([clients]);
+  const { user } = mount();
+  await user.type(screen.getByLabelText("Name"), "Failures");
+  await user.type(screen.getByLabelText("Instructions"), "Look into it.");
+  await user.click(screen.getByRole("radio", { name: "Table change" }));
+  await user.selectOptions(screen.getByLabelText("Table"), "job");
+  expect(screen.queryByRole("checkbox", { name: "A row is changed" })).toBeNull();
+  await user.click(screen.getByRole("checkbox", { name: "One fails or is stopped" }));
+  await user.click(screen.getByRole("checkbox", { name: "One finishes" }));
+  expect(screen.queryByRole("checkbox", { name: "Any field" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Create trigger" }));
+  expect(fake.triggers.create.mock.calls[0]![0]).toMatchObject({ config: { kind: "primitive", tableId: "job", operations: ["failed", "finished"] } });
   expect(fake.tables.get).not.toHaveBeenCalled();
 });
 

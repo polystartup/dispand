@@ -1,6 +1,6 @@
 import messages from "../messages/en.json";
 import type { AgentSnapshot } from "../db/schema.ts";
-import { INTERACTION, type TriggerConfig } from "../triggers/model.ts";
+import { INTERACTION, JOB, type TriggerConfig } from "../triggers/model.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 
 // Pure: a Job's definition, in the shape the engine already runs.
@@ -29,6 +29,10 @@ export const INTERACTION_PROMPT = [
   "- Item: {{trigger.row_id}}",
   "- Kind, and the Job that asked it: {{trigger.after}}",
 ].join("\n");
+
+/** What a Job started by another Job's event is told: that Job's id, agent and status, never its result. */
+export const JOB_PROMPT =
+  "A Job of the agent {{trigger.agent}} ({{trigger.agent_id}}) was {{trigger.operation}}: {{trigger.job_id}}, status {{trigger.status}}. Its result is not given here; read it with jobs_get if this agent may.";
 
 /** The built-in agent's shown name, in English: what its prompts and the platform skill call it. */
 export const ASSISTANT_NAME = messages.agent.assistant.name;
@@ -73,6 +77,21 @@ export function eventOutputs(event: {
     changed_field_ids: JSON.stringify(event.changedFieldIds),
     before: JSON.stringify(event.before),
     after: JSON.stringify(event.after),
+  };
+}
+
+/**
+ * A trigger node's outputs for a Job event: the operation, the Job, its agent (by `agentName`, its
+ * name now) and its status, in place of a table's keys; `table_id` names the built-in kind.
+ */
+export function jobOutputs(event: { rowId: string; operation: string; after: Record<string, unknown> }, agentName: string): Record<string, string> {
+  return {
+    table_id: JOB,
+    operation: event.operation,
+    job_id: event.rowId,
+    agent_id: String(event.after.agentId ?? ""),
+    agent: agentName,
+    status: String(event.after.status ?? ""),
   };
 }
 
@@ -132,7 +151,7 @@ export function jobDef(input: {
   // A primitive trigger's change, or a poll's item, as its node's outputs, follows the instructions.
   const prompt =
     config.kind === "primitive"
-      ? `${trigger.instructions}\n\n${config.tableId === INTERACTION ? INTERACTION_PROMPT : CHANGE_PROMPT}`
+      ? `${trigger.instructions}\n\n${config.tableId === INTERACTION ? INTERACTION_PROMPT : config.tableId === JOB ? JOB_PROMPT : CHANGE_PROMPT}`
       : config.kind === "poll" ? `${trigger.instructions}\n\n${POLL_PROMPT}` : trigger.instructions;
   return {
     trigger:

@@ -151,6 +151,12 @@
       "expired": "une expire"
     },
     "interaction": "Une Question ou une Approbation du Job d’un autre agent",
+    "job": "Un Job d’un autre agent",
+    "jobOperations": {
+      "created": "un est créé",
+      "finished": "un se termine",
+      "failed": "un échoue ou est arrêté"
+    },
     "changeTable": "Un changement de la table <0/>",
     "changeRef": "Un changement de <0/>",
     "when": "Quand {{what}}",

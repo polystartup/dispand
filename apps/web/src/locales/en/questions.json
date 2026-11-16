@@ -151,6 +151,12 @@
       "expired": "one expires"
     },
     "interaction": "A Question or an Approval of another agent's Job",
+    "job": "A Job of another agent",
+    "jobOperations": {
+      "created": "one is created",
+      "finished": "one finishes",
+      "failed": "one fails or is stopped"
+    },
     "changeTable": "A change to the table <0/>",
     "changeRef": "A change to <0/>",
     "when": "When {{what}}",

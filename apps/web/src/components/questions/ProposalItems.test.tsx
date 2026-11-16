@@ -174,6 +174,22 @@ test("a table-change trigger's config is read in words, its table and fields by 
   expect(within(item).getByRole("alert").textContent).toBe("field_gone: not one of yours");
 });
 
+test("a trigger on Jobs reads as another agent's Job and its operations in words", () => {
+  render(
+    <ProposalItems
+      proposal={{
+        id: "prop_3",
+        status: "asked",
+        items: [{ tool: "triggers_create", used: false, refs: ["agentId"], input: { agentId: "agent_1", name: "On failures", config: { kind: "primitive", tableId: "job", operations: ["finished", "failed"] } } }],
+        names: { agent_1: { kind: "agent", name: "Watcher" } },
+      }}
+    />,
+  );
+  const item = screen.getByRole("listitem");
+  expect(item.textContent).toContain("A Job of another agent");
+  expect(item.textContent).toContain("When one finishes or one fails or is stopped");
+});
+
 test("an agent's consult entries read by name, with their flag and what a consult can do", () => {
   const consults: ProposalView = {
     id: "prop_3",

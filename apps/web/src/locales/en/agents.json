@@ -164,5 +164,15 @@
     "takePlugin": "Take the plugin's",
     "delegate": "Let {{assistant}} deal with it",
     "failed": "Could not record your choice."
+  },
+  "jobTrigger": {
+    "option": "Another agent's Job",
+    "operations": {
+      "created": "One is created",
+      "finished": "One finishes",
+      "failed": "One fails or is stopped"
+    },
+    "summary": "Another agent's Job",
+    "summaryPaused": "Another agent's Job · Paused"
   }
 }

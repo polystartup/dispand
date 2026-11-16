@@ -73,10 +73,11 @@ import { pollProblem } from "../tools/pollable.ts";
 import { give, next, take } from "./slots.ts";
 import { checkpointOf, newRoot, pause, pausedGauge, ROOT_STOPPED, rootGoing } from "./roots.ts";
 import { recordInteraction, recordInteractions } from "./interactions.ts";
+import { recordJobEvent } from "./jobs-events.ts";
 import { recordAudit, recordAuditAfter } from "../audit/record.ts";
 import type { AuditActor } from "../audit/model.ts";
 import { jobScope, startable } from "../questions/inbox-scope.ts";
-import { INTERACTION } from "../triggers/model.ts";
+import { INTERACTION, JOB } from "../triggers/model.ts";
 import { type Message, message } from "../messages/index.ts";
 
 type RunRow = typeof runs.$inferSelect;
@@ -598,6 +599,7 @@ export class Engine {
       spanId: span?.spanId ?? null,
     });
     counts.counter("dispand.runs.created").add(1, { "dispand.run.source": "agent", "dispand.run.trigger": firing.type });
+    await recordJobEvent(tx, { id: runId, ownerId, agentId, triggerId: triggerId ?? null, cause, status: "running", rootId }, "created");
     const creator = creatorOf(ownerId, cause);
     // In the Job's trace, which is a new one when nothing was traced around its creation (a recovery).
     await inJobTrace(span ?? {}, () => recordAudit(tx, {
@@ -2308,7 +2310,7 @@ export class Engine {
     return true;
   }
 
-  /** Why the run, a Job fired by a row's change, a Question or a poll's item, may no longer be told of it; null when it may. */
+  /** Why the run, a Job fired by a row's change, a Question or a poll's item, may no longer be told of it; null when it may (always, for another Job's event). */
   private async lostScope(runId: string): Promise<string | null> {
     const [row] = await this.db
       .select({ ownerId: runs.ownerId, agentId: runs.agentId, trigger: runs.trigger, bundles: agents.bundles, dataTables: agents.dataTables })
@@ -2321,6 +2323,8 @@ export class Engine {
     }
     if (row?.trigger.type !== "event") return null;
     const tableId = row.trigger.outputs.table_id ?? "";
+    // Another Job's ids and status: any agent may be told of them, so nothing is lost.
+    if (tableId === JOB) return null;
     // A Question or an Approval: still one its Job may read, with the Job's rights as they are now (and, once asked, still open).
     if (tableId === INTERACTION) {
       const scope = row.agentId ? await jobScope(this.db, { runId, ownerId: row.ownerId, agentId: row.agentId }) : null;
@@ -2488,6 +2492,7 @@ export class Engine {
       counts.counter("dispand.runs.finished").add(1, attributes);
       counts.histogram("dispand.run.duration", { unit: "ms", description: "From a run's creation to its end" }).record(row.finishedAt!.getTime() - row.createdAt.getTime(), attributes);
       if (row.source === "agent") {
+        await recordJobEvent(tx, row, status === "succeeded" ? "finished" : "failed");
         await inJobTrace(row, () => recordAudit(tx, {
           ownerId: row.ownerId,
           actor: { type: "job", runId: row.id },

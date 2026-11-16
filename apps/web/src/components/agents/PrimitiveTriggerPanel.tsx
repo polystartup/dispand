@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { orpc } from "../../lib/api.ts";
 import { selectClass } from "../data/NewFieldPopover.tsx";
 import { FormField } from "../settings/parts.tsx";
 import { qualifiedName } from "@dispand/domain/plugins/names";
 
-export type Operation = "created" | "updated" | "deleted" | "answered" | "expired";
+export type Operation = "created" | "updated" | "deleted" | "answered" | "expired" | "finished" | "failed";
 export type ChangeConfig = { tableId: string; operations: Operation[]; fields?: string[] };
 export type EventFire = { eventId: string; at: Date; status: string; runId?: string; message?: string };
 
@@ -23,6 +24,10 @@ const INTERACTION_OPERATIONS: [Operation, string][] = [
   ["expired", "One expires"],
 ];
 
+/** The built-in kind of Jobs: another agent's Job created, finished or failed (its labels are `agents:jobTrigger` keys). */
+const JOB = "job";
+const JOB_OPERATIONS: Operation[] = ["created", "finished", "failed"];
+
 const statusText: Record<string, string> = {
   started: "Started a Job",
   deferred: "Waiting: the hour's cap is reached, or a Job is still going",
@@ -34,7 +39,7 @@ const statusText: Record<string, string> = {
 const when = (date: Date) => new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" }).format(date);
 
 /**
- * A table-change trigger's settings: which primitive table (or Questions and Approvals), which
+ * A table-change trigger's settings: which primitive table (or Questions and Approvals, or other agents' Jobs), which
  * changes (and, for a changed row, which fields), how many Jobs an hour at most, and what its latest events did.
  */
 export function PrimitiveTriggerPanel({
@@ -50,9 +55,14 @@ export function PrimitiveTriggerPanel({
   onChange: (config: ChangeConfig) => void;
   onRateCap: (cap: number) => void;
 }) {
+  const { t } = useTranslation("agents");
   const tables = useQuery(orpc.tables.list.queryOptions());
   const interaction = config.tableId === INTERACTION;
-  const table = useQuery({ ...orpc.tables.get.queryOptions({ input: { id: config.tableId } }), enabled: !!config.tableId && !interaction });
+  // Questions and Approvals, and Jobs, are no table: no fields to read.
+  const builtIn = interaction || config.tableId === JOB;
+  const table = useQuery({ ...orpc.tables.get.queryOptions({ input: { id: config.tableId } }), enabled: !!config.tableId && !builtIn });
+  const operationsOf = (tableId: string): [Operation, string][] =>
+    tableId === INTERACTION ? INTERACTION_OPERATIONS : tableId === JOB ? JOB_OPERATIONS.map((op) => [op, t(`jobTrigger.operations.${op}` as never)]) : OPERATIONS;
   const primitives = (tables.data ?? []).filter((t) => t.primitive || t.id === config.tableId);
   const toggle = <T,>(list: T[], item: T, on: boolean) => (on ? [...list, item] : list.filter((x) => x !== item));
 
@@ -63,9 +73,10 @@ export function PrimitiveTriggerPanel({
         htmlFor="trigger-table"
         hint={primitives.length === 0 && tables.isSuccess ? "No table's changes are events yet: open a table's menu, Events and parent." : undefined}
       >
-        <select id="trigger-table" className={selectClass} value={config.tableId} onChange={(e) => onChange({ tableId: e.target.value, operations: config.operations.filter((op) => (e.target.value === INTERACTION ? INTERACTION_OPERATIONS : OPERATIONS).some(([o]) => o === op)) })}>
+        <select id="trigger-table" className={selectClass} value={config.tableId} onChange={(e) => onChange({ tableId: e.target.value, operations: config.operations.filter((op) => operationsOf(e.target.value).some(([o]) => o === op)) })}>
           <option value="">Pick a table</option>
           <option value={INTERACTION}>A Question or an Approval</option>
+          <option value={JOB}>{t("jobTrigger.option")}</option>
           {primitives.map((t) => (
             <option key={t.id} value={t.id}>
               {qualifiedName(t.plugin?.name ?? null, t.name)}
@@ -76,7 +87,7 @@ export function PrimitiveTriggerPanel({
       <fieldset>
         <legend className="mb-1.5 text-[13px] font-medium text-muted">Starts when</legend>
         <div className="grid gap-1.5">
-          {(interaction ? INTERACTION_OPERATIONS : OPERATIONS).map(([op, label]) => (
+          {operationsOf(config.tableId).map(([op, label]) => (
             <label key={op} className="flex items-center gap-2 text-[14px]">
               <input
                 type="checkbox"
@@ -93,7 +104,7 @@ export function PrimitiveTriggerPanel({
           ))}
         </div>
       </fieldset>
-      {!interaction && config.operations.includes("updated") && table.data && (
+      {!builtIn && config.operations.includes("updated") && table.data && (
         <fieldset>
           <legend className="mb-1.5 text-[13px] font-medium text-muted">A change to</legend>
           <div className="grid gap-1.5">

@@ -772,7 +772,7 @@ export const tables = pgTable(
 export type EventActor = { type: "user"; userId: string } | { type: "job"; runId: string } | { type: "step"; runId: string; stepId: string };
 
 /** A row's write; for the built-in `interaction` kind, a Question or an Approval asked, answered or expired. */
-export type EventOperation = "created" | "updated" | "deleted" | "answered" | "expired";
+export type EventOperation = "created" | "updated" | "deleted" | "answered" | "expired" | "finished" | "failed";
 
 /**
  * The outbox (node C): one row per write of a row of a primitive table, appended in the same

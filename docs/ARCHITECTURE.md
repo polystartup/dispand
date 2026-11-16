@@ -1068,6 +1068,21 @@
   item's id and the event's values (`INTERACTION_PROMPT`), and each start of its session checks
   `startable` again with the Job's scope, failing the step otherwise. `dispand.events.recorded`
   counts events by kind and operation; `scheduler.fire` has kind `interaction`.
+  Jobs are a built-in primitive too (`engine/jobs-events.ts`): `createJob` and `finishRun`
+  append an `events` row in their transaction for each Job (`runs.source = "agent"`), its
+  `table_id` the built-in kind `job`, its row the Job, its operation `created`, `finished` (it
+  succeeded) or `failed` (it failed or was stopped), its `after` the Job's agent, trigger, cause's
+  kind and status, never its result, error or transcript, its actor the Job itself and its
+  `root_id` the Job's root. They are events, not Audit rows (the Job's life is audited already).
+  We decided any agent may have a `primitive` trigger on `job` with those operations (no
+  fields, no bundle: it reads ids and a status); its tools declare no table, and `lostScope`
+  takes nothing from such a Job. At dispatch a Job's own agent is `skipped-same-agent` (the
+  event's actor is the Job), and a fired Job is the next link of the Job's chain in its root, so
+  Jobs firing on Jobs reach that root's checkpoint like any other chain. The trigger node's
+  outputs are the event's own (`jobOutputs`: `operation`, `job_id`, `agent_id`, `agent`, the
+  agent's name at dispatch, `status`, and `table_id` `job`), told by `JOB_PROMPT`; reading the
+  Job's result stays `jobs_get`'s, under `configure`. `dispand.events.recorded` and
+  `scheduler.fire` have kind `job`.
   The `inbox` bundle's tools (`questions/inbox.ts`: `questions_list`, `questions_get`,
   `questions_answer`) are a Job's own, not procedures of the router (`INBOX_TOOLS`, run by
   `callPlatformTool` through their `run`): each call takes `jobScope`, then `reachable`, then

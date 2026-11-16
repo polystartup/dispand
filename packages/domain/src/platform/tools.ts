@@ -5,7 +5,7 @@ import type { Db } from "../db/client.ts";
 import { fields, rows, runs, triggers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
-import { INTERACTION } from "../triggers/model.ts";
+import { INTERACTION, JOB } from "../triggers/model.ts";
 import { ApplyInput, CREATES, ProposeInput, type ProposalName } from "./proposals.ts";
 import type { JobIdentity, PlatformApp, ToolResult } from "./call.ts";
 import { signalsWithin } from "../assistant/review.ts";
@@ -100,8 +100,8 @@ const none = async () => [];
 /** The table a primitive trigger's config watches, if it is one. */
 const watchedBy = (config: unknown): (string | null)[] => {
   const c = config as { kind?: unknown; tableId?: unknown } | undefined;
-  // Questions and Approvals (the built-in `interaction`) are no table: the agent's `inbox` decides.
-  if (c?.kind !== "primitive" || c.tableId === INTERACTION) return [];
+  // Questions and Approvals (the built-in `interaction`) and Jobs (`job`) are no table: the agent's `inbox`, or nothing, decides.
+  if (c?.kind !== "primitive" || c.tableId === INTERACTION || c.tableId === JOB) return [];
   return [typeof c.tableId === "string" ? c.tableId : null];
 };
 /** A trigger change's tables: what its new config watches, and what the trigger watched before. */

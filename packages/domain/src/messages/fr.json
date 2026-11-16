@@ -326,7 +326,7 @@
     "kindFixed": "Le type d’un déclencheur ne peut pas changer.",
     "invalid": {
       "operations": "Ces changements ne sont pas de ceux de ce que le déclencheur surveille.",
-      "noFields": "Une Question ou une Approbation n’a pas de champs.",
+      "noFields": "Une Question, une Approbation ou un Job n’a pas de champs.",
       "argumentsTooLarge": "Les arguments dépassent 16 Kio."
     }
   },

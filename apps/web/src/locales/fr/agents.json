@@ -164,5 +164,15 @@
     "takePlugin": "Prendre celle du plugin",
     "delegate": "Laisser {{assistant}} s’en occuper",
     "failed": "Impossible d’enregistrer votre choix."
+  },
+  "jobTrigger": {
+    "option": "Le Job d’un autre agent",
+    "operations": {
+      "created": "Un est créé",
+      "finished": "Un se termine",
+      "failed": "Un échoue ou est arrêté"
+    },
+    "summary": "Job d’un autre agent",
+    "summaryPaused": "Job d’un autre agent · En pause"
   }
 }

@@ -326,7 +326,7 @@
     "kindFixed": "A trigger's kind can't change.",
     "invalid": {
       "operations": "These changes aren't ones of what the trigger watches.",
-      "noFields": "A Question or an Approval has no fields.",
+      "noFields": "A Question, an Approval or a Job has no fields.",
       "argumentsTooLarge": "The arguments are larger than 16 KiB."
     }
   },

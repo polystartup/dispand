@@ -30,11 +30,11 @@ import { fillLastPoll, itemsOf, MAX_ITEM_BYTES, nextToken, noPolls, type PollCal
 import { pollProblemText } from "../tools/pollable.ts";
 import { signInOf } from "../tools/catalog.ts";
 import { agentScope, startable } from "../questions/inbox-scope.ts";
-import { canonicalJson, INTERACTION, type TriggerConfig } from "../triggers/model.ts";
+import { canonicalJson, INTERACTION, JOB, type TriggerConfig } from "../triggers/model.ts";
 import { latestFireBetween, nextFireAfter } from "../workflows/schedule.ts";
 import { EngineError, runIssues, type Engine } from "./engine.ts";
 import { newRoot, ROOT_STOPPED } from "./roots.ts";
-import { eventOutputs, pollOutputs } from "./job-def.ts";
+import { eventOutputs, jobOutputs, pollOutputs } from "./job-def.ts";
 
 /** How often the scheduler looks for due schedules. */
 export const SCHEDULER_TICK_MS = 15_000;
@@ -79,7 +79,7 @@ function pollRun(trigger: Pick<TriggerRow, "id" | "ownerId" | "agentId">, config
 type Fired = { runId: string | null; result: "started" | "already" | "skipped-overlap" | "refused" | EventFireStatus };
 
 /** One fire in its own span, counted by kind and result, with how late it was claimed. */
-function fired(kind: "workflow" | "trigger" | "event" | "interaction" | "poll", at: Date, now: Date, work: () => Promise<Fired>): Promise<string | null> {
+function fired(kind: "workflow" | "trigger" | "event" | "interaction" | "job" | "poll", at: Date, now: Date, work: () => Promise<Fired>): Promise<string | null> {
   return traces.startActiveSpan("scheduler.fire", { attributes: { "dispand.fire.kind": kind, "dispand.fire.scheduled_for": at.toISOString() } }, async (span) => {
     let result = "failed";
     try {
@@ -128,6 +128,13 @@ type PollConfig = Extract<TriggerConfig, { kind: "poll" }>;
 type Claimed = { pollId: string; trigger: TriggerRow & { config: PollConfig }; tool: typeof tools.$inferSelect; at: Date; lastPoll: string; startedAt: Date; token: string | null };
 /** One page of a poll recorded: what it found, and where the walk is. */
 type Page = { status: Exclude<PollStatus, "calling">; found: number; fresh: number; runIds: string[]; token: string | null };
+
+/** An agent's name now, for a Job event's outputs; empty when it is gone. */
+async function agentNameOf(tx: Tx, agentId: unknown): Promise<string> {
+  if (typeof agentId !== "string") return "";
+  const [agent] = await tx.select({ name: agents.name }).from(agents).where(eq(agents.id, agentId));
+  return agent?.name ?? "";
+}
 
 /** Whether a primitive trigger watches this event: its table, its operation and, for an update, one of its fields. */
 function watches(trigger: TriggerRow, event: EventRow): boolean {
@@ -679,7 +686,7 @@ export class Scheduler {
   /** One event's fire for one trigger, in its own span and savepoint; a failure leaves it deferred, for the next tick. */
   private async tryFire(tx: Tx, triggerId: string, event: EventRow, fireId: string, now: Date, root: { id: string; state: string }): Promise<string | null> {
     try {
-      return await fired(event.tableId === INTERACTION ? "interaction" : "event", event.createdAt, now, () => tx.transaction((sp) => this.fireEvent(sp, triggerId, event, fireId, now, root)));
+      return await fired(event.tableId === INTERACTION ? "interaction" : event.tableId === JOB ? "job" : "event", event.createdAt, now, () => tx.transaction((sp) => this.fireEvent(sp, triggerId, event, fireId, now, root)));
     } catch (err) {
       logError("scheduler.fireEvent failed", err);
       return null;
@@ -719,7 +726,8 @@ export class Scheduler {
       // Only an item the agent may read now (and, once asked, still open) starts its Job: any other is never revealed to it, even as an id.
       const scope = await agentScope(tx, trigger.ownerId, trigger.agentId);
       if (!scope || !(await startable(tx, scope, event.rowId, event.operation))) return record("out-of-scope", { message: "The agent may not read this Question" });
-    } else {
+    } else if (event.tableId !== JOB) {
+      // Another Job's event (`job`, written by that Job) holds ids and a status only: any agent may be started by it.
       const [agent] = await tx.select({ bundles: agents.bundles, dataTables: agents.dataTables }).from(agents).where(eq(agents.id, trigger.agentId));
       if (!agent?.bundles.includes("data") || (agent.dataTables !== "all" && !agent.dataTables.includes(event.tableId))) {
         return record("out-of-scope", { message: "The agent may no longer read this table" });
@@ -737,6 +745,7 @@ export class Scheduler {
           depth: (parent.cause?.depth ?? 0) + 1,
         }
       : { kind: "event", eventId: event.id, depth: 0 };
+    const outputs = event.tableId === JOB ? jobOutputs(event, await agentNameOf(tx, event.after.agentId)) : eventOutputs(event);
     try {
       const runId = await tx.transaction((sp) =>
         this.engine.createJob(sp, {
@@ -744,7 +753,7 @@ export class Scheduler {
           agentId: trigger.agentId,
           triggerId: trigger.id,
           cause,
-          firing: { type: "event", eventId: event.id, outputs: eventOutputs(event) },
+          firing: { type: "event", eventId: event.id, outputs },
           rootId: root.id,
         }),
       );

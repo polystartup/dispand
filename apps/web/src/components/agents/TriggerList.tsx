@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
+import type { TFunction } from "i18next";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { type api, orpc } from "../../lib/api.ts";
 import { Empty, List } from "../settings/parts.tsx";
@@ -12,9 +14,10 @@ export type Trigger = Awaited<ReturnType<typeof api.triggers.list>>[number];
 const fireText = { started: "started", "skipped-overlap": "skipped, a Job was still going", refused: "refused" } as const;
 
 /** What a trigger does, in a line: how it starts and, for a schedule, when it next fires. */
-function summary(t: Trigger): string {
+function summary(t: Trigger, tr: TFunction<"agents">): string {
   if (t.config.kind === "manual") return t.config.placement === "chat" ? "Chat" : "Button";
   if (t.config.kind === "primitive") {
+    if (t.config.tableId === "job") return tr(t.enabled ? "jobTrigger.summary" : "jobTrigger.summaryPaused");
     const what = t.config.tableId === "interaction" ? "Question or Approval" : "Table change";
     return t.enabled ? what : `${what} · Paused`;
   }
@@ -25,6 +28,7 @@ function summary(t: Trigger): string {
 
 /** The agent's triggers: what makes it work. Each opens its sheet; a manual one can go on Home. */
 export function TriggerList({ agentId }: { agentId: string }) {
+  const { t: tr } = useTranslation("agents");
   const queryClient = useQueryClient();
   const triggers = useQuery(orpc.triggers.list.queryOptions({ input: { agentId } }));
   const home = useQuery(orpc.pages.home.queryOptions());
@@ -57,7 +61,7 @@ export function TriggerList({ agentId }: { agentId: string }) {
                 <li key={t.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-4">
                   <button type="button" onClick={() => setOpen(t)} className="min-w-0 flex-1 text-left">
                     <span className="block truncate text-[15px] font-medium">{t.name}</span>
-                    <span className="block text-[13px] text-muted">{summary(t)}</span>
+                    <span className="block text-[13px] text-muted">{summary(t, tr)}</span>
                     {last && (
                       <span className={`block text-[13px] ${last.status === "refused" ? "text-danger" : "text-faint"}`}>
                         Last: {at(last.scheduledFor, t.config.kind === "schedule" ? t.config.timezone : "UTC")}, {fireText[last.status]}

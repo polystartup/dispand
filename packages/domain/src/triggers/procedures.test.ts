@@ -168,7 +168,7 @@ test("a trigger config's refinements answer with their own keyed message, not th
   const refuse = (config: unknown) => call(router.triggers.create, { agentId: agent.id, name: "T", instructions: "Do it.", config } as never, { context });
   const primitive = { kind: "primitive", tableId: "interaction", operations: ["updated"] };
   await expect(refuse(primitive)).rejects.toMatchObject({ message: "These changes aren't ones of what the trigger watches.", data: { key: "triggers.invalid.operations" } });
-  await expect(refuse({ ...primitive, operations: ["answered"], fields: ["f"] })).rejects.toMatchObject({ message: "A Question or an Approval has no fields.", data: { key: "triggers.invalid.noFields" } });
+  await expect(refuse({ ...primitive, operations: ["answered"], fields: ["f"] })).rejects.toMatchObject({ message: "A Question, an Approval or a Job has no fields.", data: { key: "triggers.invalid.noFields" } });
   const poll = { kind: "poll", toolId: "t", action: "a", idPath: "id", arguments: { big: "x".repeat(17 * 1024) } };
   await expect(refuse(poll)).rejects.toMatchObject({ message: "The arguments are larger than 16 KiB.", data: { key: "triggers.invalid.argumentsTooLarge" } });
 });
