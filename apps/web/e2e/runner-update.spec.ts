@@ -1,6 +1,9 @@
 import { expect, test } from "@playwright/test";
+import { existsSync } from "node:fs";
 
 test("an incompatible runner can update from Settings using its separate authenticated channel", async ({ page, request }) => {
+  // The server offers an update only when it knows this build's runner (`pnpm run build` writes it, as CI does first).
+  expect(existsSync(new URL("../public/runner/build.json", import.meta.url)), "The runner isn't built: run `pnpm run build` before the end-to-end tests.").toBe(true);
   await page.goto("/");
   await page.waitForLoadState("networkidle");
   if (page.url().endsWith("/setup")) {
