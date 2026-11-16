@@ -63,8 +63,8 @@ const owner = base.use(authed);
 const traces = tracer("plugins");
 const counts = meter("plugins");
 
-/** An install, update or uninstall in a span and a counter: its action, the plugin's id (none at an install) and how it ended; never a name or a value. */
-function acted<T>(action: "install" | "update" | "uninstall", pluginId: string | undefined, fn: () => Promise<T>): Promise<T> {
+/** An install, update, uninstall or table change applied in a span and a counter: its action, the plugin's id (none at an install) and how it ended; never a name or a value. */
+function acted<T>(action: "install" | "update" | "uninstall" | "applyTableChange", pluginId: string | undefined, fn: () => Promise<T>): Promise<T> {
   return traces.startActiveSpan(`plugins.${action}`, { attributes: { "dispand.plugin.action": action, ...(pluginId ? { "dispand.plugin.id": pluginId } : {}) } }, async (span) => {
     let result = "done";
     try {
@@ -912,43 +912,60 @@ async function leavingOf(db: Db | Tx, ownerId: string, row: PluginRow, contents:
 }
 
 /** `values`: for each change that takes values away, a digest of that field's values in every row now, which the screen's token covers. */
-type TablePlan = { tableId: string; name: string; changes: TableChange[]; kept: PrimitiveDefinition; next: PrimitiveDefinition; fields: ActualTable["fields"]; values: Record<string, string> };
+type TablePlan = { tableId: string; name: string; changes: TableChange[]; kept: PrimitiveDefinition; next: PrimitiveDefinition; fields: (ActualTable["fields"][number] & { referencesTableId: string | null })[]; values: Record<string, string> };
 
 /**
  * For each of the plugin's tables the new version still defines: what differs between the
  * definition it was last merged with and the new one (`tableChanges`), with the table as it is
- * now. Only tables with a difference are listed.
+ * now. Each is planned, so the update keeps the new definition of every one; the screen lists
+ * only those with a difference.
  */
 async function tablePlans(db: Db | Tx, ownerId: string, row: PluginRow, contents: PluginContents, leaving: Set<string>): Promise<TablePlan[]> {
-  const rowsOf = await db.select().from(tablesTable).where(and(eq(tablesTable.pluginId, row.id), eq(tablesTable.ownerId, ownerId)));
-  const local = await db.select({ name: tablesTable.name }).from(tablesTable).where(and(eq(tablesTable.ownerId, ownerId), sql`${tablesTable.pluginId} is null`));
+  const { rowsOf, tableExists } = await tablesOf(db, ownerId, row);
   const lower = (s: string | null) => (s ?? "").toLowerCase();
-  const tableExists = (name: string) => rowsOf.some((t) => lower(t.pluginComponent) === lower(name)) || local.some((t) => lower(t.name) === lower(name));
   const plans: TablePlan[] = [];
   for (const t of rowsOf) {
     const next = contents.definitions.primitives.find((d) => lower(d.name) === lower(t.pluginComponent));
     if (!t.definition || !next || leaving.has(`table:${t.id}`)) continue;
-    const fields = (await db.select().from(fieldsTable).where(eq(fieldsTable.tableId, t.id)).orderBy(asc(fieldsTable.position))).map((f) => ({ id: f.id, name: f.name, type: f.type, choices: f.choices, pluginField: f.pluginField, referencesTableId: f.referencesTableId }));
-    const parentField = fields.find((f) => f.id === t.parentFieldId)?.name ?? null;
-    const [counted] = await db.select({ n: sql<number>`count(*)::int` }).from(rowsTable).where(eq(rowsTable.tableId, t.id));
-    const changes = tableChanges(t.definition, next, { primitive: t.primitive, parentField, parentRequired: t.parentRequired, fields }, counted?.n ?? 0, tableExists);
-    // A field a workflow's data step names: removing it, or changing its type, stops that workflow, said beside the change.
-    for (const c of changes.filter((c) => (c.kind === "remove" || c.kind === "retype") && c.field)) {
-      const field = fields.find((f) => lower(f.pluginField) === lower(c.field!));
-      const stops = field ? await workflowsUsingField(db, ownerId, t.id, field.id) : [];
-      if (stops.length) c.stops = stops;
-    }
-    // What a change that takes values away would take, as it is now: a value written after the screen was read changes the token, and the update is shown again.
-    const losing = changes.filter((c) => c.loses !== undefined && c.field);
-    const rows = losing.length ? await db.select({ id: rowsTable.id, values: rowsTable.values }).from(rowsTable).where(eq(rowsTable.tableId, t.id)).orderBy(asc(rowsTable.id)) : [];
-    const values: Record<string, string> = {};
-    for (const c of losing) {
-      const field = fields.find((f) => lower(f.pluginField) === lower(c.field!));
-      if (field) values[c.key] = createHash("sha256").update(canonical(rows.map((r) => [r.id, r.values[field.id] ?? null]))).digest("hex");
-    }
-    if (changes.length) plans.push({ tableId: t.id, name: t.name, changes, kept: t.definition, next, fields, values });
+    plans.push(await tablePlan(db, ownerId, t, () => t.definition!, next, tableExists));
   }
   return plans;
+}
+
+/** The plugin's tables, and whether a definition's table name finds one (the plugin's, or one of the owner's own). */
+async function tablesOf(db: Db | Tx, ownerId: string, row: PluginRow) {
+  const rowsOf = await db.select().from(tablesTable).where(and(eq(tablesTable.pluginId, row.id), eq(tablesTable.ownerId, ownerId)));
+  const local = await db.select({ id: tablesTable.id, name: tablesTable.name }).from(tablesTable).where(and(eq(tablesTable.ownerId, ownerId), sql`${tablesTable.pluginId} is null`));
+  const lower = (s: string | null) => (s ?? "").toLowerCase();
+  const tableExists = (name: string) => rowsOf.some((t) => lower(t.pluginComponent) === lower(name)) || local.some((t) => lower(t.name) === lower(name));
+  /** A table's name as a definition says it: the plugin's component name, else its own. */
+  const nameOf = (id: string) => rowsOf.find((t) => t.id === id)?.pluginComponent ?? local.find((t) => t.id === id)?.name ?? null;
+  return { rowsOf, tableExists, nameOf };
+}
+
+/** One table's changes from `kept` (given the table's fields as they are now) to `next`, with what each would stop or take away. */
+async function tablePlan(db: Db | Tx, ownerId: string, t: typeof tablesTable.$inferSelect, keptOf: (fields: TablePlan["fields"], parentField: string | null) => PrimitiveDefinition, next: PrimitiveDefinition, tableExists: (name: string) => boolean): Promise<TablePlan> {
+  const lower = (s: string | null) => (s ?? "").toLowerCase();
+  const fields = (await db.select().from(fieldsTable).where(eq(fieldsTable.tableId, t.id)).orderBy(asc(fieldsTable.position))).map((f) => ({ id: f.id, name: f.name, type: f.type, choices: f.choices, pluginField: f.pluginField, referencesTableId: f.referencesTableId }));
+  const parentField = fields.find((f) => f.id === t.parentFieldId)?.name ?? null;
+  const kept = keptOf(fields, parentField);
+  const [counted] = await db.select({ n: sql<number>`count(*)::int` }).from(rowsTable).where(eq(rowsTable.tableId, t.id));
+  const changes = tableChanges(kept, next, { primitive: t.primitive, parentField, parentRequired: t.parentRequired, fields }, counted?.n ?? 0, tableExists);
+  // A field a workflow's data step names: removing it, or changing its type, stops that workflow, said beside the change.
+  for (const c of changes.filter((c) => (c.kind === "remove" || c.kind === "retype") && c.field)) {
+    const field = fields.find((f) => lower(f.pluginField) === lower(c.field!));
+    const stops = field ? await workflowsUsingField(db, ownerId, t.id, field.id) : [];
+    if (stops.length) c.stops = stops;
+  }
+  // What a change that takes values away would take, as it is now: a value written after the screen was read changes the token, and the update is shown again.
+  const losing = changes.filter((c) => c.loses !== undefined && c.field);
+  const rows = losing.length ? await db.select({ id: rowsTable.id, values: rowsTable.values }).from(rowsTable).where(eq(rowsTable.tableId, t.id)).orderBy(asc(rowsTable.id)) : [];
+  const values: Record<string, string> = {};
+  for (const c of losing) {
+    const field = fields.find((f) => lower(f.pluginField) === lower(c.field!));
+    if (field) values[c.key] = createHash("sha256").update(canonical(rows.map((r) => [r.id, r.values[field.id] ?? null]))).digest("hex");
+  }
+  return { tableId: t.id, name: t.name, changes, kept, next, fields, values };
 }
 
 /** What an update to the plugin's current commit would do, for the owner to see: `reviewed` binds the update to it. */
@@ -977,7 +994,7 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
   const after = afterOf(elements);
   const removals = leaving.size ? await inUse(context.db, context.ownerId, row.id, leaving, after) : [];
   const tables = await tablePlans(context.db, context.ownerId, row, read.contents, leaving);
-  const shownTables = tables.map(({ tableId, name, changes }) => ({ tableId, name, changes }));
+  const shownTables = tables.filter((t) => t.changes.length).map(({ tableId, name, changes }) => ({ tableId, name, changes }));
   // The screen cuts a long file: the token also covers every skill file in full, those the update writes and those an agent gains.
   const fullFiles = [skill?.files ?? [], ...reached].map((files) => files.map((f) => [f.path, createHash("sha256").update(f.content).digest("hex")]));
   const reviewed = createHash("sha256").update(canonical({ sha: read.sha, conflicts, changes, additions, removals, tables: shownTables, fullFiles, tableValues: tables.map((t) => t.values) })).digest("hex");
@@ -994,10 +1011,11 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
  */
 /**
  * Applies the changes of a plugin's table its owner ticked, each through the field or table
- * operation a person would use, then keeps the new definition as the one the table was merged
- * with, but for what waits for a table that isn't there yet: offered again by the next update.
+ * operation a person would use, and gives the definition an update keeps as the one the table
+ * was merged with: the new one, but for what waits for a table that isn't there yet or failed,
+ * offered again by the next update.
  */
-async function applyTable(context: InitialContext & { ownerId: string }, row: PluginRow, plan: TablePlan, ticked: string[], failed: { name: string; reason: Text }[]) {
+async function applyTable(context: InitialContext & { ownerId: string }, row: PluginRow, plan: TablePlan, ticked: string[], failed: { name: string; reason: Text }[]): Promise<PrimitiveDefinition> {
   const lower = (s: string | null) => (s ?? "").toLowerCase();
   // The keys of the changes that failed: their part of the definition stays as it was, so the next update offers them again.
   const refused = new Set<string>();
@@ -1070,14 +1088,67 @@ async function applyTable(context: InitialContext & { ownerId: string }, row: Pl
     const was = keptField(c.field ?? "");
     if (was) fieldsAfter.push(was);
   }
-  const definition: PrimitiveDefinition = {
+  return {
     ...plan.next,
     fields: again.some((c) => c.kind === "move") ? [...plan.kept.fields.flatMap((k) => fieldsAfter.filter((a) => lower(a.name) === lower(k.name))), ...fieldsAfter.filter((a) => !keptField(a.name))] : fieldsAfter,
     ...(again.some((c) => c.kind === "primitive") ? { primitive: plan.kept.primitive } : {}),
     ...(again.some((c) => c.kind === "parent") ? { parent: plan.kept.parent } : {}),
   };
-  await context.db.update(tablesTable).set({ definition }).where(eq(tablesTable.id, plan.tableId));
 }
+
+/**
+ * What each of the plugin's tables lacks of the definition it keeps: a change its owner declined
+ * in an update, or undid since, from the table as it is now to that definition. Each change has
+ * a token over the table now, the plugin's installed version, that definition and the change.
+ */
+async function tableDifferences(db: Db | Tx, ownerId: string, row: PluginRow) {
+  const { rowsOf, tableExists, nameOf } = await tablesOf(db, ownerId, row);
+  const lower = (s: string) => s.toLowerCase();
+  const out: { plan: TablePlan; reviewed: Record<string, string> }[] = [];
+  for (const t of rowsOf) {
+    const stored = t.definition;
+    if (!stored) continue;
+    // The table as a definition would say it: the plugin's fields as they are now, under the plugin's names.
+    const keptOf = (fields: TablePlan["fields"], parentField: string | null): PrimitiveDefinition => ({
+      name: stored.name,
+      primitive: t.primitive,
+      fields: fields.flatMap((f) => {
+        if (f.pluginField === null) return [];
+        const target = f.referencesTableId ? nameOf(f.referencesTableId) : null;
+        const said = stored.fields.find((d) => lower(d.name) === lower(f.pluginField!))?.references;
+        return [{ name: f.pluginField, type: f.type, choices: f.choices, ...(target ? { references: said && lower(said) === lower(target) ? said : target } : {}) } as PrimitiveDefinition["fields"][number]];
+      }),
+      ...(parentField ? { parent: { field: fields.find((f) => f.name === parentField)?.pluginField ?? parentField, required: t.parentRequired } } : {}),
+    });
+    const plan = await tablePlan(db, ownerId, t, keptOf, stored, tableExists);
+    const table = { name: t.name, primitive: t.primitive, parentFieldId: t.parentFieldId, parentRequired: t.parentRequired, fields: plan.fields };
+    const reviewed = Object.fromEntries(plan.changes.map((c) => [c.key, createHash("sha256").update(canonical({ sha: row.sha, definition: stored, table, change: c, values: plan.values[c.key] ?? null })).digest("hex")]));
+    if (plan.changes.length) out.push({ plan, reviewed });
+  }
+  return out;
+}
+
+/** The changes of each of the plugin's tables not applied to it, each with its token: shown on the plugin's row with "Apply". */
+const tableChangesOf = owner.input(Id).handler(async ({ input, context }) => {
+  const row = await findPlugin(context.db, context.ownerId, input.id);
+  return (await tableDifferences(context.db, context.ownerId, row)).map(({ plan, reviewed }) => ({ tableId: plan.tableId, name: plan.name, changes: plan.changes.map((c) => ({ ...c, reviewed: reviewed[c.key]! })) }));
+});
+
+/**
+ * Applies one change `tableChanges` showed, as the update applies a ticked one. Refused when
+ * the table, the plugin's version or its definition of the table changed since it was shown.
+ */
+const applyTableChange = owner.input(Id.extend({ tableId: z.string().max(64), key: z.string().max(200), reviewed: z.string().length(64) })).handler(({ input, context }) => acted("applyTableChange", input.id, async () => {
+  const row = await findPlugin(context.db, context.ownerId, input.id);
+  const found = (await tableDifferences(context.db, context.ownerId, row)).find((d) => d.plan.tableId === input.tableId);
+  const change = found?.plan.changes.find((c) => c.key === input.key);
+  if (!found || !change || found.reviewed[change.key] !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.table.changedSince", { plugin: row.name }));
+  if (change.stale || change.waiting) throw new ORPCError("BAD_REQUEST", message("plugins.update.notApplicable"));
+  const failed: { name: string; reason: Text }[] = [];
+  // The definition kept stays: a change refused here is still a difference, shown again.
+  await applyTable(context, row, found.plan, [change.key], failed);
+  return failed.length ? { failed } : {};
+}));
 
 const tableOf = (kind: UpdatableKind) => (kind === "agent" ? agentsTable : kind === "tool" ? toolsTable : triggersTable);
 
@@ -1119,7 +1190,7 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
   const row = await findPlugin(context.db, context.ownerId, input.id);
   const shown = await updatePlan(context, row);
   const { contents, url, sha, nativeRoot } = shown;
-  if ((input.native.length || shown.conflicts.length || shown.additions.length || shown.removals.length || shown.tables.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
+  if ((input.native.length || shown.conflicts.length || shown.additions.length || shown.removals.length || shown.shownTables.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
     throw new ORPCError("CONFLICT", message("plugins.update.review", { plugin: row.name }));
   }
   for (const [tableId, keys] of Object.entries(input.tables)) {
@@ -1186,7 +1257,10 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
       }
     }
   }
-  for (const plan of shown.tables) await applyTable(context, row, plan, input.tables[plan.tableId] ?? [], failed);
+  for (const plan of shown.tables) {
+    const definition = await applyTable(context, row, plan, input.tables[plan.tableId] ?? [], failed);
+    await context.db.update(tablesTable).set({ definition }).where(eq(tablesTable.id, plan.tableId));
+  }
   await context.engine.narrowOwnerSessions(context.ownerId, context.db);
   // The native installs shown follow, at the commit the screen's token covers: what can't (or a Job, which may not touch them) is left behind, the update stays.
   const leftBehind = await moveNative(context, row.id, input.native);
@@ -1317,4 +1391,4 @@ const resolveConflict = owner.input(z.object({ id: z.string().max(64), choice: z
   return { ok: true };
 });
 
-export const plugins = { discover, preview, install, list, uninstallPreview, uninstall, update, setupPreview, setUp, resetOverride, addServer, updatePreview, conflicts, resolveConflict };
+export const plugins = { discover, preview, install, list, uninstallPreview, uninstall, update, setupPreview, setUp, resetOverride, addServer, updatePreview, conflicts, resolveConflict, tableChanges: tableChangesOf, applyTableChange };

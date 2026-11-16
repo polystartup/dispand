@@ -166,7 +166,20 @@
     "isSetUp": "{{name}} (set up)",
     "available": "Available, not imported: ",
     "neverImported_one": "Never imported: {{count}} item ({{components}})",
-    "neverImported_other": "Never imported: {{count}} items ({{components}})"
+    "neverImported_other": "Never imported: {{count}} items ({{components}})",
+    "notApplied": "Not applied to {{table}} from the plugin",
+    "apply": "Apply",
+    "applyLabel": "Apply to {{table}}: {{change}}",
+    "applying": "Applying…",
+    "applyLoses_one": "Applied, it removes the values of {{count}} row.",
+    "applyLoses_other": "Applied, it removes the values of {{count}} rows.",
+    "applyStops_one": "Applied, it stops the workflow {{workflows}}: its data step names this field.",
+    "applyStops_other": "Applied, it stops the workflows {{workflows}}: their data steps name this field.",
+    "applyMayStop_one": "Applied, it may stop the workflow {{workflows}}: its data step names this field.",
+    "applyMayStop_other": "Applied, it may stop the workflows {{workflows}}: their data steps name this field.",
+    "applied": "Applied to {{table}}.",
+    "appliedExcept": "Not applied: {{failed}}.",
+    "applyFailed": "Could not apply the change. It may have changed since: look at it again."
   },
   "removal": {
     "kind": {

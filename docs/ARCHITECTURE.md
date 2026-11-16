@@ -1515,8 +1515,14 @@
   whose values it takes away; one the owner already changed is `stale`, and one naming a table
   that isn't there yet `waiting`. `plugins.update` takes the ticked keys per table (`tables`),
   part of the `reviewed` token, applies each through the field or table operation a person uses
-  (`applyTable`), then keeps the new definition, but for what waits, which the next update offers
-  again. A declined change isn't offered again. Set up also offers the plugin's HTTP servers
+  (`applyTable`), then keeps the new definition of every table the version still defines, but
+  for what waits, which the next update offers again. A declined change isn't offered again by
+  an update: it shows on the plugin's row (`plugins.tableChanges`, the same `tablePlan` from the
+  table as it is now to the definition kept), each with "Apply" (`plugins.applyTableChange`,
+  through `applyTable`, leaving the definition kept as it is). We decided its token covers the
+  table now (its fields, flags and, for a change that takes values away, those values), the
+  plugin's installed commit, the definition kept and the change: one read before a table edit,
+  or before an update that changes that table's definition, is refused. Set up also offers the plugin's HTTP servers
   that aren't tools yet and need no setting, unticked (`pick.servers`). A tool an update gives
   an existing agent is attached with every action on Ask (`toolPermissions` with nothing
   unasked): the update's screen shows the tool gained, not which actions would run unasked.

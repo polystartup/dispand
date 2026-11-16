@@ -166,7 +166,20 @@
     "isSetUp": "{{name}} (mis en place)",
     "available": "Disponibles, non importés : ",
     "neverImported_one": "Jamais importé : {{count}} élément ({{components}})",
-    "neverImported_other": "Jamais importés : {{count}} éléments ({{components}})"
+    "neverImported_other": "Jamais importés : {{count}} éléments ({{components}})",
+    "notApplied": "Non appliqué à {{table}} depuis le plugin",
+    "apply": "Appliquer",
+    "applyLabel": "Appliquer à {{table}} : {{change}}",
+    "applying": "Application…",
+    "applyLoses_one": "Appliqué, il retire les valeurs de {{count}} ligne.",
+    "applyLoses_other": "Appliqué, il retire les valeurs de {{count}} lignes.",
+    "applyStops_one": "Appliqué, il arrête le workflow {{workflows}} : son étape de données nomme ce champ.",
+    "applyStops_other": "Appliqué, il arrête les workflows {{workflows}} : leurs étapes de données nomment ce champ.",
+    "applyMayStop_one": "Appliqué, il peut arrêter le workflow {{workflows}} : son étape de données nomme ce champ.",
+    "applyMayStop_other": "Appliqué, il peut arrêter les workflows {{workflows}} : leurs étapes de données nomment ce champ.",
+    "applied": "Appliqué à {{table}}.",
+    "appliedExcept": "Non appliqué : {{failed}}.",
+    "applyFailed": "Impossible d’appliquer le changement. Il a peut-être changé depuis : regardez-le à nouveau."
   },
   "removal": {
     "kind": {

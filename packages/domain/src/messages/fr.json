@@ -143,7 +143,8 @@
       "ownerField": "Vous avez modifié ce champ.",
       "unsupported": "Cela ne peut pas être appliqué ici : modifiez le champ à la main.",
       "order": "Vous avez changé l’ordre.",
-      "changed": "Vous l’avez modifié."
+      "changed": "Vous l’avez modifié.",
+      "changedSince": "{{plugin}} ou sa table a changé depuis votre dernière consultation : regardez à nouveau le changement."
     },
     "override": {
       "forbidden": "Il appartient à {{plugin}} : désinstallez le plugin pour le retirer.",

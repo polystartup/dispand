@@ -223,7 +223,7 @@ export type UpdateTableChange = { key: string; kind: "add" | "remove" | "retype"
 export type UpdateTable = { tableId: string; name: string; changes: UpdateTableChange[] };
 
 /** What a table change does, in words. */
-const says = (t: T, c: UpdateTableChange) => t(`update.says.${c.kind}`, { field: c.field ?? "" });
+export const says = (t: T, c: UpdateTableChange) => t(`update.says.${c.kind}`, { field: c.field ?? "" });
 
 /** The keys ticked to start with, for each table. */
 export const startingTicks = (tables: UpdateTable[]) => Object.fromEntries(tables.map((table) => [table.tableId, table.changes.filter((c) => c.ticked && !c.stale && !c.waiting).map((c) => c.key)]));

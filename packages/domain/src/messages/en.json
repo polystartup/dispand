@@ -143,7 +143,8 @@
       "ownerField": "You changed this field.",
       "unsupported": "It can't be applied here: change the field by hand.",
       "order": "You changed the order.",
-      "changed": "You changed it."
+      "changed": "You changed it.",
+      "changedSince": "{{plugin}} or its table changed since you looked: look at the change again."
     },
     "override": {
       "forbidden": "It is {{plugin}}'s: uninstall the plugin to remove it.",
