@@ -35,6 +35,7 @@ import { Route as McpJobFilesRouteImport } from './routes/mcp/job_.files'
 import { Route as McpJobToolsRouteImport } from './routes/mcp/job_.tools'
 import { Route as RunnerAttachmentsIdRouteImport } from './routes/runner/attachments.$id'
 import { Route as RunnerPackagesIdRouteImport } from './routes/runner/packages.$id'
+import { Route as RunnerPluginsToolIdRouteImport } from './routes/runner/plugins.$toolId'
 import { Route as AppSettingsAgentsIndexRouteImport } from './routes/_app.settings.agents.index'
 import { Route as AppSettingsAgentsIdRouteImport } from './routes/_app.settings.agents.$id'
 import { Route as AppSettingsAgentsNewRouteImport } from './routes/_app.settings.agents.new'
@@ -179,6 +180,11 @@ const RunnerPackagesIdRoute = RunnerPackagesIdRouteImport.update({
   path: '/runner/packages/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RunnerPluginsToolIdRoute = RunnerPluginsToolIdRouteImport.update({
+  id: '/runner/plugins/$toolId',
+  path: '/runner/plugins/$toolId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppSettingsAgentsIndexRoute = AppSettingsAgentsIndexRouteImport.update({
   id: '/settings/agents/',
   path: '/settings/agents/',
@@ -283,6 +289,7 @@ export interface FileRoutesByFullPath {
   '/mcp/job/tools': typeof McpJobToolsRoute
   '/runner/attachments/$id': typeof RunnerAttachmentsIdRoute
   '/runner/packages/$id': typeof RunnerPackagesIdRoute
+  '/runner/plugins/$toolId': typeof RunnerPluginsToolIdRoute
   '/settings/agents/$id': typeof AppSettingsAgentsIdRoute
   '/settings/agents/new': typeof AppSettingsAgentsNewRoute
   '/settings/data/$tableId': typeof AppSettingsDataTableIdRoute
@@ -324,6 +331,7 @@ export interface FileRoutesByTo {
   '/mcp/job/tools': typeof McpJobToolsRoute
   '/runner/attachments/$id': typeof RunnerAttachmentsIdRoute
   '/runner/packages/$id': typeof RunnerPackagesIdRoute
+  '/runner/plugins/$toolId': typeof RunnerPluginsToolIdRoute
   '/settings/agents/$id': typeof AppSettingsAgentsIdRoute
   '/settings/agents/new': typeof AppSettingsAgentsNewRoute
   '/settings/data/$tableId': typeof AppSettingsDataTableIdRoute
@@ -367,6 +375,7 @@ export interface FileRoutesById {
   '/mcp/job_/tools': typeof McpJobToolsRoute
   '/runner/attachments/$id': typeof RunnerAttachmentsIdRoute
   '/runner/packages/$id': typeof RunnerPackagesIdRoute
+  '/runner/plugins/$toolId': typeof RunnerPluginsToolIdRoute
   '/_app/settings/agents/$id': typeof AppSettingsAgentsIdRoute
   '/_app/settings/agents/new': typeof AppSettingsAgentsNewRoute
   '/_app/settings/data/$tableId': typeof AppSettingsDataTableIdRoute
@@ -410,6 +419,7 @@ export interface FileRouteTypes {
     | '/mcp/job/tools'
     | '/runner/attachments/$id'
     | '/runner/packages/$id'
+    | '/runner/plugins/$toolId'
     | '/settings/agents/$id'
     | '/settings/agents/new'
     | '/settings/data/$tableId'
@@ -451,6 +461,7 @@ export interface FileRouteTypes {
     | '/mcp/job/tools'
     | '/runner/attachments/$id'
     | '/runner/packages/$id'
+    | '/runner/plugins/$toolId'
     | '/settings/agents/$id'
     | '/settings/agents/new'
     | '/settings/data/$tableId'
@@ -493,6 +504,7 @@ export interface FileRouteTypes {
     | '/mcp/job_/tools'
     | '/runner/attachments/$id'
     | '/runner/packages/$id'
+    | '/runner/plugins/$toolId'
     | '/_app/settings/agents/$id'
     | '/_app/settings/agents/new'
     | '/_app/settings/data/$tableId'
@@ -526,6 +538,7 @@ export interface RootRouteChildren {
   McpJobToolsRoute: typeof McpJobToolsRoute
   RunnerAttachmentsIdRoute: typeof RunnerAttachmentsIdRoute
   RunnerPackagesIdRoute: typeof RunnerPackagesIdRoute
+  RunnerPluginsToolIdRoute: typeof RunnerPluginsToolIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -712,6 +725,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RunnerPackagesIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/runner/plugins/$toolId': {
+      id: '/runner/plugins/$toolId'
+      path: '/runner/plugins/$toolId'
+      fullPath: '/runner/plugins/$toolId'
+      preLoaderRoute: typeof RunnerPluginsToolIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/settings/agents/': {
       id: '/_app/settings/agents/'
       path: '/settings/agents'
@@ -886,6 +906,7 @@ const rootRouteChildren: RootRouteChildren = {
   McpJobToolsRoute: McpJobToolsRoute,
   RunnerAttachmentsIdRoute: RunnerAttachmentsIdRoute,
   RunnerPackagesIdRoute: RunnerPackagesIdRoute,
+  RunnerPluginsToolIdRoute: RunnerPluginsToolIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

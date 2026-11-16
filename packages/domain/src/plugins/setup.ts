@@ -78,7 +78,7 @@ type Ref = string | { $item: number };
  */
 export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string, pick: SetupPick, fromInstall = false): Promise<{ items: ProposalItem[]; waiting: Waiting[] }> {
   const [plugin] = await db
-    .select({ definitions: plugins.definitions, created: plugins.created, components: plugins.components })
+    .select({ definitions: plugins.definitions, created: plugins.created, components: plugins.components, digest: plugins.digest })
     .from(plugins)
     .where(and(eq(plugins.id, pluginId), eq(plugins.ownerId, ownerId)));
   if (!plugin) throw new ORPCError("NOT_FOUND", message("plugins.notFound"));
@@ -174,7 +174,7 @@ export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string,
     items.push({ tool: "tables_set_primitive", input: { id: tableOf.get(p.name.toLowerCase())!, primitive: p.primitive, ...(parent ? { parent } : {}) } });
   }
 
-  const agentItems = await agentSetup(db, ownerId, pluginId, plugin.definitions, plugin.components.mcpServers, from, pick, tableOf, items, fromInstall);
+  const agentItems = await agentSetup(db, ownerId, pluginId, plugin.definitions, plugin.components.mcpServers, plugin.digest, from, pick, tableOf, items, fromInstall);
   items.push(...agentItems.items);
   waiting.push(...agentItems.waiting);
 
@@ -207,6 +207,8 @@ async function agentSetup(
   pluginId: string,
   { agents: definitions, triggers: triggerDefinitions }: PluginDefinitions,
   servers: PluginComponents["mcpServers"],
+  /** The digest of the plugin's kept files: what a stdio server's runner tool is added with. */
+  digest: string | null,
   from: Record<string, string>,
   pick: SetupPick,
   tableOf: Map<string, Ref>,
@@ -309,6 +311,17 @@ async function agentSetup(
     }
     const server = servers.find((s) => s.name === name);
     if (!server) continue;
+    if (server.type === "stdio" && !fromInstall) {
+      // On the runner the owner picked for it, where it runs only once that machine allows it.
+      const runnerId = pick.servers?.find((s) => s.name === name)?.runnerId;
+      if (!server.entry || !digest) waiting.push({ definition, reason: say("plugins.setup.waiting.noFiles") });
+      else if (!runnerId) waiting.push({ definition, reason: say("plugins.setup.waiting.onRunner") });
+      else {
+        toolOf.set(name, { $item: first + items.length });
+        items.push({ tool: "plugins_add_server", input: { pluginId, server: name, runnerId, digest }, from: `server:${name}` });
+      }
+      continue;
+    }
     const reason = fromInstall
       ? say("plugins.setup.waiting.notTicked")
       : server.type !== "http" ? say("plugins.setup.waiting.onRunner") : server.settings.length ? say("plugins.setup.waiting.needsSetting") : !server.transport ? say("plugins.setup.waiting.updateToAdd") : null;

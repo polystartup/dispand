@@ -1,6 +1,7 @@
 import { storable } from "@dispand/runner-protocol";
 import type { tools as toolsTable } from "../db/schema.ts";
 import { newId } from "../ids.ts";
+import { runnerTarget } from "../plugins/runner-servers.ts";
 import { type RunnerHub, RunnerRequestFailed } from "../runners/hub.ts";
 import type { PollContinuation } from "../triggers/model.ts";
 import type { InstalledTools } from "./executor.ts";
@@ -46,9 +47,11 @@ export function pollCaller(installed: InstalledTools, hub: Pick<RunnerHub, "call
   return {
     async call(tool, action, args) {
       if (tool.kind === "runner") {
-        if (!tool.runnerId || !tool.runnerTool) return { ok: false, error: "The tool isn't on a runner yet" };
+        // Its runner's own server by name, or its plugin's stdio server, which the runner checks against its record.
+        const target = tool.runnerId ? await runnerTarget(installed.db, tool) : { error: "The tool isn't on a runner yet" };
+        if (typeof target === "object" && "error" in target) return { ok: false, error: target.error };
         try {
-          const reply = await hub.call(tool.runnerId, { type: "tool.call", requestId: newId("req"), tool: tool.runnerTool, action, arguments: args }, POLL_TIMEOUT_MS);
+          const reply = await hub.call(tool.runnerId!, { type: "tool.call", requestId: newId("req"), tool: target, action, arguments: args }, POLL_TIMEOUT_MS);
           if (reply.error !== undefined) return { ok: false, error: reply.error };
           if (reply.isError) return { ok: false, error: "The action reported an error" };
           const text = (reply.content ?? []).find((c) => c.type === "text" && typeof c.text === "string");

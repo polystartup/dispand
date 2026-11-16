@@ -40,7 +40,7 @@ export async function loadToolSchemas(db: Db | Tx, ownerId: string, ids: string[
  */
 export class InstalledTools {
   constructor(
-    private readonly db: Db,
+    readonly db: Db,
     private readonly secrets: SecretBox,
     private readonly connector: ToolConnector,
   ) {}

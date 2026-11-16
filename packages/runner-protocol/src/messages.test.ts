@@ -51,6 +51,8 @@ function refusalOf(raw: string): string {
   throw new Error("Message was accepted");
 }
 
+const pluginServer = { tool: "tool_01", plugin: "case-law", digest: `sha256:${"0".repeat(64)}`, entry: { command: "./server.mjs", args: ["--stdio"], env: { MODE: "read" } } };
+
 const serverMessages: ServerToRunner[] = [
   { type: "plugin.request", requestId: "req_native", operation: { action: "list" } },
   { type: "plugin.request", requestId: "req_preview", operation: { action: "remove", name: "demo", targets: ["codex"], dryRun: true } },
@@ -60,6 +62,9 @@ const serverMessages: ServerToRunner[] = [
   { type: "session.start", start: codexStart },
   { type: "session.start", start: { ...start, jobToken: "dj_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ" } },
   { type: "tool.discover", requestId: "req_1", tool: "fetch" },
+  { type: "tool.discover", requestId: "req_4", tool: pluginServer },
+  { type: "tool.call", requestId: "req_5", tool: pluginServer, action: "search", arguments: {} },
+  { type: "session.start", start: { ...start, mcpServers: [{ name: "case_law", type: "plugin", ...pluginServer, unasked: ["search"] }] } },
   { type: "tool.call", requestId: "req_3", tool: "mail", action: "search", arguments: { query: "is:unread" } },
   { type: "session.send", sessionId: "ses_1", text: "more" },
   {
@@ -296,7 +301,7 @@ describe("bounds", () => {
         case "string": {
           if (!hasMax) unbounded.push(path);
           // Postgres text and JSONB can't hold U+0000 or a lone surrogate: every protocol string must refuse both.
-          const sample = ["a", "/a", "https://a", "a.md", "workspace", "eA==", ".dispand/attachments/a/file"].find((candidate) => schema.safeParse(candidate).success);
+          const sample = ["a", `sha256:${"0".repeat(64)}`, "/a", "https://a", "a.md", "workspace", "eA==", ".dispand/attachments/a/file"].find((candidate) => schema.safeParse(candidate).success);
           if (sample === undefined) unbounded.push(`${path} (no valid sample)`);
           else if (schema.safeParse(`${sample}\u0000`).success) unbounded.push(`${path} (accepts NUL)`);
           else if (schema.safeParse(`${sample}\ud800`).success) unbounded.push(`${path} (accepts a lone surrogate)`);
@@ -439,4 +444,12 @@ test("remembered permission answers carry only supported scopes and other answer
   }
   for (const remember of ["workspace", "", true, []]) expect(() => parseServerMessage(JSON.stringify({ ...message, answer: { kind: "permission", decision: "allow", remember } }))).toThrow(ProtocolError);
   for (const answer of [{ kind: "choice", answers: {} }, { kind: "confirm-outputs", confirmed: true }, { kind: "consult", outcome: "answered", text: "Done" }]) expect(() => parseServerMessage(JSON.stringify({ ...message, answer: { ...answer, remember: "run" } }))).toThrow(ProtocolError);
+});
+
+test("a plugin server carries a sha256 digest and only the standard's entry fields", () => {
+  const discover = (tool: unknown) => JSON.stringify({ type: "tool.discover", requestId: "r", tool });
+  expect(parseServerMessage(discover(pluginServer))).toMatchObject({ tool: pluginServer });
+  for (const bad of [{ ...pluginServer, digest: "sha256:abc" }, { ...pluginServer, entry: { ...pluginServer.entry, shell: true } }, { ...pluginServer, tool: "../x" }]) {
+    expect(() => parseServerMessage(discover(bad))).toThrow(ProtocolError);
+  }
 });

@@ -11,8 +11,16 @@ import { overlapping, type RunnerConfig } from "./config.ts";
 import type { JsonValue } from "./codex/protocol/serde_json/JsonValue.ts";
 import { cleanJson, FRAME_BUDGET, protocolString } from "./sanitize.ts";
 import { PROXY_SPEC, PROXY_TOKEN, type ProxySpec } from "./mcp-proxy.ts";
+import type { Launch } from "./plugin-servers.ts";
 
-export type LocalServer = NonNullable<RunnerConfig["mcpServers"]>[string];
+/** A server the runner starts: one of its config's, from the home folder, or a plugin's `Launch`, from its `cwd`. */
+export type LocalServer = NonNullable<RunnerConfig["mcpServers"]>[string] & { cwd?: string };
+
+/** `env` values, 4 characters or more, longest first: what a server has and may echo. A plugin's two folders are paths, not secrets. */
+function secretsOf(env: Record<string, string> | undefined, more: string[] = []): string[] {
+  const values = Object.entries(env ?? {}).flatMap(([key, value]) => (key === "PLUGIN_ROOT" || key === "PLUGIN_DATA" ? [] : [value]));
+  return [...new Set([...values, ...more].filter((v) => v.length >= 4))].sort((a, b) => b.length - a.length);
+}
 
 /** A session's MCP server the runner won't give it: the session ends before its CLI starts. */
 export class ToolRefused extends Error {
@@ -41,7 +49,7 @@ export function withJobServer(refs: McpServerRef[], server: string, jobToken: st
  * here can name a command, a file tool or another server's tool. Live updates only narrow.
  */
 export function unaskedTools(refs: McpServerRef[], jobTools: string[] | undefined, harness: "claude-code" | "codex" = "codex"): { names: Set<string>; servers: string[] } {
-  const runner = refs.flatMap((ref) => (ref.type === "runner" ? [ref] : []));
+  const runner = refs.flatMap((ref) => (ref.type !== "http" ? [ref] : []));
   return {
     names: new Set([...(jobTools ?? []).map((name) => `mcp__${JOB_TOOLS_SERVER}__${name}`), ...runner.flatMap((ref) => (ref.unasked ?? []).map((action) => `mcp__${ref.name}__${mcpActionName(action, harness)}`))]),
     servers: [...(jobTools === undefined ? [] : [JOB_TOOLS_SERVER]), ...runner.map((ref) => ref.name)],
@@ -51,7 +59,7 @@ export function unaskedTools(refs: McpServerRef[], jobTools: string[] | undefine
 /** Denials only accumulate during a session; removing a runner server blocks all its actions. */
 export function deniedTools(refs: McpServerRef[], harness: "claude-code" | "codex") {
   const key = (server: string, action: string) => `mcp__${server}__${mcpActionName(action, harness)}`;
-  const servers = refs.filter((ref) => ref.type === "runner");
+  const servers = refs.filter((ref) => ref.type !== "http");
   const names = new Set(servers.flatMap((ref) => (ref.denied ?? []).map((action) => key(ref.name, action))));
   const removed = new Set<string>();
   return {
@@ -79,6 +87,8 @@ export type McpOptions = {
   /** In a Job's session: the files its runner tools return go to that Job (`mcp-proxy.ts`). */
   files?: ProxyFiles;
   entry?: { command: string; args: string[] };
+  /** How each `plugin` ref starts, by its session name: launched beforehand, as its runner's record allows (`plugin-servers.ts`). */
+  launches?: Map<string, Launch>;
 };
 
 /**
@@ -89,7 +99,7 @@ export type McpOptions = {
  * directory, where the agent can write files its command would load (`.npmrc`, `package.json`).
  * An unknown one, or a name given twice, throws `ToolRefused`.
  */
-export function mcpConfigFor(refs: McpServerRef[], local: RunnerConfig["mcpServers"], { dir = homedir(), files, entry = PROXY_ENTRY }: McpOptions = {}): Record<string, McpServerConfig> {
+export function mcpConfigFor(refs: McpServerRef[], local: RunnerConfig["mcpServers"], { dir = homedir(), files, entry = PROXY_ENTRY, launches }: McpOptions = {}): Record<string, McpServerConfig> {
   const out: Record<string, McpServerConfig> = {};
   for (const ref of refs) {
     if (ref.name in out) throw new ToolRefused(`the MCP server name ${ref.name} is given twice`);
@@ -97,9 +107,13 @@ export function mcpConfigFor(refs: McpServerRef[], local: RunnerConfig["mcpServe
       out[ref.name] = { type: ref.transport === "sse" ? "sse" : "http", url: ref.url, headers: ref.headers };
       continue;
     }
-    const server = Object.hasOwn(local ?? {}, ref.tool) ? local![ref.tool] : undefined;
-    if (!server) throw new ToolRefused(`this runner has no MCP server ${ref.tool} in its config`);
-    const spec: ProxySpec = { command: server.command, args: server.args ?? [], env: server.env ?? {}, cwd: dir, ...(files ? { files: files.url } : {}) };
+    // A plugin's server behind the same proxy, from its own launch (its root or data folder, never the CLI's).
+    const launch = ref.type === "plugin" ? launches?.get(ref.name) : undefined;
+    if (ref.type === "plugin" && !launch) throw new ToolRefused(`the plugin ${ref.plugin} wasn't launched on this runner`);
+    const server = ref.type === "runner" && Object.hasOwn(local ?? {}, ref.tool) ? local![ref.tool] : undefined;
+    if (ref.type === "runner" && !server) throw new ToolRefused(`this runner has no MCP server ${ref.tool} in its config`);
+    const spec: ProxySpec = launch ? { ...launch } : { command: server!.command, args: server!.args ?? [], env: server!.env ?? {}, cwd: dir };
+    if (files) spec.files = files.url;
     out[ref.name] = { type: "stdio", command: entry.command, args: entry.args, env: { [PROXY_SPEC]: JSON.stringify(spec), ...(files ? { [PROXY_TOKEN]: files.token } : {}) } };
   }
   return out;
@@ -117,7 +131,7 @@ export function codexMcpServers(refs: McpServerRef[], local: RunnerConfig["mcpSe
   const env: Record<string, string> = {};
   Object.entries(mcpConfigFor(refs, local, options)).forEach(([name, config], i) => {
     const ref = refs.find((ref) => ref.name === name);
-    const disabled = ref?.type === "runner" && ref.denied?.length ? { disabled_tools: ref.denied } : {};
+    const disabled = ref && ref.type !== "http" && ref.denied?.length ? { disabled_tools: ref.denied } : {};
     if (config.type === "sse") throw new ToolRefused(`Codex can't use the MCP server ${name}: it only speaks SSE`);
     if (config.type === "http") {
       const names: Record<string, string> = {};
@@ -184,7 +198,7 @@ export async function discoverTool(name: string, server: LocalServer, timeoutMs 
     args: server.args ?? [],
     env: { ...getDefaultEnvironment(), ...server.env },
     stderr: "ignore",
-    cwd: homedir(),
+    cwd: server.cwd ?? homedir(),
   });
   const client = new Client({ name: "dispand-runner", version: "1.0.0" });
   let timer: NodeJS.Timeout | undefined;
@@ -209,7 +223,7 @@ export async function discoverTool(name: string, server: LocalServer, timeoutMs 
       deadline,
     ]);
     // Redacted before anything reads them, error messages included.
-    const secrets = [...new Set(Object.values(server.env ?? {}).filter((v) => v.length >= 4))].sort((a, b) => b.length - a.length);
+    const secrets = secretsOf(server.env);
     const actions = tools.map((tool) => action(tool, secrets));
     if (Buffer.byteLength(JSON.stringify(actions)) > MAX_REPLY_BYTES) throw new DiscoverFailed(`the actions of the MCP server ${name} are too large to send`);
     return actions;
@@ -248,13 +262,13 @@ export async function callTool(
   if (server.pollable?.length === 0) throw new CallFailed(`the MCP server ${name} allows no polls on this runner`);
   // No approval stands between a poll and its call: a path the runner keeps sessions out of
   // (its own config, the CLIs' credentials) is refused in any argument, as sessions are kept from it.
-  if (!runnerArgumentsAllowed(args, guard.forbidden)) throw new CallFailed(`the call names a path this runner keeps out of reach`);
+  if (!runnerArgumentsAllowed(args, guard.forbidden, server.cwd)) throw new CallFailed(`the call names a path this runner keeps out of reach`);
   const transport = new StdioClientTransport({
     command: server.command,
     args: server.args ?? [],
     env: { ...getDefaultEnvironment(), ...server.env },
     stderr: "ignore",
-    cwd: homedir(),
+    cwd: server.cwd ?? homedir(),
   });
   const client = new Client({ name: "dispand-runner", version: "1.0.0" });
   let timer: NodeJS.Timeout | undefined;
@@ -282,7 +296,7 @@ export async function callTool(
       })(),
       deadline,
     ]);
-    const secrets = [...new Set([...Object.values(server.env ?? {}), ...guard.secrets].filter((v) => v.length >= 4))].sort((a, b) => b.length - a.length);
+    const secrets = secretsOf(server.env, guard.secrets);
     // Each item's own keys and its `type` are MCP's envelope and stay; everything inside its
     // values, keys included, is redacted.
     const content = ((result.content ?? []) as Record<string, unknown>[]).map(
@@ -303,16 +317,16 @@ export async function callTool(
 
 /**
  * Every path a string in `args` could name, read every way a file reader might: as given, with its
- * percent-encoding decoded, and as a file URL; relative to the home folder, where the server
- * starts (`~` expanded). A `file:` string no reading turns into a path is refused (`null`), so a
+ * percent-encoding decoded, and as a file URL; relative to `base`, where the server starts (the
+ * home folder, or a plugin's working directory; `~` expanded). A `file:` string no reading turns into a path is refused (`null`), so a
  * spelling the guard can't read never passes it.
  */
-function pathsIn(args: unknown): string[] | null {
+function pathsIn(args: unknown, base = homedir()): string[] | null {
   const out: string[] = [];
   let unreadable = false;
   const add = (p: string) => {
     const expanded = p === "~" || p.startsWith("~/") ? homedir() + p.slice(1) : p;
-    out.push(isAbsolute(expanded) ? expanded : resolve(homedir(), expanded));
+    out.push(isAbsolute(expanded) ? expanded : resolve(base, expanded));
   };
   const walk = (v: unknown) => {
     if (typeof v === "string" && v.length > 0) {
@@ -379,7 +393,7 @@ export function narrowUnasked(names: Set<string>, servers: string[], update: Ses
 }
 
 /** The same protected-path guard for automatic session grants and polls. */
-export function runnerArgumentsAllowed(args: unknown, forbidden: string[]): boolean {
-  const paths = pathsIn(args);
+export function runnerArgumentsAllowed(args: unknown, forbidden: string[], base?: string): boolean {
+  const paths = pathsIn(args, base);
   return paths !== null && !paths.some((path) => overlapping(path, forbidden));
 }

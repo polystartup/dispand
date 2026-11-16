@@ -1004,7 +1004,8 @@
   when its own record allows exactly that code. `allowedPlugins` in the machine's config holds,
   per plugin name, the content digest and the launch entry; `dispand-runner allow-plugin <tool
   id> <name>@<digest>` writes it after fetching the files itself (`GET /runner/plugins/<tool
-  id>`), recomputing the digest and a typed yes. `plugin-digest.ts` computes the digest
+  id>`), recomputing the digest and a typed yes. `@dispand/runner-protocol/digest` (Node only, shared with
+  the server, which computes the digest it shows) computes the digest
   (`sha256:` over every file sorted by its path's UTF-8 bytes: path, NUL, length, NUL, bytes) and
   the canonical entry (keys sorted, `env` keys sorted, `cwd` default `./`). `pluginLaunch`
   (`plugin-servers.ts`) checks the record, the digest and the entry before writing anything, then
@@ -1013,9 +1014,29 @@
   by real path inside that root, keeps `cwd` inside it or `<state>/plugin-data/<name>/` (kept
   across digests), expands `${PLUGIN_ROOT}` and `${PLUGIN_DATA}` once in `args`, `env` values and
   `cwd` only, and sets both last over `env`. A refusal is a `PluginRefused` whose message names
-  only the plugin and digests, logged by the runner. No protocol message carries a plugin server
-  yet: the files route, the `plugin` server ref and the tool's page come with it, and call
-  `pluginLaunch` for sessions, `tool.discover` and polls.
+  only the plugin and digests, logged by the runner, and it comes back as the session's error or
+  the tool's `actionsError`. `launchPluginServer` takes a `plugin` reference (protocol 30, in
+  `McpServerRef` and in `tool.discover`/`tool.call`): it checks the record against the reference
+  first, launches the folder it already wrote for that digest, or else fetches the files
+  (`fetchPlugin`) and calls `pluginLaunch`. Sessions launch every plugin reference before
+  anything else and hand `mcp.ts` the launches, which start behind the MCP proxy from the
+  plugin's own `cwd` and `env`; `tool.discover` and a poll's `tool.call` start the launch directly.
+- **A plugin's stdio server on a runner (server side):** install and update keep a standard
+  plugin's files when it has a stdio server (`plugin_files`, `plugins.digest`; at most 500 files
+  and 16 MiB, else refused; `fs.ts` `readRunnerFiles`), and `components.mcpServers[].entry` holds
+  the launch entry. We decided against a launch column on the tool: the entry is read from the
+  plugin, so an update that changes it changes the digest and needs a new `allow-plugin`.
+  `plugins.addServer` with a `runnerId` and the reviewed digest (or a setup item from a server
+  picked with its runner) adds a runner tool with no `runner_tool`, linked by `plugin_id` and
+  `plugin_component`. `plugins/runner-servers.ts` `runnerTarget` is the one place that turns a
+  runner tool into what its runner is sent: its own server's name, a `PluginServer`, or why not
+  (its plugin was removed: uninstalling keeps the tool, which then reports so). Sessions
+  (`engine/tooling.ts`), listings (`refreshRunnerActions`) and polls (`tools/poll.ts`) go through
+  it, and `GET /runner/plugins/<tool id>` (`pluginForRunner`, its span and
+  `dispand.runner.plugin_files`) serves the files to that tool's runner only. The tool's page shows
+  the command, the digest, the `allow-plugin` line and, when the command isn't a file of the
+  plugin, that the record covers the command line only. A plugin in the Claude layout keeps no
+  files: its stdio servers stay runner config entries.
 - **Runner distribution:** `pnpm build` bundles the runner with esbuild into
   `dispand-runner.tgz` and copies it with `install/install.sh` into
   `apps/web/public/runner/` (gitignored), so the web app serves `/runner/install.sh` and

@@ -258,7 +258,10 @@
     "notMade": "Not made",
     "settingUp": "Setting up…",
     "submit": "Set up",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "stdioServer": "A command it runs on the runner you pick, once that machine allows it: {{command}}",
+    "runnerFor": "The runner {{name}} runs on",
+    "pickRunner": "Pick its runner"
   },
   "update": {
     "nativeTitle": "Native installs",

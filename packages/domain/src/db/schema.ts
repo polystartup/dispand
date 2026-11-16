@@ -1029,6 +1029,8 @@ export const plugins = pgTable(
     /** Its `com.dispand` definitions as last read: registered, made only when set up. */
     definitions: jsonb("definitions").$type<PluginDefinitions>().notNull().default({ agents: [], primitives: [], triggers: [] }),
     created: jsonb("created").$type<PluginCreated>().notNull().default({}),
+    /** The content digest of its `plugin_files` (`@dispand/runner-protocol/digest`), what a runner allows; null when none are kept. */
+    digest: text("digest"),
     installedAt: timestamp("installed_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -1053,7 +1055,9 @@ export const tools = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     // `http`: Dispand reaches it at `url`. `runner`: a runner runs it, the MCP server named
-    // `runnerTool` in that runner's own config; Dispand never knows its command.
+    // `runnerTool` in that runner's own config (Dispand never knows its command), or, with a
+    // null `runnerTool`, its plugin's stdio server `pluginComponent`, which the runner starts
+    // only as its own record allows (`plugins/servers.ts`).
     kind: text("kind").$type<"http" | "runner">().notNull(),
     // Retargeting invalidates reviewed grants, even when the tool is later pointed back.
     permissionRevision: integer("permission_revision").notNull().default(0),
@@ -1153,6 +1157,23 @@ export const skillFiles = pgTable(
     content: bytea("content").notNull(),
   },
   (t) => [primaryKey({ columns: [t.packageId, t.path] })],
+);
+
+/**
+ * A standard plugin's files, kept when it has a stdio server: a runner that allowed the plugin
+ * fetches them (`GET /runner/plugins/<tool id>`) and recomputes their digest. The plugin's own
+ * copy, no owner data: gone with the plugin.
+ */
+export const pluginFiles = pgTable(
+  "plugin_files",
+  {
+    pluginId: text("plugin_id")
+      .notNull()
+      .references(() => plugins.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    content: bytea("content").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.pluginId, t.path] })],
 );
 
 /**

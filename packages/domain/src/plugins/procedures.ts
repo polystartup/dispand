@@ -57,6 +57,8 @@ import { answerConflict, approvalOf, conflictView, fieldNow, forgetConflicts, ow
 import { findAssistant } from "../agents/builtin.ts";
 import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, PluginError, type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
+import { readRunnerFiles, withBudget } from "./fs.ts";
+import { type PluginFile, storePluginFiles } from "./runner-servers.ts";
 
 const owner = base.use(authed);
 
@@ -148,7 +150,7 @@ function lstatOrNull(path: string) {
 }
 
 /** Fetches an entry's plugin (from its own repository, or its marketplace's for a relative path) and reads it. */
-async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry, allowFile: boolean): Promise<{ contents: PluginContents; url: string; sha: string; nativeRoot?: string; changelog?: string | null }> {
+async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry, allowFile: boolean): Promise<{ contents: PluginContents; files?: PluginFile[]; url: string; sha: string; nativeRoot?: string; changelog?: string | null }> {
   const { source } = entry;
   if (source.type === "unsupported") throw new ORPCError("BAD_REQUEST", external(source.reason));
   if (source.type === "well-known") return { ...(await readWellKnownSkills(source.url)), url: source.url };
@@ -159,7 +161,10 @@ async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry, allowF
     // The repository's links under the plugin, as paths from its root.
     const prefix = relative(realpathSync(checkout.dir), root);
     const links = checkout.links.flatMap((l) => (prefix === "" ? [l] : l.startsWith(`${prefix}/`) ? [l.slice(prefix.length + 1)] : []));
-    return { contents: readPlugin(root, entry, links), url, sha: checkout.sha, nativeRoot: prefix || ".", changelog: readChangelog(root) };
+    const contents = readPlugin(root, entry, links);
+    // A standard plugin's stdio servers run its own files on a runner: Dispand keeps them to send.
+    const files = contents.layout === "standard" && contents.mcpServers.some((s) => s.type === "stdio") ? withBudget(() => readRunnerFiles(root)) : undefined;
+    return { contents, ...(files ? { files } : {}), url, sha: checkout.sha, nativeRoot: prefix || ".", changelog: readChangelog(root) };
   } finally {
     await checkout.cleanup();
   }
@@ -399,7 +404,7 @@ const install = owner
     }
     const market = await findMarketplace(context.db, context.ownerId, input.marketplaceId);
     const entry = findEntry(market, input.entryName);
-    const { contents, url, sha, nativeRoot } = await readEntry(market, entry, !!context.gitFileUrls).catch(asBadRequest);
+    const { contents, files, url, sha, nativeRoot } = await readEntry(market, entry, !!context.gitFileUrls).catch(asBadRequest);
     // A plugin with definitions is worth installing for them alone: they are registered, and set up later.
     const { agents: agentDefs, primitives, triggers } = contents.definitions;
     if (nothingPicked && !input.nativeInstall && !agentDefs.length && !primitives.length && !triggers.length) {
@@ -443,6 +448,7 @@ const install = owner
           definitions: contents.definitions,
           notImported: contents.notImported,
         });
+        await tx.update(pluginsTable).set({ digest: await storePluginFiles(tx, pluginId, files) }).where(eq(pluginsTable.id, pluginId));
         const packageId = chosen ? newId("skillpkg") : null;
         if (chosen && packageId) {
           await tx.insert(skillPackages).values({ id: packageId, ownerId: context.ownerId, name: await skillPackageName(tx, context.ownerId, name), description, pluginId });
@@ -1196,7 +1202,7 @@ async function namesIn(db: Db, ownerId: string, values: unknown): Promise<Record
 const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(), take: z.array(z.string().max(700)).max(1000).default([]), /** What becomes of each element the new version drops that was asked about. */ choices: Choices.default({}), /** The changes ticked of each table, by their keys. */ tables: z.record(z.string().max(64), z.array(z.string().max(200)).max(200)).default({}), /** The harnesses whose native install the screen said would move. */ native: z.array(z.string().max(64)).max(50).default([]), /** The conflicts handed to Stem ("Let Stem deal with it"): they stay the owner's until it decides. */ stem: z.array(z.string().max(700)).max(1000).default([]) })).handler(({ input, context }) => acted("update", input.id, async () => {
   const row = await findPlugin(context.db, context.ownerId, input.id);
   const shown = await updatePlan(context, row);
-  const { contents, url, sha, nativeRoot } = shown;
+  const { contents, files, url, sha, nativeRoot } = shown;
   if ((input.native.length || shown.conflicts.length || shown.additions.length || shown.removals.length || shown.shownTables.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
     throw new ORPCError("CONFLICT", message("plugins.update.review", { plugin: row.name }));
   }
@@ -1235,7 +1241,7 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
     for (const e of elements.filter((e) => Object.keys(e.plan.set).length === 0)) await tx.update(tableOf(e.kind)).set({ upstream: e.plan.upstream }).where(eq(tableOf(e.kind).id, e.id));
     await tx
       .update(pluginsTable)
-      .set({ url, sha, nativeRoot: nativeRoot ?? null, layout: contents.layout, components: componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, updatedAt: sql`now()` })
+      .set({ url, sha, nativeRoot: nativeRoot ?? null, layout: contents.layout, components: componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, digest: await storePluginFiles(tx, row.id, files), updatedAt: sql`now()` })
       .where(eq(pluginsTable.id, row.id));
     return out;
   });

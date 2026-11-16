@@ -177,8 +177,9 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
         defaults = [...(entry?.unasked ?? [])];
         if (entry?.kind === "http") target = toolPermissionTarget({ kind: "http", url: entry.url, transport: entry.transport });
       } else if (source?.tool === "tools_add" || source?.tool === "plugins_add_server") {
-        const fields = source.input as { url: string; transport?: string };
-        target = toolPermissionTarget({ kind: "http", url: fields.url, transport: fields.transport ?? "streamable-http" });
+        const fields = source.input as { url?: string; transport?: string; runnerId?: string };
+        // A plugin's stdio server becomes a runner tool on the runner picked, with no server name of the runner's.
+        target = fields.runnerId !== undefined ? toolPermissionTarget({ kind: "runner", runnerId: fields.runnerId }) : toolPermissionTarget({ kind: "http", url: fields.url, transport: fields.transport ?? "streamable-http" });
       }
     }
     return { toolId, unasked: (given.find((p) => key(p.toolId) === key(toolId))?.unasked ?? kept.get(key(toolId))?.unasked ?? defaults).filter((name) => !disabledFor(toolId).includes(name)), target, ...(strictTarget ? { strictTarget } : {}) };

@@ -1,9 +1,10 @@
 import { chmod, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { canonicalEntry, contentDigest, type PluginEntry } from "./plugin-digest.ts";
-import { materializePlugin, pluginLaunch, PluginRefused } from "./plugin-servers.ts";
+import { canonicalEntry, contentDigest, type PluginEntry } from "@dispand/runner-protocol/digest";
+import { launchPluginServer, materializePlugin, pluginLaunch, PluginRefused } from "./plugin-servers.ts";
+import { callTool, discoverTool } from "./mcp.ts";
 import { unlock } from "./skills.ts";
 
 const files = () => [
@@ -114,4 +115,31 @@ test("materializing refuses unsafe paths and reuses a complete folder", async ()
   await expect(materializePlugin(state, "../law", files())).rejects.toThrow(PluginRefused);
   const [one, two] = await Promise.all([materializePlugin(state, "law", files()), materializePlugin(state, "law", files())]);
   expect(one).toBe(two);
+});
+
+test("a plugin reference runs as allowed: its server lists and runs an action from its own folder, and a second launch fetches nothing", async () => {
+  // A real MCP server (the echo fixture), started by a file of the plugin.
+  const echo = resolve("src/fixtures/echo-mcp.ts");
+  const plugin = [{ path: "server.sh", content: Buffer.from(`#!/bin/sh\nexec "${process.execPath}" "${echo}"\n`) }];
+  const run: PluginEntry = { command: "./server.sh", env: { ECHO_READ_ONLY: "1" } };
+  const digest = contentDigest(plugin);
+  const config = { allowedPlugins: [{ name: "law", digest, entry: run }] };
+  const fetched = vi.fn(async () => ({ name: "law", entry: run, files: plugin }));
+  const ref = { tool: "tool_1", plugin: "law", digest, entry: run };
+  const launch = await launchPluginServer(config, state, ref, fetched);
+  expect(fetched).toHaveBeenCalledWith("tool_1");
+  expect(launch.cwd).toBe(join(state, "plugins", "law", digest.slice("sha256:".length)));
+  expect(await discoverTool("law", launch)).toEqual([expect.objectContaining({ name: "echo", readOnly: true })]);
+  expect(await callTool("law", launch, "echo", { text: "hi" })).toMatchObject({ content: [{ type: "text", text: "hi" }], isError: false });
+  expect(await launchPluginServer(config, state, ref, fetched)).toEqual(launch);
+  expect(fetched).toHaveBeenCalledTimes(1);
+});
+
+test("a plugin reference the record doesn't hold is refused before anything is fetched; files under another name are refused", async () => {
+  const fetched = vi.fn(async () => ({ name: "other", entry, files: files() }));
+  const ref = { tool: "tool_1", plugin: "law", digest: contentDigest(files()), entry };
+  await expect(launchPluginServer(allowed(), state, { ...ref, digest: `sha256:${"0".repeat(64)}` }, fetched)).rejects.toThrow(PluginRefused);
+  await expect(launchPluginServer(allowed({ args: [] }), state, ref, fetched)).rejects.toThrow("The launch entry of the plugin law isn't the one this runner allowed.");
+  expect(fetched).not.toHaveBeenCalled();
+  await expect(launchPluginServer(allowed(), state, ref, fetched)).rejects.toThrow("The tool tool_1 runs the plugin other, not law.");
 });

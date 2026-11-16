@@ -16,7 +16,8 @@ import { codexRequired, RESTRICTED_CODEX } from "./codex/version.ts";
 import { writeDurable } from "./durable.ts";
 import type { RunnerConfig } from "./config.ts";
 import type { HarnessSession } from "./outcome.ts";
-import { codexMcpServers, mcpConfigFor, withJobServer } from "./mcp.ts";
+import { codexMcpServers, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
+import { fetchPlugin, type Launch, launchPluginServer } from "./plugin-servers.ts";
 import { fetchPackages, removeSkills, sessionPluginsDir, type SkillPackage, writeSkills } from "./skills.ts";
 import { resolveWorkdir } from "./workdir.ts";
 import { fallbackPackages, nativeSkillAliases, resolveSkillAlias } from "./native-skills.ts";
@@ -189,7 +190,7 @@ export class Sessions {
       const preparing = this.starting.get(msg.sessionId);
       if (preparing) {
         preparing.mcpServers = preparing.mcpServers.filter((ref) => {
-          if (ref.type !== "runner") return true;
+          if (ref.type === "http") return true;
           const current = msg.servers.find((s) => s.name === ref.name);
           if (!current) return false;
           const denied = [...new Set([...(ref.denied ?? []), ...(current.denied ?? [])])];
@@ -286,6 +287,18 @@ export class Sessions {
     if (start.permissionMode === "bypassPermissions" && !this.config.allowBypass) {
       return emit({ type: "error", message: new BypassRefused().message });
     }
+    // A plugin's stdio servers, launched (fetched, checked against this machine's record, written) before anything else exists.
+    const launches = new Map<string, Launch>();
+    try {
+      for (const ref of start.restricted ? [] : start.mcpServers) {
+        if (ref.type !== "plugin") continue;
+        const skills = this.options.skills;
+        if (!skills) throw new ToolRefused("this runner can't start plugin servers");
+        launches.set(ref.name, await launchPluginServer(this.config, skills.stateDir, ref, (id) => fetchPlugin(skills.server, skills.token, id)));
+      }
+    } catch (err) {
+      return emit({ type: "error", message: (err as Error).message });
+    }
     // The session's MCP servers: a runner tool must be one of this machine's own (ToolRefused).
     let claudeMcp: ReturnType<typeof mcpConfigFor> = {};
     let codexMcp: ReturnType<typeof codexMcpServers> | undefined;
@@ -297,7 +310,7 @@ export class Sessions {
         ? withJobServer([], this.config.server, start.jobToken).filter((r) => r.name === JOB_SERVER_NAME)
         : withJobServer(start.mcpServers, this.config.server, start.jobToken);
       // A Job's runner tools hand their files to that Job, at this runner's own server.
-      const options = start.jobToken === undefined ? {} : { files: { url: new URL(JOB_FILES_PATH, this.config.server).href, token: start.jobToken } };
+      const options = { launches, ...(start.jobToken === undefined ? {} : { files: { url: new URL(JOB_FILES_PATH, this.config.server).href, token: start.jobToken } }) };
       if (refs.length > 0) {
         if (start.harness === "codex") codexMcp = codexMcpServers(refs, this.config.mcpServers, options);
         else claudeMcp = mcpConfigFor(refs, this.config.mcpServers, options);

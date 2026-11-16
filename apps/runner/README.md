@@ -215,8 +215,12 @@ that folder (its real path), keep `cwd` (default: that folder) inside it or
 and `${PLUGIN_DATA}` once and only in `args`, `env` values and `cwd`, and set both variables
 last over the entry's `env`. A plugin update that changes any file or the entry needs a new
 `allow-plugin`. The record covers the files and the command line, not what the command
-downloads when it runs (`npx some-package`). Dispand doesn't send plugin servers to runners yet:
-the record is in place for when it does.
+downloads when it runs (`npx some-package`). Dispand sends such a server as a runner tool (a
+`plugin` reference: tool id, plugin name, digest, entry): the runner checks it against the record
+first, then starts the folder it already wrote for that digest or fetches the files
+(`GET /runner/plugins/<tool id>`) and checks them as above. In a session it runs behind the
+runner's MCP proxy; a poll calls only actions its server marks read-only. A refusal shows on the
+tool's page.
 
 ## Commands
 
@@ -344,7 +348,8 @@ folder; discovery failures keep workspace skill fallback enabled. Immutable sour
 are cached in memory (up to 200 sources) to avoid repeated Git fetches during inventory polling.
 Remote discovery shares a ten-second deadline per request, including cancellation of its
 process group. Failed sources are attempted only once per request.
-Protocol 24 requires updating runners along with the server.
+Protocol 24 requires updating runners along with the server. So does protocol 30 (plugin
+servers as runner tools).
 
 ## Updating from Settings
 

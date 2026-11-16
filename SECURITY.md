@@ -789,8 +789,15 @@ changes it updates this file.
   plugin or its data folder, and expands only `${PLUGIN_ROOT}` and `${PLUGIN_DATA}`, once, in
   `args`, `env` values and `cwd`. The record proves the plugin's files and its command line, not
   what that command downloads when it runs (`npx some-package`): `allow-plugin` says so whenever
-  the command isn't a file of the plugin. Until Dispand delivers plugin servers to runners, no
-  plugin command is stored or run, as the next paragraph says.
+  the command isn't a file of the plugin, and so does the tool's page. Dispand delivers such a
+  server as a runner tool (protocol 30): a `plugin` reference (tool id, plugin name, digest,
+  entry) in a session start, `tool.discover` or a poll's `tool.call`. The runner checks the
+  reference against its record first, then launches the folder it already wrote for that digest
+  (named by the digest it computed over what it wrote) or fetches the files
+  (`GET /runner/plugins/<tool id>`, its own token, a plugin runner tool on that runner only, no
+  redirect, 16 MiB) and recomputes their digest. A session's CLI starts it behind the runner's
+  MCP proxy, as any runner tool; a poll calls only what its server marks read-only, and paths in
+  a poll's arguments are resolved from the plugin's working directory for the runner's guard.
 - **Workspace plugin imports bring files, never code that runs.** Marketplaces and plugins are fetched with
   `fetchGit` (`packages/domain/src/plugins/git.ts`): `https://` only (no credentials in the URL;
   `file://` only in a development build with `DISPAND_GIT_FILE_URLS=1`, for e2e fixtures),
@@ -799,7 +806,11 @@ changes it updates this file.
   Agent Plugins layout (a root `plugin.json`) is read with that standard's rules. A schema-less root object may use the Claude loader when a named Claude manifest exists; explicit schemas never fall back. Both loaders run under the same
   limits: its `$schema` ids are known, never fetched; a linked `plugin.json` rejects it; its
   stdio servers are read (a `./` command and `cwd` that stay inside the plugin, or a `cwd` in
-  its data folder) but, like every command a plugin names, never stored or run. Its `com.dispand`
+  its data folder). Dispand runs none of a plugin's commands itself; it keeps a standard plugin's
+  files when it has a stdio server (`plugin_files`, at most 500 files and 16 MiB, else the install
+  is refused; links, `.git` and paths a runner can't write left out), and a runner runs such a
+  server only as the paragraph above says. A plugin in the Claude layout keeps none: its stdio
+  servers are added from a runner's own `mcpServers`, as today. Its `com.dispand`
   definitions (tables, agents, triggers) are data and grant nothing: install only stores them,
   each read as a regular file within the same budget and checked alone. What is made from one is
   made by the procedure a direct call uses, by the owner or through an approved proposal, with
@@ -815,7 +826,9 @@ changes it updates this file.
   each element's own procedure, and never replaces an overridden field unasked. A tool it gives
   an existing agent starts with every action on Ask, whatever its server calls read-only. What a
   new version adds is made by no update: only by a setup, whose items show each grant. A plugin's HTTP server becomes a tool only through `plugins.addServer` (or its setup
-  item), with no credentials and only at the URL and transport the owner reviewed in the item. Links are checked out
+  item), with no credentials and only at the URL and transport the owner reviewed in the item; a
+  stdio server only as a runner tool on one of the owner's runners, with the digest the owner
+  reviewed in the item, and it runs nothing until that machine's record allows it. Links are checked out
   as plain files (`core.symlinks=false`), then removed from the checkout and listed as not
   imported: nothing is ever written or read through one, and a file name that isn't UTF-8 refuses
   the fetch. Every file is read with `lstat`, any other non-regular file is skipped, and a plugin or skill folder whose real path leaves the

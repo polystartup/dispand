@@ -251,3 +251,35 @@ export function readSkillFolders(root: string, folders: string[], notImported: N
   }
   return skills;
 }
+
+/** What a runner takes of one plugin (`apps/runner/src/plugin-servers.ts`): files, and bytes in all. */
+export const MAX_RUNNER_FILES = 500;
+export const MAX_RUNNER_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Every regular file under `root` a runner can write (`isSafeRelativePath`), for a plugin's stdio
+ * servers: links, other non-regular files, unsafe paths and `.git` are left out. Past
+ * `MAX_RUNNER_FILES` files or `MAX_RUNNER_BYTES` bytes, throws `PluginError`: a runner would refuse it.
+ */
+export function readRunnerFiles(root: string): { path: string; content: Uint8Array }[] {
+  const files: { path: string; content: Uint8Array }[] = [];
+  let bytes = 0;
+  const tooLarge = () => new PluginError(`The plugin is too large to run on a runner: more than ${MAX_RUNNER_FILES} files or 16 MiB`);
+  const walk = (dir: string, prefix: string) => {
+    for (const entry of list(dir)) {
+      if (entry.name === ".git") continue;
+      const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const full = join(dir, entry.name);
+      const stat = lstatSync(full);
+      if (stat.isDirectory()) walk(full, path);
+      else if (stat.isFile() && isSafeRelativePath(path)) {
+        bytes += stat.size;
+        if (files.length >= MAX_RUNNER_FILES || bytes > MAX_RUNNER_BYTES) throw tooLarge();
+        spend(0, stat.size);
+        files.push({ path, content: new Uint8Array(readFileSync(full)) });
+      }
+    }
+  };
+  walk(root, "");
+  return files;
+}

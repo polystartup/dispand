@@ -258,7 +258,10 @@
     "notMade": "Non créé",
     "settingUp": "Mise en place…",
     "submit": "Mettre en place",
-    "cancel": "Annuler"
+    "cancel": "Annuler",
+    "stdioServer": "Une commande qu’il exécute sur le runner que vous choisissez, une fois que cette machine l’autorise : {{command}}",
+    "runnerFor": "Le runner sur lequel {{name}} s’exécute",
+    "pickRunner": "Choisissez son runner"
   },
   "update": {
     "nativeTitle": "Installations natives",

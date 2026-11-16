@@ -84,7 +84,11 @@
       "agentLacks": "L’agent n’a pas cet outil.",
       "notReadable": "Une relève ne peut pas lire cette action : l’outil ne laisse pas les relèves la lire, ou un agent doit demander avant de l’utiliser."
     },
-    "urlCredentials": "L’URL ne peut pas contenir d’identifiants."
+    "urlCredentials": "L’URL ne peut pas contenir d’identifiants.",
+    "plugin": {
+      "removed": "Son plugin a été retiré : cet outil n’a plus de serveur à exécuter.",
+      "noServer": "Son plugin ne propose plus le serveur stdio {{server}}, ou n’en garde pas les fichiers : mettez le plugin à jour."
+    }
   },
   "plugins": {
     "notFound": "Ce plugin n’existe pas.",
@@ -158,10 +162,12 @@
     },
     "server": {
       "notFound": "Le plugin n’a pas de serveur MCP « {{name}} ».",
-      "onRunner": "{{name}} s’exécute sur un runner : ajoutez-le depuis la page du plugin.",
+      "onRunner": "{{name}} s’exécute sur un runner : choisissez le runner sur lequel il s’exécute.",
       "needsSetting": "L’URL de {{name}} demande un réglage : ajoutez-le depuis la page du plugin.",
       "updateToAdd": "Mettez le plugin à jour pour ajouter {{name}}.",
-      "changed": "{{name}} a changé depuis votre relecture : relisez-le."
+      "changed": "{{name}} a changé depuis votre relecture : relisez-le.",
+      "noFiles": "{{name}} ne peut pas s’exécuter comme outil de runner : Dispand ne garde aucun fichier de ce plugin pour les runners. Mettez le plugin à jour s’il suit le standard Agent Plugins.",
+      "entryTooLarge": "L’entrée de lancement de {{name}} est plus grande que ce qu’un runner accepte."
     },
     "component": {
       "needsSetting": "Le serveur MCP {{server}} a besoin de {{name}}.",
@@ -188,7 +194,7 @@
         "onMachine": "{{name}} s’exécute sur votre machine : ajoutez-le dans Réglages → Outils.",
         "notInCatalog": "Il n’est pas dans le catalogue.",
         "notTicked": "Il n’a pas été coché à l’installation : ajoutez-le depuis Configurer, où son adresse est affichée.",
-        "onRunner": "Il s’exécute sur un runner : ajoutez-le depuis les serveurs MCP de ce runner (Réglages → Outils → Ajouter un outil de runner), ou installez le plugin en natif sur un harnais du runner.",
+        "onRunner": "Il s’exécute sur un runner : choisissez son runner dans Configurer pour l’ajouter comme outil de runner, puis autorisez-le sur cette machine comme l’indique la page de l’outil.",
         "needsSetting": "Son URL demande un réglage : ajoutez-le depuis la page du plugin.",
         "updateToAdd": "Mettez le plugin à jour pour l’ajouter.",
         "noTable": "Aucune table « {{table}} » n’est configurée ni dans l’espace de travail : choisissez-la aussi, ou créez-la.",
@@ -199,7 +205,8 @@
         "noField": "Son champ « {{field}} » n’existe pas encore : configurez à nouveau ensuite.",
         "noPollTool": "« {{tool}} » n’est pas encore ajouté comme outil.",
         "addedBySetup": "« {{tool}} » est ajouté par cette configuration : configurez le déclencheur une fois que l’outil liste ses actions.",
-        "pollUnasked": "Sa relève exécute « {{action}} » sans demander, ce que l’installation n’accorde pas : laissez {{agent}} l’exécuter, puis configurez le déclencheur."
+        "pollUnasked": "Sa relève exécute « {{action}} » sans demander, ce que l’installation n’accorde pas : laissez {{agent}} l’exécuter, puis configurez le déclencheur.",
+        "noFiles": "Dispand ne garde aucun fichier de ce plugin pour l’exécuter sur un runner : ajoutez-le depuis les serveurs MCP de ce runner (Réglages → Outils → Ajouter un outil de runner), ou mettez le plugin à jour s’il suit le standard Agent Plugins."
       }
     },
     "reason": {

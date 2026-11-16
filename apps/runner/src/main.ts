@@ -10,16 +10,15 @@ import { delimiter, join, resolve } from "node:path";
 import { parseArgs, promisify } from "node:util";
 import pkg from "../package.json" with { type: "json" };
 import { createInterface } from "node:readline/promises";
-import { z } from "zod";
-import { canonicalEntry, contentDigest } from "./plugin-digest.ts";
-import { checkPluginFiles } from "./plugin-servers.ts";
-import { claudeEnv, codexEnv, configDir, loadConfig, PLUGIN_NAME, PluginEntry, loadToken, machineConfigPaths, preparePairing, type RunnerConfig, runnerStateDir, serverUrl, stateDir } from "./config.ts";
+import { canonicalEntry, contentDigest } from "@dispand/runner-protocol/digest";
+import { checkPluginFiles, type FetchedPlugin, fetchPlugin, launchPluginServer } from "./plugin-servers.ts";
+import { claudeEnv, codexEnv, configDir, loadConfig, PLUGIN_NAME, loadToken, machineConfigPaths, preparePairing, type RunnerConfig, runnerStateDir, serverUrl, stateDir } from "./config.ts";
 import { callTool, credentialValues, discoverTool } from "./mcp.ts";
 import { PROXY_SPEC, PROXY_TOKEN, ProxySpec, runProxy } from "./mcp-proxy.ts";
 import { codexDenied } from "./boundary.ts";
-import { clearSessions, readCapped } from "./skills.ts";
+import { clearSessions } from "./skills.ts";
 import { Connection } from "./connection.ts";
-import { ID } from "@dispand/runner-protocol";
+import { ID, type PluginServer } from "@dispand/runner-protocol";
 import { protocolString } from "./sanitize.ts";
 import { atLeast, MIN_CLAUDE, Sessions } from "./sessions.ts";
 import { codexRequired, codexStatus } from "./codex/version.ts";
@@ -102,13 +101,6 @@ async function pair(args: string[]) {
   console.log(`Paired as runner ${runnerId}. Config: ${join(dir, "config.json")}`);
 }
 
-/** A plugin's files as the server's route of a plugin runner tool returns them, within a skill package's caps. */
-const FetchedPlugin = z.object({
-  name: z.string(),
-  entry: PluginEntry,
-  files: z.array(z.object({ path: z.string().max(255), base64: z.base64() })).max(500),
-});
-
 /**
  * `allow-plugin <tool id> <name>@<digest>`: fetches the tool's plugin from the server itself,
  * refuses another name or a digest other than the one typed, shows the launch entry and writes
@@ -126,24 +118,14 @@ async function allowPlugin(args: string[]) {
   // The token first: an older runner's separate token file moves into config.json, which this command then rewrites.
   const token = loadToken(dir);
   const config = loadConfig(path, codexEnv(claudeEnv()));
-  let res: Response;
+  let parsed: FetchedPlugin;
   try {
-    res = await fetch(`${config.server}/runner/plugins/${encodeURIComponent(toolId)}`, { headers: { authorization: `Bearer ${token}` }, redirect: "error", signal: AbortSignal.timeout(30_000) });
+    parsed = await fetchPlugin(config.server, token, toolId);
   } catch (err) {
-    fail(`can't reach ${config.server}: ${(err as Error).message}`);
-  }
-  if (res.status !== 200) {
-    await res.body?.cancel();
-    fail(`Dispand refused the plugin of tool ${toolId} (HTTP ${res.status})`);
-  }
-  let parsed: z.infer<typeof FetchedPlugin>;
-  try {
-    parsed = FetchedPlugin.parse(JSON.parse(await readCapped(res, 16 * 1024 * 1024)));
-  } catch {
-    fail(`the plugin of tool ${toolId} isn't readable or is too large`);
+    fail((err as Error).message);
   }
   if (parsed.name !== name) fail(`tool ${toolId} runs the plugin ${parsed.name}, not ${name}: nothing was written`);
-  const files = parsed.files.map((f) => ({ path: f.path, content: Buffer.from(f.base64, "base64") }));
+  const { files } = parsed;
   // The runner would refuse to launch these files whatever the record: write none for them.
   try {
     checkPluginFiles(name, files);
@@ -211,35 +193,45 @@ async function run(args: string[]) {
 
   // The machine's own MCP servers (runner tools): the only commands started for a session's tools.
   const local = config.mcpServers ?? {};
+  /**
+   * What a tool message names: one of the machine's own servers, or a plugin's stdio server,
+   * launched only as this machine's record allows (`plugin-servers.ts`). Its key, the name its
+   * errors give, and how to start it (or why not, in the runner's words).
+   */
+  const target = (tool: string | PluginServer) => {
+    if (typeof tool !== "string") {
+      return { key: `plugin:${tool.tool}`, name: tool.plugin, server: () => launchPluginServer(config, skillsState, tool, (id) => fetchPlugin(config.server, token, id)) };
+    }
+    const server = Object.hasOwn(local, tool) ? local[tool] : undefined;
+    return { key: tool, name: tool, server: async () => server ?? Promise.reject(new Error(`this runner has no MCP server ${tool} in its config`)) };
+  };
   /** Tools being listed: one listing per tool at a time, so the server can't pile up processes. */
   const listing = new Set<string>();
-  const discover = (requestId: string, tool: string) => {
-    const server = Object.hasOwn(local, tool) ? local[tool] : undefined;
-    if (!server) return conn.reply({ type: "tool.discovered", requestId, error: `this runner has no MCP server ${tool} in its config` });
-    if (listing.has(tool)) return conn.reply({ type: "tool.discovered", requestId, error: `the MCP server ${tool} is already being listed` });
-    listing.add(tool);
-    void discoverTool(tool, server).then(
+  const discover = (requestId: string, tool: string | PluginServer) => {
+    const { key, name, server } = target(tool);
+    if (listing.has(key)) return conn.reply({ type: "tool.discovered", requestId, error: `the MCP server ${name} is already being listed` });
+    listing.add(key);
+    void server().then((s) => discoverTool(name, s)).then(
       (actions) => conn.reply({ type: "tool.discovered", requestId, actions }),
       (err: unknown) => conn.reply({ type: "tool.discovered", requestId, error: (err as Error).message }),
-    ).finally(() => listing.delete(tool));
+    ).finally(() => listing.delete(key));
   };
 
   /** Tools being called for a poll: one call per tool at a time. */
   const calling = new Set<string>();
-  const call = (requestId: string, tool: string, action: string, args: Record<string, unknown>) => {
-    const server = Object.hasOwn(local, tool) ? local[tool] : undefined;
-    if (!server) return conn.reply({ type: "tool.called", requestId, error: `this runner has no MCP server ${tool} in its config` });
-    if (calling.has(tool)) return conn.reply({ type: "tool.called", requestId, error: `the MCP server ${tool} is already being called` });
-    calling.add(tool);
+  const call = (requestId: string, tool: string | PluginServer, action: string, args: Record<string, unknown>) => {
+    const { key, name, server } = target(tool);
+    if (calling.has(key)) return conn.reply({ type: "tool.called", requestId, error: `the MCP server ${name} is already being called` });
+    calling.add(key);
     // The machine's config and every link out of it, and the credentials' values, read now.
     const machine = machineConfigPaths(dir, env);
     const claudeDir = env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
     const credentials = [join(dir, "config.json"), join(claudeDir, ".credentials.json"), join(claudeDir, "settings.json"), join(env.CODEX_HOME || join(homedir(), ".codex"), "auth.json")];
     const guard = { forbidden: codexDenied([...machine, ...credentials]), secrets: [token, ...credentialValues(credentials)] };
-    void callTool(tool, server, action, args, guard).then(
+    void server().then((s) => callTool(name, s, action, args, guard)).then(
       ({ content, isError, hasMore }) => conn.reply({ type: "tool.called", requestId, content, isError, ...(hasMore ? { hasMore } : {}) }),
       (err: unknown) => conn.reply({ type: "tool.called", requestId, error: (err as Error).message }),
-    ).finally(() => calling.delete(tool));
+    ).finally(() => calling.delete(key));
   };
 
   const native = prepareSkillshare(dir, config.pluginTargets, env);

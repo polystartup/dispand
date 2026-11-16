@@ -66,7 +66,10 @@ Status: Prototype
     "Delete" (what used it loses it); what a kept element needs is listed with it and kept too
     unless you say otherwise. An agent, a tool or a table a workflow uses can only be kept, and so can a table
     whose rows a field of one of your tables names, until that field is deleted. Deleting an
-    agent stops its active Jobs and keeps their history. Native installations start selected. A conversation started from a chat trigger stays open
+    agent stops its active Jobs and keeps their history. Native installations start selected.
+    A standard plugin's stdio server is set up as a tool on the runner you pick; that runner runs
+    it only once you allow it there, with the `dispand-runner allow-plugin` line its tool's page
+    shows, and again after any update that changes the plugin's files or its command. A conversation started from a chat trigger stays open
     until it is stopped.
   - A run or a Job still going can be **stopped** from its page: its open steps fail with
     "Stopped", its questions expire and its sessions end at once, whatever they were doing. A

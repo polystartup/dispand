@@ -84,7 +84,11 @@
       "agentLacks": "The agent doesn't have this tool.",
       "notReadable": "A poll may not read this action: the tool doesn't let polls read it, or an agent must ask before using it."
     },
-    "urlCredentials": "The URL can't carry credentials."
+    "urlCredentials": "The URL can't carry credentials.",
+    "plugin": {
+      "removed": "Its plugin was removed: this tool no longer has a server to run.",
+      "noServer": "Its plugin no longer offers the stdio server {{server}}, or keeps no files for it: update the plugin."
+    }
   },
   "plugins": {
     "notFound": "This plugin doesn't exist.",
@@ -158,10 +162,12 @@
     },
     "server": {
       "notFound": "The plugin has no MCP server “{{name}}”.",
-      "onRunner": "{{name}} runs on a runner: add it from the plugin's page.",
+      "onRunner": "{{name}} runs on a runner: pick the runner it runs on.",
       "needsSetting": "{{name}}'s URL needs a setting: add it from the plugin's page.",
       "updateToAdd": "Update the plugin to add {{name}}.",
-      "changed": "{{name}} changed since you reviewed it: look at it again."
+      "changed": "{{name}} changed since you reviewed it: look at it again.",
+      "noFiles": "{{name}} can't run as a runner tool: Dispand keeps no files of this plugin for runners. Update the plugin if it follows the Agent Plugins standard.",
+      "entryTooLarge": "{{name}}'s launch entry is larger than a runner takes."
     },
     "component": {
       "needsSetting": "The MCP server {{server}} needs {{name}}.",
@@ -188,7 +194,7 @@
         "onMachine": "{{name}} runs on your machine: add it in Settings → Tools.",
         "notInCatalog": "It isn't in the catalog.",
         "notTicked": "It wasn't ticked with the install: add it from Set up, where its address is shown.",
-        "onRunner": "It runs on a runner: add it from that runner's own MCP servers (Settings → Tools → Add runner tool), or install the plugin natively on a runner's harness.",
+        "onRunner": "It runs on a runner: pick its runner in Set up to add it as a runner tool, then allow it on that machine as the tool's page shows.",
         "needsSetting": "Its URL needs a setting: add it from the plugin's page.",
         "updateToAdd": "Update the plugin to add it.",
         "noTable": "No table “{{table}}” is set up or in the workspace: pick it too, or make it.",
@@ -199,7 +205,8 @@
         "noField": "Its field “{{field}}” isn't there yet: set it up again afterwards.",
         "noPollTool": "“{{tool}}” isn't added as a tool yet.",
         "addedBySetup": "“{{tool}}” is added by this setup: set the trigger up once it lists its actions.",
-        "pollUnasked": "Its poll runs “{{action}}” unasked, which the install doesn't grant: let {{agent}} run it, then set the trigger up."
+        "pollUnasked": "Its poll runs “{{action}}” unasked, which the install doesn't grant: let {{agent}} run it, then set the trigger up.",
+        "noFiles": "Dispand keeps no files of this plugin to run it on a runner: add it from a runner's own MCP servers (Settings → Tools → Add runner tool), or update the plugin if it follows the Agent Plugins standard."
       }
     },
     "reason": {

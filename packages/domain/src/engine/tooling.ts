@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { JOB_SERVER_NAME, JOB_TOOLS_SERVER } from "@dispand/runner-protocol";
+import { JOB_SERVER_NAME, JOB_TOOLS_SERVER, type PluginServer } from "@dispand/runner-protocol";
+import { runnerTarget } from "../plugins/runner-servers.ts";
 import { and, eq, inArray } from "drizzle-orm";
 import type { RememberedPermissions } from "../agents/remember.ts";
 import { heldUnasked, strictTargets, toolPermissionTarget } from "../agents/tool-ask.ts";
@@ -17,10 +18,11 @@ type ToolRow = typeof tools.$inferSelect;
 export type Tooling = {
   skills: { packageId: string; name: string }[];
   /**
-   * Tools that run on a runner: `tool` is the name of the runner's own MCP server. `unasked`
-   * names the actions allowed by current agent permissions or remembered for this run.
+   * Tools that run on a runner: `tool` is the name of the runner's own MCP server, or for a
+   * plugin's stdio server (`plugin`) the tool's id. `unasked` names the actions allowed by
+   * current agent permissions or remembered for this run.
    */
-  runnerTools: { id: string; name: string; tool: string; runnerId: string; actions: ToolRow["actions"]; unasked: string[]; denied: string[]; runUnasked?: string[] }[];
+  runnerTools: { id: string; name: string; tool: string; plugin?: PluginServer; runnerId: string; actions: ToolRow["actions"]; unasked: string[]; denied: string[]; runUnasked?: string[] }[];
   /**
    * Tools reached by URL: called on the server only, where their sealed headers stay. `unasked`
    * names the actions allowed by current agent permissions or remembered for this run.
@@ -71,11 +73,18 @@ export async function toolingOf(db: Db, run: { ownerId: string; snapshot: AgentS
     const runUnasked = allowed.filter((name) => !denied.includes(name));
     return { ...tool, actions: tool.actions.filter((a) => !denied.includes(a.name)), unasked: [...new Set([...(mine?.unasked ?? []), ...runUnasked])].filter((name) => !denied.includes(name)), denied, runUnasked, chosen: chosen.some((c) => c.toolId === tool.id) };
   });
+  const runnerTools: Tooling["runnerTools"] = [];
+  for (const t of permitted) {
+    if (t.kind !== "runner" || !t.runnerId) continue;
+    // A plugin's stdio server goes as its `plugin` reference, while its plugin still offers it.
+    const target = await runnerTarget(db, t);
+    if (typeof target === "object" && "error" in target) continue;
+    const reached = typeof target === "string" ? { tool: target } : { tool: t.id, plugin: target };
+    runnerTools.push({ id: t.id, name: t.name, ...reached, runnerId: t.runnerId, actions: t.actions, unasked: t.unasked, denied: t.denied, ...(t.runUnasked.length ? { runUnasked: t.runUnasked } : {}) });
+  }
   return {
     skills,
-    runnerTools: permitted.flatMap((t) => t.kind === "runner" && t.runnerId && t.runnerTool
-      ? [{ id: t.id, name: t.name, tool: t.runnerTool, runnerId: t.runnerId, actions: t.actions, unasked: t.unasked, denied: t.denied, ...(t.runUnasked.length ? { runUnasked: t.runUnasked } : {}) }]
-      : []),
+    runnerTools,
     httpTools: permitted.filter((t) => t.kind === "http"),
     agentId,
   };
