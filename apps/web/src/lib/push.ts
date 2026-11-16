@@ -33,15 +33,15 @@ function keyBytes(base64url: string): Uint8Array<ArrayBuffer> {
 export async function subscribeDevice(): Promise<void> {
   const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
   await navigator.serviceWorker.ready;
-  const subscription =
-    (await registration.pushManager.getSubscription()) ??
-    (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes((await api.push.list()).publicKey) }));
+  const known = await registration.pushManager.getSubscription();
+  const subscription = known ?? (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes((await api.push.list()).publicKey) }));
   const { endpoint, keys } = subscription.toJSON();
   try {
     await api.push.subscribe({ endpoint: endpoint!, keys: { p256dh: keys!.p256dh!, auth: keys!.auth! }, language: detectLanguage(navigator.languages) });
   } catch (err) {
-    // Not known to the server: no push comes, so the open tab must keep alerting (it stays quiet while subscribed).
-    await subscription.unsubscribe().catch(() => {});
+    // A new one the server never got: no push comes, so the open tab must keep alerting (it stays quiet
+    // while subscribed). One the server already has stays: a refresh that failed changes nothing.
+    if (!known) await subscription.unsubscribe().catch(() => {});
     throw err;
   }
 }

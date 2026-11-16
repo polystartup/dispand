@@ -54,11 +54,17 @@ test("the service worker shows every push, and a click opens its item", async ()
   expect(hidden.opened).toEqual(["/inbox?item=q_1"]);
 });
 
-test("a subscription the server refused is dropped, so the open tab keeps alerting", async () => {
+test("a new subscription the server refused is dropped, so the open tab keeps alerting; a known one stays", async () => {
   const subscription = { toJSON: () => ({ endpoint: "https://push.example.com/phone", keys: { p256dh: "p", auth: "a" } }), unsubscribe: vi.fn(async () => true) };
+  let known: typeof subscription | null = null;
   fake.push.subscribe.mockRejectedValue(new Error("offline"));
-  Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: { register: async () => ({ pushManager: { getSubscription: async () => subscription } }), ready: Promise.resolve() } });
+  fake.push.list.mockResolvedValue({ publicKey: "AAAA", devices: [] });
+  const pushManager = { getSubscription: async () => known, subscribe: async () => subscription };
+  Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: { register: async () => ({ pushManager }), ready: Promise.resolve() } });
   const { subscribeDevice } = await import("./push.ts");
+  await expect(subscribeDevice()).rejects.toThrow("offline");
+  expect(subscription.unsubscribe).toHaveBeenCalledOnce();
+  known = subscription;
   await expect(subscribeDevice()).rejects.toThrow("offline");
   expect(subscription.unsubscribe).toHaveBeenCalledOnce();
 });
