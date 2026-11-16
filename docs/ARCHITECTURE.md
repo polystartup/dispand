@@ -899,7 +899,8 @@
   from the domain messages (`push.question`, `push.approval`, plural by `count`) in the user's
   Settings language, else the subscription's. A success records a row per item, so a delivered
   item is never pushed again and a restart inside the window loses nothing; a failure is tried
-  again a minute later (only that device: the others have their rows); a 404 or 410 deletes the
+  again a minute later, then twice as late each time up to an hour (only that device: the others
+  have their rows); a 404 or 410 deletes the
   subscription. Pushes go through `pushVia(fetch)`: `web-push` encrypts and signs, the tools'
   address-guarded fetch posts (production), within 15 seconds. The service worker shows every push
   under the tag `dispand-inbox` (Safari revokes a subscription whose push shows nothing, so a

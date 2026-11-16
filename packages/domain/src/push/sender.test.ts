@@ -219,3 +219,9 @@ test("a push is posted encrypted through the given fetch, and a refusal carries 
   status = 410;
   await expect(send(subscription, "{}", options)).rejects.toMatchObject({ name: "WebPushError", statusCode: 410 });
 });
+
+test("a device that keeps failing is tried twice as late each time, up to an hour", async () => {
+  const { retryDelay } = await import("./sender.ts");
+  expect([1, 2, 3, 4].map((n) => retryDelay(n))).toEqual([60_000, 120_000, 240_000, 480_000]);
+  expect(retryDelay(20)).toBe(3_600_000);
+});

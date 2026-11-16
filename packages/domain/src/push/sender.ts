@@ -15,8 +15,12 @@ const counts = meter("push");
 
 /** Items asked within this window after the first go as one push, with their count. */
 export const WINDOW_MS = 10_000;
-/** A device that failed is tried again after this, while its items still wait. */
+/** A device that failed is tried again after this, while its items still wait, then twice as late each time, up to `MAX_RETRY_MS`. */
 export const RETRY_MS = 60_000;
+export const MAX_RETRY_MS = 3_600_000;
+
+/** How long to wait after the `failures`-th flush in a row that left a device failed. */
+export const retryDelay = (failures: number, base = RETRY_MS) => Math.min(base * 2 ** Math.max(0, failures - 1), Math.max(base, MAX_RETRY_MS));
 
 /**
  * What a push carries through the browser vendor's push service: a sentence naming the agent and
@@ -90,6 +94,8 @@ type Waiting = Awaited<ReturnType<typeof waitingItems>>[number];
 export class PushSender {
   private timer: NodeJS.Timeout | undefined;
   private due = 0;
+  /** Flushes in a row that left a device failed (the backoff). */
+  private failures = 0;
   private running: Promise<void> = Promise.resolve();
   private readonly stopping = new AbortController();
 
@@ -135,7 +141,7 @@ export class PushSender {
       .then(() => this.sendWaiting())
       .catch((err: unknown) => {
         logError("push.flush failed", err);
-        this.wake(this.options.retryMs ?? RETRY_MS);
+        this.wake(retryDelay(++this.failures, this.options.retryMs));
       });
     return this.running;
   }
@@ -150,12 +156,17 @@ export class PushSender {
     return inSpan(traces, "push.flush", {}, errorKind, async (span) => {
       const waiting = await waitingItems(this.db);
       span.setAttribute("dispand.push.items", waiting.length);
-      if (waiting.length === 0) return;
+      if (waiting.length === 0) {
+        // Nothing waits: a streak of failures is over.
+        this.failures = 0;
+        return;
+      }
       const bySubscription = new Map<string, Waiting[]>();
       for (const row of waiting) bySubscription.set(row.subscriptionId, [...(bySubscription.get(row.subscriptionId) ?? []), row]);
       const vapid = await vapidKeys(this.db, this.secrets);
       const outcomes = await Promise.all([...bySubscription.values()].map((items) => this.sendOne(items, vapid)));
-      if (outcomes.includes("failed")) this.wake(this.options.retryMs ?? RETRY_MS);
+      if (outcomes.includes("failed")) this.wake(retryDelay(++this.failures, this.options.retryMs));
+      else this.failures = 0;
     });
   }
 
