@@ -130,6 +130,7 @@
       "notShown": "It wasn't on the update's screen.",
       "unreachable": "Its runner couldn't be asked, or the install changed since.",
       "nativeBlocked": "The native preview was blocked.",
+      "nativeApplyBlocked": "The native step was blocked.",
       "nativeFailed": "The native step failed.",
       "parentMissing": "Its parent field {{field}} isn't there: tick its addition too.",
       "parentOther": "Its parent is another field naming the same table: make {{field}} the parent by hand.",

@@ -130,6 +130,7 @@
       "notShown": "Il n’était pas sur l’écran de la mise à jour.",
       "unreachable": "Son runner n’a pas pu être interrogé, ou l’installation a changé depuis.",
       "nativeBlocked": "L’aperçu natif a été bloqué.",
+      "nativeApplyBlocked": "L’étape native a été bloquée.",
       "nativeFailed": "L’étape native a échoué.",
       "parentMissing": "Son champ parent {{field}} n’existe pas : cochez aussi son ajout.",
       "parentOther": "Son parent est un autre champ qui désigne la même table : faites de {{field}} le parent à la main.",
