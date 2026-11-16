@@ -1122,7 +1122,7 @@ async function tableDifferences(db: Db | Tx, ownerId: string, row: PluginRow) {
     });
     const plan = await tablePlan(db, ownerId, t, keptOf, stored, tableExists);
     // The table's first field stays first when the update puts fields in order: a plugin field the owner put first can't be moved from here.
-    const first = plan.fields[0]?.pluginField;
+    const first = [plan.fields[0]?.pluginField].find((f) => f && stored.fields.some((d) => lower(d.name) === lower(f)));
     const firstInOrder = stored.fields.find((d) => plan.fields.some((f) => f.pluginField !== null && lower(f.pluginField) === lower(d.name)))?.name;
     const move = plan.changes.find((c) => c.kind === "move");
     if (move && first && firstInOrder && lower(first) !== lower(firstInOrder)) Object.assign(move, { ticked: false, stale: say("plugins.table.order") });
