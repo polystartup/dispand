@@ -174,5 +174,166 @@
     },
     "summary": "Job d’un autre agent",
     "summaryPaused": "Job d’un autre agent · En pause"
+  },
+  "jobs": {
+    "failed": "Impossible de charger les Jobs.",
+    "emptyTitle": "Aucun Job pour l’instant",
+    "emptyText": "Chaque fois que l’un des déclencheurs de cet agent se déclenche, le Job qu’il crée apparaît ici.",
+    "deletedTrigger": "Déclencheur supprimé",
+    "waitingOn": "en attente de {{agent}}"
+  },
+  "triggers": {
+    "failed": "Impossible de charger les déclencheurs.",
+    "new": "Nouveau déclencheur",
+    "emptyTitle": "Aucun déclencheur pour l’instant",
+    "emptyText": "Un déclencheur fait travailler cet agent : un chat ou un bouton que vous lancez, ou une planification.",
+    "onHome": "Sur l’Accueil",
+    "addToHome": "Ajouter à l’Accueil",
+    "addToHomeLabel": "Ajouter {{name}} à l’Accueil",
+    "summary": {
+      "chat": "Chat",
+      "button": "Bouton",
+      "question": "Question ou Approbation",
+      "questionPaused": "Question ou Approbation · En pause",
+      "tableChange": "Changement de table",
+      "tableChangePaused": "Changement de table · En pause",
+      "poll": "Interrogation · {{action}}",
+      "pollPaused": "Interrogation · En pause",
+      "schedule": "Planification",
+      "schedulePaused": "Planification · En pause",
+      "scheduleNext": "Planification · Prochaine : {{when}} ({{timezone}})"
+    },
+    "fire": {
+      "started": "lancé",
+      "skipped-overlap": "ignoré, un Job était encore en cours",
+      "refused": "refusé"
+    },
+    "last": "Dernier : {{when}}, {{status}}",
+    "lastMessage": "Dernier : {{when}}, {{status}} : {{message}}"
+  },
+  "sheet": {
+    "edit": "Modifier le déclencheur",
+    "create": "Nouveau déclencheur",
+    "description": "Ce qui fait travailler cet agent. Chaque fois qu’il se déclenche, l’agent reçoit un Job.",
+    "starts": "Démarre par",
+    "start": {
+      "chat": {
+        "label": "Chat",
+        "hint": "Une conversation avec l’agent."
+      },
+      "button": {
+        "label": "Bouton",
+        "hint": "Un clic lance le Job."
+      },
+      "schedule": {
+        "label": "Planification",
+        "hint": "Le Job démarre tout seul, selon une planification."
+      },
+      "change": {
+        "label": "Changement de table",
+        "hint": "Le Job démarre quand une ligne d’une table change, et il est informé du changement."
+      },
+      "poll": {
+        "label": "Interrogation",
+        "hint": "Un outil est interrogé pour sa liste toutes les quelques minutes : chaque nouvel élément lance un Job, et le Job est informé de l’élément."
+      }
+    },
+    "problem": {
+      "name": "Donnez un nom au déclencheur",
+      "schedule": "Corrigez d’abord la planification",
+      "table": "Choisissez la table dont les changements lancent le Job",
+      "operations": "Choisissez au moins un changement",
+      "fields": "Choisissez les champs dont le changement lance le Job, ou N’importe quel champ",
+      "cap": "Le plafond horaire est un nombre entier de 1 à 1000",
+      "tool": "Choisissez l’outil et l’action qu’une interrogation lit",
+      "json": "Les arguments ne sont pas du JSON",
+      "jsonObject": "Les arguments sont un objet JSON : { … }",
+      "idPath": "Indiquez où se trouve l’identifiant d’un élément",
+      "interval": "Une interrogation s’exécute toutes les 1 à 1440 minutes"
+    },
+    "overridden": {
+      "name": "Nom",
+      "instructions": "Ce qu’on dit à l’agent",
+      "config": "Quand il se déclenche",
+      "concurrency": "Jobs simultanés",
+      "rateCap": "Jobs par heure"
+    },
+    "resetFailed": "Impossible de réinitialiser le champ : la valeur du plugin n’est peut-être plus autorisée. Modifiez-le à la main.",
+    "name": "Nom",
+    "instructions": "Instructions",
+    "instructionsHint": "Ce qu’on demande à l’agent chaque fois que ce déclencheur se déclenche.",
+    "oneAtATime": "Un seul à la fois",
+    "oneAtATimePoll": "Un nouvel élément trouvé pendant que le Job de ce déclencheur est encore en cours attend qu’il se termine.",
+    "oneAtATimeChange": "Un changement qui survient pendant que le Job de ce déclencheur est encore en cours attend qu’il se termine.",
+    "oneAtATimeSchedule": "Une échéance qui survient pendant que le Job de ce déclencheur est encore en cours est ignorée.",
+    "enabled": "Activé",
+    "save": "Enregistrer",
+    "createButton": "Créer le déclencheur",
+    "delete": "Supprimer le déclencheur"
+  },
+  "poll": {
+    "calling": "Appel de l’outil…",
+    "baseline": "Première interrogation : {{found}} élément(s) enregistré(s), aucun Job",
+    "baselineNote": "Première interrogation : {{found}} élément(s) enregistré(s), aucun Job ({{message}})",
+    "polled": "{{found}} élément(s), {{fresh}} nouveau(x)",
+    "polledNote": "{{found}} élément(s), {{fresh}} nouveau(x) ({{message}})",
+    "skipped": "Ignorée : {{message}}",
+    "failed": "Échec : {{message}}",
+    "item": {
+      "started": "Job lancé",
+      "deferred": "En attente : le plafond horaire est atteint, ou un Job est encore en cours",
+      "out-of-scope": "Ignoré : l’agent ne peut plus lire cette action",
+      "refused": "Refusé",
+      "withMessage": "{{status}} : {{message}}"
+    },
+    "tool": "Outil",
+    "toolHint": "L’un des outils de l’agent : le déclencheur l’appelle de lui-même, en dehors de tout Job.",
+    "pickTool": "Choisir un outil",
+    "action": "Action",
+    "pickAction": "Choisir une action",
+    "actionNone": "Aucune action de cet outil ne peut être lue par une interrogation : autorisez-en une sur la page de l’outil.",
+    "actionHint": "Seulement les actions que les interrogations peuvent lire : en lecture seule, et qu’aucun agent n’utilise après demande.",
+    "preset": "Rempli d’après la fiche de l’outil dans le catalogue : modifiez ce qu’il vous faut.",
+    "arguments": "Arguments (JSON)",
+    "argumentsHint": "{{lastPoll}} dans une valeur désigne le moment où l’élément le plus récent a été trouvé ; {{lastPollEpoch}} ce moment en secondes depuis 1970.",
+    "itemsAt": "Éléments à",
+    "itemsAtHint": "Où se trouve la liste dans le résultat, clés séparées par des points (value, data.items) ; vide quand le résultat est la liste.",
+    "idAt": "Identifiant de l’élément à",
+    "idAtHint": "Ce qui identifie un élément, à l’intérieur de celui-ci (id).",
+    "continuation": "Parcourt le résultat page par page : la page suivante est à <0>{{path}}</0>, renvoyée sous le nom <1>{{argument}}</1>.",
+    "every": "Toutes les (minutes)",
+    "cap": "Au plus, Jobs par heure",
+    "capHint": "Au-delà, les nouveaux éléments attendent leur tour : aucun n’est perdu.",
+    "latest": "Dernières interrogations"
+  },
+  "change": {
+    "op": {
+      "created": "Une ligne est créée",
+      "updated": "Une ligne est modifiée",
+      "deleted": "Une ligne est supprimée"
+    },
+    "interactionOp": {
+      "created": "Une est posée",
+      "answered": "Une reçoit une réponse",
+      "expired": "Une expire"
+    },
+    "status": {
+      "started": "Job lancé",
+      "deferred": "En attente : le plafond horaire est atteint, ou un Job est encore en cours",
+      "skipped-same-agent": "Ignoré : le Job de cet agent a lui-même fait le changement",
+      "stopped": "Arrêté : son travail a été refusé à un point de contrôle",
+      "out-of-scope": "Ignoré : l’agent ne peut pas lire ceci"
+    },
+    "refused": "Refusé : {{message}}",
+    "table": "Table",
+    "tableNone": "Les changements d’aucune table ne sont encore des événements : ouvrez le menu d’une table, Événements et parent.",
+    "pickTable": "Choisir une table",
+    "interaction": "Une Question ou une Approbation",
+    "startsWhen": "Démarre quand",
+    "changeTo": "Un changement de",
+    "anyField": "N’importe quel champ",
+    "cap": "Au plus, Jobs par heure",
+    "capHint": "Au-delà, les changements attendent leur tour : aucun n’est perdu.",
+    "recent": "Récents"
   }
 }

@@ -70,7 +70,7 @@ test("next runs show three times in the schedule's timezone", async () => {
   setup({ field: { ...start, timezone: "America/New_York" } });
   const next = within(screen.getByRole("list", { name: "Next runs" }));
   // Weekdays at 09:00 New York time, after 04:05 there on Thursday 5 Nov.
-  expect(next.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Thu 5 Nov, 09:00", "Fri 6 Nov, 09:00", "Mon 9 Nov, 09:00"]);
+  expect(next.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Thu, Nov 5, 09:00", "Fri, Nov 6, 09:00", "Mon, Nov 9, 09:00"]);
   expect(screen.getByText(/America\/New_York/)).toBeTruthy();
 });
 
@@ -102,9 +102,9 @@ test("recent fires say what happened", () => {
   });
   const recent = within(screen.getByRole("list", { name: "Recent" }));
   expect(recent.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
-    "Thu 5 Nov, 09:00Started",
-    "Wed 4 Nov, 09:00Skipped: a run was still going",
-    "Tue 3 Nov, 09:00Refused: Choose an agent",
+    "Thu, Nov 5, 09:00Started",
+    "Wed, Nov 4, 09:00Skipped: a run was still going",
+    "Tue, Nov 3, 09:00Refused: Choose an agent",
   ]);
   expect(recent.getByRole("link", { name: "Started" }).getAttribute("href")).toBe("/settings/workflows/runs/run_1");
 });

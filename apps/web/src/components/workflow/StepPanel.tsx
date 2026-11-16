@@ -4,6 +4,7 @@ import { nodesOf, removeStep, renameNode, type WorkflowDef } from "@dispand/doma
 import { scheduleTrigger } from "@dispand/domain/workflows/schedule";
 import { Link } from "@tanstack/react-router";
 import { CircleAlert, Trash2, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useText } from "@/lib/message";
@@ -16,7 +17,8 @@ import { ScheduleTriggerPanel, type ScheduleFire } from "./panels/ScheduleTrigge
 import { DataPanel } from "./panels/DataPanel.tsx";
 import { LoopPanel } from "./panels/LoopPanel.tsx";
 
-type Agent = { id: string; name: string };
+type Agent = { id: string; name: string; builtIn?: string | null; plugin?: { name: string } | null };
+const TRIGGER_KINDS = ["button", "chat", "schedule"] as const;
 
 /** The configuration of one node: its name, then its type's body (agent and prompt, a condition, a loop or a data step). */
 export function StepPanel({
@@ -47,6 +49,7 @@ export function StepPanel({
   onChange: (def: WorkflowDef) => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("workflows");
   const text = useText();
   const node = nodesOf(def).find((n) => n.id === nodeId);
   if (!node) return null;
@@ -69,19 +72,19 @@ export function StepPanel({
   }
 
   return (
-    <section aria-label={`${node.name || "Untitled"} settings`} className="space-y-5">
+    <section aria-label={t("step.settings", { name: node.name || t("untitled") })} className="space-y-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[12px] font-medium uppercase tracking-wide text-faint">{isTrigger ? "Trigger" : step?.type === "condition" ? "Condition" : step?.type === "loop" ? "Loop" : step?.type === "data" ? "Data step" : "Agent step"}</p>
-          <p className="text-[17px] font-semibold tracking-tight">{node.name || "Untitled"}</p>
+          <p className="text-[12px] font-medium uppercase tracking-wide text-faint">{t(`step.${isTrigger ? "trigger" : step?.type === "condition" || step?.type === "loop" || step?.type === "data" ? step.type : "agent"}`)}</p>
+          <p className="text-[17px] font-semibold tracking-tight">{node.name || t("untitled")}</p>
         </div>
-        <Button variant="ghost" size="icon-sm" aria-label="Close" onClick={onClose}>
+        <Button variant="ghost" size="icon-sm" aria-label={t("step.close")} onClick={onClose}>
           <X />
         </Button>
       </div>
 
       {mine.length > 0 && (
-        <ul className="space-y-1.5 rounded-xl bg-danger/8 px-3 py-2.5" aria-label="Issues">
+        <ul className="space-y-1.5 rounded-xl bg-danger/8 px-3 py-2.5" aria-label={t("step.issues")}>
           {mine.map((i) => (
             <li key={text(i.message)} className="flex gap-2 text-[13px] text-danger">
               <CircleAlert size={15} className="mt-0.5 shrink-0" aria-hidden />
@@ -93,28 +96,28 @@ export function StepPanel({
 
       {isTrigger && (
         <div>
-          <p className="mb-1.5 text-[13px] font-medium text-muted">Type</p>
-          <div role="radiogroup" aria-label="Trigger type" className="grid grid-cols-3 gap-1 rounded-xl bg-active p-1">
-            {(["button", "chat", "schedule"] as const).map((t) => (
+          <p className="mb-1.5 text-[13px] font-medium text-muted">{t("step.type")}</p>
+          <div role="radiogroup" aria-label={t("step.triggerType")} className="grid grid-cols-3 gap-1 rounded-xl bg-active p-1">
+            {TRIGGER_KINDS.map((kind) => (
               <button
-                key={t}
+                key={kind}
                 type="button"
                 role="radio"
-                aria-checked={trigger.type === t}
-                onClick={() => setTriggerType(t)}
+                aria-checked={trigger.type === kind}
+                onClick={() => setTriggerType(kind)}
                 className={cn(
                   "rounded-lg py-1.5 text-[13px] font-medium transition",
-                  trigger.type === t ? "bg-surface shadow-card" : "text-muted hover:text-fg",
+                  trigger.type === kind ? "bg-surface shadow-card" : "text-muted hover:text-fg",
                 )}
               >
-                {{ button: "Button", chat: "Chat", schedule: "Schedule" }[t]}
+                {t(`step.triggerKind.${kind}`)}
               </button>
             ))}
           </div>
         </div>
       )}
 
-      <FormField label="Name" htmlFor="node-name" hint={`Referenced as {{${node.key}.…}}`}>
+      <FormField label={t("step.name")} htmlFor="node-name" hint={t("step.nameHint", { ref: `{{${node.key}.…}}` })}>
         <Input id="node-name" value={node.name} maxLength={100} onChange={(e) => onChange(renameNode(def, nodeId, e.target.value))} />
       </FormField>
 
@@ -150,7 +153,7 @@ export function StepPanel({
             onClose();
           }}
         >
-          <Trash2 /> Delete step
+          <Trash2 /> {t("step.delete")}
         </Button>
       )}
     </section>

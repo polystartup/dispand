@@ -1,9 +1,11 @@
 import { say } from "@dispand/domain/messages/index.ts";
 import type { ScheduleField } from "@dispand/domain/workflows/model";
-import { cronProblem, fromCron, knownTimezone, nextFires, toCron, type SchedulePreset } from "@dispand/domain/workflows/schedule";
+import { cronProblem, DEFAULT_TIMEZONE, fromCron, knownTimezone, nextFires, toCron, type SchedulePreset } from "@dispand/domain/workflows/schedule";
 import { useId, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { useText } from "@/lib/message";
+import { useFormat } from "../../../lib/format.ts";
 import { cn } from "@/lib/utils";
 import { FormField } from "../../settings/parts.tsx";
 import { selectClass } from "../../data/NewFieldPopover.tsx";
@@ -12,38 +14,38 @@ import { selectClass } from "../../data/NewFieldPopover.tsx";
 export type ScheduleFire = { scheduledFor: Date; status: "started" | "skipped-overlap" | "refused"; runId: string | null; message: string | null };
 
 type Kind = SchedulePreset["kind"] | "custom";
-const KINDS: [Kind, string][] = [
-  ["hourly", "Every hour"],
-  ["daily", "Every day"],
-  ["weekdays", "Weekdays"],
-  ["weekly", "Every week"],
-  ["monthly", "Every month"],
-  ["custom", "Custom"],
-];
+const KINDS: Kind[] = ["hourly", "daily", "weekdays", "weekly", "monthly", "custom"];
 /** Monday first, as the owner's week. */
-const WEEKDAYS: [0 | 1 | 2 | 3 | 4 | 5 | 6, string][] = [
-  [1, "Monday"],
-  [2, "Tuesday"],
-  [3, "Wednesday"],
-  [4, "Thursday"],
-  [5, "Friday"],
-  [6, "Saturday"],
-  [0, "Sunday"],
-];
+const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0] as const;
 
 let zones: string[] | undefined;
 function timezones(): string[] {
   return (zones ??= Intl.supportedValuesOf("timeZone"));
 }
 
-/** "Thu 5 Nov, 09:00" in `timezone`. */
-export function at(date: Date, timezone: string): string {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-GB", { timeZone: timezone, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
-      .formatToParts(date)
-      .map((p) => [p.type, p.value]),
-  );
-  return `${parts.weekday} ${parts.day} ${parts.month}, ${parts.hour}:${parts.minute}`;
+/** A date as "Thu 5 Nov, 09:00" in `timezone`, in the page's language. */
+export function useAt() {
+  const format = useFormat();
+  return (date: Date, timezone: string) => format.dateTime(date, { timeZone: timezone, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+}
+
+/** The schedule in words: "Every weekday at 09:00"; the timezone named when it isn't Paris. */
+export function useDescribeSchedule() {
+  const { t } = useTranslation("workflows");
+  return (cron: string, timezone: string): string => {
+    const p = fromCron(cron);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const text = !p
+      ? t("describeSchedule.custom", { cron: cron.trim() })
+      : p.kind === "hourly"
+        ? t("describeSchedule.hourly", { minute: pad(p.minute) })
+        : p.kind === "weekly"
+          ? t("describeSchedule.weekly", { weekday: t(`schedule.weekday.${p.weekday}`), time: p.time })
+          : p.kind === "monthly"
+            ? t("describeSchedule.monthly", { day: p.day, time: p.time })
+            : t(`describeSchedule.${p.kind}`, { time: p.time });
+    return timezone === DEFAULT_TIMEZONE ? text : t("describeSchedule.zone", { text, timezone });
+  };
 }
 
 /** The preset of `kind`, keeping what the current one has in common with it. */
@@ -85,6 +87,8 @@ export function ScheduleTriggerPanel({
   onPause: (enabled: boolean) => void;
   runLink?: (runId: string, children: ReactNode) => ReactNode;
 }) {
+  const { t } = useTranslation("workflows");
+  const at = useAt();
   const ids = { cron: useId(), tz: useId(), zones: useId(), problem: useId() };
   const preset = fromCron(field.cron);
   const [kind, setKind] = useState<Kind>(preset?.kind ?? "custom");
@@ -114,9 +118,9 @@ export function ScheduleTriggerPanel({
   return (
     <>
       <div>
-        <p className="mb-1.5 text-[13px] font-medium text-muted">Repeat</p>
-        <div role="radiogroup" aria-label="Repeat" className="grid grid-cols-2 gap-1 rounded-xl bg-active p-1 sm:grid-cols-3">
-          {KINDS.map(([k, label]) => (
+        <p className="mb-1.5 text-[13px] font-medium text-muted">{t("schedule.repeat")}</p>
+        <div role="radiogroup" aria-label={t("schedule.repeat")} className="grid grid-cols-2 gap-1 rounded-xl bg-active p-1 sm:grid-cols-3">
+          {KINDS.map((k) => (
             <button
               key={k}
               type="button"
@@ -125,14 +129,14 @@ export function ScheduleTriggerPanel({
               onClick={() => pick(k)}
               className={cn("rounded-lg py-1.5 text-[13px] font-medium transition", kind === k ? "bg-surface shadow-card" : "text-muted hover:text-fg")}
             >
-              {label}
+              {t(`schedule.kind.${k}`)}
             </button>
           ))}
         </div>
       </div>
 
       {shown?.kind === "hourly" && (
-        <FormField label="Minute" htmlFor="schedule-minute" hint="Past each hour.">
+        <FormField label={t("schedule.minute")} htmlFor="schedule-minute" hint={t("schedule.minuteHint")}>
           <Input
             id="schedule-minute"
             type="number"
@@ -147,18 +151,18 @@ export function ScheduleTriggerPanel({
         </FormField>
       )}
       {shown?.kind === "weekly" && (
-        <FormField label="Day" htmlFor="schedule-weekday">
+        <FormField label={t("schedule.day")} htmlFor="schedule-weekday">
           <select id="schedule-weekday" value={shown.weekday} onChange={(e) => setPreset({ ...shown, weekday: Number(e.target.value) as typeof shown.weekday })} className={selectClass}>
-            {WEEKDAYS.map(([d, label]) => (
+            {WEEKDAYS.map((d) => (
               <option key={d} value={d}>
-                {label}
+                {t(`schedule.weekday.${d}`)}
               </option>
             ))}
           </select>
         </FormField>
       )}
       {shown?.kind === "monthly" && (
-        <FormField label="Day of the month" htmlFor="schedule-day" hint="Up to the 28th, so every month has it.">
+        <FormField label={t("schedule.dayOfMonth")} htmlFor="schedule-day" hint={t("schedule.dayOfMonthHint")}>
           <select id="schedule-day" value={shown.day} onChange={(e) => setPreset({ ...shown, day: Number(e.target.value) })} className={selectClass}>
             {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
               <option key={d} value={d}>
@@ -169,7 +173,7 @@ export function ScheduleTriggerPanel({
         </FormField>
       )}
       {shown && shown.kind !== "hourly" && (
-        <FormField label="Time" htmlFor="schedule-time">
+        <FormField label={t("schedule.time")} htmlFor="schedule-time">
           <Input
             id="schedule-time"
             type="time"
@@ -182,7 +186,7 @@ export function ScheduleTriggerPanel({
         </FormField>
       )}
       {kind === "custom" && (
-        <FormField label="Cron" htmlFor={ids.cron} hint="minute hour day month weekday, e.g. */15 9-17 * * 1-5">
+        <FormField label={t("schedule.cron")} htmlFor={ids.cron} hint={t("schedule.cronHint")}>
           <Input
             id={ids.cron}
             value={cron}
@@ -203,7 +207,7 @@ export function ScheduleTriggerPanel({
         </FormField>
       )}
 
-      <FormField label="Timezone" htmlFor={ids.tz}>
+      <FormField label={t("schedule.timezone")} htmlFor={ids.tz}>
         <Input
           id={ids.tz}
           value={timezone}
@@ -229,8 +233,8 @@ export function ScheduleTriggerPanel({
 
       {next.length > 0 && (
         <div>
-          <p className="mb-1.5 text-[13px] font-medium text-muted">Next runs ({field.timezone})</p>
-          <ul aria-label="Next runs" className="space-y-1 text-[14px]">
+          <p className="mb-1.5 text-[13px] font-medium text-muted">{t("schedule.nextRuns", { timezone: field.timezone })}</p>
+          <ul aria-label={t("schedule.nextRunsList")} className="space-y-1 text-[14px]">
             {next.map((d) => (
               <li key={d.getTime()}>{at(d, field.timezone)}</li>
             ))}
@@ -240,13 +244,13 @@ export function ScheduleTriggerPanel({
 
       <label className="flex items-center justify-between gap-3 text-[14px]">
         <span>
-          Paused
-          {!schedule && <span className="block text-[12px] text-faint">Once the schedule is saved.</span>}
+          {t("schedule.paused")}
+          {!schedule && <span className="block text-[12px] text-faint">{t("schedule.pausedHint")}</span>}
         </span>
         <input
           type="checkbox"
           role="switch"
-          aria-label="Paused"
+          aria-label={t("schedule.paused")}
           disabled={!schedule}
           checked={schedule ? !schedule.enabled : false}
           onChange={(e) => onPause(!e.target.checked)}
@@ -256,19 +260,19 @@ export function ScheduleTriggerPanel({
 
       {fires.length > 0 && (
         <div>
-          <p className="mb-1.5 text-[13px] font-medium text-muted">Recent</p>
-          <ul aria-label="Recent" className="space-y-1.5 text-[14px]">
+          <p className="mb-1.5 text-[13px] font-medium text-muted">{t("schedule.recent")}</p>
+          <ul aria-label={t("schedule.recent")} className="space-y-1.5 text-[14px]">
             {fires.map((f) => (
               <li key={f.scheduledFor.getTime()} className="flex flex-wrap justify-between gap-x-3">
                 <span className="text-muted">{at(f.scheduledFor, field.timezone)}</span>
                 <span className={f.status === "refused" ? "text-danger" : undefined}>
                   {f.status === "started" && f.runId
-                    ? runLink(f.runId, "Started")
+                    ? runLink(f.runId, t("schedule.started"))
                     : f.status === "started"
-                      ? "Started"
+                      ? t("schedule.started")
                       : f.status === "skipped-overlap"
-                        ? "Skipped: a run was still going"
-                        : `Refused: ${f.message ?? ""}`}
+                        ? t("schedule.skippedOverlap")
+                        : t("schedule.refused", { message: f.message ?? "" })}
                 </span>
               </li>
             ))}

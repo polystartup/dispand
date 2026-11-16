@@ -1,6 +1,7 @@
 import { type Cell, cellText, type FieldSchema, parseCellText } from "@dispand/domain/data/fields";
 import { Check } from "lucide-react";
 import { type KeyboardEvent, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useText } from "../../lib/message.ts";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
@@ -41,6 +42,7 @@ export function CellEditor({ field, value, onCommit, onCancel, inline = true, in
 
 function TextEditor({ field, value, onCommit, onCancel, inline, initialText }: Props) {
   const [text, setText] = useState(() => initialText ?? cellText(field, value));
+  const { t } = useTranslation("data");
   const reasonText = useText();
   const [problem, setProblem] = useState<string | null>(null);
   const long = field.type === "long-text";
@@ -118,7 +120,7 @@ function TextEditor({ field, value, onCommit, onCancel, inline, initialText }: P
       ) : (
         <input {...common} type={field.type === "date" ? "date" : field.type === "url" ? "url" : "text"} inputMode={field.type === "number" ? "decimal" : undefined} className={inputClass} />
       )}
-      {long && <p className="mt-1 text-[12px] text-faint">⌘/Ctrl + Enter to save</p>}
+      {long && <p className="mt-1 text-[12px] text-faint">{t("cell.save")}</p>}
       {problem && (
         <p role="alert" className="mt-1 rounded-md bg-surface px-2 py-1 text-[12px] text-danger shadow-card">
           {problem}
@@ -130,6 +132,7 @@ function TextEditor({ field, value, onCommit, onCancel, inline, initialText }: P
 
 /** A reference: one of the rows of its table, named by their first field (the first 100). */
 function ReferenceEditor({ field, ...rest }: Props) {
+  const { t } = useTranslation("data");
   const tableId = field.referencesTableId ?? "";
   const table = useQuery(orpc.tables.get.queryOptions({ input: { id: tableId } }));
   const rows = useQuery(orpc.rows.list.queryOptions({ input: { tableId, limit: 100 } }));
@@ -137,12 +140,13 @@ function ReferenceEditor({ field, ...rest }: Props) {
   const choices = (rows.data?.rows ?? []).map((r) => {
     const value = first ? r.values[first.id] : null;
     const label = first && value !== null && value !== undefined ? cellText(first, value) : "";
-    return { id: r.id, label: label || "Untitled row" };
+    return { id: r.id, label: label || t("cell.untitledRow") };
   });
   return <SelectEditor field={{ ...field, choices }} {...rest} />;
 }
 
 function SelectEditor({ field, value, onCommit, onCancel, inline }: Props) {
+  const { t } = useTranslation("data");
   return (
     <div
       className={cn("rounded-xl bg-surface p-1", inline ? "absolute left-0 top-0 z-20 min-w-48 shadow-card" : "border border-line")}
@@ -174,10 +178,10 @@ function SelectEditor({ field, value, onCommit, onCancel, inline }: Props) {
         ))}
       </ul>
       {field.choices.length === 0 && (
-        <p className="px-2 py-1.5 text-[13px] text-muted">{field.type === "reference" ? "No rows in that table yet." : "No choices yet: add them from the field's menu."}</p>
+        <p className="px-2 py-1.5 text-[13px] text-muted">{t(field.type === "reference" ? "cell.noRows" : "cell.noChoices")}</p>
       )}
       <button type="button" onClick={() => onCommit(null)} className="mt-1 w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-muted hover:bg-hover">
-        Clear
+        {t("cell.clear")}
       </button>
     </div>
   );

@@ -32,5 +32,22 @@
     "version": "Version {{version}}",
     "started": "Démarrée {{when}}",
     "took": "a duré {{duration}}"
+  },
+  "list": {
+    "failed": "Impossible de charger les exécutions.",
+    "emptyTitle": "Aucune exécution pour l’instant",
+    "emptyText": "Les exécutions lancées depuis l’Accueil apparaissent ici, avec ce qu’a fait chaque étape.",
+    "workflow": "Workflow",
+    "job": "Job"
+  },
+  "trigger": {
+    "consult": "Consulté par un autre agent",
+    "schedule": "Planifié pour le {{when}}",
+    "manual": "Manuel"
+  },
+  "tabs": {
+    "workflows": "Workflows",
+    "runs": "Exécutions",
+    "editor": "Éditeur"
   }
 }

@@ -18,6 +18,7 @@ import enData from "../locales/en/data.json";
 import enWorkflows from "../locales/en/workflows.json";
 import enMemory from "../locales/en/memory.json";
 import enAudit from "../locales/en/audit.json";
+import enDashboard from "../locales/en/dashboard.json";
 import frAssistant from "../locales/fr/assistant.json";
 import frChat from "../locales/fr/chat.json";
 import frQuestions from "../locales/fr/questions.json";
@@ -35,14 +36,15 @@ import frData from "../locales/fr/data.json";
 import frWorkflows from "../locales/fr/workflows.json";
 import frMemory from "../locales/fr/memory.json";
 import frAudit from "../locales/fr/audit.json";
+import frDashboard from "../locales/fr/dashboard.json";
 
 // The page's strings, one namespace per area, in English and French (`locales/<language>/`), and
 // the `messages` namespace: what the server and the page share (`packages/domain/src/messages/`),
 // the built-in agent's name first. A key missing in French falls back to English.
 
 export const resources = {
-  en: { common: enCommon, shell: enShell, auth: enAuth, settings: enSettings, agents: enAgents, harnesses: enHarnesses, skills: enSkills, tools: enTools, plugins: enPlugins, data: enData, workflows: enWorkflows, memory: enMemory, audit: enAudit, assistant: enAssistant, chat: enChat, questions: enQuestions, runs: enRuns, messages: enMessages },
-  fr: { common: frCommon, shell: frShell, auth: frAuth, settings: frSettings, agents: frAgents, harnesses: frHarnesses, skills: frSkills, tools: frTools, plugins: frPlugins, data: frData, workflows: frWorkflows, memory: frMemory, audit: frAudit, assistant: frAssistant, chat: frChat, questions: frQuestions, runs: frRuns, messages: frMessages },
+  en: { common: enCommon, shell: enShell, auth: enAuth, settings: enSettings, agents: enAgents, harnesses: enHarnesses, skills: enSkills, tools: enTools, plugins: enPlugins, data: enData, workflows: enWorkflows, memory: enMemory, audit: enAudit, dashboard: enDashboard, assistant: enAssistant, chat: enChat, questions: enQuestions, runs: enRuns, messages: enMessages },
+  fr: { common: frCommon, shell: frShell, auth: frAuth, settings: frSettings, agents: frAgents, harnesses: frHarnesses, skills: frSkills, tools: frTools, plugins: frPlugins, data: frData, workflows: frWorkflows, memory: frMemory, audit: frAudit, dashboard: frDashboard, assistant: frAssistant, chat: frChat, questions: frQuestions, runs: frRuns, messages: frMessages },
 } as const;
 
 export type Language = keyof typeof resources;

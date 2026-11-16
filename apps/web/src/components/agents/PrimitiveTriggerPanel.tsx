@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { orpc } from "../../lib/api.ts";
+import { useFormat } from "../../lib/format.ts";
 import { selectClass } from "../data/NewFieldPopover.tsx";
 import { FormField } from "../settings/parts.tsx";
 import { qualifiedName } from "@dispand/domain/plugins/names";
@@ -10,33 +11,15 @@ export type Operation = "created" | "updated" | "deleted" | "answered" | "expire
 export type ChangeConfig = { tableId: string; operations: Operation[]; fields?: string[] };
 export type EventFire = { eventId: string; at: Date; status: string; runId?: string; message?: string };
 
-const OPERATIONS: [Operation, string][] = [
-  ["created", "A row is created"],
-  ["updated", "A row is changed"],
-  ["deleted", "A row is deleted"],
-];
+const OPERATIONS: Operation[] = ["created", "updated", "deleted"];
 
 /** The built-in kind of Questions and Approvals, picked in place of a table. */
 const INTERACTION = "interaction";
-const INTERACTION_OPERATIONS: [Operation, string][] = [
-  ["created", "One is asked"],
-  ["answered", "One is answered"],
-  ["expired", "One expires"],
-];
+const INTERACTION_OPERATIONS: Operation[] = ["created", "answered", "expired"];
 
 /** The built-in kind of Jobs: another agent's Job created, finished or failed (its labels are `agents:jobTrigger` keys). */
 const JOB = "job";
 const JOB_OPERATIONS: Operation[] = ["created", "finished", "failed"];
-
-const statusText: Record<string, string> = {
-  started: "Started a Job",
-  deferred: "Waiting: the hour's cap is reached, or a Job is still going",
-  "skipped-same-agent": "Skipped: this agent's own Job made the change",
-  stopped: "Stopped: its work was declined at a checkpoint",
-  "out-of-scope": "Skipped: the agent may not read this",
-};
-
-const when = (date: Date) => new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" }).format(date);
 
 /**
  * A table-change trigger's settings: which primitive table (or Questions and Approvals, or other agents' Jobs), which
@@ -55,39 +38,41 @@ export function PrimitiveTriggerPanel({
   onChange: (config: ChangeConfig) => void;
   onRateCap: (cap: number) => void;
 }) {
-  const { t } = useTranslation("agents");
+  const { t, i18n } = useTranslation("agents");
+  const format = useFormat();
+  const when = (date: Date) => format.dateTime(date, { dateStyle: "short", timeStyle: "short" });
   const tables = useQuery(orpc.tables.list.queryOptions());
   const interaction = config.tableId === INTERACTION;
   // Questions and Approvals, and Jobs, are no table: no fields to read.
   const builtIn = interaction || config.tableId === JOB;
   const table = useQuery({ ...orpc.tables.get.queryOptions({ input: { id: config.tableId } }), enabled: !!config.tableId && !builtIn });
-  const operationsOf = (tableId: string): [Operation, string][] =>
-    tableId === INTERACTION ? INTERACTION_OPERATIONS : tableId === JOB ? JOB_OPERATIONS.map((op) => [op, t(`jobTrigger.operations.${op}` as never)]) : OPERATIONS;
-  const primitives = (tables.data ?? []).filter((t) => t.primitive || t.id === config.tableId);
+  const operationsOf = (tableId: string) => (tableId === INTERACTION ? INTERACTION_OPERATIONS : tableId === JOB ? JOB_OPERATIONS : OPERATIONS);
+  const operationLabel = (op: Operation) => (interaction ? t(`change.interactionOp.${op as "created"}`) : config.tableId === JOB ? t(`jobTrigger.operations.${op as "created"}`) : t(`change.op.${op as "created"}`));
+  const primitives = (tables.data ?? []).filter((tb) => tb.primitive || tb.id === config.tableId);
   const toggle = <T,>(list: T[], item: T, on: boolean) => (on ? [...list, item] : list.filter((x) => x !== item));
 
   return (
     <>
       <FormField
-        label="Table"
+        label={t("change.table")}
         htmlFor="trigger-table"
-        hint={primitives.length === 0 && tables.isSuccess ? "No table's changes are events yet: open a table's menu, Events and parent." : undefined}
+        hint={primitives.length === 0 && tables.isSuccess ? t("change.tableNone") : undefined}
       >
-        <select id="trigger-table" className={selectClass} value={config.tableId} onChange={(e) => onChange({ tableId: e.target.value, operations: config.operations.filter((op) => operationsOf(e.target.value).some(([o]) => o === op)) })}>
-          <option value="">Pick a table</option>
-          <option value={INTERACTION}>A Question or an Approval</option>
+        <select id="trigger-table" className={selectClass} value={config.tableId} onChange={(e) => onChange({ tableId: e.target.value, operations: config.operations.filter((op) => operationsOf(e.target.value).includes(op)) })}>
+          <option value="">{t("change.pickTable")}</option>
+          <option value={INTERACTION}>{t("change.interaction")}</option>
           <option value={JOB}>{t("jobTrigger.option")}</option>
-          {primitives.map((t) => (
-            <option key={t.id} value={t.id}>
-              {qualifiedName(t.plugin?.name ?? null, t.name)}
+          {primitives.map((tb) => (
+            <option key={tb.id} value={tb.id}>
+              {qualifiedName(tb.plugin?.name ?? null, tb.name)}
             </option>
           ))}
         </select>
       </FormField>
       <fieldset>
-        <legend className="mb-1.5 text-[13px] font-medium text-muted">Starts when</legend>
+        <legend className="mb-1.5 text-[13px] font-medium text-muted">{t("change.startsWhen")}</legend>
         <div className="grid gap-1.5">
-          {operationsOf(config.tableId).map(([op, label]) => (
+          {operationsOf(config.tableId).map((op) => (
             <label key={op} className="flex items-center gap-2 text-[14px]">
               <input
                 type="checkbox"
@@ -99,14 +84,14 @@ export function PrimitiveTriggerPanel({
                 }}
                 className="size-4 accent-[var(--color-accent)]"
               />
-              {label}
+              {operationLabel(op)}
             </label>
           ))}
         </div>
       </fieldset>
       {!builtIn && config.operations.includes("updated") && table.data && (
         <fieldset>
-          <legend className="mb-1.5 text-[13px] font-medium text-muted">A change to</legend>
+          <legend className="mb-1.5 text-[13px] font-medium text-muted">{t("change.changeTo")}</legend>
           <div className="grid gap-1.5">
             <label className="flex items-center gap-2 text-[14px]">
               <input
@@ -115,7 +100,7 @@ export function PrimitiveTriggerPanel({
                 onChange={(e) => onChange({ tableId: config.tableId, operations: config.operations, ...(e.target.checked ? {} : { fields: [] }) })}
                 className="size-4 accent-[var(--color-accent)]"
               />
-              Any field
+              {t("change.anyField")}
             </label>
             {config.fields &&
               table.data.fields.map((f) => (
@@ -132,21 +117,21 @@ export function PrimitiveTriggerPanel({
           </div>
         </fieldset>
       )}
-      <FormField label="At most, Jobs an hour" htmlFor="trigger-rate-cap" hint="Past it, changes wait their turn: none is lost.">
+      <FormField label={t("change.cap")} htmlFor="trigger-rate-cap" hint={t("change.capHint")}>
         <Input id="trigger-rate-cap" type="number" min={1} max={1000} value={rateCap} onChange={(e) => onRateCap(Number(e.target.value))} />
       </FormField>
       {events.length > 0 && (
         <div>
-          <p className="mb-1.5 text-[13px] font-medium text-muted">Recent</p>
-          <ul aria-label="Recent" className="space-y-1.5 text-[14px]">
+          <p className="mb-1.5 text-[13px] font-medium text-muted">{t("change.recent")}</p>
+          <ul aria-label={t("change.recent")} className="space-y-1.5 text-[14px]">
             {events.map((f) => (
               <li key={f.eventId} className="flex flex-wrap justify-between gap-x-3">
                 <span className="text-muted">{when(f.at)}</span>
                 <span className={f.status === "refused" || f.status === "out-of-scope" || f.status === "stopped" ? "text-danger" : undefined}>
                   {f.status === "started" && f.runId ? (
-                    <a href={`/settings/workflows/runs/${f.runId}`}>{statusText.started}</a>
+                    <a href={`/settings/workflows/runs/${f.runId}`}>{t("change.status.started")}</a>
                   ) : (
-                    (statusText[f.status] ?? `Refused: ${f.message ?? ""}`)
+                    (i18n.exists(`agents:change.status.${f.status}`) ? t(`change.status.${f.status}` as never) : t("change.refused", { message: f.message ?? "" }))
                   )}
                 </span>
               </li>

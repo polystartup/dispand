@@ -32,5 +32,22 @@
     "version": "Version {{version}}",
     "started": "Started {{when}}",
     "took": "took {{duration}}"
+  },
+  "list": {
+    "failed": "Could not load the runs.",
+    "emptyTitle": "No run yet",
+    "emptyText": "Runs started from Home show up here, with what each step did.",
+    "workflow": "Workflow",
+    "job": "Job"
+  },
+  "trigger": {
+    "consult": "Consulted by another agent",
+    "schedule": "Scheduled for {{when}}",
+    "manual": "Manual"
+  },
+  "tabs": {
+    "workflows": "Workflows",
+    "runs": "Runs",
+    "editor": "Editor"
   }
 }

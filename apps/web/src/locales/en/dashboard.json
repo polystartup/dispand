@@ -1,0 +1,16 @@
+{
+  "placeholder": {
+    "soon": "Coming soon",
+    "soonText": "Coming soon."
+  },
+  "help": {
+    "title": "Help",
+    "subtitle": "Answers about Dispand will live here. Meanwhile, ask the Assistant."
+  },
+  "home": {
+    "welcome": "Welcome, {{name}}",
+    "subtitle": "Start your workflows and talk with your agents.",
+    "failed": "Could not load Home.",
+    "empty": "Add a widget to start a workflow from here, or ask the Assistant to set one up."
+  }
+}

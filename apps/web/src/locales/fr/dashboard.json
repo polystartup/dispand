@@ -1,0 +1,16 @@
+{
+  "placeholder": {
+    "soon": "Bientôt disponible",
+    "soonText": "Bientôt disponible."
+  },
+  "help": {
+    "title": "Aide",
+    "subtitle": "Les réponses sur Dispand seront ici. En attendant, demandez à l’Assistant."
+  },
+  "home": {
+    "welcome": "Bienvenue, {{name}}",
+    "subtitle": "Lancez vos workflows et discutez avec vos agents.",
+    "failed": "Impossible de charger l’Accueil.",
+    "empty": "Ajoutez un widget pour lancer un workflow d’ici, ou demandez à l’Assistant d’en préparer un."
+  }
+}

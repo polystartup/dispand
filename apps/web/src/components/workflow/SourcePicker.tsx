@@ -3,12 +3,15 @@ import type { FieldSchema } from "@dispand/domain/data/fields";
 import { isOutputName, sourceFields } from "@dispand/domain/workflows/derive";
 import { nodesOf, upstreamOf, type Ref, type Source, type WorkflowDef } from "@dispand/domain/workflows/model";
 import { useId, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { FormField } from "../settings/parts.tsx";
 import { selectClass } from "../data/NewFieldPopover.tsx";
 
 /** The "From" option for a literal. */
 const VALUE = "__value";
+/** What a loop gives besides a field of its item. */
+const LOOP_NAMES = ["item", "index"];
 
 /**
  * Where a step's value comes from: an upstream step that gives values (a chat or agent step is
@@ -40,6 +43,7 @@ export function SourcePicker({
   /** Groups the picker under this name (several pickers in one panel). */
   label?: string;
 }) {
+  const { t } = useTranslation("workflows");
   const id = useId();
   const nameHint = useId();
   const listId = useId();
@@ -82,27 +86,27 @@ export function SourcePicker({
 
   const body: ReactNode = (
     <div className="space-y-3">
-      <FormField label="From" htmlFor={`${id}-from`}>
+      <FormField label={t("source.from")} htmlFor={`${id}-from`}>
         <select id={`${id}-from`} value={picked || from === VALUE ? from : ""} onChange={(e) => pickFrom(e.target.value)} className={selectClass}>
           <option value="" disabled>
-            Choose a step
+            {t("source.chooseStep")}
           </option>
           {sources.map(({ node }) => (
             <option key={node.id} value={node.id}>
-              {node.name || "Untitled"}
+              {node.name || t("untitled")}
             </option>
           ))}
-          {allowValue && <option value={VALUE}>A value</option>}
+          {allowValue && <option value={VALUE}>{t("source.value")}</option>}
         </select>
       </FormField>
       {from === VALUE && source?.type === "value" && (
-        <FormField label="Value" htmlFor={`${id}-value`}>
+        <FormField label={t("source.valueLabel")} htmlFor={`${id}-value`}>
           <ValueInput id={`${id}-value`} field={field} value={source.value} onChange={(value) => onChange({ type: "value", value })} />
         </FormField>
       )}
       {picked &&
         (picked.gives.kind === "fixed" ? (
-          <FormField label="Value" htmlFor={`${id}-value`}>
+          <FormField label={t("source.valueLabel")} htmlFor={`${id}-value`}>
             <select id={`${id}-value`} value={name} onChange={(e) => setRef(from, e.target.value)} className={selectClass}>
               {picked.gives.fields.map((f) => (
                 <option key={f} value={f}>
@@ -113,12 +117,12 @@ export function SourcePicker({
           </FormField>
         ) : (
           <FormField
-            label="Value"
+            label={t("source.valueLabel")}
             htmlFor={`${id}-value`}
             hint={
               picked.node.type === "loop"
-                ? `The item, its index or a field of the item, like {{${picked.node.key}.${name || "item"}}}.`
-                : `${picked.node.name || "Untitled"} is asked for it, like {{${picked.node.key}.${name || "name"}}}.`
+                ? t("source.loopHint", { ref: `{{${picked.node.key}.${name || "item"}}}` })
+                : t("source.askedHint", { name: picked.node.name || t("untitled"), ref: `{{${picked.node.key}.${name || "name"}}}` })
             }
           >
             <Input
@@ -132,13 +136,13 @@ export function SourcePicker({
               onChange={(e) => setRef(from, e.target.value.trim())}
             />
             <datalist id={listId}>
-              {(picked.node.type === "loop" ? ["item", "index"] : (expected[from] ?? []).map((f) => f.name)).map((f) => (
+              {(picked.node.type === "loop" ? LOOP_NAMES : (expected[from] ?? []).map((f) => f.name)).map((f) => (
                 <option key={f} value={f} />
               ))}
             </datalist>
             {nameInvalid && (
               <p id={nameHint} role="alert" className="mt-1.5 text-[13px] text-danger">
-                A value's name is letters, digits and _, not starting with a digit.
+                {t("source.invalidName")}
               </p>
             )}
           </FormField>
@@ -157,11 +161,12 @@ export function SourcePicker({
 
 /** A literal as text, its input fitted to the field it goes into (`parseCellText` reads it). */
 function ValueInput({ id, field, value, onChange }: { id: string; field?: FieldSchema; value: string; onChange: (value: string) => void }) {
+  const { t } = useTranslation("workflows");
   if (field?.type === "checkbox" || field?.type === "single-select") {
-    const options = field.type === "checkbox" ? [{ value: "true", label: "Checked" }, { value: "false", label: "Unchecked" }] : field.choices.map((c) => ({ value: c.label, label: c.label }));
+    const options = field.type === "checkbox" ? [{ value: "true", label: t("source.checked") }, { value: "false", label: t("source.unchecked") }] : field.choices.map((c) => ({ value: c.label, label: c.label }));
     return (
       <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className={selectClass}>
-        <option value="">Empty</option>
+        <option value="">{t("source.empty")}</option>
         {options.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}

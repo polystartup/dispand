@@ -5,25 +5,20 @@ import { cn } from "@/lib/utils";
 import { Empty, List } from "../settings/parts.tsx";
 import { Tabs } from "../settings/Tabs.tsx";
 import { type api, orpc } from "../../lib/api.ts";
+import { useFormat } from "../../lib/format.ts";
+import { useAgentName } from "../../lib/agent-name.ts";
 
 type Run = Awaited<ReturnType<typeof api.runs.list>>[number];
 
-export const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
-
-const paris = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-
 /** What started a run: "Manual", "Consulted by another agent", or "Scheduled for 5 Nov, 09:00" (Paris time). */
-export function triggerText(trigger: Run["trigger"]): string {
-  if (trigger.type === "consult") return "Consulted by another agent";
-  return trigger.type === "schedule" ? `Scheduled for ${paris.format(new Date(trigger.scheduledFor))}` : "Manual";
-}
-
-/** How long from `from` to `to` (or until now), as "1 h 2 min", "3 min 4 s" or "5 s". */
-export function duration(from: Date, to: Date | null): string {
-  const s = Math.max(0, Math.round(((to ?? new Date()).getTime() - from.getTime()) / 1000));
-  if (s >= 3600) return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
-  if (s >= 60) return `${Math.floor(s / 60)} min ${s % 60} s`;
-  return `${s} s`;
+export function useTriggerText(): (trigger: Run["trigger"]) => string {
+  const { t } = useTranslation("runs");
+  const format = useFormat();
+  return (trigger) => {
+    if (trigger.type === "consult") return t("trigger.consult");
+    if (trigger.type !== "schedule") return t("trigger.manual");
+    return t("trigger.schedule", { when: format.dateTime(trigger.scheduledFor, { timeZone: "Europe/Paris", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) });
+  };
 }
 
 const tones: Record<string, string> = {
@@ -52,6 +47,10 @@ export function Status({ status }: { status: string }) {
 
 /** The latest runs of one workflow, or of all of them (named then), newest first. */
 export function RunList({ workflowId }: { workflowId?: string }) {
+  const { t } = useTranslation("runs");
+  const format = useFormat();
+  const triggerText = useTriggerText();
+  const agentName = useAgentName();
   const runs = useQuery({
     ...orpc.runs.list.queryOptions({ input: workflowId ? { workflowId } : {} }),
     // Follows the runs still going.
@@ -60,13 +59,13 @@ export function RunList({ workflowId }: { workflowId?: string }) {
   const workflows = useQuery({ ...orpc.workflows.list.queryOptions(), enabled: !workflowId });
   const agents = useQuery({ ...orpc.agents.list.queryOptions(), enabled: !workflowId });
   const names = new Map(workflows.data?.map((w) => [w.id, w.name]));
-  const agentNames = new Map(agents.data?.map((a) => [a.id, a.name]));
+  const agentNames = new Map(agents.data?.map((a) => [a.id, agentName(a)]));
 
-  if (runs.error) return <p role="alert" className="text-[14px] text-danger">Could not load the runs.</p>;
+  if (runs.error) return <p role="alert" className="text-[14px] text-danger">{t("list.failed")}</p>;
   if (!runs.data) return null;
   if (runs.data.length === 0) {
     return (
-      <Empty title="No run yet" text="Runs started from Home show up here, with what each step did.">
+      <Empty title={t("list.emptyTitle")} text={t("list.emptyText")}>
         {null}
       </Empty>
     );
@@ -82,11 +81,11 @@ export function RunList({ workflowId }: { workflowId?: string }) {
           >
             <span className="flex min-w-0 items-center gap-3">
               <Status status={r.queued && r.status === "running" ? "queued" : r.status} />
-              {!workflowId && <span className="truncate text-[15px] font-medium">{r.workflowId ? (names.get(r.workflowId) ?? "Workflow") : (jobAgent(r, agentNames) ?? "Job")}</span>}
+              {!workflowId && <span className="truncate text-[15px] font-medium">{r.workflowId ? (names.get(r.workflowId) ?? t("list.workflow")) : (jobAgent(r, agentNames) ?? t("list.job"))}</span>}
               <span className="text-[13px] text-muted">{triggerText(r.trigger)}</span>
             </span>
             <span className="shrink-0 text-[13px] text-muted">
-              {when.format(r.createdAt)} · {r.finishedAt ? duration(r.createdAt, r.finishedAt) : "still going"}
+              {format.dateTimeSeconds(r.createdAt)} · {r.finishedAt ? format.duration(r.createdAt, r.finishedAt) : t("stillGoing")}
             </span>
           </Link>
         </li>
@@ -97,11 +96,12 @@ export function RunList({ workflowId }: { workflowId?: string }) {
 
 /** Tabs of the workflows page: the workflows, and every workflow's runs. */
 export function WorkflowsTabs() {
+  const { t } = useTranslation("runs");
   return (
     <Tabs
       tabs={[
-        { to: "/settings/workflows", label: "Workflows" },
-        { to: "/settings/workflows/runs", label: "Runs" },
+        { to: "/settings/workflows", label: t("tabs.workflows") },
+        { to: "/settings/workflows/runs", label: t("tabs.runs") },
       ]}
     />
   );
@@ -109,11 +109,12 @@ export function WorkflowsTabs() {
 
 /** Tabs of one workflow: its editor and its runs. */
 export function WorkflowTabs({ id }: { id: string }) {
+  const { t } = useTranslation("runs");
   return (
     <Tabs
       tabs={[
-        { to: `/settings/workflows/${id}`, label: "Editor" },
-        { to: `/settings/workflows/${id}/runs`, label: "Runs" },
+        { to: `/settings/workflows/${id}`, label: t("tabs.editor") },
+        { to: `/settings/workflows/${id}/runs`, label: t("tabs.runs") },
       ]}
     />
   );

@@ -9,6 +9,7 @@ import { StopRun } from "../components/runs/StopRun.tsx";
 import { Status } from "../components/workflow/Runs.tsx";
 import { nodesOf } from "@dispand/domain/workflows/model";
 import { orpc } from "../lib/api.ts";
+import { useAgentName } from "../lib/agent-name.ts";
 import { useFormat } from "../lib/format.ts";
 import { useRun } from "../lib/run-watch.ts";
 
@@ -18,6 +19,7 @@ export const Route = createFileRoute("/_app/settings/workflows/runs/$runId")({ c
 function RunPage() {
   const { t } = useTranslation("runs");
   const format = useFormat();
+  const agentName = useAgentName();
   const { runId } = Route.useParams();
   // The live state comes from the stream; this read only tells a missing run from a loading one.
   const check = useQuery({ ...orpc.runs.get.queryOptions({ input: { runId } }), retry: false });
@@ -36,7 +38,7 @@ function RunPage() {
   if (check.error && !state) return <p role="alert" className="text-[14px] text-danger">{t("page.failed")}</p>;
   if (!state || !run) return null;
 
-  const agentNames = new Map(agents.data?.map((a) => [a.id, a.name]));
+  const agentNames = new Map(agents.data?.map((a) => [a.id, agentName(a)]));
   // A Job of a deleted agent names it as it kept it, on its steps too.
   if (run.deletedAgentName) for (const n of job.data ? nodesOf(job.data) : []) if (n.agentId) agentNames.set(n.agentId, run.deletedAgentName);
 

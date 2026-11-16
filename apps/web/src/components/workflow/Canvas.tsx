@@ -15,14 +15,15 @@ import {
 } from "@xyflow/react";
 import { Bot, CircleAlert, Clock, Database, GitBranch, MessageCircle, MousePointerClick, Repeat, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { connect, disconnect, loopOf, nodesOf, type AddAt, type ConditionStep, type DataStep, type Edge as WorkflowEdge, type LoopStep, type StepType, type WorkflowDef } from "@dispand/domain/workflows/model";
-import { describeSchedule } from "@dispand/domain/workflows/schedule";
 import { useText } from "@/lib/message";
 import { cn } from "@/lib/utils";
 import { AddStepMenu } from "./AddStepMenu.tsx";
 import { CARD, GROUP, layoutWorkflow } from "./layout.ts";
 import { describeCondition } from "./panels/ConditionPanel.tsx";
 import { describeDataStep } from "./panels/DataPanel.tsx";
+import { useDescribeSchedule } from "./panels/ScheduleTriggerPanel.tsx";
 
 type CardData = {
   title: string;
@@ -41,14 +42,16 @@ type Branch = NonNullable<WorkflowEdge["branch"]>;
 type LinkData = { fromName: string; toName: string; branch?: Branch; inLoop: boolean; onAdd: (type: StepType) => void; onRemove: () => void };
 
 const icons = { button: MousePointerClick, chat: MessageCircle, schedule: Clock, agent: Bot, condition: GitBranch, data: Database };
-const branchLabels: Record<Branch, string> = { then: "Then", else: "Else" };
 /** Where a condition's Then and Else leave its card. */
+const BRANCHES = ["then", "else"] as const;
 const branchAt: Record<Branch, string> = { then: "25%", else: "75%" };
 const handle = "!size-2.5 !border-0 !bg-faint";
 
 function Card({ data }: NodeProps<Node<CardData>>) {
+  const { t } = useTranslation("workflows");
   const Icon = icons[data.kind];
-  const title = data.title || "Untitled";
+  const title = data.title || t("untitled");
+  const issues = t("canvas.issues", { count: data.issues });
   return (
     <div
       className={cn(
@@ -66,25 +69,25 @@ function Card({ data }: NodeProps<Node<CardData>>) {
         <span className="block truncate text-[12px] text-muted">{data.subtitle}</span>
       </span>
       {data.issues > 0 && (
-        <span className="text-danger" title={`${data.issues} issue${data.issues > 1 ? "s" : ""}`}>
-          <CircleAlert size={16} aria-label={`${data.issues} issue${data.issues > 1 ? "s" : ""}`} />
+        <span className="text-danger" title={issues}>
+          <CircleAlert size={16} aria-label={issues} />
         </span>
       )}
       {data.kind === "condition" ? (
         // Its links out leave from the handle of their branch, each with its own "+".
-        (["then", "else"] as const).map((branch) => (
+        BRANCHES.map((branch) => (
           <span key={branch}>
             <Handle id={branch} type="source" position={Position.Bottom} className={handle} style={{ left: branchAt[branch] }} />
             <span className="absolute top-full mt-1 flex -translate-x-1/2 items-center gap-1" style={{ left: branchAt[branch] }}>
-              <AddStepMenu onPick={(type) => data.onAdd(type, branch)} label={`Add a step on ${title}'s ${branchLabels[branch]} branch`} className="size-5" inLoop={data.inLoop} />
-              <span className="text-[11px] font-medium text-muted">{branchLabels[branch]}</span>
+              <AddStepMenu onPick={(type) => data.onAdd(type, branch)} label={t("canvas.addOnBranch", { name: title, branch: t(`canvas.${branch}`) })} className="size-5" inLoop={data.inLoop} />
+              <span className="text-[11px] font-medium text-muted">{t(`canvas.${branch}`)}</span>
             </span>
           </span>
         ))
       ) : (
         <>
           <Handle type="source" position={Position.Bottom} className={handle} />
-          <AddStepMenu onPick={(type) => data.onAdd(type)} label={`Add a step after ${title}`} className="absolute top-full left-1/2 mt-1 size-5 -translate-x-1/2" inLoop={data.inLoop} />
+          <AddStepMenu onPick={(type) => data.onAdd(type)} label={t("canvas.addAfter", { name: title })} className="absolute top-full left-1/2 mt-1 size-5 -translate-x-1/2" inLoop={data.inLoop} />
         </>
       )}
     </div>
@@ -92,7 +95,8 @@ function Card({ data }: NodeProps<Node<CardData>>) {
 }
 
 function Group({ data }: NodeProps<Node<GroupData>>) {
-  const issues = `${data.issues} issue${data.issues > 1 ? "s" : ""}`;
+  const { t } = useTranslation("workflows");
+  const issues = t("canvas.issues", { count: data.issues });
   return (
     <div className={cn("relative size-full rounded-3xl border-2 border-dashed bg-hover/50 transition", data.selected ? "border-accent" : "border-line")}>
       <Handle type="target" position={Position.Top} className={handle} />
@@ -106,18 +110,19 @@ function Group({ data }: NodeProps<Node<GroupData>>) {
       </div>
       {data.empty && (
         <div className="absolute inset-x-0 flex flex-col items-center gap-1" style={{ top: GROUP.header + 8 }}>
-          <AddStepMenu onPick={data.onAddInside} label={`Add a step inside ${data.name}`} className="size-5" inLoop />
-          <span className="text-[11px] text-muted">Steps to repeat go here</span>
+          <AddStepMenu onPick={data.onAddInside} label={t("canvas.addInside", { name: data.name })} className="size-5" inLoop />
+          <span className="text-[11px] text-muted">{t("canvas.repeatHere")}</span>
         </div>
       )}
       <Handle type="source" position={Position.Bottom} className={handle} />
-      <AddStepMenu onPick={data.onAdd} label={`Add a step after ${data.name}`} className="absolute top-full left-1/2 mt-1 size-5 -translate-x-1/2" />
+      <AddStepMenu onPick={data.onAdd} label={t("canvas.addAfter", { name: data.name })} className="absolute top-full left-1/2 mt-1 size-5 -translate-x-1/2" />
     </div>
   );
 }
 
 /** A link, with a "+" at its middle to add a step on it and, once selected, a "×" to remove it. */
 function Link({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, selected, data, markerEnd }: EdgeProps<Edge<LinkData>>) {
+  const { t } = useTranslation("workflows");
   const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
   return (
     <>
@@ -129,14 +134,14 @@ function Link({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPo
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
           >
             {data.branch && (
-              <span className="rounded-full bg-surface px-1.5 text-[11px] font-medium text-muted ring-1 ring-line">{branchLabels[data.branch]}</span>
+              <span className="rounded-full bg-surface px-1.5 text-[11px] font-medium text-muted ring-1 ring-line">{t(`canvas.${data.branch}`)}</span>
             )}
-            <AddStepMenu onPick={data.onAdd} label={`Add a step between ${data.fromName} and ${data.toName}`} className="size-5" inLoop={data.inLoop} />
+            <AddStepMenu onPick={data.onAdd} label={t("canvas.addBetween", { from: data.fromName, to: data.toName })} className="size-5" inLoop={data.inLoop} />
             {selected && (
               <button
                 type="button"
                 onClick={data.onRemove}
-                aria-label={`Remove the link from ${data.fromName} to ${data.toName}`}
+                aria-label={t("canvas.removeLink", { from: data.fromName, to: data.toName })}
                 className="pointer-events-auto absolute left-full ml-1 grid size-5 place-items-center rounded-full bg-surface text-danger shadow-card ring-1 ring-line transition hover:bg-hover"
               >
                 <X size={12} aria-hidden />
@@ -177,6 +182,8 @@ export function Canvas({
   onAdd: (at: AddAt, type: StepType) => void;
   onChange: (def: WorkflowDef) => void;
 }) {
+  const { t } = useTranslation("workflows");
+  const describeSchedule = useDescribeSchedule();
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const text = useText();
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -188,7 +195,7 @@ export function Canvas({
 
   const { nodes, edges } = useMemo(() => {
     const list = nodesOf(def);
-    const names = new Map(list.map((n) => [n.id, n.name || "Untitled"]));
+    const names = new Map(list.map((n) => [n.id, n.name || t("untitled")]));
     const trigger = def.trigger.field;
     const layout = layoutWorkflow(def);
     const condition = (id: string) => def.steps.find((s): s is ConditionStep => s.id === id && s.type === "condition");
@@ -210,9 +217,9 @@ export function Canvas({
         const box = layout.groups[n.id];
         if (step && box) {
           const data: GroupData = {
-            name: n.name || "Untitled",
-            title: `For each ${listName(step) ?? "…"}`,
-            subtitle: `at most ${step.maxIterations}`,
+            name: n.name || t("untitled"),
+            title: t("canvas.forEach", { list: listName(step) ?? "…" }),
+            subtitle: t("canvas.atMost", { max: step.maxIterations }),
             empty: !def.steps.some((s) => s.loopId === n.id),
             selected: n.id === selectedId,
             issues: issueCounts.get(n.id) ?? 0,
@@ -236,15 +243,15 @@ export function Canvas({
             subtitle:
               n.kind === "trigger"
                 ? trigger.type === "chat"
-                  ? `Chat · ${agentNames.get(trigger.agentId) ?? "no agent"}`
+                  ? t("canvas.chat", { agent: agentNames.get(trigger.agentId) ?? t("canvas.noAgent") })
                   : trigger.type === "schedule"
                     ? describeSchedule(trigger.cron, trigger.timezone)
-                    : "Button"
+                    : t("canvas.button")
                 : condition(n.id)
-                  ? describeCondition(def, condition(n.id)!)
+                  ? describeCondition(t, def, condition(n.id)!)
                   : dataStep(n.id)
-                    ? describeDataStep(dataStep(n.id)!, tableNames)
-                    : (agentNames.get(n.agentId ?? "") ?? "Choose an agent"),
+                    ? describeDataStep(t, dataStep(n.id)!, tableNames)
+                    : (agentNames.get(n.agentId ?? "") ?? t("canvas.chooseAgent")),
             kind: n.kind === "trigger" ? trigger.type : n.type === "condition" || n.type === "data" ? n.type : "agent",
             selected: n.id === selectedId,
             issues: issueCounts.get(n.id) ?? 0,
@@ -270,7 +277,7 @@ export function Canvas({
       },
     }));
     return { nodes, edges };
-  }, [def, agentNames, tableNames, selectedId, issueCounts, onAdd, onChange, selectedEdge]);
+  }, [def, agentNames, tableNames, selectedId, issueCounts, onAdd, onChange, selectedEdge, t, describeSchedule]);
 
   // Fit the view when the graph's shape changes, not on every edit of a step.
   const shape = `${nodes.map((n) => n.id).join()}|${edges.map((e) => e.id).join()}`;
@@ -311,7 +318,7 @@ export function Canvas({
         fitViewOptions={{ maxZoom: 1, padding: 0.3 }}
         minZoom={0.4}
         maxZoom={1.5}
-        aria-label="Workflow canvas"
+        aria-label={t("canvas.label")}
       >
         <Background gap={20} size={1} color="var(--line)" />
       </ReactFlow>

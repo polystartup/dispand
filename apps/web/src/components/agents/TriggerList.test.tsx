@@ -40,7 +40,7 @@ test("TriggerList shows a schedule trigger's next run in its timezone", async ()
   mount();
   const row = (await screen.findByText("Morning mail")).closest("li")!;
   // 09:00 UTC is 10:00 in Paris.
-  expect(within(row).getByText(/Next: Thu 5 Nov, 10:00 \(Europe\/Paris\)/)).toBeTruthy();
+  expect(within(row).getByText(/Next: Thu, Nov 5, 10:00 \(Europe\/Paris\)/)).toBeTruthy();
   expect(within(screen.getByText("Ask the clerk").closest("li")!).getByText("Chat")).toBeTruthy();
 });
 
@@ -60,4 +60,23 @@ test("TriggerList adds a manual trigger to Home", async () => {
   const user = mount();
   await user.click(await screen.findByRole("button", { name: "Add Ask the clerk to Home" }));
   expect(fake.widgets.create.mock.calls[0]![0]).toEqual({ pageId: "page_home", type: "trigger-form", triggerId: "trigger_2" });
+});
+
+test("TriggerList is in French", async () => {
+  const { I18nextProvider } = await import("react-i18next");
+  const { createI18n } = await import("../../lib/i18n.ts");
+  fake.triggers.list.mockResolvedValue([{ ...daily, lastFires: [{ scheduledFor: new Date("2026-11-04T09:00:00Z"), status: "skipped-overlap" }] }, ask]);
+  fake.pages.home.mockResolvedValue({ id: "page_home", widgets: [] });
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <TriggerList agentId="agent_1" />
+      </QueryClientProvider>
+    </I18nextProvider>,
+  );
+  const row = (await screen.findByText("Morning mail")).closest("li")!;
+  expect(within(row).getByText(/Planification · Prochaine : .*10:00 \(Europe\/Paris\)/)).toBeTruthy();
+  expect(within(row).getByText(/Dernier : .*, ignoré, un Job était encore en cours/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Nouveau déclencheur" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Ajouter Ask the clerk à l’Accueil" })).toBeTruthy();
 });

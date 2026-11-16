@@ -1,34 +1,33 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
-import type { TFunction } from "i18next";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { type api, orpc } from "../../lib/api.ts";
 import { Empty, List } from "../settings/parts.tsx";
-import { at } from "../workflow/panels/ScheduleTriggerPanel.tsx";
+import { useAt } from "../workflow/panels/ScheduleTriggerPanel.tsx";
 import { TriggerSheet } from "./TriggerSheet.tsx";
 
 export type Trigger = Awaited<ReturnType<typeof api.triggers.list>>[number];
 
-const fireText = { started: "started", "skipped-overlap": "skipped, a Job was still going", refused: "refused" } as const;
-
-/** What a trigger does, in a line: how it starts and, for a schedule, when it next fires. */
-function summary(t: Trigger, tr: TFunction<"agents">): string {
-  if (t.config.kind === "manual") return t.config.placement === "chat" ? "Chat" : "Button";
-  if (t.config.kind === "primitive") {
-    if (t.config.tableId === "job") return tr(t.enabled ? "jobTrigger.summary" : "jobTrigger.summaryPaused");
-    const what = t.config.tableId === "interaction" ? "Question or Approval" : "Table change";
-    return t.enabled ? what : `${what} · Paused`;
-  }
-  if (t.config.kind === "poll") return t.enabled ? `Poll · ${t.config.action}` : "Poll · Paused";
-  if (!t.enabled) return "Schedule · Paused";
-  return t.nextFireAt ? `Schedule · Next: ${at(t.nextFireAt, t.config.timezone)} (${t.config.timezone})` : "Schedule";
-}
 
 /** The agent's triggers: what makes it work. Each opens its sheet; a manual one can go on Home. */
 export function TriggerList({ agentId }: { agentId: string }) {
-  const { t: tr } = useTranslation("agents");
+  const { t } = useTranslation("agents");
+  const at = useAt();
+  /** What a trigger does, in a line: how it starts and, for a schedule, when it next fires. */
+  function summary(tr: Trigger): string {
+    const c = tr.config;
+    if (c.kind === "manual") return t(c.placement === "chat" ? "triggers.summary.chat" : "triggers.summary.button");
+    if (c.kind === "primitive") {
+      if (c.tableId === "job") return t(tr.enabled ? "jobTrigger.summary" : "jobTrigger.summaryPaused");
+      const key = c.tableId === "interaction" ? "question" : "tableChange";
+      return t(tr.enabled ? `triggers.summary.${key}` : `triggers.summary.${key}Paused`);
+    }
+    if (c.kind === "poll") return tr.enabled ? t("triggers.summary.poll", { action: c.action }) : t("triggers.summary.pollPaused");
+    if (!tr.enabled) return t("triggers.summary.schedulePaused");
+    return tr.nextFireAt ? t("triggers.summary.scheduleNext", { when: at(tr.nextFireAt, c.timezone), timezone: c.timezone }) : t("triggers.summary.schedule");
+  }
   const queryClient = useQueryClient();
   const triggers = useQuery(orpc.triggers.list.queryOptions({ input: { agentId } }));
   const home = useQuery(orpc.pages.home.queryOptions());
@@ -37,50 +36,53 @@ export function TriggerList({ agentId }: { agentId: string }) {
   const [open, setOpen] = useState<Trigger | null | undefined>(undefined);
   const onHome = (id: string) => home.data?.widgets.some((w) => w.type === "trigger-form" && w.triggerId === id) ?? false;
 
-  if (triggers.error) return <p role="alert" className="text-[14px] text-danger">Could not load the triggers.</p>;
+  if (triggers.error) return <p role="alert" className="text-[14px] text-danger">{t("triggers.failed")}</p>;
   if (!triggers.data) return null;
   const add = (
     <Button onClick={() => setOpen(null)}>
       <Plus aria-hidden />
-      New trigger
+      {t("triggers.new")}
     </Button>
   );
   return (
     <>
       {triggers.data.length === 0 ? (
-        <Empty title="No trigger yet" text="A trigger makes this agent work: a chat or a button you start, or a schedule.">
+        <Empty title={t("triggers.emptyTitle")} text={t("triggers.emptyText")}>
           {add}
         </Empty>
       ) : (
         <>
           <div className="mb-4 flex justify-end">{add}</div>
           <List>
-            {triggers.data.map((t) => {
-              const last = t.lastFires[0];
+            {triggers.data.map((tr) => {
+              const last = tr.lastFires[0];
               return (
-                <li key={t.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-4">
-                  <button type="button" onClick={() => setOpen(t)} className="min-w-0 flex-1 text-left">
-                    <span className="block truncate text-[15px] font-medium">{t.name}</span>
-                    <span className="block text-[13px] text-muted">{summary(t, tr)}</span>
+                <li key={tr.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-4">
+                  <button type="button" onClick={() => setOpen(tr)} className="min-w-0 flex-1 text-left">
+                    <span className="block truncate text-[15px] font-medium">{tr.name}</span>
+                    <span className="block text-[13px] text-muted">{summary(tr)}</span>
                     {last && (
                       <span className={`block text-[13px] ${last.status === "refused" ? "text-danger" : "text-faint"}`}>
-                        Last: {at(last.scheduledFor, t.config.kind === "schedule" ? t.config.timezone : "UTC")}, {fireText[last.status]}
-                        {last.message ? `: ${last.message}` : ""}
+                        {t(last.message ? "triggers.lastMessage" : "triggers.last", {
+                          when: at(last.scheduledFor, tr.config.kind === "schedule" ? tr.config.timezone : "UTC"),
+                          status: t(`triggers.fire.${last.status}`),
+                          message: last.message,
+                        })}
                       </span>
                     )}
                   </button>
-                  {t.config.kind === "manual" &&
-                    (onHome(t.id) ? (
-                      <span className="text-[13px] text-muted">On Home</span>
+                  {tr.config.kind === "manual" &&
+                    (onHome(tr.id) ? (
+                      <span className="text-[13px] text-muted">{t("triggers.onHome")}</span>
                     ) : (
                       <Button
                         variant="outline"
                         size="sm"
-                        aria-label={`Add ${t.name} to Home`}
+                        aria-label={t("triggers.addToHomeLabel", { name: tr.name })}
                         disabled={!home.data || addToHome.isPending}
-                        onClick={() => home.data && addToHome.mutate({ pageId: home.data.id, type: "trigger-form", triggerId: t.id })}
+                        onClick={() => home.data && addToHome.mutate({ pageId: home.data.id, type: "trigger-form", triggerId: tr.id })}
                       >
-                        Add to Home
+                        {t("triggers.addToHome")}
                       </Button>
                     ))}
                 </li>

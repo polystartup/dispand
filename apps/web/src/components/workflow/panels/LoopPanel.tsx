@@ -2,6 +2,7 @@ import type { OutputField } from "@dispand/runner-protocol";
 import { MAX_ITERATIONS } from "@dispand/domain/workflows/loop";
 import type { LoopStep, Ref, WorkflowDef } from "@dispand/domain/workflows/model";
 import { useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { FormField } from "../../settings/parts.tsx";
 import { SourcePicker } from "../SourcePicker.tsx";
@@ -18,6 +19,7 @@ export function LoopPanel({
   expected: Record<string, OutputField[]>;
   onChange: (def: WorkflowDef) => void;
 }) {
+  const { t } = useTranslation("workflows");
   function set(patch: Partial<LoopStep>) {
     onChange({ ...def, steps: def.steps.map((s) => (s.id === step.id ? { ...step, ...patch } : s)) });
   }
@@ -28,7 +30,7 @@ export function LoopPanel({
   return (
     <>
       <div className="space-y-3">
-        <p className="text-[13px] font-medium text-muted">For each item of</p>
+        <p className="text-[13px] font-medium text-muted">{t("loop.each")}</p>
         <SourcePicker
           def={def}
           stepId={step.id}
@@ -37,7 +39,7 @@ export function LoopPanel({
           // Without `allowValue` the picker only gives values of upstream steps.
           onChange={(list) => set({ list: list as Ref | null })}
         />
-        <FormField label="At most" htmlFor="loop-max" hint="A longer list makes the loop fail before its first iteration.">
+        <FormField label={t("loop.atMost")} htmlFor="loop-max" hint={t("loop.hint")}>
           <Input
             id="loop-max"
             type="number"
@@ -53,14 +55,18 @@ export function LoopPanel({
           />
           {invalid && (
             <p role="alert" className="mt-1.5 text-[13px] text-danger">
-              A whole number from 1 to {MAX_ITERATIONS}.
+              {t("loop.invalid", { max: MAX_ITERATIONS })}
             </p>
           )}
         </FormField>
       </div>
       <p className="text-[13px] text-faint">
-        Inside the loop, use <code className="font-mono">{`{{${step.key}.item}}`}</code> and <code className="font-mono">{`{{${step.key}.index}}`}</code>
-        . After it, <code className="font-mono">{`{{${step.key}.count}}`}</code> and <code className="font-mono">{`{{${step.key}.results}}`}</code>.
+        <Trans
+          t={t}
+          i18nKey="loop.footer"
+          values={{ item: `{{${step.key}.item}}`, index: `{{${step.key}.index}}`, total: `{{${step.key}.count}}`, results: `{{${step.key}.results}}` }}
+          components={[<code key="item" className="font-mono" />, <code key="index" className="font-mono" />, <code key="count" className="font-mono" />, <code key="results" className="font-mono" />]}
+        />
       </p>
     </>
   );

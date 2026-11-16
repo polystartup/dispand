@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
+import { Trans, useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { orpc } from "../../lib/api.ts";
+import { useFormat } from "../../lib/format.ts";
 import { selectClass } from "../data/NewFieldPopover.tsx";
 import { FormField } from "../settings/parts.tsx";
 
@@ -18,22 +20,6 @@ export type PollForm = {
 type PollItem = { itemId: string; status: string; runId?: string; message?: string };
 export type PollRecord = { at: Date; status: string; found: number; fresh: number; message?: string; items: PollItem[] };
 
-const pollText: Record<string, (p: PollRecord) => string> = {
-  calling: () => "Calling the tool…",
-  baseline: (p) => `First poll: ${p.found} item(s) recorded, no Job${p.message ? ` (${p.message})` : ""}`,
-  polled: (p) => `${p.found} item(s), ${p.fresh} new${p.message ? ` (${p.message})` : ""}`,
-  skipped: (p) => `Skipped: ${p.message ?? ""}`,
-  failed: (p) => `Failed: ${p.message ?? ""}`,
-};
-
-const itemText: Record<string, string> = {
-  started: "Started a Job",
-  deferred: "Waiting: the hour's cap is reached, or a Job is still going",
-  "out-of-scope": "Skipped: the agent may no longer read this action",
-  refused: "Refused",
-};
-
-const when = (date: Date) => new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" }).format(date);
 
 /**
  * A poll trigger's settings: the tool and one of its actions a poll may read, the arguments
@@ -55,6 +41,30 @@ export function PollTriggerPanel({
   onChange: (config: PollForm) => void;
   onRateCap: (cap: number) => void;
 }) {
+  const { t, i18n } = useTranslation("agents");
+  const format = useFormat();
+  const when = (date: Date) => format.dateTime(date, { dateStyle: "short", timeStyle: "short" });
+  const pollText = (p: PollRecord): string => {
+    const values = { found: format.number(p.found), fresh: format.number(p.fresh), message: p.message };
+    switch (p.status) {
+      case "calling":
+        return t("poll.calling");
+      case "baseline":
+        return t(p.message ? "poll.baselineNote" : "poll.baseline", values);
+      case "polled":
+        return t(p.message ? "poll.polledNote" : "poll.polled", values);
+      case "skipped":
+        return t("poll.skipped", { message: p.message ?? "" });
+      case "failed":
+        return t("poll.failed", { message: p.message ?? "" });
+      default:
+        return p.status;
+    }
+  };
+  const itemText = (i: PollItem): string => {
+    const status = i18n.exists(`agents:poll.item.${i.status}`) ? t(`poll.item.${i.status}` as never) : i.status;
+    return i.message && i.status !== "deferred" ? t("poll.item.withMessage", { status, message: i.message }) : status;
+  };
   // The agent's own tools, chosen or through its skills: a poll reads no more than its agent may.
   const agent = useQuery(orpc.agents.get.queryOptions({ input: { id: agentId } }));
   const actions = useQuery({ ...orpc.tools.pollable.queryOptions({ input: { id: config.toolId } }), enabled: !!config.toolId });
@@ -83,9 +93,9 @@ export function PollTriggerPanel({
 
   return (
     <>
-      <FormField label="Tool" htmlFor="trigger-tool" hint="One of the agent's tools: the trigger calls it on its own, outside any Job.">
+      <FormField label={t("poll.tool")} htmlFor="trigger-tool" hint={t("poll.toolHint")}>
         <select id="trigger-tool" className={selectClass} value={config.toolId} onChange={(e) => pickTool(e.target.value)}>
-          <option value="">Pick a tool</option>
+          <option value="">{t("poll.pickTool")}</option>
           {(agent.data?.tools ?? []).map((t) => (
             <option key={t.toolId} value={t.toolId}>
               {t.name}
@@ -95,12 +105,12 @@ export function PollTriggerPanel({
       </FormField>
       {config.toolId && (
         <FormField
-          label="Action"
+          label={t("poll.action")}
           htmlFor="trigger-action"
-          hint={actions.isSuccess && pollable.length === 0 ? "No action of this tool may be read by a poll: let polls read one on the tool's page." : "Only actions polls may read: read-only, and no agent asks before using them."}
+          hint={actions.isSuccess && pollable.length === 0 ? t("poll.actionNone") : t("poll.actionHint")}
         >
           <select id="trigger-action" className={selectClass} value={config.action} onChange={(e) => onChange({ ...config, action: e.target.value })}>
-            <option value="">Pick an action</option>
+            <option value="">{t("poll.pickAction")}</option>
             {pollable.map((a) => (
               <option key={a.name} value={a.name}>
                 {a.name}
@@ -109,41 +119,45 @@ export function PollTriggerPanel({
           </select>
         </FormField>
       )}
-      {config.toolId && presetOf(config.toolId)?.action === config.action && <p className="text-[13px] text-muted">Filled in from the tool's catalog entry: change what you need.</p>}
+      {config.toolId && presetOf(config.toolId)?.action === config.action && <p className="text-[13px] text-muted">{t("poll.preset")}</p>}
       <FormField
-        label="Arguments (JSON)"
+        label={t("poll.arguments")}
         htmlFor="trigger-arguments"
-        hint="{{lastPoll}} in a value stands for when the newest item was found; {{lastPollEpoch}} for that time in seconds since 1970."
+        hint={t("poll.argumentsHint", { lastPoll: "{{lastPoll}}", lastPollEpoch: "{{lastPollEpoch}}" })}
       >
         <Textarea id="trigger-arguments" rows={3} className="font-mono text-[13px]" value={config.arguments} onChange={(e) => onChange({ ...config, arguments: e.target.value })} />
       </FormField>
-      <FormField label="Items at" htmlFor="trigger-items-path" hint="Where the list is in the result, keys between dots (value, data.items); empty when the result is the list.">
+      <FormField label={t("poll.itemsAt")} htmlFor="trigger-items-path" hint={t("poll.itemsAtHint")}>
         <Input id="trigger-items-path" value={config.itemsPath} maxLength={200} onChange={(e) => onChange({ ...config, itemsPath: e.target.value })} />
       </FormField>
-      <FormField label="Item id at" htmlFor="trigger-id-path" hint="What identifies an item, within it (id).">
+      <FormField label={t("poll.idAt")} htmlFor="trigger-id-path" hint={t("poll.idAtHint")}>
         <Input id="trigger-id-path" value={config.idPath} maxLength={200} onChange={(e) => onChange({ ...config, idPath: e.target.value })} />
       </FormField>
       {config.continuation && (
         <p className="text-[13px] text-muted">
-          Pages through the result: the next page is at <code className="font-mono">{config.continuation.path}</code>, sent back as{" "}
-          <code className="font-mono">{config.continuation.argument}</code>.
+          <Trans
+            t={t}
+            i18nKey="poll.continuation"
+            values={{ path: config.continuation.path, argument: config.continuation.argument }}
+            components={[<code key="path" className="font-mono" />, <code key="argument" className="font-mono" />]}
+          />
         </p>
       )}
-      <FormField label="Every (minutes)" htmlFor="trigger-interval">
+      <FormField label={t("poll.every")} htmlFor="trigger-interval">
         <Input id="trigger-interval" type="number" min={1} max={1440} value={config.interval / 60} onChange={(e) => onChange({ ...config, interval: Math.round(Number(e.target.value) * 60) })} />
       </FormField>
-      <FormField label="At most, Jobs an hour" htmlFor="trigger-rate-cap" hint="Past it, new items wait their turn: none is lost.">
+      <FormField label={t("poll.cap")} htmlFor="trigger-rate-cap" hint={t("poll.capHint")}>
         <Input id="trigger-rate-cap" type="number" min={1} max={1000} value={rateCap} onChange={(e) => onRateCap(Number(e.target.value))} />
       </FormField>
       {polls.length > 0 && (
         <div>
-          <p className="mb-1.5 text-[13px] font-medium text-muted">Latest polls</p>
-          <ul aria-label="Latest polls" className="space-y-2 text-[14px]">
+          <p className="mb-1.5 text-[13px] font-medium text-muted">{t("poll.latest")}</p>
+          <ul aria-label={t("poll.latest")} className="space-y-2 text-[14px]">
             {polls.map((p) => (
               <li key={p.at.toISOString()}>
                 <div className="flex flex-wrap justify-between gap-x-3">
                   <span className="text-muted">{when(p.at)}</span>
-                  <span className={p.status === "failed" || p.status === "skipped" ? "text-danger" : undefined}>{pollText[p.status]?.(p) ?? p.status}</span>
+                  <span className={p.status === "failed" || p.status === "skipped" ? "text-danger" : undefined}>{pollText(p)}</span>
                 </div>
                 {p.items.length > 0 && p.status === "polled" && (
                   <ul className="mt-1 space-y-0.5 pl-4 text-[13px]">
@@ -151,9 +165,9 @@ export function PollTriggerPanel({
                       <li key={i.itemId} className="flex flex-wrap justify-between gap-x-3">
                         <span className="truncate font-mono">{i.itemId}</span>
                         {i.status === "started" && i.runId ? (
-                          <a href={`/settings/workflows/runs/${i.runId}`}>{itemText.started}</a>
+                          <a href={`/settings/workflows/runs/${i.runId}`}>{t("poll.item.started")}</a>
                         ) : (
-                          <span className={i.status === "deferred" ? undefined : "text-danger"}>{i.message && i.status !== "deferred" ? `${itemText[i.status] ?? i.status}: ${i.message}` : itemText[i.status]}</span>
+                          <span className={i.status === "deferred" ? undefined : "text-danger"}>{itemText(i)}</span>
                         )}
                       </li>
                     ))}
