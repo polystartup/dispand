@@ -8,7 +8,7 @@ import { recordAudit } from "../audit/record.ts";
 import { recordInteraction } from "../engine/interactions.ts";
 import { message, reasonOf, say, type Text } from "../messages/index.ts";
 import { publish, removeFieldIn, retypeIn, updateFieldIn } from "../data/tables.ts";
-import { putFile } from "../skills/procedures.ts";
+import { checkFile, putFile } from "../skills/procedures.ts";
 import { newId } from "../ids.ts";
 import { canonical } from "../platform/approvals.ts";
 import type { InitialContext } from "../rpc/context.ts";
@@ -520,7 +520,8 @@ const fileStands = (c: Conflict, now: { value: unknown; plugin: unknown }) => ca
  * Stem's decision on a skill's file, in one transaction under the package's lock: a reset writes
  * the plugin's file (none, when the plugin has none), a merge (a text) equal to either file
  * applies, any other waits for the owner's Approval. One the package's check refuses (a
- * `SKILL.md` that no longer reads as a skill) applies nothing and is in `report`.
+ * `SKILL.md` that no longer reads as a skill), checked before it applies or waits, applies
+ * nothing and is in `report`.
  */
 async function decideFile(context: Context, actor: AuditActor, c: Conflict, decision: Decision, report?: { refused: Refused[] }): Promise<DecisionOutcome> {
   if (decision.kind === "merge" && typeof decision.value !== "string") {
@@ -538,7 +539,11 @@ async function decideFile(context: Context, actor: AuditActor, c: Conflict, deci
       }
       if (!fileStands(c, now)) return (await tx.update(pluginConflicts).set({ status: "open", merged: null }).where(held).returning({ id: pluginConflicts.id })).length ? "reopened" : "gone";
       const value = decision.kind === "reset" ? now.plugin : decision.value;
-      if (!within(c.kind, c.field, value, c.mine, c.next)) return (await tx.update(pluginConflicts).set({ status: "approval", merged: value }).where(held).returning({ id: pluginConflicts.id })).length ? "approval" : "gone";
+      if (!within(c.kind, c.field, value, c.mine, c.next)) {
+        // Checked now, so Stem hears of a text the package wouldn't take, not the owner on yes.
+        await checkFile(tx, c.ownerId, c.elementId, pathOf(c), Buffer.from(value as string));
+        return (await tx.update(pluginConflicts).set({ status: "approval", merged: value }).where(held).returning({ id: pluginConflicts.id })).length ? "approval" : "gone";
+      }
       if (!(await tx.delete(pluginConflicts).where(held).returning({ id: pluginConflicts.id })).length) return "gone";
       await putFile(tx, c.ownerId, c.elementId, pathOf(c), decision.kind === "reset" ? now.upstream : Buffer.from(value as string));
       return "applied";

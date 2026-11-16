@@ -388,13 +388,16 @@ test("a skill file merged with anything but a text is refused by plugin_decide a
   expect(await s.ctx.db.select({ status: schema.pluginConflicts.status }).from(schema.pluginConflicts)).toEqual([{ status: "open" }]);
 });
 
-test("a merged skill file the package's check refuses on yes says why and writes nothing; the item still waits", async () => {
-  const s = await fileSetUp(decideFile({ kind: "merge", value: "No frontmatter any more." }), say("Merged."));
-  await s.ended(await s.hand());
-  const [item] = await s.items();
-  await expect(call(router.plugins.resolveConflict, { id: item!.id, choice: "accept", reviewed: item!.reviewed }, { context: s.ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+test("a merged skill file the package's check refuses is said by plugin_decide and waits for nothing", async () => {
+  const s = await fileSetUp(decideFile({ kind: "merge", value: "No frontmatter any more." }), say("It was refused."));
+  const runId = await s.hand();
+  await s.ended(runId);
   expect(await s.file()).toBe(s.mine);
-  expect(await s.items()).toEqual([expect.objectContaining({ id: item!.id })]);
+  const result = s.model.inputs[1]!.items.at(-1) as { role: string; isError: boolean; result: string };
+  expect(result).toMatchObject({ role: "tool", isError: true });
+  expect(result.result).toContain("Nothing was applied");
+  expect(await s.ctx.db.select().from(schema.questions).where(eq(schema.questions.runId, runId))).toEqual([]);
+  expect(await s.ctx.db.select({ status: schema.pluginConflicts.status }).from(schema.pluginConflicts)).toEqual([{ status: "open" }]);
 });
 
 test("a file kept in a conflict is its text, or its size and digest when it isn't text jsonb can store", () => {

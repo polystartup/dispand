@@ -1720,7 +1720,8 @@ hands Stem the full texts, `skillValues`, outside the screen's response), as the
 a file that isn't text its size and digest, or null for none. The Job gets the three texts. A
 reset takes the plugin's file as the package keeps it (`skill_file_upstream`, the same file
 `resetFile` writes back; none when the plugin has none); a merge is the file's whole text (any
-other value is refused, and so is one the package's check refuses, said by `plugin_decide`), and
+other value is refused, and so is one the package's check refuses, checked when Stem decides
+(`checkFile`) and said by `plugin_decide`), and
 applies at once only when it is one of the two files, else it waits in the Approval. Each of
 `decideFile`, `answerFile` and the owner's "take the plugin's" is one transaction with the
 package locked `for update`, the lock every file edit and the update take: the file and the

@@ -179,10 +179,20 @@ export async function resetFile(tx: Tx, ownerId: string, packageId: string, path
   await putFile(tx, ownerId, packageId, path, upstream?.content ?? null);
 }
 
+/** A plugin's skill's files with one path set to `content`, or without it when null; the package locked. */
+async function withFile(tx: Tx, ownerId: string, packageId: string, path: string, content: Uint8Array | null) {
+  const { files } = await pluginPackage(tx, ownerId, packageId);
+  return [...files.filter((f) => f.path !== path), ...(content ? [{ path, content }] : [])];
+}
+
 /** Writes one path of a plugin's skill, the package locked and checked as a whole: `content`, or no file when null. */
 export async function putFile(tx: Tx, ownerId: string, packageId: string, path: string, content: Uint8Array | null) {
-  const { files } = await pluginPackage(tx, ownerId, packageId);
-  await writeFiles(tx, packageId, [...files.filter((f) => f.path !== path), ...(content ? [{ path, content }] : [])]);
+  await writeFiles(tx, packageId, await withFile(tx, ownerId, packageId, path, content));
+}
+
+/** Whether the package would take one path set to `content`: BAD_REQUEST, with what is wrong, when it wouldn't. */
+export async function checkFile(tx: Tx, ownerId: string, packageId: string, path: string, content: Uint8Array | null) {
+  checked(await withFile(tx, ownerId, packageId, path, content));
 }
 
 /** One file's text, for its editor: null for a file that isn't text. */
