@@ -198,7 +198,7 @@ changes it updates this file.
   as a restricted session (protocol 26; on Codex, protocol 29), on Claude Code or Codex: the runner itself gives it no skill, memory or consult, no MCP
   server but the Job's own, and no way to the shell, files or network, whatever the start holds. On Claude Code: no
   built-in tool (nor the CLI's server-side advisor, switched off in its environment) and none of the user's settings. On
-  Codex (checked with 0.167.0 on what the model is sent, `codex/restricted-tools.test.ts`): every native tool a switch
+  Codex (checked with 0.169.0 on what the model is sent, `codex/restricted-tools.test.ts`): every native tool a switch
   removes is off (shell, view_image, web search, image generation, browser and computer use, apps and plugins, subagents,
   goals, sleep, asking the person), as are hooks, memories, the skills catalog and every MCP server of the user's config;
   its turns get no execution environment, under a read-only profile with no network. What the model keeps is code
@@ -206,7 +206,7 @@ changes it updates this file.
   (the model's catalog entry adds it and no switch removes it: with no environment every call fails before touching a
   file, and a file-change approval would be declined), the clock, the MCP resource tools (which reach only the Job's
   server), `submit_outputs` and the Job's server. The runner answers no command, file-change or question request and no
-  dynamic tool but `submit_outputs`, bypass or not. A restricted Codex start needs Codex ≥ 0.167.0 (`RESTRICTED_CODEX`):
+  dynamic tool but `submit_outputs`, bypass or not. A restricted Codex start needs Codex ≥ 0.167.0 (`RESTRICTED_MIN_CODEX`):
   an older one may ignore a switch it doesn't know, so the runner refuses it. On a newer one it runs and the runner logs
   a warning: after every Codex update, run `codex/restricted-tools.test.ts` on the runner machine, and change the
   switches if it fails.

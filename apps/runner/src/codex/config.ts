@@ -13,7 +13,7 @@ export const BYPASS_PROFILE = ":danger-full-access";
  * What a restricted session (a limited Job) turns off, beyond its profile (`codexConfig`): every
  * native tool a switch removes (shell, view_image, web search, image generation, browser and
  * computer use, apps and plugins, subagents, goals, sleep, asking the person), hooks, memories and
- * the skills catalog. Checked with codex 0.167.0 on what the model is sent: what stays is code
+ * the skills catalog. Checked with codex 0.169.0 on what the model is sent: what stays is code
  * mode's `exec`/`wait` (an isolate with no file system or network, calling only these tools),
  * `apply_patch` (set by the model's catalog entry, no switch: inert, as the session's turns get no
  * environment), the clock, the MCP resource tools, `submit_outputs` and the Job's server.

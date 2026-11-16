@@ -61,7 +61,8 @@ Uninstall: `systemctl --user disable --now dispand-runner`, then remove
   development: the token goes out with every connection). `install.sh` applies the same rule
   and downloads with `curl --proto =https --tlsv1.2`.
 - `roots`: where sessions run. Sessions run only in fresh per-run folders: each gets a new
-  `<roots[0]>/runs/<runKey>`, refused if it already exists. The path from the root to it holds
+  `<roots[0]>/runs/<runKey>`, refused if it already exists. The key is `<runId>-<stepId>`; a restart
+  with no CLI session to resume gets a new folder, with a time suffix added (`<runId>-<stepId>-<time>`). The path from the root to it holds
   no symlink: the runner makes `runs` itself, a real directory, and the folder's real path must
   be exactly `<root>/runs/<runKey>`. A prompt or message from Dispand that starts with `/name` runs only if
   it is a skill or plugin/custom command (`supportedCommands()` not built in); any other one

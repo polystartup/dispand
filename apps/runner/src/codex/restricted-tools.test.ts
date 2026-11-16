@@ -1,4 +1,4 @@
-// The real Codex on this machine (skipped without one ≥ RESTRICTED_CODEX; run it again after every Codex update): what a restricted session's model is
+// The real Codex on this machine (skipped without one ≥ RESTRICTED_MIN_CODEX; run it again after every Codex update): what a restricted session's model is
 // offered, read from the requests Codex sends to a stand-in Responses API, what its file tool does, and
 // what its code-mode isolate can reach.
 import { execFileSync } from "node:child_process";
@@ -10,12 +10,12 @@ import { join, resolve } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { atLeast } from "../sessions.ts";
 import { type CodexSessionStart, startCodexSession } from "./session.ts";
-import { RESTRICTED_CODEX } from "./version.ts";
+import { RESTRICTED_MIN_CODEX } from "./version.ts";
 
 const codexPath = (() => {
   try {
     const path = execFileSync("sh", ["-c", "command -v codex"], { encoding: "utf8" }).trim();
-    return atLeast(/(\d+\.\d+\.\d+)/.exec(execFileSync(path, ["--version"], { encoding: "utf8" }))?.[1], RESTRICTED_CODEX) ? path : undefined;
+    return atLeast(/(\d+\.\d+\.\d+)/.exec(execFileSync(path, ["--version"], { encoding: "utf8" }))?.[1], RESTRICTED_MIN_CODEX) ? path : undefined;
   } catch {
     return undefined;
   }
