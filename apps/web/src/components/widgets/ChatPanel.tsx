@@ -94,7 +94,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
     setChosenSkill(null);
     setError(null);
     // Files attached for the other conversation stay with it: none goes with this one.
-    if (files.current?.ids().length) void files.current.clear();
+    if (files.current) void files.current.remove(files.current.ids());
   }, [runId]);
 
   /** The library's composer path (not shown today: the panel keeps its own, which keeps a draft that failed to send). */
@@ -234,6 +234,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
                   onClick={() => {
                     setText("");
                     setError(null);
+                    if (files.current) void files.current.remove(files.current.ids());
                     onNewConversation();
                   }}
                 >
