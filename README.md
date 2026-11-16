@@ -15,3 +15,11 @@ mise install      # Node and pnpm, at the versions in .mise.toml
 pnpm install
 pnpm run dev
 ```
+
+## Contributing
+
+Open a pull request against `main`, with a [Conventional Commits](https://www.conventionalcommits.org/)
+title (`feat(web): ...`): it becomes the commit on `main`, and the changelog is generated from it.
+Before pushing, run `pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build`.
+Pull requests are squash-merged through a merge queue, which runs the checks again on top of
+`main`: a pull request needn't be up to date with `main`, only free of conflicts.
