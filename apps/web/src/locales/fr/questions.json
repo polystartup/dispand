@@ -385,5 +385,14 @@
       "turnOn": "Activer",
       "failed": "Les notifications n’ont pas pu être activées dans ce navigateur. Réessayez."
     }
+  },
+  "update": {
+    "intro": "{{assistant}} a fusionné ces valeurs pour la mise à jour de {{plugin}}. Répondez à chacune : tant que vous ne l’acceptez pas, la vôtre reste.",
+    "introUnnamed": "{{assistant}} a fusionné ces valeurs pour la mise à jour d’un plugin. Répondez à chacune : tant que vous ne l’acceptez pas, la vôtre reste.",
+    "asked": "{{assistant}} a fusionné des valeurs pour la mise à jour de {{plugin}}.",
+    "askedUnnamed": "{{assistant}} a fusionné des valeurs pour la mise à jour d’un plugin.",
+    "answered": "Vous avez répondu à chaque valeur.",
+    "expired": "Plus rien n’attend : un changement ultérieur a renvoyé ces valeurs sur la page de l’élément.",
+    "failed": "Impossible d’enregistrer votre réponse."
   }
 }

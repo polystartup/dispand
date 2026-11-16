@@ -1631,8 +1631,15 @@ only while the field is still `mine` and the element's `upstream` for it still `
 conflict is `open`, the owner's again); a reset takes the plugin's value; a decision applies at
 once when its value is `mine` or `next`, except a change to an agent's rights (bundles, tables,
 tools, skills, self-learning, consults), which combine and so always wait; anything else waits in
-`merged` for the owner's Approval, which `answerApproval` applies (yes) or drops ("Keep mine") per conflict, with
-the same check. The write holds only while the field still has the owner's value: the element's update checks
+`merged` for the owner's Approval. We decided on one Approval in the Inbox per update: when the
+Stem Job ends (`closeStemJob`, from the engine's end of run), its conflicts waiting in `merged`
+become one `questions` row (an Approval of no step, its payload's `toolName` `plugin_update`,
+so one push per update), whose items are the conflicts of that `runId` still waiting. Each item
+is answered on its own through `plugins.resolveConflict` (`answerConflict` applies a yes, drops a
+no as "Keep mine"), with the same check; the engine refuses a whole answer. The Approval is
+answered once its last item is, and expires when the last leaves otherwise (`settleApprovals`).
+The element's page links to it (`approvalId`). A later kind of conflict feeds the same Approval
+by keeping its rows in `plugin_conflicts` with the Job's `runId`. The write holds only while the field still has the owner's value: the element's update checks
 `context.expectField` (server-owned) under its row lock, or in its write for a tool, and a save
 that got there first refuses it and reopens the conflict. A tool an agent gains by a decision starts with every action on Ask. Each
 decision is an Audit row (`plugin.decided`: the element, the field's name and the decision's
@@ -1657,7 +1664,7 @@ bundle, memory or consult; `withMemory` gives it no memory to read either, since
 `configure` to filter what other agents wrote by), and `allowed` gives a limited Job those tools and no other, so the
 Job server and the cloud listing offer `plugin_decide` alone; a call of another tool is refused.
 `plugin_decide` takes only the Job's own conflicts and goes through `decide`. When the Job ends,
-however it ends, what it didn't decide is `open` again (`reopenUndecided`, in `finishRun`). On a
+however it ends, what it didn't decide is `open` again, and what waits becomes its Approval (`closeStemJob`, in `finishRun`). On a
 runner, the start says `restricted` (runner protocol 26), and the runner enforces it from its own
 start arguments: on Claude Code, no built-in tool (`tools: []`, and the CLI's server-side
 `advisor` switched off with `CLAUDE_CODE_DISABLE_ADVISOR_TOOL`, since neither `tools` nor

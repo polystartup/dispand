@@ -244,7 +244,8 @@
       "tooLong": "The answer is too long (at most about {{max}} characters).",
       "chooseScope": "Choose a remember scope for this tool permission.",
       "cannotRemember": "This permission changed or cannot be remembered: refresh and answer again.",
-      "notPending": "This question is no longer waiting for an answer."
+      "notPending": "This question is no longer waiting for an answer.",
+      "itemByItem": "Answer this Approval item by item, in the Inbox."
     }
   },
   "data": {

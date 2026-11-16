@@ -244,7 +244,8 @@
       "tooLong": "La réponse est trop longue (environ {{max}} caractères au plus).",
       "chooseScope": "Choisissez pour quelle portée retenir cette autorisation d’outil.",
       "cannotRemember": "Cette autorisation a changé ou ne peut pas être retenue : actualisez et répondez à nouveau.",
-      "notPending": "Cette question n’attend plus de réponse."
+      "notPending": "Cette question n’attend plus de réponse.",
+      "itemByItem": "Répondez à cette approbation élément par élément, dans la boîte de réception."
     }
   },
   "data": {

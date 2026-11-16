@@ -64,7 +64,7 @@ import type { SecretBox } from "../secrets.ts";
 import { consultOutputs, jobDef, jobSystemPrompt, timezonePrompt } from "./job-def.ts";
 import { jobMemoryPrompt } from "../memory/read.ts";
 import { deletedAgent } from "../jobs/agent-name.ts";
-import { reopenUndecided } from "../plugins/resolve.ts";
+import { closeStemJob, PLUGIN_UPDATE } from "../plugins/resolve.ts";
 import { agentName, approvalOf, consultEnd, consultProblem, DECLINED, deliveryProblem, failed, FLAGGED, lockConsults, TOO_LONG } from "./consults.ts";
 import { nextActions, outputsFor, toolValues, valuesFor } from "./next-actions.ts";
 import { consultsOf, type ConsultEntry } from "../agents/consults.ts";
@@ -862,6 +862,8 @@ export class Engine {
     const [asked] = await this.db.select({ payload: questions.payload, kind: questions.kind, ownerId: questions.ownerId, runId: questions.runId, consultId: questions.consultId }).from(questions).where(eq(questions.id, questionId));
     // Nothing answers in a consulted agent's place: only its Job does (`answerConsult`).
     if (asked?.kind === "consult") throw new EngineError("NOT_FOUND", message("questions.notFound"));
+    // A plugin update's Approval is answered item by item (`plugins.resolveConflict`), never whole.
+    if (asked?.payload.kind === "permission" && asked.payload.toolName === PLUGIN_UPDATE) throw new EngineError("INVALID", message("questions.answer.itemByItem"));
     if (asked) {
       const words = answerText({ payload: asked.payload, answer, answeredBy: by ?? null });
       if (words.length > TEXT || !storable(words)) throw new EngineError("INVALID", message("questions.answer.tooLong", { max: TEXT - 100 }));
@@ -2506,8 +2508,9 @@ export class Engine {
         }));
       }
       await this.answerConsult(tx, row, out);
-      // A Stem Job's conflicts it didn't decide are the owner's again, however it ended.
-      if (row.trigger.type === "stem") await reopenUndecided(tx, row.id);
+      // A Stem Job's conflicts it didn't decide are the owner's again, however it ended; its merged values wait in one Inbox Approval.
+      const approval = row.trigger.type === "stem" ? await closeStemJob(tx, row.id) : null;
+      if (approval) out.push({ type: "question", question: questionView(approval) });
     }
   }
 

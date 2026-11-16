@@ -156,14 +156,16 @@
   "stem": {
     "label": "Plugin changes",
     "looking": "· Plugin changed this: {{assistant}} is looking",
-    "approval": "· {{assistant}} suggests a value: yours stays until you accept it",
+    "approval": "· {{assistant}} suggests a value, which waits for your Approval in the Inbox: yours stays until you accept it",
     "open": "· Plugin changed this",
     "accept": "Accept {{assistant}}'s",
     "keepMine": "Keep mine",
     "compare": "Yours and the plugin's",
     "takePlugin": "Take the plugin's",
     "delegate": "Let {{assistant}} deal with it",
-    "failed": "Could not record your choice."
+    "failed": "Could not record your choice.",
+    "approvalSoon": "· {{assistant}} suggests a value: its Approval reaches the Inbox once {{assistant}} is done, and yours stays until you accept it",
+    "openApproval": "Open the Approval in the Inbox"
   },
   "jobTrigger": {
     "option": "Another agent's Job",

@@ -53,7 +53,7 @@ import { canonical } from "../platform/approvals.ts";
 import { runItemsAsOwner, SetupPick, setupItems } from "./setup.ts";
 import { addServer } from "./servers.ts";
 import { writeFields } from "./write-field.ts";
-import { answerConflict, fieldNow, forgetConflicts, ownerChoice, reopenChanged } from "./resolve.ts";
+import { answerConflict, approvalOf, conflictView, fieldNow, forgetConflicts, ownerChoice, reopenChanged, settleApprovals } from "./resolve.ts";
 import { findAssistant } from "../agents/builtin.ts";
 import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, PluginError, type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
@@ -789,6 +789,8 @@ const uninstall = owner.input(Id.extend({ reviewed: z.string().length(64), choic
   });
   context.engine.settled(out);
   await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  // An update's Approval whose items all left with the plugin left the Inbox.
+  context.engine.questionChanges.publish("changed", true);
 }));
 
 /** The plugin as its marketplace lists it now: the entry's current commit, read. A failed sync keeps the entries. */
@@ -1267,6 +1269,8 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
     await context.db.update(tablesTable).set({ definition }).where(eq(tablesTable.id, plan.tableId));
   }
   await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  // An earlier update's Approval whose items this one reopened or removed left the Inbox.
+  context.engine.questionChanges.publish("changed", true);
   // The native installs shown follow, at the commit the screen's token covers: what can't (or a Job, which may not touch them) is left behind, the update stays.
   const leftBehind = await moveNative(context, row.id, input.native);
   const stemJob = assistant ? await handToStem(context, row.id, assistant.agentId, handed) : undefined;
@@ -1281,7 +1285,10 @@ const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(
 async function handToStem(context: InitialContext & { ownerId: string }, pluginId: string, agentId: string, handed: ShownConflict[]): Promise<string> {
   const runId = await context.db.transaction(async (tx) => {
     const rows = handed.map((c) => ({ id: newId("conflict"), ownerId: context.ownerId, pluginId, kind: c.kind as "agent" | "tool" | "trigger", elementId: c.id, field: c.field, old: c.old, mine: c.mine, next: c.next, status: "stem" as const }));
-    for (const r of rows) await tx.delete(pluginConflicts).where(and(eq(pluginConflicts.kind, r.kind), eq(pluginConflicts.elementId, r.elementId), eq(pluginConflicts.field, r.field)));
+    // A field waiting in an earlier update's Approval leaves it.
+    const replaced = [];
+    for (const r of rows) replaced.push(...(await tx.delete(pluginConflicts).where(and(eq(pluginConflicts.kind, r.kind), eq(pluginConflicts.elementId, r.elementId), eq(pluginConflicts.field, r.field))).returning({ runId: pluginConflicts.runId })));
+    await settleApprovals(tx, replaced.map((r) => r.runId));
     await tx.insert(pluginConflicts).values(rows);
     // The values as data, each with the id plugin_decide takes.
     const data = rows.map((r, i) => ({ id: r.id, element: `${handed[i]!.name} (${r.kind})`, field: r.field, plugin_before: r.old, owner_now: r.mine, plugin_new: r.next }));
@@ -1290,6 +1297,7 @@ async function handToStem(context: InitialContext & { ownerId: string }, pluginI
     return id;
   });
   await context.engine.announceCheckpoints();
+  context.engine.questionChanges.publish("changed", true);
   await context.engine.continueRun(runId);
   return runId;
 }
@@ -1354,16 +1362,10 @@ const conflicts = owner.input(ElementRef).handler(async ({ input, context }) => 
     .from(pluginConflicts)
     .where(and(eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.kind, input.kind), eq(pluginConflicts.elementId, input.id)))
     .orderBy(asc(pluginConflicts.field));
-  // The values as they are now, which the owner decides on: a choice carries their token.
-  return Promise.all(rows.map((r) => conflictView(context.db, r)));
+  // The values as they are now, which the owner decides on: a choice carries their token. Stem's
+  // merged value is answered in the Inbox, where the page links (`approvalId`, once its Job ended).
+  return Promise.all(rows.map(async (r) => ({ ...(await conflictView(context.db, r)), approvalId: r.status === "approval" ? await approvalOf(context.db, r.runId) : null })));
 });
-
-/** A conflict as the element's page shows it: the field's value now, the plugin's now, Stem's suggestion, and the token of the three. */
-async function conflictView(db: Db, r: typeof pluginConflicts.$inferSelect) {
-  const now = await fieldNow(db, r);
-  const shown = { id: r.id, field: r.field, status: r.status, mine: now?.value ?? r.mine, next: now?.plugin ?? r.next, merged: r.status === "approval" ? r.merged : null };
-  return { ...shown, reviewed: createHash("sha256").update(canonical(shown)).digest("hex") };
-}
 
 /**
  * The owner's choice on a conflict: on Stem's merged value, accept or decline it; on one that is

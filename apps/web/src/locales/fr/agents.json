@@ -156,14 +156,16 @@
   "stem": {
     "label": "Changements du plugin",
     "looking": "· Le plugin a changé ceci : {{assistant}} s’en occupe",
-    "approval": "· {{assistant}} propose une valeur : la vôtre reste tant que vous ne l’acceptez pas",
+    "approval": "· {{assistant}} propose une valeur, qui attend votre approbation dans la boîte de réception : la vôtre reste tant que vous ne l’acceptez pas",
     "open": "· Le plugin a changé ceci",
     "accept": "Accepter celle de {{assistant}}",
     "keepMine": "Garder la mienne",
     "compare": "La vôtre et celle du plugin",
     "takePlugin": "Prendre celle du plugin",
     "delegate": "Laisser {{assistant}} s’en occuper",
-    "failed": "Impossible d’enregistrer votre choix."
+    "failed": "Impossible d’enregistrer votre choix.",
+    "approvalSoon": "· {{assistant}} propose une valeur : son approbation arrive dans la boîte de réception quand {{assistant}} a fini, et la vôtre reste tant que vous ne l’acceptez pas",
+    "openApproval": "Ouvrir l’approbation dans la boîte de réception"
   },
   "jobTrigger": {
     "option": "Le Job d’un autre agent",

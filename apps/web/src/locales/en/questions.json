@@ -385,5 +385,14 @@
       "turnOn": "Turn on",
       "failed": "Notifications could not be turned on in this browser. Try again."
     }
+  },
+  "update": {
+    "intro": "{{assistant}} merged these values for the update of {{plugin}}. Answer each one: until you accept it, yours stays.",
+    "introUnnamed": "{{assistant}} merged these values for a plugin’s update. Answer each one: until you accept it, yours stays.",
+    "asked": "{{assistant}} merged values for the update of {{plugin}}.",
+    "askedUnnamed": "{{assistant}} merged values for a plugin’s update.",
+    "answered": "You answered each value.",
+    "expired": "Nothing waits any more: a later change took these values back to the element’s page.",
+    "failed": "Could not record your answer."
   }
 }

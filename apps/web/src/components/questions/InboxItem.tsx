@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type api, orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
+import { PluginUpdateItem } from "./PluginUpdateItem.tsx";
 import { ProposalItems } from "./ProposalItems.tsx";
 import { type About, approvalWords, checkpointInput, checkpointKind, consultInput, QuestionForm } from "./QuestionForm.tsx";
 
@@ -59,6 +60,7 @@ function useInboxText() {
 /** One Question or Approval of the Inbox: answerable while it waits, then shown with its answer, who gave it and when. */
 export function InboxItem({ item }: { item: InboxEntry }) {
   const { t } = useTranslation("questions");
+  const { t: tm } = useTranslation("messages");
   const format = useFormat();
   const { askedText, answerLine } = useInboxText();
   const queryClient = useQueryClient();
@@ -79,6 +81,9 @@ export function InboxItem({ item }: { item: InboxEntry }) {
   const from = (item.workflow ?? item.agent)?.name ?? t("run");
   const tag = item.kind === "approval" ? t("approval") : t("question");
   const open = item.status === "pending";
+  // A plugin update's Approval, once done: which update it was for.
+  const assistant = tm("agent.assistant.name");
+  const updateAsked = item.update?.plugin ? t("update.asked", { assistant, plugin: item.update.plugin.name }) : t("update.askedUnnamed", { assistant });
   return (
     <article aria-label={item.kind === "approval" ? t("approvalFrom", { from }) : t("questionFrom", { from })} className="rounded-2xl bg-surface p-5 shadow-card">
       <p className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
@@ -109,15 +114,17 @@ export function InboxItem({ item }: { item: InboxEntry }) {
         <p role="status" className="text-[14px] text-muted">
           {t("answeredElsewhere")}
         </p>
+      ) : open && item.update ? (
+        <PluginUpdateItem update={item.update} />
       ) : open ? (
         <QuestionForm question={item} busy={answer.isPending} error={answer.error?.message ?? null} onAnswer={(a) => answer.mutate({ questionId: item.id, answer: a })} />
       ) : (
         <div className="space-y-2 text-[14px]">
-          <p className="whitespace-pre-wrap break-words text-muted">{askedText(item.payload, item.about, item.rootId, item.consultId)}</p>
+          <p className="whitespace-pre-wrap break-words text-muted">{item.update ? updateAsked : askedText(item.payload, item.about, item.rootId, item.consultId)}</p>
           {item.proposal && <ProposalItems proposal={item.proposal} />}
           {item.status === "answered" && item.answer ? (
             <>
-              <p className="font-medium">{answerLine(item.answer, item.payload, item.rootId)}</p>
+              <p className="font-medium">{item.update ? t("update.answered") : answerLine(item.answer, item.payload, item.rootId)}</p>
               <p className="text-[13px] text-faint">
                 {item.answeredBy?.type === "agent" ? (
                   <>
@@ -133,7 +140,7 @@ export function InboxItem({ item }: { item: InboxEntry }) {
               </p>
             </>
           ) : (
-            <p className="text-[13px] text-faint">{item.orphaned ? t("expiredRestarted") : t("expiredEnded")}</p>
+            <p className="text-[13px] text-faint">{item.update ? t("update.expired") : item.orphaned ? t("expiredRestarted") : t("expiredEnded")}</p>
           )}
         </div>
       )}

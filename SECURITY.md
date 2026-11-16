@@ -185,7 +185,10 @@ changes it updates this file.
   applies only while the field still holds the owner's value and the plugin's value it was handed
   off against; a decision that is neither value, or that changes an agent's rights (they combine,
   so two decisions within bounds could give together what neither version did), waits for the
-  owner's Approval; a tool it gives an agent starts with every action on Ask. On a runner it runs
+  owner's Approval: one Approval in the Inbox per update, each value answered on its own by the
+  owner (never by an agent, never whole), applied only while the field still holds the owner's
+  value it was decided on, else that value is the owner's to decide again; a tool it gives an
+  agent starts with every action on Ask. On a runner it runs
   as a restricted session (protocol 26; on Codex, protocol 29), on Claude Code or Codex: the runner itself gives it no skill, memory or consult, no MCP
   server but the Job's own, and no way to the shell, files or network, whatever the start holds. On Claude Code: no
   built-in tool (nor the CLI's server-side advisor, switched off in its environment) and none of the user's settings. On

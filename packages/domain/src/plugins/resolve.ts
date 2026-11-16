@@ -1,11 +1,15 @@
 import { ORPCError } from "@orpc/server";
-import { and, eq, inArray } from "drizzle-orm";
-import type { Db } from "../db/client.ts";
-import { agents as agentsTable, pluginConflicts, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
+import { createHash } from "node:crypto";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import type { Db, Tx } from "../db/client.ts";
+import { agents as agentsTable, pluginConflicts, plugins as pluginsTable, questions, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
 import type { AuditActor } from "../audit/model.ts";
 import { recordAudit } from "../audit/record.ts";
+import { recordInteraction } from "../engine/interactions.ts";
+import { newId } from "../ids.ts";
+import { canonical } from "../platform/approvals.ts";
 import type { InitialContext } from "../rpc/context.ts";
-import type { Tx } from "../skills/procedures.ts";
+import { meter } from "../telemetry/index.ts";
 import { type ElementKind, sameValue } from "./overrides.ts";
 import { agentValues } from "./update.ts";
 import { writeFields } from "./write-field.ts";
@@ -14,7 +18,15 @@ import { writeFields } from "./write-field.ts";
 // how Stem's decisions apply. A decision applies only while the field is still the owner's value
 // it was handed off with and the plugin's value still the one it was handed off against: else
 // the conflict is the owner's again (`open`). Within what the owner already had or the update
-// showed, it applies at once; anything else waits for the owner's Approval.
+// showed, it applies at once; anything else waits for the owner's Approval: one Approval in the
+// Inbox per Stem Job (so per update), made when the Job ends, whose items are the conflicts of
+// that Job waiting in `approval`, each answered on its own (`answerConflict`). Any conflict kept
+// in `plugin_conflicts` with the Job's `runId` is an item of it.
+
+const counts = meter("plugins");
+
+/** What marks a plugin update's Approval in the Inbox (its payload's `toolName`): no tool goes by this name. */
+export const PLUGIN_UPDATE = "plugin_update";
 
 type Context = InitialContext & { ownerId: string };
 export type Decision = { kind: "reset" } | { kind: "merge"; value: unknown };
@@ -126,13 +138,20 @@ export async function decide(context: Context, actor: AuditActor, conflictId: st
 }
 
 /**
- * The owner's answer to one merged value of Stem's waiting for their Approval: still standing, it
- * applies on a yes; on a no the field stays as they have it ("Keep mine"). One that changed
- * meanwhile is theirs again either way.
+ * The owner's answer to one item of a plugin update's Approval, a merged value of Stem's: still
+ * standing, it applies on a yes; on a no the field stays as they have it ("Keep mine"). One that
+ * changed meanwhile is theirs again either way, the other items untouched. The Approval is done
+ * once none waits.
  */
 export async function answerConflict(context: Context, actor: AuditActor, conflictId: string, approved: boolean): Promise<"applied" | "kept" | "reopened" | "gone"> {
   const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, conflictId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "approval")));
   if (!c) return "gone";
+  const outcome = await answerOne(context, actor, c, approved);
+  if (await settleApprovals(context.db, [c.runId], actor.type === "user" ? actor : undefined)) context.engine.questionChanges.publish("changed", true);
+  return outcome;
+}
+
+async function answerOne(context: Context, actor: AuditActor, c: Conflict, approved: boolean): Promise<"applied" | "kept" | "reopened" | "gone"> {
   const state = await fresh(context.db, c);
   if (state === "stale") {
     await context.db.update(pluginConflicts).set({ status: "open", merged: null }).where(eq(pluginConflicts.id, c.id));
@@ -144,19 +163,6 @@ export async function answerConflict(context: Context, actor: AuditActor, confli
   if (state === "gone") return "gone";
   await audit(context, actor, c, approved ? "approved" : "declined", c.runId);
   return approved ? "applied" : "kept";
-}
-
-/** The owner's answer to the Approval of a Stem Job's merged values, for every one of them. */
-export async function answerApproval(context: Context, actor: AuditActor, runId: string, approved: boolean): Promise<{ applied: number; reopened: number }> {
-  const waiting = await context.db.select({ id: pluginConflicts.id }).from(pluginConflicts).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "approval")));
-  let applied = 0;
-  let reopened = 0;
-  for (const { id } of waiting) {
-    const outcome = await answerConflict(context, actor, id, approved);
-    if (outcome === "applied") applied++;
-    if (outcome === "reopened") reopened++;
-  }
-  return { applied, reopened };
 }
 
 /** The owner decides a conflict that is theirs again: keep their value, or take the plugin's. */
@@ -172,21 +178,94 @@ export async function ownerChoice(context: Context, actor: AuditActor, conflictI
 /** An update that changes the plugin's value of these fields: their pending conflicts are the owner's again. */
 export async function reopenChanged(tx: Db | Tx, kind: ElementKind, elementId: string, fields: string[]): Promise<void> {
   if (!fields.length) return;
-  await tx
+  const reopened = await tx
     .update(pluginConflicts)
     .set({ status: "open", merged: null })
-    .where(and(eq(pluginConflicts.kind, kind), eq(pluginConflicts.elementId, elementId), inArray(pluginConflicts.field, fields), inArray(pluginConflicts.status, ["stem", "approval"])));
+    .where(and(eq(pluginConflicts.kind, kind), eq(pluginConflicts.elementId, elementId), inArray(pluginConflicts.field, fields), inArray(pluginConflicts.status, ["stem", "approval"])))
+    .returning({ runId: pluginConflicts.runId });
+  await settleApprovals(tx, reopened.map((r) => r.runId));
 }
 
 /** Elements that leave the plugin, kept as the owner's own or gone, have no plugin conflict left. */
 export async function forgetConflicts(tx: Db | Tx, elementIds: string[]): Promise<void> {
-  if (elementIds.length) await tx.delete(pluginConflicts).where(inArray(pluginConflicts.elementId, elementIds));
+  if (!elementIds.length) return;
+  const gone = await tx.delete(pluginConflicts).where(inArray(pluginConflicts.elementId, elementIds)).returning({ runId: pluginConflicts.runId });
+  await settleApprovals(tx, gone.map((r) => r.runId));
 }
 
 /**
- * A Stem Job that ended: what it didn't decide is the owner's again. A merged value waiting for
- * their approval keeps waiting, answered from the element's page (`answerApproval`).
+ * A Stem Job that ended: what it didn't decide is the owner's again. What waits for the owner's
+ * Approval becomes one Approval in the Inbox, for the whole Job, returned so its Inbox hears of
+ * it (and a push goes, once). It stays when the Job is over: no session waits on it.
  */
-export async function reopenUndecided(tx: Db | Tx, runId: string): Promise<void> {
+export async function closeStemJob(tx: Tx, runId: string): Promise<typeof questions.$inferSelect | null> {
   await tx.update(pluginConflicts).set({ status: "open" }).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "stem")));
+  const [waiting] = await tx.select({ ownerId: pluginConflicts.ownerId, pluginId: pluginConflicts.pluginId }).from(pluginConflicts).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "approval"))).limit(1);
+  if (!waiting) return null;
+  const [row] = await tx
+    .insert(questions)
+    .values({ id: newId("q"), ownerId: waiting.ownerId, runId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: PLUGIN_UPDATE, input: { pluginId: waiting.pluginId }, canAlwaysAllow: false }, status: "pending" })
+    .returning();
+  await recordInteraction(tx, row!, "created");
+  counts.counter("dispand.questions.opened").add(1, { "dispand.question.kind": "approval" });
+  return row!;
+}
+
+const isUpdateApproval = sql`${questions.payload} ->> 'toolName' = ${PLUGIN_UPDATE}`;
+
+/**
+ * The Inbox Approvals of these Stem Jobs that nothing waits on any more: answered when the owner
+ * answered the last item (`by`), expired when the last left otherwise (an update reopened it, its
+ * element left the plugin). True when one closed.
+ */
+export async function settleApprovals(db: Db | Tx, runIds: (string | null)[], by?: { type: "user"; userId: string }): Promise<boolean> {
+  let closed = false;
+  for (const runId of new Set(runIds)) {
+    if (!runId) continue;
+    const [left] = await db.select({ id: pluginConflicts.id }).from(pluginConflicts).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "approval"))).limit(1);
+    if (left) continue;
+    const done = await db
+      .update(questions)
+      .set(by ? { status: "answered", answer: { kind: "permission", decision: "allow" }, answeredAt: new Date(), answeredBy: by } : { status: "expired" })
+      .where(and(eq(questions.runId, runId), eq(questions.status, "pending"), isUpdateApproval))
+      .returning();
+    for (const q of done) await recordInteraction(db as Tx, q, by ? "answered" : "expired", by);
+    closed ||= done.length > 0;
+  }
+  return closed;
+}
+
+/** The Inbox Approval a conflict waits in, once its Stem Job ended; null before. */
+export async function approvalOf(db: Db | Tx, runId: string | null): Promise<string | null> {
+  if (!runId) return null;
+  const [q] = await db.select({ id: questions.id }).from(questions).where(and(eq(questions.runId, runId), eq(questions.status, "pending"), isUpdateApproval));
+  return q?.id ?? null;
+}
+
+/** A conflict as the owner decides it: the field's value now, the plugin's now, Stem's suggestion, and the token of the three. */
+export async function conflictView(db: Db | Tx, r: Conflict) {
+  const now = await fieldNow(db, r);
+  const shown = { id: r.id, field: r.field, status: r.status, mine: now?.value ?? r.mine, next: now?.plugin ?? r.next, merged: r.status === "approval" ? r.merged : null };
+  return { ...shown, reviewed: createHash("sha256").update(canonical(shown)).digest("hex") };
+}
+
+/**
+ * A plugin update's Inbox Approval as its owner reads it: the plugin, and each item still waiting
+ * (an element's field, with Stem's value and the owner's), with the token its answer carries.
+ */
+export async function approvalView(db: Db, ownerId: string, q: { runId: string; payload: unknown }) {
+  const pluginId = String((q.payload as { input?: { pluginId?: unknown } }).input?.pluginId ?? "");
+  const [plugin] = await db.select({ id: pluginsTable.id, name: pluginsTable.name }).from(pluginsTable).where(and(eq(pluginsTable.id, pluginId), eq(pluginsTable.ownerId, ownerId)));
+  const rows = await db
+    .select()
+    .from(pluginConflicts)
+    .where(and(eq(pluginConflicts.runId, q.runId), eq(pluginConflicts.ownerId, ownerId), eq(pluginConflicts.status, "approval")))
+    .orderBy(asc(pluginConflicts.createdAt), asc(pluginConflicts.id));
+  const items = [];
+  for (const r of rows) {
+    const table = r.kind === "agent" ? agentsTable : r.kind === "tool" ? toolsTable : triggersTable;
+    const [element] = await db.select({ name: table.name }).from(table).where(and(eq(table.id, r.elementId), eq(table.ownerId, ownerId)));
+    items.push({ ...(await conflictView(db, r)), kind: r.kind, elementId: r.elementId, name: element?.name ?? null });
+  }
+  return { plugin: plugin ?? null, items };
 }

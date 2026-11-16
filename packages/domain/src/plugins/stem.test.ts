@@ -72,6 +72,24 @@ test("handed to Stem, a conflict stays the owner's until the Stem Job, which has
   expect(refused).toMatchObject({ role: "tool", isError: true });
 });
 
+test("a merged text of Stem's waits, as \"Keep mine\", in one Inbox Approval asked when its Job ends", async () => {
+  const s = await setUp(
+    (input) => {
+      const [c] = conflictsIn(input);
+      return { toolCalls: [{ id: "d", name: "plugin_decide", args: { conflictId: c!.id, decision: { kind: "merge", value: "Mine. Draft every letter in plain words." } } }] };
+    },
+    say("Merged the instructions; they wait for your Approval."),
+  );
+  const [conflict] = s.preview.conflicts;
+  const { stemJob } = await call(router.plugins.update, { id: s.pluginId, reviewed: s.preview.reviewed, stem: [conflict!.key] }, { context: s.ctx });
+  await vi.waitFor(async () => expect((await s.ctx.db.select().from(schema.runs).where(eq(schema.runs.id, stemJob!)))[0]!.status).toBe("succeeded"), { timeout: 10_000 });
+  const asked = await s.ctx.db.select().from(schema.questions).where(eq(schema.questions.runId, stemJob!));
+  expect(asked).toEqual([expect.objectContaining({ kind: "approval", status: "pending", stepRunId: null, payload: expect.objectContaining({ toolName: "plugin_update" }) })]);
+  expect((await s.drafting()).systemPrompt).toBe("Mine.");
+  const [item] = await call(router.questions.list, { status: "pending" }, { context: s.ctx });
+  expect(item!.update!.items).toEqual([expect.objectContaining({ field: "systemPrompt", merged: "Mine. Draft every letter in plain words." })]);
+});
+
 test("a Stem Job that ends without deciding leaves the conflict the owner's again; it reads no memory, not even what another agent wrote unaccepted", async () => {
   const s = await setUp(say("I won't decide."));
   const [drafting] = await s.ctx.db.select().from(schema.agents).where(eq(schema.agents.pluginComponent, "Drafting"));
