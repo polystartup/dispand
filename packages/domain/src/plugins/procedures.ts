@@ -633,11 +633,8 @@ const list = owner.handler(async ({ context }) => {
       sha: r.sha,
       updatedAt: r.updatedAt,
       skills: imported,
-      // What it brought (linked to it) and what was set up from it.
-      tools: merged(
-        tools.map(({ id, name }) => ({ id, name })),
-        named.tool,
-      ),
+      // Only what is linked to it: a catalog tool its setup added has no plugin_id and is not its own.
+      tools: tools.map(({ id, name }) => ({ id, name })),
       agents: merged(
         agents.map(({ id, name }) => ({ id, name })),
         named.agent,

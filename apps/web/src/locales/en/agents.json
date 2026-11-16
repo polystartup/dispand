@@ -189,6 +189,8 @@
     "emptyText": "A trigger makes this agent work: a chat or a button you start, or a schedule.",
     "onHome": "On Home",
     "addToHome": "Add to Home",
+    "start": "Start",
+    "startLabel": "Start {{name}}",
     "addToHomeLabel": "Add {{name}} to Home",
     "summary": {
       "chat": "Chat",

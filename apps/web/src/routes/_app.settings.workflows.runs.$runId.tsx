@@ -58,6 +58,7 @@ function RunPage() {
           <Link
             to="/settings/agents/$id"
             params={{ id: run.agentId }}
+            search={{ tab: "jobs" }}
             className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted transition hover:text-fg"
           >
             <ChevronLeft size={15} aria-hidden /> {agentNames.get(run.agentId) ?? t("page.agent")}

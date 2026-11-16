@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
+import { z } from "zod";
 import { useState } from "react";
 import { Tabs as TabsPrimitive } from "radix-ui";
 import { JobList } from "../components/agents/JobList.tsx";
@@ -12,16 +13,17 @@ import { orpc } from "../lib/api.ts";
 import { useTranslation } from "react-i18next";
 import { shownAgentName } from "../lib/agent-name.ts";
 
-export const Route = createFileRoute("/_app/settings/agents/$id")({ component: EditAgent });
-
 const TABS = ["settings", "triggers", "jobs", "memory"] as const;
+
+export const Route = createFileRoute("/_app/settings/agents/$id")({ component: EditAgent, validateSearch: z.object({ tab: z.enum(TABS).optional() }) });
 
 function EditAgent() {
   const { t } = useTranslation("agents");
   const { t: tm } = useTranslation("messages");
   const { id } = Route.useParams();
+  const { tab } = Route.useSearch();
   const agent = useQuery(orpc.agents.get.queryOptions({ input: { id } }));
-  const [shown, setShown] = useState<(typeof TABS)[number]>("settings");
+  const [shown, setShown] = useState<(typeof TABS)[number]>(tab ?? "settings");
   // Bumped when a field goes back to its plugin's value: the form starts again from the agent as it is now.
   const [resets, setResets] = useState(0);
   return (

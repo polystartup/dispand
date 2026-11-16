@@ -189,6 +189,8 @@
     "emptyText": "Un déclencheur fait travailler cet agent : un chat ou un bouton que vous lancez, ou une planification.",
     "onHome": "Sur l’Accueil",
     "addToHome": "Ajouter à l’Accueil",
+    "start": "Démarrer",
+    "startLabel": "Démarrer {{name}}",
     "addToHomeLabel": "Ajouter {{name}} à l’Accueil",
     "summary": {
       "chat": "Chat",
