@@ -644,6 +644,9 @@ export class Engine {
   async stopRun(runId: string): Promise<void> {
     const out: Out[] = [];
     const sessions = await this.db.transaction(async (tx) => {
+      // The root before the run, the order the paths that lock a root `FOR UPDATE` take them in (a chat, a consult): the run's end event references the root.
+      const [rooted] = await tx.select({ rootId: runs.rootId }).from(runs).where(eq(runs.id, runId));
+      if (rooted?.rootId) await tx.select({ id: roots.id }).from(roots).where(eq(roots.id, rooted.rootId)).for("key share");
       const [run] = await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).for("update");
       if (!run) throw new EngineError("NOT_FOUND", "Run not found");
       if (!ACTIVE_RUN.includes(run.status)) throw new EngineError("CLOSED", "This run is over");
