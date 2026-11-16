@@ -49,3 +49,10 @@ test("a package alias never shadows an exact Codex scope name, and still resolve
   expect(skillInputs("/user:tidy rows", [plugin, local], aliases)[0]).toMatchObject({ type: "skill", path: local.path });
   expect(skillInputs("/user:tidy rows", [{ ...plugin, pluginId: "native@catalog" }], [{ alias: "user", namespace: "native@catalog" }])).toEqual([{ type: "skill", name: "tidy", path: plugin.path }, { type: "text", text: "rows", text_elements: [] }]);
 });
+
+test("a staged skill Codex already names `<package>:<skill>` keeps that one name", async () => {
+  const { skillCommands } = await import("./skills.ts");
+  const staged = { ...skill, name: "tidy:tidy", path: "/session/plugins/tidy/skills/tidy/SKILL.md", description: "Tidy" };
+  expect(skillCommands([staged]).map((c) => c.name)).toEqual(["tidy:tidy"]);
+  expect(skillInputs("/tidy:tidy rows", [staged])[0]).toEqual({ type: "skill", name: "tidy:tidy", path: staged.path });
+});

@@ -4,8 +4,8 @@ import { resolveSkillAlias } from "../native-skills.ts";
 import type { UserInput } from "./protocol/v2/UserInput.ts";
 
 type Skill = { name: string; path: string; enabled: boolean; pluginId?: string | null; scope?: string };
-/** A local fallback package has the same namespace as the Claude plugin written beside it. */
-const qualified = (s: Skill) => `${s.pluginId ?? basename(dirname(dirname(dirname(s.path))))}:${s.name}`;
+/** A local fallback package has the same namespace as the Claude plugin written beside it; Codex 0.167 already names a staged skill `<package>:<skill>`. */
+const qualified = (s: Skill) => s.name.includes(":") ? s.name : `${s.pluginId ?? basename(dirname(dirname(dirname(s.path))))}:${s.name}`;
 
 const staged = (s: Skill) => s.path.split(/[\\/]/).includes("plugins");
 function commandName(s: Skill, skills: Skill[]): string {
