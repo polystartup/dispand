@@ -2,7 +2,7 @@ import { ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { strictPermissionsOf } from "../agents/tool-ask.ts";
-import { toolHolder } from "../agents/usage.ts";
+import { toolHolder, type Holder } from "../agents/usage.ts";
 import type { Db, Tx } from "../db/client.ts";
 import { McpServerName } from "@dispand/runner-protocol";
 import { agentTools, plugins, runners, tools as toolsTable } from "../db/schema.ts";
@@ -57,7 +57,7 @@ export const Headers = z
   .refine((h) => Object.keys(h).length <= MAX_HEADERS, "tools.headersMax" satisfies MessageKey);
 
 /** The key of a holder's message when the tool stays on its runner. */
-const STAYS: Record<string, MessageKey> = {
+const STAYS: Record<Holder["key"], MessageKey> = {
   "tools.holder.agent": "tools.holder.stays.agent",
   "tools.holder.skill": "tools.holder.stays.skill",
   "tools.holder.workflow": "tools.holder.stays.workflow",
@@ -541,7 +541,7 @@ async function updateRunnerTool(context: Pick<InitialContext, "db" | "hub" | "en
     await requireRunnerTool(context.db, context.ownerId, runnerId, runnerTool);
     if (runnerId !== current.runnerId) {
       const holder = await toolHolder(context.db, context.ownerId, current.id);
-      if (holder) throw new ORPCError("CONFLICT", message(STAYS[holder.key]!, holder.values));
+      if (holder) throw new ORPCError("CONFLICT", message(STAYS[holder.key], holder.values));
     }
   }
   const [row] = await context.db
