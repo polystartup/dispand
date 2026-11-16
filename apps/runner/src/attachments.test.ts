@@ -157,3 +157,47 @@ test("a CLI chat message's files are in the run folder before its text, which na
   sessions.stopAll("done");
   await sessions.shutdown();
 });
+
+test("a stop isn't held up by a message whose files are still being fetched, and that message then goes nowhere", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "sessions-")));
+  made.push(base);
+  // A Dispand that never answers for the file.
+  const server = createServer(() => undefined);
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  onTestFinished(() => new Promise<void>((r) => { server.closeAllConnections(); server.close(() => r()); }));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const inputs: string[] = [];
+  let aborted!: () => void;
+  const fake = (({ prompt, options }: { prompt: AsyncIterable<SDKUserMessage>; options?: Options }) => {
+    const gone = new Promise<void>((r) => (aborted = r));
+    options!.abortController?.signal.addEventListener("abort", () => aborted());
+    async function* script(): AsyncGenerator<SDKMessage> {
+      yield { type: "system", subtype: "init", session_id: "cli-1" } as SDKMessage;
+      const it = prompt[Symbol.asyncIterator]();
+      for (;;) {
+        const next = await Promise.race([it.next(), gone.then(() => ({ done: true as const, value: undefined }))]);
+        if (next.done) return;
+        inputs.push(String(next.value.message.content));
+        yield { type: "result", subtype: "success", result: "ok", session_id: "cli-1" } as SDKMessage;
+      }
+    }
+    return Object.assign(script(), { interrupt: vi.fn(async () => undefined), setMcpServers: vi.fn(async () => ({ added: [], removed: [], errors: {} })) });
+  }) as unknown as typeof query;
+  const events: [string, HarnessEvent][] = [];
+  const sessions = new Sessions({ server: url, roots: [join(base, "root")], allowBypass: false }, (id, e) => events.push([id, e]), {
+    claude: { query: fake },
+    resumeMap: join(base, "state", "sessions.json"),
+    claudeVersion: "2.1.311",
+    skills: { server: url, token: "rt_1", stateDir: join(base, "state") },
+  });
+  await sessions.handle({ type: "session.start", start: { sessionId: "ses_1", harness: "claude-code", cwd: { mode: "per-run", runKey: "run_a" }, systemPrompt: "", prompt: "", expectedOutputs: [], interactive: true, permissionMode: "default", skills: [], mcpServers: [] } });
+  const pending = sessions.handle({ type: "session.send", sessionId: "ses_1", text: "look", files: [{ attachmentId: "att_1", path: ".dispand/attachments/att_1/file.png" }] });
+  const started = Date.now();
+  await sessions.handle({ type: "session.stop", sessionId: "ses_1" });
+  await vi.waitFor(() => expect(events.some(([, e]) => e.type === "session-ended")).toBe(true), { timeout: 10_000 });
+  expect(Date.now() - started).toBeLessThan(10_000);
+  server.closeAllConnections();
+  await pending;
+  expect(inputs).toEqual([]);
+  await sessions.shutdown();
+});

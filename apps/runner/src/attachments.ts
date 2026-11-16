@@ -68,7 +68,7 @@ process.stdin.on("data", (c) => chunks.push(c)).on("end", () => {
       if (err.code === "EEXIST") continue;
       throw err;
     }
-    fs.writeSync(fd, Buffer.from(f.base64, "base64"));
+    fs.writeFileSync(fd, Buffer.from(f.base64, "base64"));
     fs.fchmodSync(fd, 0o444);
     fs.closeSync(fd);
   }

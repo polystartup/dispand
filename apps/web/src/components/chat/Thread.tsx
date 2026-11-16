@@ -175,14 +175,22 @@ function FileChip({ removable }: { removable?: boolean }) {
 const RemovableChip = () => <FileChip removable />;
 const SentChip = () => <FileChip />;
 
-/** What the panel reads of the composer's files when it sends: their held ids, then clears them. */
-export type ComposerFiles = { ids: () => string[]; clear: () => Promise<void> };
+/** What the panel reads of the composer's files: their held ids when it sends, then takes those off; all of them when the conversation changes. */
+export type ComposerFiles = { ids: () => string[]; remove: (ids: string[]) => Promise<void>; clear: () => Promise<void> };
 
 /** The composer's files, inside the thread's runtime: the button that attaches one, and each attached one. */
 export function ComposerAttachments({ handle, disabled }: { handle: RefObject<ComposerFiles | null>; disabled?: boolean }) {
   const { t } = useTranslation("chat");
   const aui = useAui();
-  handle.current = { ids: () => aui.composer().getState().attachments.map((a) => a.id), clear: () => aui.composer().clearAttachments() };
+  handle.current = {
+    ids: () => aui.composer().getState().attachments.map((a) => a.id),
+    remove: async (ids) => {
+      // Only those still there: the person may have taken one off meanwhile.
+      const left = new Set(aui.composer().getState().attachments.map((a) => a.id));
+      for (const id of ids.filter((i) => left.has(i))) await aui.composer().attachment({ id }).remove();
+    },
+    clear: () => aui.composer().clearAttachments(),
+  };
   return (
     <>
       <ComposerPrimitive.AddAttachment multiple disabled={disabled} aria-label={t("attachFile")} title={t("attachFile")} className="rounded-full p-2 text-muted hover:bg-hover hover:text-fg disabled:opacity-60">

@@ -199,6 +199,8 @@ export class Sessions {
       }
     }
     const id = msg.type === "session.start" ? msg.start.sessionId : msg.sessionId;
+    // A live session's stop, interrupt or narrowed permissions never wait behind a message whose files are still being fetched.
+    if ((msg.type === "session.stop" || msg.type === "session.interrupt" || msg.type === "session.permissions") && this.live.has(id)) return this.dispatch(msg);
     const before = this.queues.get(id);
     // Nothing before it: handled now, as the message arrives.
     const done = before ? before.then(() => this.dispatch(msg)) : this.dispatch(msg);
@@ -233,6 +235,8 @@ export class Sessions {
       // Its files are in place before the text that names them reaches the CLI (this session's messages wait meanwhile).
       const cwd = this.folders.get(msg.sessionId);
       const failed = msg.files?.length && cwd ? await copyAttachments(cwd, msg.files, this.options.skills) : undefined;
+      // Stopped while its files were fetched: the message goes nowhere.
+      if (this.live.get(msg.sessionId) !== session || this.stopping.has(msg.sessionId)) return;
       session.send(failed ? `${msg.text}\n\n${failed}` : msg.text);
     }
     else if (msg.type === "session.answer") session.answer(msg.questionId, msg.answer);

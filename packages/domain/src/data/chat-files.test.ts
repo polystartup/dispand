@@ -170,5 +170,10 @@ test("a held file never sent goes after a day; a chat's files stay with their Jo
   expect(await ids()).toEqual([held.id, sentFile.id].sort());
   await sweepAttachments(s.context.db, s.context.filesDir, new Date(Date.now() + 25 * HOUR));
   expect(await ids()).toEqual([sentFile.id]);
+  // Taken by a table, then no cell holds it: the chat still carries it, so it stays.
+  const table = await call(router.tables.create, { name: "Scans" }, { context: s.context });
+  await s.context.db.update(attachments).set({ tableId: table.id }).where(eq(attachments.id, sentFile.id));
+  await sweepAttachments(s.context.db, s.context.filesDir, new Date(Date.now() + 26 * HOUR));
+  expect(await ids()).toEqual([sentFile.id]);
   expect(await readFile(join(s.context.filesDir, s.context.ownerId, sentFile.id))).toEqual(PNG);
 });

@@ -54,13 +54,18 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
   const { t } = useTranslation("chat");
   // The composer's attached files, each held by Dispand as it is added, sent with the next message.
   const files = useRef<ComposerFiles | null>(null);
+  // Files still on their way: sending waits for them, so none is left for the next message.
+  const [holding, setHolding] = useState(0);
   const hold = useCallback(
     async (file: File) => {
+      setHolding((n) => n + 1);
       try {
         return await api.files.hold({ file });
       } catch (err) {
         setError(err instanceof Error ? err.message : t("attachFailed"));
         throw err;
+      } finally {
+        setHolding((n) => n - 1);
       }
     },
     [t],
@@ -88,6 +93,8 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
     setText("");
     setChosenSkill(null);
     setError(null);
+    // Files attached for the other conversation stay with it: none goes with this one.
+    if (files.current?.ids().length) void files.current.clear();
   }, [runId]);
 
   /** The library's composer path (not shown today: the panel keeps its own, which keeps a draft that failed to send). */
@@ -119,7 +126,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
 
   async function send() {
     const message = text.trim();
-    if (!message || sending || !canSend) return;
+    if (!message || sending || !canSend || holding > 0) return;
     const skillId = chosenSkill && message.split(/\s/, 1)[0] === `/${chosenSkill.name}` ? chosenSkill.skillId : undefined;
     const submitted = text;
     setSending(true);
@@ -140,7 +147,8 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
       }
       const attachmentIds = files.current?.ids() ?? [];
       await api.runs.sendChat({ runId: id, text: message, ...(skillId ? { skillId } : {}), ...(attachmentIds.length ? { attachmentIds } : {}) });
-      if (attachmentIds.length) void files.current?.clear();
+      // Only the files that went: one attached meanwhile stays for the next message.
+      if (attachmentIds.length) void files.current?.remove(attachmentIds);
       // The conversation's list now has its title.
       void queryClient.invalidateQueries({ queryKey: orpc.runs.list.key() });
       // Only the draft that was sent: what was typed meanwhile (or a new conversation) stays.
@@ -235,7 +243,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
               {!approval && <ComposerAttachments handle={files} disabled={!canSend || sending} />}
               {assistantAgentId ? <AssistantInput agentId={assistantAgentId} runId={runId} onTextChange={setText} onSkillChange={setChosenSkill} inputProps={composerInput.props} /> : composerInput}
               {composerTools && <div className="min-w-0 flex-1">{composerTools}</div>}
-              <Button type="submit" size="icon-sm" aria-label="Send" disabled={!canSend || sending || !text.trim()} className="rounded-full">
+              <Button type="submit" size="icon-sm" aria-label="Send" disabled={!canSend || sending || holding > 0 || !text.trim()} className="rounded-full">
                 <ArrowUp aria-hidden />
               </Button>
             </form>

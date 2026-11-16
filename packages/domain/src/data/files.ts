@@ -320,13 +320,13 @@ const inMessage = sql`exists (select 1 from ${messages} where ${messages.runId} 
 
 /**
  * What the sweep removes, `cutoff` being an hour ago and `heldCutoff` a day ago: a table's file no
- * row of it references, past an hour; a Job's file no table took and no message of it carries, an
+ * row of it references and no message carries, past an hour; a Job's file no table took and no message of it carries, an
  * hour after the Job ended (a chat's files stay with their Job, which a new message reopens); a
  * file of no table and no Job (held for a chat message never sent, or its Job deleted), a day
  * after it came.
  */
 const unused = (cutoff: Date, heldCutoff: Date) =>
-  sql`((${attachments.tableId} is not null and ${attachments.createdAt} < ${cutoff} and not ${referenced})
+  sql`((${attachments.tableId} is not null and ${attachments.createdAt} < ${cutoff} and not ${referenced} and not ${inMessage})
     or (${attachments.tableId} is null and ${attachments.jobId} is null and ${attachments.createdAt} < ${heldCutoff})
     or (${attachments.tableId} is null and not ${inMessage} and exists (select 1 from ${runs} where ${runs.id} = ${attachments.jobId} and ${runs.finishedAt} < ${cutoff})))`;
 
