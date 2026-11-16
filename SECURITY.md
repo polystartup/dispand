@@ -153,7 +153,11 @@ changes it updates this file.
   proposed, the server reads the plugin again, refuses a token that isn't that read's, and keeps
   the picked agents' rights with the item (`shown`): the owner reads those, never a page fetched
   on its own, and the token makes them what is made. Only a Job on every table proposes it, as
-  its setup may reach any table.
+  its setup may reach any table. An agent adds a marketplace or a skill site (`marketplaces_add`)
+  only on an approved item, like any grant: the item holds the exact address and kind, so an
+  approval for one address never adds another, and the owner reads the address as the server
+  will read it (`shown`: GitHub's `owner/repo` made whole, a skill site's index URL; nothing is
+  fetched before the approval, and a skill site that isn't https is refused when proposed).
   The snapshot binds the grant to the tool's target and permission revision; retargeting
   increments the revision atomically, including when pointed back later. Agent writes check
   the binding while holding a shared lock on the tool, so retargeting cannot restore an old grant.

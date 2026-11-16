@@ -172,6 +172,7 @@ function Value({ name, value, items, names, isRef, address }: { name: string; va
   }
   if (name === "rateCap" && typeof value === "number") return <span>{t("proposal.rateCap", { value: format.number(value) })}</span>;
   if (name === "concurrency" && typeof value === "string") return <span>{word(`proposal.concurrency.${value}`, value)}</span>;
+  if (name === "kind" && typeof value === "string") return <span>{word(`proposal.marketKinds.${value}`, value)}</span>;
   // A choice field's choices by their labels, never as JSON.
   if (name === "choices" && list && list.every((v) => typeof v === "object" && v !== null && typeof (v as { label?: unknown }).label === "string")) {
     return <span>{list.length ? format.list(list.map((c) => (c as { label: string }).label)) : <span className="text-faint">{t("proposal.none")}</span>}</span>;
@@ -240,7 +241,15 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
                   ) : item.tool.startsWith("agents_") && name === "selfLearning" ? (
                     <Targets value={value} />
                   ) : (
-                    <Value name={name} value={value} items={proposal.items} names={proposal.names} isRef={item.refs.includes(name)} address={(item.tool === "tools_add" || item.tool === "plugins_add_server") && name === "url"} />
+                    <Value
+                      name={name}
+                      // A marketplace's address as the server will read it (GitHub's owner/repo made whole).
+                      value={item.tool === "marketplaces_add" && name === "url" ? ((item.shown as { url?: string } | undefined)?.url ?? value) : value}
+                      items={proposal.items}
+                      names={proposal.names}
+                      isRef={item.refs.includes(name)}
+                      address={(item.tool === "tools_add" || item.tool === "plugins_add_server" || item.tool === "marketplaces_add") && name === "url"}
+                    />
                   )}
                 </dd>
               </div>

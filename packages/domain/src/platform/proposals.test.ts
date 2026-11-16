@@ -1,11 +1,11 @@
 import { call } from "@orpc/server";
 import { eq, sql } from "drizzle-orm";
 import { say } from "../messages/index.ts";
-import { expect, onTestFinished, test } from "vitest";
-import { agents, agentTools, audit, fields as fieldsTable, plugins as pluginsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, user } from "../db/schema.ts";
+import { expect, onTestFinished, test, vi } from "vitest";
+import { agents, agentTools, audit, marketplaces, fields as fieldsTable, plugins as pluginsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
-import { lawFirm, lawFirmMarket, removePlugin } from "../plugins/test-support.ts";
+import { fakeSite, fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd } from "../plugins/test-support.ts";
 import { startFakeMcp } from "../tools/test-server.ts";
 import type { Bundle } from "./bundles.ts";
 import { callPlatformTool, toolsOf, type JobIdentity } from "./call.ts";
@@ -270,7 +270,7 @@ test("an agent turns its own trigger off directly; turning it on, any other chan
 test("every tool marked as a grant is refused without a proposal", async () => {
   const s = await setup(["data", "configure"]);
   const grants = PLATFORM_TOOLS.filter((t) => t.grant);
-  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_permission", "agents_update", "fields_delete", "harnesses_set_limit", "plugins_install", "tables_delete", "tools_add", "tools_add_from_catalog", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
+  expect(grants.map((t) => t.name).sort()).toEqual(["agents_create", "agents_set_tool_permission", "agents_update", "fields_delete", "harnesses_set_limit", "marketplaces_add", "plugins_install", "tables_delete", "tools_add", "tools_add_from_catalog", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
   const table = await call(router.tables.create, { name: "Clients" }, { context: s.context });
   const field = (await call(router.tables.get, { id: table.id }, { context: s.context })).fields[0]!;
   const inputs: Record<string, unknown> = {
@@ -288,6 +288,7 @@ test("every tool marked as a grant is refused without a proposal", async () => {
     harnesses_set_limit: { id: s.agent.harnessId, maxWorking: 10 },
     workspace_set_checkpoint: { checkpoint: 500 },
     plugins_install: { marketplaceId: "mkt_x", entryName: "x", reviewed: "r".repeat(64) },
+    marketplaces_add: { url: "acme/plugins" },
   };
   for (const t of grants) expect(((await s.tool(t.name, inputs[t.name])) as { error: string }).error).toMatch(NEEDS);
 });
@@ -1026,6 +1027,47 @@ test("the Assistant proposes a plugin's install with a pick: approved, it makes 
   const table = await call(router.tables.create, { name: "Notes" }, { context: s.context });
   await call(router.agents.update, { ...s.base, id: s.agent.id, bundles: ["configure"], dataTables: [table.id] }, { context: s.context });
   expect(await s.propose([{ tool: "plugins_install", input: { ...install, reviewed: fresh.output.reviewed } }])).toMatchObject({ ok: false, error: expect.stringContaining("Not found") });
+});
+
+test("an agent adds a marketplace or a skill site only on an approved item: read only after the owner's yes, once, and at the address approved", async () => {
+  const s = await setup();
+  Object.assign(s.context, { gitFileUrls: true });
+  const repo = fixtureRepo({ "skills/plain-words/SKILL.md": skillMd("plain-words") });
+  const other = fixtureRepo({ "skills/loud-words/SKILL.md": skillMd("loud-words") });
+  onTestFinished(() => {
+    repo.remove();
+    other.remove();
+  });
+  const site = "https://skills.example";
+  const asked = fakeSite({ [`${site}/.well-known/skills/index.json`]: JSON.stringify({ skills: [{ name: "greet", description: "Greets.", files: ["SKILL.md"] }] }) });
+  onTestFinished(() => {
+    vi.unstubAllGlobals();
+  });
+  const added = async () => (await s.context.db.select({ url: marketplaces.url }).from(marketplaces).where(eq(marketplaces.builtIn, false))).map((m) => m.url).sort();
+  const git = { url: repo.url };
+  const skills = { url: site, kind: "well-known" };
+  // Unapproved: refused, and nothing is added.
+  for (const input of [git, skills]) expect(((await s.tool("marketplaces_add", input)) as { error: string }).error).toMatch(NEEDS);
+  // A skill site that isn't https is refused when proposed.
+  expect(await s.propose([{ tool: "marketplaces_add", input: { url: "http://skills.example", kind: "well-known" } }])).toMatchObject({ ok: false, error: expect.stringContaining("https://") });
+  const id = s.idOf(await s.propose([{ tool: "marketplaces_add", input: git }, { tool: "marketplaces_add", input: skills }]));
+  // The owner reads each address as it will be read, and nothing was fetched for it.
+  expect((await proposalView(s.context.db, s.context.ownerId, id))!.items.map((i) => i.shown)).toEqual([{ url: repo.url }, { url: `${site}/.well-known/skills/index.json` }]);
+  expect(asked).toEqual([]);
+  await s.settle(id, "approved");
+  // Another address, or the same as the other kind, gets nothing from the approval.
+  expect(((await s.tool("marketplaces_add", { url: other.url })) as { error: string }).error).toMatch(NEEDS);
+  expect(((await s.tool("marketplaces_add", { url: "https://elsewhere.example", kind: "well-known" })) as { error: string }).error).toMatch(NEEDS);
+  expect(((await s.tool("marketplaces_add", { url: repo.url, kind: "well-known" })) as { error: string }).error).toMatch(NEEDS);
+  expect(await added()).toEqual([]);
+  // The approved ones run, once each.
+  expect(await s.tool("marketplaces_add", git)).toMatchObject({ ok: true, output: { url: repo.url, kind: "skill-repo" } });
+  expect(await s.tool("marketplaces_add", skills)).toMatchObject({ ok: true, output: { kind: "well-known", plugins: 1 } });
+  for (const input of [git, skills]) expect(((await s.tool("marketplaces_add", input)) as { error: string }).error).toMatch(NEEDS);
+  expect(await added()).toEqual([`${site}/.well-known/skills/index.json`, repo.url].sort());
+  // Audited as the marketplace it made.
+  const calls = (await s.context.db.select().from(audit).where(eq(audit.jobId, s.job.runId))).filter((r) => r.action === "platform.call" && r.result === "ok" && (r.details as { tool?: string }).tool === "marketplaces_add");
+  expect(calls.map((r) => r.resourceType)).toEqual(["marketplace", "marketplace"]);
 });
 
 test("a poll trigger's tool is named in the view", async () => {

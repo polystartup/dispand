@@ -1365,6 +1365,11 @@
   again, refuses a token that isn't that read's, and stores the picked agents' rights on the item
   (`ProposalItem.shown`), which `proposalView` returns and `PluginInstallItem` shows. The tool's
   `tables` is the whole workspace, so only a Job on every table proposes it.
+  `marketplaces_add` (`marketplaces.add`, a Git marketplace or skill repository, or with
+  `kind: "well-known"` a skill site) is a grant too: its `shown` hook resolves the address as the
+  add will (`marketplaceUrl`, `wellKnownIndexUrl`) without fetching it, so the Inbox shows the
+  address that will be read and an invalid skill site is refused when proposed; its Audit rows
+  are about a `marketplace`. Listing, syncing and removing marketplaces stay the owner's.
   What a setup makes is the plugin's from its insert: `runItemsAsOwner` passes
   `context.pluginElement` (a value no input sets) and `tables.create`, `fields.create` and
   `agents.create` write it on the row (`tables.plugin_id`, `plugin_component` and the

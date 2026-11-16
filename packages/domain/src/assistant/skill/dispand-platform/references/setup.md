@@ -24,7 +24,7 @@ These calls run only as an item of a proposal a person approved, in the same Job
   (a name, a URL and a transport), `tools_delete`: neither takes a credential;
 - `tables_delete`, `fields_delete` (they can't be undone);
 - `harnesses_set_limit`, `workspace_set_checkpoint`;
-- `plugins_install` (below).
+- `marketplaces_add`, `plugins_install` (below).
 
 The other writes of `configure` (`tables_create`, `tables_rename`, `tables_set_primitive`,
 `fields_create`, `fields_update`, `fields_reorder`) you may call directly, or list in a
@@ -78,6 +78,11 @@ waits: say so in the approval message, and propose the `agents_set_tool_permissi
 poll needs afterwards, once the install has made the agent. What the plugin doesn't cover, add
 in a proposal of your own as below. A plugin that changed since you read it is refused: read it
 again and propose again.
+
+When the owner names a marketplace or a skill site their marketplaces don't have yet, propose
+`marketplaces_add`: a Git repository's URL (or GitHub's `owner/repo`), or a skill site's https
+address with `kind: "well-known"`. Nothing is read from it before the owner approves; once it is
+added, `plugins_discover` lists what it offers, and an install from it is a proposal of its own.
 
 ## Proposing a setup
 

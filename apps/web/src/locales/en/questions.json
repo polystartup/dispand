@@ -163,6 +163,10 @@
       "parallel": "Several at once",
       "one-at-a-time": "One at a time"
     },
+    "marketKinds": {
+      "git": "Git repository",
+      "well-known": "Skill site"
+    },
     "callsGo": "Calls go to <0>{{host}}</0>",
     "unreadable": "an address that can't be read",
     "recorded": "What these items create is recorded in the plugin <0>{{plugin}}</0>.",
@@ -191,6 +195,7 @@
       "triggers_update": "Change a trigger",
       "triggers_delete": "Delete a trigger",
       "plugins_install": "Install a plugin, and set up what it defines",
+      "marketplaces_add": "Add a marketplace: where plugins and skills are read from",
       "memory_add": "Add an entry to a memory: what later Jobs start from",
       "memory_update": "Rewrite an entry of a memory: what later Jobs start from"
     },
@@ -267,6 +272,10 @@
         "server": "Server",
         "url": "Address",
         "transport": "Transport"
+      },
+      "marketplaces_add": {
+        "url": "Address",
+        "kind": "Kind"
       },
       "agents_set_tool_permission": {
         "agentId": "Agent",

@@ -115,6 +115,26 @@ test("a tool to add shows its address whole and the host calls will go to", () =
   expect(within(item!).getByText("mail.example.com:8443")).toBeTruthy();
 });
 
+test("a marketplace to add shows the address the server will read, whole, its host, and its kind in words", () => {
+  const market: ProposalView = {
+    id: "prop_m",
+    status: "asked",
+    items: [
+      { tool: "marketplaces_add", used: false, refs: [], input: { url: "acme/plugins", kind: "git" }, shown: { url: "https://github.com/acme/plugins.git" } },
+      { tool: "marketplaces_add", used: false, refs: [], input: { url: "https://skills.example", kind: "well-known" }, shown: { url: "https://skills.example/.well-known/skills/index.json" } },
+    ],
+    names: {},
+  };
+  render(<ProposalItems proposal={market} />);
+  const [git, site] = screen.getAllByRole("listitem");
+  expect(within(git!).getByText("Add a marketplace: where plugins and skills are read from")).toBeTruthy();
+  expect(within(git!).getByText("https://github.com/acme/plugins.git")).toBeTruthy();
+  expect(within(git!).getByText("github.com")).toBeTruthy();
+  expect(within(git!).getByText("Git repository")).toBeTruthy();
+  expect(within(site!).getByText("https://skills.example/.well-known/skills/index.json")).toBeTruthy();
+  expect(within(site!).getByText("Skill site")).toBeTruthy();
+});
+
 test("a plugin's server to add names its plugin and shows the address calls will go to", () => {
   const tool: ProposalView = {
     id: "prop_5",

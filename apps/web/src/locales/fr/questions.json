@@ -163,6 +163,10 @@
       "parallel": "Plusieurs à la fois",
       "one-at-a-time": "Un à la fois"
     },
+    "marketKinds": {
+      "git": "Dépôt Git",
+      "well-known": "Site de compétences"
+    },
     "callsGo": "Les appels vont à <0>{{host}}</0>",
     "unreadable": "une adresse illisible",
     "recorded": "Ce que ces éléments créent est enregistré dans le plugin <0>{{plugin}}</0>.",
@@ -191,6 +195,7 @@
       "triggers_update": "Modifier un déclencheur",
       "triggers_delete": "Supprimer un déclencheur",
       "plugins_install": "Installer un plugin et configurer ce qu’il définit",
+      "marketplaces_add": "Ajouter une marketplace : là où les plugins et les compétences sont lus",
       "memory_add": "Ajouter une entrée à une mémoire : ce dont partent les Jobs suivants",
       "memory_update": "Réécrire une entrée d’une mémoire : ce dont partent les Jobs suivants"
     },
@@ -267,6 +272,10 @@
         "server": "Serveur",
         "url": "Adresse",
         "transport": "Transport"
+      },
+      "marketplaces_add": {
+        "url": "Adresse",
+        "kind": "Type"
       },
       "agents_set_tool_permission": {
         "agentId": "Agent",

@@ -50,6 +50,7 @@ const RESOURCE_WORDS: Record<AuditResource, string> = {
   harness: "Harness",
   proposal: "Proposal",
   plugin: "Plugin",
+  marketplace: "Marketplace",
   memory: "Memory",
   workspace: "Workspace",
 };

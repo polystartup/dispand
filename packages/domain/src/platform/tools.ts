@@ -14,6 +14,8 @@ import { readMemory, ReadInput, refuseProposedWrite, RemoveInput, removeMemoryTo
 import type { Rights } from "./rights.ts";
 import { sentence, type Text } from "../messages/index.ts";
 import { type Decision, decide } from "../plugins/resolve.ts";
+import { marketplaceUrl } from "../plugins/procedures.ts";
+import { wellKnownIndexUrl, WellKnownError } from "../plugins/well-known.ts";
 
 export { BUNDLES, type Bundle, type TableScope } from "./bundles.ts";
 
@@ -223,6 +225,17 @@ async function pluginRights(app: PlatformApp, job: JobIdentity, input: unknown):
   }
 }
 
+/** The address a proposed marketplace is read from, as the add resolves it (nothing is fetched): what the owner approves. */
+async function marketplaceAddress(_app: PlatformApp, _job: JobIdentity, input: unknown): Promise<unknown> {
+  const { url, kind } = input as { url: string; kind: "git" | "well-known" };
+  try {
+    return { url: kind === "well-known" ? wellKnownIndexUrl(url) : marketplaceUrl(url) };
+  } catch (err) {
+    if (err instanceof WellKnownError) return err.message;
+    throw err;
+  }
+}
+
 export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("tables.list", "data", "Lists the tables you may work on, with their ids and names.", {
     // Configuring needs table ids too: `configure` alone lists them.
@@ -291,6 +304,7 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("tools.add", "configure", `Adds a tool: an MCP server reached at a URL, with no credentials (the owner enters those afterwards). ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("tools.delete", "configure", `Deletes a tool no agent uses, with its saved headers: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("agents.update", "configure", `Changes an agent: give every field, as agents_get shows them. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool("marketplaces.add", "configure", `Adds a marketplace, where plugins_discover finds plugins: a Git repository (its URL, or GitHub's owner/repo) with a .claude-plugin/marketplace.json or a skills/ folder, or with kind "well-known" a skill site (an https address serving /.well-known/skills/index.json). Nothing is read from it before the owner approves. ${NEEDS_PROPOSAL}`, { tables: none, grant: true, shown: marketplaceAddress }),
   tool("plugins.discover", "configure", "Lists what the owner's marketplaces offer (each entry with its marketplace's id), with whether it is installed; a query narrows them by name or description.", { tables: none }),
   tool("plugins.preview", "configure", "Reads a marketplace entry as installing it would: its skills, MCP servers, agents, and definitions (tables, agents with what their Jobs may do, triggers), and the reviewed token an install must carry.", { tables: none }),
   tool("plugins.list", "configure", "Lists the installed plugins with their definitions and which of them are set up.", { tables: none }),
@@ -489,7 +503,6 @@ export const NOT_TOOLS: string[] = [
   "skills.list",
   "skills.get",
   "marketplaces.list",
-  "marketplaces.add",
   "marketplaces.remove",
   "marketplaces.sync",
   "plugins.uninstallPreview",
