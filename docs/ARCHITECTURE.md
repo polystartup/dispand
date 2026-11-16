@@ -1663,7 +1663,9 @@ alone; on Codex (`codex/config.ts` `RESTRICTED`, checked with 0.167.0), the same
 names from `config/read`), a read-only profile without network, and `environments: []` on every
 `turn/start`, so the `apply_patch` the model's catalog entry adds (no switch removes it) fails
 before touching a file. `codex/restricted-tools.test.ts` runs the machine's Codex against a
-stand-in Responses API and checks every tool the model is offered (runner protocol 29: an older
+stand-in Responses API and checks every tool the model is offered; the runner refuses a
+restricted Codex start below `RESTRICTED_CODEX` (0.167.0) and warns above it, until that test
+is run again on the new version (runner protocol 29: an older
 runner refuses restricted Codex starts and shows as outdated). A start that fails fails the Job,
 and its conflicts are the owner's again. On the element's page (`StemMarks`, from
 `plugins.conflicts`), each conflict says where it is: Stem is looking; Stem's merged value waits

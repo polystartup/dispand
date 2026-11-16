@@ -12,8 +12,16 @@ export const CODEX_TESTED = "0.166.0";
 /** The oldest Codex sessions may run on. */
 export const MIN_CODEX = "0.166.0";
 
-/** Why sessions can't run on Codex `version` (undefined if none is found), or undefined when they can. */
-export function codexRequired(version: string | undefined): string | undefined {
+/**
+ * The Codex a restricted session's switches (`config.ts` `RESTRICTED`) were checked on, and the oldest
+ * it runs on: an older one may ignore a switch it doesn't know. A newer one runs, with a warning, until
+ * `restricted-tools.test.ts` is run again on it.
+ */
+export const RESTRICTED_CODEX = "0.167.0";
+
+/** Why sessions (`restricted`: restricted sessions) can't run on Codex `version` (undefined if none is found), or undefined when they can. */
+export function codexRequired(version: string | undefined, restricted = false): string | undefined {
+  if (restricted && !atLeast(version, RESTRICTED_CODEX)) return `A restricted session needs Codex ≥ ${RESTRICTED_CODEX} (found ${version ?? "none"}): update codex on this machine`;
   if (atLeast(version, MIN_CODEX)) return undefined;
   return `Codex ≥ ${MIN_CODEX} required (found ${version ?? "none"}): update codex on this machine`;
 }

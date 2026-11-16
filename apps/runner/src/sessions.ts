@@ -12,7 +12,7 @@ import {
 } from "@dispand/runner-protocol";
 import { BypassRefused, type ClaudeDeps, startClaudeSession } from "./claude.ts";
 import { type CodexDeps, startCodexSession } from "./codex/session.ts";
-import { codexRequired } from "./codex/version.ts";
+import { codexRequired, RESTRICTED_CODEX } from "./codex/version.ts";
 import { writeDurable } from "./durable.ts";
 import type { RunnerConfig } from "./config.ts";
 import type { HarnessSession } from "./outcome.ts";
@@ -275,8 +275,11 @@ export class Sessions {
     if (start.skills.length > 0 && !this.options.skills) return emit({ type: "error", message: "this runner can't load skills" });
     if (start.harness === "codex") {
       const codex = this.options.codex;
-      const problem = codex ? codexRequired(codex.version) : "Codex isn't installed on this machine, or doesn't run";
+      const problem = codex ? codexRequired(codex.version, start.restricted) : "Codex isn't installed on this machine, or doesn't run";
       if (problem) return emit({ type: "error", message: problem });
+      if (start.restricted && codex!.version !== RESTRICTED_CODEX) {
+        console.warn(`dispand-runner: restricted session ${start.sessionId} runs on Codex ${codex!.version}, its switches were checked on ${RESTRICTED_CODEX}: run restricted-tools.test.ts on this version`);
+      }
     } else if (!atLeast(this.options.claudeVersion, MIN_CLAUDE)) {
       return emit({ type: "error", message: `Claude Code ≥ ${MIN_CLAUDE} required (found ${this.options.claudeVersion ?? "none"}): update claude on this machine` });
     }
