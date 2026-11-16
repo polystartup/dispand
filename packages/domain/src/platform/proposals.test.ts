@@ -1135,3 +1135,12 @@ test("a harness's detail is a whole sentence by what is known of it", () => {
     { key: "harness.detail.both", values: { kind: "codex", runner: "Mac", mode: "plan" } },
   ]);
 });
+
+test("an agent update's view carries the fields it gives as they stand now, and names their ids", async () => {
+  const s = await setup();
+  const update = { ...s.newAgent, id: s.agent.id, systemPrompt: "Be brief.", toolIds: [] };
+  const id = s.idOf(await s.propose([{ tool: "agents_update", input: update }]));
+  const view = await proposalView(s.context.db, s.context.ownerId, id);
+  expect(view!.items[0]!.before).toMatchObject({ name: "Builder", harnessId: s.harness.id, systemPrompt: "", dataTables: "all" });
+  expect(view!.names[s.harness.id]?.name).toBe("Claude");
+});

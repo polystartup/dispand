@@ -74,7 +74,7 @@ test("deletions and asking flags read as what they do, with names; a value that 
   expect(field!.textContent).toContain("Phone (of the table Clients)");
   expect(within(field!).getByText("This can't be undone.")).toBeTruthy();
   expect(within(flag!).getByText("Set an action to Run, Ask, or Off")).toBeTruthy();
-  expect(within(flag!).getByText(/tool_x: not one of yours/)).toBeTruthy();
+  expect(within(flag!).getAllByText(/tool_x: not one of yours/).length).toBeGreaterThan(0);
   // The action happens to read like a table's id: it is shown as the text it is.
   expect(within(flag!).getByText("table_1")).toBeTruthy();
   expect(within(flag!).getByText("run")).toBeTruthy();
@@ -172,7 +172,7 @@ test("a plugin's server to add names its plugin and shows the address calls will
   render(<ProposalItems proposal={tool} />);
   const [item] = screen.getAllByRole("listitem");
   expect(within(item!).getByText("Add a plugin's server as a tool: a server Dispand will call")).toBeTruthy();
-  expect(within(item!).getByText("law-firm")).toBeTruthy();
+  expect(within(item!).getAllByText("law-firm").length).toBeGreaterThan(0);
   expect(within(item!).getByText("case-law.example.com")).toBeTruthy();
 });
 
@@ -359,4 +359,80 @@ test("an agent's self-learning targets read as words, and the workspace's memory
   expect(within(update!).getByText("Its tables' memory")).toBeTruthy();
   expect(within(update!).queryByText(/steers every agent/)).toBeNull();
   expect(within(off!).getByText("nothing")).toBeTruthy();
+});
+
+const named: ProposalView["names"] = {
+  t1: { kind: "table", name: "Clients" },
+  t2: { kind: "table", name: "Orders" },
+  f1: { kind: "field", name: "Phone" },
+  a1: { kind: "agent", name: "Builder" },
+  tool1: { kind: "tool", name: "Mail" },
+  trg1: { kind: "trigger", name: "Daily" },
+  h1: { kind: "harness", name: "Claude" },
+  p1: { kind: "plugin", name: "Pack" },
+  cat1: { kind: "catalog", name: "Gmail" },
+};
+const sentences: [string, Record<string, unknown>, string[], string][] = [
+  ["tables_create", { name: "Matters" }, [], "Create a table named Matters."],
+  ["tables_rename", { id: "t1", name: "People" }, ["id"], "Rename Clients t1 to People."],
+  ["tables_set_primitive", { id: "t1", primitive: true }, ["id"], "Make Clients t1 a primitive table."],
+  ["tables_set_primitive", { id: "t1", primitive: false }, ["id"], "Stop Clients t1 being a primitive table."],
+  ["tables_delete", { id: "t1" }, ["id"], "Delete the table Clients t1 and its rows."],
+  ["fields_update", { id: "f1", name: "Mobile" }, ["id"], "Change the field Phone f1."],
+  ["fields_reorder", { tableId: "t1", fieldIds: ["f1"] }, ["tableId", "fieldIds"], "Reorder the fields of Clients t1."],
+  ["fields_delete", { id: "f1" }, ["id"], "Delete the field Phone f1 and its values."],
+  ["agents_update", { id: "a1", name: "Builder 2" }, ["id"], "Change the agent Builder a1."],
+  ["agents_delete", { id: "a1" }, ["id"], "Delete the agent Builder a1 and its triggers."],
+  ["agents_create", { name: "Clerk" }, [], "Create an agent named Clerk."],
+  ["agents_set_tool_permission", { agentId: "a1", toolId: "tool1", action: "send", permission: "run" }, ["agentId", "toolId"], "Let Builder a1 run the action send of Mail tool1 without asking."],
+  ["agents_set_tool_permission", { agentId: "a1", toolId: "tool1", action: "send", permission: "ask" }, ["agentId", "toolId"], "Make Builder a1 ask before it runs the action send of Mail tool1."],
+  ["agents_set_tool_permission", { agentId: "a1", toolId: "tool1", action: "send", permission: "off" }, ["agentId", "toolId"], "Turn off the action send of Mail tool1 for Builder a1."],
+  ["harnesses_set_limit", { id: "h1", maxWorking: 3 }, ["id"], "Let Claude h1 work on 3 sessions at once."],
+  ["tools_add", { name: "Mail", url: "https://mail.example.com/mcp", transport: "http" }, [], "Add the tool Mail, a server Dispand will call at https://mail.example.com/mcp."],
+  ["tools_add_from_catalog", { catalogId: "cat1" }, ["catalogId"], "Add a tool from the catalog entry Gmail cat1."],
+  ["tools_delete", { id: "tool1" }, ["id"], "Delete the tool Mail tool1 and its saved headers."],
+  ["plugins_add_server", { pluginId: "p1", server: "api", url: "https://x.example.com/mcp" }, ["pluginId"], "Add the server api of Pack p1 as a tool, called at https://x.example.com/mcp."],
+  ["triggers_create", { agentId: "a1" }, ["agentId"], "Create a trigger that starts Jobs of Builder a1."],
+  ["triggers_update", { id: "trg1" }, ["id"], "Change the trigger Daily trg1."],
+  ["triggers_delete", { id: "trg1" }, ["id"], "Delete the trigger Daily trg1."],
+  ["marketplaces_add", { url: "https://git.example.com/x.git", kind: "git" }, [], "Add the marketplace at https://git.example.com/x.git, where plugins and skills are read from."],
+  ["memory_add", { scope: "workspace", path: "rules.md" }, [], "Add the memory entry rules.md."],
+  ["memory_add", { scope: "data", tableId: "t1", path: "rules.md" }, ["tableId"], "Add the memory entry rules.md of Clients t1."],
+  ["memory_update", { scope: "workspace", path: "rules.md" }, [], "Rewrite the memory entry rules.md."],
+  ["memory_update", { scope: "data", tableId: "t1", path: "rules.md" }, ["tableId"], "Rewrite the memory entry rules.md of Clients t1."],
+];
+
+test("every kind of item reads as one whole sentence, its references by name", () => {
+  for (const [tool, input, refs, text] of sentences) {
+    const { container, unmount } = render(<ProposalItems proposal={{ id: "p", status: "asked", names: named, items: [{ tool, input, refs, used: false }] }} />);
+    expect(container.querySelectorAll("li > p")[1]?.textContent, `${tool} ${JSON.stringify(input)}`).toBe(text);
+    unmount();
+  }
+});
+
+test("a field's sentences carry its type in words", () => {
+  const { container } = render(<ProposalItems proposal={{ id: "p", status: "asked", names: named, items: [{ tool: "fields_create", input: { tableId: "t1", name: "Owner", type: "rowId", referencesTableId: "t2" }, refs: ["tableId", "referencesTableId"], used: false }, { tool: "fields_retype", input: { id: "f1", type: "number" }, refs: ["id"], used: false }] }} />);
+  const [create, retype] = [...container.querySelectorAll("li")].map((li) => li.querySelectorAll(":scope > p")[1]?.textContent);
+  expect(create).toMatch(/^Add the field Owner, of type .+, to Clients t1, naming rows of Orders t2\.$/);
+  expect(retype).toMatch(/^Change the type of the field Phone f1 to .+; a value the new type can't hold is cleared\.$/);
+});
+
+test("an agent's instruction change marks only its changed lines, other changed fields read was and becomes", () => {
+  const before = { name: "Builder", systemPrompt: "Be kind.\nAnswer fast.\nSign off.", harnessId: "h1", description: "" };
+  const input = { id: "a1", name: "Builder", systemPrompt: "Be kind.\nAnswer carefully.\nSign off.", harnessId: "h1", description: "Builds" };
+  const { container } = render(<ProposalItems proposal={{ id: "p", status: "asked", names: named, items: [{ tool: "agents_update", input, before, refs: ["id", "harnessId"], used: false }] }} />);
+  const marked = [...container.querySelectorAll("[data-change]")].map((e) => [e.getAttribute("data-change"), e.textContent?.replace(/^(Added:|Removed:)?[+− ] ?/, "")]);
+  expect(marked).toEqual([["same", "Be kind."], ["del", "Answer fast."], ["add", "Answer carefully."], ["same", "Sign off."]]);
+  expect(container.querySelectorAll('[data-change="del"]')).toHaveLength(1);
+  expect(container.textContent).toContain("Was: empty");
+  expect(container.textContent).toContain("Becomes: Builds");
+  // Unchanged fields are not repeated.
+  expect(screen.queryByText("Claude")).toBeNull();
+});
+
+test("agent-authored instructions render as text, never HTML", () => {
+  const input = { id: "a1", systemPrompt: "<img src=x onerror=alert(1)>\nNew" };
+  const { container } = render(<ProposalItems proposal={{ id: "p", status: "asked", names: named, items: [{ tool: "agents_update", input, before: { systemPrompt: "Old\nNew" }, refs: ["id"], used: false }] }} />);
+  expect(container.querySelector("img")).toBeNull();
+  expect(container.textContent).toContain("<img src=x onerror=alert(1)>");
 });

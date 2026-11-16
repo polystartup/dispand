@@ -1,6 +1,7 @@
 import type { Text } from "@dispand/domain";
 import { Trans, useTranslation } from "react-i18next";
 import { useFormat } from "../../lib/format.ts";
+import { lineDiff } from "../../lib/line-diff.ts";
 import { useText } from "../../lib/message.ts";
 import { PluginInstallItem } from "./PluginInstallItem.tsx";
 import { useFieldTypeLabel } from "../data/field-types.ts";
@@ -15,7 +16,7 @@ export type ProposalView = {
    * hold `{ "$item": n }` where an id goes: what item `n` creates (`creates`), once made
    * `createdId`; `failed` when its call was refused.
    */
-  items: { tool: string; input: unknown; used: boolean; refs: string[]; creates?: string | null; createdId?: string | null; failed?: boolean; tools?: { toolId: string | { $item: number }; runs: string[] }[]; shown?: unknown }[];
+  items: { tool: string; input: unknown; used: boolean; refs: string[]; creates?: string | null; createdId?: string | null; failed?: boolean; tools?: { toolId: string | { $item: number }; runs: string[] }[]; shown?: unknown; /** An agent update's fields as they are now. */ before?: Record<string, unknown> }[];
   names: Record<string, { kind: string; name: string; detail?: Text }>;
   /** The generated plugin ("Generated: <business name>") that records what the items create. */
   plugin?: string | null;
@@ -138,6 +139,57 @@ function ChangeConfig({ config, items, names }: { config: { tableId?: unknown; o
   );
 }
 
+/** The sentence each kind of item reads as, with its variant: whole, with values interpolated (`proposal.sentences`). */
+function variantOf(item: Items[number]): string {
+  const input = (item.input ?? {}) as Record<string, unknown>;
+  if (item.tool === "tables_set_primitive") return input.primitive ? "_on" : "_off";
+  if (item.tool === "agents_set_tool_permission") return `_${String(input.permission)}`;
+  if (item.tool === "fields_create") return input.referencesTableId ? "_names" : "";
+  if (item.tool === "memory_add" || item.tool === "memory_update") return input.tableId ? "_table" : "";
+  return "";
+}
+
+/** What an item does, in one sentence: references by name (`<0/>`, `<1/>`, in the order of the item's `refs`), the rest as values. */
+function Sentence({ item, items, names }: { item: Items[number]; items: Items; names: ProposalView["names"] }) {
+  const { t, i18n } = useTranslation("questions");
+  const fieldType = useFieldTypeLabel();
+  const key = `proposal.sentences.${item.tool}${variantOf(item)}`;
+  if (!i18n.exists(`questions:${key}`)) return null;
+  const input = (item.input ?? {}) as Record<string, unknown>;
+  const ids = item.refs.filter((k) => typeof input[k] === "string" || isItemRef(input[k]));
+  const values: Record<string, unknown> = { ...input, ...(item.tool === "marketplaces_add" && (item.shown as { url?: string } | undefined)?.url ? { url: (item.shown as { url: string }).url } : {}) };
+  if (typeof input.type === "string" && item.tool.startsWith("fields_")) values.type = fieldType(input.type as FieldType);
+  return <p className="mt-1 text-[13px]"><Trans t={t} i18nKey={key as never} values={values} components={ids.map((k) => <Id value={input[k]} items={items} names={names} />)} /></p>;
+}
+
+/** A change to an agent's text: every line, only the lines that changed marked. */
+function LineDiff({ before, after }: { before: string; after: string }) {
+  const { t } = useTranslation("questions");
+  return (
+    <div className="rounded-lg bg-hover p-2 font-sans text-[13px]">
+      {lineDiff(before, after).map((l, i) => (
+        <div key={i} data-change={l.kind} className={`whitespace-pre-wrap break-words ${l.kind === "add" ? "bg-green-500/15" : l.kind === "del" ? "bg-red-500/15 line-through" : "text-muted"}`}>
+          {l.kind !== "same" && <span className="sr-only">{t(l.kind === "add" ? "proposal.added" : "proposal.removed")}</span>}
+          <span aria-hidden className="mr-1.5 select-none">{l.kind === "add" ? "+" : l.kind === "del" ? "−" : " "}</span>
+          {l.line}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A field of an agent that an update changes, as it was and as it becomes. */
+function Change({ before, after, ...rest }: { before: unknown; after: unknown; name: string; items: Items; names: ProposalView["names"]; isRef: boolean }) {
+  const { t } = useTranslation("questions");
+  if (typeof before === "string" && typeof after === "string" && (before.includes("\n") || after.includes("\n") || before.length > 80 || after.length > 80)) return <LineDiff before={before} after={after} />;
+  return (
+    <span className="flex flex-col gap-1">
+      <span><span className="text-muted">{t("proposal.was")} </span><Value {...rest} value={before} address={false} /></span>
+      <span><span className="text-muted">{t("proposal.becomes")} </span><Value {...rest} value={after} address={false} /></span>
+    </span>
+  );
+}
+
 function Value({ name, value, items, names, isRef, address }: { name: string; value: unknown; items: Items; names: ProposalView["names"]; isRef: boolean; address: boolean }) {
   const { t } = useTranslation("questions");
   const word = useWord();
@@ -227,16 +279,19 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
             {word(`proposal.titles.${item.tool}`, item.tool)}
             {item.used && <span className={`ml-2 text-[12px] font-normal ${item.failed ? "text-danger" : "text-faint"}`}>{item.failed ? t("proposal.refused") : t("proposal.done")}</span>}
           </p>
+          <Sentence item={item} items={proposal.items} names={proposal.names} />
           {IRREVERSIBLE.has(item.tool) && <p className="mt-1 text-[13px] font-medium text-danger">{t("proposal.undone")}</p>}
           {item.tool === "plugins_install" ? (
             <PluginInstallItem input={item.input as never} shown={item.shown as never} />
           ) : (
           <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1.5 text-[13px]">
-            {Object.entries((item.input ?? {}) as Record<string, unknown>).filter(([name]) => !(item.tools && name === "toolPermissions") && !(item.tool === "fields_retype" && name === "dryRun")).map(([name, value]) => (
+            {Object.entries((item.input ?? {}) as Record<string, unknown>).filter(([name]) => !(item.tools && name === "toolPermissions") && !(item.tool === "fields_retype" && name === "dryRun") && !(item.before && name in item.before && JSON.stringify(item.before[name]) === JSON.stringify(((item.input ?? {}) as Record<string, unknown>)[name]))).map(([name, value]) => (
               <div key={name} className="contents">
                 <dt className="text-muted">{word(`proposal.labelsOf.${item.tool}.${name}`, word(`proposal.labels.${name}`, name))}</dt>
                 <dd className="min-w-0">
-                  {name === "toolIds" && item.tools && item.tools.length > 0 ? (
+                  {item.before && name in item.before ? (
+                    <Change name={name} before={item.before[name]} after={value} items={proposal.items} names={proposal.names} isRef={item.refs.includes(name)} />
+                  ) : name === "toolIds" && item.tools && item.tools.length > 0 ? (
                     <div className="space-y-2">
                       {item.tools.map((tool, index) => (
                         <div key={index} className="flex flex-col gap-1">
