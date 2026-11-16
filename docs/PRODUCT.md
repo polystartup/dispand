@@ -185,6 +185,7 @@ Status: Prototype
   read it too (`audit_list`), except rows about tables outside theirs. A row names what was touched (ids, names, counts and
   kinds), never what an agent read or wrote, and carries the trace it was recorded in: with
   `DISPAND_TRACE_URL` set, the trace id links to the tracing tool. Workflow runs have no rows.
+  The page filters by who (you, an agent, the scheduler), agent, kind of action, what it was about, how it ended and a range of days; the filters are in the page's address, and a Job's page links to Audit filtered on that Job.
   Rows are kept 90 days by default; the owner sets it from 1 to 3,650 days at the top of the
   Audit page ("Keep Audit for N days"), and older rows are deleted each hour. Agents can't read
   or change it, not even through a proposal: shortening it would erase the trail of what they

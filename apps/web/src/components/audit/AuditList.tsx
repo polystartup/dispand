@@ -140,7 +140,12 @@ export function JobAudit({ jobId, live }: { jobId: string; live: boolean }) {
   const { t } = useTranslation("audit");
   return (
     <section aria-label={t("title")} className="mt-8">
-      <h2 className="mb-3 text-[13px] font-medium uppercase tracking-wide text-muted">{t("title")}</h2>
+      <div className="mb-3 flex items-baseline justify-between">
+        <h2 className="text-[13px] font-medium uppercase tracking-wide text-muted">{t("title")}</h2>
+        <Link to="/audit" search={{ jobId }} className="text-[13px] text-accent hover:underline">
+          {t("openInAudit")}
+        </Link>
+      </div>
       <AuditList filter={{ jobId }} live={live} />
     </section>
   );

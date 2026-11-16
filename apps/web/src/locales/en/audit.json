@@ -127,5 +127,36 @@
     "found": "Found",
     "tool": "Dispand tool",
     "action": "Action"
-  }
+  },
+  "filters": {
+    "label": "Filter Audit",
+    "any": "Any",
+    "actor": "Who",
+    "agent": "Agent",
+    "action": "What",
+    "resource": "On what",
+    "result": "How it ended",
+    "from": "From",
+    "to": "To",
+    "job": "Only the Job {{id}}",
+    "clearJob": "Show every Job",
+    "results": {
+      "ok": "Done",
+      "refused": "Refused",
+      "failed": "Failed"
+    }
+  },
+  "family": {
+    "job": "Jobs",
+    "checkpoint": "Checkpoints",
+    "question": "Questions and Approvals",
+    "consult": "Consults",
+    "platform": "Dispand tool calls",
+    "tool": "Tool actions",
+    "poll": "Polls",
+    "event": "Row changes",
+    "memory": "Memory writes",
+    "plugin": "Plugin changes"
+  },
+  "openInAudit": "Open in Audit"
 }

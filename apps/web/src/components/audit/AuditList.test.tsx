@@ -11,7 +11,7 @@ vi.mock("../../lib/api.ts", async () => {
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, params }: { children: unknown; params: { runId: string } }) => <a href={`/runs/${params.runId}`}>{children as string}</a>,
+  Link: ({ children, params, search }: { children: unknown; params?: { runId: string }; search?: { jobId: string } }) => <a href={params ? `/runs/${params.runId}` : `/audit?jobId=${search?.jobId}`}>{children as string}</a>,
 }));
 const { AuditList, JobAudit } = await import("./AuditList.tsx");
 const { createI18n } = await import("../../lib/i18n.ts");
@@ -52,6 +52,7 @@ test("the Job page's Audit lists its rows: the action in words, the agent and it
   const section = await screen.findByRole("region", { name: "Audit" });
   expect(await within(section).findByText("Job started")).toBeTruthy();
   expect(fake.audit.list.mock.calls[0]![0]).toEqual({ jobId: "run_1" });
+  expect(within(section).getByRole("link", { name: "Open in Audit" }).getAttribute("href")).toBe("/audit?jobId=run_1");
   const [started, failed] = within(section).getAllByRole("listitem");
   expect(within(started!).getByText(/Writer/)).toBeTruthy();
   expect(within(started!).getByRole("link", { name: "its Job" }).getAttribute("href")).toBe("/runs/run_1");

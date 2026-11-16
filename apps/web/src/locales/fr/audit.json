@@ -127,5 +127,36 @@
     "found": "Trouvés",
     "tool": "Outil Dispand",
     "action": "Action"
-  }
+  },
+  "filters": {
+    "label": "Filtrer l’audit",
+    "any": "Tous",
+    "actor": "Qui",
+    "agent": "Agent",
+    "action": "Quoi",
+    "resource": "Sur quoi",
+    "result": "Comment cela s’est terminé",
+    "from": "Du",
+    "to": "Au",
+    "job": "Seulement le Job {{id}}",
+    "clearJob": "Afficher tous les Jobs",
+    "results": {
+      "ok": "Réussi",
+      "refused": "Refusé",
+      "failed": "Échoué"
+    }
+  },
+  "family": {
+    "job": "Jobs",
+    "checkpoint": "Points de contrôle",
+    "question": "Questions et approbations",
+    "consult": "Consultations",
+    "platform": "Appels d’outils Dispand",
+    "tool": "Actions d’outils",
+    "poll": "Interrogations",
+    "event": "Changements de lignes",
+    "memory": "Écritures en mémoire",
+    "plugin": "Changements de plugins"
+  },
+  "openInAudit": "Ouvrir dans l’audit"
 }

@@ -167,6 +167,18 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
     await expect(section.getByText("Tool action called")).toBeVisible();
     await expect(section.getByRole("button", { name: "Copy the trace id" }).first()).toBeVisible();
     await page.screenshot({ path: test.info().outputPath("audit-job.png"), fullPage: true });
+    // From the Job's page to the Audit page, filtered on that Job: the filter is in the URL and survives a reload.
+    await section.getByRole("link", { name: "Open in Audit" }).click();
+    await expect(page).toHaveURL(new RegExp(`/audit\\?jobId=${jobId}`));
+    await expect(page.getByText(`Only the Job ${jobId}`)).toBeVisible();
+    await expect(page.getByText("Tool action called")).toBeVisible();
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByText(`Only the Job ${jobId}`)).toBeVisible();
+    await page.getByLabel(/^What/).selectOption("memory");
+    await expect(page).toHaveURL(/action=memory/);
+    await expect(page.getByText("Memory written")).toBeVisible();
+    await expect(page.getByText("Tool action called")).toBeHidden();
   } finally {
     await rpc(page, "triggers/delete", { id: trigger.id });
   }
