@@ -213,6 +213,7 @@
     "recorded": "Ce que ces éléments créent est enregistré dans le plugin <0>{{plugin}}</0>.",
     "refused": "refusé",
     "done": "fait",
+    "undone": "Cette action est irréversible.",
     "runsWithout": "S’exécute sans demander : {{runs}}",
     "othersAsk": "Les autres actions activées demandent",
     "titles": {
@@ -238,7 +239,9 @@
       "plugins_install": "Installer un plugin et configurer ce qu’il définit",
       "marketplaces_add": "Ajouter une marketplace : là où les plugins et les compétences sont lus",
       "memory_add": "Ajouter une entrée à une mémoire : ce dont partent les Jobs suivants",
-      "memory_update": "Réécrire une entrée d’une mémoire : ce dont partent les Jobs suivants"
+      "memory_update": "Réécrire une entrée d’une mémoire : ce dont partent les Jobs suivants",
+      "fields_retype": "Changer le type d’un champ : une valeur que le nouveau type ne peut pas contenir est effacée",
+      "agents_delete": "Supprimer un agent, avec ses déclencheurs : ses Jobs en cours s’arrêtent"
     },
     "labelsOf": {
       "tables_create": {
@@ -341,6 +344,13 @@
         "path": "Chemin",
         "type": "Type",
         "body": "Ce qu’elle dit"
+      },
+      "fields_retype": {
+        "id": "Champ",
+        "type": "Nouveau type"
+      },
+      "agents_delete": {
+        "id": "Agent"
       }
     },
     "labels": {

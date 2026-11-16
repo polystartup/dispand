@@ -213,6 +213,7 @@
     "recorded": "What these items create is recorded in the plugin <0>{{plugin}}</0>.",
     "refused": "refused",
     "done": "done",
+    "undone": "This can't be undone.",
     "runsWithout": "Runs without asking: {{runs}}",
     "othersAsk": "Other enabled actions ask",
     "titles": {
@@ -238,7 +239,9 @@
       "plugins_install": "Install a plugin, and set up what it defines",
       "marketplaces_add": "Add a marketplace: where plugins and skills are read from",
       "memory_add": "Add an entry to a memory: what later Jobs start from",
-      "memory_update": "Rewrite an entry of a memory: what later Jobs start from"
+      "memory_update": "Rewrite an entry of a memory: what later Jobs start from",
+      "fields_retype": "Change a field's type: a value the new type can't hold is cleared",
+      "agents_delete": "Delete an agent, with its triggers: its Jobs still going stop"
     },
     "labelsOf": {
       "tables_create": {
@@ -341,6 +344,13 @@
         "path": "Path",
         "type": "Type",
         "body": "What it says"
+      },
+      "fields_retype": {
+        "id": "Field",
+        "type": "New type"
+      },
+      "agents_delete": {
+        "id": "Agent"
       }
     },
     "labels": {

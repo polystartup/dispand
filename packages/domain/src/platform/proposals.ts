@@ -199,6 +199,7 @@ async function agentChangeOf(db: Db, ownerId: string, tool: string, input: unkno
     config?: TriggerConfig;
   };
   if (tool === "agents_update") return [id, { kind: "update", bundles, dataTables, skillPackageIds }];
+  if (tool === "agents_delete") return [id, { kind: "delete" }];
   if (tool !== "triggers_update" && tool !== "triggers_delete") return null;
   const [trigger] = await db
     .select({ agentId: triggers.agentId })
@@ -443,6 +444,7 @@ export type ProposalName = { kind: "agent" | "harness" | "tool" | "skill" | "tab
 const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
   agents_create: { harnessId: "harness", toolIds: "tool", skillPackageIds: "skill", dataTables: "table" },
   agents_update: { id: "agent", harnessId: "harness", toolIds: "tool", skillPackageIds: "skill", dataTables: "table" },
+  agents_delete: { id: "agent" },
   agents_set_tool_permission: { agentId: "agent", toolId: "tool" },
   harnesses_set_limit: { id: "harness" },
   tables_rename: { id: "table" },
@@ -452,6 +454,7 @@ const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
   fields_update: { id: "field" },
   fields_reorder: { tableId: "table", fieldIds: "field" },
   fields_delete: { id: "field" },
+  fields_retype: { id: "field" },
   triggers_create: { agentId: "agent" },
   triggers_update: { id: "trigger" },
   triggers_delete: { id: "trigger" },

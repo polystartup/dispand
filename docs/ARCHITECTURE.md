@@ -636,7 +636,7 @@
   existing ones. `assistantGuard` is the one check of what may change on it (its bundles, its
   tables, its platform skill, its chat): `agents.update`,
   `agents.delete`, `triggers.update`, `triggers.delete` and `createProposal` (for
-  `agents_update` and `triggers_*` items, refused when proposed with the reason) call it. We
+  `agents_update`, `agents_delete` and `triggers_*` items, refused when proposed with the reason) call it. We
   decided its self-learning isn't one of those: the owner may untick `workspace` on its page.
   It keeps the business in the workspace's memory: the platform skill's day-one proposal ends
   with a `memory_add` of the business (`type: "business"`) in place of a change of its own
@@ -812,15 +812,19 @@
   writing. Old pending agent grants lacking a permissions snapshot must be proposed again.
   A tool of the
   registry marked `grant` (`agents.create`, `agents.update`, `agents.setToolPermission`,
-  `tables.delete`, `fields.delete`, `triggers.create`, `triggers.update`, `triggers.delete`, `tools.add` (an address and no
+  `agents.delete`, `tables.delete`, `fields.delete`, `fields.retype`, `triggers.create`, `triggers.update`, `triggers.delete`, `tools.add` (an address and no
   headers; `tools.create` stays the owner's) and `tools.delete`;
   a tool's name is its path in lower case with `_`) is refused by `callPlatformTool`
   unless `takeItem` uses up a matching item of an approved proposal of the Job: one
   transaction that locks the Job's approved proposals and marks the first unused item with
   that tool and canonically equal input (`canonical`, `platform/approvals.ts`). Without an
-  item, a grant still runs when its `direct` check passes: only `triggers.update` has one
+  item, a grant still runs when its `direct` check passes: `triggers.update` has one
   (`ownTriggerOff`: the parsed input is `id` and `enabled: false` alone, on a trigger of the
-  owner's whose agent is the Job's). `propose`, a
+  owner's whose agent is the Job's), and `fields.retype` another (`dryRun: true`, which only
+  counts; its `shown` refuses proposing a dry run). `agents.delete`'s `shown` refuses the Job's
+  own agent, whose deletion would stop the Job in the middle of its call; the Inbox marks the
+  items that can't be undone (deleting a table, a field, a tool or an agent, and changing a
+  field's type). `propose`, a
   tool with no router path (`PROPOSE`, handled in `callPlatformTool`), stores a draft through
   `createProposal`: configuration writes of the Job's bundles only (`grant` tools, and the
   others marked `write`: `tables.create`, `tables.rename`, `tables.setPrimitive`,

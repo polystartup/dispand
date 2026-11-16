@@ -222,13 +222,17 @@ changes it updates this file.
   reconnect or a restart included. Changing the checkpoint is a grant: an agent does it only
   through a proposal a person approved.
 - **What can't be undone, what removes a question and what starts Jobs are grants too.**
-  Deleting a table or a field, changing an action's asking flag, and creating, changing or
+  Deleting a table, a field or an agent, changing a field's type, changing an action's asking flag, and creating, changing or
   deleting a trigger (what starts an agent's Jobs, and what the agent is told then) are in the registry with the same mark as
   creating or changing an agent, so the same gate refuses them without an approved item. One
   exception, which we decided because it only takes away what the agent does: a call that
   only turns off (`enabled: false`, no other field) a trigger of the Job's own agent runs
   without an item, checked on its parsed input against the trigger's stored agent, and leaves
-  the same Audit row as any call; turning a trigger on stays a grant. An
+  the same Audit row as any call; turning a trigger on stays a grant. A field's dry run
+  (`fields_retype` with `dryRun: true`) only counts and changes nothing, so it runs without an
+  item too, and can't be proposed. Deleting an agent runs the owner's own `agents.delete` (its
+  Jobs still going stop, its triggers go), and is refused when proposed for the built-in agent
+  (`assistantGuard`) and for the Job's own agent. An
   item is also checked against the Job's tables when it is proposed, like any call: a Job
   limited to some tables can't put another table's deletion in front of the owner.
 - **A trigger on Jobs gets no content.** A Job created, finished or failed is an event of

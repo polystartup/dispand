@@ -19,6 +19,9 @@ export type ProposalView = {
   plugin?: string | null;
 };
 
+/** The writes that can't be undone: their item says so. */
+const IRREVERSIBLE = new Set(["tables_delete", "fields_delete", "fields_retype", "tools_delete", "agents_delete"]);
+
 /** The text of `key` in the questions namespace when there is one (an unknown tool or field shows as it is named). */
 function useWord() {
   const { t, i18n } = useTranslation("questions");
@@ -221,11 +224,12 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
             {word(`proposal.titles.${item.tool}`, item.tool)}
             {item.used && <span className={`ml-2 text-[12px] font-normal ${item.failed ? "text-danger" : "text-faint"}`}>{item.failed ? t("proposal.refused") : t("proposal.done")}</span>}
           </p>
+          {IRREVERSIBLE.has(item.tool) && <p className="mt-1 text-[13px] font-medium text-danger">{t("proposal.undone")}</p>}
           {item.tool === "plugins_install" ? (
             <PluginInstallItem input={item.input as never} shown={item.shown as never} />
           ) : (
           <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1.5 text-[13px]">
-            {Object.entries((item.input ?? {}) as Record<string, unknown>).filter(([name]) => !(item.tools && name === "toolPermissions")).map(([name, value]) => (
+            {Object.entries((item.input ?? {}) as Record<string, unknown>).filter(([name]) => !(item.tools && name === "toolPermissions") && !(item.tool === "fields_retype" && name === "dryRun")).map(([name, value]) => (
               <div key={name} className="contents">
                 <dt className="text-muted">{word(`proposal.labelsOf.${item.tool}.${name}`, word(`proposal.labels.${name}`, name))}</dt>
                 <dd className="min-w-0">
