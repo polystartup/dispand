@@ -328,10 +328,11 @@
     "browser": {
       "unsupported": "Les notifications du navigateur demandent HTTPS ou localhost. La cloche compte toujours ce qui attend.",
       "title": "Notifications du navigateur",
-      "granted": "Activées : ce navigateur vous prévient quand un agent pose une question.",
+      "granted": "Activées : ce navigateur vous prévient quand un agent pose une question, même sans onglet Dispand ouvert.",
       "denied": "Bloquées dans les réglages de ce navigateur.",
-      "default": "Soyez prévenu quand un agent pose une question, même dans un autre onglet.",
-      "turnOn": "Activer"
+      "default": "Soyez prévenu quand un agent pose une question, même sans onglet Dispand ouvert.",
+      "turnOn": "Activer",
+      "failed": "Les notifications n’ont pas pu être activées dans ce navigateur. Réessayez."
     }
   }
 }

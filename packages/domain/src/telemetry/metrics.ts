@@ -27,6 +27,8 @@ export const METRICS = {
   "dispand.consults.asked": [],
   "dispand.consults.ended": ["dispand.consult.outcome"],
   "dispand.consult.wait": ["dispand.consult.outcome"],
+  // A Web Push to one device (`push/sender.ts`): sent, gone (404 or 410: its subscription deleted) or failed (tried again).
+  "dispand.push.sent": ["dispand.result"],
   // The `inbox` bundle's tools (`questions/inbox.ts`).
   "dispand.inbox.calls": ["dispand.inbox.tool", "dispand.result"],
   // `proposal_apply` (`platform/call.ts`): every item made (done), some refused by an earlier call (partial), stopped at a refusal or at an item still being made, or refused at once.

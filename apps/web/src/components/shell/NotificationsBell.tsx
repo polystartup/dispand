@@ -24,10 +24,19 @@ export function notificationPermission(): NotificationPermission | "unsupported"
   }
 }
 
-function notify(i18n: I18n, fresh: number) {
+type Fresh = { kind: string; agent: { name: string; builtIn?: string | null } | null; workflow: { name: string } | null };
+
+/**
+ * The sentence a push says too (`messages:push.*`, `packages/domain/src/push/sender.ts`): the newest
+ * item's agent and kind, and how many came. Its tag is the push's: one replaces the other, never two alerts.
+ */
+function notify(i18n: I18n, fresh: Fresh[]) {
   try {
     if (notificationPermission() !== "granted") return;
-    new Notification("Dispand", { body: i18n.t("shell:inbox.notification", { count: fresh }), tag: "dispand-questions" });
+    const newest = fresh[0]!;
+    const agent = newest.agent?.builtIn === "assistant" ? i18n.t("messages:agent.assistant.name") : ((newest.workflow ?? newest.agent)?.name ?? "");
+    const body = i18n.t(newest.kind === "approval" ? "messages:push.approval" : "messages:push.question", { agent, count: fresh.length });
+    new Notification("Dispand", { body, tag: "dispand-inbox" });
   } catch {
     // A browser that refuses (some mobile ones need a service worker): the badge still tells.
   }
@@ -53,9 +62,9 @@ export function usePendingQuestionsStream() {
           for await (const { count } of await api.questions.stream(undefined, { signal: stop.signal })) {
             // A notification per new question id (a count can stay the same when one is answered and another asked).
             const items = await api.questions.list({ status: "pending" });
-            const taken: { seen: Set<string>; fresh: unknown[] } = takeNew(seen, items);
+            const taken: { seen: Set<string>; fresh: Fresh[] } = takeNew(seen, items);
             seen = taken.seen;
-            if (taken.fresh.length > 0) notify(i18n, taken.fresh.length);
+            if (taken.fresh.length > 0) notify(i18n, taken.fresh);
             // A count request still in flight read the database earlier: it must not land after this.
             await queryClient.cancelQueries({ queryKey: orpc.questions.count.queryKey() });
             queryClient.setQueryData(orpc.questions.count.queryKey(), { count });

@@ -808,6 +808,19 @@ changes it updates this file.
   index, 2 MiB per file and 32 MiB and 60 s per read. A skill whose name isn't a skill name, or
   whose files include a path `isSafeRelativePath` refuses, is listed as not imported, and its
   files are never requested. Every other skill goes through `validatePackage`.
+- **A Web Push carries an agent's name, the item's kind and its random id, nothing else.** What
+  agents wait on reaches the browsers the owner allowed (`push_subscriptions`, from the Inbox) through
+  the browser vendor's push service: the payload is exactly `{ text, count, itemId }`, `text` a
+  sentence naming the agent and the kind ("Drafting needs your decision."), `itemId` the newest
+  item's opaque id, never a question's text, an answer or a proposal's items. We decided an agent's
+  name, which the owner may make business-specific, may pass through that service. The payload is
+  encrypted to the browser's keys (RFC 8291) and signed with the install's VAPID key, generated
+  once and sealed like the other secrets; a subscription's keys are sealed too, and `push.list`
+  returns neither them nor its endpoint. The server posts only to an `https://` endpoint the
+  signed-in owner subscribed. Signing out deletes that browser's subscription, and one the push
+  service answers 404 or 410 for is deleted. The page's only worker is its own service worker
+  (`worker-src 'self'`, `/sw.js`), which shows the push unless a Dispand window is focused and
+  opens `/inbox?item=<id>` on a click. The push procedures are no tool.
 - **Every input is validated** by its procedure's Zod schema; errors don't leak internals:
   anything but an `ORPCError` reaches the page as the generic message (oRPC sends no text, the
   log only `logError`'s summary), and a server message's values render as text, never markup.

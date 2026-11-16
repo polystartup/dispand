@@ -883,6 +883,28 @@
   nobody and fails with a text telling it to return its question to that agent. On Claude Code, the other tool calls of a turn that asks for an
   approval wait for the answer (from the moment the CLI is about to call the tool), and aren't
   run after a "no"; a cloud session refuses them the same way.
+- **Push notifications:** what agents wait on (new pending Inbox items: Questions and Approvals,
+  never consults) reaches every browser or device the owner allowed, even with no Dispand tab open,
+  through Web Push and the `web-push` library (`packages/domain/src/push/`). The VAPID key pair is
+  made on first need and kept in `push_keys`, the private key sealed (`push/keys.ts`). The Inbox's
+  opt-in registers the service worker (`apps/web/public/sw.js`), subscribes the browser and calls
+  `push.subscribe` with its endpoint, keys (sealed, bound to the endpoint), a label from its user
+  agent and the language it shows; subscribing again refreshes those, not its `created_at`.
+  `push.list` gives the public key and the owner's devices; signing out calls `push.unsubscribe`
+  and drops the browser's subscription. `PushSender` (`push/sender.ts`, started in
+  `apps/web/src/server/app.ts`) is woken by `engine.questionChanges` and once at start, and sends,
+  10 seconds after the first wake (what comes within the window goes together), every pending item
+  to every subscription made before it was asked with no `push_deliveries` row for it: one push per
+  subscription, `{ text, count, itemId }`, `itemId` the newest item, `text` rendered on the server
+  from the domain messages (`push.question`, `push.approval`, plural by `count`) in the user's
+  Settings language, else the subscription's. A success records a row per item, so a delivered
+  item is never pushed again and a restart inside the window loses nothing; a failure is tried
+  again a minute later (only that device: the others have their rows); a 404 or 410 deletes the
+  subscription. The service worker shows it under the tag `dispand-inbox` unless a Dispand window
+  is focused, and a click opens `/inbox?item=<id>`, which scrolls to that item. An open tab's own
+  notification says the same sentence under the same tag, so the two never both show. Telemetry:
+  a `push.flush` span, a `push.send` span per device, `dispand.push.sent` by `dispand.result`
+  (`sent`, `gone`, `failed`), never the payload.
 - **Stopping a run:** `runs.stop` (`Engine.stopRun`) fails every step of the run still open
   with "Stopped" (a step that never started too), expires its pending questions and fails the
   run, in one transaction, then cuts what the run was doing: a Tool step's call under way is

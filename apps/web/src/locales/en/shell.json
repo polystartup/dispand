@@ -28,9 +28,7 @@
     "label": "Inbox",
     "waiting": "Inbox, {{count}} waiting",
     "unknownLabel": "Inbox (couldn't load what's waiting)",
-    "unknown": "Couldn't load what's waiting",
-    "notification_one": "An agent has a question for you.",
-    "notification_other": "{{count}} agents have questions for you."
+    "unknown": "Couldn't load what's waiting"
   },
   "account": {
     "menu": "Account menu",

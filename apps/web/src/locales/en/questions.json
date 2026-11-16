@@ -328,10 +328,11 @@
     "browser": {
       "unsupported": "Browser notifications need HTTPS or localhost. The bell still counts what waits.",
       "title": "Browser notifications",
-      "granted": "On: this browser tells you when an agent asks.",
+      "granted": "On: this browser tells you when an agent asks, even with no Dispand tab open.",
       "denied": "Blocked in this browser's settings.",
-      "default": "Get told when an agent asks, even in another tab.",
-      "turnOn": "Turn on"
+      "default": "Get told when an agent asks, even with no Dispand tab open.",
+      "turnOn": "Turn on",
+      "failed": "Notifications could not be turned on in this browser. Try again."
     }
   }
 }

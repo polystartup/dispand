@@ -1372,3 +1372,43 @@ export const memoryRevisions = pgTable(
   },
   (t) => [unique("memory_revisions_memory_revision").on(t.memoryId, t.revision)],
 );
+
+/** The install's VAPID key pair for Web Push (`push/keys.ts`), made on first need: one row, the private key sealed. */
+export const pushKeys = pgTable("push_keys", {
+  id: text("id").primaryKey(),
+  publicKey: text("public_key").notNull(),
+  privateKey: text("private_key").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/**
+ * A browser or device the owner allowed to get Web Push (`push/procedures.ts`): its push service
+ * endpoint, its keys sealed, a label from its user agent, and the language that browser shows
+ * (refreshed each time it subscribes again). Only items asked after `created_at` reach it.
+ */
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  endpoint: text("endpoint").notNull().unique(),
+  keys: text("keys").notNull(),
+  label: text("label").notNull(),
+  language: text("language").$type<"en" | "fr">().notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/** An Inbox item pushed to a subscription (`push/sender.ts`): never sent to it again. */
+export const pushDeliveries = pgTable(
+  "push_deliveries",
+  {
+    questionId: text("question_id")
+      .notNull()
+      .references(() => questions.id, { onDelete: "cascade" }),
+    subscriptionId: text("subscription_id")
+      .notNull()
+      .references(() => pushSubscriptions.id, { onDelete: "cascade" }),
+    sentAt: timestamp("sent_at").notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.questionId, t.subscriptionId] }), index("push_deliveries_subscription_idx").on(t.subscriptionId)],
+);

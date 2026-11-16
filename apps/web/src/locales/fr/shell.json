@@ -28,9 +28,7 @@
     "label": "Boîte de réception",
     "waiting": "Boîte de réception, {{count}} en attente",
     "unknownLabel": "Boîte de réception (impossible de charger ce qui attend)",
-    "unknown": "Impossible de charger ce qui attend",
-    "notification_one": "Un agent a une question pour vous.",
-    "notification_other": "{{count}} agents ont des questions pour vous."
+    "unknown": "Impossible de charger ce qui attend"
   },
   "account": {
     "menu": "Menu du compte",

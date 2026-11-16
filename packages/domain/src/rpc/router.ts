@@ -16,6 +16,7 @@ import { memoriesRouter as memories } from "../memory/procedures.ts";
 import { harnesses } from "../harnesses/procedures.ts";
 import { workspace } from "../workspace/procedures.ts";
 import { pages, widgets } from "../pages/procedures.ts";
+import { push } from "../push/procedures.ts";
 import { questions } from "../questions/procedures.ts";
 import { runners } from "../runners/procedures.ts";
 import { marketplaces, plugins, seedMarketplaces } from "../plugins/procedures.ts";
@@ -89,6 +90,7 @@ export const router = {
   workflows,
   runs,
   questions,
+  push,
   pages,
   widgets,
   onboarding,

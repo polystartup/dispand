@@ -74,6 +74,7 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]) })).handl
         workflowName: workflows.name,
         agentId: runs.agentId,
         agentName: jobAgentNameSql,
+        builtIn: agents.builtIn,
         triggerId: triggers.id,
         triggerName: triggers.name,
         version: runs.version,
@@ -119,7 +120,7 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]) })).handl
       orphaned: r.q.orphaned,
       workflow: r.workflowId ? { id: r.workflowId, name: r.workflowName! } : null,
       // A Job's agent; `id` null once it was deleted, and its name then says so (`jobs/agent-name.ts`).
-      agent: r.agentName !== null ? { id: r.agentId, name: r.agentName } : null,
+      agent: r.agentName !== null ? { id: r.agentId, name: r.agentName, builtIn: r.builtIn } : null,
       trigger: r.triggerId ? { id: r.triggerId, name: r.triggerName! } : null,
       kind: r.q.kind,
       answeredAt: r.q.answeredAt,

@@ -1,14 +1,16 @@
 /**
  * What every page of the app is served with. Text an agent wrote is shown in many places (chats,
  * the Inbox, transcripts): whatever a renderer makes of it, the browser loads images, media and
- * fonts from the app's own origin only, connects nowhere else, and frames nothing. Scripts and
- * styles are not restricted here: the app's own pages need their inline ones.
+ * fonts from the app's own origin only, connects nowhere else, and frames nothing. The one worker
+ * it registers is its own service worker (`/sw.js`, Web Push). Scripts and styles are not
+ * restricted here: the app's own pages need their inline ones.
  */
 export const PAGE_CSP = [
   "img-src 'self' data: blob:",
   "media-src 'self'",
   "font-src 'self'",
   "connect-src 'self'",
+  "worker-src 'self'",
   "frame-src 'none'",
   "object-src 'none'",
   "base-uri 'self'",

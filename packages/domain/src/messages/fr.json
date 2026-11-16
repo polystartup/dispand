@@ -341,5 +341,11 @@
     "invalid_element": "« {{field}} » contient un élément qui n’est pas valide.",
     "invalid_value": "« {{field}} » doit valoir l’un de : {{values}}.",
     "custom": "« {{field}} » n’est pas valide."
+  },
+  "push": {
+    "question_one": "{{agent}} a une question pour vous.",
+    "question_other": "{{agent}} a une question pour vous, et {{count}} éléments attendent en tout.",
+    "approval_one": "{{agent}} attend votre décision.",
+    "approval_other": "{{agent}} attend votre décision, et {{count}} éléments attendent en tout."
   }
 }

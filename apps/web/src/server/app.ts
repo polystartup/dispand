@@ -17,6 +17,7 @@ import {
   ownAddresses,
   platformToolCaller,
   pollCaller,
+  PushSender,
   resealToolHeaders,
   startTelemetry,
   stopTelemetry,
@@ -47,6 +48,8 @@ type App = {
   traceUrl?: string;
   /** The app's public URL: OAuth tools' callback and client metadata document are there. */
   appUrl: string;
+  /** Sends Web Push for new Inbox items (`push/sender.ts`). */
+  push: PushSender;
 };
 
 const SWEEP_EVERY_MS = 3600_000;
@@ -98,6 +101,10 @@ async function start(): Promise<App> {
   };
   sweep();
   setInterval(sweep, SWEEP_EVERY_MS).unref();
+  // Pushes what waited while the app was down, then each new Inbox item. Push services take only an
+  // https or mailto subject: a development app on http names none of its own.
+  app.push = new PushSender(db, engine, secrets, { subject: config.baseURL.startsWith("https:") ? config.baseURL : "mailto:dispand@localhost" });
+  app.push.start();
   return app;
 }
 
@@ -119,6 +126,7 @@ export async function closeHub(): Promise<void> {
 export async function closeApp(): Promise<void> {
   const app = await globalForApp.__dispandApp?.catch(() => undefined);
   if (!app) return;
+  await app.push.stop();
   await getScheduler(app.db, app.engine).stop();
   await app.engine.stop();
   await closeDb(app.db);

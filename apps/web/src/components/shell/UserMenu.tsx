@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { signOut } from "../../lib/auth-call.ts";
+import { unsubscribeDevice } from "../../lib/push.ts";
 import type { Language } from "../../lib/i18n.ts";
 import { LanguageChoice } from "./LanguageChoice.tsx";
 import { ThemeToggle } from "./ThemeToggle.tsx";
@@ -48,6 +49,8 @@ export function UserMenu({ user }: { user: { name: string; email: string; langua
             event.preventDefault(); // stay open to show a failure, and to retry
             setError(false);
             try {
+              // While still signed in: the server forgets this browser's push subscription.
+              await unsubscribeDevice();
               await signOut();
             } catch {
               setError(true);

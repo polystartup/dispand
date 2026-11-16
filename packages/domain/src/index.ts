@@ -13,6 +13,7 @@ export { DataEvents, getDataEvents, type DataEvent } from "./data/events.ts";
 
 export { openAttachment, sweepAttachments, type AttachmentView } from "./data/files.ts";
 export { sweepAudit } from "./audit/sweep.ts";
+export { PushSender } from "./push/sender.ts";
 export { logError } from "./log.ts";
 export { external, isMessageKey, message, reasonOf, say, type Message, type MessageKey, type MessageValues, type Text } from "./messages/index.ts";
 export { ensureAssistants } from "./agents/builtin.ts";
