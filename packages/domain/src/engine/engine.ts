@@ -78,7 +78,7 @@ import { recordAudit, recordAuditAfter } from "../audit/record.ts";
 import type { AuditActor } from "../audit/model.ts";
 import { jobScope, startable } from "../questions/inbox-scope.ts";
 import { INTERACTION, JOB } from "../triggers/model.ts";
-import { type Message, type MessageKey, message, stored } from "../messages/index.ts";
+import { type Message, type MessageKey, message, plainText, stored } from "../messages/index.ts";
 
 type RunRow = typeof runs.$inferSelect;
 type StepRow = typeof stepRuns.$inferSelect;
@@ -181,7 +181,7 @@ export function startProblem(harness: CliHarness, { runKey, ...start }: StartPar
     expectedOutputs: "engine.fail.startOutside.expectedOutputs",
     model: "engine.fail.startOutside.model",
   };
-  return stored(known[field] ?? "engine.fail.startOutside.other", { field });
+  return stored(known[field] ?? "engine.fail.startOutside.other");
 }
 
 /**
@@ -1929,7 +1929,7 @@ export class Engine {
           await this.unconfirm(tx, step);
           return "resume";
         }
-        await this.fail(tx, step, event.message, out);
+        await this.fail(tx, step, plainText(event.message), out);
         return null;
     }
   }

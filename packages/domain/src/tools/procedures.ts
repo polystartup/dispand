@@ -13,7 +13,7 @@ import { runnerTarget } from "../plugins/runner-servers.ts";
 import { isLoopback } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
 import { logError } from "../log.ts";
-import { message, stored, type MessageKey, type MessageValues } from "../messages/index.ts";
+import { message, plainText, stored, type MessageKey, type MessageValues } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
 import { type RunnerHub, RunnerRequestFailed } from "../runners/hub.ts";
 import { secretAad, type SecretBox } from "../secrets.ts";
@@ -230,7 +230,7 @@ export async function refreshRunnerActions(db: Db, hub: Pick<RunnerHub, "request
   else {
     try {
       const reply = await hub.request(row.runnerId!, { type: "tool.discover", requestId: newId("req"), tool: target });
-      values = reply.actions ? { actions: reply.actions, actionsError: null, refreshedAt: new Date() } : { actionsError: reply.error ?? stored("tools.fail.runnerNoActions") };
+      values = reply.actions ? { actions: reply.actions, actionsError: null, refreshedAt: new Date() } : { actionsError: reply.error === undefined ? stored("tools.fail.runnerNoActions") : plainText(reply.error) };
     } catch (error) {
       if (!(error instanceof RunnerRequestFailed)) throw error;
       values = { actionsError: stored(error.message === "timed out" ? "tools.fail.runnerTimeout" : "tools.fail.runnerOffline") };

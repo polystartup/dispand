@@ -521,7 +521,7 @@
         "systemPrompt": "The session can't start: its agent's system prompt is outside what a runner accepts.",
         "expectedOutputs": "The session can't start: its expected outputs are outside what a runner accepts.",
         "model": "The session can't start: its model is outside what a runner accepts.",
-        "other": "The session can't start: its {{field}} is outside what a runner accepts."
+        "other": "The session can't start: something in it is outside what a runner accepts."
       },
       "codexMissing": "Codex isn't installed on {{runner}}.",
       "codexSignIn": "Sign in to Codex on {{runner}}: run `codex login` there, then restart its runner.",
@@ -550,10 +550,12 @@
       "failed": "The poll failed.",
       "changed": "The trigger changed during its poll.",
       "itemLarge": "The item is larger than {{kib}} KiB.",
-      "noId": "{{items}} item(s) without an id at “{{path}}” left out.",
       "pages": "{{pages}} pages read: the rest at the next poll.",
-      "noIdAndPages": "{{items}} item(s) without an id at “{{path}}” left out; {{pages}} pages read: the rest at the next poll.",
-      "triggerOff": "The trigger is off."
+      "triggerOff": "The trigger is off.",
+      "noId_one": "{{count}} item without an id at “{{path}}” left out.",
+      "noId_other": "{{count}} items without an id at “{{path}}” left out.",
+      "noIdAndPages_one": "{{count}} item without an id at “{{path}}” left out; {{pages}} pages read: the rest at the next poll.",
+      "noIdAndPages_other": "{{count}} items without an id at “{{path}}” left out; {{pages}} pages read: the rest at the next poll."
     },
     "fire": {
       "changed": "The trigger was changed: it reads something else now.",

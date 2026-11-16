@@ -477,7 +477,7 @@ export class Scheduler {
     const fresh = inserted.sort((a, b) => order.get(a.id)! - order.get(b.id)!);
     walk.totals.found += polled.items.length;
     walk.totals.fresh += fresh.length;
-    const noId = { items: polled.noId, path: c.trigger.config.idPath };
+    const noId = { count: polled.noId, path: c.trigger.config.idPath };
     const more = token !== null && walk.last ? { pages: walk.pages } : null;
     const note = polled.noId ? (more ? stored("engine.poll.noIdAndPages", { ...noId, ...more }) : stored("engine.poll.noId", noId)) : more ? stored("engine.poll.pages", more) : null;
     const set = { ...walk.totals, message: note };

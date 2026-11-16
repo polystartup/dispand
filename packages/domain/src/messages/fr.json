@@ -521,7 +521,7 @@
         "systemPrompt": "La session ne peut pas démarrer : le prompt système de son agent dépasse ce qu’un runner accepte.",
         "expectedOutputs": "La session ne peut pas démarrer : ses sorties attendues dépassent ce qu’un runner accepte.",
         "model": "La session ne peut pas démarrer : son modèle dépasse ce qu’un runner accepte.",
-        "other": "La session ne peut pas démarrer : son champ {{field}} dépasse ce qu’un runner accepte."
+        "other": "La session ne peut pas démarrer : un de ses éléments dépasse ce qu’un runner accepte."
       },
       "codexMissing": "Codex n’est pas installé sur {{runner}}.",
       "codexSignIn": "Connectez-vous à Codex sur {{runner}} : lancez `codex login` là-bas, puis redémarrez son runner.",
@@ -550,10 +550,12 @@
       "failed": "La consultation a échoué.",
       "changed": "Le déclencheur a changé pendant sa consultation.",
       "itemLarge": "L’élément dépasse {{kib}} Kio.",
-      "noId": "{{items}} élément(s) sans identifiant à « {{path}} » écarté(s).",
       "pages": "{{pages}} pages lues : le reste à la prochaine consultation.",
-      "noIdAndPages": "{{items}} élément(s) sans identifiant à « {{path}} » écarté(s) ; {{pages}} pages lues : le reste à la prochaine consultation.",
-      "triggerOff": "Le déclencheur est désactivé."
+      "triggerOff": "Le déclencheur est désactivé.",
+      "noId_one": "{{count}} élément sans identifiant à « {{path}} » écarté.",
+      "noId_other": "{{count}} éléments sans identifiant à « {{path}} » écartés.",
+      "noIdAndPages_one": "{{count}} élément sans identifiant à « {{path}} » écarté ; {{pages}} pages lues : le reste à la prochaine consultation.",
+      "noIdAndPages_other": "{{count}} éléments sans identifiant à « {{path}} » écartés ; {{pages}} pages lues : le reste à la prochaine consultation."
     },
     "fire": {
       "changed": "Le déclencheur a été modifié : il lit autre chose maintenant.",

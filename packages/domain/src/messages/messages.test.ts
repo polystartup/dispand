@@ -14,7 +14,7 @@ import { PackageError } from "../skills/package.ts";
 import { GitError } from "../plugins/git.ts";
 import { PluginError } from "../plugins/fs.ts";
 import { ToolError } from "../tools/errors.ts";
-import { external, isMessageKey, type Message, message, reasonOf, rendered, stored, storedSentence, storedText } from "./index.ts";
+import { external, isMessageKey, type Message, message, reasonOf, rendered, plainText, stored, storedSentence, storedText } from "./index.ts";
 
 /** Every key of a resource, plural forms included, as dotted paths. */
 const keys = (value: unknown, prefix = ""): string[] =>
@@ -64,6 +64,14 @@ test("a refusal of the Git, plugin and tool errors is said in French, a stored f
   expect(storedText("The tool no longer exists")).toEqual({ text: "The tool no longer exists" });
   expect(storedText('{"key":"not.a.key"}')).toEqual({ text: '{"key":"not.a.key"}' });
   expect(storedSentence(stored("engine.fail.stopped"))).toBe("Stopped.");
+});
+
+test("words from outside that look like a stored message are shown as they came, and plural forms are chosen by the count", () => {
+  const forged = '{"key":"engine.fail.stopped"}';
+  expect(storedText(forged)).toEqual({ key: "engine.fail.stopped" });
+  expect(storedText(plainText(forged))).toEqual({ text: forged });
+  expect(plainText("It broke")).toBe("It broke");
+  expect([rendered("en", "engine.poll.noId", { count: 1, path: "id" }), rendered("fr", "engine.poll.noId", { count: 2, path: "id" })]).toEqual(["1 item without an id at “id” left out.", "2 éléments sans identifiant à « id » écartés."]);
 });
 
 // Errors whose text may reach a person and isn't a `message()` key or text marked as external, per

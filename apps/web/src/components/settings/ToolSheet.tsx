@@ -133,7 +133,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
       const message = errorMessage(e, t("sheet.connectFailed"));
       setError(message);
       // The server's authorization server wants a client id it gave the owner: its fields open.
-      if (/enter the client id/.test(message)) setAskClient(true);
+      if (["tools.fail.needsClient", "tools.fail.otherAuthServer"].includes((e as { data?: { key?: string } }).data?.key ?? "")) setAskClient(true);
     }
   }
 

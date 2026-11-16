@@ -1,7 +1,7 @@
 import { storable } from "@dispand/runner-protocol";
 import type { tools as toolsTable } from "../db/schema.ts";
 import { newId } from "../ids.ts";
-import { stored } from "../messages/index.ts";
+import { plainText, stored } from "../messages/index.ts";
 import { runnerTarget } from "../plugins/runner-servers.ts";
 import { type RunnerHub, RunnerRequestFailed } from "../runners/hub.ts";
 import type { PollContinuation } from "../triggers/model.ts";
