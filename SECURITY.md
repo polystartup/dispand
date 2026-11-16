@@ -672,7 +672,8 @@ changes it updates this file.
   creates each file from inside its folder (a child process that `chdir`s there and checks its
   real working folder first), so a live session swapping a folder for a link meanwhile sends the
   write nowhere else; files are created `O_EXCL|O_NOFOLLOW` and made read-only by descriptor. It fetches the bytes at `GET /runner/attachments/<id>` with its
-  own token, which serves only a file given to a Job with a session on that runner.
+  own token, which serves only a file a chat message carries, of a Job with a session on that
+  runner. The child that writes gets no environment.
 - **Skill files never name a path outside their skill.** Every file of a skill package, made in
   the app or imported from a plugin, passes `isSafeRelativePath` (`packages/runner-protocol/src/paths.ts`)
   before it is stored: relative POSIX paths only, no `..`, `.` or empty segment, no `\`, NUL or

@@ -72,10 +72,10 @@ export function createChatClient(h: ClientHarness, deps: ClientDeps): ModelClien
 }
 
 function filePart(file: ChatFile): OpenAI.Chat.ChatCompletionContentPart {
-  const input = fileInput(file);
+  // Not every server behind this API takes a PDF part, and one it refuses would end the session: none is sent.
+  const input = fileInput(file, { pdf: false });
   if (input.kind === "image") return { type: "image_url", image_url: { url: `data:${input.mime};base64,${input.base64}` } };
-  if (input.kind === "pdf") return { type: "file", file: { filename: file.name.slice(0, 255), file_data: `data:application/pdf;base64,${input.base64}` } };
-  return { type: "text", text: input.text };
+  return { type: "text", text: "text" in input ? input.text : "" };
 }
 
 function toMessages(items: ChatItem[]): Message[] {

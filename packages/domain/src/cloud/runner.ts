@@ -29,7 +29,7 @@ import {
   submitOutputsSpec,
   TEXTS,
 } from "./builtins.ts";
-import { type ChatItem, type ClientHarness, createModelClient, type ModelClient, type ModelTurn, type ToolCall, type ToolSpec } from "./model-client.ts";
+import { budgetFiles, type ChatItem, type ClientHarness, createModelClient, type ModelClient, type ModelTurn, type ToolCall, type ToolSpec } from "./model-client.ts";
 import { DEFAULT_BASE_URLS } from "./models.ts";
 import { readSkill, sessionSkills, skillsPrompt } from "../skills/cloud.ts";
 import { toolNames } from "./tool-names.ts";
@@ -373,7 +373,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     const ids = items.flatMap((x) => (x.role === "user" ? (x.files ?? []).map((f) => f.id) : []));
     if (ids.length === 0) return items;
     const bytes = this.filesDir ? await attachmentBytes(this.db, this.filesDir, ownerId, ids) : new Map<string, Uint8Array>();
-    return items.map((x) => (x.role === "user" && x.files?.length ? { ...x, files: x.files.map((f) => ({ id: f.id, name: f.name, ...(bytes.has(f.id) ? { bytes: bytes.get(f.id) } : {}) })) } : x));
+    return budgetFiles(items.map((x) => (x.role === "user" && x.files?.length ? { ...x, files: x.files.map((f) => ({ id: f.id, name: f.name, ...(bytes.has(f.id) ? { bytes: bytes.get(f.id) } : {}) })) } : x)));
   }
 
   private async specs(sessionId: string) {

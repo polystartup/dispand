@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { fakeModel, say } from "../cloud/test-model.ts";
 import { fileInput } from "../cloud/model-client.ts";
-import { attachments, agents, messages, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
+import { attachments, agents, messages, runs, stepRuns, user, workspaceSettings } from "../db/schema.ts";
 import { chatFiles, CliHarnessAdapter, createEngine } from "../engine/cli-harness.ts";
 import { Engine } from "../engine/engine.ts";
 import { newId } from "../ids.ts";
@@ -146,6 +146,22 @@ test("an oversized file, too many files, or files past the Job's or the install'
   // Held files count in the install's total: past it, nothing more is held.
   await s.context.db.insert(workspaceSettings).values({ ownerId: s.context.ownerId, filesLimitMib: 200 }).onConflictDoUpdate({ target: workspaceSettings.ownerId, set: { filesLimitMib: 200 } });
   await expect(s.hold("three.bin", Buffer.alloc(1024))).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "data.file.installFull", values: { limit: 200 } } });
+});
+
+test("a file is taken only from its owner's own held files: never another person's, nor one another chat took", async () => {
+  const s = await setup();
+  const runA = await started(s);
+  await s.context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.test" });
+  const theirs = newId("att");
+  await s.context.db.insert(attachments).values({ id: theirs, ownerId: "other", name: "theirs.png", mime: "image/png", size: PNG.length, image: true });
+  await expect(call(router.runs.sendChat, { runId: runA, text: "Theirs", attachmentIds: [theirs] }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "data.file.gone" } });
+  expect((await s.context.db.select().from(attachments).where(eq(attachments.id, theirs)))[0]?.jobId).toBeNull();
+
+  const mine = await s.hold("mine.png");
+  await call(router.runs.sendChat, { runId: runA, text: "Mine", attachmentIds: [mine.id] }, { context: s.context });
+  const { runId: runB } = await call(router.jobs.start, { triggerId: s.assistant.triggerId }, { context: s.context });
+  await expect(call(router.runs.sendChat, { runId: runB, text: "Again here", attachmentIds: [mine.id] }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "data.file.gone" } });
+  expect((await s.context.db.select().from(attachments).where(eq(attachments.id, mine.id)))[0]?.jobId).toBe(runA);
 });
 
 test("only a person attaches files: a Job can't hold one or send one", async () => {

@@ -1168,11 +1168,15 @@
   and, at each model call, reads their bytes (`attachmentBytes`) into the user item (`ChatFile`):
   by first bytes, a raster image is image input, a PDF document input, UTF-8 text a text part,
   anything else (or a file gone) a line saying so, for Anthropic, OpenAI Responses and chat
-  completions alike (`fileInput`). A CLI session's `session.send` carries `files` (attachment id
+  completions alike (`fileInput`). Within bounds that keep a call from being refused, which would
+  end the session and every later turn (the history is sent again): an image of at most 3.75 MB,
+  text cut at 100,000 characters, 16 MiB of files per call with the newest messages' first
+  (`budgetFiles`), and no PDF to an OpenAI-compatible server, which may not take one; past them
+  the file is a line too. A CLI session's `session.send` carries `files` (attachment id
   and path, `attachmentPath`: `.dispand/attachments/<id>/file<.ext>`, `isAttachmentPath` checked
   by `chatFiles` and the protocol schema) and a text that names the paths with the original names
   as words. The runner fetches each file at `GET /runner/attachments/<id>` (runner token; served
-  only for a Job with a session on that runner, `attachmentForRunner`, span
+  only for a file a message carries, of a Job with a session on that runner, `attachmentForRunner`, span
   `runner.attachment`), writes it read-only in the run folder, then hands the text to the CLI;
   if it can't, the text goes with a line saying so. The files stay with the run folder for later
   turns and resumes. Runner protocol 28.

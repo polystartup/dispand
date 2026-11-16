@@ -56,13 +56,18 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
   const files = useRef<ComposerFiles | null>(null);
   // Files still on their way: sending waits for them, so none is left for the next message.
   const [holding, setHolding] = useState(0);
+  // Bumped when the draft's conversation changes: a file still on its way then joins no draft.
+  const draft = useRef(0);
   const hold = useCallback(
     async (file: File) => {
       setHolding((n) => n + 1);
+      const mine = draft.current;
       try {
-        return await api.files.hold({ file });
+        const held = await api.files.hold({ file });
+        if (draft.current !== mine) throw new Error(t("attachFailed"));
+        return held;
       } catch (err) {
-        setError(err instanceof Error ? err.message : t("attachFailed"));
+        if (draft.current === mine) setError(err instanceof Error ? err.message : t("attachFailed"));
         throw err;
       } finally {
         setHolding((n) => n - 1);
@@ -94,6 +99,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
     setChosenSkill(null);
     setError(null);
     // Files attached for the other conversation stay with it: none goes with this one.
+    draft.current++;
     if (files.current) void files.current.remove(files.current.ids());
   }, [runId]);
 
@@ -234,6 +240,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
                   onClick={() => {
                     setText("");
                     setError(null);
+                    draft.current++;
                     if (files.current) void files.current.remove(files.current.ids());
                     onNewConversation();
                   }}

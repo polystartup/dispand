@@ -113,12 +113,12 @@ test("a folder swapped for a link after the checks gets nothing: the write is an
   expect((await lstat(join(dir, ".dispand", "attachments", "att_2", "file.md"))).mode & 0o777).toBe(0o444);
 });
 
-test("a file Dispand doesn't serve leaves a line for the agent, and nothing written", async () => {
+test("a file Dispand doesn't serve leaves a line for the agent; files are copied one at a time, those before it stay", async () => {
   const dir = await runDir();
   const server = await dispand({ att_1: Buffer.from("one") });
   const note = await copyAttachments(dir, [{ attachmentId: "att_1", path: ".dispand/attachments/att_1/file.txt" }, { attachmentId: "att_9", path: ".dispand/attachments/att_9/file.txt" }], { server, token: "rt_1" });
   expect(note).toBe("(The runner couldn't copy the attached files into your working folder: Dispand refused a file (404). Tell the person.)");
-  expect(await readdir(join(dir, ".dispand"))).toEqual(["plans"]);
+  expect(await readdir(join(dir, ".dispand", "attachments"))).toEqual(["att_1"]);
 });
 
 test("a CLI chat message's files are in the run folder before its text, which names their paths, reaches the CLI", async () => {

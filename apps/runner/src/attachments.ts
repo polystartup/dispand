@@ -106,7 +106,8 @@ export async function writeAttachments(runDir: string, files: { file: SessionFil
 
 /** Runs `ANCHORED_WRITE` on these files: each `dir` must be the real path of the folder it names. */
 export async function writeAnchored(writes: { dir: string; name: string; base64: string }[]): Promise<void> {
-  const child = spawn(process.execPath, ["-e", ANCHORED_WRITE], { stdio: ["pipe", "ignore", "ignore"] });
+  // No environment: the child needs none, and gets no `NODE_OPTIONS` or secret of the runner's.
+  const child = spawn(process.execPath, ["-e", ANCHORED_WRITE], { stdio: ["pipe", "ignore", "ignore"], env: {} });
   const code = new Promise<number | null>((resolve, reject) => child.on("error", reject).on("close", resolve));
   child.stdin.end(JSON.stringify(writes));
   const exit = await code;
@@ -121,9 +122,9 @@ export async function writeAnchored(writes: { dir: string; name: string; base64:
 export async function copyAttachments(runDir: string, files: SessionFile[], from: { server: string; token: string } | undefined): Promise<string | undefined> {
   try {
     if (!from) throw new AttachmentsRefused("this runner has no way to fetch files from Dispand");
-    const fetched = [];
-    for (const file of files) fetched.push({ file, bytes: await fetchAttachment(from.server, from.token, file.attachmentId) });
-    await writeAttachments(runDir, fetched);
+    if (files.some((f) => !SessionFile.safeParse(f).success)) throw new AttachmentsRefused("a file has a path a session may not get");
+    // One file at a time: at most one file's bytes in memory.
+    for (const file of files) await writeAttachments(runDir, [{ file, bytes: await fetchAttachment(from.server, from.token, file.attachmentId) }]);
     return undefined;
   } catch (err) {
     const reason = err instanceof AttachmentsRefused ? err.message : `error ${(err as NodeJS.ErrnoException).code ?? "writing them"}`;

@@ -3,7 +3,7 @@ import type { Answer } from "@dispand/runner-protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, Check, Copy, MessageSquare, Paperclip, Users, Wrench, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { createContext, type ComponentProps, type ReactNode, type RefObject, useContext, useMemo, useState } from "react";
+import { createContext, type ComponentProps, type ReactNode, type RefObject, useContext, useEffect, useMemo, useState } from "react";
 import { orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
 import { CONSULT_TOOL, heldAttachments, QUESTION_TOOL, threadMessages, TRACE_TOOL, useRunThread } from "../../lib/assistant-runtime.ts";
@@ -182,14 +182,20 @@ export type ComposerFiles = { ids: () => string[]; remove: (ids: string[]) => Pr
 export function ComposerAttachments({ handle, disabled }: { handle: RefObject<ComposerFiles | null>; disabled?: boolean }) {
   const { t } = useTranslation("chat");
   const aui = useAui();
-  handle.current = {
-    ids: () => aui.composer().getState().attachments.map((a) => a.id),
-    remove: async (ids) => {
-      // Only those still there: the person may have taken one off meanwhile.
-      const left = new Set(aui.composer().getState().attachments.map((a) => a.id));
-      for (const id of ids.filter((i) => left.has(i))) await aui.composer().attachment({ id }).remove();
-    },
-  };
+  useEffect(() => {
+    handle.current = {
+      ids: () => aui.composer().getState().attachments.map((a) => a.id),
+      remove: async (ids) => {
+        for (const id of ids) {
+          // Only one still there, looked up now: the person may have taken it off meanwhile.
+          if (aui.composer().getState().attachments.some((a) => a.id === id)) await aui.composer().attachment({ id }).remove();
+        }
+      },
+    };
+    return () => {
+      handle.current = null;
+    };
+  }, [aui, handle]);
   return (
     <>
       <ComposerPrimitive.AddAttachment multiple disabled={disabled} aria-label={t("attachFile")} title={t("attachFile")} className="rounded-full p-2 text-muted hover:bg-hover hover:text-fg disabled:opacity-60">

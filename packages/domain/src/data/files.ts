@@ -92,8 +92,7 @@ const hold = owner.input(z.object({ file: z.file() })).handler(async ({ input, c
   const row = await context.db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('dispand:attachments'))`);
     const limit = await filesLimitOf(tx, context.ownerId);
-    const [all] = await tx.select({ bytes: sql<string>`coalesce(sum(${attachments.size}), 0)` }).from(attachments);
-    if (Number(all?.bytes ?? 0) + bytes.length > limit * MIB) return null;
+    if ((await installBytes(tx)) + bytes.length > limit * MIB) return null;
     return storeAttachment(tx, context.filesDir, { ownerId: context.ownerId, name: input.file.name, bytes });
   });
   if (!row) {
@@ -166,8 +165,13 @@ export async function filesLimitOf(db: Db | Tx, ownerId: string): Promise<number
 async function totals(tx: Tx, jobId: string): Promise<{ jobFiles: number; jobBytes: number; installBytes: number }> {
   const bytes = sql<string>`coalesce(sum(${attachments.size}), 0)`;
   const [job] = await tx.select({ n: count(), bytes }).from(attachments).where(eq(attachments.jobId, jobId));
-  const [install] = await tx.select({ bytes }).from(attachments);
-  return { jobFiles: job?.n ?? 0, jobBytes: Number(job?.bytes ?? 0), installBytes: Number(install?.bytes ?? 0) };
+  return { jobFiles: job?.n ?? 0, jobBytes: Number(job?.bytes ?? 0), installBytes: await installBytes(tx) };
+}
+
+/** The bytes of every file of the install: what its total covers. */
+async function installBytes(tx: Tx): Promise<number> {
+  const [install] = await tx.select({ bytes: sql<string>`coalesce(sum(${attachments.size}), 0)` }).from(attachments);
+  return Number(install?.bytes ?? 0);
 }
 
 type Limit = "result" | "job" | "install";
@@ -283,7 +287,8 @@ export async function openAttachment(
 
 /**
  * A chat attachment as `GET RUNNER_ATTACHMENTS_PATH/<id>` sends it to a runner: only a file of
- * the runner's owner given to a Job (`takeChatFiles`) that has a session on that runner; null
+ * the runner's owner that a message of its Job carries (`takeChatFiles`), that Job having a
+ * session on that runner; null
  * (404) for anything else, so a runner learns nothing about other files.
  */
 export async function attachmentForRunner(db: Db, filesDir: string, runnerId: string, id: string) {
@@ -291,7 +296,7 @@ export async function attachmentForRunner(db: Db, filesDir: string, runnerId: st
     .select({ ownerId: attachments.ownerId })
     .from(attachments)
     .innerJoin(stepRuns, and(eq(stepRuns.runId, attachments.jobId), eq(stepRuns.runnerId, runnerId), eq(stepRuns.ownerId, attachments.ownerId)))
-    .where(eq(attachments.id, id))
+    .where(and(eq(attachments.id, id), inMessage))
     .limit(1);
   return found ? openAttachment(db, filesDir, found.ownerId, id) : null;
 }
