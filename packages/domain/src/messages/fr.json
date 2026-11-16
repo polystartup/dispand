@@ -88,6 +88,7 @@
       "noList": "Le résultat n’a pas de liste à « {{path}} ».",
       "notList": "Le résultat n’est pas une liste.",
       "notJson": "Le résultat de l’action n’est pas du JSON.",
+      "noConnector": "Les interrogations ne peuvent pas s’exécuter ici : aucun connecteur d’outils n’est configuré.",
       "nextNotText": "La page suivante du résultat, à « {{path}} », n’est pas un texte.",
       "nextNotLink": "La page suivante du résultat, à « {{path}} », n’est pas un lien.",
       "nextNoQuery": "La page suivante du résultat n’a pas de « {{query}} ».",

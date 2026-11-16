@@ -29,7 +29,7 @@ export type PollCall = { ok: true; data: unknown; hasMore: boolean } | { ok: fal
 export type PollCaller = { call(tool: ToolRow, action: string, args: Record<string, unknown>): Promise<PollCall> };
 
 /** Where no connector is configured: every poll fails, nothing is called. */
-export const noPolls: PollCaller = { call: async () => ({ ok: false, error: stored("tools.call.noConnector") }) };
+export const noPolls: PollCaller = { call: async () => ({ ok: false, error: stored("tools.poll.noConnector") }) };
 
 function parse(text: string, hasMore: boolean): PollCall {
   try {

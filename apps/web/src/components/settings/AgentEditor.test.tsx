@@ -137,6 +137,13 @@ test.each(["FORBIDDEN", "BAD_REQUEST"])("a %s refusal shows the server's reason"
   expect((await screen.findByRole("alert")).textContent).toBe("The Assistant keeps its platform skill");
 });
 
+test("a keyed validation error shows its translated sentence on the form", async () => {
+  fake.agents.update.mockRejectedValue(Object.assign(refused("BAD_REQUEST", "« Nom » doit contenir au moins 1 caractère."), { data: { key: "validation.too_small.string", values: { field: "Nom", count: 1 } } }));
+  const user = mount(agent);
+  await user.click(await screen.findByRole("button", { name: "Save" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("« Nom » doit contenir au moins 1 caractère.");
+});
+
 test.each([
   ["a failure the server didn't explain", refused("INTERNAL_SERVER_ERROR", "Internal server error")],
   ["a network failure", new TypeError("Failed to fetch")],

@@ -1995,7 +1995,7 @@ same keys.
   an error without a key, or a key the page doesn't know, shows the generic message, whatever its code. Values are text:
   React escapes them; a list value is formatted by the page (`Intl.ListFormat`). Person-facing text a
   procedure returns as data (an uninstall's reasons, an update's refusals, a setup's waiting
-  definitions, why a cell value doesn't fit its field, a proposal's "of the table X", why a plugin's element isn't imported: `NotImported.reason` is a `Message`, so the compiler refuses a sentence) is a `Text`: `say(key, values)`, or `{ text }` for words that came as they are (a
+  definitions, why a cell value doesn't fit its field, a proposal's "of the table X", why a plugin's element isn't imported: `NotImported.reason` is a `Message`, so the compiler refuses a sentence; Zod's own messages inside a definition's "path: message" problem stay in English, the library's text) is a `Text`: `say(key, values)`, or `{ text }` for words that came as they are (a
   plugin's, another area's not yet keyed, `reasonOf(err)`); the page renders it with `useText()`
   (`lib/message.ts`). The same holds for what the workflow editor shows: a workflow issue
   (`WorkflowIssue.message`), a refused link (`connect`) and a schedule's problem (`cronProblem`) are

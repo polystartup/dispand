@@ -88,6 +88,7 @@
       "noList": "The result has no list at “{{path}}”.",
       "notList": "The result isn't a list.",
       "notJson": "The action's result isn't JSON.",
+      "noConnector": "Polls can't run here: no tool connector is configured.",
       "nextNotText": "The result's next page at “{{path}}” isn't text.",
       "nextNotLink": "The result's next page at “{{path}}” isn't a link.",
       "nextNoQuery": "The result's next page has no “{{query}}”.",
@@ -405,7 +406,7 @@
       "noFields": "A Question, an Approval or a Job has no fields.",
       "argumentsTooLarge": "The arguments are larger than 16 KiB.",
       "interactionNoFields": "A Question or an Approval has no fields.",
-      "pollSource": "A poll names one server or one catalog entry."
+      "pollSource": "A poll names one server or one catalog entry, not both."
     }
   },
   "workflows": {
