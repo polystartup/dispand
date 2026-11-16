@@ -430,6 +430,10 @@ export async function settleProposal(db: Db | Tx, questionId: string, approved: 
     .where(and(eq(proposals.questionId, questionId), eq(proposals.status, "asked")));
 }
 
+/** What a harness is, for a proposal: its kind, where it runs and its permission mode, as whole sentences by what is known. */
+export const harnessDetail = (kind: string, runner: string | null, mode: string | null): Text =>
+  runner ? say(mode ? "harness.detail.both" : "harness.detail.onRunner", { kind, runner, mode: mode ?? "" }) : mode ? say("harness.detail.mode", { kind, mode }) : { text: kind };
+
 export type ProposalName = { kind: "agent" | "harness" | "tool" | "skill" | "table" | "field" | "trigger" | "catalog" | "plugin"; name: string; detail?: Text };
 
 /**
@@ -547,7 +551,7 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
         .from(harnesses)
         .leftJoin(runners, eq(runners.id, harnesses.runnerId))
         .where(and(inArray(harnesses.id, w), eq(harnesses.ownerId, ownerId))),
-    (r) => ({ name: r.name, detail: say(r.runner ? (r.permissionMode ? "harness.detail.both" : "harness.detail.onRunner") : r.permissionMode ? "harness.detail.mode" : "harness.detail.kind", { kind: r.kind, runner: r.runner ?? "", mode: r.permissionMode ?? "" }) }),
+    (r) => ({ name: r.name, detail: harnessDetail(r.kind, r.runner, r.permissionMode) }),
   );
   await found(
     "tool",

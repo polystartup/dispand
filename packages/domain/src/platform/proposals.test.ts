@@ -11,7 +11,7 @@ import type { Bundle } from "./bundles.ts";
 import { callPlatformTool, toolsOf, type JobIdentity } from "./call.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { PLATFORM_TOOLS } from "./tools.ts";
-import { itemsView, proposalView } from "./proposals.ts";
+import { harnessDetail, itemsView, proposalView } from "./proposals.ts";
 import { retarget } from "../tools/procedures.ts";
 
 /** An agent with `bundles`, a Job of it still going, and what its tools answer. */
@@ -1078,4 +1078,13 @@ test("a poll trigger's tool is named in the view", async () => {
   const input = { agentId: s.agent.id, name: "New mail", config: { kind: "poll", toolId: "tool_mail", action: "search", idPath: "id" } };
   const view = await itemsView(s.context.db, s.context.ownerId, [{ tool: "triggers_create", input }] as never);
   expect(view.names.tool_mail).toMatchObject({ kind: "tool", name: "Mail" });
+});
+
+test("a harness's detail is a whole sentence by what is known of it", () => {
+  expect([harnessDetail("codex", null, null), harnessDetail("codex", null, "plan"), harnessDetail("codex", "Mac", null), harnessDetail("codex", "Mac", "plan")]).toEqual([
+    { text: "codex" },
+    { key: "harness.detail.mode", values: { kind: "codex", mode: "plan" } },
+    { key: "harness.detail.onRunner", values: { kind: "codex", runner: "Mac", mode: "" } },
+    { key: "harness.detail.both", values: { kind: "codex", runner: "Mac", mode: "plan" } },
+  ]);
 });

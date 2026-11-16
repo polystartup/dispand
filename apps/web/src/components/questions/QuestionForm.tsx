@@ -1,6 +1,5 @@
 import type { Answer, QuestionPayload } from "@dispand/runner-protocol";
 import { useId, useState } from "react";
-import type { TFunction } from "i18next";
 import { Trans, useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -110,15 +109,16 @@ export function checkpointInput(payload: QuestionPayload): CheckpointInput {
   };
 }
 
-/** What started the work, by the kind of root cause the server named; a kind this page doesn't know reads as the generic one. */
-export const checkpointRoot = (t: TFunction<"questions">, c: CheckpointInput) => (c.rootKind && t(`checkpoint.roots.${c.rootKind}`, { defaultValue: "" })) || t("checkpoint.defaultRoot");
+/** The root kinds the server names (`RootKind`): each has its own sentence; any other kind reads as the generic one. */
+const ROOT_KINDS = ["user", "chat", "schedule", "event", "poll"];
+export const checkpointKind = (c: CheckpointInput) => (c.rootKind && ROOT_KINDS.includes(c.rootKind) ? c.rootKind : "other");
 
 /** A checkpoint (design 6.1): the work from one root cause made this many Jobs; go on, go on for good, or stop it. */
 function Checkpoint({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { kind: "permission" }>>) {
   const { t } = useTranslation("questions");
   const format = useFormat();
   const c = checkpointInput(payload);
-  const root = checkpointRoot(t, c);
+  const kind = checkpointKind(c);
   const send = (decision: "allow" | "allow-always" | "deny") => onAnswer({ kind: "permission", decision });
   const date = c.since ? new Date(c.since) : null;
   return (
@@ -126,9 +126,9 @@ function Checkpoint({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, {
       <p className="text-[15px]">
         <Trans
           t={t}
-          i18nKey={date && !Number.isNaN(date.getTime()) ? "checkpoint.textSince" : "checkpoint.text"}
+          i18nKey={`checkpoint.${date && !Number.isNaN(date.getTime()) ? "textSince" : "text"}.${kind}` as "checkpoint.text.other"}
           count={c.jobs}
-          values={{ root, since: date ? format.dateTime(date) : "" }}
+          values={{ since: date ? format.dateTime(date) : "" }}
           components={[<span className="font-medium" />]}
         />
       </p>

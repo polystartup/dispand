@@ -445,7 +445,6 @@
   },
   "harness": {
     "detail": {
-      "kind": "{{kind}}",
       "onRunner": "{{kind}}, sur {{runner}}",
       "mode": "{{kind}}, mode d’autorisation {{mode}}",
       "both": "{{kind}}, sur {{runner}}, mode d’autorisation {{mode}}"

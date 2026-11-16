@@ -1875,7 +1875,7 @@ same keys.
   still holds a tool (`toolHolder`) and why a poll may not read an action (`pollProblem`): each
   returns a `Message`, and what stores one (a skipped poll's reason) keeps its English sentence
   (`pollProblemText`). The engine's refusals are keyed too (`engine.*`); a checkpoint's Approval
-  names its root by kind (`rootKind`), which the page words, and a harness's proposal detail is a
+  names its root by kind (`rootKind`), and the page has one whole sentence per kind, and a harness's proposal detail is a
   keyed message. What the engine stores as a Job's failure, or as a fire's or poll item's reason,
   stays an English sentence until a task stores keys there. A tool result for an agent shows every such text as its English sentence
   (`sentence`, a tool's `filter`, `issues` for a refinement's key and its `params`), never a key. An input its Zod schema rejects answers with `validation.<code>` and the
