@@ -118,7 +118,7 @@ test("a step added from the trigger's \"+\" twice makes two branches, and linkin
 
   // A link that would make a loop is refused, with why.
   await drag("Step 3", "Step 1");
-  await expect(page.getByRole("alert")).toHaveText("This link would make a loop");
+  await expect(page.getByRole("alert")).toHaveText("This link would make a loop.");
   await expect(edges).toHaveCount(4);
 
   await expect(page.getByRole("status")).toHaveText(/^Saved/, { timeout: 5_000 });

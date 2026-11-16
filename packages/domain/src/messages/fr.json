@@ -306,7 +306,7 @@
       "mustBe": {
         "number": "« {{param}} » doit être un nombre",
         "integer": "« {{param}} » doit être un nombre entier",
-        "boolean": "« {{param}} » doit être vrai ou faux",
+        "boolean": "« {{param}} » doit être true ou false",
         "array": "« {{param}} » doit être du JSON (un tableau)",
         "object": "« {{param}} » doit être du JSON (un objet)"
       }
