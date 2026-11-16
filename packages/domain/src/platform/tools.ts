@@ -320,7 +320,7 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   tool("tools.addFromCatalog", "configure", `Adds a tool from the catalog by its id, with no credentials: the owner enters them, or signs in, on the tool's page afterwards (its signInPath). It starts with the actions its entry declares, so their flags and poll triggers can be set at once. An entry that runs on a runner can't be added this way. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("tools.add", "configure", `Adds a tool: an MCP server reached at a URL, with no credentials (the owner enters those afterwards). ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("tools.delete", "configure", `Deletes a tool no agent uses, with its saved headers: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
-  tool("agents.delete", "configure", `Deletes an agent with its triggers, skills and tools; its Jobs still going stop, its past Jobs stay: this can't be undone. The built-in agent, an agent a workflow uses and your own agent can't be deleted. ${NEEDS_PROPOSAL}`, {
+  tool("agents.delete", "configure", `Deletes an agent and its triggers (the skills and tools it uses stay); its Jobs still going stop, its past Jobs stay: this can't be undone. The built-in agent, an agent a workflow uses and your own agent can't be deleted. ${NEEDS_PROPOSAL}`, {
     tables: none,
     grant: true,
     // Its own deletion would stop the Job in the middle of its call.
