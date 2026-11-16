@@ -11,7 +11,7 @@ import { ownerContext } from "../runners/test-support.ts";
 import { BUILT_IN_MARKETPLACES } from "./marketplace.ts";
 import { marketplaceUrl, packageName } from "./procedures.ts";
 import { fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd, updatePlugin, installReviewed } from "./test-support.ts";
-import { say } from "../messages/index.ts";
+import { say, storedSentence } from "../messages/index.ts";
 import { toolTarget } from "../tools/procedures.ts";
 import { addStep } from "../workflows/model.ts";
 import { rememberAllowedAction } from "../agents/tool-ask.ts";
@@ -65,7 +65,7 @@ test("the owner starts with the built-in marketplaces, which can't be removed", 
 test("a marketplace is https:// only; file:// needs the development switch", async () => {
   const ctx = await ownerContext();
   const repo = marketplace({ url: "https://example.com/x.git", sha: "a".repeat(40) });
-  await expect(call(router.marketplaces.add, { url: repo.url }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Use an https:// Git URL" });
+  await expect(call(router.marketplaces.add, { url: repo.url }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Use an https:// Git URL." });
   await expect(call(router.marketplaces.add, { url: "http://example.com/m.git" }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   repo.remove();
 });
@@ -148,11 +148,11 @@ test("unsupported and escaping sources, and unknown skills, are refused with the
   const ref = { marketplaceId: market.id };
   await expect(call(router.plugins.preview, { ...ref, entryName: "npm-thing" }, { context: ctx })).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "“npm” sources aren't supported: only Git repositories are",
+    message: "“npm” sources aren't supported: only Git repositories are.",
   });
   await expect(call(router.plugins.preview, { ...ref, entryName: "escape" }, { context: ctx })).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "The plugin's folder is outside its repository",
+    message: "The plugin's folder is outside its repository.",
   });
   await expect(installReviewed(ctx, { ...ref, entryName: "document-skills", skills: ["nope"] })).rejects.toMatchObject({
     code: "BAD_REQUEST",
@@ -169,7 +169,7 @@ test("a failed sync keeps the previous entries and stores syncError", async () =
   repo.remove();
   const synced = await call(router.marketplaces.sync, { id: market.id }, { context: ctx });
   expect(synced).toMatchObject({ plugins: 4, syncedAt: market.syncedAt });
-  expect(synced.syncError).toMatch(/^Couldn't fetch file:.*: /);
+  expect(storedSentence(synced.syncError!)).toMatch(/^Couldn't fetch file:.*: /);
   expect(await call(router.plugins.discover, {}, { context: ctx })).toHaveLength(4);
 });
 

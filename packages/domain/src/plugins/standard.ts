@@ -45,19 +45,19 @@ const cut = (s: string, max: number) => [...s].slice(0, max).join("");
 
 /** `plugin.json`, validated: the version's rules, or `PluginError` when the plugin must be rejected. */
 function readManifest(root: string, notImported: Notes): { mcpSchema: string; version: string | null; description: string | undefined } {
-  if (kindAt(root, "plugin.json") !== "file") throw new PluginError("plugin.json isn't a regular file");
+  if (kindAt(root, "plugin.json") !== "file") throw new PluginError("pluginRead.manifest.notFile");
   const bytes = readRegular(root, "plugin.json", MAX_JSON_BYTES);
-  if (!bytes) throw new PluginError("plugin.json is larger than 1 MiB");
+  if (!bytes) throw new PluginError("pluginRead.manifest.tooLarge");
   let raw: unknown;
   try {
     raw = JSON.parse(bytes.toString("utf8"));
   } catch {
-    throw new PluginError("plugin.json isn't valid JSON");
+    throw new PluginError("pluginRead.manifest.notJson");
   }
-  if (!isObject(raw)) throw new PluginError("plugin.json isn't a JSON object");
-  if (raw.$schema === undefined) throw new PluginError("plugin.json has no $schema");
+  if (!isObject(raw)) throw new PluginError("pluginRead.manifest.notObject");
+  if (raw.$schema === undefined) throw new PluginError("pluginRead.manifest.noSchema");
   const rules = typeof raw.$schema === "string" ? VERSIONS[raw.$schema] : undefined;
-  if (!rules) throw new PluginError("plugin.json targets an Agent Plugins version Dispand doesn't support (only 1.0.0)");
+  if (!rules) throw new PluginError("pluginRead.manifest.version");
   for (const key of Object.keys(raw)) {
     if (!MANIFEST_FIELDS.has(key)) notImported.push({ component: "manifest", name: storable(key) ? cut(key, 100) : "…", reason: "Not a field of plugin.json: ignored" });
   }
@@ -69,7 +69,7 @@ function readManifest(root: string, notImported: Notes): { mcpSchema: string; ve
   const parsed = Manifest.safeParse(raw);
   if (!parsed.success) {
     const field = parsed.error.issues[0]?.path[0];
-    throw new PluginError(`plugin.json's ${typeof field === "string" ? field : "manifest"} isn't valid`);
+    throw new PluginError("pluginRead.manifest.invalid", { field: typeof field === "string" ? field : "manifest" });
   }
   const { version } = parsed.data;
   return { mcpSchema: rules.mcp, version: version !== undefined && storable(version) ? cut(version, 100) : null, description };
@@ -187,7 +187,7 @@ function readServers(root: string, mcpSchema: string, notImported: Notes): Plugi
   let count = 0;
   for (const [name, entry] of Object.entries(raw.mcpServers)) {
     spend(1);
-    if (++count > MAX_SERVERS) throw new PluginError(`The plugin offers more than ${MAX_SERVERS} MCP servers`);
+    if (++count > MAX_SERVERS) throw new PluginError("pluginRead.tooManyServers", { max: MAX_SERVERS });
     if (name.length === 0 || name.length > 100 || !storable(name)) {
       notImported.push({ component: "mcp-server", name: storable(name) ? cut(name, 100) || "…" : "…", reason: "Its name is empty, longer than 100 characters or unreadable" });
       continue;
@@ -208,7 +208,7 @@ function readServers(root: string, mcpSchema: string, notImported: Notes): Plugi
  */
 export function readStandardPlugin(root: string, links: string[]): PluginContents {
   const notImported = new Notes();
-  if (links.includes("plugin.json")) throw new PluginError("plugin.json is a symbolic link");
+  if (links.includes("plugin.json")) throw new PluginError("pluginRead.manifest.link");
   const { mcpSchema, version, description } = readManifest(root, notImported);
   // The checkout's links are gone from it (`fetchGit`): listed here, never read.
   notImported.push(...links.map((name): NotImported => ({ component: "file", name, reason: "A symbolic link" })));

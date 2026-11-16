@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { fillLastPoll, itemsOf, MAX_ITEM_BYTES, MAX_TOKEN, nextToken } from "./poll.ts";
+import { stored } from "../messages/index.ts";
 
 test("{{lastPoll}} is filled in every string, nested ones included, and keys are left as they are", () => {
   expect(fillLastPoll({ filter: "gt {{lastPoll}}", nested: [{ "{{lastPoll}}": "{{lastPoll}}" }], top: 10 }, "2026-11-12T09:00:00.000Z")).toEqual({
@@ -28,8 +29,8 @@ test("items are the list at the path, each with its id; without an id they are c
   });
   expect(itemsOf(data, "page.value", "meta.id")).toMatchObject({ items: [{ id: "7" }], noId: 4 });
   expect(itemsOf([{ id: 1 }], "", "id")).toMatchObject({ items: [{ id: "1" }] });
-  expect(itemsOf(data, "page", "id")).toEqual({ error: "The result has no list at “page”" });
-  expect(itemsOf({}, "", "id")).toEqual({ error: "The result isn't a list" });
+  expect(itemsOf(data, "page", "id")).toEqual({ error: stored("tools.poll.noList", { path: "page" }) });
+  expect(itemsOf({}, "", "id")).toEqual({ error: stored("tools.poll.notList") });
   // All of them, however many: one left out could fall before the next `{{lastPoll}}`.
   expect((itemsOf(Array.from({ length: 5000 }, (_, i) => ({ id: i })), "", "id") as { items: unknown[] }).items).toHaveLength(5000);
 });

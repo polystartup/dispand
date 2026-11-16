@@ -5,7 +5,7 @@ import { audit, runs, scheduleFires, schedules, stepRuns, triggerFires } from ".
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
-import { message } from "../messages/index.ts";
+import { message, stored } from "../messages/index.ts";
 import { Engine, EngineError } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { Scheduler } from "./scheduler.ts";
@@ -152,7 +152,7 @@ test("an invalid workflow's fire is refused with its issue", async () => {
   time.set("2026-11-05T11:00:10+01:00");
   expect(await scheduler.tick()).toEqual([]);
   expect(await runsOf()).toEqual([]);
-  expect(await firesOf()).toMatchObject([{ status: "refused", runId: null, message: "{{nobody.x}}: no step is called “nobody”" }]);
+  expect(await firesOf()).toMatchObject([{ status: "refused", runId: null, message: stored("workflows.issue.noStep", { reference: "{{nobody.x}}", step: "nobody" }) }]);
 });
 
 test("a scheduled run's first session starts once the runner says hello", async () => {
@@ -285,7 +285,7 @@ test("a fire the engine refuses is recorded with its message, and the next time 
   time.set("2026-11-05T11:00:10+01:00");
   const create = vi.spyOn(engine, "createJob").mockRejectedValueOnce(new EngineError("NOT_FOUND", message("agent.notFound")));
   expect(await scheduler.tick()).toEqual([]);
-  expect(await firesOf()).toMatchObject([{ status: "refused", message: "This agent doesn't exist.", runId: null }]);
+  expect(await firesOf()).toMatchObject([{ status: "refused", message: stored("agent.notFound"), runId: null }]);
   create.mockRestore();
   // Not left due forever: the refused time is done, the next one fires.
   expect(await scheduler.tick()).toEqual([]);

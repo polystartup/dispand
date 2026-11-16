@@ -4,7 +4,7 @@ import { cronProblem, DEFAULT_TIMEZONE, fromCron, knownTimezone, nextFires, toCr
 import { useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
-import { useText } from "@/lib/message";
+import { useStored, useText } from "@/lib/message";
 import { useFormat } from "../../../lib/format.ts";
 import { cn } from "@/lib/utils";
 import { FormField } from "../../settings/parts.tsx";
@@ -89,6 +89,7 @@ export function ScheduleTriggerPanel({
 }) {
   const { t } = useTranslation("workflows");
   const at = useAt();
+  const stored = useStored();
   const ids = { cron: useId(), tz: useId(), zones: useId(), problem: useId() };
   const preset = fromCron(field.cron);
   const [kind, setKind] = useState<Kind>(preset?.kind ?? "custom");
@@ -272,7 +273,7 @@ export function ScheduleTriggerPanel({
                       ? t("schedule.started")
                       : f.status === "skipped-overlap"
                         ? t("schedule.skippedOverlap")
-                        : t("schedule.refused", { message: f.message ?? "" })}
+                        : t("schedule.refused", { message: stored(f.message) ?? "" })}
                 </span>
               </li>
             ))}

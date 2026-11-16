@@ -12,7 +12,7 @@ import { signalsWithin } from "../assistant/review.ts";
 import { AnswerInput, answerQuestion, getQuestion, GetInput, listQuestions, ListInput } from "../questions/inbox.ts";
 import { readMemory, ReadInput, refuseProposedWrite, RemoveInput, removeMemoryTool, tablesOf, WriteInput, writeMemoryTool } from "../memory/tools.ts";
 import type { Rights } from "./rights.ts";
-import { sentence, type Text } from "../messages/index.ts";
+import { isMessageKey, type Message, sentence, storedSentence, type Text } from "../messages/index.ts";
 import { type Decision, decide, type Refused } from "../plugins/resolve.ts";
 import { marketplaceUrl } from "../plugins/procedures.ts";
 import { wellKnownIndexUrl, WellKnownError } from "../plugins/well-known.ts";
@@ -201,6 +201,27 @@ function tool(path: string, bundle: Bundle, description: string, rest: Pick<Plat
   return { path, name, bundle, description, input: procedureOf(router, path)["~orpc"].inputSchema ?? z.object({}), ...rest, ...(kind ? { creates: { kind, id: idOf } } : {}) };
 }
 
+/** The fields of those outputs that hold a stored failure or a returned message: nothing else (a transcript's text, a schema) is decoded. */
+const FAILURE_FIELDS = new Set(["error", "actionsError", "syncError", "message", "reason"]);
+
+/**
+ * An output as an agent reads it: a failure stored as a key (a run's, a tool's, a trigger's
+ * firing) and a message returned as data (a marketplace entry's unsupported reason), in the
+ * fields that hold them, become their English sentence, never a key.
+ */
+export function englishStored(output: unknown): unknown {
+  if (Array.isArray(output)) return output.map(englishStored);
+  if (typeof output !== "object" || output === null || output instanceof Date) return output;
+  return Object.fromEntries(
+    Object.entries(output).map(([field, value]) => {
+      if (!FAILURE_FIELDS.has(field)) return [field, englishStored(value)];
+      if (typeof value === "string") return [field, storedSentence(value)];
+      const key = (value as { key?: unknown } | null)?.key;
+      return [field, typeof key === "string" && isMessageKey(key) ? sentence(value as Message) : englishStored(value)];
+    }),
+  );
+}
+
 /** The install's setup report for an agent: each waiting reason and refused item's error as its English sentence. */
 export function englishSetup(output: unknown): unknown {
   const out = output as { setup?: { outcomes: { error?: Text }[]; waiting: { reason: Text }[] } };
@@ -298,13 +319,13 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
     direct: async (_db, _job, input) => (input as { dryRun: boolean }).dryRun,
     shown: async (_app, _job, input) => ((input as { dryRun: boolean }).dryRun ? "A dry run changes nothing and needs no approval: call fields_retype with dryRun: true directly, and propose dryRun: false" : undefined),
   }),
-  tool("triggers.list", "configure", "Lists an agent's triggers: what starts its Jobs (a button, a chat, a schedule), with their instructions.", { tables: none }),
-  tool("triggers.get", "configure", "Gives one trigger by its id.", { tables: none }),
+  tool("triggers.list", "configure", "Lists an agent's triggers: what starts its Jobs (a button, a chat, a schedule), with their instructions.", { tables: none, filter: englishStored }),
+  tool("triggers.get", "configure", "Gives one trigger by its id.", { tables: none, filter: englishStored }),
   tool("triggers.create", "configure", `Creates a trigger for an agent: what starts a Job and what the agent is told then. ${NEEDS_PROPOSAL}`, { tables: async (_db, _ownerId, input) => watchedBy((input as { config?: unknown })?.config), grant: true }),
   tool("triggers.update", "configure", `Changes a trigger: its name, instructions, schedule, or whether it is on. ${NEEDS_PROPOSAL} Except: a call with only its id and enabled: false, on a trigger of your own agent, runs at once.`, { tables: triggerTables, grant: true, direct: ownTriggerOff }),
   tool("triggers.delete", "configure", `Deletes a trigger. ${NEEDS_PROPOSAL}`, { tables: triggerTables, grant: true }),
-  tool("jobs.list", "configure", "Lists the latest Jobs, newest first, of one agent or trigger or with one status if given: what made each, how it went, when, and the ids of its Questions and Approvals still waiting.", { tables: none }),
-  tool("jobs.get", "configure", "Gives one Job with its transcript (a page of its messages, oldest first, and how many there are) and its Questions and Approvals with their answers. Only an agent on every table reads it.", { tables: wholeWorkspace }),
+  tool("jobs.list", "configure", "Lists the latest Jobs, newest first, of one agent or trigger or with one status if given: what made each, how it went, when, and the ids of its Questions and Approvals still waiting.", { tables: none, filter: englishStored }),
+  tool("jobs.get", "configure", "Gives one Job with its transcript (a page of its messages, oldest first, and how many there are) and its Questions and Approvals with their answers. Only an agent on every table reads it.", { tables: wholeWorkspace, filter: englishStored }),
   tool("jobs.def", "configure", "Gives a Job's definition as it was created: its agent, its trigger and the instructions it was given. Only an agent on every table reads it.", { tables: wholeWorkspace }),
   tool("workspace.review", "configure", "Reviews the workspace for what could be better: agents with no trigger, tables no agent works on, tools waiting for their owner to sign in, Questions and Approvals open more than three days, and buttons pressed at the same hour often enough to be a schedule. Each signal has the ids it names and a key: write the key in the request_approval message of its proposal, so that once the owner declines it, it isn't raised again for 30 days.", {
     tables: none,
@@ -314,11 +335,11 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
     tables: none,
   }),
   tool("workflows.list", "configure", "Lists the workflows, with their ids, names and when each was last changed.", { tables: none }),
-  tool("tools.list", "configure", "Lists the tools (MCP servers) agents can be given, with their ids, addresses and actions. Header values are never shown.", { tables: none }),
-  tool("tools.get", "configure", "Gives one tool by its id.", { tables: none }),
+  tool("tools.list", "configure", "Lists the tools (MCP servers) agents can be given, with their ids, addresses and actions. Header values are never shown.", { tables: none, filter: englishStored }),
+  tool("tools.get", "configure", "Gives one tool by its id.", { tables: none, filter: englishStored }),
   tool("tools.catalog", "configure", "Lists the catalog's ready-made tools: for each, how it is reached (over HTTP, or on the owner's runner), its settings' names, and the actions it declares with whether each only reads, may be polled, and asks before use by default.", { tables: none }),
-  tool("tools.addFromCatalog", "configure", `Adds a tool from the catalog by its id, with no credentials: the owner enters them, or signs in, on the tool's page afterwards (its signInPath). It starts with the actions its entry declares, so their flags and poll triggers can be set at once. An entry that runs on a runner can't be added this way. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
-  tool("tools.add", "configure", `Adds a tool: an MCP server reached at a URL, with no credentials (the owner enters those afterwards). ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool("tools.addFromCatalog", "configure", `Adds a tool from the catalog by its id, with no credentials: the owner enters them, or signs in, on the tool's page afterwards (its signInPath). It starts with the actions its entry declares, so their flags and poll triggers can be set at once. An entry that runs on a runner can't be added this way. ${NEEDS_PROPOSAL}`, { tables: none, grant: true, filter: englishStored }),
+  tool("tools.add", "configure", `Adds a tool: an MCP server reached at a URL, with no credentials (the owner enters those afterwards). ${NEEDS_PROPOSAL}`, { tables: none, grant: true, filter: englishStored }),
   tool("tools.delete", "configure", `Deletes a tool no agent uses, with its saved headers: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("agents.delete", "configure", `Deletes an agent and its triggers (the skills and tools it uses stay); its Jobs still going stop, its past Jobs stay: this can't be undone. The built-in agent, an agent a workflow uses and your own agent can't be deleted. ${NEEDS_PROPOSAL}`, {
     tables: none,
@@ -328,7 +349,7 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   }),
   tool("agents.update", "configure", `Changes an agent: give every field, as agents_get shows them. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("marketplaces.add", "configure", `Adds a marketplace, where plugins_discover finds plugins: a Git repository (its URL, or GitHub's owner/repo) with a .claude-plugin/marketplace.json or a skills/ folder, or with kind "well-known" a skill site (an https address serving /.well-known/skills/index.json). Nothing is read from it before the owner approves. ${NEEDS_PROPOSAL}`, { tables: none, grant: true, shown: marketplaceAddress }),
-  tool("plugins.discover", "configure", "Lists what the owner's marketplaces offer (each entry with its marketplace's id), with whether it is installed; a query narrows them by name or description.", { tables: none }),
+  tool("plugins.discover", "configure", "Lists what the owner's marketplaces offer (each entry with its marketplace's id), with whether it is installed; a query narrows them by name or description.", { tables: none, filter: englishStored }),
   tool("plugins.preview", "configure", "Reads a marketplace entry as installing it would: its skills, MCP servers, agents, and definitions (tables, agents with what their Jobs may do, triggers), and the reviewed token an install must carry.", { tables: none }),
   tool("plugins.list", "configure", "Lists the installed plugins with their definitions and which of them are set up.", { tables: none }),
   tool("plugins.install", "configure", `Installs a marketplace entry: its skills, and with setup the definitions picked (tables, agents each on a harness, triggers), made as the plugin's. Give plugins_preview's reviewed token: an entry changed since is refused. Pick skills and setup only: its MCP servers, agent files and native install are the owner's to add. Every tool its agents get starts on Ask. Only an agent on every table installs. ${NEEDS_PROPOSAL}`, { tables: everyTable, grant: true, shown: pluginRights, filter: englishSetup }),

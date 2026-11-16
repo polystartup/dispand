@@ -11,6 +11,7 @@ import { refreshTurns } from "./oauth-provider.ts";
 import { openState } from "./oauth-store.ts";
 import { startFakeAuthServer, startRecorder } from "./test-auth-server.ts";
 import { startFakeMcp, type FakeAction } from "./test-server.ts";
+import { stored as keyed } from "../messages/index.ts";
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -177,7 +178,7 @@ test("a refresh refused marks the tool re-authorize, fails its calls with that r
 
   for (let i = 0; i < 3; i++) {
     const called = await installed.call(await row(ctx, tool.id), "echo", { text: "hi" }, signal);
-    expect(called).toEqual({ ok: false, error: expect.stringMatching(/re-authorize/) });
+    expect(called).toEqual({ ok: false, error: keyed("tools.fail.reauthorize") });
   }
   // One refresh, refused; then no request at all: no loop, and no new flow started from a call.
   expect(as.tokenRequests.slice(tokenCalls).map((r) => r.form.grant_type)).toEqual(["refresh_token"]);
@@ -189,7 +190,7 @@ test("a refresh refused marks the tool re-authorize, fails its calls with that r
   expect(await call(router.tools.get, { id: tool.id }, { context: ctx })).toMatchObject({ oauthStatus: "reauthorize" });
   // Listing fails the same way, without a request.
   const paths = as.paths.length;
-  expect(await call(router.tools.refresh, { id: tool.id }, { context: ctx })).toMatchObject({ actionsError: expect.stringMatching(/re-authorize/) });
+  expect(await call(router.tools.refresh, { id: tool.id }, { context: ctx })).toMatchObject({ actionsError: keyed("tools.fail.reauthorize") });
   expect(as.paths).toHaveLength(paths);
 
   // Re-authorize connects it again.
@@ -381,7 +382,7 @@ test("a token endpoint's answer counts against the connection's 16 MiB, refusals
   const tool = await oauthTool(ctx, mcp.url);
   const { url } = await call(router.tools.authorize, { id: tool.id }, { context: ctx });
   expect(await finishToolAuthorization(ctx, ctx.ownerId, await signIn(url))).toEqual({ toolId: tool.id, ok: false });
-  expect((await row(ctx, tool.id)).actionsError).toMatch(/16 MiB/);
+  expect((await row(ctx, tool.id)).actionsError).toContain("tools.fail.tooLarge");
 });
 
 test("two calls whose token expired together refresh one after the other, so a server that revokes a reused refresh token keeps the grant", async () => {
@@ -432,7 +433,7 @@ test("a call cancelled while it waits for another's refresh gives its turn back,
   const second = installed.call(current, "echo", { text: "b" }, cancelled.signal);
   await new Promise((resolve) => setTimeout(resolve, 50));
   cancelled.abort();
-  expect(await second).toEqual({ ok: false, error: "The call was cancelled" });
+  expect(await second).toEqual({ ok: false, error: keyed("tools.fail.cancelled") });
   expect(await first).toEqual({ ok: true, result: { text: "a", isError: false } });
   // Once the first refresh ended, the cancelled call refreshed nothing and holds nothing.
   await new Promise((resolve) => setTimeout(resolve, 100));

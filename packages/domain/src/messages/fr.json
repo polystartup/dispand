@@ -82,12 +82,65 @@
       "gone": "L’outil n’existe plus.",
       "disabled": "Cette action est désactivée pour tout l’espace de travail.",
       "agentLacks": "L’agent n’a pas cet outil.",
-      "notReadable": "Une relève ne peut pas lire cette action : l’outil ne laisse pas les relèves la lire, ou un agent doit demander avant de l’utiliser."
+      "notReadable": "Une relève ne peut pas lire cette action : l’outil ne laisse pas les relèves la lire, ou un agent doit demander avant de l’utiliser.",
+      "actionError": "L’action a signalé une erreur.",
+      "noText": "Le résultat de l’action ne contient pas de texte.",
+      "noList": "Le résultat n’a pas de liste à « {{path}} ».",
+      "notList": "Le résultat n’est pas une liste."
     },
     "urlCredentials": "L’URL ne peut pas contenir d’identifiants.",
     "plugin": {
       "removed": "Son plugin a été retiré : cet outil n’a plus de serveur à exécuter.",
       "noServer": "Son plugin ne propose plus le serveur stdio {{server}}, ou n’en garde pas les fichiers : mettez le plugin à jour."
+    },
+    "fail": {
+      "ownAddress": "{{host}} est l’une des adresses propres de Dispand.",
+      "timeout": "{{host}} n’a pas répondu à temps.",
+      "refusedHeaders": "{{host}} a refusé la requête ({{status}}) : vérifiez les en-têtes.",
+      "redirected": "{{host}} a redirigé la requête ailleurs : saisissez l’adresse vers laquelle il pointe.",
+      "answered": "{{host}} a répondu {{status}}.",
+      "signInFailed": "La connexion à {{host}} a échoué.",
+      "unreachable": "Impossible de joindre {{host}}.",
+      "cancelled": "L’appel a été annulé.",
+      "notHttps": "{{host}} n’est pas joint en https : sa connexion est refusée.",
+      "needsAppUrl": "La connexion OAuth a besoin de l’URL de l’application.",
+      "needsClient": "Le serveur d’autorisation de {{host}} ne prend en charge ni les documents de métadonnées du client ni l’enregistrement : saisissez l’identifiant client qu’il vous a donné.",
+      "tooManyActions": "Le serveur propose plus de {{max}} actions.",
+      "tooManyPages": "Le serveur liste ses actions sur plus de {{max}} pages.",
+      "schemaLarge": "Le schéma de l’action « {{name}} » dépasse 64 Kio.",
+      "actionInvalid": "L’action « {{name}} » n’est pas valide : {{problem}}",
+      "tooLarge": "{{host}} a envoyé plus de 16 Mio.",
+      "tooManyValues": "{{host}} a envoyé un message trop volumineux pour être lu.",
+      "serverTooManyActions": "{{host}} propose plus de {{max}} actions.",
+      "otherAuthServer": "Le serveur nomme maintenant un autre serveur d’autorisation que celui pour lequel l’identifiant client a été saisi : saisissez l’identifiant client que ce serveur vous a donné.",
+      "callEnded": "L’appel s’est terminé avant que sa connexion puisse être renouvelée.",
+      "renewFailed": "La connexion de l’outil n’a pas pu être renouvelée : réessayez plus tard.",
+      "noSignIn": "Aucune connexion n’est en cours pour cet outil.",
+      "needsSignIn": "{{name}} a besoin d’une connexion : remplissez ses réglages sur sa page, dans Réglages → Outils.",
+      "reauthorize": "La connexion à cet outil ne fonctionne plus : autorisez-la de nouveau sur sa page, dans Réglages → Outils.",
+      "notConnected": "{{name}} n’est pas encore connecté : connectez-le sur sa page, dans Réglages → Outils.",
+      "listFailed": "Impossible de lister les actions de l’outil.",
+      "signInRefused": "La connexion a été refusée ou annulée : connectez de nouveau l’outil.",
+      "signInUnfinished": "La connexion n’a pas pu être terminée : connectez de nouveau l’outil.",
+      "runnerNoActions": "Le runner n’a listé aucune action.",
+      "runnerTimeout": "Le runner n’a pas répondu à temps.",
+      "runnerOffline": "Le runner est hors ligne.",
+      "notOnRunner": "Cet outil n’est pas encore sur un runner.",
+      "pollNeedsSignIn": "L’outil a besoin d’une connexion : son propriétaire saisit ses réglages, ou le connecte, sur sa page, dans Réglages → Outils."
+    },
+    "call": {
+      "gone": "L’outil n’existe plus.",
+      "stepGone": "L’outil de l’étape n’existe plus.",
+      "disabled": "L’action « {{action}} » de {{name}} est désactivée pour tout l’espace de travail.",
+      "noAction": "{{name}} n’a plus l’action « {{action}} ».",
+      "onRunner": "{{name}} tourne sur un runner : seul un agent peut l’utiliser.",
+      "headers": "Les en-têtes de {{name}} n’ont pas pu être ouverts.",
+      "failed": "L’appel à {{name}} a échoué.",
+      "noConnector": "Les étapes d’outil ne peuvent pas s’exécuter ici : aucun connecteur d’outils n’est configuré.",
+      "noValue": "« {{param}} » n’a pas de valeur.",
+      "noValueSkipped": "« {{param}} » n’a pas de valeur (« {{step}} » a été ignorée).",
+      "answeredError": "L’outil a répondu par une erreur : {{text}}",
+      "answeredNothing": "L’outil a répondu par une erreur."
     }
   },
   "plugins": {
@@ -453,7 +506,59 @@
     "chatOver": "La conversation est terminée.",
     "chatRunnerGone": "Le runner de la conversation n’est plus disponible.",
     "skillChatOnly": "Les compétences ne peuvent être invoquées que dans les conversations de l’Assistant.",
-    "skillWait": "Attendez que l’Assistant ait fini son tour avant de charger une autre compétence."
+    "skillWait": "Attendez que l’Assistant ait fini son tour avant de charger une autre compétence.",
+    "fail": {
+      "stopped": "Arrêté.",
+      "toolRestarted": "Dispand a redémarré pendant cet appel d’outil : vérifiez l’outil avant de relancer.",
+      "runnerRevoked": "Le runner de l’agent a été révoqué.",
+      "noOutputs": "L’agent a terminé sans ses sorties.",
+      "toolFailed": "L’appel de l’outil a échoué.",
+      "agentGone": "L’agent de l’étape n’existe plus.",
+      "sessionNotStarted": "La session n’a pas pu démarrer.",
+      "promptTooLong": "Le prompt de l’étape est trop long une fois ses valeurs remplies ({{length}} caractères, {{max}} au plus).",
+      "startOutside": {
+        "prompt": "La session ne peut pas démarrer : son prompt dépasse ce qu’un runner accepte.",
+        "systemPrompt": "La session ne peut pas démarrer : le prompt système de son agent dépasse ce qu’un runner accepte.",
+        "expectedOutputs": "La session ne peut pas démarrer : ses sorties attendues dépassent ce qu’un runner accepte.",
+        "model": "La session ne peut pas démarrer : son modèle dépasse ce qu’un runner accepte.",
+        "other": "La session ne peut pas démarrer : son champ {{field}} dépasse ce qu’un runner accepte."
+      },
+      "codexMissing": "Codex n’est pas installé sur {{runner}}.",
+      "codexSignIn": "Connectez-vous à Codex sur {{runner}} : lancez `codex login` là-bas, puis redémarrez son runner.",
+      "scope": {
+        "poll": "L’agent ne peut plus lire l’action de l’outil qui a trouvé cet élément.",
+        "question": "L’agent ne peut plus lire cette question.",
+        "table": "L’agent ne peut plus lire la table qui a changé.",
+        "questionNow": "L’agent ne peut pas lire cette question.",
+        "tableNow": "L’agent ne peut plus lire cette table."
+      },
+      "tableGone": "La table de l’étape n’existe plus.",
+      "filterFieldGone": "Un champ sur lequel cette étape filtre n’existe plus dans {{table}}.",
+      "filterOp": "« {{field}} » ne peut pas être filtré par « {{op}} ».",
+      "filterNoValue": "« {{field}} » : une valeur est nécessaire.",
+      "rowsTooLong": "Les lignes trouvées sont trop longues pour être transmises ({{length}} caractères, {{max}} au plus) : baissez la limite.",
+      "setFieldGone": "Un champ que cette étape renseigne n’existe plus dans {{table}}.",
+      "attachment": "« {{field}} » contient des fichiers, qu’un workflow ne peut pas renseigner.",
+      "noRowId": "Aucune ligne de {{table}} à mettre à jour : son identifiant est vide.",
+      "rowNotIn": "La ligne « {{row}} » n’est pas dans {{table}}.",
+      "notNumber": "« {{text}} » n’est pas un nombre.",
+      "loopNotList": "« {{list}} » n’est pas une liste (un tableau JSON).",
+      "loopTooLong": "Les résultats de la boucle dépassent {{max}} caractères.",
+      "loopTooMany": "La liste compte {{items}} éléments ; cette boucle en traite {{max}} au plus."
+    },
+    "poll": {
+      "failed": "La consultation a échoué.",
+      "changed": "Le déclencheur a changé pendant sa consultation.",
+      "itemLarge": "L’élément dépasse {{kib}} Kio.",
+      "noId": "{{items}} élément(s) sans identifiant à « {{path}} » écarté(s).",
+      "pages": "{{pages}} pages lues : le reste à la prochaine consultation.",
+      "noIdAndPages": "{{items}} élément(s) sans identifiant à « {{path}} » écarté(s) ; {{pages}} pages lues : le reste à la prochaine consultation.",
+      "triggerOff": "Le déclencheur est désactivé."
+    },
+    "fire": {
+      "changed": "Le déclencheur a été modifié : il lit autre chose maintenant.",
+      "notWatching": "Le déclencheur ne surveille plus ce changement."
+    }
   },
   "harness": {
     "detail": {
@@ -564,5 +669,90 @@
     "manualWorkflowForm": "Seul un workflow manuel peut avoir un formulaire.",
     "formNoFields": "Un formulaire n’a pas de champs à choisir.",
     "widgetTooWide": "Un widget est plus large que la grille {{grid}}."
+  },
+  "git": {
+    "url": "Utilisez une URL Git en https://.",
+    "credentials": "Une URL Git ne peut pas contenir d’identifiants.",
+    "sha": "Un commit s’écrit avec 40 caractères hexadécimaux.",
+    "ref": "Ce n’est pas un nom de branche ou de tag.",
+    "fetch": {
+      "tooManyFiles": "Impossible de récupérer {{url}} : il contient trop de fichiers.",
+      "timeout": "Impossible de récupérer {{url}} : cela a pris plus de {{seconds}} s.",
+      "tooLarge": "Impossible de récupérer {{url}} : il dépasse {{mib}} Mio.",
+      "noGit": "Impossible de récupérer {{url}} : git n’est pas installé sur le serveur.",
+      "redirect": "Impossible de récupérer {{url}} : le serveur a redirigé la requête.",
+      "unreachable": "Impossible de récupérer {{url}} : le serveur est injoignable.",
+      "notFound": "Impossible de récupérer {{url}} : le dépôt est introuvable (ou privé).",
+      "badRef": "Impossible de récupérer {{url}} : cette branche ou ce commit n’existe pas.",
+      "notUtf8": "Impossible de récupérer {{url}} : un nom de fichier n’y est pas en UTF-8.",
+      "failed": "Impossible de récupérer {{url}} : git a échoué."
+    }
+  },
+  "wellKnown": {
+    "https": "Utilisez une adresse en https://.",
+    "credentials": "Une adresse ne peut pas contenir d’identifiants.",
+    "timeout": "{{origin}} a mis plus de {{seconds}} s.",
+    "unreachable": "Impossible de joindre {{origin}}.",
+    "redirect": "{{origin}} a redirigé la requête ailleurs.",
+    "status": "{{origin}} a répondu {{status}} pour {{path}}.",
+    "tooLarge": "{{path}} sur {{origin}} est trop volumineux.",
+    "cut": "{{origin}} a coupé la connexion.",
+    "indexNotJson": "L’index des compétences du site n’est pas du JSON valide.",
+    "indexShape": "L’index des compétences du site n’a pas la forme { skills: [{ name, description, files }] } ({{max}} compétences au plus).",
+    "otherSite": "Un fichier de compétence pointe vers un autre site."
+  },
+  "pluginRead": {
+    "manifest": {
+      "notFile": "plugin.json n’est pas un fichier ordinaire.",
+      "tooLarge": "plugin.json dépasse 1 Mio.",
+      "notJson": "plugin.json n’est pas du JSON valide.",
+      "notObject": "plugin.json n’est pas un objet JSON.",
+      "noSchema": "plugin.json n’a pas de $schema.",
+      "version": "plugin.json cible une version d’Agent Plugins que Dispand ne prend pas en charge (seulement 1.0.0).",
+      "invalid": "Le champ {{field}} de plugin.json n’est pas valide.",
+      "link": "plugin.json est un lien symbolique."
+    },
+    "folder": {
+      "notRelative": "Le dossier du plugin n’est pas un chemin relatif.",
+      "outside": "Le dossier du plugin est en dehors de son dépôt.",
+      "missing": "Le dossier du plugin n’est pas dans son dépôt."
+    },
+    "tooLarge": "Le plugin est trop volumineux pour être lu : plus de {{files}} fichiers ou 64 Mio.",
+    "tooManyServers": "Le plugin propose plus de {{max}} serveurs MCP.",
+    "tooManyAgents": "Le plugin propose plus de {{max}} agents.",
+    "tooManySkills": "Le plugin propose plus de {{max}} compétences.",
+    "tooManyDefinitions": "Le plugin contient plus de {{max}} définitions de type {{kind}}."
+  },
+  "marketplaceFile": {
+    "missing": "Ce dépôt n’a pas de .claude-plugin/marketplace.json.",
+    "notFile": ".claude-plugin/marketplace.json n’est pas un fichier ordinaire.",
+    "tooLarge": ".claude-plugin/marketplace.json dépasse 5 Mio.",
+    "notJson": ".claude-plugin/marketplace.json n’est pas du JSON valide.",
+    "invalid": ".claude-plugin/marketplace.json a besoin d’un nom et d’une liste de plugins.",
+    "neither": "Ce dépôt n’a ni .claude-plugin/marketplace.json ni dossier skills/.",
+    "source": {
+      "pathLong": "Son chemin est trop long.",
+      "unreadable": "Sa source n’est pas lisible.",
+      "repo": "Son dépôt GitHub n’est pas de la forme propriétaire/nom.",
+      "url": "Son URL Git n’est pas lisible.",
+      "folder": "Son dossier n’est pas lisible.",
+      "kindNamed": "Les sources « {{kind}} » ne sont pas prises en charge : seuls les dépôts Git le sont.",
+      "kind": "Ce type de source n’est pas pris en charge : seuls les dépôts Git le sont."
+    }
+  },
+  "cloud": {
+    "fail": {
+      "internal": "La session cloud s’est arrêtée sur une erreur interne.",
+      "tooManyCalls": "L’agent a fait trop d’appels d’outils en un seul tour.",
+      "harnessGone": "Le harnais de l’agent n’existe plus.",
+      "refused": "Le modèle a refusé de répondre.",
+      "tokenLimit": "La réponse du modèle a atteint sa limite de jetons.",
+      "keyNotOpened": "La clé d’API du harnais n’a pas pu être ouverte.",
+      "keyRefused": "Le fournisseur a refusé la clé.",
+      "rateLimited": "Le fournisseur limite les requêtes de cette clé : réessayez plus tard.",
+      "providerError": "Le fournisseur a répondu par une erreur ({{status}}).",
+      "unreachable": "Impossible de joindre {{host}}.",
+      "unreachableProvider": "Impossible de joindre le fournisseur."
+    }
   }
 }

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { isSafeRelativePath, storable } from "@dispand/runner-protocol";
 import { z } from "zod";
+import { SayError } from "../messages/index.ts";
 import { MAX_DESCRIPTION, MAX_FILES, MAX_FILE_BYTES, PackageError, SKILL_NAME, type SkillFile, validatePackage } from "../skills/package.ts";
 import type { NotImported, PluginContents } from "./read-plugin.ts";
 import { NO_DEFINITIONS } from "./definitions.ts";
@@ -10,11 +11,8 @@ import { NO_DEFINITIONS } from "./definitions.ts";
  * description, files }] }`) whose files are at `/.well-known/skills/<name>/<file>` (the Agent
  * Skills discovery convention, served by mastra.ai for one).
  */
-export class WellKnownError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "WellKnownError";
-  }
+export class WellKnownError extends SayError {
+  override name = "WellKnownError";
 }
 
 const INDEX_PATH = "/.well-known/skills/index.json";
@@ -31,10 +29,10 @@ export function wellKnownIndexUrl(input: string): string {
   try {
     url = new URL(input);
   } catch {
-    throw new WellKnownError("Use an https:// address");
+    throw new WellKnownError("wellKnown.https");
   }
-  if (url.protocol !== "https:" || url.hostname === "") throw new WellKnownError("Use an https:// address");
-  if (url.username !== "" || url.password !== "") throw new WellKnownError("An address can't hold credentials");
+  if (url.protocol !== "https:" || url.hostname === "") throw new WellKnownError("wellKnown.https");
+  if (url.username !== "" || url.password !== "") throw new WellKnownError("wellKnown.credentials");
   if (url.pathname.endsWith(INDEX_PATH)) return `${url.origin}${url.pathname}`;
   return `${url.origin}${url.pathname.replace(/\/+$/, "")}${INDEX_PATH}`;
 }
@@ -53,19 +51,19 @@ async function get(url: string, max: number, budget: Budget): Promise<{ bytes: U
     try {
       res = await fetch(current, { redirect: "manual", signal: budget.signal });
     } catch {
-      throw new WellKnownError(budget.signal.aborted ? `${origin} took longer than ${TIMEOUT_MS / 1000} s` : `Couldn't reach ${origin}`);
+      throw budget.signal.aborted ? new WellKnownError("wellKnown.timeout", { origin, seconds: TIMEOUT_MS / 1000 }) : new WellKnownError("wellKnown.unreachable", { origin });
     }
     if (res.status >= 300 && res.status < 400) {
       await res.body?.cancel();
       const location = res.headers.get("location");
       const next = location ? new URL(location, current) : null;
-      if (!next || next.origin !== origin || hop >= MAX_REDIRECTS) throw new WellKnownError(`${origin} redirected the request elsewhere`);
+      if (!next || next.origin !== origin || hop >= MAX_REDIRECTS) throw new WellKnownError("wellKnown.redirect", { origin });
       current = next.href;
       continue;
     }
     if (res.status !== 200 || !res.body) {
       await res.body?.cancel();
-      throw new WellKnownError(`${origin} answered ${res.status} for ${new URL(current).pathname}`);
+      throw new WellKnownError("wellKnown.status", { origin, status: res.status, path: new URL(current).pathname });
     }
     const chunks: Uint8Array[] = [];
     let size = 0;
@@ -75,13 +73,13 @@ async function get(url: string, max: number, budget: Budget): Promise<{ bytes: U
         budget.bytes += chunk.byteLength;
         if (size > max || budget.bytes > MAX_TOTAL_BYTES) {
           await res.body.cancel().catch(() => undefined);
-          throw new WellKnownError(`${new URL(current).pathname} on ${origin} is too large`);
+          throw new WellKnownError("wellKnown.tooLarge", { origin, path: new URL(current).pathname });
         }
         chunks.push(chunk);
       }
     } catch (e) {
       if (e instanceof WellKnownError) throw e;
-      throw new WellKnownError(budget.signal.aborted ? `${origin} took longer than ${TIMEOUT_MS / 1000} s` : `${origin} cut the connection`);
+      throw budget.signal.aborted ? new WellKnownError("wellKnown.timeout", { origin, seconds: TIMEOUT_MS / 1000 }) : new WellKnownError("wellKnown.cut", { origin });
     }
     return { bytes: Buffer.concat(chunks), url: current };
   }
@@ -111,10 +109,10 @@ async function index(indexUrl: string, budget: Budget): Promise<{ skills: WellKn
   try {
     json = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
-    throw new WellKnownError("The site's skills index isn't valid JSON");
+    throw new WellKnownError("wellKnown.indexNotJson");
   }
   const parsed = Index.safeParse(json);
-  if (!parsed.success) throw new WellKnownError(`The site's skills index isn't { skills: [{ name, description, files }] } (at most ${MAX_SKILLS} skills)`);
+  if (!parsed.success) throw new WellKnownError("wellKnown.indexShape", { max: MAX_SKILLS });
   return { skills: parsed.data.skills, url };
 }
 
@@ -149,7 +147,7 @@ export async function readWellKnownSkills(indexUrl: string): Promise<{ contents:
     const files: SkillFile[] = [];
     for (const path of new Set(skill.files)) {
       const fileUrl = new URL(`${skill.name}/${path.split("/").map(encodeURIComponent).join("/")}`, base);
-      if (fileUrl.origin !== new URL(base).origin) throw new WellKnownError("A skill file points to another site");
+      if (fileUrl.origin !== new URL(base).origin) throw new WellKnownError("wellKnown.otherSite");
       files.push({ path: `${skill.name}/${path}`, content: (await get(fileUrl.href, MAX_FILE_BYTES, budget)).bytes });
     }
     try {

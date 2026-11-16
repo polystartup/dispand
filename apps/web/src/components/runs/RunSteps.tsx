@@ -3,6 +3,7 @@ import { nodesOf, type LoopStep, type WorkflowDef } from "@dispand/domain/workfl
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useFormat } from "../../lib/format.ts";
+import { useStored } from "../../lib/message.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import { ChatTranscript } from "../chat/Thread.tsx";
 import { Status } from "../workflow/Runs.tsx";
@@ -86,6 +87,7 @@ function Iterations({ loop, step, body, state, card }: { loop: LoopStep; step: S
 function StepCard({ step, name, agent, state }: { step: Step; name: string; agent: string | null; state: RunSnapshot }) {
   const { t } = useTranslation("runs");
   const format = useFormat();
+  const stored = useStored();
   const when = format.dateTimeSeconds;
   const transcript = state.messages.filter((m) => m.stepRunId === step.id);
   // A consult shows once, in the page's Consults section.
@@ -107,7 +109,7 @@ function StepCard({ step, name, agent, state }: { step: Step; name: string; agen
           )}
         </span>
       </header>
-      {step.error && <p className="mt-2 whitespace-pre-wrap text-[14px] text-danger">{step.error}</p>}
+      {step.error && <p className="mt-2 whitespace-pre-wrap text-[14px] text-danger">{stored(step.error)}</p>}
       <div className="mt-3 flex flex-col gap-2">
         {step.outputs && (
           <Fold title={t("outputs")} open>

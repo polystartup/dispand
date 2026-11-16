@@ -92,7 +92,7 @@ export async function seedMarketplaces(tx: Tx, ownerId: string): Promise<void> {
 function asBadRequest(e: unknown): never {
   if (e instanceof PackageError) throw new ORPCError("BAD_REQUEST", message(e.say.key, e.say.values));
   if (e instanceof GitError || e instanceof MarketplaceError || e instanceof PluginError || e instanceof WellKnownError) {
-    throw new ORPCError("BAD_REQUEST", external(e.message));
+    throw new ORPCError("BAD_REQUEST", message(e.say.key, e.say.values));
   }
   throw e;
 }
@@ -132,7 +132,7 @@ async function readSource(kind: "git" | "well-known", url: string, allowFile: bo
       const name = repoName(url);
       return { kind: "skill-repo", name, entries: [{ name, description: `Skills from ${url}`, source: { type: "path", path: "." } }] };
     }
-    if (!listed) throw new MarketplaceError("This repository has neither a .claude-plugin/marketplace.json nor a skills/ folder");
+    if (!listed) throw new MarketplaceError("marketplaceFile.neither");
     return { kind: "marketplace", ...parseMarketplace(checkout.dir) };
   } finally {
     await checkout.cleanup();
@@ -150,7 +150,10 @@ function lstatOrNull(path: string) {
 /** Fetches an entry's plugin (from its own repository, or its marketplace's for a relative path) and reads it. */
 async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry, allowFile: boolean): Promise<{ contents: PluginContents; files?: PluginFile[]; url: string; sha: string; nativeRoot?: string; changelog?: string | null }> {
   const { source } = entry;
-  if (source.type === "unsupported") throw new ORPCError("BAD_REQUEST", external(source.reason));
+  if (source.type === "unsupported") {
+    if (typeof source.reason === "string") throw new ORPCError("BAD_REQUEST", external(source.reason));
+    throw new ORPCError("BAD_REQUEST", message(source.reason.key, source.reason.values));
+  }
   if (source.type === "well-known") return { ...(await readWellKnownSkills(source.url)), url: source.url };
   const url = source.type === "git" ? source.url : market.url;
   const checkout = await fetchGit(url, source.type === "git" ? { ref: source.ref, sha: source.sha, allowFile } : { allowFile });
@@ -224,7 +227,7 @@ async function syncMarketplace(db: Db, row: MarketplaceRow, allowFile: boolean):
     set = { kind, name, entries, syncedAt: new Date(), syncError: null };
   } catch (e) {
     if (!(e instanceof GitError || e instanceof MarketplaceError || e instanceof WellKnownError)) throw e;
-    set = { syncError: e.message };
+    set = { syncError: e.stored };
   }
   const [updated] = await db.update(marketplacesTable).set(set).where(eq(marketplacesTable.id, row.id)).returning();
   return updated ?? row;
@@ -288,7 +291,7 @@ function entryView(entry: MarketplaceEntry) {
     name: entry.name,
     description: entry.description ?? "",
     version: entry.version ?? null,
-    source: entry.source.type === "unsupported" ? { supported: false as const, reason: entry.source.reason } : { supported: true as const },
+    source: entry.source.type === "unsupported" ? { supported: false as const, reason: typeof entry.source.reason === "string" ? { text: entry.source.reason } : entry.source.reason } : { supported: true as const },
   };
 }
 

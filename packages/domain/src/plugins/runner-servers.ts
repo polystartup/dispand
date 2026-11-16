@@ -3,7 +3,7 @@ import { contentDigest } from "@dispand/runner-protocol/digest";
 import { and, eq } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { pluginFiles, plugins, tools } from "../db/schema.ts";
-import { english } from "../messages/index.ts";
+import { stored } from "../messages/index.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
 
 // A standard plugin's stdio server as a runner tool (`plugins/servers.ts` adds it): Dispand keeps
@@ -30,14 +30,14 @@ type ToolTarget = { id: string; runnerId: string | null; runnerTool: string | nu
  * stdio server (`PluginServer`), or why it can't be reached (English, kept as `actionsError`).
  */
 export async function runnerTarget(db: Db | Tx, row: ToolTarget): Promise<string | PluginServer | { error: string }> {
-  if (row.runnerId === null) return { error: "Not on a runner yet" };
+  if (row.runnerId === null) return { error: stored("tools.fail.notOnRunner") };
   if (row.runnerTool !== null) return row.runnerTool;
   // No server of the runner's own: a plugin's stdio server, whose link uninstalling the plugin cleared.
-  if (row.pluginId === null || row.pluginComponent === null) return { error: english("tools.plugin.removed") };
+  if (row.pluginId === null || row.pluginComponent === null) return { error: stored("tools.plugin.removed") };
   const [plugin] = await db.select({ name: plugins.name, digest: plugins.digest, components: plugins.components }).from(plugins).where(eq(plugins.id, row.pluginId));
   const entry = plugin?.components.mcpServers.find((s) => s.name === row.pluginComponent && s.type === "stdio")?.entry;
   const ref = PluginServer.safeParse({ tool: row.id, plugin: plugin?.name, digest: plugin?.digest, entry });
-  return ref.success ? ref.data : { error: english("tools.plugin.noServer", { server: row.pluginComponent }) };
+  return ref.success ? ref.data : { error: stored("tools.plugin.noServer", { server: row.pluginComponent }) };
 }
 
 /**

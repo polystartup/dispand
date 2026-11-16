@@ -1,3 +1,4 @@
+import { STOPPED } from "../engine/engine.ts";
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
 import { eq } from "drizzle-orm";
@@ -106,7 +107,7 @@ test("deleting an agent stops its Job still going, as a person's stop, and keeps
   const { runId } = await call(router.jobs.start, { triggerId: chat.id }, { context });
   await call(router.agents.delete, { id: agent.id }, { context });
   const { run } = await call(router.runs.get, { runId }, { context });
-  expect(run).toMatchObject({ id: runId, status: "failed", error: "Stopped", agentId: null, deletedAgentName: "Clerk (Deleted)" });
+  expect(run).toMatchObject({ id: runId, status: "failed", error: STOPPED, agentId: null, deletedAgentName: "Clerk (Deleted)" });
   // Stopped once: it never runs again.
   await expect(call(router.runs.stop, { runId }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
 });
@@ -148,7 +149,7 @@ test("runs.stop ends a Job", async () => {
   const chat = await trigger({ kind: "manual", placement: "chat" });
   const { runId } = await call(router.jobs.start, { triggerId: chat.id }, { context });
   await call(router.runs.stop, { runId }, { context });
-  expect((await call(router.runs.get, { runId }, { context })).run).toMatchObject({ status: "failed", error: "Stopped" });
+  expect((await call(router.runs.get, { runId }, { context })).run).toMatchObject({ status: "failed", error: STOPPED });
   // Stopped once: a second stop says the run is over; someone else's run isn't found.
   await expect(call(router.runs.stop, { runId }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
   await expect(call(router.runs.stop, { runId: "run_nobody" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });

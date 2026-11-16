@@ -5,7 +5,7 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import { agentConsults, audit, agents, events, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
 import { takeApproval } from "../platform/approvals.ts";
 import { jobScope, reachable } from "../questions/inbox-scope.ts";
-import { message, rendered } from "../messages/index.ts";
+import { message, rendered, storedSentence } from "../messages/index.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { INTERACTION } from "../triggers/model.ts";
@@ -242,7 +242,7 @@ test("each refusal at the call answers the consult with its reason and makes no 
   await s.context.db.update(roots).set({ state: "stopped" }).where(eq(roots.id, (await s.run(late.runId)).rootId!));
   // (Nothing of a stopped root works again: the answer is recorded, never sent.)
   const stopped = await s.consult(late.sessionId, s.expert.id);
-  expect((await s.question(stopped.id)).answer).toEqual({ kind: "consult", outcome: "failed", text: ROOT_STOPPED });
+  expect((await s.question(stopped.id)).answer).toEqual({ kind: "consult", outcome: "failed", text: storedSentence(ROOT_STOPPED) });
   // No Job was ever made of the agents consulted.
   expect(await s.context.db.select().from(runs).where(eq(runs.agentId, s.expert.id))).toEqual([]);
 });

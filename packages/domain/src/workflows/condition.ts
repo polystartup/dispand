@@ -1,4 +1,5 @@
 // Pure: imported by the web editor too (`@dispand/domain/workflows/condition`).
+import { stored } from "../messages/index.ts";
 
 export const CONDITION_OPS = [
   "equals",
@@ -46,7 +47,7 @@ export function evaluateCondition(op: ConditionOp, value: string, operand: strin
       const x = asNumber(a);
       const y = asNumber(b);
       for (const [n, text] of [[x, a], [y, b]] as const) {
-        if (n === null) return { error: `“${Array.from(text).slice(0, 80).join("")}” is not a number` };
+        if (n === null) return { error: stored("engine.fail.notNumber", { text: Array.from(text).slice(0, 80).join("") }) };
       }
       return { matched: op === "greater_than" ? x! > y! : x! < y! };
     }

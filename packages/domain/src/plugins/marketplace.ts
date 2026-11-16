@@ -2,6 +2,7 @@ import { lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { storable } from "@dispand/runner-protocol";
 import { z } from "zod";
+import { type Message, say, SayError } from "../messages/index.ts";
 
 /** The marketplaces every owner starts with; they can't be removed. */
 export const BUILT_IN_MARKETPLACES = [
@@ -12,7 +13,7 @@ export const BUILT_IN_MARKETPLACES = [
 export type MarketplaceSource =
   | { type: "path"; path: string }
   | { type: "git"; url: string; ref?: string; sha?: string; path?: string }
-  | { type: "unsupported"; reason: string }
+  | { type: "unsupported"; reason: Message | string }
   /** A skill site's index (`well-known.ts`): the source of a `well-known` marketplace's one entry. */
   | { type: "well-known"; url: string };
 
@@ -40,11 +41,8 @@ export type MarketplaceEntry = {
 const MAX_MARKETPLACE_BYTES = 5 * 1024 * 1024;
 const MAX_ENTRIES = 2000;
 
-export class MarketplaceError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "MarketplaceError";
-  }
+export class MarketplaceError extends SayError {
+  override name = "MarketplaceError";
 }
 
 const Text = (max: number) => z.string().max(max).refine(storable);
@@ -92,27 +90,26 @@ function gitUrl(value: unknown): string | null {
 /** Maps a marketplace entry's `source` to how Dispand fetches it. */
 export function mapSource(source: unknown): MarketplaceSource {
   if (typeof source === "string") {
-    if (source.length > 500 || !storable(source)) return { type: "unsupported", reason: "Its path is too long" };
+    if (source.length > 500 || !storable(source)) return { type: "unsupported", reason: say("marketplaceFile.source.pathLong") };
     return { type: "path", path: source };
   }
-  if (typeof source !== "object" || source === null || Array.isArray(source)) return { type: "unsupported", reason: "Its source isn't readable" };
+  if (typeof source !== "object" || source === null || Array.isArray(source)) return { type: "unsupported", reason: say("marketplaceFile.source.unreadable") };
   const s = source as Record<string, unknown>;
   const kind = s.source;
   if (kind === "github") {
-    if (typeof s.repo !== "string" || !GITHUB_REPO.test(s.repo)) return { type: "unsupported", reason: "Its GitHub repository isn't owner/name" };
+    if (typeof s.repo !== "string" || !GITHUB_REPO.test(s.repo)) return { type: "unsupported", reason: say("marketplaceFile.source.repo") };
     return { type: "git", url: `https://github.com/${s.repo}.git`, ...pin(s) };
   }
   if (kind === "url" || kind === "git-subdir") {
     const url = gitUrl(s.url);
-    if (!url) return { type: "unsupported", reason: "Its Git URL isn't readable" };
+    if (!url) return { type: "unsupported", reason: say("marketplaceFile.source.url") };
     const path = kind === "git-subdir" ? s.path : undefined;
     if (path !== undefined && (typeof path !== "string" || path.length > 500 || !storable(path))) {
-      return { type: "unsupported", reason: "Its folder isn't readable" };
+      return { type: "unsupported", reason: say("marketplaceFile.source.folder") };
     }
     return { type: "git", url, ...pin(s), ...(path ? { path } : {}) };
   }
-  const named = typeof kind === "string" && /^[a-z0-9-]{1,30}$/.test(kind) ? `“${kind}” sources` : "Its kind of source";
-  return { type: "unsupported", reason: `${named} aren't supported: only Git repositories are` };
+  return { type: "unsupported", reason: typeof kind === "string" && /^[a-z0-9-]{1,30}$/.test(kind) ? say("marketplaceFile.source.kindNamed", { kind }) : say("marketplaceFile.source.kind") };
 }
 
 /**
@@ -126,18 +123,18 @@ export function parseMarketplace(dir: string): { name: string; entries: Marketpl
   try {
     stat = lstatSync(path);
   } catch {
-    throw new MarketplaceError("This repository has no .claude-plugin/marketplace.json");
+    throw new MarketplaceError("marketplaceFile.missing");
   }
-  if (!stat.isFile()) throw new MarketplaceError(".claude-plugin/marketplace.json isn't a regular file");
-  if (stat.size > MAX_MARKETPLACE_BYTES) throw new MarketplaceError(".claude-plugin/marketplace.json is larger than 5 MiB");
+  if (!stat.isFile()) throw new MarketplaceError("marketplaceFile.notFile");
+  if (stat.size > MAX_MARKETPLACE_BYTES) throw new MarketplaceError("marketplaceFile.tooLarge");
   let json: unknown;
   try {
     json = JSON.parse(readFileSync(path, "utf8"));
   } catch {
-    throw new MarketplaceError(".claude-plugin/marketplace.json isn't valid JSON");
+    throw new MarketplaceError("marketplaceFile.notJson");
   }
   const file = File.safeParse(json);
-  if (!file.success) throw new MarketplaceError(".claude-plugin/marketplace.json needs a name and a list of plugins");
+  if (!file.success) throw new MarketplaceError("marketplaceFile.invalid");
   const entries: MarketplaceEntry[] = [];
   const names = new Set<string>();
   for (const raw of file.data.plugins) {

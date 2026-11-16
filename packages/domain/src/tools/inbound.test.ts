@@ -16,7 +16,7 @@ test("a JSON message with too many values is refused before anything parses it f
   const message = JSON.stringify({ jsonrpc: "2.0", id: 1, result: { _meta: { "io.modelcontextprotocol/serverInfo": { icons } }, tools: [] } });
   const s = screen(serving(message, "application/json"));
   await expect(s.fetch("http://x/mcp")).rejects.toBeInstanceOf(InboundRefused);
-  expect(s.refused()).toBe("sent a message too large to read");
+  expect(s.refused()).toMatchObject({ key: "tools.fail.tooManyValues" });
   expect(s.refusals).toHaveLength(1);
 });
 
@@ -27,7 +27,7 @@ test("an event stream is checked event by event, and passed on unchanged", async
   const big = JSON.stringify({ jsonrpc: "2.0", id: 2, result: { tools: new Array(201).fill({}) } });
   const s = screen(serving(`${first}event: message\ndata: ${big}\n\n`, "text/event-stream"));
   await expect((await s.fetch("http://x/mcp")).text()).rejects.toBeInstanceOf(InboundRefused);
-  expect(s.refused()).toBe("offers more than 200 actions");
+  expect(s.refused()).toMatchObject({ key: "tools.fail.serverTooManyActions", values: { max: 200 } });
 });
 
 test("JSON is checked whatever the declared media type, as the SDK reads it", async () => {
@@ -43,7 +43,7 @@ test("the byte budget covers every response of the connection together", async (
   const s = screen(serving(half, "text/plain"));
   await (await s.fetch("http://x/a")).text();
   await expect(s.fetch("http://x/b")).rejects.toBeInstanceOf(InboundRefused);
-  expect(s.refused()).toBe("sent more than 16 MiB");
+  expect(s.refused()).toMatchObject({ key: "tools.fail.tooLarge" });
 });
 
 test("redact covers every string and key, short credentials included; only a scheme name stays", () => {

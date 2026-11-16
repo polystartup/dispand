@@ -8,6 +8,7 @@ import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { INTERACTION, JOB } from "../triggers/model.ts";
 import { Engine, STOPPED } from "./engine.ts";
+import { ROOT_STOPPED } from "./roots.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { Scheduler } from "./scheduler.ts";
 
@@ -227,7 +228,7 @@ test("declining stops the root's Jobs, processes its held events, closes its def
   const fires = await s.context.db.select().from(eventFires).where(eq(eventFires.triggerId, slow.id));
   expect(fires[0]).toMatchObject({ status: "started" });
   expect(fires.length).toBeGreaterThan(1);
-  for (const f of fires.slice(1)) expect(f).toMatchObject({ status: "stopped", message: "Stopped at a checkpoint.", runId: null });
+  for (const f of fires.slice(1)) expect(f).toMatchObject({ status: "stopped", message: ROOT_STOPPED, runId: null });
   expect(await s.scheduler.tick()).toEqual([]);
   // Its Approval's events, and those of what its stopped Jobs asked, start nothing either.
   expect(await s.context.db.select().from(events).where(isNull(events.processedAt))).toEqual([]);

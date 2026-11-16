@@ -24,7 +24,7 @@ import {
 import { newId } from "../ids.ts";
 import { type AuditEntry, recordAudit, recordAuditAfter } from "../audit/record.ts";
 import { errorKind, logError } from "../log.ts";
-import { say, sentence } from "../messages/index.ts";
+import { say, stored } from "../messages/index.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { fillLastPoll, itemsOf, MAX_ITEM_BYTES, nextToken, noPolls, type PollCaller } from "../tools/poll.ts";
 import { pollProblemText } from "../tools/pollable.ts";
@@ -105,7 +105,7 @@ const EVENT_BATCH = 100;
 const HOUR_MS = 3_600_000;
 
 /** What a poll of a tool waiting for its owner's sign-in says on its trigger. */
-export const NEEDS_SIGN_IN_POLL = "The tool needs sign-in: its owner enters its settings, or connects it, on its page in Settings → Tools";
+export const NEEDS_SIGN_IN_POLL = stored("tools.fail.pollNeedsSignIn");
 
 /** Polls a trigger keeps, the latest (what its sheet shows). */
 const POLLS_KEPT = 20;
@@ -390,7 +390,7 @@ export class Scheduler {
               : ((await pollProblemText(this.db, c.trigger.ownerId, c.trigger.agentId, toolId, action)) ?? (tool && signInOf(tool) === "needed" ? NEEDS_SIGN_IN_POLL : null));
           if (problem || !tool) {
             result = "skipped";
-            await this.db.update(polls).set({ status: "skipped", message: problem ?? "The tool no longer exists" }).where(eq(polls.id, c.pollId));
+            await this.db.update(polls).set({ status: "skipped", message: problem ?? stored("tools.poll.gone") }).where(eq(polls.id, c.pollId));
             return runIds;
           }
           const called = await this.polls.call(tool, action, token !== null && continuation ? { ...query, [continuation.argument]: token } : query);
@@ -418,7 +418,7 @@ export class Scheduler {
         result = "failed";
         await this.db
           .update(polls)
-          .set({ status: "failed", message: "The poll failed" })
+          .set({ status: "failed", message: stored("engine.poll.failed") })
           .where(eq(polls.id, c.pollId))
           .catch(() => undefined);
         return runIds;
@@ -456,7 +456,7 @@ export class Scheduler {
       return { status, found: set.found ?? 0, fresh: set.fresh ?? 0, runIds, token: next };
     };
     const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, c.trigger.id)).for("no key update");
-    if (!trigger?.enabled || canonicalJson(trigger.config) !== canonicalJson(c.trigger.config)) return finish("skipped", { message: "The trigger changed during its poll" });
+    if (!trigger?.enabled || canonicalJson(trigger.config) !== canonicalJson(c.trigger.config)) return finish("skipped", { message: stored("engine.poll.changed") });
     if ("error" in polled) return finish("failed", { message: polled.error });
     const baseline = trigger.lastCheckedAt === null;
     const values = polled.items.map((item) => ({
@@ -467,7 +467,7 @@ export class Scheduler {
       content: item.content,
       firstSeen: c.startedAt,
       status: baseline ? ("baseline" as const) : item.tooLarge ? ("refused" as const) : ("deferred" as const),
-      message: item.tooLarge && !baseline ? `The item is larger than ${MAX_ITEM_BYTES / 1024} KiB` : null,
+      message: item.tooLarge && !baseline ? stored("engine.poll.itemLarge", { kib: MAX_ITEM_BYTES / 1024 }) : null,
     }));
     const inserted: ItemRow[] = [];
     // In chunks: one statement's parameters are bounded.
@@ -477,11 +477,10 @@ export class Scheduler {
     const fresh = inserted.sort((a, b) => order.get(a.id)! - order.get(b.id)!);
     walk.totals.found += polled.items.length;
     walk.totals.fresh += fresh.length;
-    const notes = [
-      ...(polled.noId ? [`${polled.noId} item(s) without an id at “${c.trigger.config.idPath}” left out`] : []),
-      ...(token !== null && walk.last ? [`${walk.pages} pages read: the rest at the next poll`] : []),
-    ];
-    const set = { ...walk.totals, message: notes.length ? notes.join("; ") : null };
+    const noId = { items: polled.noId, path: c.trigger.config.idPath };
+    const more = token !== null && walk.last ? { pages: walk.pages } : null;
+    const note = polled.noId ? (more ? stored("engine.poll.noIdAndPages", { ...noId, ...more }) : stored("engine.poll.noId", noId)) : more ? stored("engine.poll.pages", more) : null;
+    const set = { ...walk.totals, message: note };
     // Where the walk is: its token kept for the next page, or the walk ended.
     const cursor: PollCursor | null = token === null ? null : { lastPoll: c.lastPoll, startedAt: c.startedAt.toISOString(), token };
     await tx
@@ -532,7 +531,7 @@ export class Scheduler {
     const ids = items.map((i) => i.id);
     if (ids.length === 0) return [];
     if (!trigger.enabled || trigger.config.kind !== "poll") {
-      await tx.update(pollItems).set({ status: "refused", message: "The trigger is off" }).where(inArray(pollItems.id, ids));
+      await tx.update(pollItems).set({ status: "refused", message: stored("engine.poll.triggerOff") }).where(inArray(pollItems.id, ids));
       await skipped(tx, trigger, "poll", "refused", { items: ids.length });
       return [];
     }
@@ -572,7 +571,7 @@ export class Scheduler {
       return { runId, result: "started" };
     } catch (err) {
       if (!(err instanceof EngineError)) throw err;
-      await tx.update(pollItems).set({ status: "refused", message: err.message }).where(eq(pollItems.id, item.id));
+      await tx.update(pollItems).set({ status: "refused", message: stored(err.data.key, err.data.values) }).where(eq(pollItems.id, item.id));
       await skipped(tx, trigger, "poll", "refused", { items: 1 });
       return { runId: null, result: "refused" };
     }
@@ -716,7 +715,7 @@ export class Scheduler {
     if (root.state === "stopped") return record("stopped", { message: ROOT_STOPPED });
     const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, triggerId)).for("no key update");
     read.trigger = trigger;
-    if (!trigger?.enabled || !watches(trigger, event)) return record("refused", { message: "The trigger no longer watches this change" });
+    if (!trigger?.enabled || !watches(trigger, event)) return record("refused", { message: stored("engine.fire.notWatching") });
     // A Question or an Approval: its Job is the asking Job's, whoever answered it.
     const interaction = event.tableId === INTERACTION;
     const writerId = interaction ? String(event.after.runId) : event.actor.type === "user" ? null : event.actor.runId;
@@ -725,12 +724,12 @@ export class Scheduler {
     if (interaction) {
       // Only an item the agent may read now (and, once asked, still open) starts its Job: any other is never revealed to it, even as an id.
       const scope = await agentScope(tx, trigger.ownerId, trigger.agentId);
-      if (!scope || !(await startable(tx, scope, event.rowId, event.operation))) return record("out-of-scope", { message: "The agent may not read this Question" });
+      if (!scope || !(await startable(tx, scope, event.rowId, event.operation))) return record("out-of-scope", { message: stored("engine.fail.scope.questionNow") });
     } else if (event.tableId !== JOB) {
       // Another Job's event (`job`, written by that Job) holds ids and a status only: any agent may be started by it.
       const [agent] = await tx.select({ bundles: agents.bundles, dataTables: agents.dataTables }).from(agents).where(eq(agents.id, trigger.agentId));
       if (!agent?.bundles.includes("data") || (agent.dataTables !== "all" && !agent.dataTables.includes(event.tableId))) {
-        return record("out-of-scope", { message: "The agent may no longer read this table" });
+        return record("out-of-scope", { message: stored("engine.fail.scope.tableNow") });
       }
     }
     if ((await this.room(tx, trigger, now)) === 0) return { runId: null, result: "deferred" };
@@ -760,7 +759,7 @@ export class Scheduler {
       return record("started", { runId });
     } catch (err) {
       if (!(err instanceof EngineError)) throw err;
-      return record(err.code === "STOPPED" ? "stopped" : "refused", { message: err.message });
+      return record(err.code === "STOPPED" ? "stopped" : "refused", { message: stored(err.data.key, err.data.values) });
     }
   }
 
@@ -804,7 +803,7 @@ export class Scheduler {
       return { runId, result: "started" };
     } catch (err) {
       if (!(err instanceof EngineError)) throw err;
-      await record("refused", { message: err.message });
+      await record("refused", { message: stored(err.data.key, err.data.values) });
       await skipped(tx, trigger, "schedule", "refused");
       return { runId: null, result: "refused" };
     }
@@ -838,7 +837,7 @@ export class Scheduler {
       .where(eq(workflows.id, workflowId));
     const [issue] = current ? await runIssues(tx, ownerId, current.def) : [{ message: say("workflows.notFound") }];
     if (issue) {
-      await record("refused", { message: sentence(issue.message) });
+      await record("refused", { message: stored(issue.message.key, issue.message.values) });
       return { runId: null, result: "refused" };
     }
     const runId = await this.engine.createRun(tx, workflowId, { type: "schedule", scheduledFor: at.toISOString() });

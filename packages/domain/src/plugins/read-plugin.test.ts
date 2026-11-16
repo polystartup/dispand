@@ -2,6 +2,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, onTestFinished, test } from "vitest";
+import { say } from "../messages/index.ts";
 import { mapSource, type MarketplaceEntry, parseMarketplace } from "./marketplace.ts";
 import { readPlugin, resolvePluginRoot } from "./read-plugin.ts";
 import { type FixtureFile, skillMd, writeTree } from "./test-support.ts";
@@ -135,7 +136,7 @@ test("marketplace sources map to Git fetches; an npm source is unsupported, with
     path: "plugins/x",
     ref: "main",
   });
-  expect(mapSource({ source: "npm", package: "@acme/plugin" })).toEqual({ type: "unsupported", reason: "“npm” sources aren't supported: only Git repositories are" });
+  expect(mapSource({ source: "npm", package: "@acme/plugin" })).toEqual({ type: "unsupported", reason: say("marketplaceFile.source.kindNamed", { kind: "npm" }) });
 });
 
 test("parseMarketplace keeps readable entries and leaves the others out", () => {
@@ -156,7 +157,7 @@ test("parseMarketplace keeps readable entries and leaves the others out", () => 
     name: "acme",
     entries: [
       { name: "docs", description: "Docs.", skills: ["./skills/pdf"], source: { type: "path", path: "./" }, manifest: { hooks: { x: 1 } } },
-      { name: "pkg", source: { type: "unsupported", reason: "“npm” sources aren't supported: only Git repositories are" } },
+      { name: "pkg", source: { type: "unsupported", reason: say("marketplaceFile.source.kindNamed", { kind: "npm" }) } },
     ],
   });
   writeFileSync(join(dir, ".claude-plugin/marketplace.json"), "{");

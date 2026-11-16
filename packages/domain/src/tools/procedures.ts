@@ -13,7 +13,7 @@ import { runnerTarget } from "../plugins/runner-servers.ts";
 import { isLoopback } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
 import { logError } from "../log.ts";
-import { external, message, type MessageKey, type MessageValues } from "../messages/index.ts";
+import { message, stored, type MessageKey, type MessageValues } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
 import { type RunnerHub, RunnerRequestFailed } from "../runners/hub.ts";
 import { secretAad, type SecretBox } from "../secrets.ts";
@@ -182,12 +182,6 @@ export function toolTarget(row: Row, secrets: SecretBox): ToolTarget {
   return { url: secret.url, transport: row.transport, headers, urlSecrets: secret.secrets, ...request };
 }
 
-/** What a catalog tool whose settings aren't filled says on each listing, call or poll. */
-export const NEEDS_SIGN_IN = (name: string) => `${name} needs sign-in: fill its settings on its page in Settings → Tools`;
-
-/** What a sign-in that stopped working says on each call, until its owner re-authorizes the tool. */
-export const REAUTHORIZE = "The sign-in to this tool stopped working: re-authorize it on its page in Settings → Tools";
-
 /**
  * The target a listing or call connects to: with an OAuth tool's sealed state, which the
  * connector's provider reads and refreshes. A tool not connected fails here, before any request,
@@ -196,10 +190,10 @@ export const REAUTHORIZE = "The sign-in to this tool stopped working: re-authori
 export function connectionTarget(db: Db, secrets: SecretBox, row: Row): ToolTarget {
   const target = toolTarget(row, secrets);
   // A catalog tool added before its key: never called without it (some servers answer keyless).
-  if (row.auth !== "oauth" && row.pluginId === null && signInOf(row) === "needed") throw new ToolError(NEEDS_SIGN_IN(row.name));
+  if (row.auth !== "oauth" && row.pluginId === null && signInOf(row) === "needed") throw new ToolError("tools.fail.needsSignIn", { name: row.name });
   if (row.auth !== "oauth") return target;
-  if (row.oauthStatus === "reauthorize") throw new ToolError(REAUTHORIZE);
-  if (row.oauthStatus !== "connected") throw new ToolError(`${row.name} isn't connected yet: connect it on its page in Settings → Tools`);
+  if (row.oauthStatus === "reauthorize") throw new ToolError("tools.fail.reauthorize");
+  if (row.oauthStatus !== "connected") throw new ToolError("tools.fail.notConnected", { name: row.name });
   return { ...target, oauth: oauthStore(db, secrets, row) };
 }
 
@@ -213,7 +207,7 @@ export async function refreshActions(db: Db, secrets: SecretBox, connector: Tool
     values = { actions: await connector.listActions(connectionTarget(db, secrets, row)), actionsError: null, refreshedAt: new Date() };
   } catch (error) {
     if (!(error instanceof ToolError)) logError("tools.refresh failed", error, { ref: row.id });
-    values = { actionsError: error instanceof ToolError ? error.message : "Couldn't list the tool's actions" };
+    values = { actionsError: error instanceof ToolError ? error.stored : stored("tools.fail.listFailed") };
   }
   const [updated] = await db
     .update(toolsTable)
@@ -236,10 +230,10 @@ export async function refreshRunnerActions(db: Db, hub: Pick<RunnerHub, "request
   else {
     try {
       const reply = await hub.request(row.runnerId!, { type: "tool.discover", requestId: newId("req"), tool: target });
-      values = reply.actions ? { actions: reply.actions, actionsError: null, refreshedAt: new Date() } : { actionsError: reply.error ?? "The runner listed no actions" };
+      values = reply.actions ? { actions: reply.actions, actionsError: null, refreshedAt: new Date() } : { actionsError: reply.error ?? stored("tools.fail.runnerNoActions") };
     } catch (error) {
       if (!(error instanceof RunnerRequestFailed)) throw error;
-      values = { actionsError: error.message === "timed out" ? "The runner didn't answer in time" : "runner offline" };
+      values = { actionsError: stored(error.message === "timed out" ? "tools.fail.runnerTimeout" : "tools.fail.runnerOffline") };
     }
   }
   const [updated] = await db
@@ -689,7 +683,7 @@ const authorize = owner
       try {
         started = await context.tools.authorize({ ...toolTarget(row, context.secrets), oauth: store });
       } catch (error) {
-        if (error instanceof ToolError) throw new ORPCError("BAD_REQUEST", external(error.message));
+        if (error instanceof ToolError) throw new ORPCError("BAD_REQUEST", message(error.say.key, error.say.values));
         throw error;
       }
       if (!started) bad("tools.noSignIn", { host: new URL(row.url!).host });

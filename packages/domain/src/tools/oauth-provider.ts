@@ -163,7 +163,7 @@ export function createOAuthProvider(store: OAuthStore, mode: OAuthMode, appUrl: 
         client = true;
         // Entered for one authorization server: its secret never goes to another the server names later.
         if (entered.issuer && issuer && entered.issuer !== issuer) {
-          throw new ToolError("The server now names another authorization server than the one its client id was entered for: enter the client id that server gave you");
+          throw new ToolError("tools.fail.otherAuthServer");
         }
         if (entered.client_secret) secrets.add(entered.client_secret);
         if (entered.issuer || !ctx) return entered;
@@ -200,7 +200,7 @@ export function createOAuthProvider(store: OAuthStore, mode: OAuthMode, appUrl: 
         const mine = await turn(store.key);
         if (closed) {
           mine();
-          throw new ToolError("The call ended before its sign-in could be renewed");
+          throw new ToolError("tools.fail.callEnded");
         }
         held = mine;
       }
@@ -236,17 +236,17 @@ export function createOAuthProvider(store: OAuthStore, mode: OAuthMode, appUrl: 
         if (!tokens?.refresh_token) {
           countOAuth("refresh", "reauthorize");
           await store.reauthorize();
-          throw new ReauthorizeError("The sign-in to this tool stopped working: re-authorize it on its page in Settings → Tools");
+          throw new ReauthorizeError("tools.fail.reauthorize");
         }
       }
       if (mode.kind === "use") countOAuth("refresh", "failed");
-      throw new ToolError("The tool's sign-in couldn't be renewed: try again later");
+      throw new ToolError("tools.fail.renewFailed");
     },
     saveCodeVerifier(verifier) {
       if (mode.kind === "authorize") flow.verifier = verifier;
     },
     codeVerifier() {
-      if (mode.kind !== "finish" || !mode.pending.verifier) throw new ToolError("No sign-in is under way for this tool");
+      if (mode.kind !== "finish" || !mode.pending.verifier) throw new ToolError("tools.fail.noSignIn");
       return mode.pending.verifier;
     },
     async saveDiscoveryState(discovery) {

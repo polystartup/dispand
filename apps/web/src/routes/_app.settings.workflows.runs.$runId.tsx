@@ -12,12 +12,14 @@ import { orpc } from "../lib/api.ts";
 import { useAgentName } from "../lib/agent-name.ts";
 import { useFormat } from "../lib/format.ts";
 import { useRun } from "../lib/run-watch.ts";
+import { useStored } from "@/lib/message";
 
 export const Route = createFileRoute("/_app/settings/workflows/runs/$runId")({ component: RunPage });
 
 /** One run as it goes: each step's prompt, outputs, error, transcript and questions, to debug it. */
 function RunPage() {
   const { t } = useTranslation("runs");
+  const stored = useStored();
   const format = useFormat();
   const agentName = useAgentName();
   const { runId } = Route.useParams();
@@ -81,7 +83,7 @@ function RunPage() {
         </div>
         {run.error && (
           <p role="alert" className="mt-3 whitespace-pre-wrap rounded-xl bg-surface px-4 py-3 text-[14px] text-danger shadow-card">
-            {run.error}
+            {stored(run.error)}
           </p>
         )}
       </header>

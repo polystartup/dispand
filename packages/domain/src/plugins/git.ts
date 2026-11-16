@@ -2,13 +2,11 @@ import { spawn } from "node:child_process";
 import { lstat, mkdtemp, readdir, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type MessageKey, SayError } from "../messages/index.ts";
 
 /** Why a Git fetch failed, in words for the owner: never git's own output or a local path. */
-export class GitError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "GitError";
-  }
+export class GitError extends SayError {
+  override name = "GitError";
 }
 
 export type FetchGitOptions = {
@@ -41,11 +39,11 @@ export function checkGitUrl(url: string, allowFile = false): URL {
   try {
     parsed = new URL(url);
   } catch {
-    throw new GitError("Use an https:// Git URL");
+    throw new GitError("git.url");
   }
   if (allowFile && parsed.protocol === "file:") return parsed;
-  if (parsed.protocol !== "https:" || parsed.hostname === "") throw new GitError("Use an https:// Git URL");
-  if (parsed.username !== "" || parsed.password !== "") throw new GitError("A Git URL can't hold credentials");
+  if (parsed.protocol !== "https:" || parsed.hostname === "") throw new GitError("git.url");
+  if (parsed.username !== "" || parsed.password !== "") throw new GitError("git.credentials");
   return parsed;
 }
 
@@ -77,18 +75,18 @@ async function sizeOf(dir: string, limit: number): Promise<number> {
 }
 
 /** What went wrong, from git's stderr, in a few words that hold nothing local. */
-function reason(stderr: string): string {
-  if (/redirect/i.test(stderr)) return "the server redirected the request";
+function reason(stderr: string): MessageKey {
+  if (/redirect/i.test(stderr)) return "git.fetch.redirect";
   if (/could not resolve host|failed to connect|connection refused|connection timed out|network is unreachable/i.test(stderr)) {
-    return "couldn't reach the server";
+    return "git.fetch.unreachable";
   }
   if (/not found|could not read username|authentication failed|terminal prompts disabled|does not appear to be a git repository/i.test(stderr)) {
-    return "the repository wasn't found (or is private)";
+    return "git.fetch.notFound";
   }
   if (/couldn't find remote ref|not our ref|unadvertised object|remote branch .* not found/i.test(stderr)) {
-    return "that branch or commit isn't there";
+    return "git.fetch.badRef";
   }
-  return "git failed";
+  return "git.fetch.failed";
 }
 
 /**
@@ -101,12 +99,12 @@ function reason(stderr: string): string {
  */
 export async function fetchGit(url: string, opts: FetchGitOptions = {}): Promise<Checkout> {
   const parsed = checkGitUrl(url, opts.allowFile);
-  if (opts.sha !== undefined && !SHA.test(opts.sha)) throw new GitError("A commit is 40 hexadecimal characters");
-  if (opts.ref !== undefined && !REF.test(opts.ref)) throw new GitError("That isn't a branch or tag name");
+  if (opts.sha !== undefined && !SHA.test(opts.sha)) throw new GitError("git.sha");
+  if (opts.ref !== undefined && !REF.test(opts.ref)) throw new GitError("git.ref");
   const timeoutMs = opts.timeoutMs ?? 60_000;
   const maxBytes = opts.maxBytes ?? 200 * 1024 * 1024;
   const deadline = Date.now() + timeoutMs;
-  const where = `Couldn't fetch ${parsed.href}`;
+  const href = parsed.href;
 
   const root = await mkdtemp(join(tmpdir(), "dispand-git-"));
   const dir = join(root, "repo");
@@ -165,23 +163,23 @@ export async function fetchGit(url: string, opts: FetchGitOptions = {}): Promise
       child.stdout.on("data", (d: Buffer) => {
         stdoutBytes += d.length;
         // Only `ls-files` says much: past this, the repository has too many files to list whole.
-        if (stdoutBytes > MAX_STDOUT) finish(new GitError(`${where}: it has too many files`));
+        if (stdoutBytes > MAX_STDOUT) finish(new GitError("git.fetch.tooManyFiles", { url: href }));
         else stdout.push(d);
       });
       child.stderr.setEncoding("utf8").on("data", (d: string) => {
         if (stderr.length < 16 * 1024) stderr += d;
       });
-      const timer = setTimeout(() => finish(new GitError(`${where}: it took longer than ${Math.round(timeoutMs / 1000)} s`)), Math.max(0, deadline - Date.now()));
+      const timer = setTimeout(() => finish(new GitError("git.fetch.timeout", { url: href, seconds: Math.round(timeoutMs / 1000) })), Math.max(0, deadline - Date.now()));
       let measuring = false;
       const poll = setInterval(() => {
         if (measuring) return;
         measuring = true;
         void sizeOf(root, maxBytes).then((size) => {
           measuring = false;
-          if (size > maxBytes) finish(new GitError(`${where}: it is larger than ${Math.round(maxBytes / 1024 / 1024)} MiB`));
+          if (size > maxBytes) finish(new GitError("git.fetch.tooLarge", { url: href, mib: Math.round(maxBytes / 1024 / 1024) }));
         });
       }, SIZE_POLL_MS);
-      child.on("error", () => finish(new GitError(`${where}: git isn't installed on the server`)));
+      child.on("error", () => finish(new GitError("git.fetch.noGit", { url: href })));
       // `exit`, then the pipes' end, bounded by the deadline: a helper still holding them open
       // can't delay the outcome past it.
       const ended = (stream: NodeJS.ReadableStream & { readableEnded: boolean }) =>
@@ -189,7 +187,7 @@ export async function fetchGit(url: string, opts: FetchGitOptions = {}): Promise
       child.on("exit", (code) => {
         // Git is done: whatever it left running is of no use.
         killGroup();
-        void Promise.all([ended(child.stdout), ended(child.stderr)]).then(() => finish(code === 0 ? null : new GitError(`${where}: ${reason(stderr)}`)));
+        void Promise.all([ended(child.stdout), ended(child.stderr)]).then(() => finish(code === 0 ? null : new GitError(reason(stderr), { url: href })));
       });
     });
 
@@ -217,17 +215,17 @@ export async function fetchGit(url: string, opts: FetchGitOptions = {}): Promise
       try {
         path = utf8.decode(record.subarray(record.indexOf(9) + 1));
       } catch {
-        throw new GitError(`${where}: a file name in it isn't UTF-8`);
+        throw new GitError("git.fetch.notUtf8", { url: href });
       }
       if (record.subarray(0, 7).equals(Buffer.from("120000 "))) links.push(path);
     }
-    if ((await sizeOf(root, maxBytes)) > maxBytes) throw new GitError(`${where}: it is larger than ${Math.round(maxBytes / 1024 / 1024)} MiB`);
+    if ((await sizeOf(root, maxBytes)) > maxBytes) throw new GitError("git.fetch.tooLarge", { url: href, mib: Math.round(maxBytes / 1024 / 1024) });
     // Links came out as plain files holding their target: remove them (the checkout holds no
     // link, so nothing is followed) and list them.
     for (const path of links) await unlink(join(dir, path));
     return { dir, sha, links, cleanup };
   } catch (error) {
     await cleanup();
-    throw error instanceof GitError ? error : new GitError(`${where}: git failed`);
+    throw error instanceof GitError ? error : new GitError("git.fetch.failed", { url: href });
   }
 }

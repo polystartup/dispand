@@ -11,7 +11,10 @@ import fr from "./fr.json";
 import { ModelListError } from "../cloud/models.ts";
 import { ENTRY_VALUES } from "../memory/model.ts";
 import { PackageError } from "../skills/package.ts";
-import { external, isMessageKey, message, reasonOf, rendered } from "./index.ts";
+import { GitError } from "../plugins/git.ts";
+import { PluginError } from "../plugins/fs.ts";
+import { ToolError } from "../tools/errors.ts";
+import { external, isMessageKey, type Message, message, reasonOf, rendered, stored, storedSentence, storedText } from "./index.ts";
 
 /** Every key of a resource, plural forms included, as dotted paths. */
 const keys = (value: unknown, prefix = ""): string[] =>
@@ -49,6 +52,20 @@ test("errors that carry a message say it in French too, and in English for agent
   expect(rendered("fr", "memory.entry.typeOneOf", ENTRY_VALUES)).toBe("Le type est l’un de : business, practice, fact, reference.");
 });
 
+test("a refusal of the Git, plugin and tool errors is said in French, a stored failure keyed and rendered in the reader's language, an old plain row as stored", () => {
+  const url = new GitError("git.fetch.timeout", { url: "https://example.com/a.git", seconds: 60 });
+  expect([url.message, rendered("fr", url.say.key, url.say.values)]).toEqual(["Couldn't fetch https://example.com/a.git: it took longer than 60 s.", "Impossible de récupérer https://example.com/a.git : cela a pris plus de 60 s."]);
+  const plugin = new PluginError("pluginRead.tooManyServers", { max: 5 });
+  expect(rendered("fr", plugin.say.key, plugin.say.values)).toBe("Le plugin propose plus de 5 serveurs MCP.");
+  const kept = new ToolError("tools.fail.timeout", { host: "mcp.example.com" }).stored;
+  expect(storedText(kept)).toEqual({ key: "tools.fail.timeout", values: { host: "mcp.example.com" } });
+  const read = storedText(kept) as Message;
+  expect([storedSentence(kept), rendered("fr", read.key, read.values)]).toEqual(["mcp.example.com didn't answer in time.", "mcp.example.com n’a pas répondu à temps."]);
+  expect(storedText("The tool no longer exists")).toEqual({ text: "The tool no longer exists" });
+  expect(storedText('{"key":"not.a.key"}')).toEqual({ text: '{"key":"not.a.key"}' });
+  expect(storedSentence(stored("engine.fail.stopped"))).toBe("Stopped.");
+});
+
 // Errors whose text may reach a person and isn't a `message()` key or text marked as external, per
 // file with exact counts: none is left, so a new unkeyed error fails.
 const UNKEYED: Record<string, number> = {};
@@ -68,12 +85,22 @@ function keyed(options: ts.Expression | undefined): boolean {
   return callTo(options, "passOn") && options.arguments.length === 1 && ts.isIdentifier(options.arguments[0]!);
 }
 
-/** Every `new ORPCError(` and `new EngineError(` of a file whose options aren't keyed. */
+/** The errors that carry their message as a key: `new GitError("git.url")`, never a sentence built in place. */
+const SAYING = ["GitError", "MarketplaceError", "WellKnownError", "ToolError", "ReauthorizeError", "PluginError"];
+
+/** Whether a saying error's first argument is a key given whole (the type holds it to a `MessageKey`). */
+const saysKey = (node: ts.NewExpression) => !!node.arguments?.[0] && whole(node.arguments[0]);
+
+/** Every `new ORPCError(`, `new EngineError(` and saying error of a file whose message isn't keyed. */
 function unkeyed(path: string): number {
   const file = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
   let n = 0;
   const visit = (node: ts.Node) => {
-    if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && ["ORPCError", "EngineError"].includes(node.expression.text) && !keyed(node.arguments?.[1])) n++;
+    if (ts.isNewExpression(node) && ts.isIdentifier(node.expression)) {
+      const name = node.expression.text;
+      if (["ORPCError", "EngineError"].includes(name) && !keyed(node.arguments?.[1])) n++;
+      if (SAYING.includes(name) && !saysKey(node)) n++;
+    }
     ts.forEachChild(node, visit);
   };
   visit(file);
@@ -83,6 +110,15 @@ function unkeyed(path: string): number {
 test("every error of the domain says a message key or external text, except those still listed", () => {
   const found = Object.fromEntries(files(src).flatMap((path) => (unkeyed(path) ? [[relative(src, path), unkeyed(path)]] : [])));
   expect(found).toEqual(UNKEYED);
+});
+
+test("the walk holds the saying errors to a key", () => {
+  const judge = (code: string) => saysKey((ts.createSourceFile("x.ts", code, ts.ScriptTarget.Latest, true).statements[0] as ts.ExpressionStatement).expression as ts.NewExpression);
+  expect(judge('new GitError("git.fetch.failed", { url })')).toBe(true);
+  expect(judge("new ToolError(refused.key, { host })")).toBe(true);
+  expect(judge("new PluginError(`The plugin offers ${n}`)")).toBe(false);
+  expect(judge('new WellKnownError("Use " + scheme)')).toBe(false);
+  expect(judge("new MarketplaceError()")).toBe(false);
 });
 
 test("the walk judges the message's form, not where it comes from", () => {

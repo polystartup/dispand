@@ -8,6 +8,7 @@ import { secretAad, SecretError } from "../secrets.ts";
 import { headerAad, MAX_HEADERS, retarget, toolTarget } from "./procedures.ts";
 import { resealToolHeaders } from "./reseal.ts";
 import { startFakeMcp, type FakeAction, type FakeMcp } from "./test-server.ts";
+import { stored, storedSentence } from "../messages/index.ts";
 
 const servers: FakeMcp[] = [];
 afterEach(async () => {
@@ -75,7 +76,7 @@ test("an unreachable server stores actionsError Couldn't reach <host>, without a
   await server.close();
   const tool = await call(router.tools.create, { name: "Gone", url: server.url, transport: "streamable-http", headers: { authorization: SECRET } }, { context });
   expect(tool.actions).toEqual([]);
-  expect(tool.actionsError).toBe(`Couldn't reach ${new URL(server.url).host}`);
+  expect(storedSentence(tool.actionsError!)).toBe(`Couldn't reach ${new URL(server.url).host}.`);
 });
 
 test("refresh keeps the last actions when the server is gone", async () => {
@@ -85,7 +86,7 @@ test("refresh keeps the last actions when the server is gone", async () => {
   await server.close();
   const refreshed = await call(router.tools.refresh, { id: tool.id }, { context });
   expect(refreshed.actions).toEqual(tool.actions);
-  expect(refreshed.actionsError).toMatch(/^Couldn't reach/);
+  expect(storedSentence(refreshed.actionsError!)).toMatch(/^Couldn't reach/);
   expect(refreshed.refreshedAt).toEqual(tool.refreshedAt);
 });
 
@@ -167,7 +168,7 @@ test("a header still sealed for its old origin is never sent to the tool's new o
   const [row] = await context.db.select().from(tools).where(eq(tools.id, tool.id));
   expect(() => toolTarget(row!, context.secrets)).toThrow(SecretError);
   const refreshed = await call(router.tools.refresh, { id: tool.id }, { context });
-  expect(refreshed.actionsError).toBe("Couldn't list the tool's actions");
+  expect(refreshed.actionsError).toBe(stored("tools.fail.listFailed"));
   expect(second.requests).toEqual([]);
 });
 
@@ -252,7 +253,7 @@ test("a runner tool lists its actions through its runner; an offline runner give
   const context = await ownerContext();
   const runnerId = await runnerWith(context, ["fetch"]);
   const offline = await call(router.tools.create, { kind: "runner", name: "Fetch", runnerId, runnerTool: "fetch" }, { context });
-  expect(offline).toMatchObject({ kind: "runner", url: null, transport: null, runnerId, runnerTool: "fetch", headerNames: [], actions: [], actionsError: "runner offline" });
+  expect(offline).toMatchObject({ kind: "runner", url: null, transport: null, runnerId, runnerTool: "fetch", headerNames: [], actions: [], actionsError: stored("tools.fail.runnerOffline") });
 
   const asked: unknown[] = [];
   context.hub.request = async (id, msg) => {

@@ -17,6 +17,7 @@ import { McpAction } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { MAX_ACTIONS, redact, screenedFetch } from "./inbound.ts";
 import { ToolError } from "./errors.ts";
+import { storedText } from "../messages/index.ts";
 import { BlockedAddressError } from "./network.ts";
 import { createOAuthProvider, stateSecrets, type OAuthMode, type OAuthRequest, type OAuthState, type OAuthStore } from "./oauth-provider.ts";
 
@@ -25,7 +26,11 @@ export { ToolError } from "./errors.ts";
 export { inboundProblem, MAX_ACTIONS, MAX_MESSAGE_VALUES, MAX_RESPONSE_BYTES, redact } from "./inbound.ts";
 
 /** Whether a listing failed because (the words of `toolError` for 401 and 403) the server refused it without credentials (401 or 403). */
-export const refusedListing = (actionsError: string | null) => actionsError !== null && /refused the request \((?:401|403)\)/.test(actionsError);
+export const refusedListing = (actionsError: string | null) => {
+  if (actionsError === null) return false;
+  const text = storedText(actionsError);
+  return "key" in text ? text.key === "tools.fail.refusedHeaders" && [401, 403].includes(Number(text.values?.status)) : /refused the request \((?:401|403)\)/.test(actionsError);
+};
 
 export const TRANSPORTS = ["streamable-http", "sse"] as const;
 export type ToolTransport = (typeof TRANSPORTS)[number];
@@ -109,18 +114,18 @@ function reason(error: unknown, host: string, timedOut: boolean): ToolError {
   const own = chain.find((e) => e instanceof ToolError);
   if (own) return own as ToolError;
   const blocked = chain.find((e) => e instanceof BlockedAddressError);
-  if (blocked) return new ToolError(`${host} is one of Dispand's own addresses`);
-  if (timedOut) return new ToolError(`${host} didn't answer in time`);
+  if (blocked) return new ToolError("tools.fail.ownAddress", { host });
+  if (timedOut) return new ToolError("tools.fail.timeout", { host });
   const http = chain.find((e) => e instanceof SdkHttpError);
   if (http) {
     const { status } = http;
-    if (status === 401 || status === 403) return new ToolError(`${host} refused the request (${status}): check the headers`);
-    if (status >= 300 && status < 400) return new ToolError(`${host} redirected the request elsewhere: enter the address it points to`);
-    return new ToolError(`${host} answered ${status}`);
+    if (status === 401 || status === 403) return new ToolError("tools.fail.refusedHeaders", { host, status });
+    if (status >= 300 && status < 400) return new ToolError("tools.fail.redirected", { host });
+    return new ToolError("tools.fail.answered", { host, status });
   }
-  if (chain.some((e) => e instanceof SdkError && e.code === SdkErrorCode.RequestTimeout)) return new ToolError(`${host} didn't answer in time`);
-  if (chain.some((e) => e instanceof OAuthError || e instanceof UnauthorizedError)) return new ToolError(`${host}'s sign-in failed`);
-  return new ToolError(`Couldn't reach ${host}`);
+  if (chain.some((e) => e instanceof SdkError && e.code === SdkErrorCode.RequestTimeout)) return new ToolError("tools.fail.timeout", { host });
+  if (chain.some((e) => e instanceof OAuthError || e instanceof UnauthorizedError)) return new ToolError("tools.fail.signInFailed", { host });
+  return new ToolError("tools.fail.unreachable", { host });
 }
 
 /**
@@ -187,8 +192,8 @@ async function withClient<T>(
   } catch (error) {
     if (error instanceof ToolError) throw error;
     const refused = screen.refused();
-    if (refused) throw new ToolError(`${host} ${refused}`);
-    if (signal?.aborted) throw new ToolError("The call was cancelled");
+    if (refused) throw new ToolError(refused.key, { host, ...refused.values });
+    if (signal?.aborted) throw new ToolError("tools.fail.cancelled");
     throw reason(error, host, deadline.aborted);
   } finally {
     both.removeEventListener("abort", onAbort);
@@ -282,7 +287,7 @@ const loopback = (url: URL) => url.hostname === "localhost" || url.hostname === 
 export function httpsOnly(inner: typeof fetch): typeof fetch {
   return ((input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
-    if (url.protocol !== "https:" && !loopback(url)) return Promise.reject(new ToolError(`${url.host} isn't reached over https: its sign-in is refused`));
+    if (url.protocol !== "https:" && !loopback(url)) return Promise.reject(new ToolError("tools.fail.notHttps", { host: url.host }));
     return inner(input, init);
   }) as typeof fetch;
 }
@@ -306,7 +311,7 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
   };
 
   function provider(store: OAuthStore, mode: OAuthMode, secrets: Set<string>) {
-    if (!opts.appUrl) throw new ToolError("OAuth sign-in needs the application's URL");
+    if (!opts.appUrl) throw new ToolError("tools.fail.needsAppUrl");
     return createOAuthProvider(store, mode, opts.appUrl, secrets);
   }
 
@@ -336,7 +341,7 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
     } catch (error) {
       const started = oauth.started();
       if (started) return started;
-      if (oauth.needsClient()) throw new ToolError(`${new URL(target.url).host}'s authorization server supports neither client metadata documents nor registration: enter the client id it gave you`);
+      if (oauth.needsClient()) throw new ToolError("tools.fail.needsClient", { host: new URL(target.url).host });
       throw error;
     }
   }
@@ -350,12 +355,12 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
     try {
       await Promise.race([
         startAuthorization(authProvider, { serverUrl: target.url, scope: request.scopes.join(" "), fetchFn: (input, init) => fetchFn(input, { ...init, signal: deadline }) }),
-        new Promise<never>((_, reject) => deadline.addEventListener("abort", () => reject(new ToolError(`${host} didn't answer in time`)), { once: true })),
+        new Promise<never>((_, reject) => deadline.addEventListener("abort", () => reject(new ToolError("tools.fail.timeout", { host })), { once: true })),
       ]);
     } catch (error) {
       if (error instanceof ToolError) throw error;
       const refused = screen.refused();
-      if (refused) throw new ToolError(`${host} ${refused}`);
+      if (refused) throw new ToolError(refused.key, { host, ...refused.values });
       throw reason(error, host, deadline.aborted);
     }
   }
@@ -370,11 +375,11 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
       await (transport as unknown as { finishAuth(p: URLSearchParams): Promise<void> }).finishAuth(params);
     })();
     try {
-      await Promise.race([finished, new Promise<never>((_, reject) => AbortSignal.timeout(LIST_TIMEOUT_MS).addEventListener("abort", () => reject(new ToolError(`${host} didn't answer in time`)), { once: true }))]);
+      await Promise.race([finished, new Promise<never>((_, reject) => AbortSignal.timeout(LIST_TIMEOUT_MS).addEventListener("abort", () => reject(new ToolError("tools.fail.timeout", { host })), { once: true }))]);
     } catch (error) {
       if (error instanceof ToolError) throw error;
       const refused = screen.refused();
-      if (refused) throw new ToolError(`${host} ${refused}`);
+      if (refused) throw new ToolError(refused.key, { host, ...refused.values });
       throw reason(error, host, false);
     } finally {
       await transport.close().catch(() => undefined);
@@ -391,11 +396,11 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
           // One page per request: `listTools()` without a cursor would read every page before returning.
           const listed = await client.request({ method: "tools/list", params: cursor === undefined ? {} : { cursor } }, options);
           all.push(...listed.tools);
-          if (all.length > MAX_ACTIONS) throw new ToolError(`The server offers more than ${MAX_ACTIONS} actions`);
+          if (all.length > MAX_ACTIONS) throw new ToolError("tools.fail.tooManyActions", { max: MAX_ACTIONS });
           cursor = listed.nextCursor;
           if (!cursor) return all;
         }
-        throw new ToolError(`The server lists its actions on more than ${MAX_PAGES} pages`);
+        throw new ToolError("tools.fail.tooManyPages", { max: MAX_PAGES });
       }, auth);
       // The server got the headers and may send them back: each field the action keeps is redacted
       // before anything reads or cuts it (fields one by one, so the result keeps its own shape).
@@ -411,11 +416,11 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
         const name = candidate.name.slice(0, 100);
         for (const schema of [candidate.inputSchema, candidate.outputSchema]) {
           if (schema !== undefined && JSON.stringify(schema).length > MAX_SCHEMA_BYTES) {
-            throw new ToolError(`The schema of the action “${name}” is larger than 64 KiB`);
+            throw new ToolError("tools.fail.schemaLarge", { name });
           }
         }
         const parsed = Action.safeParse(candidate);
-        if (!parsed.success) throw new ToolError(`The action “${name}” isn't valid: ${z.prettifyError(parsed.error).slice(0, 200)}`);
+        if (!parsed.success) throw new ToolError("tools.fail.actionInvalid", { name, problem: z.prettifyError(parsed.error).slice(0, 200) });
         return parsed.data as ToolAction;
       });
   }

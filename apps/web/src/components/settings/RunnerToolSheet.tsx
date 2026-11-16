@@ -10,6 +10,7 @@ import { orpc } from "../../lib/api.ts";
 import { FormField } from "./parts.tsx";
 import { PollableActions } from "./PollableActions.tsx";
 import { ActionItem, errorMessage, type Tool } from "./ToolSheet.tsx";
+import { useStored } from "@/lib/message";
 
 type Props = {
   /** The runner tool being edited; absent when adding one. */
@@ -26,6 +27,7 @@ type Props = {
  */
 export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
   const { t } = useTranslation("tools");
+  const stored = useStored();
   const runners = useQuery(orpc.runners.list.queryOptions({ refetchInterval: 5000 }));
   const [name, setName] = useState(tool?.name ?? suggested?.name ?? "");
   const [runnerId, setRunnerId] = useState(tool?.runnerId ?? "");
@@ -213,7 +215,7 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
               </div>
               {current.actionsError && (
                 <p role="status" className="text-[13px] text-danger">
-                  {current.actionsError}
+                  {stored(current.actionsError)}
                 </p>
               )}
               <p className="text-[13px] text-muted">{t("sheet.actionsNote")}</p>

@@ -3,6 +3,7 @@ import type { ConditionOp } from "../workflows/condition.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { MAX_RESULTS } from "../workflows/loop.ts";
 import { nextActions, toolValues, valuesFor, type StepState } from "./next-actions.ts";
+import { stored } from "../messages/index.ts";
 
 /** Chat "Brief" → condition "If" on `brief.approved` → Then "T" / Else "E" → join "J". */
 function ifElse(op: ConditionOp = "equals", operand = "yes"): WorkflowDef {
@@ -78,7 +79,7 @@ test("a node fed only by dead edges is skipped", () => {
 test("a condition error fails the step", () => {
   const def = ifElse("greater_than", "3");
   expect(nextActions(def, states(def, { n_chat: ["succeeded", { approved: "abc" }] }))).toEqual([
-    { type: "fail", nodeId: "n_if", iteration: 0, error: "“abc” is not a number" },
+    { type: "fail", nodeId: "n_if", iteration: 0, error: stored("engine.fail.notNumber", { text: "abc" }) },
   ]);
 });
 
@@ -216,16 +217,16 @@ test("the last iteration completes the loop with count and results", () => {
 test("results over the cap fail the loop instead of completing it", () => {
   const { def, base } = forEach('["x"]');
   const steps = [...running(base), row("n_a", 1, "succeeded", { done: "a".repeat(MAX_RESULTS) }), row("n_b", 1, "skipped")];
-  expect(nextActions(def, steps)).toEqual([{ type: "fail", nodeId: "n_each", iteration: 0, error: "The loop's results are over 1,000,000 characters" }]);
+  expect(nextActions(def, steps)).toEqual([{ type: "fail", nodeId: "n_each", iteration: 0, error: stored("engine.fail.loopTooLong", { max: 1_000_000 }) }]);
 });
 
 test("a loop's list that is empty, not a list or over the cap", () => {
   const empty = forEach("[]");
   expect(nextActions(empty.def, empty.base)).toEqual([{ type: "complete", nodeId: "n_each", iteration: 0, outputs: { count: "0", results: "[]" } }]);
   const text = forEach("x, y");
-  expect(nextActions(text.def, text.base)).toEqual([{ type: "fail", nodeId: "n_each", iteration: 0, error: "“items” is not a list (a JSON array)" }]);
+  expect(nextActions(text.def, text.base)).toEqual([{ type: "fail", nodeId: "n_each", iteration: 0, error: stored("engine.fail.loopNotList", { list: "items" }) }]);
   const long = forEach("[1,2,3]", 2);
-  expect(nextActions(long.def, long.base)).toEqual([{ type: "fail", nodeId: "n_each", iteration: 0, error: "The list has 3 items; this loop runs at most 2" }]);
+  expect(nextActions(long.def, long.base)).toEqual([{ type: "fail", nodeId: "n_each", iteration: 0, error: stored("engine.fail.loopTooMany", { items: 3, max: 2 }) }]);
 });
 
 test("valuesFor inside an iteration gives the item and that iteration's body outputs only", () => {

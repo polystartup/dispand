@@ -10,6 +10,7 @@ import { SecretError, type SecretBox } from "../secrets.ts";
 import type { ToolStep } from "../workflows/model.ts";
 import type { ToolSchema } from "../workflows/tool-steps.ts";
 import { coerceArguments, toolErrorText, toolOutputs, type ArgValue } from "./arguments.ts";
+import { stored } from "../messages/index.ts";
 import { ToolError, type ToolConnector, type ToolResult } from "./mcp.ts";
 import { enabledActions } from "./catalog.ts";
 import { connectionTarget } from "./procedures.ts";
@@ -73,16 +74,16 @@ export class InstalledTools {
   private async callTool(tool: Row, action: string, args: Record<string, unknown>, signal: AbortSignal): Promise<{ ok: true; result: ToolResult } | { ok: false; error: string }> {
     try {
       const current = await this.find(tool.ownerId, tool.id);
-      if (!current) return { ok: false, error: "The tool no longer exists" };
-      if (current.disabled.includes(action)) return { ok: false, error: `${tool.name}'s action “${action}” is disabled workspace-wide` };
-      if (!current.actions.some((a) => a.name === action)) return { ok: false, error: `${tool.name} no longer has the action “${action}”` };
-      if (tool.kind !== "http") return { ok: false, error: `${tool.name} runs on a runner: only an agent can use it` };
+      if (!current) return { ok: false, error: stored("tools.call.gone") };
+      if (current.disabled.includes(action)) return { ok: false, error: stored("tools.call.disabled", { name: tool.name, action }) };
+      if (!current.actions.some((a) => a.name === action)) return { ok: false, error: stored("tools.call.noAction", { name: tool.name, action }) };
+      if (tool.kind !== "http") return { ok: false, error: stored("tools.call.onRunner", { name: tool.name }) };
       return { ok: true, result: await this.connector.callAction(connectionTarget(this.db, this.secrets, tool), action, args, signal) };
     } catch (error) {
-      if (error instanceof ToolError) return { ok: false, error: error.message };
-      if (error instanceof SecretError) return { ok: false, error: `${tool.name}'s headers couldn't be opened` };
+      if (error instanceof ToolError) return { ok: false, error: error.stored };
+      if (error instanceof SecretError) return { ok: false, error: stored("tools.call.headers", { name: tool.name }) };
       logError("tool call failed", error, { ref: tool.id });
-      return { ok: false, error: `The call to ${tool.name} failed` };
+      return { ok: false, error: stored("tools.call.failed", { name: tool.name }) };
     }
   }
 }
@@ -94,7 +95,7 @@ export interface ToolExecutor {
 
 /** Where no connector is configured: every Tool step fails, nothing is called. */
 export const noToolSteps: ToolExecutor = {
-  run: async () => ({ ok: false, error: "Tool steps can't run here: no tool connector is configured" }),
+  run: async () => ({ ok: false, error: stored("tools.call.noConnector") }),
 };
 
 /**
@@ -106,10 +107,10 @@ export function connectorToolExecutor(tools: InstalledTools): ToolExecutor {
   return {
     async run(ownerId, step, values, signal) {
       const tool = await tools.find(ownerId, step.toolId);
-      if (!tool) return { ok: false, error: "The step's tool no longer exists" };
-      if (tool.disabled.includes(step.action)) return { ok: false, error: `${tool.name}'s action “${step.action}” is disabled workspace-wide` };
+      if (!tool) return { ok: false, error: stored("tools.call.stepGone") };
+      if (tool.disabled.includes(step.action)) return { ok: false, error: stored("tools.call.disabled", { name: tool.name, action: step.action }) };
       const action = tool.actions.find((a) => a.name === step.action);
-      if (!action) return { ok: false, error: `${tool.name} no longer has the action “${step.action}”` };
+      if (!action) return { ok: false, error: stored("tools.call.noAction", { name: tool.name, action: step.action }) };
       const coerced = coerceArguments(action, values);
       if ("error" in coerced) return { ok: false, error: coerced.error };
       const called = await tools.call(tool, action.name, coerced.args, signal);

@@ -7,6 +7,7 @@ import { asCli, ownerContext } from "../runners/test-support.ts";
 import { addStep, type AgentStep, type WorkflowDef } from "./model.ts";
 import { STREAM_BUFFER } from "./procedures.ts";
 import type { RunEvent } from "../engine/engine.ts";
+import { stored } from "../messages/index.ts";
 
 async function setup() {
   const context = await ownerContext();
@@ -191,7 +192,7 @@ test("revoking a runner fails the runs waiting on it", async () => {
     { context },
   );
   await call(router.runners.revoke, { runnerId: harness.runnerId }, { context });
-  expect((await call(router.runs.get, { runId }, { context })).run).toMatchObject({ status: "failed", error: "The agent's runner was revoked" });
+  expect((await call(router.runs.get, { runId }, { context })).run).toMatchObject({ status: "failed", error: stored("engine.fail.runnerRevoked") });
   // Nothing holds the workflow any more.
   await call(router.workflows.delete, { id: wf.id }, { context });
 });

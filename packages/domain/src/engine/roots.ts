@@ -5,7 +5,7 @@ import { agents, questions, roots, runs, stepRuns, workspaceSettings, type RootK
 import { recordAudit } from "../audit/record.ts";
 import { newId } from "../ids.ts";
 import { jobAgentNameSql } from "../jobs/agent-name.ts";
-import { english } from "../messages/index.ts";
+import { stored } from "../messages/index.ts";
 import { meter, spanEvent } from "../telemetry/index.ts";
 import { recordInteraction } from "./interactions.ts";
 
@@ -23,7 +23,7 @@ export const CHECKPOINT = "checkpoint";
 export const DEFAULT_CHECKPOINT = 100;
 
 /** Why no Job of a declined root is made. */
-export const ROOT_STOPPED = english("engine.stoppedAtCheckpoint");
+export const ROOT_STOPPED = stored("engine.stoppedAtCheckpoint");
 
 /** The most agents a checkpoint's Approval names. */
 const MAX_AGENTS = 20;

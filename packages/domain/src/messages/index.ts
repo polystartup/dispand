@@ -64,3 +64,37 @@ export function reasonOf(err: { message: string; data?: unknown }): Text {
 
 /** A `Text` as an English sentence, for an agent: its tool results stay English, never keys. */
 export const sentence = (text: Text): string => ("text" in text ? text.text : english(text.key, text.values));
+
+/** An error that carries its message for a person: the English sentence as its `message`, the key and values as `say`, and `stored` for a text column. */
+export class SayError extends Error {
+  readonly say: Message;
+  constructor(key: MessageKey, values?: MessageValues) {
+    const { message: text, data } = message(key, values);
+    super(text);
+    this.say = data;
+  }
+  get stored(): string {
+    return stored(this.say.key, this.say.values);
+  }
+}
+
+/**
+ * A failure kept in a text column (a step's, a Job's, a tool's, a poll's): the message as JSON,
+ * so each reader shows it in its own language (`storedText`). A row written before holds plain
+ * words, shown as stored.
+ */
+export const stored = (key: MessageKey, values?: MessageValues): string => JSON.stringify(say(key, values));
+
+/** What a column holds, for a person: the keyed message it was stored as, else its words as they came. */
+export function storedText(value: string): Text {
+  try {
+    const parsed = JSON.parse(value) as { key?: unknown; values?: unknown } | null;
+    if (typeof parsed?.key === "string" && isMessageKey(parsed.key) && (parsed.values === undefined || (typeof parsed.values === "object" && parsed.values !== null))) return parsed as Message;
+  } catch {
+    // plain words
+  }
+  return { text: value };
+}
+
+/** What a column holds, as an English sentence: for an agent, a log, or a comparison. */
+export const storedSentence = (value: string): string => sentence(storedText(value));

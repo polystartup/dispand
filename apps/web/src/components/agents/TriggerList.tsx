@@ -8,6 +8,7 @@ import { api, orpc } from "../../lib/api.ts";
 import { Empty, List } from "../settings/parts.tsx";
 import { useAt } from "../workflow/panels/ScheduleTriggerPanel.tsx";
 import { localTimezone, TriggerSheet } from "./TriggerSheet.tsx";
+import { useStored } from "@/lib/message";
 
 export type Trigger = Awaited<ReturnType<typeof api.triggers.list>>[number];
 
@@ -16,6 +17,7 @@ export type Trigger = Awaited<ReturnType<typeof api.triggers.list>>[number];
 export function TriggerList({ agentId }: { agentId: string }) {
   const { t } = useTranslation("agents");
   const at = useAt();
+  const stored = useStored();
   /** What a trigger does, in a line: how it starts and, for a schedule, when it next fires. */
   function summary(tr: Trigger): string {
     const c = tr.config;
@@ -75,7 +77,7 @@ export function TriggerList({ agentId }: { agentId: string }) {
                         {t(last.message ? "triggers.lastMessage" : "triggers.last", {
                           when: at(last.scheduledFor, tr.config.kind === "schedule" ? tr.config.timezone : "UTC"),
                           status: t(`triggers.fire.${last.status}`),
-                          message: last.message,
+                          message: stored(last.message),
                         })}
                       </span>
                     )}

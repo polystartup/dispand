@@ -13,6 +13,7 @@ import { InstalledTools } from "./executor.ts";
 import { createMcpConnector } from "./mcp.ts";
 import { pollCaller } from "./poll.ts";
 import { startFakeMcp } from "./test-server.ts";
+import { stored } from "../messages/index.ts";
 
 // Catalog tools added through a proposal, before their owner signs in: no credential, the
 // actions their entry declares, flags and polls set at once, and nothing called until the sign-in.
@@ -141,10 +142,10 @@ test("a Job's call of a catalog tool waiting for its key goes nowhere", async ()
   const tool = await call(router.tools.addFromCatalog, { catalogId: "fake-mail" }, { context: w.context });
   const [row] = await w.context.db.select().from(toolsTable).where(eq(toolsTable.id, tool.id));
   const called = await new InstalledTools(w.context.db, w.context.secrets, w.context.tools).call(row!, "list_mail", {}, AbortSignal.timeout(5000));
-  expect(called).toMatchObject({ ok: false, error: expect.stringMatching(/needs sign-in/) });
+  expect(called).toMatchObject({ ok: false, error: stored("tools.fail.needsSignIn", { name: "Fake mail" }) });
   // Refresh says why, and keeps the declared actions.
   const refreshed = await call(router.tools.refresh, { id: tool.id }, { context: w.context });
-  expect(refreshed).toMatchObject({ actionsError: expect.stringMatching(/needs sign-in/), signIn: "needed" });
+  expect(refreshed).toMatchObject({ actionsError: expect.stringContaining("tools.fail.needsSignIn"), signIn: "needed" });
   expect(refreshed.actions.map((a) => a.name)).toEqual(["list_mail", "read_mail", "send_mail"]);
   expect(mcp.requests).toHaveLength(0);
 });

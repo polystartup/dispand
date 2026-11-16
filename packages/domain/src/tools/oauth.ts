@@ -4,6 +4,7 @@ import type { Auth } from "../auth.ts";
 import type { Db } from "../db/client.ts";
 import { tools as toolsTable } from "../db/schema.ts";
 import { logError } from "../log.ts";
+import { stored } from "../messages/index.ts";
 import type { SecretBox } from "../secrets.ts";
 import { ToolError } from "./errors.ts";
 import type { ToolConnector } from "./mcp.ts";
@@ -51,12 +52,12 @@ export async function finishToolAuthorization(app: Omit<OAuthApp, "auth">, owner
     await app.db.update(toolsTable).set({ actionsError: reason }).where(eq(toolsTable.id, row.id));
     return { toolId: row.id, ok: false };
   };
-  if (params.has("error")) return fail("The sign-in was refused or cancelled: connect the tool again");
+  if (params.has("error")) return fail(stored("tools.fail.signInRefused"));
   try {
     await oauthStep("callback", row.id, () => app.tools.finishAuthorization({ ...toolTarget(row, app.secrets), oauth: oauthStore(app.db, app.secrets, row) }, pending, params));
   } catch (error) {
     if (!(error instanceof ToolError)) logError("tools.oauth callback failed", error, { ref: row.id });
-    return fail(error instanceof ToolError ? error.message : "The sign-in couldn't be finished: connect the tool again");
+    return fail(error instanceof ToolError ? error.stored : stored("tools.fail.signInUnfinished"));
   }
   // Only while the tool still signs in to the server the flow was for: one pointed elsewhere meanwhile isn't connected by it.
   const [connected] = await app.db.update(toolsTable).set({ oauthStatus: "connected", actionsError: null }).where(sameTarget(row)).returning();

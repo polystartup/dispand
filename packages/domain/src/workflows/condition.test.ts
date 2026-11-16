@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { evaluateCondition, type ConditionOp } from "./condition.ts";
+import { stored } from "../messages/index.ts";
 
 test.each<[ConditionOp, string, string, boolean]>([
   ["equals", " Yes ", "yes", true],
@@ -18,7 +19,7 @@ test.each<[ConditionOp, string, string, boolean]>([
 });
 
 test("greater_than on a non-number is an error", () => {
-  expect(evaluateCondition("greater_than", "abc", "3")).toEqual({ error: "“abc” is not a number" });
-  expect(evaluateCondition("less_than", "3", " ")).toEqual({ error: "“” is not a number" });
-  expect(evaluateCondition("less_than", "x".repeat(100), "3")).toEqual({ error: `“${"x".repeat(80)}” is not a number` });
+  expect(evaluateCondition("greater_than", "abc", "3")).toEqual({ error: stored("engine.fail.notNumber", { text: "abc" }) });
+  expect(evaluateCondition("less_than", "3", " ")).toEqual({ error: stored("engine.fail.notNumber", { text: "" }) });
+  expect(evaluateCondition("less_than", "x".repeat(100), "3")).toEqual({ error: stored("engine.fail.notNumber", { text: "x".repeat(80) }) });
 });

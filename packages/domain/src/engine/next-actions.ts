@@ -9,6 +9,7 @@ import { references } from "../workflows/template.ts";
 // Pure: what a run does next, from its definition and its steps as they are. `Engine` only applies it.
 
 /** One node of a run as `nextActions` sees it (iteration 0 outside loops, from 1 inside). */
+import { stored } from "../messages/index.ts";
 export type StepState = { nodeId: string; iteration: number; status: StepStatus; outputs: Record<string, string> | null };
 
 export type Action =
@@ -56,7 +57,7 @@ function valueOf(ref: Ref | null, seen: Map<string, StepState>): string {
 /** A loop's items, from its list's value (upstream outputs never change, so each read gives the same). */
 function itemsOf(loop: LoopStep, seen: Map<string, StepState>): { items: unknown[] } | { error: string } {
   const list = parseList(valueOf(loop.list, seen));
-  return "error" in list ? { error: `“${loop.list?.name ?? "list"}” ${list.error}` } : list;
+  return "error" in list ? { error: stored("engine.fail.loopNotList", { list: loop.list?.name ?? "list" }) } : list;
 }
 
 /**
@@ -103,7 +104,7 @@ function iterate(def: WorkflowDef, steps: StepState[], loop: LoopStep, nodes: Wo
     })),
   );
   const text = loopResults(results);
-  if (text.length > MAX_RESULTS) return [{ type: "fail", nodeId: loop.id, iteration: 0, error: `The loop's results are over ${MAX_RESULTS.toLocaleString("en")} characters` }];
+  if (text.length > MAX_RESULTS) return [{ type: "fail", nodeId: loop.id, iteration: 0, error: stored("engine.fail.loopTooLong", { max: MAX_RESULTS }) }];
   return [{ type: "complete", nodeId: loop.id, iteration: 0, outputs: { count: String(current), results: text } }];
 }
 
@@ -134,7 +135,7 @@ function scopeActions(def: WorkflowDef, nodes: WorkflowNode[], iteration: number
       const list = itemsOf(step, seen);
       if ("error" in list) actions.push({ type: "fail", ...at, error: list.error });
       else if (list.items.length > step.maxIterations) {
-        actions.push({ type: "fail", ...at, error: `The list has ${list.items.length} items; this loop runs at most ${step.maxIterations}` });
+        actions.push({ type: "fail", ...at, error: stored("engine.fail.loopTooMany", { items: list.items.length, max: step.maxIterations }) });
       } else if (list.items.length === 0) actions.push({ type: "complete", ...at, outputs: { count: "0", results: loopResults([]) } });
       else actions.push({ type: "start", ...at }, { type: "open-iteration", loopId: step.id, iteration: 1 });
     } else if (step?.type === "data") actions.push({ type: "data", ...at });

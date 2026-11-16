@@ -7,6 +7,7 @@ import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { DataStep, WorkflowDef } from "../workflows/model.ts";
 import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
+import { stored } from "../messages/index.ts";
 
 class FakeAdapter implements HarnessAdapter {
   starts: { harness: Harness; start: StartParams }[] = [];
@@ -107,8 +108,8 @@ test("an output that doesn't fit its field fails the step and writes no row", as
   const runId = await engine.startRun(workflow.id);
   await emit(adapter.starts[0]!.start.sessionId, { type: "outputs-accepted", values: { name: "X", price: "lots" } });
   const { run, steps } = await runOf(engine, runId);
-  expect(steps["n_data"]).toMatchObject({ status: "failed", error: "“Price”: expected a number, got “lots”." });
-  expect(run).toMatchObject({ status: "failed", error: "“Price”: expected a number, got “lots”." });
+  expect(steps["n_data"]).toMatchObject({ status: "failed", error: stored("data.cell.got.number", { field: "Price", value: "lots" }) });
+  expect(run).toMatchObject({ status: "failed", error: stored("data.cell.got.number", { field: "Price", value: "lots" }) });
   expect((await call(router.rows.list, { tableId: ids.tableId }, { context })).total).toBe(0);
 });
 
@@ -164,7 +165,7 @@ test("update-row refuses a row of another table", async () => {
   const foreign = await call(router.rows.create, { tableId: other.id, values: { [other.fields[0]!.id]: "kept" } }, { context });
   const runId = await engine.startRun(workflow.id);
   await emit(adapter.starts[0]!.start.sessionId, { type: "outputs-accepted", values: { row: foreign.id } });
-  expect((await runOf(engine, runId)).steps["n_update"]).toMatchObject({ status: "failed", error: `row “${foreign.id}” is not in Projects` });
+  expect((await runOf(engine, runId)).steps["n_update"]).toMatchObject({ status: "failed", error: stored("engine.fail.rowNotIn", { row: foreign.id, table: "Projects" }) });
   expect((await call(router.rows.get, { id: foreign.id }, { context })).values).toEqual({ [other.fields[0]!.id]: "kept" });
   void ids;
 });
@@ -225,7 +226,7 @@ test("find-rows with an empty wired value where its op needs one fails the step"
   }));
   const runId = await engine.startRun(workflow.id);
   await emit(adapter.starts[0]!.start.sessionId, { type: "outputs-accepted", values: { budget: " " } });
-  expect((await runOf(engine, runId)).steps["n_find"]).toMatchObject({ status: "failed", error: "“Price”: a value is needed" });
+  expect((await runOf(engine, runId)).steps["n_find"]).toMatchObject({ status: "failed", error: stored("engine.fail.filterNoValue", { field: "Price" }) });
 });
 
 test("a data step writes its row once across a restart and a retried advance", async () => {
@@ -254,7 +255,7 @@ test("a field deleted mid-run fails the data step", async () => {
   const runId = await engine.startRun(workflow.id);
   await call(router.fields.delete, { id: ids.priceId }, { context });
   await emit(adapter.starts[0]!.start.sessionId, { type: "outputs-accepted", values: { name: "X", price: "3" } });
-  expect((await runOf(engine, runId)).steps["n_data"]).toMatchObject({ status: "failed", error: "A field this step sets no longer exists in Projects" });
+  expect((await runOf(engine, runId)).steps["n_data"]).toMatchObject({ status: "failed", error: stored("engine.fail.setFieldGone", { table: "Projects" }) });
   expect((await call(router.rows.list, { tableId: ids.tableId }, { context })).total).toBe(0);
 });
 
@@ -263,7 +264,7 @@ test("a field retyped to files mid-run fails the data step and keeps the row's f
   const runId = await engine.startRun(workflow.id);
   await call(router.fields.retype, { id: ids.priceId, type: "attachment", dryRun: false }, { context });
   await emit(adapter.starts[0]!.start.sessionId, { type: "outputs-accepted", values: { name: "X", price: "" } });
-  expect((await runOf(engine, runId)).steps["n_data"]).toMatchObject({ status: "failed", error: "“Price” holds files, which a workflow can't set" });
+  expect((await runOf(engine, runId)).steps["n_data"]).toMatchObject({ status: "failed", error: stored("engine.fail.attachment", { field: "Price" }) });
   expect((await call(router.rows.list, { tableId: ids.tableId }, { context })).total).toBe(0);
 });
 

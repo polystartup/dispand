@@ -3,7 +3,7 @@ import type { Db, Tx } from "../db/client.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import { heldUnasked, strictTargets } from "../agents/tool-ask.ts";
 import { agents, agentTools, tools } from "../db/schema.ts";
-import { type Message, say, sentence } from "../messages/index.ts";
+import { type Message, say, stored } from "../messages/index.ts";
 
 // Polls only read (design 6.7): the scheduler calls a tool outside any Job, so an action it may
 // call is one the owner lets polls read, and never one an agent must ask before using.
@@ -44,10 +44,10 @@ export async function pollProblem(db: Db | Tx, ownerId: string, agentId: string,
   return toolPollProblem(db, ownerId, toolId, action, async () => (await skillsAndTools(db, agentId)).tools.some((t) => t.toolId === toolId));
 }
 
-/** `pollProblem` as the English sentence a stored record keeps (a skipped poll's or item's reason). */
+/** `pollProblem` as the stored message a record keeps (a skipped poll's or item's reason). */
 export async function pollProblemText(db: Db | Tx, ownerId: string, agentId: string, toolId: string, action: string): Promise<string | null> {
   const problem = await pollProblem(db, ownerId, agentId, toolId, action);
-  return problem && sentence(problem);
+  return problem && stored(problem.key, problem.values);
 }
 
 /** `pollProblem` for an agent that isn't made yet: `holds` says whether it will have the tool. */

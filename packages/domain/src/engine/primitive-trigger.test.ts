@@ -9,6 +9,7 @@ import { JOB, type TriggerConfig } from "../triggers/model.ts";
 import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { Scheduler } from "./scheduler.ts";
+import { stored } from "../messages/index.ts";
 
 class FakeAdapter implements HarnessAdapter {
   starts: { harness: Harness; start: StartParams }[] = [];
@@ -134,7 +135,7 @@ test("a trigger whose agent lost data on the table is skipped at dispatch, repor
   const ada = await s.create({ [s.name.id]: "Ada" });
   await s.update(ada.id, { [s.city.id]: "Paris" });
   expect(await s.scheduler.tick()).toEqual([]);
-  expect((await s.firesOf(trigger.id)).map((f) => [f.status, f.message])).toEqual([["out-of-scope", "The agent may no longer read this table"]]);
+  expect((await s.firesOf(trigger.id)).map((f) => [f.status, f.message])).toEqual([["out-of-scope", stored("engine.fail.scope.tableNow")]]);
   expect(await s.unprocessed()).toEqual([]);
   const view = await call(router.triggers.get, { id: trigger.id }, { context: s.context });
   expect(view.lastEvents).toMatchObject([{ status: "out-of-scope" }]);
@@ -202,7 +203,7 @@ test("a deferred fire is decided by the trigger as it is when tried: one retarge
   expect(await s.scheduler.tick()).toEqual([]);
   expect((await s.firesOf(trigger.id)).map((f) => [f.status, f.message])).toEqual([
     ["started", null],
-    ["refused", "The trigger no longer watches this change"],
+    ["refused", stored("engine.fire.notWatching")],
   ]);
 });
 
@@ -242,7 +243,7 @@ test("a Job whose agent lost the table before its session started never gets the
   await s.engine.continueRun(runId!);
   await vi.waitFor(async () => {
     const [run] = await s.context.db.select().from(runs).where(eq(runs.id, runId!));
-    expect(run).toMatchObject({ status: "failed", error: "The agent may no longer read the table that changed" });
+    expect(run).toMatchObject({ status: "failed", error: stored("engine.fail.scope.table") });
   });
   expect(s.adapter.starts).toEqual([]);
 });

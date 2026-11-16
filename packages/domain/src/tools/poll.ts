@@ -1,6 +1,7 @@
 import { storable } from "@dispand/runner-protocol";
 import type { tools as toolsTable } from "../db/schema.ts";
 import { newId } from "../ids.ts";
+import { stored } from "../messages/index.ts";
 import { runnerTarget } from "../plugins/runner-servers.ts";
 import { type RunnerHub, RunnerRequestFailed } from "../runners/hub.ts";
 import type { PollContinuation } from "../triggers/model.ts";
@@ -48,22 +49,22 @@ export function pollCaller(installed: InstalledTools, hub: Pick<RunnerHub, "call
     async call(tool, action, args) {
       if (tool.kind === "runner") {
         // Its runner's own server by name, or its plugin's stdio server, which the runner checks against its record.
-        const target = tool.runnerId ? await runnerTarget(installed.db, tool) : { error: "The tool isn't on a runner yet" };
+        const target = tool.runnerId ? await runnerTarget(installed.db, tool) : { error: stored("tools.fail.notOnRunner") };
         if (typeof target === "object" && "error" in target) return { ok: false, error: target.error };
         try {
           const reply = await hub.call(tool.runnerId!, { type: "tool.call", requestId: newId("req"), tool: target, action, arguments: args }, POLL_TIMEOUT_MS);
           if (reply.error !== undefined) return { ok: false, error: reply.error };
-          if (reply.isError) return { ok: false, error: "The action reported an error" };
+          if (reply.isError) return { ok: false, error: stored("tools.poll.actionError") };
           const text = (reply.content ?? []).find((c) => c.type === "text" && typeof c.text === "string");
-          return text ? parse(text.text as string, reply.hasMore === true) : { ok: false, error: "The action's result has no text" };
+          return text ? parse(text.text as string, reply.hasMore === true) : { ok: false, error: stored("tools.poll.noText") };
         } catch (error) {
           if (!(error instanceof RunnerRequestFailed)) throw error;
-          return { ok: false, error: error.message === "timed out" ? "The runner didn't answer in time" : "runner offline" };
+          return { ok: false, error: stored(error.message === "timed out" ? "tools.fail.runnerTimeout" : "tools.fail.runnerOffline") };
         }
       }
       const called = await installed.call(tool, action, args, AbortSignal.timeout(POLL_TIMEOUT_MS));
       if (!called.ok) return called;
-      if (called.result.isError) return { ok: false, error: "The action reported an error" };
+      if (called.result.isError) return { ok: false, error: stored("tools.poll.actionError") };
       const hasMore = called.result.hasMore === true;
       return called.result.structured ? { ok: true, data: called.result.structured, hasMore } : parse(called.result.text, hasMore);
     },
@@ -106,7 +107,7 @@ export type PolledItem = { id: string; content: string; tooLarge: boolean };
  */
 export function itemsOf(data: unknown, itemsPath: string, idPath: string): { items: PolledItem[]; noId: number } | { error: string } {
   const list = at(data, itemsPath);
-  if (!Array.isArray(list)) return { error: itemsPath ? `The result has no list at “${itemsPath}”` : "The result isn't a list" };
+  if (!Array.isArray(list)) return { error: itemsPath ? stored("tools.poll.noList", { path: itemsPath }) : stored("tools.poll.notList") };
   const items: PolledItem[] = [];
   const seen = new Set<string>();
   let noId = 0;

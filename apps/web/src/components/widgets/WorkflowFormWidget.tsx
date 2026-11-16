@@ -9,6 +9,7 @@ import { type api, orpc } from "../../lib/api.ts";
 import { useRun } from "../../lib/run-watch.ts";
 import { ChatPanel } from "./ChatPanel.tsx";
 import { WidgetHeader } from "./WidgetHeader.tsx";
+import { useStored } from "@/lib/message";
 
 export type Widget = Awaited<ReturnType<typeof api.pages.get>>["widgets"][number];
 export type FormWidget = Extract<Widget, { type: "workflow-form" }>;
@@ -68,6 +69,7 @@ function ButtonField({ workflowId, def, runId, onRunStarted }: { workflowId: str
 export function StartButton({ label, runId, start, onRunStarted, disabled }: { label: string; runId: string | null; start: () => Promise<{ runId: string }>; onRunStarted: (id: string) => void; disabled?: boolean }) {
   const { t } = useTranslation(["dashboard", "common", "data"]);
   const queryClient = useQueryClient();
+  const stored = useStored();
   const run = useRun(runId);
   const starting = useMutation({
     mutationFn: start,
@@ -93,7 +95,7 @@ export function StartButton({ label, runId, start, onRunStarted, disabled }: { l
           <Trans
             t={t}
             i18nKey={status === "failed" && run.run.error ? "lastRun.failedWith" : `lastRun.${status}`}
-            values={{ error: run.run.error }}
+            values={{ error: stored(run.run.error) }}
             components={{ inbox: <Link to="/inbox" className="text-accent hover:underline" /> }}
           />
         </p>

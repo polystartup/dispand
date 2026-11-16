@@ -1,5 +1,5 @@
 import { OutputField, TEXT } from "@dispand/runner-protocol";
-import { english, type Message, say } from "../messages/index.ts";
+import { type Message, say, stored } from "../messages/index.ts";
 import { storableText } from "../text.ts";
 import type { ToolAction, ToolResult } from "./mcp.ts";
 
@@ -94,11 +94,10 @@ export function coerceArguments(action: Pick<ToolAction, "inputSchema">, values:
     const empty = value === undefined || typeof value === "object" || (param.type !== "string" && value.trim() === "");
     if (empty) {
       if (!param.required) continue;
-      const skipped = typeof value === "object" ? ` (“${value.skipped}” was skipped)` : "";
-      return { error: `“${param.name}” has no value${skipped}` };
+      return { error: typeof value === "object" ? stored("tools.call.noValueSkipped", { param: param.name, step: value.skipped }) : stored("tools.call.noValue", { param: param.name }) };
     }
     const coerced = coerceValue(param.type, value, param.name);
-    if ("error" in coerced) return { error: english(coerced.error.key, coerced.error.values) };
+    if ("error" in coerced) return { error: stored(coerced.error.key, coerced.error.values) };
     args.push([param.name, coerced.value]);
   }
   // `fromEntries` defines own properties: a parameter named `__proto__` stays one.
@@ -134,5 +133,5 @@ export function toolOutputs(result: Pick<ToolResult, "text" | "structured">): Re
 /** Why an `isError` result fails its step: its first characters. */
 export function toolErrorText(text: string): string {
   const head = text.trim().slice(0, MAX_TOOL_ERROR);
-  return head ? `The tool answered with an error: ${storableText(head)}` : "The tool answered with an error";
+  return head ? stored("tools.call.answeredError", { text: storableText(head) }) : stored("tools.call.answeredNothing");
 }

@@ -1,4 +1,5 @@
 import type { Message, Text } from "@dispand/domain";
+import { storedText } from "@dispand/domain/messages/index.ts";
 import type { i18n } from "i18next";
 import { useTranslation } from "react-i18next";
 import { formatters } from "./format.ts";
@@ -16,6 +17,15 @@ export function messageText(t: i18n, text: Text | Message): string {
   const options = { replace, ...(typeof replace.count === "number" && { count: replace.count }) };
   const key = `messages:${text.key}`;
   return t.exists(key, options) ? t.t(key as never, options) : t.t("errors.generic");
+}
+
+/** What a text column stored (a failure's key and values as JSON, or plain words from before) in the page's language. */
+export const storedMessage = (t: i18n, value: string): string => messageText(t, storedText(value));
+
+/** `storedMessage` in the page's current language; empty and absent stay as they are. */
+export function useStored() {
+  const { i18n } = useTranslation();
+  return <V extends string | null | undefined>(value: V): V => (value ? (storedMessage(i18n, value) as V) : value);
 }
 
 /** `messageText` in the page's current language. */

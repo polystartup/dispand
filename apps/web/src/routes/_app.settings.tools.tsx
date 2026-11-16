@@ -12,6 +12,7 @@ import { ToolSheet, type Tool } from "../components/settings/ToolSheet.tsx";
 import { PageHeader } from "../components/Placeholder.tsx";
 import { orpc } from "../lib/api.ts";
 import { qualifiedName } from "@dispand/domain/plugins/names";
+import { useStored } from "@/lib/message";
 
 // `tool`: the tool whose sheet opens, with its settings or Connect: as an OAuth sign-in comes back
 // to it, and as an agent links to it (a tool's `signInPath`).
@@ -19,6 +20,7 @@ export const Route = createFileRoute("/_app/settings/tools")({ component: Tools,
 
 function Tools() {
   const { t } = useTranslation("tools");
+  const stored = useStored();
   const tools = useQuery(orpc.tools.list.queryOptions());
   // `n` remounts the sheet with what the server saved. `runner`: a runner tool's sheet.
   const [sheet, setSheet] = useState<{ tool?: Tool; n: number; runner?: boolean; suggested?: { name: string; runnerTool: string; catalogId?: string } } | null>(null);
@@ -87,7 +89,7 @@ function Tools() {
                   {tool.oauthStatus === "authorize" && <span className="block truncate text-[13px] text-muted">{t("list.notConnected")}</span>}
                   {tool.signIn === "needed" && tool.auth !== "oauth" && <span className="block truncate text-[13px] text-danger">{t("list.needsSignIn")}</span>}
                   {tool.oauthStatus === "reauthorize" && <span className="block truncate text-[13px] text-danger">{t("list.reauthorize")}</span>}
-                  {tool.actionsError && tool.oauthStatus !== "reauthorize" && <span className="block truncate text-[13px] text-danger">{tool.actionsError}</span>}
+                  {tool.actionsError && tool.oauthStatus !== "reauthorize" && <span className="block truncate text-[13px] text-danger">{stored(tool.actionsError)}</span>}
                 </span>
               </button>
               <Button

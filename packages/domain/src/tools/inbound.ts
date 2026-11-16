@@ -1,4 +1,5 @@
 import { isJsonContentType } from "@modelcontextprotocol/client";
+import { type Message, say } from "../messages/index.ts";
 
 /**
  * Everything an MCP server sends passes here, in the connection's `fetch`, before the SDK reads a
@@ -16,26 +17,26 @@ export const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 /** JSON values (objects, arrays, scalars) in one message from the server, at most. */
 export const MAX_MESSAGE_VALUES = 100_000;
 
-/** A response the screen refused; `reason` follows the host in the owner's error ("<host> <reason>"). */
+/** A response the screen refused; its `reason` is a message whose `{{host}}` the owner's error fills. */
 export class InboundRefused extends Error {
   override name = "InboundRefused";
-  constructor(readonly reason: string) {
-    super(reason);
+  constructor(readonly reason: Message) {
+    super(reason.key);
   }
 }
 
 /** Why a parsed message is refused, if it is: the SDK's validation works per value, so its cost is bounded here. */
-export function inboundProblem(message: unknown): string | undefined {
+export function inboundProblem(message: unknown): Message | undefined {
   let values = 0;
   const stack: unknown[] = [message];
   while (stack.length) {
     const value = stack.pop();
-    if (++values > MAX_MESSAGE_VALUES) return "sent a message too large to read";
+    if (++values > MAX_MESSAGE_VALUES) return say("tools.fail.tooManyValues");
     if (Array.isArray(value)) for (const item of value) stack.push(item);
     else if (typeof value === "object" && value !== null) for (const item of Object.values(value)) stack.push(item);
   }
   const tools = (message as { result?: { tools?: unknown } } | null)?.result?.tools;
-  if (Array.isArray(tools) && tools.length > MAX_ACTIONS) return `offers more than ${MAX_ACTIONS} actions`;
+  if (Array.isArray(tools) && tools.length > MAX_ACTIONS) return say("tools.fail.serverTooManyActions", { max: MAX_ACTIONS });
   return undefined;
 }
 
@@ -126,9 +127,9 @@ export function screenedFetch(
   inner: typeof fetch,
   /** Called at the first refusal: the SDK may not notice a stream that failed, so the caller ends the connection. */
   onRefused: (error: InboundRefused) => void,
-): { fetch: typeof fetch; refused(): string | undefined } {
+): { fetch: typeof fetch; refused(): Message | undefined } {
   let seen = 0;
-  let refused: string | undefined;
+  let refused: Message | undefined;
   /** Runs `step`; a refusal is remembered before it errors the stream. */
   const guarded = <T>(step: () => T): T => {
     try {
@@ -147,7 +148,7 @@ export function screenedFetch(
         transform(chunk, controller) {
           seen += chunk.byteLength;
           guarded(() => {
-            if (seen > MAX_RESPONSE_BYTES) throw new InboundRefused("sent more than 16 MiB");
+            if (seen > MAX_RESPONSE_BYTES) throw new InboundRefused(say("tools.fail.tooLarge"));
           });
           controller.enqueue(chunk);
         },

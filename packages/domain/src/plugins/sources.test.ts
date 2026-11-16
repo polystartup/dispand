@@ -37,7 +37,7 @@ test("a repository with neither a marketplace file nor skills/ is refused", asyn
   const repo = fixtureRepo({ "README.md": "hi" });
   await expect(call(router.marketplaces.add, { url: repo.url }, { context: ctx })).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "This repository has neither a .claude-plugin/marketplace.json nor a skills/ folder",
+    message: "This repository has neither a .claude-plugin/marketplace.json nor a skills/ folder.",
   });
   repo.remove();
 });
@@ -67,13 +67,13 @@ test("a skill site is one entry; install downloads its skills, update sees chang
 
   fakeSite({});
   const synced = await call(router.marketplaces.sync, { id: market.id }, { context: ctx });
-  expect(synced).toMatchObject({ plugins: 1, syncError: expect.stringContaining("answered 404") });
+  expect(synced).toMatchObject({ plugins: 1, syncError: expect.stringContaining('"status":404') });
 });
 
 test("a skill site must be https", async () => {
   const ctx = await context();
   await expect(call(router.marketplaces.add, { url: "http://skills.example", kind: "well-known" }, { context: ctx })).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "Use an https:// address",
+    message: "Use an https:// address.",
   });
 });

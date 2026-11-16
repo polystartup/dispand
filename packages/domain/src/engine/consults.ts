@@ -3,7 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { agents, questions, roots, runs, stepRuns } from "../db/schema.ts";
 import { consultsOf, pairProblem } from "../agents/consults.ts";
-import { sentence } from "../messages/index.ts";
+import { sentence, storedSentence } from "../messages/index.ts";
 import { storableText } from "../text.ts";
 import { STOPPED } from "./engine.ts";
 import { JOB_STEP } from "./job-def.ts";
@@ -97,7 +97,7 @@ export async function consultProblem(db: Db | Tx, askingRunId: string, consulted
   if ((await chainAgents(db, askingRunId)).includes(consultedId)) return IN_CHAIN;
   const [root] = run.rootId ? await db.select({ state: roots.state }).from(roots).where(eq(roots.id, run.rootId)) : [];
   if (!root) return NOT_LISTED;
-  if (root.state === "stopped") return ROOT_STOPPED;
+  if (root.state === "stopped") return storedSentence(ROOT_STOPPED);
   return asked ? null : rightsProblem(db, run, consultedId, false);
 }
 
@@ -126,7 +126,7 @@ export async function consultEnd(db: Db | Tx, run: Pick<RunRow, "id" | "status" 
     const [root] = run.rootId ? await db.select({ state: roots.state }).from(roots).where(eq(roots.id, run.rootId)) : [];
     return failed(root?.state === "stopped" ? CONSULTED_STOPPED_AT_CHECKPOINT : CONSULTED_STOPPED);
   }
-  return failed(`The consulted Job failed: ${run.error ?? "no reason given"}`);
+  return failed(`The consulted Job failed: ${run.error ? storedSentence(run.error) : "no reason given"}`);
 }
 
 /** The consulted agent's name now, for the asker's prompt and the answer's attribution. */

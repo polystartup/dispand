@@ -114,7 +114,7 @@ test("rejects other fatal manifest violations before discovery", () => {
   ];
   for (const more of bad) {
     // A skill that doesn't validate would be listed if discovery had started.
-    expect(() => read({ "plugin.json": manifest(more), "skills/x/SKILL.md": skillMd("y") }), JSON.stringify(more)).toThrow(/^plugin\.json's \w+ isn't valid$/);
+    expect(() => read({ "plugin.json": manifest(more), "skills/x/SKILL.md": skillMd("y") }), JSON.stringify(more)).toThrow(/^plugin\.json's \w+ isn't valid\.$/);
   }
   expect(() => read({ "plugin.json": "{" })).toThrow("plugin.json isn't valid JSON");
   expect(() => read({ "plugin.json": "[]" })).toThrow("plugin.json isn't a JSON object");

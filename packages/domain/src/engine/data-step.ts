@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import type { Tx } from "../db/client.ts";
 import { type EventActor, rows as rowsTable, tables as tablesTable } from "../db/schema.ts";
 import { type Cell, cellText, parseCellText } from "../data/fields.ts";
-import { english } from "../messages/index.ts";
+import { stored } from "../messages/index.ts";
 import { FILTER_OPS, type Filter, type FilterOp, filterValue, takesValue } from "../data/query.ts";
 import { orderOf, whereOf, writeRow } from "../data/rows.ts";
 import { loadTableSchemas } from "../data/tables.ts";
@@ -33,20 +33,20 @@ export async function runDataStep(
     .where(and(eq(tablesTable.id, step.tableId), eq(tablesTable.ownerId, ownerId)))
     .for("share");
   const [table] = locked ? await loadTableSchemas(tx, ownerId, [locked.id]) : [];
-  if (!table) return { error: "The step's table no longer exists" };
+  if (!table) return { error: stored("engine.fail.tableGone") };
   const fields = new Map(table.fields.map((f) => [f.id, f]));
 
   if (step.action === "find-rows") {
     const filters: Filter[] = [];
     for (const f of step.filters) {
       const field = fields.get(f.fieldId);
-      if (!field) return { error: `A field this step filters on no longer exists in ${table.name}` };
-      if (!(FILTER_OPS[field.type] as readonly FilterOp[]).includes(f.op)) return { error: `“${field.name}” can't be filtered by “${f.op}”` };
+      if (!field) return { error: stored("engine.fail.filterFieldGone", { table: table.name }) };
+      if (!(FILTER_OPS[field.type] as readonly FilterOp[]).includes(f.op)) return { error: stored("engine.fail.filterOp", { field: field.name, op: f.op }) };
       const filter: Filter = { fieldId: field.id, op: f.op, ...(f.value ? { value: resolve(f.value) } : {}) };
       if (takesValue(f.op)) {
         const parsed = filterValue(field, filter);
-        if (!parsed.ok) return { error: english(parsed.reason.key, parsed.reason.values) };
-        if (parsed.value === null) return { error: `“${field.name}”: a value is needed` };
+        if (!parsed.ok) return { error: stored(parsed.reason.key, parsed.reason.values) };
+        if (parsed.value === null) return { error: stored("engine.fail.filterNoValue", { field: field.name }) };
       }
       filters.push(filter);
     }
@@ -60,7 +60,7 @@ export async function runDataStep(
       found.map((r) => Object.fromEntries([["id", r.id], ...table.fields.map((f) => [f.name, cellText(f, r.values[f.id] ?? null)])])),
     );
     if (text.length > MAX_ROWS_TEXT) {
-      return { error: `the rows found are too long to pass on (${text.length} characters, at most ${MAX_ROWS_TEXT}): lower the limit` };
+      return { error: stored("engine.fail.rowsTooLong", { length: text.length, max: MAX_ROWS_TEXT }) };
     }
     return { outputs: { count: String(found.length), row_id: found[0]?.id ?? "", rows: text } };
   }
@@ -68,22 +68,22 @@ export async function runDataStep(
   const cells: Record<string, Cell> = {};
   for (const i of step.inputs) {
     const field = fields.get(i.fieldId);
-    if (!field) return { error: `A field this step sets no longer exists in ${table.name}` };
+    if (!field) return { error: stored("engine.fail.setFieldGone", { table: table.name }) };
     // Retyped to files since the run started: an empty value would clear the files.
-    if (field.type === "attachment") return { error: `“${field.name}” holds files, which a workflow can't set` };
+    if (field.type === "attachment") return { error: stored("engine.fail.attachment", { field: field.name }) };
     const parsed = parseCellText(field, resolve(i.source));
-    if (!parsed.ok) return { error: english(parsed.reason.key, parsed.reason.values) };
+    if (!parsed.ok) return { error: stored(parsed.reason.key, parsed.reason.values) };
     cells[field.id] = parsed.value;
   }
   let rowId: string | undefined;
   if (step.action === "update-row") {
     rowId = resolve(step.rowId).trim();
-    if (rowId === "") return { error: `No row of ${table.name} to update: its id is empty` };
+    if (rowId === "") return { error: stored("engine.fail.noRowId", { table: table.name }) };
   }
   const result = await writeRow(tx, { ownerId, tableId: table.id, ...(rowId ? { rowId } : {}), values: cells, actor: input.actor });
   if ("problem" in result) {
-    if (rowId && result.notFound) return { error: `row “${rowId.length > 100 ? `${Array.from(rowId).slice(0, 100).join("")}…` : rowId}” is not in ${table.name}` };
-    return { error: english(result.problem.key, result.problem.values) };
+    if (rowId && result.notFound) return { error: stored("engine.fail.rowNotIn", { row: rowId.length > 100 ? `${Array.from(rowId).slice(0, 100).join("")}…` : rowId, table: table.name }) };
+    return { error: stored(result.problem.key, result.problem.values) };
   }
   return { outputs: { row_id: result.row.id }, changed: { tableId: table.id, rowIds: [result.row.id] } };
 }

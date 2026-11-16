@@ -19,8 +19,9 @@ import { jobTokenOf, jobOfToken } from "../platform/token.ts";
 import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
-import { Engine, RESUME_PROMPT, TOOL_RESTARTED } from "./engine.ts";
+import { Engine, RESUME_PROMPT, STOPPED, TOOL_RESTARTED } from "./engine.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, type StartParams } from "./harness.ts";
+import { stored } from "../messages/index.ts";
 
 /** Records what the engine asks of the harness. Online, every message reaches it at once; offline, none does. */
 class FakeAdapter implements HarnessAdapter {
@@ -551,7 +552,7 @@ test("a prompt too long once filled in fails its step, and is never sent or rese
   await vi.waitFor(async () => expect((await runOf(engine, runId)).run.status).toBe("failed"));
   expect(adapter.starts).toHaveLength(1);
   const { run, steps } = await runOf(engine, runId);
-  expect(steps.n_plan).toMatchObject({ status: "failed", error: expect.stringContaining("too long once its values are filled in (300024 characters, at most 200000)") });
+  expect(steps.n_plan).toMatchObject({ status: "failed", error: stored("engine.fail.promptTooLong", { length: 300024, max: 200000 }) });
   expect(run.error).toBe(steps.n_plan!.error);
   await engine.reconcile(runnerId, []);
   expect(adapter.starts).toHaveLength(1);
@@ -656,7 +657,7 @@ test("a revoked runner fails the steps on it, and no new step starts on it", asy
   const { context, adapter, engine, workflow, runnerId } = await setup(buttonThenStep);
   const runId = await engine.startRun(workflow.id);
   await engine.runnerRevoked(runnerId);
-  expect((await runOf(engine, runId)).run).toMatchObject({ status: "failed", error: "The agent's runner was revoked" });
+  expect((await runOf(engine, runId)).run).toMatchObject({ status: "failed", error: stored("engine.fail.runnerRevoked") });
   await context.db.update(runners).set({ revokedAt: new Date() }).where(eq(runners.id, runnerId));
   const second = await engine.startRun(workflow.id);
   expect(adapter.starts).toHaveLength(1);
@@ -671,13 +672,13 @@ test("signed-out runner fails the step with the sign-in message", async () => {
 
   await reported({ claude: "2.1.0" });
   const missing = await engine.startRun(workflow.id);
-  expect((await runOf(engine, missing)).run).toMatchObject({ status: "failed", error: "Codex isn't installed on Workstation" });
+  expect((await runOf(engine, missing)).run).toMatchObject({ status: "failed", error: stored("engine.fail.codexMissing", { runner: "Workstation" }) });
 
   await reported({ codex: { version: "0.166.0", signedIn: false } });
   const signedOut = await engine.startRun(workflow.id);
   expect((await runOf(engine, signedOut)).run).toMatchObject({
     status: "failed",
-    error: "Sign in to Codex on Workstation: run `codex login` there, then restart its runner",
+    error: stored("engine.fail.codexSignIn", { runner: "Workstation" }),
   });
   expect(adapter.starts).toHaveLength(0);
 
@@ -974,8 +975,8 @@ test("a condition that can't compare fails the run with its reason", async () =>
   const runId = await engine.startRun(workflow.id);
   await emit(adapter.starts[0]!.start.sessionId, { type: "outputs-accepted", values: { approved: "abc" } });
   const state = await runOf(engine, runId);
-  expect(state.steps.n_if).toMatchObject({ status: "failed", error: "“abc” is not a number" });
-  expect(state.run).toMatchObject({ status: "failed", error: "“abc” is not a number" });
+  expect(state.steps.n_if).toMatchObject({ status: "failed", error: stored("engine.fail.notNumber", { text: "abc" }) });
+  expect(state.run).toMatchObject({ status: "failed", error: stored("engine.fail.notNumber", { text: "abc" }) });
 });
 
 /** Chat "list" gives `items` → loop "each" over it, body: "do" (`Do {{each.item}}`). */
@@ -1033,8 +1034,8 @@ test("list over the cap fails before any iteration", async () => {
   await emit(adapter.starts[0]!.start.sessionId, { type: "outputs-accepted", values: { items: "[1,2,3]" } });
   expect(await bodyRows(engine, runId)).toEqual([]);
   const state = await runOf(engine, runId);
-  expect(state.steps.n_each).toMatchObject({ status: "failed", error: "The list has 3 items; this loop runs at most 2" });
-  expect(state.run).toMatchObject({ status: "failed", error: "The list has 3 items; this loop runs at most 2" });
+  expect(state.steps.n_each).toMatchObject({ status: "failed", error: stored("engine.fail.loopTooMany", { items: 3, max: 2 }) });
+  expect(state.run).toMatchObject({ status: "failed", error: stored("engine.fail.loopTooMany", { items: 3, max: 2 }) });
   expect(adapter.starts).toHaveLength(1);
 });
 
@@ -1042,7 +1043,7 @@ test("a list that isn't a JSON array fails the loop", async () => {
   const { adapter, engine, emit, workflow } = await setup(forEach());
   const runId = await engine.startRun(workflow.id);
   await emit(adapter.starts[0]!.start.sessionId, { type: "outputs-accepted", values: { items: "a, b" } });
-  expect((await runOf(engine, runId)).run).toMatchObject({ status: "failed", error: "“items” is not a list (a JSON array)" });
+  expect((await runOf(engine, runId)).run).toMatchObject({ status: "failed", error: stored("engine.fail.loopNotList", { list: "items" }) });
 });
 
 test("a failed iteration fails its loop with the run", async () => {
@@ -1118,13 +1119,13 @@ test("a tool step's outputs reach the next agent step", async () => {
 });
 
 test("a tool step's error fails the run", async () => {
-  const { adapter, engine, emit, workflow } = await setup(chatToolAgent, new FakeTools(() => ({ ok: false, error: "The tool answered with an error: nope" })));
+  const { adapter, engine, emit, workflow } = await setup(chatToolAgent, new FakeTools(() => ({ ok: false, error: stored("tools.call.answeredError", { text: "nope" }) })));
   const runId = await engine.startRun(workflow.id);
   await emit(adapter.starts[0]!.start.sessionId, { type: "outputs-accepted", values: { name: "acme" } });
   await vi.waitFor(async () => expect((await runOf(engine, runId)).run.status).toBe("failed"));
   const state = await runOf(engine, runId);
-  expect(state.steps.n_repo).toMatchObject({ status: "failed", error: "The tool answered with an error: nope" });
-  expect(state.run.error).toBe("The tool answered with an error: nope");
+  expect(state.steps.n_repo).toMatchObject({ status: "failed", error: stored("tools.call.answeredError", { text: "nope" }) });
+  expect(state.run.error).toBe(stored("tools.call.answeredError", { text: "nope" }));
   expect(adapter.starts).toHaveLength(1);
 });
 
@@ -1398,18 +1399,18 @@ test("stopping a run fails its open steps and the run, expires its questions and
 
   await engine.stopRun(runId);
   const { run, steps } = await runOf(engine, runId);
-  expect(run).toMatchObject({ status: "failed", error: "Stopped" });
+  expect(run).toMatchObject({ status: "failed", error: STOPPED });
   expect(run.finishedAt).toBeInstanceOf(Date);
-  expect(steps.n_chat).toMatchObject({ status: "failed", error: "Stopped" });
+  expect(steps.n_chat).toMatchObject({ status: "failed", error: STOPPED });
   // A step that never started is closed too: nothing of the run is left open.
-  expect(steps.n_plan).toMatchObject({ status: "failed", error: "Stopped" });
+  expect(steps.n_plan).toMatchObject({ status: "failed", error: STOPPED });
   expect(await context.db.select({ status: questions.status }).from(questions).where(eq(questions.runId, runId))).toEqual([{ status: "expired" }]);
   await vi.waitFor(() => expect(adapter.stops).toEqual([session]));
 
   // What the session still says changes nothing, and the chat is over.
   await emit(session, { type: "outputs-accepted", values: { idea: "notes", audience: "me" } });
   await emit(session, { type: "error", message: "Stopped" });
-  expect((await runOf(engine, runId)).run).toMatchObject({ status: "failed", error: "Stopped" });
+  expect((await runOf(engine, runId)).run).toMatchObject({ status: "failed", error: STOPPED });
   expect(adapter.starts).toHaveLength(1);
   await expect(engine.sendChat(runId, "hello?")).rejects.toMatchObject({ code: "CLOSED" });
   await expect(engine.stopRun(runId)).rejects.toMatchObject({ code: "CLOSED" });
@@ -1420,7 +1421,7 @@ test("stopping a chat Job ends it", async () => {
   const { context, adapter, engine, trigger } = await jobSetup("chat");
   const runId = await engine.startJob(trigger.id, context.ownerId);
   await engine.stopRun(runId);
-  expect((await runOf(engine, runId)).run).toMatchObject({ status: "failed", error: "Stopped" });
+  expect((await runOf(engine, runId)).run).toMatchObject({ status: "failed", error: STOPPED });
   await vi.waitFor(() => expect(adapter.stops).toEqual([adapter.starts[0]!.start.sessionId]));
 });
 
@@ -1464,8 +1465,8 @@ test("stopping a run cuts its Tool step's call, and only that run's", async () =
   await engine.stopRun(first);
   expect(fake.signals.map((s) => s.aborted)).toEqual([true, false]);
   const state = await runOf(engine, first);
-  expect(state.steps.n_repo).toMatchObject({ status: "failed", error: "Stopped" });
-  expect(state.run).toMatchObject({ status: "failed", error: "Stopped" });
+  expect(state.steps.n_repo).toMatchObject({ status: "failed", error: STOPPED });
+  expect(state.run).toMatchObject({ status: "failed", error: STOPPED });
   expect((await runOf(engine, second)).steps.n_repo!.status).toBe("running");
 });
 
@@ -1486,7 +1487,7 @@ test("a session being resumed when its run is stopped is not started again", asy
   await engine.reconcile(runnerId, []);
   await engine.stop();
   // No start follows the stop: a stopped run is never resumed.
-  expect((await runOf(engine, runId)).run).toMatchObject({ status: "failed", error: "Stopped" });
+  expect((await runOf(engine, runId)).run).toMatchObject({ status: "failed", error: STOPPED });
   expect(adapter.starts).toHaveLength(1);
 });
 

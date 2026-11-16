@@ -14,14 +14,14 @@ export const DEFAULT_ITERATIONS = 20;
 export const MAX_RESULTS = 1_000_000;
 
 /** The items of a loop's list: a JSON array, nothing else. */
-export function parseList(value: string): { items: unknown[] } | { error: string } {
+export function parseList(value: string): { items: unknown[] } | { error: true } {
   try {
     const parsed: unknown = JSON.parse(value);
     if (Array.isArray(parsed)) return { items: parsed };
   } catch {
     // Not JSON: not a list either.
   }
-  return { error: "is not a list (a JSON array)" };
+  return { error: true };
 }
 
 // A decoded string may hold what its JSON escaped (NUL, a lone surrogate): made storable. JSON is.

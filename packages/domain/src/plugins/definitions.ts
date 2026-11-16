@@ -141,7 +141,7 @@ function readFiles(root: string, kind: string, extension: string, notImported: N
       notImported.push({ component: "definition", name: file, reason: "Not a regular file, or larger than 2 MiB" });
       continue;
     }
-    if (files.length >= MAX_DEFINITIONS) throw new PluginError(`The plugin holds more than ${MAX_DEFINITIONS} ${kind} definitions`);
+    if (files.length >= MAX_DEFINITIONS) throw new PluginError("pluginRead.tooManyDefinitions", { max: MAX_DEFINITIONS, kind });
     files.push({ file, text: bytes.toString("utf8") });
   }
   return files;

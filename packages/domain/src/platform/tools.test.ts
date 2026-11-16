@@ -3,8 +3,8 @@ import { expect, test } from "vitest";
 import { z } from "zod";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
-import { say } from "../messages/index.ts";
-import { englishSetup, NOT_TOOLS, PLATFORM_TOOLS, procedureOf, procedurePaths } from "./tools.ts";
+import { say, stored } from "../messages/index.ts";
+import { englishSetup, englishStored, NOT_TOOLS, PLATFORM_TOOLS, procedureOf, procedurePaths } from "./tools.ts";
 
 const toolPaths = PLATFORM_TOOLS.map((t) => t.path);
 
@@ -158,4 +158,13 @@ test("plugins_install tells an agent its setup report in English sentences, neve
     },
   });
   expect(englishSetup({ pluginId: "plugin_1" })).toEqual({ pluginId: "plugin_1" });
+});
+
+test("what an agent reads of a stored failure or a returned message is its English sentence, the tools that carry them filtered", () => {
+  const out = [{ error: stored("engine.fail.stopped"), reason: say("marketplaceFile.source.repo"), note: "As it came", at: new Date(0), nested: { actionsError: stored("tools.fail.timeout", { host: "a.example" }) } }];
+  expect(englishStored(out)).toEqual([{ error: "Stopped.", reason: "Its GitHub repository isn't owner/name.", note: "As it came", at: new Date(0), nested: { actionsError: "a.example didn't answer in time." } }]);
+  // A transcript's text or a schema that looks like a message stays as it is; a stored value that isn't one reads as it was stored.
+  const quoted = { text: stored("engine.fail.stopped"), schema: { key: "engine.fail.stopped" }, error: '{"key":"tools.fail.timeout","values":null}', old: { error: "Plain words" } };
+  expect(englishStored(quoted)).toEqual(quoted);
+  for (const path of ["triggers.list", "triggers.get", "jobs.list", "jobs.get", "tools.list", "tools.get", "tools.add", "tools.addFromCatalog", "plugins.discover"]) expect(PLATFORM_TOOLS.find((t) => t.path === path)!.filter, path).toBe(englishStored);
 });

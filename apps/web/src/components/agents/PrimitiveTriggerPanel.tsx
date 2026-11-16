@@ -6,6 +6,7 @@ import { useFormat } from "../../lib/format.ts";
 import { selectClass } from "../data/NewFieldPopover.tsx";
 import { FormField } from "../settings/parts.tsx";
 import { qualifiedName } from "@dispand/domain/plugins/names";
+import { useStored } from "@/lib/message";
 
 export type Operation = "created" | "updated" | "deleted" | "answered" | "expired" | "finished" | "failed";
 export type ChangeConfig = { tableId: string; operations: Operation[]; fields?: string[] };
@@ -40,6 +41,7 @@ export function PrimitiveTriggerPanel({
 }) {
   const { t, i18n } = useTranslation("agents");
   const format = useFormat();
+  const stored = useStored();
   const when = (date: Date) => format.dateTime(date, { dateStyle: "short", timeStyle: "short" });
   const tables = useQuery(orpc.tables.list.queryOptions());
   const interaction = config.tableId === INTERACTION;
@@ -131,7 +133,7 @@ export function PrimitiveTriggerPanel({
                   {f.status === "started" && f.runId ? (
                     <a href={`/settings/workflows/runs/${f.runId}`}>{t("change.status.started")}</a>
                   ) : (
-                    (i18n.exists(`agents:change.status.${f.status}`) ? t(`change.status.${f.status}` as never) : t("change.refused", { message: f.message ?? "" }))
+                    (i18n.exists(`agents:change.status.${f.status}`) ? t(`change.status.${f.status}` as never) : t("change.refused", { message: stored(f.message) ?? "" }))
                   )}
                 </span>
               </li>

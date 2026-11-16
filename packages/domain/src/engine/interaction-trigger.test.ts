@@ -13,6 +13,7 @@ import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { recordInteraction } from "./interactions.ts";
 import { pause } from "./roots.ts";
 import { Scheduler } from "./scheduler.ts";
+import { stored } from "../messages/index.ts";
 
 class FakeAdapter implements HarnessAdapter {
   starts: { harness: Harness; start: StartParams }[] = [];
@@ -260,7 +261,7 @@ test("a Job dispatched for a Question but held until its agent lost the Inbox en
   await s.engine.continueRun(held!);
   await vi.waitFor(async () => {
     const [run] = await s.context.db.select().from(runs).where(eq(runs.id, held!));
-    expect(run).toMatchObject({ status: "failed", error: "The agent may no longer read this Question" });
+    expect(run).toMatchObject({ status: "failed", error: stored("engine.fail.scope.question") });
   });
   expect(s.adapter.starts.slice(sent).some((st) => st.start.prompt?.includes(q.id))).toBe(false);
 });

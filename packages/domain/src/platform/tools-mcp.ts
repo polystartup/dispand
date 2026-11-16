@@ -1,3 +1,4 @@
+import { storedSentence } from "../messages/index.ts";
 import { createMcpHandler, Server } from "@modelcontextprotocol/server";
 import { recordToolCall } from "../audit/tool-call.ts";
 import { keepJobFiles } from "../data/files.ts";
@@ -55,7 +56,7 @@ function toolsHandler(app: PlatformApp) {
           // Cut when the request is: a session that ended doesn't leave its call running.
           const called = await installed.call(tool, item.action, args, ctx.requestInfo?.signal ?? new AbortController().signal);
           await recordToolCall(app.db, job, tool, item.action, called);
-          if (!called.ok) return text(called.error, true);
+          if (!called.ok) return text(storedSentence(called.error), true);
           // Files in the result are kept for the Job: the session gets their attachment ids, not their bytes.
           const result = await keepJobFiles(app.db, app.filesDir, job, called.result).catch((err: unknown) => {
             logError("tool files not kept", err, { ref: job.runId });

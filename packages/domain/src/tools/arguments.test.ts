@@ -1,6 +1,7 @@
 import { TEXT } from "@dispand/runner-protocol";
 import { expect, test } from "vitest";
 import { actionParams, coerceArguments, toolErrorText, toolOutputs, type ArgValue } from "./arguments.ts";
+import { stored, storedSentence } from "../messages/index.ts";
 
 const action = {
   inputSchema: {
@@ -52,12 +53,13 @@ test.each([
   [{ meta: "[1]" }, "“meta” must be JSON (an object)"],
   [{ meta: "not json" }, "“meta” must be JSON (an object)"],
 ])("coerceArguments refuses %j", (values, error) => {
-  expect(args({ name: "acme", ...values })).toEqual({ error });
+  const got = args({ name: "acme", ...values });
+  expect("error" in got ? { error: storedSentence(got.error) } : got).toEqual({ error });
 });
 
 test("a required parameter without a value is an error, an optional one is left out", () => {
-  expect(args({})).toEqual({ error: "“name” has no value" });
-  expect(args({ name: { skipped: "brief" } })).toEqual({ error: "“name” has no value (“brief” was skipped)" });
+  expect(args({})).toEqual({ error: stored("tools.call.noValue", { param: "name" }) });
+  expect(args({ name: { skipped: "brief" } })).toEqual({ error: stored("tools.call.noValueSkipped", { param: "name", step: "brief" }) });
   // An empty value for anything but text is no value: the optional number is left out.
   expect(args({ name: "acme", count: "", private: { skipped: "x" } })).toEqual({ args: { name: "acme" } });
   // Names the schema doesn't have are never sent.
@@ -91,6 +93,6 @@ test("toolOutputs cuts a value longer than a prompt holds", () => {
 });
 
 test("an error result fails with its first characters", () => {
-  expect(toolErrorText("x".repeat(600))).toBe(`The tool answered with an error: ${"x".repeat(500)}`);
-  expect(toolErrorText("  ")).toBe("The tool answered with an error");
+  expect(storedSentence(toolErrorText("x".repeat(600)))).toBe(`The tool answered with an error: ${"x".repeat(500)}`);
+  expect(storedSentence(toolErrorText("  "))).toBe("The tool answered with an error.");
 });

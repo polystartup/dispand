@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { stored } from "@dispand/domain/messages/index.ts";
 import { addStep, defaultWorkflowDef, type WorkflowDef } from "@dispand/domain/workflows/model";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
@@ -132,6 +133,18 @@ test("the steps are in French: iterations, status, the running time and the fold
   expect(screen.getAllByText("Sorties").length).toBeGreaterThan(0);
   expect(screen.getAllByText(/toujours en cours/).length).toBeGreaterThan(0);
   expect(screen.getByText("en attente d’une réponse")).toBeTruthy();
+});
+
+test("a failure stored as a key shows in the page's language, a plain one from before as stored", () => {
+  seconds = 0;
+  const failed = (id: string, error: string) => row(id, "n_wrap", 0, { status: "failed", error });
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <RunSteps state={snapshot([failed("s1", stored("tools.fail.timeout", { host: "mcp.example.com" })), failed("s2", "The tool no longer exists")])} def={workflow()} agentNames={new Map()} />
+    </I18nextProvider>,
+  );
+  expect(screen.getByText("mcp.example.com n’a pas répondu à temps.")).toBeTruthy();
+  expect(screen.getByText("The tool no longer exists")).toBeTruthy();
 });
 
 test("a step's transcript is the chat's thread, read-only: the owner's words with their files, the tools used, the agent's formatted text", async () => {

@@ -341,7 +341,7 @@ test("a picked server is added as a tool without credentials, reads “needs sig
     const { outcomes } = await setUp(ctx, pluginId, pick);
     const toolId = outcomes[0]!.id!;
     const tool = await call(router.tools.get, { id: toolId }, { context: ctx });
-    expect(tool).toMatchObject({ signIn: "needed", actionsError: expect.stringContaining("refused the request (401)") });
+    expect(tool).toMatchObject({ signIn: "needed", actionsError: expect.stringContaining("tools.fail.refusedHeaders") });
     expect((await createdOf(ctx, pluginId)).from).toMatchObject({ "server:case-law": toolId });
     // Set up again: the tool is reused, not added twice.
     expect((await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx })).items).toEqual([]);

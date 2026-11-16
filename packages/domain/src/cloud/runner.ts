@@ -9,6 +9,7 @@ import { loadCloudHarness } from "../harnesses/cloud.ts";
 import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
 import { inJobTrace, meter, recordError, tracer } from "../telemetry/index.ts";
+import { stored } from "../messages/index.ts";
 import { SecretError, type SecretBox } from "../secrets.ts";
 import {
   ASK_USER,
@@ -110,19 +111,18 @@ export const MAX_CALLS_PER_TURN = 50;
 
 /** Why a model call failed, in a few words: never the provider's body or the key. */
 export function providerError(err: unknown, h: { kind: ClientHarness["kind"]; baseUrl?: string }): string {
-  if (err instanceof SecretError) return "The harness's API key couldn't be opened";
+  if (err instanceof SecretError) return stored("cloud.fail.keyNotOpened");
   const status = (err as { status?: unknown } | null)?.status;
-  if (status === 401 || status === 403) return "The provider refused the key";
-  if (status === 429) return "The provider is limiting requests for this key: try again later";
-  if (typeof status === "number") return `The provider answered with an error (${status})`;
+  if (status === 401 || status === 403) return stored("cloud.fail.keyRefused");
+  if (status === 429) return stored("cloud.fail.rateLimited");
+  if (typeof status === "number") return stored("cloud.fail.providerError", { status });
   const base = h.baseUrl ?? (h.kind === "openai-compatible" ? "" : DEFAULT_BASE_URLS[h.kind]);
-  let host = "the provider";
   try {
-    host = new URL(base).host;
+    return stored("cloud.fail.unreachable", { host: new URL(base).host });
   } catch {
-    // An unparsable URL: "the provider".
+    // An unparsable URL: no host to name.
+    return stored("cloud.fail.unreachableProvider");
   }
-  return `Couldn't reach ${host}`;
 }
 
 /** The first tool call of the last assistant item that has no result yet. */
@@ -341,7 +341,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     const driving = this.drive(id)
       .catch(async (err: unknown) => {
         logError("cloud session failed", err, { ref: id });
-        await this.locked(id, () => this.emit(id, { status: "done" }, { type: "error", message: "The cloud session stopped on an internal error" })).catch(
+        await this.locked(id, () => this.emit(id, { status: "done" }, { type: "error", message: stored("cloud.fail.internal") })).catch(
           (e: unknown) => logError("cloud session failed", e, { ref: id }),
         );
       })
@@ -403,7 +403,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     const sinceUser = items.length - 1 - items.findLastIndex((x) => x.role === "user");
     const calls = items.slice(-sinceUser || items.length).filter((x) => x.role === "assistant").length;
     if (sinceUser > 0 && calls >= MAX_CALLS_PER_TURN) {
-      await this.locked(id, () => this.emit(id, { status: "done" }, { type: "error", message: "the agent made too many tool calls in one turn" }));
+      await this.locked(id, () => this.emit(id, { status: "done" }, { type: "error", message: stored("cloud.fail.tooManyCalls") }));
       return;
     }
 
@@ -412,7 +412,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       const h = await loadCloudHarness(this.db, this.secrets, row.ownerId, row.harnessId);
       harness = { ...h, ...(row.model ? { model: row.model } : {}) };
     } catch (err) {
-      const message = err instanceof SecretError ? providerError(err, { kind: "openai-compatible" }) : "The agent's harness no longer exists";
+      const message = err instanceof SecretError ? providerError(err, { kind: "openai-compatible" }) : stored("cloud.fail.harnessGone");
       await this.locked(id, () => this.emit(id, { status: "done" }, { type: "error", message }));
       return;
     }
@@ -454,14 +454,14 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       if (!now) return;
       const after: ChatItem[] = [...items, { role: "assistant", text: turn.text, toolCalls: turn.toolCalls, raw: turn.raw }];
       if (turn.toolCalls.length > 0) return this.write(id, { items: after });
-      if (turn.stop === "refusal") return this.emit(id, { items: after, status: "done" }, { type: "error", message: "The model refused to answer" });
-      if (turn.stop === "max_tokens") return this.emit(id, { items: after, status: "done" }, { type: "error", message: "The model's answer reached its token limit" });
+      if (turn.stop === "refusal") return this.emit(id, { items: after, status: "done" }, { type: "error", message: stored("cloud.fail.refused") });
+      if (turn.stop === "max_tokens") return this.emit(id, { items: after, status: "done" }, { type: "error", message: stored("cloud.fail.tokenLimit") });
       // More messages came meanwhile: their turn runs next, so the session isn't waiting yet.
       if (now.queued.length > 0) return this.write(id, { items: after });
       const fields = start.expectedOutputs;
       if (!start.interactive && fields.length === 0) return this.emit(id, { items: after, status: "done" }, { type: "result", text: cut(turn.text, TEXT) });
       if (start.interactive) return this.emit(id, { items: after, status: "idle" }, { type: "turn-end" });
-      if (now.reminded) return this.emit(id, { items: after, status: "done" }, { type: "error", message: "the agent finished without its outputs" });
+      if (now.reminded) return this.emit(id, { items: after, status: "done" }, { type: "error", message: stored("engine.fail.noOutputs") });
       return this.write(id, { items: [...after, { role: "user", text: TEXTS.reminder(fields) }], reminded: true });
     });
   }

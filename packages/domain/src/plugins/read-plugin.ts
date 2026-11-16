@@ -154,7 +154,7 @@ function readServers(root: string, manifest: Record<string, unknown>, notImporte
       spend(1);
       if (name.length > 100 || !storable(name) || seen.has(name)) continue;
       seen.add(name);
-      if (seen.size > MAX_SERVERS) throw new PluginError(`The plugin offers more than ${MAX_SERVERS} MCP servers`);
+      if (seen.size > MAX_SERVERS) throw new PluginError("pluginRead.tooManyServers", { max: MAX_SERVERS });
       const server = readServer(name, raw);
       if ("component" in server) notImported.push(server);
       else servers.push(server);
@@ -192,7 +192,7 @@ function readAgents(root: string, notImported: Notes): PluginAgent[] {
     }
     const name = typeof meta.name === "string" && meta.name.trim() && storable(meta.name) ? cut(meta.name.trim(), 100) : file.slice(0, -3);
     const description = typeof meta.description === "string" && storable(meta.description) ? cut(meta.description, 1000) : "";
-    if (agents.length >= MAX_AGENTS) throw new PluginError(`The plugin offers more than ${MAX_AGENTS} agents`);
+    if (agents.length >= MAX_AGENTS) throw new PluginError("pluginRead.tooManyAgents", { max: MAX_AGENTS });
     agents.push({ name, description, systemPrompt: body });
   }
   return agents;

@@ -5,7 +5,7 @@ import type { Db, Tx } from "../db/client.ts";
 import { agents, eventFires, fields, plugins, pollItems, polls, tables, triggerFires, triggers as triggersTable } from "../db/schema.ts";
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
-import { message } from "../messages/index.ts";
+import { message, stored } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
 import { pollProblem } from "../tools/pollable.ts";
 import { cronProblem, nextFireAfter } from "../workflows/schedule.ts";
@@ -262,7 +262,7 @@ const update = owner
       if (rebaselines(previous, config, enabled)) {
         await tx
           .update(pollItems)
-          .set({ status: "refused", message: "The trigger was changed: it reads something else now" })
+          .set({ status: "refused", message: stored("engine.fire.changed") })
           .where(and(eq(pollItems.triggerId, previous.id), eq(pollItems.status, "deferred")));
       }
       const [updated] = await tx

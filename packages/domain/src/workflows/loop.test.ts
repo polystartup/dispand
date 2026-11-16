@@ -4,8 +4,8 @@ import { itemValues, loopResults, parseList } from "./loop.ts";
 test("parseList cases", () => {
   expect(parseList("[]")).toEqual({ items: [] });
   expect(parseList('["a","b"]')).toEqual({ items: ["a", "b"] });
-  expect(parseList('{"a":1}')).toEqual({ error: "is not a list (a JSON array)" });
-  expect(parseList("a\nb")).toEqual({ error: "is not a list (a JSON array)" });
+  expect(parseList('{"a":1}')).toEqual({ error: true });
+  expect(parseList("a\nb")).toEqual({ error: true });
   expect(parseList("  [1]  ")).toEqual({ items: [1] });
 });
 

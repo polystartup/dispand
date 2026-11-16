@@ -82,12 +82,65 @@
       "gone": "The tool no longer exists.",
       "disabled": "This action is disabled workspace-wide.",
       "agentLacks": "The agent doesn't have this tool.",
-      "notReadable": "A poll may not read this action: the tool doesn't let polls read it, or an agent must ask before using it."
+      "notReadable": "A poll may not read this action: the tool doesn't let polls read it, or an agent must ask before using it.",
+      "actionError": "The action reported an error.",
+      "noText": "The action's result has no text.",
+      "noList": "The result has no list at “{{path}}”.",
+      "notList": "The result isn't a list."
     },
     "urlCredentials": "The URL can't carry credentials.",
     "plugin": {
       "removed": "Its plugin was removed: this tool no longer has a server to run.",
       "noServer": "Its plugin no longer offers the stdio server {{server}}, or keeps no files for it: update the plugin."
+    },
+    "fail": {
+      "ownAddress": "{{host}} is one of Dispand's own addresses.",
+      "timeout": "{{host}} didn't answer in time.",
+      "refusedHeaders": "{{host}} refused the request ({{status}}): check the headers.",
+      "redirected": "{{host}} redirected the request elsewhere: enter the address it points to.",
+      "answered": "{{host}} answered {{status}}.",
+      "signInFailed": "The sign-in to {{host}} failed.",
+      "unreachable": "Couldn't reach {{host}}.",
+      "cancelled": "The call was cancelled.",
+      "notHttps": "{{host}} isn't reached over https: its sign-in is refused.",
+      "needsAppUrl": "OAuth sign-in needs the application's URL.",
+      "needsClient": "The authorization server of {{host}} supports neither client metadata documents nor registration: enter the client id it gave you.",
+      "tooManyActions": "The server offers more than {{max}} actions.",
+      "tooManyPages": "The server lists its actions on more than {{max}} pages.",
+      "schemaLarge": "The schema of the action “{{name}}” is larger than 64 KiB.",
+      "actionInvalid": "The action “{{name}}” isn't valid: {{problem}}",
+      "tooLarge": "{{host}} sent more than 16 MiB.",
+      "tooManyValues": "{{host}} sent a message too large to read.",
+      "serverTooManyActions": "{{host}} offers more than {{max}} actions.",
+      "otherAuthServer": "The server now names another authorization server than the one its client id was entered for: enter the client id that server gave you.",
+      "callEnded": "The call ended before its sign-in could be renewed.",
+      "renewFailed": "The tool's sign-in couldn't be renewed: try again later.",
+      "noSignIn": "No sign-in is under way for this tool.",
+      "needsSignIn": "{{name}} needs sign-in: fill its settings on its page in Settings → Tools.",
+      "reauthorize": "The sign-in to this tool stopped working: re-authorize it on its page in Settings → Tools.",
+      "notConnected": "{{name}} isn't connected yet: connect it on its page in Settings → Tools.",
+      "listFailed": "Couldn't list the tool's actions.",
+      "signInRefused": "The sign-in was refused or cancelled: connect the tool again.",
+      "signInUnfinished": "The sign-in couldn't be finished: connect the tool again.",
+      "runnerNoActions": "The runner listed no actions.",
+      "runnerTimeout": "The runner didn't answer in time.",
+      "runnerOffline": "The runner is offline.",
+      "notOnRunner": "This tool isn't on a runner yet.",
+      "pollNeedsSignIn": "The tool needs sign-in: its owner enters its settings, or connects it, on its page in Settings → Tools."
+    },
+    "call": {
+      "gone": "The tool no longer exists.",
+      "stepGone": "The step's tool no longer exists.",
+      "disabled": "{{name}}'s action “{{action}}” is disabled workspace-wide.",
+      "noAction": "{{name}} no longer has the action “{{action}}”.",
+      "onRunner": "{{name}} runs on a runner: only an agent can use it.",
+      "headers": "{{name}}'s headers couldn't be opened.",
+      "failed": "The call to {{name}} failed.",
+      "noConnector": "Tool steps can't run here: no tool connector is configured.",
+      "noValue": "“{{param}}” has no value.",
+      "noValueSkipped": "“{{param}}” has no value (“{{step}}” was skipped).",
+      "answeredError": "The tool answered with an error: {{text}}",
+      "answeredNothing": "The tool answered with an error."
     }
   },
   "plugins": {
@@ -453,7 +506,59 @@
     "chatOver": "The chat is over.",
     "chatRunnerGone": "The chat's runner is no longer available.",
     "skillChatOnly": "Skills can be invoked in Assistant chats only.",
-    "skillWait": "Wait for the Assistant to finish its turn before loading another skill."
+    "skillWait": "Wait for the Assistant to finish its turn before loading another skill.",
+    "fail": {
+      "stopped": "Stopped.",
+      "toolRestarted": "Dispand restarted during this tool call: check the tool before running again.",
+      "runnerRevoked": "The agent's runner was revoked.",
+      "noOutputs": "The agent finished without its outputs.",
+      "toolFailed": "The tool call failed.",
+      "agentGone": "The step's agent no longer exists.",
+      "sessionNotStarted": "The session could not start.",
+      "promptTooLong": "The step's prompt is too long once its values are filled in ({{length}} characters, at most {{max}}).",
+      "startOutside": {
+        "prompt": "The session can't start: its prompt is outside what a runner accepts.",
+        "systemPrompt": "The session can't start: its agent's system prompt is outside what a runner accepts.",
+        "expectedOutputs": "The session can't start: its expected outputs are outside what a runner accepts.",
+        "model": "The session can't start: its model is outside what a runner accepts.",
+        "other": "The session can't start: its {{field}} is outside what a runner accepts."
+      },
+      "codexMissing": "Codex isn't installed on {{runner}}.",
+      "codexSignIn": "Sign in to Codex on {{runner}}: run `codex login` there, then restart its runner.",
+      "scope": {
+        "poll": "The agent may no longer read the tool's action that found this item.",
+        "question": "The agent may no longer read this Question.",
+        "table": "The agent may no longer read the table that changed.",
+        "questionNow": "The agent may not read this Question.",
+        "tableNow": "The agent may no longer read this table."
+      },
+      "tableGone": "The step's table no longer exists.",
+      "filterFieldGone": "A field this step filters on no longer exists in {{table}}.",
+      "filterOp": "“{{field}}” can't be filtered by “{{op}}”.",
+      "filterNoValue": "“{{field}}”: a value is needed.",
+      "rowsTooLong": "The rows found are too long to pass on ({{length}} characters, at most {{max}}): lower the limit.",
+      "setFieldGone": "A field this step sets no longer exists in {{table}}.",
+      "attachment": "“{{field}}” holds files, which a workflow can't set.",
+      "noRowId": "No row of {{table}} to update: its id is empty.",
+      "rowNotIn": "The row “{{row}}” is not in {{table}}.",
+      "notNumber": "“{{text}}” is not a number.",
+      "loopNotList": "“{{list}}” is not a list (a JSON array).",
+      "loopTooLong": "The loop's results are over {{max}} characters.",
+      "loopTooMany": "The list has {{items}} items; this loop runs at most {{max}}."
+    },
+    "poll": {
+      "failed": "The poll failed.",
+      "changed": "The trigger changed during its poll.",
+      "itemLarge": "The item is larger than {{kib}} KiB.",
+      "noId": "{{items}} item(s) without an id at “{{path}}” left out.",
+      "pages": "{{pages}} pages read: the rest at the next poll.",
+      "noIdAndPages": "{{items}} item(s) without an id at “{{path}}” left out; {{pages}} pages read: the rest at the next poll.",
+      "triggerOff": "The trigger is off."
+    },
+    "fire": {
+      "changed": "The trigger was changed: it reads something else now.",
+      "notWatching": "The trigger no longer watches this change."
+    }
   },
   "harness": {
     "detail": {
@@ -564,5 +669,90 @@
     "manualWorkflowForm": "Only a manual workflow can have a form.",
     "formNoFields": "A form has no fields to choose.",
     "widgetTooWide": "A widget is wider than the {{grid}} grid."
+  },
+  "git": {
+    "url": "Use an https:// Git URL.",
+    "credentials": "A Git URL can't hold credentials.",
+    "sha": "A commit is 40 hexadecimal characters.",
+    "ref": "That isn't a branch or tag name.",
+    "fetch": {
+      "tooManyFiles": "Couldn't fetch {{url}}: it has too many files.",
+      "timeout": "Couldn't fetch {{url}}: it took longer than {{seconds}} s.",
+      "tooLarge": "Couldn't fetch {{url}}: it is larger than {{mib}} MiB.",
+      "noGit": "Couldn't fetch {{url}}: git isn't installed on the server.",
+      "redirect": "Couldn't fetch {{url}}: the server redirected the request.",
+      "unreachable": "Couldn't fetch {{url}}: couldn't reach the server.",
+      "notFound": "Couldn't fetch {{url}}: the repository wasn't found (or is private).",
+      "badRef": "Couldn't fetch {{url}}: that branch or commit isn't there.",
+      "notUtf8": "Couldn't fetch {{url}}: a file name in it isn't UTF-8.",
+      "failed": "Couldn't fetch {{url}}: git failed."
+    }
+  },
+  "wellKnown": {
+    "https": "Use an https:// address.",
+    "credentials": "An address can't hold credentials.",
+    "timeout": "{{origin}} took longer than {{seconds}} s.",
+    "unreachable": "Couldn't reach {{origin}}.",
+    "redirect": "{{origin}} redirected the request elsewhere.",
+    "status": "{{origin}} answered {{status}} for {{path}}.",
+    "tooLarge": "{{path}} on {{origin}} is too large.",
+    "cut": "{{origin}} cut the connection.",
+    "indexNotJson": "The site's skills index isn't valid JSON.",
+    "indexShape": "The site's skills index isn't { skills: [{ name, description, files }] } (at most {{max}} skills).",
+    "otherSite": "A skill file points to another site."
+  },
+  "pluginRead": {
+    "manifest": {
+      "notFile": "plugin.json isn't a regular file.",
+      "tooLarge": "plugin.json is larger than 1 MiB.",
+      "notJson": "plugin.json isn't valid JSON.",
+      "notObject": "plugin.json isn't a JSON object.",
+      "noSchema": "plugin.json has no $schema.",
+      "version": "plugin.json targets an Agent Plugins version Dispand doesn't support (only 1.0.0).",
+      "invalid": "plugin.json's {{field}} isn't valid.",
+      "link": "plugin.json is a symbolic link."
+    },
+    "folder": {
+      "notRelative": "The plugin's folder isn't a relative path.",
+      "outside": "The plugin's folder is outside its repository.",
+      "missing": "The plugin's folder isn't in its repository."
+    },
+    "tooLarge": "The plugin is too large to read: more than {{files}} files or 64 MiB.",
+    "tooManyServers": "The plugin offers more than {{max}} MCP servers.",
+    "tooManyAgents": "The plugin offers more than {{max}} agents.",
+    "tooManySkills": "The plugin offers more than {{max}} skills.",
+    "tooManyDefinitions": "The plugin holds more than {{max}} {{kind}} definitions."
+  },
+  "marketplaceFile": {
+    "missing": "This repository has no .claude-plugin/marketplace.json.",
+    "notFile": ".claude-plugin/marketplace.json isn't a regular file.",
+    "tooLarge": ".claude-plugin/marketplace.json is larger than 5 MiB.",
+    "notJson": ".claude-plugin/marketplace.json isn't valid JSON.",
+    "invalid": ".claude-plugin/marketplace.json needs a name and a list of plugins.",
+    "neither": "This repository has neither a .claude-plugin/marketplace.json nor a skills/ folder.",
+    "source": {
+      "pathLong": "Its path is too long.",
+      "unreadable": "Its source isn't readable.",
+      "repo": "Its GitHub repository isn't owner/name.",
+      "url": "Its Git URL isn't readable.",
+      "folder": "Its folder isn't readable.",
+      "kindNamed": "“{{kind}}” sources aren't supported: only Git repositories are.",
+      "kind": "Its kind of source isn't supported: only Git repositories are."
+    }
+  },
+  "cloud": {
+    "fail": {
+      "internal": "The cloud session stopped on an internal error.",
+      "tooManyCalls": "The agent made too many tool calls in one turn.",
+      "harnessGone": "The agent's harness no longer exists.",
+      "refused": "The model refused to answer.",
+      "tokenLimit": "The model's answer reached its token limit.",
+      "keyNotOpened": "The harness's API key couldn't be opened.",
+      "keyRefused": "The provider refused the key.",
+      "rateLimited": "The provider is limiting requests for this key: try again later.",
+      "providerError": "The provider answered with an error ({{status}}).",
+      "unreachable": "Couldn't reach {{host}}.",
+      "unreachableProvider": "Couldn't reach the provider."
+    }
   }
 }

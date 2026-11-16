@@ -78,7 +78,7 @@ import { recordAudit, recordAuditAfter } from "../audit/record.ts";
 import type { AuditActor } from "../audit/model.ts";
 import { jobScope, startable } from "../questions/inbox-scope.ts";
 import { INTERACTION, JOB } from "../triggers/model.ts";
-import { type Message, message } from "../messages/index.ts";
+import { type Message, type MessageKey, message, stored } from "../messages/index.ts";
 
 type RunRow = typeof runs.$inferSelect;
 type StepRow = typeof stepRuns.$inferSelect;
@@ -105,10 +105,13 @@ const ACTIVE_STEP: StepStatus[] = ["running", "waiting"];
 const OPEN_STEP: StepStatus[] = ["pending", "running", "waiting"];
 
 /** Why a Tool step that was calling its tool when Dispand stopped fails (it is never called again). */
-export const TOOL_RESTARTED = "Dispand restarted during this tool call: check the tool before running again";
+export const TOOL_RESTARTED = stored("engine.fail.toolRestarted");
 
 /** Why the steps of a run stopped by hand failed, and the run with them. */
-export const STOPPED = "Stopped";
+export const STOPPED = stored("engine.fail.stopped");
+
+/** Why a step fails when its agent's runner was revoked. */
+const RUNNER_REVOKED = stored("engine.fail.runnerRevoked");
 
 /** Sent as the first message of a session resumed after its runner lost it. */
 export const RESUME_PROMPT = "Dispand reconnected after an interruption. Continue where you left off.";
@@ -170,10 +173,15 @@ export function startProblem(harness: CliHarness, { runKey, ...start }: StartPar
   if (parsed.success) return null;
   const field = String(parsed.error.issues[0]?.path[0] ?? "start");
   if (field === "prompt" && start.prompt.length > TEXT) {
-    return `The step's prompt is too long once its values are filled in (${start.prompt.length} characters, at most ${TEXT})`;
+    return stored("engine.fail.promptTooLong", { length: start.prompt.length, max: TEXT });
   }
-  const what = { prompt: "prompt", systemPrompt: "agent's system prompt", expectedOutputs: "expected outputs", model: "model" }[field] ?? field;
-  return `The session can't start: its ${what} is outside what a runner accepts`;
+  const known: Partial<Record<string, MessageKey>> = {
+    prompt: "engine.fail.startOutside.prompt",
+    systemPrompt: "engine.fail.startOutside.systemPrompt",
+    expectedOutputs: "engine.fail.startOutside.expectedOutputs",
+    model: "engine.fail.startOutside.model",
+  };
+  return stored(known[field] ?? "engine.fail.startOutside.other", { field });
 }
 
 /**
@@ -182,8 +190,8 @@ export function startProblem(harness: CliHarness, { runKey, ...start }: StartPar
  */
 export function cliProblem(kind: string, runner: Pick<RunnerRow, "name" | "clis" | "lastSeenAt">): string | null {
   if (kind !== "codex" || runner.lastSeenAt === null) return null;
-  if (!runner.clis.codex) return `Codex isn't installed on ${runner.name}`;
-  if (!runner.clis.codex.signedIn) return `Sign in to Codex on ${runner.name}: run \`codex login\` there, then restart its runner`;
+  if (!runner.clis.codex) return stored("engine.fail.codexMissing", { runner: runner.name });
+  if (!runner.clis.codex.signedIn) return stored("engine.fail.codexSignIn", { runner: runner.name });
   return null;
 }
 
@@ -1453,7 +1461,7 @@ export class Engine {
       .where(and(eq(stepRuns.runnerId, runnerId), inArray(stepRuns.status, ACTIVE_STEP)));
     for (const step of open) {
       const out: Out[] = [];
-      await this.db.transaction((tx) => this.fail(tx, step, "The agent's runner was revoked", out));
+      await this.db.transaction((tx) => this.fail(tx, step, RUNNER_REVOKED, out));
       this.publish(out);
     }
   }
@@ -1907,7 +1915,7 @@ export class Engine {
       case "result":
         // With expected outputs, only `outputs-accepted` completes a step.
         if (step.start?.expectedOutputs.length) {
-          await this.fail(tx, step, "the agent finished without its outputs", out);
+          await this.fail(tx, step, stored("engine.fail.noOutputs"), out);
           return null;
         }
         return (await this.complete(tx, step, { result: event.text }, out)) ? "advance" : null;
@@ -2025,7 +2033,7 @@ export class Engine {
     const call = this.track(`tool:${claimed.id}`, async () => {
       const result = await this.toolSteps.run(run.ownerId, node, values, signal).catch((err: unknown) => {
         logError("tool step failed", err, { ref: claimed.id });
-        return { ok: false as const, error: "The tool call failed" };
+        return { ok: false as const, error: stored("engine.fail.toolFailed") };
       });
       if (signal.aborted) return;
       const settled: Out[] = [];
@@ -2133,14 +2141,14 @@ export class Engine {
     // Queued: it starts when it is handed a slot (`slots.ts`), not before.
     if (step.queuedAt) return;
     // A Job runs the agent as it was when the Job was created; a workflow run, as it is now.
-    const [stored] = run.snapshot
+    const [current] = run.snapshot
       ? []
       : await this.db
           .select({ systemPrompt: agents.systemPrompt, model: agents.model, harnessId: agents.harnessId })
           .from(agents)
           .where(and(eq(agents.id, node.agentId ?? ""), eq(agents.ownerId, run.ownerId)));
     // A Job of a deleted agent never runs again: its step fails as one whose agent is gone.
-    const agent = run.source === "agent" && !run.agentId ? undefined : run.snapshot ? { ...run.snapshot, model: run.snapshot.model ?? null } : stored;
+    const agent = run.source === "agent" && !run.agentId ? undefined : run.snapshot ? { ...run.snapshot, model: run.snapshot.model ?? null } : current;
     // The agent's harness as read here takes the slot and runs the session; a step handed a slot
     // keeps the harness it queued on, wherever its agent went since.
     const harnessId = step.working && step.harnessId ? step.harnessId : agent?.harnessId;
@@ -2152,7 +2160,7 @@ export class Engine {
       : [];
     if (!agent || !h) {
       const out: Out[] = [];
-      await this.db.transaction((tx) => this.fail(tx, step, "The step's agent no longer exists", out));
+      await this.db.transaction((tx) => this.fail(tx, step, stored("engine.fail.agentGone"), out));
       this.publish(out);
       return;
     }
@@ -2166,7 +2174,7 @@ export class Engine {
       // A revoked runner never comes back: the step would wait forever.
       const [runner] = h.runnerId ? await this.db.select().from(runners).where(eq(runners.id, h.runnerId)) : [];
       runnerRow = runner;
-      const problem = !runner || runner.revokedAt || !h.permissionMode ? "The agent's runner was revoked" : cliProblem(h.kind, runner);
+      const problem = !runner || runner.revokedAt || !h.permissionMode ? RUNNER_REVOKED : cliProblem(h.kind, runner);
       if (problem) {
         const out: Out[] = [];
         await this.db.transaction((tx) => this.fail(tx, step, problem, out));
@@ -2292,7 +2300,7 @@ export class Engine {
       outcome("failed");
       logError("session start failed", err, { ref: step.id });
       const out: Out[] = [];
-      await this.db.transaction((tx) => this.fail(tx, step, "The session could not start", out));
+      await this.db.transaction((tx) => this.fail(tx, step, stored("engine.fail.sessionNotStarted"), out));
       this.publish(out);
     });
     this.keep(sent);
@@ -2322,7 +2330,7 @@ export class Engine {
       .where(eq(runs.id, runId));
     if (row?.trigger.type === "poll") {
       const { toolId, action } = row.trigger;
-      return row.agentId && !(await pollProblem(this.db, row.ownerId, row.agentId, toolId, action)) ? null : "The agent may no longer read the tool's action that found this item";
+      return row.agentId && !(await pollProblem(this.db, row.ownerId, row.agentId, toolId, action)) ? null : stored("engine.fail.scope.poll");
     }
     if (row?.trigger.type !== "event") return null;
     const tableId = row.trigger.outputs.table_id ?? "";
@@ -2331,9 +2339,9 @@ export class Engine {
     // A Question or an Approval: still one its Job may read, with the Job's rights as they are now (and, once asked, still open).
     if (tableId === INTERACTION) {
       const scope = row.agentId ? await jobScope(this.db, { runId, ownerId: row.ownerId, agentId: row.agentId }) : null;
-      return scope && (await startable(this.db, scope, row.trigger.outputs.row_id ?? "", row.trigger.outputs.operation ?? "")) ? null : "The agent may no longer read this Question";
+      return scope && (await startable(this.db, scope, row.trigger.outputs.row_id ?? "", row.trigger.outputs.operation ?? "")) ? null : stored("engine.fail.scope.question");
     }
-    return !row.bundles?.includes("data") || (row.dataTables !== "all" && !row.dataTables?.includes(tableId)) ? "The agent may no longer read the table that changed" : null;
+    return !row.bundles?.includes("data") || (row.dataTables !== "all" && !row.dataTables?.includes(tableId)) ? stored("engine.fail.scope.table") : null;
   }
 
   /** An answer reaches the session as an answer, or, for a question its lost session asked, as a message. */

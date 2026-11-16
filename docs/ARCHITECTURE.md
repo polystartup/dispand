@@ -1971,7 +1971,7 @@ same keys.
   error's `message` stays the English sentence, for agents (a tool call's refusal) and the logs.
   The page's link (`lib/api.ts`, `translateErrors`) translates `data.key` in the page's language
   (`<html lang>`); text marked `external(text)` (an MCP server's, a plugin's) shows as it came;
-  an internal error, or a key the page doesn't know, shows the generic message. Values are text:
+  an error without a key, or a key the page doesn't know, shows the generic message, whatever its code. Values are text:
   React escapes them; a list value is formatted by the page (`Intl.ListFormat`). Person-facing text a
   procedure returns as data (an uninstall's reasons, an update's refusals, a setup's waiting
   definitions, why a cell value doesn't fit its field, a proposal's "of the table X") is a `Text`: `say(key, values)`, or `{ text }` for words that came as they are (a
@@ -1981,17 +1981,24 @@ same keys.
   keyed messages, which the procedures that refuse a save or a start throw as they are. So are the
   Assistant's guard reasons (`assistantGuard`), why a consult isn't allowed (`pairProblem`), what
   still holds a tool (`toolHolder`) and why a poll may not read an action (`pollProblem`): each
-  returns a `Message`, and what stores one (a skipped poll's reason) keeps its English sentence
+  returns a `Message`, and what stores one (a skipped poll's reason) keeps it as a stored message
   (`pollProblemText`). The engine's refusals are keyed too (`engine.*`); a checkpoint's Approval
   names its root by kind (`rootKind`), and the page has one whole sentence per kind, and a harness's proposal detail is a
-  keyed message. What the engine stores as a Job's failure, or as a fire's or poll item's reason,
-  stays an English sentence until a task stores keys there. A tool result for an agent shows every such text as its English sentence
+  keyed message. The errors of the Git, marketplace, skill-site, plugin and tool readers (`GitError`,
+  `MarketplaceError`, `WellKnownError`, `PluginError`, `ToolError`) extend `SayError`: their
+  constructor takes a key and its values, never a sentence, and `say` carries them to the
+  procedure that throws them on. What is stored for a person (a step's or a Job's failure, a
+  fire's or a poll item's reason, a tool's `actionsError`, a marketplace's `syncError`) is a
+  stored message: the key and values as JSON in the same text column (`stored(key, values)`),
+  which the page renders in its language (`useStored()`, `storedText`). A row written before
+  holds plain words, shown as stored; text that came from elsewhere (a runner's error event, a
+  tool's own answer, git's own words) is stored as it came, or passed as a value of a keyed
+  sentence. A tool result for an agent shows every such text as its English sentence
   (`sentence`, a tool's `filter`, `issues` for a refinement's key and its `params`), never a key. An input its Zod schema rejects answers with `validation.<code>` and the
   field's path and limits (`rpc/context.ts`, `validationKey`). `messages/messages.test.ts` walks
   the domain for every `new ORPCError(` and `new EngineError(` and fails on one whose message
   isn't a single `message()` key, external text or an engine error passed on (`passOn(err)`, typed
-  `EngineError`, always keyed: its constructor takes a `message()`), unless its file is
-  in the list of the areas still to key, which shrinks to nothing; until then an unkeyed error
-  shows its English text.
+  `EngineError`, always keyed: its constructor takes a `message()`), and for every saying error
+  built with anything but a key given whole. Its list of exceptions is empty.
 - Agent output, plugin texts and MCP servers' texts are shown as they came. Logs, telemetry and
   the code stay English.

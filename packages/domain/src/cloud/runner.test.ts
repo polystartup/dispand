@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { audit, cloudSessions, harnesses, messages, questions, roots, runs, stepRuns } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
-import type { Engine } from "../engine/engine.ts";
+import { STOPPED, type Engine } from "../engine/engine.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
@@ -14,6 +14,7 @@ import { TEXTS } from "./builtins.ts";
 import { type ChatItem, createModelClient } from "./model-client.ts";
 import { fakeModel, say, use, type Script } from "./test-model.ts";
 import { textStream, type ToolCaller } from "./runner.ts";
+import { stored } from "../messages/index.ts";
 
 /** Two MCP-like tools; `hold` keeps calls of `create_repo` running. */
 function fakeTools(hold = false) {
@@ -164,7 +165,7 @@ test("reminds once then fails", async () => {
   const { engine, workflow } = await setup(stepWithOutputs, { client: model.client });
   const runId = await engine.startRun(workflow.id);
   const run = await until(engine, runId, "failed");
-  expect(run.error).toBe("the agent finished without its outputs");
+  expect(run.error).toBe(stored("engine.fail.noOutputs"));
   expect(model.inputs[1]!.items.at(-1)).toEqual({ role: "user", text: "Call submit_outputs with: idea" });
 });
 
@@ -360,7 +361,7 @@ test("a provider error fails the step with a short message", async () => {
   );
   const runId = await engine.startRun(workflow.id);
   const run = await until(engine, runId, "failed");
-  expect(run.error).toBe("The provider refused the key");
+  expect(run.error).toBe(stored("cloud.fail.keyRefused"));
   const dump = JSON.stringify([
     await engine.db.select().from(stepRuns),
     await engine.db.select().from(messages),
@@ -385,7 +386,7 @@ test("too many model calls in one turn fail the step", async () => {
   const { engine, workflow } = await setup(buttonStep, { client: model.client });
   const runId = await engine.startRun(workflow.id);
   const run = await until(engine, runId, "failed");
-  expect(run.error).toBe("the agent made too many tool calls in one turn");
+  expect(run.error).toBe(stored("cloud.fail.tooManyCalls"));
   expect(model.inputs).toHaveLength(50);
 });
 
@@ -427,7 +428,7 @@ test("stopping a run whose cloud session waits for an answer ends the session: n
   // A late answer finds the question expired, and the model is never called again.
   await expect(engine.answer(q.id, { kind: "choice", answers: { "Which stack?": "Node" } })).rejects.toThrow();
   expect(model.inputs).toHaveLength(1);
-  expect(await runStatus(engine, runId)).toMatchObject({ status: "failed", error: "Stopped" });
+  expect(await runStatus(engine, runId)).toMatchObject({ status: "failed", error: STOPPED });
 });
 
 test("request_approval asks the owner and tells the model the answer", async () => {

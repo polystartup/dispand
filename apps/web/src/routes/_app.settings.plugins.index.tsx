@@ -11,6 +11,7 @@ import { Tabs } from "../components/settings/Tabs.tsx";
 import { PageHeader } from "../components/Placeholder.tsx";
 import { orpc } from "../lib/api.ts";
 import { useFormat } from "../lib/format.ts";
+import { useStored, useText } from "@/lib/message";
 
 export const Route = createFileRoute("/_app/settings/plugins/")({ component: Discover });
 
@@ -19,6 +20,7 @@ const SHOWN = 100;
 
 function Discover() {
   const { t } = useTranslation("plugins");
+  const text = useText();
   const [query, setQuery] = useState("");
   const deferred = useDeferredValue(query.trim());
   const results = useQuery({ ...orpc.plugins.discover.queryOptions({ input: { query: deferred || undefined } }), placeholderData: (prev) => prev });
@@ -75,8 +77,8 @@ function Discover() {
                     {t("discover.install")}
                   </Button>
                 ) : (
-                  <span className="max-w-60 shrink-0 text-[12px] text-faint" title={r.entry.source.reason}>
-                    {t("discover.unsupported", { reason: r.entry.source.reason })}
+                  <span className="max-w-60 shrink-0 text-[12px] text-faint" title={text(r.entry.source.reason)}>
+                    {t("discover.unsupported", { reason: text(r.entry.source.reason) })}
                   </span>
                 )}
               </li>
@@ -98,6 +100,7 @@ function Discover() {
 
 function Marketplaces() {
   const { t } = useTranslation("plugins");
+  const stored = useStored();
   const format = useFormat();
   const syncedLabel = (m: { syncedAt: Date | null; plugins: number }) =>
     m.syncedAt ? t("markets.synced", { count: m.plugins, when: format.dateTime(m.syncedAt) }) : t("markets.notSynced");
@@ -161,7 +164,7 @@ function Marketplaces() {
                   <p className="text-[13px] text-muted">{syncedLabel(m)}</p>
                   {m.syncError && (
                     <p role="status" className="text-[13px] text-danger">
-                      {t("markets.syncFailed", { error: m.syncError })}
+                      {t("markets.syncFailed", { error: stored(m.syncError) })}
                     </p>
                   )}
                 </div>

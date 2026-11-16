@@ -1,6 +1,7 @@
 import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { basename, isAbsolute, join, normalize, relative, sep } from "node:path";
 import { isSafeRelativePath, storable } from "@dispand/runner-protocol";
+import { SayError } from "../messages/index.ts";
 import { MAX_FILE_BYTES, MAX_FILES, PackageError, SKILL_NAME, type SkillFile, validatePackage } from "../skills/package.ts";
 
 /** What both plugin readers share: the root, the read's budget, regular files and skill folders. */
@@ -9,11 +10,8 @@ export type NotImported = { component: "manifest" | "hook" | "command" | "bin" |
 
 export type PluginSkill = { name: string; description: string; files: SkillFile[] };
 
-export class PluginError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "PluginError";
-  }
+export class PluginError extends SayError {
+  override name = "PluginError";
 }
 
 export const MAX_JSON_BYTES = 1024 * 1024;
@@ -36,7 +34,7 @@ export function spend(entries: number, bytes = 0): void {
   spent.entries += entries;
   spent.bytes += bytes;
   if (spent.entries > MAX_ENTRIES || spent.bytes > MAX_READ_BYTES) {
-    throw new PluginError(`The plugin is too large to read: more than ${MAX_ENTRIES.toLocaleString("en")} files or 64 MiB`);
+    throw new PluginError("pluginRead.tooLarge", { files: MAX_ENTRIES });
   }
 }
 
@@ -98,18 +96,18 @@ export function inside(parent: string, child: string): boolean {
  * folder, not a link, whose real path is inside the checkout. Throws `PluginError`.
  */
 export function resolvePluginRoot(checkout: string, path = "."): string {
-  if (isAbsolute(path) || path.includes("\\") || !storable(path)) throw new PluginError("The plugin's folder isn't a relative path");
+  if (isAbsolute(path) || path.includes("\\") || !storable(path)) throw new PluginError("pluginRead.folder.notRelative");
   const root = realpathSync(checkout);
   const target = join(root, normalize(path));
-  if (!inside(root, target)) throw new PluginError("The plugin's folder is outside its repository");
+  if (!inside(root, target)) throw new PluginError("pluginRead.folder.outside");
   let real: string;
   try {
     if (!lstatSync(target).isDirectory()) throw new Error();
     real = realpathSync(target);
   } catch {
-    throw new PluginError("The plugin's folder isn't in its repository");
+    throw new PluginError("pluginRead.folder.missing");
   }
-  if (!inside(root, real)) throw new PluginError("The plugin's folder is outside its repository");
+  if (!inside(root, real)) throw new PluginError("pluginRead.folder.outside");
   return real;
 }
 
@@ -201,7 +199,7 @@ function skillFiles(root: string, rel: string, skill: string, notImported: Notes
 
 /** The skills in `folders` (plugin-relative), each read and validated alone: one that doesn't load is listed with its reason. */
 export function readSkillFolders(root: string, folders: string[], notImported: Notes): PluginSkill[] {
-  if (folders.length > MAX_SKILLS) throw new PluginError(`The plugin offers more than ${MAX_SKILLS} skills`);
+  if (folders.length > MAX_SKILLS) throw new PluginError("pluginRead.tooManySkills", { max: MAX_SKILLS });
   const skills: PluginSkill[] = [];
   const seen = new Set<string>();
   const names = new Set<string>();

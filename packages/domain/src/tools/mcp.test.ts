@@ -91,10 +91,10 @@ test("more than 200 actions are refused", async () => {
 
 test("a message is bounded before the SDK parses it", () => {
   const started = performance.now();
-  expect(inboundProblem({ jsonrpc: "2.0", id: 1, result: { tools: new Array(500_000).fill(0) } })).toBe("sent a message too large to read");
+  expect(inboundProblem({ jsonrpc: "2.0", id: 1, result: { tools: new Array(500_000).fill(0) } })).toMatchObject({ key: "tools.fail.tooManyValues" });
   expect(inboundProblem({ jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: "x".repeat(1_000_000) }] } })).toBeUndefined();
-  expect(inboundProblem({ jsonrpc: "2.0", id: 1, result: { tools: new Array(201).fill({}) } })).toBe("offers more than 200 actions");
-  expect(inboundProblem({ a: new Array(MAX_MESSAGE_VALUES).fill(0) })).toBe("sent a message too large to read");
+  expect(inboundProblem({ jsonrpc: "2.0", id: 1, result: { tools: new Array(201).fill({}) } })).toMatchObject({ key: "tools.fail.serverTooManyActions", values: { max: 200 } });
+  expect(inboundProblem({ a: new Array(MAX_MESSAGE_VALUES).fill(0) })).toMatchObject({ key: "tools.fail.tooManyValues" });
   expect(performance.now() - started).toBeLessThan(1000);
 });
 
@@ -103,7 +103,7 @@ test("an unreachable server is a short reason, without the headers", async () =>
   await server.close();
   const error = await connector.listActions({ url: server.url, transport: "streamable-http", headers: { authorization: "Bearer s3cret" } }).catch((e: unknown) => e);
   expect(error).toBeInstanceOf(ToolError);
-  expect((error as Error).message).toBe(`Couldn't reach ${new URL(server.url).host}`);
+  expect((error as Error).message).toBe(`Couldn't reach ${new URL(server.url).host}.`);
   expect((error as Error).stack ?? "").not.toContain("s3cret");
 });
 
@@ -119,7 +119,7 @@ test("header values the server sends back are redacted, in actions, results and 
   expect((await connector.callAction(target, "leak", {}, signal())).text).toBe("token ••••");
   const big = await fake([{ name: "tok-0123456789", inputSchema: { type: "object", description: "x".repeat(70 * 1024) } }]);
   const error = await connector.listActions({ ...target, url: big.url }).catch((e: unknown) => e);
-  expect((error as Error).message).toBe("The schema of the action “••••” is larger than 64 KiB");
+  expect((error as Error).message).toBe("The schema of the action “••••” is larger than 64 KiB.");
 });
 
 test("cancelling ends a call even while an SSE server never finishes connecting", async () => {
@@ -178,7 +178,7 @@ test("a response past 16 MiB is cut off while it arrives, whatever its status", 
   const url = `http://127.0.0.1:${(http.address() as AddressInfo).port}/mcp`;
   const error = await connector.listActions({ url, transport: "streamable-http", headers: {} }).catch((e: unknown) => e);
   expect(error).toBeInstanceOf(ToolError);
-  expect((error as Error).message).toBe(`${new URL(url).host} sent more than 16 MiB`);
+  expect((error as Error).message).toBe(`${new URL(url).host} sent more than 16 MiB.`);
   expect(sent).toBeLessThan(2 * MAX_RESPONSE_BYTES);
 });
 

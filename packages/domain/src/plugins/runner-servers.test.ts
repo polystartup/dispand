@@ -11,6 +11,7 @@ import { InstalledTools } from "../tools/executor.ts";
 import { pollCaller } from "../tools/poll.ts";
 import { pluginForRunner } from "./runner-servers.ts";
 import { fixtureRepo, installReviewed, lawFirm, removePlugin, updatePlugin } from "./test-support.ts";
+import { stored } from "../messages/index.ts";
 
 const SERVER = "#!/usr/bin/env node\nconsole.log('notes');\n";
 const MCP = JSON.stringify({
@@ -100,7 +101,7 @@ test("an update that changes a file changes the digest; uninstalling keeps the t
     await removePlugin(fx.ctx, pluginId);
     expect(await fx.ctx.db.select().from(pluginFiles).where(eq(pluginFiles.pluginId, pluginId))).toEqual([]);
     const kept = await call(router.tools.refresh, { id: tool!.id }, { context: fx.ctx });
-    expect(kept).toMatchObject({ id: tool!.id, plugin: null, pluginServer: null, actionsError: "Its plugin was removed: this tool no longer has a server to run." });
+    expect(kept).toMatchObject({ id: tool!.id, plugin: null, pluginServer: null, actionsError: stored("tools.plugin.removed") });
     expect(await pluginForRunner(fx.ctx.db, fx.runnerId, tool!.id)).toBeNull();
   } finally {
     fx.remove();

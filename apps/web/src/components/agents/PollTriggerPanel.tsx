@@ -6,6 +6,7 @@ import { orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
 import { selectClass } from "../data/NewFieldPopover.tsx";
 import { FormField } from "../settings/parts.tsx";
+import { useStored } from "@/lib/message";
 
 /** A poll's settings as the sheet edits them: the arguments as the JSON text typed; the continuation as a preset gave it. */
 export type PollForm = {
@@ -43,9 +44,10 @@ export function PollTriggerPanel({
 }) {
   const { t, i18n } = useTranslation("agents");
   const format = useFormat();
+  const stored = useStored();
   const when = (date: Date) => format.dateTime(date, { dateStyle: "short", timeStyle: "short" });
   const pollText = (p: PollRecord): string => {
-    const values = { found: format.number(p.found), fresh: format.number(p.fresh), message: p.message };
+    const values = { found: format.number(p.found), fresh: format.number(p.fresh), message: stored(p.message) };
     switch (p.status) {
       case "calling":
         return t("poll.calling");
@@ -54,16 +56,16 @@ export function PollTriggerPanel({
       case "polled":
         return t(p.message ? "poll.polledNote" : "poll.polled", values);
       case "skipped":
-        return t("poll.skipped", { message: p.message ?? "" });
+        return t("poll.skipped", { message: stored(p.message) ?? "" });
       case "failed":
-        return t("poll.failed", { message: p.message ?? "" });
+        return t("poll.failed", { message: stored(p.message) ?? "" });
       default:
         return p.status;
     }
   };
   const itemText = (i: PollItem): string => {
     const status = i18n.exists(`agents:poll.item.${i.status}`) ? t(`poll.item.${i.status}` as never) : i.status;
-    return i.message && i.status !== "deferred" ? t("poll.item.withMessage", { status, message: i.message }) : status;
+    return i.message && i.status !== "deferred" ? t("poll.item.withMessage", { status, message: stored(i.message) }) : status;
   };
   // The agent's own tools, chosen or through its skills: a poll reads no more than its agent may.
   const agent = useQuery(orpc.agents.get.queryOptions({ input: { id: agentId } }));

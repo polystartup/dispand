@@ -11,6 +11,7 @@ import { api, orpc } from "../../lib/api.ts";
 import { canReopen, type RunSnapshot } from "../../lib/run-state.ts";
 import { useRun } from "../../lib/run-watch.ts";
 import { ChatInput, ChatThread, ComposerAttachments, type ComposerFiles, composerApproval } from "../chat/Thread.tsx";
+import { useStored } from "@/lib/message";
 
 type Step = RunSnapshot["steps"][number];
 
@@ -275,13 +276,14 @@ const MOD = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator
 /** Under the messages: why the conversation stopped, or the steps that follow it. */
 function AfterChat({ run, chatStepId, def }: { run: RunSnapshot | null; chatStepId: string | undefined; def: WorkflowDef | undefined }) {
   const { t } = useTranslation("chat");
+  const stored = useStored();
   const chatStep = run?.steps.find((s) => s.id === chatStepId);
   const followUps = run?.steps.filter((s) => s.id !== chatStepId) ?? [];
   return (
     <>
       {chatStep?.status === "failed" && (
         <p role="alert" className="mt-3 px-1 text-[13px] text-danger">
-          {(chatStep.error ?? run?.run.error) ? t("stopped", { error: chatStep.error ?? run?.run.error }) : t("stoppedAgent")}
+          {(chatStep.error ?? run?.run.error) ? t("stopped", { error: stored(chatStep.error ?? run?.run.error) }) : t("stoppedAgent")}
         </p>
       )}
       {chatStep?.status === "succeeded" && run && <Progress run={run} steps={followUps} def={def} />}
@@ -292,6 +294,7 @@ function AfterChat({ run, chatStepId, def }: { run: RunSnapshot | null; chatStep
 /** After the confirmation: the steps that follow, with their results. */
 function Progress({ run, steps, def }: { run: RunSnapshot; steps: Step[]; def: WorkflowDef | undefined }) {
   const { t } = useTranslation("chat");
+  const stored = useStored();
   const names = new Map(def ? nodesOf(def).map((n) => [n.id, n.name]) : []);
   return (
     <section aria-label={t("progress")} className="mt-4 flex flex-col gap-2 rounded-2xl bg-hover p-3">
@@ -303,11 +306,11 @@ function Progress({ run, steps, def }: { run: RunSnapshot; steps: Step[]; def: W
             <span className="text-[12px] text-muted">{t(`stepStatus.${s.status}`)}</span>
           </div>
           {s.status === "succeeded" && s.outputs && <Outputs outputs={s.outputs} />}
-          {s.error && <p className="mt-1 text-[13px] text-danger">{s.error}</p>}
+          {s.error && <p className="mt-1 text-[13px] text-danger">{stored(s.error)}</p>}
         </div>
       ))}
       <p className="px-1 pt-1 text-[13px] text-muted" role="status">
-        {run.run.status === "succeeded" ? t("allDone") : run.run.status === "failed" ? (run.run.error ? t("runStopped", { error: run.run.error }) : t("runStoppedStep")) : t("runRunning")}
+        {run.run.status === "succeeded" ? t("allDone") : run.run.status === "failed" ? (run.run.error ? t("runStopped", { error: stored(run.run.error) }) : t("runStoppedStep")) : t("runRunning")}
       </p>
     </section>
   );
