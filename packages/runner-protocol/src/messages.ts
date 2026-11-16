@@ -165,7 +165,7 @@ const StartFields = {
   /**
    * A Job limited to some of Dispand's tools (a Stem Job): the session gets no native tool of the
    * CLI, no settings, skill, memory or MCP server but the Job's own (`job`), whatever else the
-   * start holds. The runner enforces it; Claude Code only.
+   * start holds. The runner enforces it, on Claude Code and on Codex.
    */
   restricted: z.literal(true).optional(),
 };

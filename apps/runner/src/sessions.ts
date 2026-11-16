@@ -280,8 +280,6 @@ export class Sessions {
     } else if (!atLeast(this.options.claudeVersion, MIN_CLAUDE)) {
       return emit({ type: "error", message: `Claude Code ≥ ${MIN_CLAUDE} required (found ${this.options.claudeVersion ?? "none"}): update claude on this machine` });
     }
-    // A restricted session holds nothing but the Job's own server: Codex has no switch for its native tools here.
-    if (start.restricted && start.harness !== "claude-code") return emit({ type: "error", message: "A restricted session runs on Claude Code only" });
     if (start.permissionMode === "bypassPermissions" && !this.config.allowBypass) {
       return emit({ type: "error", message: new BypassRefused().message });
     }

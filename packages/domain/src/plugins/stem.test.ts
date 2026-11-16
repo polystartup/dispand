@@ -87,8 +87,8 @@ test("a Stem Job that ends without deciding leaves the conflict the owner's agai
   expect(s.model.inputs[0]!.system).not.toContain("SENTINEL-BUSINESS");
 });
 
-test("a limited Job's start goes to Claude Code restricted, and is refused on Codex, whose native tools have no switch here", () => {
+test("a limited Job's start goes restricted to Claude Code and to Codex alike", () => {
   const start = { sessionId: "ses_1", runKey: "run_1-step_1", systemPrompt: "Decide.", prompt: "Decide.", expectedOutputs: [], interactive: false, restricted: true as const };
   expect(startProblem({ id: "h", runnerId: "r", kind: "claude-code", permissionMode: "default" }, start)).toBeNull();
-  expect(startProblem({ id: "h", runnerId: "r", kind: "codex", permissionMode: "default" } as never, start)).toMatch(/Claude Code or a cloud harness/);
+  expect(startProblem({ id: "h", runnerId: "r", kind: "codex", permissionMode: "default" } as never, start)).toBeNull();
 });

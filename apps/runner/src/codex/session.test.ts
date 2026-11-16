@@ -155,6 +155,50 @@ test("a session starts a thread with Dispand's profile and instructions, streams
   await s.session.done;
 });
 
+test("a restricted session starts with only submit_outputs, the Job's server and no environment, and answers nothing else", async () => {
+  const elicit = (serverName: string) => request("mcpServer/elicitation/request", { serverName, mode: "form", message: "Allow?", requestedSchema: { type: "object", properties: {} }, _meta: { codex_approval_kind: "mcp_tool_call", tool_name: "plugin_decide", tool_params: {} } });
+  const s = await run({
+    turns: [[
+      elicit("job"),
+      elicit("node_repl"),
+      request("item/commandExecution/requestApproval", { itemId: "c", kind: "command", command: "ls" }),
+      request("item/fileChange/requestApproval", { itemId: "f" }),
+      request("item/tool/requestUserInput", { itemId: "q", questions: [{ id: "q1", header: "Pick", question: "Which?", isOther: false, isSecret: false, options: [{ label: "A", description: "" }] }] }),
+      request("item/tool/call", { callId: "a", namespace: null, tool: "request_approval", arguments: { message: "May I?" } }),
+      message("Done"),
+    ]],
+    // A machine that allows bypass, and a start that asks for it: a restricted session is sandboxed all the same.
+    start: { restricted: true, jobToken: "dj_test", permissionMode: "bypassPermissions", consults: [{ agentId: "agt_a", name: "A", description: "" }] },
+    deps: { allowBypass: true, jobServer: "job", mcp: { servers: { job: { url: "https://dispand.test/mcp/job" } }, env: {} } },
+    env: { FAKE_CODEX_CONFIG: JSON.stringify({ mcp_servers: { node_repl: { command: "node" }, job: { command: "x" } } }) },
+    answer: () => ({ kind: "permission", decision: "allow" }),
+  });
+  await s.ended();
+  expect(questions(s.events)).toEqual([]);
+  const [thread] = await s.sent("thread/start");
+  const params = thread!.params as { config: Record<string, unknown>; dynamicTools: { name: string }[] };
+  expect(params.dynamicTools.map((t) => t.name)).toEqual(["submit_outputs"]);
+  expect(params.config).toMatchObject({
+    default_permissions: "dispand",
+    permissions: { dispand: { extends: ":read-only", network: { enabled: false } } },
+    mcp_servers: { node_repl: { enabled: false }, job: { url: "https://dispand.test/mcp/job" } },
+    features: { shell_tool: false, unified_exec: false, view_image: false, apps: false, plugins: false, multi_agent: false, multi_agent_v2: false, image_generation: false, browser_use: false, computer_use: false, hooks: false },
+    agents: { enabled: false },
+    web_search: "disabled",
+    tools: { experimental_request_user_input: { enabled: false } },
+    skills: { include_instructions: false },
+  });
+  expect(JSON.stringify(params.config)).not.toContain('"write"');
+  const [turn] = await s.sent("turn/start");
+  expect(turn!.params).toMatchObject({ environments: [] });
+  expect(await s.replyTo("r0")).toEqual({ action: "accept", content: {}, _meta: null });
+  expect(await s.replyTo("r1")).toEqual({ action: "decline", content: null, _meta: null });
+  expect(await s.replyTo("r2")).toEqual({ decision: "decline" });
+  expect(await s.replyTo("r3")).toEqual({ decision: "decline" });
+  expect(await s.replyTo("r4")).toEqual({ answers: {} });
+  expect(await s.replyTo("r5")).toMatchObject({ success: false });
+});
+
 test("thread/start denies every machine config path", async () => {
   const home = await realpath(await mkdtemp(join(tmpdir(), "codex-home-")));
   made.push(home);
