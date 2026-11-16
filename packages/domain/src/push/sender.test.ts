@@ -196,3 +196,26 @@ test("telemetry counts each push by outcome, without its text", async () => {
   expect(pushes.sort()).toEqual(["gone", "sent"]);
   expect(await telemetry.all()).not.toContain("Drafting");
 });
+
+test("a push is posted encrypted through the given fetch, and a refusal carries the push service's status", async () => {
+  const { createECDH, randomBytes } = await import("node:crypto");
+  const { generateVAPIDKeys } = await import("web-push");
+  const { pushVia } = await import("./sender.ts");
+  const ecdh = createECDH("prime256v1");
+  ecdh.generateKeys();
+  const subscription = { endpoint: "https://push.example.com/phone", keys: { p256dh: ecdh.getPublicKey().toString("base64url"), auth: randomBytes(16).toString("base64url") } };
+  const options = { vapidDetails: { subject: "mailto:push@example.com", ...generateVAPIDKeys() } };
+  const posted: [string, RequestInit][] = [];
+  let status = 201;
+  const send = pushVia((async (url: string, init: RequestInit) => {
+    posted.push([url, init]);
+    return new Response(null, { status });
+  }) as typeof fetch);
+  await send(subscription, JSON.stringify({ text: SECRET, count: 1, itemId: "q_1" }), options);
+  const [url, init] = posted[0]!;
+  expect([url, init.method, init.redirect]).toEqual(["https://push.example.com/phone", "POST", "manual"]);
+  expect(Object.fromEntries(init.headers as [string, string][])).toMatchObject({ "Content-Encoding": "aes128gcm", TTL: "2419200" });
+  expect(Buffer.from(init.body as Uint8Array).toString()).not.toContain("Ship");
+  status = 410;
+  await expect(send(subscription, "{}", options)).rejects.toMatchObject({ name: "WebPushError", statusCode: 410 });
+});

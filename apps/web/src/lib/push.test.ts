@@ -26,13 +26,13 @@ test("signing out makes the server forget this browser, then drops its subscript
 });
 
 /** Runs `public/sw.js` against a fake worker scope; returns its handlers and what it showed or opened. */
-function worker(focused: boolean) {
+function worker() {
   const handlers: Record<string, (event: unknown) => void> = {};
   const shown: unknown[] = [];
   const opened: string[] = [];
   const self = {
     addEventListener: (type: string, handler: (event: unknown) => void) => (handlers[type] = handler),
-    clients: { matchAll: async () => [{ focused }], openWindow: async (url: string) => opened.push(url) },
+    clients: { openWindow: async (url: string) => opened.push(url) },
     registration: { showNotification: async (title: string, options: unknown) => shown.push([title, options]) },
   };
   runInNewContext(readFileSync(join(import.meta.dirname, "../../public/sw.js"), "utf8"), { self });
@@ -46,13 +46,10 @@ function worker(focused: boolean) {
 
 const payload = { data: { json: () => ({ text: "Drafting needs your decision.", count: 1, itemId: "q_1" }) } };
 
-test("the service worker shows the push unless a Dispand window is focused, and a click opens its item", async () => {
-  const hidden = worker(false);
+test("the service worker shows every push, and a click opens its item", async () => {
+  const hidden = worker();
   await hidden.dispatch("push", payload);
   expect(hidden.shown).toEqual([["Dispand", { body: "Drafting needs your decision.", tag: "dispand-inbox", data: { itemId: "q_1" } }]]);
   await hidden.dispatch("notificationclick", { notification: { close: () => {}, data: { itemId: "q_1" } } });
   expect(hidden.opened).toEqual(["/inbox?item=q_1"]);
-  const focused = worker(true);
-  await focused.dispatch("push", payload);
-  expect(focused.shown).toEqual([]);
 });

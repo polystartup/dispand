@@ -817,10 +817,11 @@ changes it updates this file.
   encrypted to the browser's keys (RFC 8291) and signed with the install's VAPID key, generated
   once and sealed like the other secrets; a subscription's keys are sealed too, and `push.list`
   returns neither them nor its endpoint. The server posts only to an `https://` endpoint the
-  signed-in owner subscribed. Signing out deletes that browser's subscription, and one the push
+  signed-in owner subscribed, in production never to its own addresses (the tools' guarded
+  fetch), reads only the answer's status and gives up after 15 seconds. Signing out deletes that browser's subscription, and one the push
   service answers 404 or 410 for is deleted. The page's only worker is its own service worker
-  (`worker-src 'self'`, `/sw.js`), which shows the push unless a Dispand window is focused and
-  opens `/inbox?item=<id>` on a click. The push procedures are no tool.
+  (`worker-src 'self'`, `/sw.js`), which shows every push and opens `/inbox?item=<id>` on a
+  click. The push procedures are no tool.
 - **Every input is validated** by its procedure's Zod schema; errors don't leak internals:
   anything but an `ORPCError` reaches the page as the generic message (oRPC sends no text, the
   log only `logError`'s summary), and a server message's values render as text, never markup.

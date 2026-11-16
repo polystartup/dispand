@@ -900,9 +900,12 @@
   Settings language, else the subscription's. A success records a row per item, so a delivered
   item is never pushed again and a restart inside the window loses nothing; a failure is tried
   again a minute later (only that device: the others have their rows); a 404 or 410 deletes the
-  subscription. The service worker shows it under the tag `dispand-inbox` unless a Dispand window
-  is focused, and a click opens `/inbox?item=<id>`, which scrolls to that item. An open tab's own
-  notification says the same sentence under the same tag, so the two never both show. Telemetry:
+  subscription. Pushes go through `pushVia(fetch)`: `web-push` encrypts and signs, the tools'
+  address-guarded fetch posts (production), within 15 seconds. The service worker shows every push
+  under the tag `dispand-inbox` (Safari revokes a subscription whose push shows nothing, so a
+  focused window gets it too), and a click opens `/inbox?item=<id>`, which scrolls to that item. An
+  open tab's own notification says the same sentence, only while its browser has no push
+  subscription, so an item alerts once. Telemetry:
   a `push.flush` span, a `push.send` span per device, `dispand.push.sent` by `dispand.result`
   (`sent`, `gone`, `failed`), never the payload.
 - **Stopping a run:** `runs.stop` (`Engine.stopRun`) fails every step of the run still open

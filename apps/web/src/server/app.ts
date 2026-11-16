@@ -18,6 +18,7 @@ import {
   platformToolCaller,
   pollCaller,
   PushSender,
+  pushVia,
   resealToolHeaders,
   startTelemetry,
   stopTelemetry,
@@ -101,9 +102,13 @@ async function start(): Promise<App> {
   };
   sweep();
   setInterval(sweep, SWEEP_EVERY_MS).unref();
-  // Pushes what waited while the app was down, then each new Inbox item. Push services take only an
-  // https or mailto subject: a development app on http names none of its own.
-  app.push = new PushSender(db, engine, secrets, { subject: config.baseURL.startsWith("https:") ? config.baseURL : "mailto:dispand@localhost" });
+  // Pushes what waited while the app was down, then each new Inbox item, never to the app's own
+  // addresses in production (like tool calls). Push services take only an https or mailto subject:
+  // a development app on http names none of its own.
+  app.push = new PushSender(db, engine, secrets, {
+    subject: config.baseURL.startsWith("https:") ? config.baseURL : "mailto:dispand@localhost",
+    send: pushVia(config.mode === "production" ? guardedFetch(ownAddresses()) : fetch),
+  });
   app.push.start();
   return app;
 }

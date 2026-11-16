@@ -1,5 +1,5 @@
 import { and, desc, eq, gt, isNull, ne } from "drizzle-orm";
-import { type PushSubscription, type RequestOptions, sendNotification, WebPushError } from "web-push";
+import { generateRequestDetails, type PushSubscription, type RequestOptions, WebPushError } from "web-push";
 import type { Db } from "../db/client.ts";
 import { agents, pushDeliveries, pushSubscriptions, questions, runs, user, workflows } from "../db/schema.ts";
 import type { Engine } from "../engine/engine.ts";
@@ -25,12 +25,30 @@ export const RETRY_MS = 60_000;
  */
 export type PushPayload = { text: string; count: number; itemId: string };
 
+/** How long a push service has to answer. */
+export const TIMEOUT_MS = 15_000;
+
 export type Send = (subscription: PushSubscription, payload: string, options: RequestOptions) => Promise<unknown>;
+
+/**
+ * Posts a push through `fetch` (the app's address-guarded one in production, as for tools): `web-push`
+ * encrypts and signs it, and its answer is never read, only its status, within `TIMEOUT_MS`.
+ */
+export function pushVia(fetch: typeof globalThis.fetch): Send {
+  return async (subscription, payload, options) => {
+    const request = generateRequestDetails(subscription, payload, options);
+    // fetch sets the length itself.
+    const headers = Object.entries(request.headers).filter(([name]) => name.toLowerCase() !== "content-length").map(([name, value]) => [name, String(value)] as [string, string]);
+    const response = await fetch(request.endpoint, { method: request.method, headers, body: request.body as Uint8Array<ArrayBuffer>, redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) });
+    await response.body?.cancel();
+    if (!response.ok) throw new WebPushError("The push service refused the push", response.status, {}, "", request.endpoint);
+  };
+}
 
 type Options = {
   /** The VAPID subject: the app's https URL, or a `mailto:`. */
   subject: string;
-  /** Tests: stands in for `web-push`. */
+  /** How a push is posted: `pushVia(fetch)` by default. */
   send?: Send;
   windowMs?: number;
   retryMs?: number;
@@ -113,7 +131,12 @@ export class PushSender {
 
   /** Sends what waits now, one flush at a time. */
   flush(): Promise<void> {
-    this.running = this.running.then(() => this.sendWaiting()).catch((err: unknown) => logError("push.flush failed", err));
+    this.running = this.running
+      .then(() => this.sendWaiting())
+      .catch((err: unknown) => {
+        logError("push.flush failed", err);
+        this.wake(this.options.retryMs ?? RETRY_MS);
+      });
     return this.running;
   }
 
@@ -148,7 +171,7 @@ export class PushSender {
         const kind = newest.kind === "approval" ? "approval" : "question";
         const payload: PushPayload = { text: rendered(language, `push.${kind}`, { agent, count: items.length }), count: items.length, itemId: newest.itemId };
         const keys = JSON.parse(this.secrets.open(newest.keys, subscriptionKeysAad(newest.endpoint))) as PushSubscription["keys"];
-        await (this.options.send ?? sendNotification)({ endpoint: newest.endpoint, keys }, JSON.stringify(payload), {
+        await (this.options.send ?? pushVia(globalThis.fetch))({ endpoint: newest.endpoint, keys }, JSON.stringify(payload), {
           vapidDetails: { subject: this.options.subject, ...vapid },
           urgency: "high",
         });

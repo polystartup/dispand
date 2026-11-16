@@ -154,3 +154,31 @@ test("the open tab's notification names the newest item's agent and kind, under 
   push(1);
   await waitFor(() => expect(shown).toEqual([["Dispand", { body: "Drafting needs your decision.", tag: "dispand-inbox" }]]), WAIT);
 });
+
+test("a browser that gets pushes shows no second notification from the open tab", async () => {
+  const shown: string[] = [];
+  vi.stubGlobal("Notification", class {
+    static permission = "granted";
+    constructor(title: string) {
+      shown.push(title);
+    }
+  });
+  vi.stubGlobal("isSecureContext", true);
+  vi.stubGlobal("PushManager", class {});
+  Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: { getRegistration: async () => ({ pushManager: { getSubscription: async () => ({ endpoint: "https://push.example.com/x" }) } }) } });
+  onTestFinished(() => {
+    vi.unstubAllGlobals();
+    Reflect.deleteProperty(navigator, "serviceWorker");
+  });
+  fake.questions.count.mockResolvedValue({ count: 0 });
+  fake.questions.list.mockResolvedValue([]);
+  const push = streamed();
+  renderBell();
+  push(0);
+  await waitFor(() => expect(fake.questions.list).toHaveBeenCalledTimes(1), WAIT);
+  fake.questions.list.mockResolvedValue([{ id: "q2", kind: "question", agent: { id: "a1", name: "Drafting", builtIn: null }, workflow: null }]);
+  push(1);
+  await waitFor(() => expect(fake.questions.list).toHaveBeenCalledTimes(2), WAIT);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(shown).toEqual([]);
+});

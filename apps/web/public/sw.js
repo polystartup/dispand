@@ -6,14 +6,9 @@
 self.addEventListener("push", (event) => {
   const { text, itemId } = event.data ? event.data.json() : {};
   if (!text) return;
-  event.waitUntil(
-    (async () => {
-      // A focused Dispand window shows its own alert: no second one.
-      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      if (windows.some((client) => client.focused)) return;
-      await self.registration.showNotification("Dispand", { body: text, tag: "dispand-inbox", data: { itemId } });
-    })(),
-  );
+  // Every push shows, a focused window or not: Safari revokes a subscription whose push showed
+  // nothing. An open tab stays quiet while its browser gets pushes (`NotificationsBell.tsx`).
+  event.waitUntil(self.registration.showNotification("Dispand", { body: text, tag: "dispand-inbox", data: { itemId } }));
 });
 
 self.addEventListener("notificationclick", (event) => {
