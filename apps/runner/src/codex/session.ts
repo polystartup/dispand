@@ -37,6 +37,8 @@ export type CodexDeps = {
   jobServer?: string;
   /** With `jobServer`: the tools of the Job's tools server that run without a question, by their name there. */
   unasked?: string[];
+  /** Dispand package aliases of verified native installations, resolved after exact catalog names. */
+  skillAliases?: { alias: string; namespace: string }[];
 };
 
 const SUBMIT_OUTPUTS = "submit_outputs";
@@ -133,7 +135,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     const started = ++turnsStarted;
     try {
       const skills = text.startsWith("/") ? (await rpc.request("skills/list", { cwds: [cwd], forceReload: true })).data.flatMap((entry) => entry.skills) : [];
-      const { turn } = await rpc.request("turn/start", { threadId, input: skillInputs(text, skills) });
+      const { turn } = await rpc.request("turn/start", { threadId, input: skillInputs(text, skills, deps.skillAliases) });
       if (running && started === turnsStarted) learnTurn(turn.id);
     } catch (err) {
       finish({ type: "error", message: err instanceof Error ? err.message : String(err) });

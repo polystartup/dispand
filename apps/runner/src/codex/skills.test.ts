@@ -41,3 +41,11 @@ test("an exact user-scope identity wins over a plugin's shorthand alias", async 
   expect(skillCommands(skills).map((s) => s.name)).toEqual(["user@catalog:tidy", "user:tidy"]);
   expect(skillInputs("/user:tidy", skills)[0]).toMatchObject({ type: "skill", path: skills[1]!.path });
 });
+
+test("a package alias never shadows an exact Codex scope name, and still resolves without one", () => {
+  const plugin = { ...skill, pluginId: "user@catalog", path: "/plugins/user/skills/tidy/SKILL.md" };
+  const local = { ...skill, path: "/user/.agents/skills/tidy/SKILL.md", scope: "user" };
+  const aliases = [{ alias: "user", namespace: "user@catalog" }];
+  expect(skillInputs("/user:tidy rows", [plugin, local], aliases)[0]).toMatchObject({ type: "skill", path: local.path });
+  expect(skillInputs("/user:tidy rows", [{ ...plugin, pluginId: "native@catalog" }], [{ alias: "user", namespace: "native@catalog" }])).toEqual([{ type: "skill", name: "tidy", path: plugin.path }, { type: "text", text: "rows", text_elements: [] }]);
+});

@@ -343,7 +343,9 @@ export class Sessions {
         ? await this.options.nativePlugins.request({ action: "list" }) : {};
       const fallback = fallbackPackages(packages, start.harness, native);
       const aliases = nativeSkillAliases(packages, start.harness, native);
-      start.prompt = resolveSkillAlias(start.prompt, aliases);
+      // Codex resolves aliases itself, after its exact catalog names (a scope can share an alias).
+      const resolve = (text: string) => start.harness === "codex" ? text : resolveSkillAlias(text, aliases);
+      start.prompt = resolve(start.prompt);
       const pluginRoots = pluginsDir ? await writeSkills(pluginsDir, fallback) : [];
       // Writing them took time: check again that the runner may still launch.
       if (this.shuttingDown) return cleanUp();
@@ -363,6 +365,7 @@ export class Sessions {
               secrets: this.options.forbidden ?? [],
               ...(pluginsDir ? { pluginsDir } : {}),
               pluginRoots,
+              skillAliases: aliases,
               ...(codexMcp ? { mcp: codexMcp } : {}),
               ...jobServer,
             })
@@ -375,7 +378,7 @@ export class Sessions {
               ...jobServer,
             });
       const send = session.send.bind(session);
-      session.send = (text) => send(resolveSkillAlias(text, aliases));
+      session.send = (text) => send(resolve(text));
       this.live.set(start.sessionId, session);
       this.folders.set(start.sessionId, cwd);
       this.toldNotRunning.delete(start.sessionId);
