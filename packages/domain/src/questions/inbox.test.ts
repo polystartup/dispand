@@ -262,7 +262,7 @@ test("an answer too long to carry who gave it is refused, and the item still wai
   expect((await s.questionOf(q.id)).status).toBe("pending");
 });
 
-test("a run shows a pending proposal Approval with its items, in its snapshot and its stream; once answered, without them", async () => {
+test("a run shows a pending proposal Approval with its items, in its snapshot and its stream; retaining them once answered", async () => {
   const s = await setup();
   const builder = await s.agent("Builder", ["configure"], "all");
   const job = await s.jobOf(builder);
@@ -280,7 +280,11 @@ test("a run shows a pending proposal Approval with its items, in its snapshot an
   expect(event.question).toMatchObject({ id: approval.id, proposalId: proposal, proposal: shown });
   expect((await call(router.runs.get, { runId: job.runId }, { context: s.context })).questions).toMatchObject([{ id: approval.id, proposal: shown }]);
   await call(router.questions.answer, { questionId: approval.id, answer: { kind: "permission", decision: "deny", message: "Only Clients, not Notes" } }, { context: s.context });
-  expect((await call(router.runs.get, { runId: job.runId }, { context: s.context })).questions).toMatchObject([{ id: approval.id, status: "answered", proposal: null }]);
+  const answered = { id: approval.id, status: "answered", proposal: { ...shown, status: "declined" } };
+  expect((await call(router.runs.get, { runId: job.runId }, { context: s.context })).questions).toMatchObject([answered]);
+  event = (await stream.next()).value as typeof event;
+  while (event.type !== "question") event = (await stream.next()).value as typeof event;
+  expect(event.question).toMatchObject(answered);
 });
 
 test("a proposal declined with words in the chat: the agent is told them, the items stay refused, and a click after it is told it is answered", async () => {
