@@ -56,14 +56,20 @@ test("shutdown aborts live CLIs without an error, flushes the pending delta, kee
   );
   await sessions.handle({ type: "session.start", start: start("ses_1", "run_a") });
   await vi.waitFor(() => expect(emitted.map((e) => e.type)).toEqual(["cli-session", "turn-start", "text"]));
+  const turn = emitted[1]!;
+  expect(turn).toEqual({ type: "turn-start", turnId: expect.any(String), interruptible: false });
 
   await shutdown(sessions, conn, 5000);
   expect(calls[0]!.abortController!.signal.aborted).toBe(true);
   expect(sessions.ids()).toEqual([]);
   // No error: the session is resumable, not failed.
   expect(emitted.map((e) => e.type)).toEqual(["cli-session", "turn-start", "text"]);
-  const lines = (await readFile(backlogPath, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as { event: HarnessEvent });
-  expect(lines.map((l) => l.event)).toEqual([{ type: "cli-session", cliSessionId: "cli-1" }, { type: "turn-start" }, { type: "text", delta: "half a sent" }]);
+  const lines = (await readFile(backlogPath, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as { seq: number; sessionId: string; event: HarnessEvent });
+  expect(lines.map(({ seq, sessionId, event }) => ({ seq, sessionId, event }))).toEqual([
+    { seq: 1, sessionId: "ses_1", event: { type: "cli-session", cliSessionId: "cli-1" } },
+    { seq: 2, sessionId: "ses_1", event: turn },
+    { seq: 3, sessionId: "ses_1", event: { type: "text", delta: "half a sent" } },
+  ]);
   expect(JSON.parse(await readFile(resumeMap, "utf8"))).toEqual({ "cli-1": "run_a" });
   // The run folder stays, for the resume.
   expect((await stat(join(base, "root", "runs", "run_a"))).isDirectory()).toBe(true);
