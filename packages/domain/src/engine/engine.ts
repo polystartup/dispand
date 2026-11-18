@@ -470,7 +470,11 @@ export class Engine {
     out.push({ type: "step", step: stepView(current) });
     await this.expire(tx, eq(questions.stepRunId, step.id), out, "stopped");
     await this.syncWaiting(tx, step.id, step.runId, out);
-    if (current.turnStatus === "idle" && await this.interruptedInputFinished(tx, current)) await release(tx, current, out);
+    if (current.turnStatus === "idle" && await this.interruptedInputFinished(tx, current)) {
+      // Consume the cleanup boundary before a continuation can claim another slot or queue position.
+      await tx.update(stepRuns).set({ interruptAfterPosition: null }).where(eq(stepRuns.id, current.id));
+      await release(tx, current, out);
+    }
   }
 
   private async interruptedInputFinished(tx: Tx, step: StepRow): Promise<boolean> {

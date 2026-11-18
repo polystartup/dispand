@@ -247,6 +247,36 @@ test.each([[false, false], [true, false], [false, true], [true, true]])("interru
   }
 });
 
+test("repeated interrupt cleanup preserves a cloud continuation queued after its turn ended", async () => {
+  const { context, adapter, engine, workflow, harness } = await setup(chatThenStep);
+  await context.db.update(harnessesTable).set({ maxWorking: 1 }).where(eq(harnessesTable.id, harness.id));
+  const runId = await engine.startRun(workflow.id);
+  const sessionId = adapter.starts[0]!.start.sessionId;
+  await context.db.update(stepRuns).set({ runnerId: CLOUD_SOURCE }).where(eq(stepRuns.sessionId, sessionId));
+  let seq = 0;
+  const cloudEvent = (event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(sessionId, event, { runnerId: CLOUD_SOURCE, seq: ++seq });
+  await cloudEvent({ type: "turn-start", turnId: "first", interruptible: true });
+  await engine.sendChat(runId, "Queued before Stop");
+  await cloudEvent({ type: "question", questionId: "approval", payload: { kind: "confirm-outputs", values: {} } });
+  const otherRun = await engine.startRun(workflow.id);
+  expect((await runOf(engine, otherRun)).steps.n_chat!.working).toBe(true);
+  let queuedAt: Date | null = null;
+  vi.spyOn(adapter, "interrupt").mockImplementation(async () => {
+    await cloudEvent({ type: "turn-end", turnId: "first" });
+    expect(await engine.claimCloudTurn(sessionId)).toBe(false);
+    queuedAt = (await runOf(engine, runId)).steps.n_chat!.queuedAt;
+    expect(queuedAt).not.toBeNull();
+    return "requested";
+  });
+  expect(await engine.interruptChat(runId, "first")).toEqual({ outcome: "requested" });
+  expect((await runOf(engine, runId)).steps.n_chat).toMatchObject({ queuedAt, pendingAction: { kind: "deliver" }, working: false, turnStatus: "idle" });
+  // A replayed acknowledgment must leave the same queue position intact too.
+  await cloudEvent({ type: "interrupt-result", requestId: "replay", turnId: "first", outcome: "requested" });
+  expect((await runOf(engine, runId)).steps.n_chat).toMatchObject({ queuedAt, pendingAction: { kind: "deliver" }, working: false });
+  await engine.stopRun(otherRun);
+  await vi.waitFor(async () => expect((await runOf(engine, runId)).steps.n_chat).toMatchObject({ working: true, queuedAt: null }));
+});
+
 test("a replayed interrupt acknowledgment withdraws only its matching turn", async () => {
   const { adapter, engine, emit, workflow } = await setup(chatThenStep);
   const runId = await engine.startRun(workflow.id);
