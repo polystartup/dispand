@@ -154,6 +154,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   function learnTurn(id: string) {
     if (turnId) return;
     turnId = id;
+    emit({ type: "turn-start" });
     if (interrupted && rpc && threadId) void rpc.request("turn/interrupt", { threadId, turnId: id }).catch(() => undefined);
   }
 

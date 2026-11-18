@@ -105,6 +105,33 @@ const delta = (text: string) =>
 /** The third argument of `canUseTool`. */
 const ctx = (suggestions?: PermissionUpdate[]) => ({ signal: new AbortController().signal, toolUseID: "tu_1", requestId: "req_1", suggestions });
 
+test("native turn evidence starts each turn once, before its text, without treating queued input as running", async () => {
+  let begin!: () => void;
+  const gate = new Promise<void>((resolve) => { begin = resolve; });
+  const fake = fakeQuery(async function* ({ next }) {
+    await next();
+    await gate;
+    yield init;
+    yield { type: "system", subtype: "session_state_changed", state: "running", session_id: "cli-1", uuid: "state_1" } as SDKMessage;
+    yield delta("First");
+    yield result();
+    await next();
+    yield init;
+    yield result();
+    await next();
+  });
+  const { events, session } = run(start, fake.query);
+  expect(events).toEqual([]);
+  begin();
+  await vi.waitFor(() => expect(events.at(-1)).toEqual({ type: "turn-end" }));
+  expect(events).toEqual([{ type: "cli-session", cliSessionId: "cli-1" }, { type: "turn-start" }, { type: "text", delta: "First" }, { type: "turn-end" }]);
+  session.send("Next");
+  await vi.waitFor(() => expect(events.filter((event) => event.type === "turn-end")).toHaveLength(2));
+  expect(events.filter((event) => event.type === "turn-start" || event.type === "turn-end")).toEqual([{ type: "turn-start" }, { type: "turn-end" }, { type: "turn-start" }, { type: "turn-end" }]);
+  session.close();
+  await session.done;
+});
+
 test("saved native rules pass the boundary first and never become SDK wildcard settings", async () => {
   const hooks: unknown[] = [];
   const decisions: unknown[] = [];

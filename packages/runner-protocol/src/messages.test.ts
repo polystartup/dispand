@@ -113,6 +113,7 @@ const runnerMessages: RunnerToServer[] = [
   ...(
     [
       { type: "cli-session", cliSessionId: "cli-123" },
+      { type: "turn-start" },
       { type: "session-ended" },
       { type: "text", delta: "Hel" },
       { type: "tool", name: "Bash", status: "started" },

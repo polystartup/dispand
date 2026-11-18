@@ -179,8 +179,18 @@ export function startClaudeSession(
   const input = inputQueue(verbatim, new Promise<void>((resolve) => (openGate = resolve)));
   /** Set once the session has its outcome (result or error): nothing runs or is emitted after it. */
   let finished = false;
+  let reportedRunning = false;
   const emit = (e: HarnessEvent) => {
-    if (!finished) sessionEmit(e);
+    if (finished) return;
+    if (e.type === "turn-start" && reportedRunning) return;
+    // Tool callbacks can arrive before the SDK iterator yields the turn's init message.
+    if (!reportedRunning && (e.type === "text" || e.type === "question" || (e.type === "tool" && e.status === "started"))) {
+      reportedRunning = true;
+      sessionEmit({ type: "turn-start" });
+    }
+    if (e.type === "turn-start") reportedRunning = true;
+    if (e.type === "turn-end") reportedRunning = false;
+    sessionEmit(e);
   };
   const questions = ownerQuestions(emit);
   const ask = questions.ask;
@@ -504,6 +514,7 @@ export function startClaudeSession(
   }
 
   function turnEnded(msg: Extract<SDKMessage, { type: "result" }>) {
+    reportedRunning = false;
     // A turn's end leaves nothing pending for the next one.
     approval?.settle(false);
     approval = null;
@@ -528,6 +539,9 @@ export function startClaudeSession(
           emit({ type: "cli-session", cliSessionId: msg.session_id });
           const failure = pluginFailure(msg.plugin_errors, pluginRoots);
           if (failure) finish({ type: "error", message: failure });
+          else emit({ type: "turn-start" });
+        } else if (msg.type === "system" && msg.subtype === "session_state_changed" && (msg.state === "running" || msg.state === "requires_action")) {
+          emit({ type: "turn-start" });
         }
         // Subagents' own text and tools stay inside the tool that runs them.
         else if (msg.type === "stream_event" && msg.parent_tool_use_id === null) {

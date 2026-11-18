@@ -65,6 +65,14 @@ async function run(o: {
 
 const questions = (events: HarnessEvent[]) => events.filter((e): e is Extract<HarnessEvent, { type: "question" }> => e.type === "question");
 
+test("a submitted turn is not running until Codex acknowledges its start", async () => {
+  const s = await run({ start: { interactive: true }, env: { FAKE_CODEX_HANG_ON: "turn/start" } });
+  await waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(1));
+  expect(s.events).toEqual([{ type: "cli-session", cliSessionId: "thr_1" }]);
+  s.session.stop("test finished");
+  await s.session.done;
+});
+
 test("saved shell prefixes need one matching action; compound and multi-action requests still ask", async () => {
   const command = (itemId: string, text: string, count = 1) => request("item/commandExecution/requestApproval", { itemId, kind: "command", command: text, proposedExecpolicyAmendment: ["npm", "test"], commandActions: Array.from({ length: count }, () => ({ type: "unknown", command: text })) });
   const s = await run({
@@ -134,6 +142,7 @@ test("a session starts a thread with Dispand's profile and instructions, streams
   await s.ended();
   expect(s.events).toEqual([
     { type: "cli-session", cliSessionId: "thr_1" },
+    { type: "turn-start" },
     { type: "text", delta: "Hel" },
     { type: "tool", name: "Shell", status: "started" },
     { type: "tool", name: "Shell", status: "done" },
