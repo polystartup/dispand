@@ -212,6 +212,7 @@ export type RunTrigger =
   /** An update's conflicts the owner handed to Stem (`plugins/resolve.ts`), as the trigger node gives them to the Job. */
   | { type: "stem"; pluginId: string; outputs: Record<string, string> };
 export type StepStatus = "pending" | "running" | "waiting" | "succeeded" | "failed" | "skipped";
+export type TurnStatus = "unknown" | "idle" | "running";
 
 /** Who waits on a queued step, served in this order (`engine/slots.ts`): a person, a resume, a new start. */
 export type QueueClass = "person" | "resume" | "new";
@@ -506,6 +507,8 @@ export const stepRuns = pgTable(
     harnessId: text("harness_id").references(() => harnesses.id, { onDelete: "set null" }),
     // Holds one of its harness's slots: its session works on a turn, or is about to start.
     working: boolean("working").notNull().default(false),
+    // Reported by the harness, independent of its slot; unknown until this session reports.
+    turnStatus: text("turn_status").$type<TurnStatus>().notNull().default("unknown"),
     // Waiting for a slot since then, served by class, then oldest first; null when not queued.
     queuedAt: timestamp("queued_at"),
     queueClass: text("queue_class").$type<QueueClass>(),

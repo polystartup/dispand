@@ -1,0 +1,1 @@
+ALTER TABLE "step_runs" ADD COLUMN "turn_status" text DEFAULT 'unknown' NOT NULL;
