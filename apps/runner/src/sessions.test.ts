@@ -547,7 +547,7 @@ test("a steer reports whether it joined the running Codex turn; one for an ended
   await sessions.handle({ type: "session.stop", sessionId: "ses_1" });
 });
 
-test("Claude Code can't steer: a steer goes as an ordinary message and says so; none reaches a session that isn't running", async () => {
+test("a steer with no turn running goes as an ordinary message and says so; none reaches a session that isn't running", async () => {
   const { events, fake, sessions } = await setup();
   await sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), interactive: true, prompt: "" } });
   await waitFor(() => expect(events).toContainEqual(["ses_1", { type: "turn-end" }]));

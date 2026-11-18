@@ -34,12 +34,18 @@ export function isCloud(h: Harness): h is CloudHarness {
 }
 
 /**
- * Whether the harness steers (`HarnessAdapter.steer`): a message joins the turn running now. Codex
- * does (`turn/steer`), and so does a cloud session (at its next model call). Claude Code can't
- * promise it: its CLI takes a message into a turn only between tool rounds, else after the turn.
+ * How a harness steers (`HarnessAdapter.steer`: a message joins the turn running now). Every
+ * harness does, attachments included (a CLI gets them in its run folder before the text, a cloud
+ * session with the message), and each says with `steer-result` once it took the message.
+ * `interruptsTools`: steering stops the tools running in that turn. Claude Code takes a message at
+ * once only by cutting its running turn (`priority: "now"`), and Dispand reports that and the turn
+ * the CLI starts for it as one. Codex takes it beside them (`turn/steer`), a cloud session at its
+ * next model call.
  */
-export function canSteer(h: Harness): boolean {
-  return isCloud(h) || h.kind === "codex";
+export type Steering = { interruptsTools: boolean };
+
+export function steering(h: Harness): Steering {
+  return { interruptsTools: !isCloud(h) && h.kind === "claude-code" };
 }
 
 /**
@@ -73,7 +79,7 @@ export interface HarnessAdapter<H extends Harness = Harness> {
   /** `files`: what the person attached to this chat message, attachments of the session's Job. */
   send(sessionId: string, text: string, files?: MessageFile[]): Promise<boolean>;
   /**
-   * Sends a message that joins turn `turnId` while it runs, where the harness can (`canSteer`);
+   * Sends a message that joins turn `turnId` while it runs, as `steering` says;
    * otherwise it goes like `send`, once either way. A `steer-result` event with `requestId` then
    * says whether it joined the turn (`steered`) or went as the next message (`queued`).
    */

@@ -31,6 +31,8 @@ type Io = {
   uuids: string[];
   /** For each message read, whether it came marked `client_composed` (delivered as written). */
   composed: boolean[];
+  /** For each message read, its priority (none: the CLI's default). */
+  priorities: (string | undefined)[];
 };
 
 /** A stand-in for the SDK's `query`: the script plays the CLI's side. */
@@ -53,7 +55,9 @@ function fakeQuery(script: (io: Io) => AsyncGenerator<SDKMessage>, mcp: { errors
     const interrupted = new Promise<void>((resolve) => (onInterrupt = resolve));
     const uuids: string[] = [];
     const composed: boolean[] = [];
+    const priorities: (string | undefined)[] = [];
     const io: Io = {
+      priorities,
       interrupted,
       uuids,
       composed,
@@ -62,6 +66,7 @@ function fakeQuery(script: (io: Io) => AsyncGenerator<SDKMessage>, mcp: { errors
         const r = await input.next();
         if (!r.done && r.value.uuid) uuids.push(r.value.uuid);
         if (!r.done) composed.push(r.value.client_composed === true);
+        if (!r.done) priorities.push(r.value.priority);
         return r.done ? null : String(r.value.message.content);
       },
       callTool: async (name, args) => {
@@ -182,6 +187,62 @@ function run(s: SessionStart, q: typeof query, answer?: (e: Extract<HarnessEvent
   }, { query: q });
   return { events, session };
 }
+
+/** A result answering the user messages `uuids`, as the CLI sends it; `terminal_reason` as it ended. */
+const resultFor = (uuids: string[], terminal_reason = "completed") => ({ ...result(), user_message_uuids: uuids, terminal_reason }) as SDKMessage;
+const started = (uuid: string) => ({ type: "command_lifecycle", command_uuid: uuid, state: "started", session_id: "cli-1" }) as unknown as SDKMessage;
+
+test("a steer cuts the CLI's turn with priority now, and Dispand reports one turn that took it", async () => {
+  let priorities: (string | undefined)[] = [];
+  const fake = fakeQuery(async function* (io) {
+    priorities = io.priorities;
+    await io.next();
+    yield init;
+    yield delta("Working");
+    expect(await io.next()).toBe("Also this");
+    // The CLI stops the running tool, ends its turn, then starts the steer at once.
+    yield resultFor([io.uuids[0]!], "aborted_tools");
+    yield started(io.uuids[1]!);
+    yield init;
+    yield resultFor([io.uuids[1]!]);
+    await io.next();
+  });
+  const { events, session } = run({ ...start, expectedOutputs: [] }, fake.query);
+  await vi.waitFor(() => expect(events).toContainEqual({ type: "text", delta: "Working" }));
+  const turnId = events.find((e) => e.type === "turn-start")!.turnId;
+  expect(await session.steer!(turnId, "Also this")).toBe("steered");
+  await vi.waitFor(() => expect(events.filter((e) => e.type === "turn-end")).toHaveLength(1));
+  expect(events.filter((e) => e.type === "turn-start" || e.type === "turn-end")).toEqual([{ type: "turn-start", turnId, interruptible: false }, expect.objectContaining({ type: "turn-end", turnId })]);
+  expect(priorities).toEqual([undefined, "now"]);
+  expect(await session.steer!(turnId, "Late")).toBe("queued");
+  session.close();
+  await session.done;
+});
+
+test("a steer the CLI starts only after its turn ended is the next message: its own turn", async () => {
+  const fake = fakeQuery(async function* (io) {
+    await io.next();
+    yield init;
+    yield delta("Working");
+    await io.next();
+    yield resultFor([io.uuids[0]!]);
+    yield started(io.uuids[1]!);
+    yield init;
+    yield delta("Next");
+    yield resultFor([io.uuids[1]!]);
+    await io.next();
+  });
+  const { events, session } = run({ ...start, expectedOutputs: [] }, fake.query);
+  await vi.waitFor(() => expect(events).toContainEqual({ type: "text", delta: "Working" }));
+  const turnId = events.find((e) => e.type === "turn-start")!.turnId;
+  expect(await session.steer!(turnId, "Also this")).toBe("queued");
+  await vi.waitFor(() => expect(events.filter((e) => e.type === "turn-start")).toHaveLength(2));
+  const next = events.filter((e) => e.type === "turn-start")[1]!.turnId;
+  expect(next).not.toBe(turnId);
+  await vi.waitFor(() => expect(events).toContainEqual(expect.objectContaining({ type: "turn-end", turnId: next })));
+  session.close();
+  await session.done;
+});
 
 test("passes the session's options and streams text", async () => {
   const fake = fakeQuery(async function* ({ next }) {

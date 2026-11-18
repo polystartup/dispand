@@ -102,11 +102,11 @@ function inputQueue(verbatim: (text: string) => Promise<boolean>, gate: Promise<
   };
   return {
     iterable: read(),
-    /** Queues a message; returns its uuid, or null once closed. */
-    push(text: string): string | null {
+    /** Queues a message (`now`: the CLI cuts its running turn and takes it at once); returns its uuid, or null once closed. */
+    push(text: string, priority?: "now"): string | null {
       if (closed) return null;
       const uuid = randomUUID();
-      messages.push({ type: "user", message: { role: "user", content: text }, parent_tool_use_id: null, uuid });
+      messages.push({ type: "user", message: { role: "user", content: text }, parent_tool_use_id: null, uuid, ...(priority ? { priority } : {}) });
       notify();
       return uuid;
     },
@@ -206,12 +206,37 @@ export function startClaudeSession(
   const pluginRoots = start.restricted ? [] : (deps.pluginRoots ?? []);
   const boundary = permissionBoundary(cwd, homedir(), deps.env ?? process.env, pluginRoots);
 
+  /**
+   * Steers sent with priority `now`, by uuid, until the CLI shows which turn took them. Such a
+   * message cuts the CLI's running turn (its tools are stopped) and starts the next one at once:
+   * Dispand reports both as the one turn the steer joined.
+   */
+  const steers = new Map<string, (outcome: "steered" | "queued") => void>();
+
   /** Every user message starts (or joins) a turn. */
-  function say(text: string) {
-    const uuid = input.push(text);
+  function say(text: string, priority?: "now"): string | null {
+    const uuid = input.push(text, priority);
     if (uuid) {
       unanswered.push(uuid);
       unansweredBytes.set(uuid, Buffer.byteLength(text));
+    }
+    return uuid;
+  }
+
+  /** Whether the session may take `text` on top of what waits: past the limits, it ends. */
+  function admit(text: string): boolean {
+    const waiting = [...unansweredBytes.values()].reduce((a, b) => a + b, 0);
+    if (unanswered.length <= MAX_WAITING && waiting + Buffer.byteLength(text) <= MAX_WAITING_BYTES) return true;
+    // Every error is terminal for the engine, so the session ends with it.
+    finish({ type: "error", message: "too many messages waiting for the agent: the session was stopped" });
+    return false;
+  }
+
+  /** Settles the steers the CLI took (`uuids`): each joined the turn, as long as it hasn't ended. */
+  function steersTaken(uuids: string[]) {
+    for (const uuid of uuids) {
+      steers.get(uuid)?.("steered");
+      steers.delete(uuid);
     }
   }
 
@@ -520,9 +545,20 @@ export function startClaudeSession(
     const wasInterrupted = interrupted;
     interrupted = false;
     answered(msg);
+    steersTaken(msg.user_message_uuids ?? []);
+    const aborted = msg.terminal_reason === "aborted_streaming" || msg.terminal_reason === "aborted_tools";
+    // Cut by a steer, not by an interrupt: the turn goes on with it, in the CLI's next turn.
+    if (aborted && !wasInterrupted && steers.size > 0) {
+      turnAbort.abort();
+      turnAbort = new AbortController();
+      return;
+    }
+    // The turn ended without them: each is the next message.
+    for (const settle of steers.values()) settle("queued");
+    steers.clear();
     outcome.turnEnded({
       // A cut turn, whatever the result's subtype: interrupted from here, or aborted mid-stream.
-      interrupted: wasInterrupted || msg.terminal_reason === "aborted_streaming" || msg.terminal_reason === "aborted_tools",
+      interrupted: wasInterrupted || aborted,
       // A failed turn can come as subtype "success" with is_error (an API error): its text says why.
       ...(msg.subtype !== "success" || msg.is_error ? { error: (msg.subtype === "success" ? msg.result : msg.errors.join("; ")) || msg.subtype } : {}),
       text: msg.subtype === "success" ? msg.result : "",
@@ -563,6 +599,9 @@ export function startClaudeSession(
             }
           }
         } else if (msg.type === "result") turnEnded(msg);
+        // Not in the SDK's types: the CLI says when it starts a message it queued (`msg_lifecycle_v1`).
+        const lifecycle = msg as { type: string; command_uuid?: unknown; state?: unknown };
+        if (lifecycle.type === "command_lifecycle" && lifecycle.state === "started" && typeof lifecycle.command_uuid === "string") steersTaken([lifecycle.command_uuid]);
       }
       // The CLI only exits by itself after a result, or once the input is closed.
       // In streaming mode the CLI only exits once its input is closed: any other exit, after a
@@ -582,10 +621,20 @@ export function startClaudeSession(
       return HarnessCommands.parse(await (await queryReady).supportedCommands());
     },
     send(text) {
-      // Every error is terminal for the engine, so the session ends with it.
-      const waiting = [...unansweredBytes.values()].reduce((a, b) => a + b, 0);
-      if (unanswered.length > MAX_WAITING || waiting + Buffer.byteLength(text) > MAX_WAITING_BYTES) return finish({ type: "error", message: "too many messages waiting for the agent: the session was stopped" });
-      say(text);
+      if (admit(text)) say(text);
+    },
+    steer(target, text) {
+      if (!admit(text)) return Promise.resolve("queued");
+      // Only into the turn running now: otherwise an ordinary message.
+      if (target !== reportedTurnId || unanswered.length === 0) {
+        say(text);
+        return Promise.resolve("queued");
+      }
+      return new Promise((settle) => {
+        const uuid = say(text, "now");
+        if (uuid) steers.set(uuid, settle);
+        else settle("queued");
+      });
     },
     narrowPermissions: (servers) => { permissionsVersion++; denied.narrow(servers); narrowUnasked(unasked, agentServers.filter((s) => s !== "job_tools"), servers, "claude-code"); },
     answer: questions.answer,
