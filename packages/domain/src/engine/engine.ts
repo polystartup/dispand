@@ -624,16 +624,7 @@ export class Engine {
 
   /** Records the owner's answer (once) and sends it to the session. */
   async answer(questionId: string, answer: Answer, by?: AnsweredBy): Promise<void> {
-    // Any answer may have to go as words (its session lost and resumed): those must fit a message.
-    const [asked] = await this.db.select({ payload: questions.payload, kind: questions.kind, ownerId: questions.ownerId, runId: questions.runId, consultId: questions.consultId }).from(questions).where(eq(questions.id, questionId));
-    // Nothing answers in a consulted agent's place: only its Job does (`answerConsult`).
-    if (asked?.kind === "consult") throw new EngineError("NOT_FOUND", message("questions.notFound"));
-    // A plugin update's Approval is answered item by item (`plugins.resolveConflict`), never whole.
-    if (asked?.payload.kind === "permission" && asked.payload.toolName === PLUGIN_UPDATE) throw new EngineError("INVALID", message("questions.answer.itemByItem"));
-    if (asked) {
-      const words = answerText({ payload: asked.payload, answer, answeredBy: by ?? null });
-      if (words.length > TEXT || !storable(words)) throw new EngineError("INVALID", message("questions.answer.tooLong", { max: TEXT - 100 }));
-    }
+    const asked = await this.answerable(questionId, answer, by);
     const out: Out[] = [];
     const settled = await this.db.transaction(async (tx) => {
       // A consult's Approval may make a Job in the asking Job's root: that root is locked first (`applyEvent`).
@@ -641,21 +632,9 @@ export class Engine {
         await lockConsults(tx, asked.ownerId);
         await rootGoingLocked(tx, asked.runId);
       }
-      const [pending] = await tx.select().from(questions).where(and(eq(questions.id, questionId), eq(questions.status, "pending"))).for("update");
-      if (!pending) return undefined;
-      if (answer.kind === "permission" && answer.decision === "allow-always" && (pending.remember || (pending.payload.kind === "permission" && pending.payload.toolName.startsWith("mcp__")))) throw new EngineError("INVALID", message("questions.answer.chooseScope"));
-      if (answer.kind === "permission" && answer.remember) {
-        if (answer.decision === "allow-always" || !by || !(await remember(tx, { questionId, decision: answer.decision, scope: answer.remember, by }))) throw new EngineError("INVALID", message("questions.answer.cannotRemember"));
-      }
-      const [q] = await tx
-        .update(questions)
-        .set({ status: "answered", answer, answeredAt: new Date(), answeredBy: by ?? null, ...(answer.kind === "permission" && answer.remember && answer.decision === "allow" ? { consumedAt: new Date() } : {}) })
-        .where(and(eq(questions.id, questionId), eq(questions.status, "pending")))
-        .returning();
-      if (!q) return undefined;
-      // An agent's answer is its Job's write.
-      const actor: Exclude<EventActor, { type: "step" }> = by?.type === "agent" ? { type: "job", runId: by.runId } : (by ?? { type: "user", userId: q.ownerId });
-      await recordInteraction(tx, q, "answered", actor);
+      const recorded = await this.recordAnswer(tx, questionId, answer, by);
+      if (!recorded) return undefined;
+      const { q, actor } = recorded;
       // A checkpoint's Approval: no session waits on it, its root does.
       if (q.rootId) {
         out.push({ type: "question", question: questionView(q) });
@@ -668,35 +647,13 @@ export class Engine {
         await this.consultApproved(tx, q, answer, by, out);
         return { q, step: null };
       }
-      // A person's "always allow" to a CLI session's approval of one of its agent's tools: that
-      // action stops asking on the agent, with the answer that was just taken (an answer that
-      // came second grants nothing). The answer is used up as it is given: the call it is for
-      // needs no approval any more, and it must not stay for a later one. When the name stands
-      // for nothing the agent chose, nothing is granted and the answer allows this call only:
-      // the runner must not stop prompting for a call the endpoint would still refuse, nor for
-      // an action of a runner tool the agent doesn't let run unasked.
-      if (by?.type === "user" && answer.kind === "permission" && answer.decision === "allow-always" && q.payload.kind === "permission" && q.payload.toolName.startsWith("mcp__")) {
-        const stopped = await stopAsking(tx as unknown as Db, q.runId, q.payload.toolName, q.about);
-        const [settled] = await tx
-          .update(questions)
-          .set(stopped ? { consumedAt: new Date() } : { answer: { ...answer, decision: "allow" } })
-          .where(eq(questions.id, q.id))
-          .returning();
-        Object.assign(q, settled);
-      }
-      // The Approval of a proposal: a person's yes approves its items, a no declines it, once.
-      if (q.proposalId && answer.kind === "permission" && (answer.decision === "deny" || by?.type === "user")) {
-        await settleProposal(tx as unknown as Db, q.id, answer.decision !== "deny");
-      }
+      await this.grantFromAnswer(tx, q, answer, by);
       return { q, step: await this.toSession(tx, q, out) };
     });
     const { q, step } = settled ?? {};
     const root = settled && "root" in settled ? settled.root : undefined;
     if (!q) throw new EngineError("NOT_PENDING", message("questions.answer.notPending"));
-    const decision = q.answer?.kind === "permission" ? q.answer.decision : q.answer?.kind ?? "none";
-    counts.counter("dispand.questions.answered").add(1, { "dispand.question.kind": q.kind, "dispand.answer.decision": decision, "dispand.answer.by": q.answeredBy?.type ?? "user" });
-    counts.histogram("dispand.question.wait", { unit: "ms", description: "From a question to its answer" }).record(q.answeredAt!.getTime() - q.createdAt.getTime(), { "dispand.question.kind": q.kind });
-    if (q.remember?.subject.kind === "tool" && q.answer?.kind === "permission" && q.answer.remember && q.answer.decision === "deny") await this.narrowSessions(q.remember.subject.agentId, this.db, q.answer.remember === "run" ? q.runId : undefined);
+    await this.answered(q);
     this.publish(out);
     if (step) await this.flush(step.id, step.sessionId!);
     if (root?.stopped) {
@@ -704,6 +661,73 @@ export class Engine {
       this.endSessions(root.stopped.sessions);
     }
     if (root?.goOn) await this.goOn(root.goOn);
+  }
+
+  /** What `answer` refuses before its transaction; the question as it was read, if any. */
+  private async answerable(questionId: string, answer: Answer, by?: AnsweredBy) {
+    // Any answer may have to go as words (its session lost and resumed): those must fit a message.
+    const [asked] = await this.db.select({ payload: questions.payload, kind: questions.kind, ownerId: questions.ownerId, runId: questions.runId, consultId: questions.consultId }).from(questions).where(eq(questions.id, questionId));
+    // Nothing answers in a consulted agent's place: only its Job does (`answerConsult`).
+    if (asked?.kind === "consult") throw new EngineError("NOT_FOUND", message("questions.notFound"));
+    // A plugin update's Approval is answered item by item (`plugins.resolveConflict`), never whole.
+    if (asked?.payload.kind === "permission" && asked.payload.toolName === PLUGIN_UPDATE) throw new EngineError("INVALID", message("questions.answer.itemByItem"));
+    if (asked) {
+      const words = answerText({ payload: asked.payload, answer, answeredBy: by ?? null });
+      if (words.length > TEXT || !storable(words)) throw new EngineError("INVALID", message("questions.answer.tooLong", { max: TEXT - 100 }));
+    }
+    return asked;
+  }
+
+  /** In `tx`, the question locked: the answer recorded once, with what it remembers; undefined when it is no longer pending. */
+  private async recordAnswer(tx: Tx, questionId: string, answer: Answer, by?: AnsweredBy) {
+    const [pending] = await tx.select().from(questions).where(and(eq(questions.id, questionId), eq(questions.status, "pending"))).for("update");
+    if (!pending) return undefined;
+    if (answer.kind === "permission" && answer.decision === "allow-always" && (pending.remember || (pending.payload.kind === "permission" && pending.payload.toolName.startsWith("mcp__")))) throw new EngineError("INVALID", message("questions.answer.chooseScope"));
+    if (answer.kind === "permission" && answer.remember) {
+      if (answer.decision === "allow-always" || !by || !(await remember(tx, { questionId, decision: answer.decision, scope: answer.remember, by }))) throw new EngineError("INVALID", message("questions.answer.cannotRemember"));
+    }
+    const [q] = await tx
+      .update(questions)
+      .set({ status: "answered", answer, answeredAt: new Date(), answeredBy: by ?? null, ...(answer.kind === "permission" && answer.remember && answer.decision === "allow" ? { consumedAt: new Date() } : {}) })
+      .where(and(eq(questions.id, questionId), eq(questions.status, "pending")))
+      .returning();
+    if (!q) return undefined;
+    // An agent's answer is its Job's write.
+    const actor: Exclude<EventActor, { type: "step" }> = by?.type === "agent" ? { type: "job", runId: by.runId } : (by ?? { type: "user", userId: q.ownerId });
+    await recordInteraction(tx, q, "answered", actor);
+    return { q, actor };
+  }
+
+  /** What a session's answer grants, in `tx`, before it goes to the session: an action that stops asking, or a proposal's items. */
+  private async grantFromAnswer(tx: Tx, q: QuestionRow, answer: Answer, by?: AnsweredBy) {
+    // A person's "always allow" to a CLI session's approval of one of its agent's tools: that
+    // action stops asking on the agent, with the answer that was just taken (an answer that
+    // came second grants nothing). The answer is used up as it is given: the call it is for
+    // needs no approval any more, and it must not stay for a later one. When the name stands
+    // for nothing the agent chose, nothing is granted and the answer allows this call only:
+    // the runner must not stop prompting for a call the endpoint would still refuse, nor for
+    // an action of a runner tool the agent doesn't let run unasked.
+    if (by?.type === "user" && answer.kind === "permission" && answer.decision === "allow-always" && q.payload.kind === "permission" && q.payload.toolName.startsWith("mcp__")) {
+      const stopped = await stopAsking(tx as unknown as Db, q.runId, q.payload.toolName, q.about);
+      const [settled] = await tx
+        .update(questions)
+        .set(stopped ? { consumedAt: new Date() } : { answer: { ...answer, decision: "allow" } })
+        .where(eq(questions.id, q.id))
+        .returning();
+      Object.assign(q, settled);
+    }
+    // The Approval of a proposal: a person's yes approves its items, a no declines it, once.
+    if (q.proposalId && answer.kind === "permission" && (answer.decision === "deny" || by?.type === "user")) {
+      await settleProposal(tx as unknown as Db, q.id, answer.decision !== "deny");
+    }
+  }
+
+  /** Once an answer committed: its metrics, and the sessions a remembered denial narrows. */
+  private async answered(q: QuestionRow) {
+    const decision = q.answer?.kind === "permission" ? q.answer.decision : q.answer?.kind ?? "none";
+    counts.counter("dispand.questions.answered").add(1, { "dispand.question.kind": q.kind, "dispand.answer.decision": decision, "dispand.answer.by": q.answeredBy?.type ?? "user" });
+    counts.histogram("dispand.question.wait", { unit: "ms", description: "From a question to its answer" }).record(q.answeredAt!.getTime() - q.createdAt.getTime(), { "dispand.question.kind": q.kind });
+    if (q.remember?.subject.kind === "tool" && q.answer?.kind === "permission" && q.answer.remember && q.answer.decision === "deny") await this.narrowSessions(q.remember.subject.agentId, this.db, q.answer.remember === "run" ? q.runId : undefined);
   }
 
   /**
