@@ -1145,3 +1145,13 @@ test("an agent update's view carries the fields it gives as they stand now, and 
   expect(view!.items[0]!.before).toMatchObject({ name: "Builder", harnessId: s.harness.id, systemPrompt: "", dataTables: "all" });
   expect(view!.names[s.harness.id]?.name).toBe("Claude");
 });
+
+test.each(["allow", "deny"] as const)("run snapshots retain proposal scope after %s", async decision => {
+  const s = await setup();
+  const input = { name: "Matters" };
+  const id = s.idOf(await s.propose([{ tool: "tables_create", input }]));
+  const questionId = await s.ask({ message: "Create Matters", proposal: id });
+  await s.answer(questionId, decision);
+  const run = await call(router.runs.get, { runId: s.job.runId }, { context: s.context });
+  expect(run.questions.find(q => q.id === questionId)?.proposal?.items[0]?.input).toEqual(input);
+});

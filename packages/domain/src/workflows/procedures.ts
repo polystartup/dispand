@@ -273,12 +273,11 @@ async function requireRun(db: Db, ownerId: string, runId: string) {
 }
 
 /**
- * A question as a run shows it. A pending Approval of a proposal carries the proposal as its owner
- * reads it (`proposalView`), so the chat shows its items whole and can offer Approve; any other, or
- * once answered, `proposal` is null.
+ * A question as a run shows it. Keep proposal scope after a decision so the conversation
+ * retains what was approved or declined; authorization still depends on question status.
  */
 export async function runQuestion(db: Db, ownerId: string, q: ReturnType<typeof questionView>) {
-  return { ...q, proposal: q.proposalId && q.status === "pending" ? await proposalView(db, ownerId, q.proposalId) : null };
+  return { ...q, proposal: q.proposalId ? await proposalView(db, ownerId, q.proposalId) : null };
 }
 
 /** The run as it is now: every row read here, so a stream's snapshot can't be older than its subscription. */
