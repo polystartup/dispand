@@ -167,7 +167,8 @@ test("a step's transcript is the chat's thread, read-only: the owner's words wit
   expect((await within(items[2]!).findByText("the plan")).tagName).toBe("STRONG");
   // Agent text loads nothing: the remote image is not an <img>, the link is a button that names where it goes.
   expect(container.querySelector("img")).toBeNull();
-  expect(container.querySelector("a[href]")).toBeNull();
+  expect(items[2]!.querySelector("a[href]")).toBeNull();
+  expect(within(items[0]!).getByRole("link", { name: "Download agenda.pdf" }).getAttribute("href")).toBe("/files/att_1");
   expect(within(items[2]!).getByText("[image not shown: tracker]")).toBeTruthy();
   expect(within(items[2]!).getByRole("button", { name: /see/ }).getAttribute("title")).toBe("https://evil.example/page");
   // Read-only: no composer.
