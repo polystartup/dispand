@@ -127,7 +127,10 @@ export async function takeChatFiles(tx: Tx, ownerId: string, runId: string, ids:
   }
   await tx.update(attachments).set({ jobId: runId }).where(inArray(attachments.id, ids));
   const byId = new Map(held.map((f) => [f.id, f]));
-  return ids.map((id) => ({ id, name: byId.get(id)!.name }));
+  return ids.map((id) => {
+    const file = byId.get(id)!;
+    return { id, name: file.name, ...(file.image ? { image: true } : {}) };
+  });
 }
 
 /**

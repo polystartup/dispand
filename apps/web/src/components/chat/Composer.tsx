@@ -49,7 +49,8 @@ export function ChatComposer({ runId, assistantAgentId, tools, open, asking, app
       <Button type="button" size="sm" disabled={busy} onClick={() => void onApprove()} className="rounded-full"><ShieldCheck aria-hidden />{t("approve")}</Button>
       <span className="text-[13px] text-muted">{t("approveHint")}</span>
     </div>}
-    <ComposerPrimitive.Root className={`mx-auto flex w-full max-w-3xl flex-wrap items-end gap-2 rounded-2xl border border-line p-3 focus-within:border-accent ${tools ? "bg-surface/85 shadow-sm backdrop-blur-xl" : "bg-surface"}`}
+    <ComposerPrimitive.AttachmentDropzone asChild disabled={!open || asking || approval || busy}>
+    <ComposerPrimitive.Root className={`mx-auto flex w-full max-w-3xl flex-wrap items-end gap-2 rounded-2xl border border-line p-3 focus-within:border-accent data-[dragging=true]:border-accent data-[dragging=true]:bg-hover ${tools ? "bg-surface/85 shadow-sm backdrop-blur-xl" : "bg-surface"}`}
       onSubmit={(e) => { if (approval) { e.preventDefault(); void decline(); } }}>
       {runId && !tools && onNewConversation && <Button type="button" variant="ghost" size="icon-sm" aria-label={t("newConversation")} title={t("newConversation")} className="rounded-full text-muted" disabled={busy} onClick={onNewConversation}><MessageSquarePlus aria-hidden /></Button>}
       {!approval && <ComposerQuote />}
@@ -59,6 +60,7 @@ export function ChatComposer({ runId, assistantAgentId, tools, open, asking, app
       {approval ? <Button type="submit" size="icon-sm" aria-label={t("send")} disabled={busy || !text.trim()} className="rounded-full"><ArrowUp aria-hidden /></Button> :
         <ComposerPrimitive.Send asChild><Button type="button" size="icon-sm" aria-label={t("send")} disabled={!text.trim() || busy} className="rounded-full"><ArrowUp aria-hidden /></Button></ComposerPrimitive.Send>}
     </ComposerPrimitive.Root>
+    </ComposerPrimitive.AttachmentDropzone>
     <p className="mx-auto mt-2 hidden max-w-3xl px-1 text-[11px] text-faint md:block">{approval ? t("hintApproval", { mod: MOD }) : t("hintSend")}</p>
   </div>;
 }

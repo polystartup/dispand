@@ -12,7 +12,7 @@ vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
-const { ChatThread } = await import("./Thread.tsx");
+const { ChatThread, ChatTranscript } = await import("./Thread.tsx");
 const { createI18n } = await import("../../lib/i18n.ts");
 
 afterEach(() => {
@@ -199,4 +199,61 @@ test("the thread is in French: the invitation, a consult, an answer and the copy
   render(view(run([message("m1", "assistant", "Bonjour", 1)], [question("q1", 2, { status: "answered", answer: { kind: "choice", answers: { "Who is it for?": ["Me", "You"] } } })])));
   expect(screen.getByRole("button", { name: "Copier le message" })).toBeTruthy();
   expect(screen.getByText("Vous avez répondu Me et You")).toBeTruthy();
+});
+
+test("consecutive tool calls collapse together without hiding a question or the agent's result", async () => {
+  const { user, update } = mount(run([
+    message("m1", "tool", "Read", 1),
+    message("m2", "tool", "Search", 2),
+    message("m3", "assistant", "Here is the result.", 4),
+    message("m4", "tool", "Write", 5),
+  ], [question("q1", 3)]));
+  const toggle = screen.getByRole("button", { name: "2 tool calls" });
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(screen.queryByText("Read")).toBeNull();
+  expect(screen.queryByText("Search")).toBeNull();
+  expect(screen.getByText("Who is it for?")).toBeTruthy();
+  expect(screen.getByText("Here is the result.")).toBeTruthy();
+  expect(screen.getByText("Write")).toBeTruthy();
+  await user.click(toggle);
+  expect(screen.getByText("Read")).toBeTruthy();
+  expect(screen.getByText("Search")).toBeTruthy();
+  update(run([
+    message("m1", "tool", "Read", 1),
+    message("m2", "tool", "Search", 2),
+    message("m3", "assistant", "Here is the result, updated.", 4),
+    message("m4", "tool", "Write", 5),
+  ], [question("q1", 3)]));
+  expect(screen.getByRole("button", { name: "2 tool calls" }).getAttribute("aria-expanded")).toBe("true");
+  expect(screen.getByText("Search")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "2 tool calls" }));
+  expect(screen.queryByText("Search")).toBeNull();
+  expect(screen.getByText("Who is it for?")).toBeTruthy();
+});
+
+test("a failed consult remains visible between separate tool groups", async () => {
+  fake.agents.list.mockResolvedValue([{ id: "agent_2", name: "Architect" }]);
+  mount(run([
+    message("m1", "tool", "Read", 1), message("m2", "tool", "Search", 2),
+    message("m3", "tool", "Write", 4), message("m4", "tool", "Inspect", 5),
+  ], [question("q1", 3, {
+    status: "answered", payload: { kind: "consult", agentId: "agent_2", question: "Which plan?" },
+    answer: { kind: "consult", outcome: "failed", text: "The consulted Job failed" },
+  })]));
+  expect(await screen.findByText("Architect gave no answer")).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: "2 tool calls" })).toHaveLength(2);
+});
+
+
+test("read-only transcripts use the same tool disclosure", async () => {
+  const user = userEvent.setup();
+  render(<ChatTranscript messages={[
+    message("m1", "tool", "Read", 1), message("m2", "tool", "Search", 2),
+    message("m3", "assistant", "The result.", 3),
+  ] as RunSnapshot["messages"]} />);
+  expect(screen.getByText("The result.")).toBeTruthy();
+  expect(screen.queryByText("Search")).toBeNull();
+  await user.click(screen.getByRole("button", { name: "2 tool calls" }));
+  expect(screen.getByText("Read")).toBeTruthy();
+  expect(screen.getByText("Search")).toBeTruthy();
 });

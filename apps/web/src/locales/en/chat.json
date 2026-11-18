@@ -68,5 +68,11 @@
   "starterAgent": "Set up an agent",
   "starterAgentPrompt": "Help me set up an agent for a recurring task.",
   "starterReview": "Review my workspace",
-  "starterReviewPrompt": "Review my workspace and suggest useful improvements."
+  "starterReviewPrompt": "Review my workspace and suggest useful improvements.",
+  "previewFile": "Preview {{name}}",
+  "uploadingFile": "Uploading…",
+  "uploadFailed": "Upload failed",
+  "downloadFile": "Download {{name}}",
+  "toolActivity_one": "{{count}} tool call",
+  "toolActivity_other": "{{count}} tool calls"
 }

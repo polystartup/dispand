@@ -522,7 +522,7 @@ export const stepRuns = pgTable(
 
 /** Chat transcripts and step transcripts: assistant text (deltas appended), user messages, tool calls. */
 /** A file attached to a chat message: its attachment and the name it came with (metadata, never a path). */
-export type MessageFile = { id: string; name: string };
+export type MessageFile = { id: string; name: string; image?: boolean };
 
 export const messages = pgTable(
   "messages",

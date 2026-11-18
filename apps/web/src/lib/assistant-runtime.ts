@@ -1,4 +1,4 @@
-import { type AppendMessage, type AttachmentAdapter, type ThreadMessageLike, type ThreadSuggestion, useExternalStoreRuntime } from "@assistant-ui/react";
+import { type AppendMessage, type AttachmentAdapter, type PendingAttachment, type ThreadMessageLike, type ThreadSuggestion, useExternalStoreRuntime } from "@assistant-ui/react";
 import type { RunSnapshot } from "./run-state.ts";
 
 // The one place Dispand's runs meet assistant-ui. Dispand keeps its own messages, questions and
@@ -28,8 +28,8 @@ function ofMessage(m: Message): ThreadMessageLike {
   if (m.role === "tool") {
     return { id: m.id, role: "assistant", createdAt, content: [{ type: "tool-call", toolCallId: m.id, toolName: TRACE_TOOL, args: { text: m.text }, result: "done" }] };
   }
-  // A person's attached files show as the library's attachments of their message: names only.
-  const attachments = m.role === "user" && m.files?.length ? { attachments: m.files.map((f) => ({ id: f.id, type: "file", name: f.name, status: { type: "complete" as const }, content: [] })) } : {};
+  // Only the stored server raster flag permits previews; older attachments remain downloads.
+  const attachments = m.role === "user" && m.files?.length ? { attachments: m.files.map((f) => ({ id: f.id, type: f.image === true ? "image" : "file", name: f.name, status: { type: "complete" as const }, content: f.image === true ? [{ type: "image" as const, image: `/files/${encodeURIComponent(f.id)}` }] : [] })) } : {};
   return { id: m.id, role: m.role, createdAt, content: [{ type: "text", text: m.text }], ...attachments };
 }
 
@@ -58,13 +58,26 @@ function kept<T extends object>(row: T, make: (row: T) => ThreadMessageLike): Th
  */
 export function threadMessages(run: RunSnapshot | null, chatStepId: string | undefined): ThreadMessageLike[] {
   if (!run || !chatStepId) return [];
-  return [
+  return groupTraces([
     ...run.messages.filter((m) => m.stepRunId === chatStepId).map((m) => ({ at: new Date(m.createdAt).getTime(), message: kept(m, ofMessage) })),
     // A consult asks nothing of the owner: it shows as a line, with nothing to answer.
     ...run.questions.filter((q) => q.stepRunId === chatStepId && q.status !== "expired").map((q) => ({ at: new Date(q.createdAt).getTime(), message: kept(q, q.payload.kind === "consult" ? ofConsult : ofQuestion) })),
   ]
     .sort((a, b) => a.at - b.at)
-    .map((item) => item.message);
+    .map((item) => item.message));
+}
+
+/** Consecutive trace rows become consecutive tool parts for the library's grouped renderer. */
+function groupTraces(messages: ThreadMessageLike[]): ThreadMessageLike[] {
+  const grouped: ThreadMessageLike[] = [];
+  const isTrace = (message: ThreadMessageLike) => message.role === "assistant" && Array.isArray(message.content) && message.content.length > 0 && message.content.every((part) => part.type === "tool-call" && part.toolName === TRACE_TOOL);
+  for (const message of messages) {
+    const previous = grouped.at(-1);
+    if (previous && isTrace(previous) && isTrace(message) && Array.isArray(previous.content) && Array.isArray(message.content)) {
+      grouped[grouped.length - 1] = { ...previous, content: [...previous.content, ...message.content] };
+    } else grouped.push(message);
+  }
+  return grouped;
 }
 
 const same = (m: ThreadMessageLike) => m;
@@ -83,13 +96,18 @@ export const textOf = (message: AppendMessage) => message.content.flatMap((part)
 export function heldAttachments(hold: (file: File) => Promise<{ id: string; image: boolean }>): AttachmentAdapter {
   return {
     accept: "*",
-    async add({ file }) {
+    async *add({ file }): AsyncGenerator<PendingAttachment & { heldId?: string }> {
+      const pending: PendingAttachment = { id: crypto.randomUUID(), type: "file", name: file.name, file, content: [], status: { type: "running", reason: "uploading", progress: 0 } };
+      yield pending;
       const held = await hold(file);
-      return { id: held.id, type: held.image ? "image" : "file", name: file.name, contentType: file.type, file, status: { type: "requires-action", reason: "composer-send" } };
+      // Only the server's raster sniff permits a preview; never trust the browser's MIME.
+      yield { ...pending, heldId: held.id, type: held.image ? "image" : "file", content: held.image ? [{ type: "image", image: `/files/${encodeURIComponent(held.id)}` }] : [], status: { type: "requires-action", reason: "composer-send" } };
     },
     async remove() {},
     async send(attachment) {
-      return { ...attachment, status: { type: "complete" }, content: [] };
+      const id = (attachment as PendingAttachment & { heldId?: string }).heldId;
+      if (!id) throw new Error("Attachment has not finished uploading");
+      return { ...attachment, id, status: { type: "complete" }, content: attachment.content ?? [] };
     },
   };
 }
@@ -110,5 +128,5 @@ export function useRunThread(options: { run: RunSnapshot | null; chatStepId: str
 
 /** A step's messages as a thread nobody writes to: the run page's transcript. */
 export function useTranscript(messages: readonly Message[]) {
-  return useExternalStoreRuntime({ messages: messages.map((m) => kept(m, ofMessage)), convertMessage: same, isDisabled: true, onNew: async () => {} });
+  return useExternalStoreRuntime({ messages: groupTraces(messages.map((m) => kept(m, ofMessage))), convertMessage: same, isDisabled: true, onNew: async () => {} });
 }

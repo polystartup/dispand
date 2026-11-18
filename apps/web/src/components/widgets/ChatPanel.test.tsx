@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { useAui } from "@assistant-ui/react";
@@ -260,7 +260,7 @@ test("with two proposals waiting, the composer answers neither: each is answered
   fake.runs.stream.mockImplementation(streamOf(snapshot([proposalQuestion(), { ...proposalQuestion(), id: "q2", proposalId: "prop_2" }])));
   mount("run_1");
   expect(await screen.findByText("Answer the question above to continue.")).toBeTruthy();
-  expect(screen.getAllByRole("button", { name: "Approve" })).toHaveLength(2);
+  expect(await screen.findAllByRole("button", { name: "Approve" })).toHaveLength(2);
   expect(screen.getByLabelText<HTMLTextAreaElement>("Message").disabled).toBe(true);
 });
 
@@ -470,4 +470,25 @@ test("quoting keeps a native slash command at the beginning of the submitted pro
   fake.runs.sendChat.mockResolvedValue(undefined);
   await user.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledWith({ runId: "run_1", text: "/review\n\n> First line\n> Second line" }));
+});
+
+test("dropping a file uses the composer attachment adapter", async () => {
+  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.files.hold.mockResolvedValue({ id: "att_drop", image: false });
+  const user = mountComposer();
+  const file = new File(["notes"], "dropped.txt", { type: "text/plain" });
+  fireEvent.drop(screen.getByLabelText("Message").closest("form")!, { dataTransfer: { types: ["Files"], files: [file] } });
+  await waitFor(() => expect(fake.files.hold).toHaveBeenCalledWith({ file }));
+  await screen.findByText("dropped.txt");
+  await user.type(screen.getByLabelText("Message"), "Read the file");
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledWith({ runId: "run_1", text: "Read the file", attachmentIds: ["att_drop"] }));
+});
+
+test("dropping files cannot attach to a proposal answer", async () => {
+  mountComposer([proposalQuestion()]);
+  await screen.findByRole("button", { name: "Approve" });
+  fireEvent.drop(screen.getByLabelText("Message").closest("form")!, { dataTransfer: { types: ["Files"], files: [new File(["notes"], "dropped.txt")] } });
+  expect(fake.files.hold).not.toHaveBeenCalled();
+  expect(fake.questions.answer).not.toHaveBeenCalled();
 });

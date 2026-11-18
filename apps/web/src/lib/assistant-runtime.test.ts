@@ -73,3 +73,49 @@ test("no run, or no chat step yet: an empty thread", () => {
   expect(threadMessages(null, undefined)).toEqual([]);
   expect(threadMessages(snapshot([message("m1", "user", "Hi", 1)], []), undefined)).toEqual([]);
 });
+
+test("adjacent traces share a message without swallowing text or questions", () => {
+  const thread = threadMessages(snapshot([message("t1", "tool", "Read", 1), message("t2", "tool", "Bash", 2), message("a", "assistant", "Done", 3), message("t3", "tool", "Read", 4), message("t4", "tool", "Bash", 6)], [question("q", 5)]), "s_chat");
+  expect(thread.map((m) => m.id)).toEqual(["t1", "a", "t3", "q:q", "t4"]);
+  expect(thread[0]!.content).toEqual([
+    { type: "tool-call", toolCallId: "t1", toolName: TRACE_TOOL, args: { text: "Read" }, result: "done" },
+    { type: "tool-call", toolCallId: "t2", toolName: TRACE_TOOL, args: { text: "Bash" }, result: "done" },
+  ]);
+});
+
+test("held attachments report upload progress before server validation and send the server id", async () => {
+  const { heldAttachments } = await import("./assistant-runtime.ts");
+  const file = new File(["image"], "photo.svg", { type: "image/svg+xml" });
+  const adapter = heldAttachments(async () => ({ id: "att_trusted", image: true }));
+  const upload = adapter.add({ file });
+  expect(Symbol.asyncIterator in upload).toBe(true);
+  if (!(Symbol.asyncIterator in upload)) throw new Error("expected streamed upload");
+  const first = (await upload.next()).value!;
+  const ready = (await upload.next()).value!;
+  expect(first.status.type).toBe("running");
+  expect(first.type).toBe("file");
+  expect(first.content).toEqual([]);
+  expect(ready.id).toBe(first.id);
+  expect(ready.content).toEqual([{ type: "image", image: "/files/att_trusted" }]);
+  expect((await heldAttachments(async () => { throw new Error("unused"); }).send(ready)).id).toBe("att_trusted");
+});
+
+test("an untrusted image MIME never supplies preview content", async () => {
+  const { heldAttachments } = await import("./assistant-runtime.ts");
+  const adapter = heldAttachments(async () => ({ id: "att_file", image: false }));
+  const upload = adapter.add({ file: new File(["<svg/>"], "photo.png", { type: "image/png" }) });
+  if (!(Symbol.asyncIterator in upload)) throw new Error("expected streamed upload");
+  await upload.next();
+  const ready = (await upload.next()).value!;
+  expect(ready.type).toBe("file");
+  expect(ready.content).toEqual([]);
+});
+
+test("sent image previews require the stored server raster flag; legacy files stay downloads", () => {
+  const [sent] = threadMessages(snapshot([{ ...message("m_files", "user", "", 1), files: [{ id: "att_raster", name: "photo", image: true }, { id: "att_legacy", name: "photo.png" }, { id: "att_svg", name: "image.svg", image: false }] }], []), "s_chat");
+  expect(sent!.attachments).toEqual([
+    { id: "att_raster", type: "image", name: "photo", status: { type: "complete" }, content: [{ type: "image", image: "/files/att_raster" }] },
+    { id: "att_legacy", type: "file", name: "photo.png", status: { type: "complete" }, content: [] },
+    { id: "att_svg", type: "file", name: "image.svg", status: { type: "complete" }, content: [] },
+  ]);
+});

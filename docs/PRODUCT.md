@@ -238,3 +238,9 @@ Select message text and choose “Quote in reply” to include it with the next 
 quote can be removed before sending. Assistant starter prompts fill an editable draft and
 never send automatically. Proposal approvals still require their explicit Approve control;
 text sent while one waits declines it, without consuming held attachments or a quote.
+
+Chat attachments show upload and failure states and can be dropped onto the composer.
+Server-validated raster images open in a preview dialog, including after reopening new
+messages. Older attachments without raster metadata and other file types remain downloads
+through the authorized file route. Consecutive routine tool calls share an expandable group;
+questions, proposals and consult outcomes remain visible outside it.

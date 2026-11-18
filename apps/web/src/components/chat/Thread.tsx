@@ -1,7 +1,8 @@
-import { ActionBarPrimitive, AttachmentPrimitive, AuiIf, AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, SelectionToolbarPrimitive, SuggestionPrimitive, type AppendMessage, type TextMessagePartComponent, type ToolCallMessagePartComponent } from "@assistant-ui/react";
+import { ActionBarPrimitive, AuiConfig, AuiIf, AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, SelectionToolbarPrimitive, SuggestionPrimitive, Tools, groupPartByType, type AppendMessage, type TextMessagePartComponent, type ToolCallMessagePartComponent } from "@assistant-ui/react";
 import type { Answer } from "@dispand/runner-protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, Check, Copy, MessageSquare, Paperclip, Quote, Users, Wrench, X } from "lucide-react";
+import { ArrowDown, Check, ChevronDown, Copy, MessageSquare, Paperclip, Quote, Users, Wrench, X } from "lucide-react";
+import { Collapsible } from "radix-ui";
 import { useTranslation } from "react-i18next";
 import { createContext, type ComponentProps, type ReactNode, useContext, useMemo, useState } from "react";
 import { orpc } from "../../lib/api.ts";
@@ -11,6 +12,7 @@ import type { RunSnapshot } from "../../lib/run-state.ts";
 import { ProposalItems } from "../questions/ProposalItems.tsx";
 import { approvalWords, QuestionForm } from "../questions/QuestionForm.tsx";
 import { AgentText } from "./AgentText.tsx";
+import { ComposerAttachment, MessageAttachment } from "./Attachment.tsx";
 
 type Question = RunSnapshot["questions"][number];
 
@@ -169,24 +171,6 @@ export function ComposerQuote() {
   </ComposerPrimitive.Quote>;
 }
 
-/** One attached file: its name, and in the composer a control that takes it off the message. */
-function FileChip({ removable }: { removable?: boolean }) {
-  const { t } = useTranslation("chat");
-  return (
-    <AttachmentPrimitive.Root className="flex max-w-56 items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1 text-[13px] text-muted">
-      <Paperclip size={13} className="shrink-0" aria-hidden />
-      <span className="min-w-0 truncate"><AttachmentPrimitive.Name /></span>
-      {removable && (
-        <AttachmentPrimitive.Remove aria-label={t("removeFile")} title={t("removeFile")} className="rounded p-0.5 hover:bg-hover hover:text-fg">
-          <X size={12} aria-hidden />
-        </AttachmentPrimitive.Remove>
-      )}
-    </AttachmentPrimitive.Root>
-  );
-}
-const RemovableChip = () => <FileChip removable />;
-const SentChip = () => <FileChip />;
-
 export function ComposerAttachments({ disabled, hidden }: { disabled?: boolean; hidden?: boolean }) {
   const { t } = useTranslation("chat");
   if (hidden) return null;
@@ -196,7 +180,7 @@ export function ComposerAttachments({ disabled, hidden }: { disabled?: boolean; 
         <Paperclip size={16} aria-hidden />
       </ComposerPrimitive.AddAttachment>
       <div className="order-first flex basis-full flex-wrap gap-1.5 empty:hidden">
-        <ComposerPrimitive.Attachments components={{ Attachment: RemovableChip }} />
+        <ComposerPrimitive.Attachments components={{ Attachment: ComposerAttachment }} />
       </div>
     </>
   );
@@ -205,16 +189,48 @@ export function ComposerAttachments({ disabled, hidden }: { disabled?: boolean; 
 const OwnerMessage = () => (
   <MessagePrimitive.Root role="listitem">
     <div className="mb-1 flex flex-wrap justify-end gap-1.5 empty:hidden">
-      <MessagePrimitive.Attachments components={{ Attachment: SentChip }} />
+      <MessagePrimitive.Attachments components={{ Attachment: MessageAttachment }} />
     </div>
     <MessagePrimitive.Parts components={{ Text: OwnerText }} />
     <div className="flex justify-end"><MessageActions /></div>
   </MessagePrimitive.Root>
 );
 
+// Only routine trace names collapse; questions, approvals and consults stay standalone.
+const groupBy = groupPartByType({ [`tool-call:${TRACE_TOOL}`]: ["group-tool"] });
+const toolConfig = AuiConfig({ tools: Tools({ toolkit: {
+  [TRACE_TOOL]: { type: "backend", render: Trace },
+  [QUESTION_TOOL]: { type: "backend", display: "standalone", render: QuestionPart },
+  [CONSULT_TOOL]: { type: "backend", display: "standalone", render: ConsultPart },
+} }) });
+
+function ToolGroup({ group, children }: { group: MessagePrimitive.GroupedParts.GroupPart; children: ReactNode }) {
+  const { t } = useTranslation("chat");
+  if (group.indices.length === 1) return children;
+  return (
+    <Collapsible.Root className="rounded-xl border border-line bg-surface text-[13px] text-muted">
+      <Collapsible.Trigger className="group flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent">
+        <Wrench size={14} aria-hidden />
+        <span className="flex-1">{t("toolActivity", { count: group.indices.length })}</span>
+        <ChevronDown size={14} aria-hidden className="transition-transform group-data-[state=open]:rotate-180" />
+      </Collapsible.Trigger>
+      <Collapsible.Content className="flex flex-col gap-1 p-2 pt-0">{children}</Collapsible.Content>
+    </Collapsible.Root>
+  );
+}
+
 const AgentMessage = () => (
   <MessagePrimitive.Root role="listitem">
-    <MessagePrimitive.Parts components={{ Text: AgentText, tools: { by_name: { [TRACE_TOOL]: Trace, [QUESTION_TOOL]: QuestionPart, [CONSULT_TOOL]: ConsultPart } } }} />
+    <MessagePrimitive.GroupedParts groupBy={groupBy}>
+      {({ part, children }) => {
+        switch (part.type) {
+          case "group-tool": return <ToolGroup group={part}>{children}</ToolGroup>;
+          case "text": return <AgentText />;
+          case "tool-call": return part.toolUI;
+          default: return null;
+        }
+      }}
+    </MessagePrimitive.GroupedParts>
     <MessageActions />
   </MessagePrimitive.Root>
 );
@@ -248,7 +264,7 @@ export function ChatThread({ run, chatStepId, canSend, onSend, onAttach, childre
   const questions = new Map((run?.questions ?? []).map((q) => [q.id, q]));
   const approval = composerApproval(run?.questions ?? [], chatStepId)?.id;
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
+    <AssistantRuntimeProvider runtime={runtime} config={toolConfig}>
       <Questions.Provider value={questions}>
         <ComposerApproval.Provider value={approval}>
           <ThreadPrimitive.Root className={`relative flex min-h-0 flex-1 flex-col ${centeredWelcome && empty ? "justify-center overflow-y-auto" : ""}`}>
@@ -299,7 +315,7 @@ export function ChatThread({ run, chatStepId, canSend, onSend, onAttach, childre
 export function ChatTranscript({ messages }: { messages: RunSnapshot["messages"] }) {
   const runtime = useTranscript(messages);
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
+    <AssistantRuntimeProvider runtime={runtime} config={toolConfig}>
       <ThreadPrimitive.Root>
         <div role="list" className="flex flex-col gap-4">
           <ThreadPrimitive.Messages components={{ UserMessage: OwnerMessage, AssistantMessage: AgentMessage }} />

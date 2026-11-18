@@ -62,7 +62,7 @@ test("a file attached before the first message is held for the person, then reac
   const [now] = await s.context.db.select().from(attachments).where(eq(attachments.id, held.id));
   expect(now?.jobId).toBe(runId);
   const [message] = await s.context.db.select().from(messages).where(eq(messages.runId, runId));
-  expect(message?.files).toEqual([{ id: held.id, name: "photo.png" }]);
+  expect(message?.files).toEqual([{ id: held.id, name: "photo.png", image: true }]);
   expect(message?.text).toBe("What is this?");
   // Taken: another message can't carry it again.
   await expect(call(router.runs.sendChat, { runId, text: "Again", attachmentIds: [held.id] }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "data.file.gone" } });
@@ -192,4 +192,13 @@ test("a held file never sent goes after a day; a chat's files stay with their Jo
   await sweepAttachments(s.context.db, s.context.filesDir, new Date(Date.now() + 26 * HOUR));
   expect(await ids()).toEqual([sentFile.id]);
   expect(await readFile(join(s.context.filesDir, s.context.ownerId, sentFile.id))).toEqual(PNG);
+});
+
+test("a raster filename cannot mark a non-image chat attachment as previewable", async () => {
+  const s = await setup();
+  const held = await s.hold("photo.png", Buffer.from("not an image"));
+  const runId = await started(s);
+  await call(router.runs.sendChat, { runId, text: "Look", attachmentIds: [held.id] }, { context: s.context });
+  const [saved] = await s.context.db.select().from(messages).where(eq(messages.runId, runId));
+  expect(saved?.files).toEqual([{ id: held.id, name: "photo.png" }]);
 });

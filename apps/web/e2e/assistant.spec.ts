@@ -325,8 +325,20 @@ test("Assistant settings selects the next conversation's harness and model; chat
     const { start } = await settingsRunner.waitFor("session.start", WAIT_MS);
     expect(start.harness).toBe("claude-code");
     expect(start.model).toBe("sonnet");
+    settingsRunner.emit(start.sessionId, { type: "tool", name: "Read workspace", status: "started" });
+    settingsRunner.emit(start.sessionId, { type: "tool", name: "Inspect settings", status: "started" });
     settingsRunner.emit(start.sessionId, { type: "text", delta: "Using your selected settings." });
     await expect(chat.getByText("Using your selected settings.")).toBeVisible();
+    const activity = chat.getByRole("button", { name: "2 tool calls", exact: true });
+    await expect(activity).toHaveAttribute("aria-expanded", "false");
+    await expect(chat.getByText("Read workspace", { exact: true })).toHaveCount(0);
+    await activity.focus();
+    await page.keyboard.press("Enter");
+    await expect(activity).toHaveAttribute("aria-expanded", "true");
+    await expect(chat.getByText("Read workspace", { exact: true })).toBeVisible();
+    await expect(chat.getByText("Inspect settings", { exact: true })).toBeVisible();
+    await page.keyboard.press("Space");
+    await expect(activity).toHaveAttribute("aria-expanded", "false");
 
     await chat.getByText("Using your selected settings.", { exact: true }).evaluate((element) => {
       const range = document.createRange();
@@ -339,6 +351,16 @@ test("Assistant settings selects the next conversation's harness and model; chat
     await page.getByRole("button", { name: "Quote in reply", exact: true }).click();
     await expect(chat.getByLabel("Quoted text", { exact: true })).toContainText("Using your selected settings.");
 
+    const chooser = page.waitForEvent("filechooser");
+    await chat.getByRole("button", { name: "Attach a file", exact: true }).click();
+    await (await chooser).setFiles({
+      name: "workspace.png", mimeType: "image/png",
+      buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAHgAAABQCAIAAABd+SbeAAAAz0lEQVR4nO3QAQ2DUABEMYzNBtLmawamAgHIePeTJlXQ63N/j/P7P8e58jXRu/I10btEixady9dE7xItWnQuXxO9S7Ro0bl8TfQu0aJF5/I10btEixady9dE7xItWnQuXxO9S7Ro0bl8TfQu0aJF5/I10btEixady9dE7xItWnQuXxO9S7Ro0bl8TfQu0aJF5/I10btEixady9dE7xItWnQuXxO9S7Ro0bl8TfQu0aJF5/I10btEixady9dE7xItWnQuXxO9S7Ro0bl8TfSuF1amNSq9vLDUAAAAAElFTkSuQmCC", "base64"),
+    });
+    const preview = chat.getByRole("button", { name: "Preview workspace.png", exact: true });
+    await expect(preview).toBeVisible();
+    await expect(preview.getByRole("img")).toHaveAttribute("src", /^\/files\/att_/);
+
     for (const expanded of [false, true]) {
       if (expanded) await page.getByRole("button", { name: "Full page", exact: true }).click();
       for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
@@ -350,7 +372,17 @@ test("Assistant settings selects the next conversation's harness and model; chat
         expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
         expect(bounds.height).toBeGreaterThan(viewport.height * 0.5);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
-        await page.screenshot({ path: testInfo.outputPath(`assistant-${expanded ? "full" : "normal"}-${viewport.width}.png`) });
+        await expect(preview).toBeInViewport();
+        await page.screenshot({ path: testInfo.outputPath(`assistant-${expanded ? "full" : "normal"}-${viewport.width}.png`), animations: "disabled" });
+        await preview.click();
+        const imageDialog = page.getByRole("dialog", { name: "workspace.png", exact: true });
+        await expect(imageDialog).toBeVisible();
+        await expect(imageDialog.getByRole("img", { name: "workspace.png" })).toBeVisible();
+        await expect(imageDialog.getByRole("img")).toHaveJSProperty("naturalWidth", 120);
+        await page.screenshot({ path: testInfo.outputPath(`assistant-preview-${expanded ? "full" : "normal"}-${viewport.width}.png`), animations: "disabled" });
+        await page.keyboard.press("Escape");
+        await expect(imageDialog).toHaveCount(0);
+        await expect(preview).toBeFocused();
       }
     }
     await page.getByRole("button", { name: "Exit full page" }).click();

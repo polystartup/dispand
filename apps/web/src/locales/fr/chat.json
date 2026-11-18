@@ -68,5 +68,11 @@
   "starterAgent": "Configurer un agent",
   "starterAgentPrompt": "Aide-moi à configurer un agent pour une tâche récurrente.",
   "starterReview": "Examiner mon espace",
-  "starterReviewPrompt": "Examine mon espace et propose des améliorations utiles."
+  "starterReviewPrompt": "Examine mon espace et propose des améliorations utiles.",
+  "previewFile": "Aperçu de {{name}}",
+  "uploadingFile": "Envoi en cours…",
+  "uploadFailed": "Échec de l’envoi",
+  "downloadFile": "Télécharger {{name}}",
+  "toolActivity_one": "{{count}} appel d’outil",
+  "toolActivity_other": "{{count}} appels d’outil"
 }
