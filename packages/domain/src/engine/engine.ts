@@ -1,4 +1,5 @@
 import { invokedSnapshot } from "../assistant/invoke.ts";
+import type { CloudEvent } from "../messages/record-result.ts";
 import { offerForQuestion, remember, toolAnswerPermission } from "../agents/remember.ts";
 import { EventPublisher } from "@orpc/server";
 import {
@@ -1252,7 +1253,14 @@ export class Engine {
     return this.handleEvent(sessionId, event, from);
   }
 
-  private async handleEvent(sessionId: string, event: HarnessEvent, from: { runnerId: string; seq: number }): Promise<void> {
+  /** Only the in-process cloud runner can supply authorized record snapshots. */
+  async onCloudEvent(sessionId: string, event: CloudEvent, seq: number): Promise<void> {
+    const from = { runnerId: CLOUD_SOURCE, seq };
+    if (event.type === "record-start" || event.type === "record-result") return this.handleEvent(sessionId, event, from);
+    return this.onHarnessEvent(sessionId, event, from);
+  }
+
+  private async handleEvent(sessionId: string, event: CloudEvent, from: { runnerId: string; seq: number }): Promise<void> {
     counts.counter("dispand.harness.events").add(1, { "dispand.event.type": event.type });
     // Words stream as many small events: those are counted, the others traced one by one.
     if (event.type === "text") return this.applyEvent(sessionId, event, from);
@@ -1270,7 +1278,7 @@ export class Engine {
     }));
   }
 
-  private async applyEvent(sessionId: string, event: HarnessEvent, from: { runnerId: string; seq: number }): Promise<void> {
+  private async applyEvent(sessionId: string, event: CloudEvent, from: { runnerId: string; seq: number }): Promise<void> {
     if (event.type === "session-ended") await this.retired(sessionId, from.runnerId);
     const out: Out[] = [];
     const result = await this.db.transaction(async (tx) => {
@@ -1701,10 +1709,31 @@ export class Engine {
    * on); "resume": the runner lost its session; "wake": a native chat turn released its slot.
    */
   /** `own`: the event is Dispand's own (the cloud runner's), so its error message may be a stored one; a runner's words are stored as they came. */
-  private async apply(tx: Tx, step: StepRow, event: HarnessEvent, out: Out[], own = false): Promise<"advance" | "resume" | "wake" | null> {
+  private async apply(tx: Tx, step: StepRow, event: CloudEvent, out: Out[], own = false): Promise<"advance" | "resume" | "wake" | null> {
     // A closed step keeps its transcript and questions as they were.
     if (!OPEN_STEP.includes(step.status)) return null;
     switch (event.type) {
+      case "record-start": {
+        if (!own || (step.start?.interactive && step.turnId !== event.turnId)) return null;
+        const { toolCallId, turnId, args } = event;
+        const [row] = await tx.insert(messages).values({
+          id: newId("msg"), ownerId: step.ownerId, runId: step.runId, stepRunId: step.id,
+          role: "tool", text: "rows_get", toolCall: { toolCallId, turnId, args },
+        }).returning();
+        out.push({ type: "message", message: messageView(row!) });
+        return null;
+      }
+      case "record-result": {
+        if (!own || (step.start?.interactive && step.turnId !== event.turnId)) return null;
+        const { toolCallId, turnId, args, record } = event;
+        const [row] = await tx.update(messages).set({ result: { toolCallId, turnId, args, record } }).where(and(
+          eq(messages.stepRunId, step.id), eq(messages.role, "tool"),
+          sql`${messages.toolCall}->>'toolCallId' = ${toolCallId}`,
+          sql`${messages.toolCall}->>'turnId' = ${turnId}`,
+        )).returning();
+        if (row) out.push({ type: "message", message: messageView(row) });
+        return null;
+      }
       case "session-ended":
         await this.turn(tx, step, "unknown", out);
         return null;

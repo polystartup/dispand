@@ -18,8 +18,8 @@ export function stepView(s: StepRow) {
   return { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, turnStatus, turnId, interruptible, interactive: s.start?.interactive ?? false, prompt: s.start?.prompt ?? null, ...(s.cliSessionId ? { resumable: true as const } : {}) };
 }
 export function messageView(m: MessageRow) {
-  const { id, runId, stepRunId, role, text, createdAt, files } = m;
-  return { id, runId, stepRunId, role, text, createdAt, ...(files?.length ? { files } : {}) };
+  const { id, runId, stepRunId, role, text, createdAt, files, result } = m;
+  return { id, runId, stepRunId, role, text, createdAt, ...(files?.length ? { files } : {}), ...(result ? { result } : {}) };
 }
 export function questionView(q: QuestionRow) {
   // `rootId`: a checkpoint's Approval (`roots.ts`), and `consultId` a consult's, each told apart by it and never by its tool name.

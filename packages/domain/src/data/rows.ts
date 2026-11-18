@@ -8,7 +8,7 @@ import { recordAudit } from "../audit/record.ts";
 import { isMessageKey, type Message, message, say } from "../messages/index.ts";
 import { authed, base, validationKey } from "../rpc/context.ts";
 import { type Cell, CELL_LIMITS, cellSchema, cellText, type FieldSchema } from "./fields.ts";
-import { adoptAttachments, attachmentsById, lockAttachments } from "./files.ts";
+import { adoptAttachments, attachmentsById, lockAttachments, type AttachmentView } from "./files.ts";
 import { type Filter, filterValue, queryProblem, RowQuery, type Sort } from "./query.ts";
 import { MAX_FIELDS } from "./tables.ts";
 import { meter } from "../telemetry/index.ts";
@@ -23,6 +23,11 @@ const counts = meter("data");
 export const MAX_PAGE = 500;
 
 export type RowView = { id: string; tableId: string; values: Record<string, Cell>; createdAt: Date; updatedAt: Date };
+export type RowDetails = RowView & {
+  fields: { id: string; name: string; type: FieldSchema["type"]; choiceLabel?: string }[];
+  attachments: Record<string, AttachmentView>;
+  references: Record<string, ReferenceLabel>;
+};
 
 function rowView(r: typeof rowsTable.$inferSelect): RowView {
   const { id, tableId, values, createdAt, updatedAt } = r;
@@ -317,8 +322,12 @@ const list = owner
 
 const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const row = await requireRow(context.db, context.ownerId, input.id);
-  const fields = (await context.db.select().from(fieldsTable).where(eq(fieldsTable.tableId, row.tableId))).map(schemaOf);
-  return { ...rowView(row), attachments: await attachmentsOf(context.db, context.ownerId, fields, [row]), references: await referencesOf(context.db, context.ownerId, fields, [row]) };
+  const fields = (await context.db.select().from(fieldsTable).where(eq(fieldsTable.tableId, row.tableId)).orderBy(asc(fieldsTable.position))).map(schemaOf);
+  const visible = fields.filter((f) => Object.hasOwn(row.values, f.id)).map((f) => {
+    const choiceLabel = f.type === "single-select" ? f.choices.find((choice) => choice.id === row.values[f.id])?.label : undefined;
+    return { id: f.id, name: f.name, type: f.type, ...(choiceLabel === undefined ? {} : { choiceLabel }) };
+  });
+  return { ...rowView(row), fields: visible, attachments: await attachmentsOf(context.db, context.ownerId, fields, [row]), references: await referencesOf(context.db, context.ownerId, fields, [row]) } satisfies RowDetails;
 });
 
 const create = owner.input(z.object({ tableId: z.string(), values: Values.optional() })).handler(async ({ input, context }) => {

@@ -1,5 +1,5 @@
 import { call } from "@orpc/server";
-import type { HarnessEvent } from "@dispand/runner-protocol";
+import type { CloudEvent } from "../messages/record-result.ts";
 import { currentTraceId, stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { eq } from "drizzle-orm";
@@ -117,7 +117,7 @@ test("interrupt preserves queued input and attachments for a fresh turn after th
   const held = new Promise<void>((resolve) => { release = resolve; });
   const model = fakeModel(async () => { await held; return { text: "Old" }; }, say("Next"));
   const { runner, sessionId, session } = await cloudChat(model);
-  const events: HarnessEvent[] = [];
+  const events: CloudEvent[] = [];
   runner.onEvent(async (_id, event) => { events.push(event); });
   await runner.send(sessionId, "First");
   await vi.waitFor(() => expect(model.inputs).toHaveLength(1));

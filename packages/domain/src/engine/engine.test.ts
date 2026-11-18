@@ -24,6 +24,8 @@ import { RESUME_PROMPT } from "./answers.ts";
 import { STOPPED, TOOL_RESTARTED } from "./errors.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, type StartParams } from "./harness.ts";
 import { stored, storedText } from "../messages/index.ts";
+import type { RecordToolResult } from "../messages/record-result.ts";
+import { messageView } from "./views.ts";
 
 /** Records what the engine asks of the harness. Online, every message reaches it at once; offline, none does. */
 class FakeAdapter implements HarnessAdapter {
@@ -560,6 +562,52 @@ test("events from another runner or a replayed seq are ignored", async () => {
   expect(run.status).toBe("running");
   const transcript = await engine.db.select().from(messages).where(eq(messages.runId, runId));
   expect(transcript.map((m) => m.text)).toEqual(["a"]);
+});
+
+test("cloud record snapshots update their started tool once and survive transcript reload", async () => {
+  const { adapter, engine, workflow } = await setup(chatThenStep);
+  const runId = await engine.startRun(workflow.id);
+  const { sessionId } = adapter.starts[0]!.start;
+  await engine.db.update(stepRuns).set({ runnerId: CLOUD_SOURCE }).where(eq(stepRuns.sessionId, sessionId));
+  const result: RecordToolResult = {
+    toolCallId: "call_1", turnId: "turn_1", args: { id: "row_1" },
+    record: { kind: "record", tableId: "table_1", rowId: "row_1", fields: [{ id: "field_1", name: "Name", type: "text", value: "Ada" }] },
+  };
+  await engine.onCloudEvent(sessionId, { type: "turn-start", turnId: "turn_1", interruptible: true }, 1);
+  await engine.onCloudEvent(sessionId, { type: "record-start", ...result }, 2);
+  const [started] = await engine.db.select().from(messages).where(eq(messages.runId, runId));
+  expect(messageView(started!)).toMatchObject({ role: "tool", text: "rows_get" });
+  expect(messageView(started!)).not.toHaveProperty("result");
+  await engine.onCloudEvent(sessionId, { type: "record-result", ...result }, 3);
+  await engine.onCloudEvent(sessionId, { type: "record-result", ...result }, 3);
+  const rows = await engine.db.select().from(messages).where(eq(messages.runId, runId));
+  expect(rows).toHaveLength(1);
+  expect(messageView(rows[0]!)).toMatchObject({ id: started!.id, role: "tool", result });
+  expect(messageView(rows[0]!)).not.toHaveProperty("toolCall");
+  // A late result from the previous turn cannot replace the saved snapshot.
+  await engine.onCloudEvent(sessionId, { type: "turn-start", turnId: "turn_2", interruptible: true }, 4);
+  await engine.onCloudEvent(sessionId, { type: "record-result", ...result, record: { ...result.record, fields: [] } }, 5);
+  const [reloaded] = await engine.db.select().from(messages).where(eq(messages.id, started!.id));
+  expect(messageView(reloaded!).result).toEqual(result);
+  // Providers may reuse a call id in a later turn: the earlier card stays unchanged.
+  const next = { ...result, turnId: "turn_2", record: { ...result.record, fields: [] } };
+  await engine.onCloudEvent(sessionId, { type: "record-start", ...next }, 6);
+  await engine.onCloudEvent(sessionId, { type: "record-result", ...next }, 7);
+  const all = await engine.db.select().from(messages).where(eq(messages.runId, runId));
+  expect(all).toHaveLength(2);
+  expect(all.find((row) => row.id === started!.id)!.result).toEqual(result);
+  expect(all.find((row) => row.id !== started!.id)!.result).toEqual(next);
+});
+
+test("runner events cannot create authoritative record snapshots", async () => {
+  const { adapter, engine, workflow, runnerId } = await setup(chatThenStep);
+  const runId = await engine.startRun(workflow.id);
+  const { sessionId } = adapter.starts[0]!.start;
+  const forged = { type: "record-start", toolCallId: "call_1", turnId: "turn_1", args: { id: "row_other_owner" } };
+  await engine.onHarnessEvent(sessionId, forged as unknown as Parameters<Engine["onHarnessEvent"]>[1], { runnerId, seq: 1 });
+  await engine.onCloudEvent(sessionId, forged as Parameters<Engine["onCloudEvent"]>[1], 2);
+  await engine.onHarnessEvent(sessionId, { ...forged, type: "record-result", record: { kind: "record", tableId: "other", rowId: "row_other_owner", fields: [] } } as unknown as Parameters<Engine["onHarnessEvent"]>[1], { runnerId, seq: 3 });
+  expect(await engine.db.select().from(messages).where(eq(messages.runId, runId))).toEqual([]);
 });
 
 test("a runner's error text shaped like a stored message fails the step with its words", async () => {
@@ -1237,7 +1285,7 @@ async function withCloud(context: Awaited<ReturnType<typeof setup>>["context"], 
   });
   const engine = new Engine(context.db, new RoutingAdapter(context.db, adapter, cloud), cloud);
   onTestFinished(() => engine.stop());
-  cloud.onEvent((sessionId, event, seq) => engine.onHarnessEvent(sessionId, event, { runnerId: CLOUD_SOURCE, seq }));
+  cloud.onEvent((sessionId, event, seq) => engine.onCloudEvent(sessionId, event, seq));
   const harness = await call(
     router.harnesses.create,
     { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", model: "m", systemPrompt: "" },

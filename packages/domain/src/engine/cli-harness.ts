@@ -17,7 +17,7 @@ import type { ClientHarness, ModelClient } from "../cloud/model-client.ts";
 import type { SecretBox } from "../secrets.ts";
 import { connectorToolExecutor, InstalledTools } from "../tools/executor.ts";
 import type { ToolConnector } from "../tools/mcp.ts";
-import { type AgentAnswerer, CLOUD_SOURCE, type CliHarness, type HarnessAdapter, type InterruptOutcome, type StartParams } from "./harness.ts";
+import { type AgentAnswerer, type CliHarness, type HarnessAdapter, type InterruptOutcome, type StartParams } from "./harness.ts";
 import { newId } from "../ids.ts";
 import { RoutingAdapter } from "./routing-adapter.ts";
 import { oneLine } from "../text.ts";
@@ -203,7 +203,7 @@ export function createEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEve
     return engine.onHarnessEvent(sessionId, event, { runnerId, seq });
   });
   hub.onCaughtUp((runnerId, liveSessions) => engine.reconcile(runnerId, liveSessions));
-  cloud.onEvent((sessionId, event, seq) => engine.onHarnessEvent(sessionId, event, { runnerId: CLOUD_SOURCE, seq }));
+  cloud.onEvent((sessionId, event, seq) => engine.onCloudEvent(sessionId, event, seq));
   return engine;
 }
 

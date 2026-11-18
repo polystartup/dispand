@@ -1,5 +1,6 @@
 import type { RememberedPermissions, RememberOffer } from "../agents/remember.ts";
-import type { Answer, HarnessEvent, QuestionPayload } from "@dispand/runner-protocol";
+import type { Answer, QuestionPayload } from "@dispand/runner-protocol";
+import type { CloudEvent, RecordToolResult } from "../messages/record-result.ts";
 import type { ChatItem } from "../cloud/model-client.ts";
 import { sql } from "drizzle-orm";
 import { type AnyPgColumn, bigint, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uniqueIndex } from "drizzle-orm/pg-core";
@@ -550,6 +551,10 @@ export const messages = pgTable(
     text: text("text").notNull(),
     /** A user message's attached files: attachments of the run, by id, with the name they came with. */
     files: jsonb("files").$type<MessageFile[]>(),
+    /** Internal correlation for a trusted cloud tool's started message. */
+    toolCall: jsonb("tool_call").$type<Pick<RecordToolResult, "toolCallId" | "turnId" | "args">>(),
+    /** Authorized display snapshot; legacy and unsuccessful tool messages have none. */
+    result: jsonb("result").$type<RecordToolResult>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     // User messages: when the hub wrote them to the runner (null: resent on recovery).
     deliveredAt: timestamp("delivered_at"),
@@ -592,7 +597,7 @@ export const cloudSessions = pgTable("cloud_sessions", {
   reminded: boolean("reminded").notNull().default(false),
   // The last event's seq, and the event, handed to the engine again on boot (it drops it if handled).
   seq: bigint("seq", { mode: "number" }).notNull().default(0),
-  lastEvent: jsonb("last_event").$type<HarnessEvent>(),
+  lastEvent: jsonb("last_event").$type<CloudEvent>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

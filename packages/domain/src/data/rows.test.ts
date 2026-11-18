@@ -37,7 +37,7 @@ test("rows CRUD and total", async () => {
   expect(a).toMatchObject({ id: expect.stringMatching(/^row_/), tableId: table.id, values: { [name.id]: "Alpha", [price.id]: 3 } });
   const b = await call(router.rows.create, { tableId: table.id }, { context });
   expect(b.values).toEqual({});
-  expect(await call(router.rows.get, { id: a.id }, { context })).toEqual({ ...a, attachments: {}, references: {} });
+  expect(await call(router.rows.get, { id: a.id }, { context })).toEqual({ ...a, fields: [{ id: name.id, name: name.name, type: name.type }, { id: price.id, name: price.name, type: price.type }], attachments: {}, references: {} });
 
   const updated = await call(router.rows.update, { id: a.id, values: { [price.id]: null } }, { context });
   expect(updated.values).toEqual({ [name.id]: "Alpha", [price.id]: null });
