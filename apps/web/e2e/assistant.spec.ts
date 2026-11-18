@@ -325,6 +325,8 @@ test("Assistant settings selects the next conversation's harness and model; chat
     const { start } = await settingsRunner.waitFor("session.start", WAIT_MS);
     expect(start.harness).toBe("claude-code");
     expect(start.model).toBe("sonnet");
+    // The session starts before the chat's first message is persisted and delivered.
+    expect(await settingsRunner.waitFor("session.send", WAIT_MS)).toMatchObject({ sessionId: start.sessionId, text: "Use the selected harness and model." });
     settingsRunner.emit(start.sessionId, { type: "tool", name: "Read workspace", status: "started" });
     settingsRunner.emit(start.sessionId, { type: "tool", name: "Inspect settings", status: "started" });
     settingsRunner.emit(start.sessionId, { type: "text", delta: "Using your selected settings." });
