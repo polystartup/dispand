@@ -362,6 +362,13 @@ test("Assistant settings selects the next conversation's harness and model; chat
     const preview = chat.getByRole("button", { name: "Preview workspace.png", exact: true });
     await expect(preview).toBeVisible();
     await expect(preview.getByRole("img")).toHaveAttribute("src", /^\/files\/att_/);
+    settingsRunner.emit(start.sessionId, { type: "turn-start", turnId: "settings_turn_1", interruptible: true });
+    const stop = chat.getByRole("button", { name: "Stop response", exact: true });
+    await expect(stop).toBeVisible();
+    await chat.getByLabel("Message", { exact: true }).fill("Continue with this workspace.");
+    const conversationUrl = page.url();
+    const runId = new URL(conversationUrl).searchParams.get("run")!;
+    expect(runId).toMatch(/^run_/);
 
     for (const expanded of [false, true]) {
       if (expanded) await page.getByRole("button", { name: "Full page", exact: true }).click();
@@ -375,7 +382,9 @@ test("Assistant settings selects the next conversation's harness and model; chat
         expect(bounds.height).toBeGreaterThan(viewport.height * 0.5);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
         await expect(preview).toBeInViewport();
+        await expect(stop).toBeInViewport();
         await page.screenshot({ path: testInfo.outputPath(`assistant-${expanded ? "full" : "normal"}-${viewport.width}.png`), animations: "disabled" });
+        if (!expanded) await page.screenshot({ path: testInfo.outputPath(`chat-stop-${viewport.width === 1440 ? "desktop" : "phone"}.png`), animations: "disabled" });
         await preview.click();
         const imageDialog = page.getByRole("dialog", { name: "workspace.png", exact: true });
         await expect(imageDialog).toBeVisible();
@@ -388,6 +397,33 @@ test("Assistant settings selects the next conversation's harness and model; chat
       }
     }
     await page.getByRole("button", { name: "Exit full page" }).click();
+    await stop.focus();
+    await page.keyboard.press("Enter");
+    const interrupt = await settingsRunner.waitFor("session.interrupt", WAIT_MS);
+    expect(interrupt).toMatchObject({ sessionId: start.sessionId, turnId: "settings_turn_1", requestId: expect.any(String) });
+    await expect(stop).toBeDisabled();
+    settingsRunner.emit(start.sessionId, { type: "turn-end", turnId: "settings_turn_1" });
+    settingsRunner.emit(start.sessionId, { type: "interrupt-result", requestId: interrupt.requestId!, turnId: "settings_turn_1", outcome: "requested" });
+    await expect(stop).toHaveCount(0);
+    await expect(page).toHaveURL(conversationUrl);
+    await expect(chat.getByLabel("Message", { exact: true })).toHaveValue("Continue with this workspace.");
+    await expect(chat.getByLabel("Quoted text", { exact: true })).toContainText("Using your selected settings.");
+    await expect(preview).toBeVisible();
+    await chat.getByRole("button", { name: "Send", exact: true }).click();
+    const followUp = await settingsRunner.waitFor("session.send", WAIT_MS);
+    expect(followUp.sessionId).toBe(start.sessionId);
+    expect(followUp.text).toMatch(/^Continue with this workspace\.\n\n> Using your selected settings\.\n\nFiles attached/);
+    expect(followUp.text).toContain("attached as “workspace.png”");
+    expect(settingsRunner.received.filter((message) => message.type === "session.start")).toHaveLength(1);
+    settingsRunner.emit(start.sessionId, { type: "turn-start", turnId: "settings_turn_2", interruptible: true });
+    settingsRunner.emit(start.sessionId, { type: "text", delta: "Continuing in the same conversation." });
+    settingsRunner.emit(start.sessionId, { type: "turn-end", turnId: "settings_turn_2" });
+    await expect(chat.getByText("Continuing in the same conversation.", { exact: true })).toBeVisible();
+    await expect(stop).toHaveCount(0);
+    await expect(page).toHaveURL(conversationUrl);
+    const continued = await rpc<{ run: { id: string; status: string }; steps: { turnStatus: string }[] }>(page, "runs/get", { runId });
+    expect(continued.run).toMatchObject({ id: runId, status: "running" });
+    expect(continued.steps[0]?.turnStatus).toBe("idle");
     await page.reload();
     await page.getByRole("button", { name: "Stem settings" }).click();
     await expect(sheet.getByLabel("Model", { exact: true })).toHaveValue("sonnet");
