@@ -556,10 +556,11 @@ export function startClaudeSession(
     // Cut by a steer, not by an interrupt: the turn goes on with it, in the CLI's next turn.
     const asked = askedWhileSteering;
     askedWhileSteering = false;
-    if (aborted && !wasInterrupted && steers.size > 0 && !asked) {
+    if (aborted && !wasInterrupted && steers.size > 0) {
+      // A steer cut it: what it asked is withdrawn here too, whichever way it is reported.
       turnAbort.abort();
       turnAbort = new AbortController();
-      return;
+      if (!asked) return;
     }
     // The turn ended without them: each is the next message.
     for (const settle of steers.values()) settle("queued");
