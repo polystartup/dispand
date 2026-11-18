@@ -135,7 +135,7 @@ test("Assistant settings changes the harness and model, preserves other edits, a
   fake.agents.get.mockImplementation(async () => ({ ...agent }));
   fake.agents.update.mockImplementation(async (fields) => { Object.assign(agent, fields, { model: fields.model }); return agent; });
   const { user } = mount();
-  await user.type(await screen.findByRole("combobox", { name: "Message" }), "Keep this draft");
+  await user.type(await screen.findByLabelText("Message"), "Keep this draft");
   await user.click(await screen.findByRole("button", { name: "Stem settings" }));
   let sheet = await screen.findByRole("dialog");
   expect((await within(sheet).findByLabelText("Model") as HTMLInputElement).value).toBe("sonnet");
@@ -148,7 +148,7 @@ test("Assistant settings changes the harness and model, preserves other edits, a
   await user.click(within(sheet).getByRole("button", { name: "Save settings" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(fake.jobs.start).not.toHaveBeenCalled();
-  expect((screen.getByRole("combobox", { name: "Message" }) as HTMLTextAreaElement).value).toBe("Keep this draft");
+  expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Keep this draft");
   expect(fake.agents.update.mock.calls[0]![0]).toEqual({ id: "agent_a", name: "Assistant", harnessId: "h2", model: "codex-model", systemPrompt: "Updated elsewhere", skillPackageIds: ["platform"], toolIds: ["explicit"] });
 
   await user.click(screen.getByRole("button", { name: "Stem settings" }));

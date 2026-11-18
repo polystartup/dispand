@@ -225,7 +225,8 @@ Model selection uses the same grouped harness-and-model picker in the Assistant 
 
 In the Assistant, type `/` to find commands and skills from its harness, supplemented with
 skills installed in Dispand. Search by name or description, use arrows and Enter/Tab to select,
-or click an entry. Add arguments and send when ready; Escape closes the picker. Dispand-only
+or click an entry. Add arguments and send when ready; Escape closes the picker. Tab leaves
+a loading or empty picker without submitting anything. Dispand-only
 skills load for that conversation without changing the Assistant's permanent settings. Their
 required tools retain normal approvals. Wait for a running turn to finish before adding a new
 skill package. Harness discovery failures are shown explicitly; Codex currently exposes its

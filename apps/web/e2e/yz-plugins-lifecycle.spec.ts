@@ -105,7 +105,7 @@ test("install a plugin with its definitions, override an agent, update, uninstal
   );
   await page.goto("/assistant?run=new");
   const chat = page.getByRole("region", { name: "Stem" });
-  await chat.getByRole("combobox", { name: "Message", exact: true }).fill("Install the law-firm plugin.");
+  await chat.getByLabel("Message", { exact: true }).fill("Install the law-firm plugin.");
   await chat.getByRole("button", { name: "Send" }).click();
   const card = chat.getByRole("region", { name: "Proposal" });
   // One install item, shown with what its setup makes.

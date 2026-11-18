@@ -48,7 +48,6 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
   }).data;
   const runDef = workflowId ? versionDef : jobDef;
   const queryClient = useQueryClient();
-  const [chosenSkill, setChosenSkill] = useState<{ name: string; skillId?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [holding, setHolding] = useState(0);
@@ -64,7 +63,6 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
     }
     draft.current++;
     setConversationKey((key) => key + 1);
-    setChosenSkill(null);
     setError(null);
     setSending(false);
   }, [runId]);
@@ -111,6 +109,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
     const text = textOf(message).trim();
     if (!text || sending || !canSend || approval) throw new MessageNotSentError(t("sendFailed"));
     const mine = draft.current;
+    const chosenSkill = message.runConfig?.custom?.skill as { name: string; skillId?: string } | undefined;
     const skillId = chosenSkill && text.split(/\s/, 1)[0] === `/${chosenSkill.name}` ? chosenSkill.skillId : undefined;
     setSending(true);
     setError(null);
@@ -143,7 +142,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
     <ChatThread key={conversationKey} run={run} chatStepId={chatStep?.id} canSend={canSend && !sending && holding === 0} onSend={send} onAttach={hold}
       welcome={welcome} starterPrompts={!!assistantAgentId && !approval} centeredWelcome={!!composerTools}
       composer={<ChatComposer runId={runId} assistantAgentId={assistantAgentId} tools={composerTools} open={open} asking={asking} approval={!!approval}
-        busy={sending} error={error} onSkillChange={setChosenSkill} onNewConversation={onNewConversation}
+        busy={sending} error={error} onNewConversation={onNewConversation}
         onApprove={() => answerApproval({ decision: "allow" })} onDecline={(message) => answerApproval({ decision: "deny", message })} />}
     >
       <AfterChat run={run} chatStepId={chatStep?.id} def={runDef} />

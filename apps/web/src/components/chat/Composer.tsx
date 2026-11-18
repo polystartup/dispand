@@ -16,16 +16,19 @@ type Props = {
   busy: boolean;
   error: string | null;
   onNewConversation?: () => void;
-  onSkillChange: (entry: { name: string; skillId?: string }) => void;
   onApprove: () => Promise<boolean>;
   onDecline: (message: string) => Promise<boolean>;
 };
 
 /** Standard composer primitives, with Dispand's explicit proposal-answering controls. */
-export function ChatComposer({ runId, assistantAgentId, tools, open, asking, approval, busy, error, onNewConversation, onSkillChange, onApprove, onDecline }: Props) {
+export function ChatComposer({ runId, assistantAgentId, tools, open, asking, approval, busy, error, onNewConversation, onApprove, onDecline }: Props) {
   const { t } = useTranslation("chat");
   const aui = useAui();
   const text = useAuiState((s) => s.composer.text);
+  function chooseSkill(entry: { name: string; skillId?: string }) {
+    const config = aui.composer().getState().runConfig;
+    aui.composer().setRunConfig({ ...config, custom: { ...config.custom, skill: entry } });
+  }
   async function decline() {
     const submitted = aui.composer().getState().text;
     if (!submitted.trim() || busy) return;
@@ -55,7 +58,7 @@ export function ChatComposer({ runId, assistantAgentId, tools, open, asking, app
       {runId && !tools && onNewConversation && <Button type="button" variant="ghost" size="icon-sm" aria-label={t("newConversation")} title={t("newConversation")} className="rounded-full text-muted" disabled={busy} onClick={onNewConversation}><MessageSquarePlus aria-hidden /></Button>}
       {!approval && <ComposerQuote />}
       <ComposerAttachments hidden={approval} disabled={!open || asking || busy} />
-      {assistantAgentId ? <AssistantInput agentId={assistantAgentId} runId={runId} onTextChange={(value) => aui.composer().setText(value)} onSkillChange={onSkillChange} inputProps={{ ...input.props, value: text }} /> : input}
+      {assistantAgentId ? <AssistantInput agentId={assistantAgentId} runId={runId} onTextChange={(value) => aui.composer().setText(value)} onSkillChange={chooseSkill} inputProps={{ ...input.props, value: text }} /> : input}
       {tools && <div className="min-w-0 flex-1">{tools}</div>}
       {approval ? <Button type="submit" size="icon-sm" aria-label={t("send")} disabled={busy || !text.trim()} className="rounded-full"><ArrowUp aria-hidden /></Button> :
         <ComposerPrimitive.Send asChild><Button type="button" size="icon-sm" aria-label={t("send")} disabled={!text.trim() || busy} className="rounded-full"><ArrowUp aria-hidden /></Button></ComposerPrimitive.Send>}

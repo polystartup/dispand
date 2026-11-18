@@ -492,3 +492,65 @@ test("dropping files cannot attach to a proposal answer", async () => {
   expect(fake.files.hold).not.toHaveBeenCalled();
   expect(fake.questions.answer).not.toHaveBeenCalled();
 });
+
+test.each(["loading", "empty"])("Assistant slash %s results allow Tab to leave the input", async (state) => {
+  fake.assistantCommands.mockImplementation(() => state === "loading" ? new Promise(() => {}) : Promise.resolve({ entries: [], nativeUnavailable: false }));
+  fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
+  fake.runs.stream.mockImplementation(streamOf(snapshot()));
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatPanel assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></QueryClientProvider>);
+  const user = userEvent.setup();
+  const box = screen.getByLabelText("Message");
+  expect(fake.assistantCommands).not.toHaveBeenCalled();
+  await user.type(box, "/missing");
+  expect(await screen.findByRole("listbox")).toBeTruthy();
+  expect(await screen.findByText(state === "loading" ? "Loading commands and skills…" : "No matching commands or skills.")).toBeTruthy();
+  await user.tab();
+  expect(document.activeElement).not.toBe(box);
+  expect(screen.queryByRole("listbox")).toBeNull();
+  expect(fake.runs.sendChat).not.toHaveBeenCalled();
+  expect(fake.questions.answer).not.toHaveBeenCalled();
+});
+
+test("Assistant slash choice during approval never submits or approves, including IME Enter", async () => {
+  fake.assistantCommands.mockResolvedValue({ entries: [{ name: "tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" }], nativeUnavailable: false });
+  fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
+  fake.runs.stream.mockImplementation(streamOf(snapshot([proposalQuestion()])));
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatPanel assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></QueryClientProvider>);
+  const user = userEvent.setup();
+  const box = await screen.findByLabelText<HTMLTextAreaElement>("Message");
+  await user.type(box, "/ti");
+  await screen.findByRole("option");
+  fireEvent.keyDown(box, { key: "Enter", isComposing: true, keyCode: 229 });
+  expect(box.value).toBe("/ti");
+  expect(fake.questions.answer).not.toHaveBeenCalled();
+  await user.keyboard("{Enter}");
+  expect(box.value).toBe("/tidy ");
+  expect(fake.runs.sendChat).not.toHaveBeenCalled();
+  expect(fake.questions.answer).not.toHaveBeenCalled();
+});
+
+test("Assistant same-name commands retain their source identity and manual edits do not reuse a different skill", async () => {
+  fake.assistantCommands.mockResolvedValue({ entries: [{ name: "tidy", description: "Native tidy", source: "harness" }, { name: "tidy", description: "Dispand tidy", source: "dispand", skillId: "skill_tidy" }], nativeUnavailable: false });
+  fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
+  fake.runs.stream.mockImplementation(streamOf(snapshot()));
+  fake.runs.sendChat.mockResolvedValue(undefined);
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatPanel assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></QueryClientProvider>);
+  const user = userEvent.setup();
+  const box = screen.getByLabelText<HTMLTextAreaElement>("Message");
+  await user.type(box, "/ti");
+  await user.click(await screen.findByRole("option", { name: /Dispand tidy/ }));
+  expect(fake.runs.sendChat).not.toHaveBeenCalled();
+  await user.type(box, "first{Enter}");
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenLastCalledWith({ runId: "run_1", text: "/tidy first", skillId: "skill_tidy" }));
+  await waitFor(() => expect(box.value).toBe(""));
+  await user.type(box, "/ti");
+  await user.click(await screen.findByRole("option", { name: /Native tidy/ }));
+  await user.type(box, "second{Enter}");
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenLastCalledWith({ runId: "run_1", text: "/tidy second" }));
+  await waitFor(() => expect(box.value).toBe(""));
+  await user.type(box, "/ti");
+  await user.click(await screen.findByRole("option", { name: /Dispand tidy/ }));
+  await user.clear(box);
+  await user.type(box, "Different prompt{Enter}");
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenLastCalledWith({ runId: "run_1", text: "Different prompt" }));
+});
