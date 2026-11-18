@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { usePendingQuestionsStream } from "../components/shell/NotificationsBell.tsx";
+import { ChatSessionsProvider } from "../lib/chat-sessions.tsx";
 import { Sidebar } from "../components/shell/Sidebar.tsx";
 
 export const Route = createFileRoute("/_app")({
@@ -33,6 +34,7 @@ function AppShell() {
 
   // One Sheet around trigger and content, so Radix returns focus to the trigger on close.
   return (
+      <ChatSessionsProvider key={user.email}>
       <Sheet open={open} onOpenChange={setOpen}>
       <div className="min-h-dvh md:pl-64">
         <header className="sticky top-0 z-20 flex h-12 items-center gap-2 bg-sidebar px-3 backdrop-blur-xl backdrop-saturate-150 md:hidden">
@@ -70,5 +72,6 @@ function AppShell() {
         </main>
       </div>
       </Sheet>
+      </ChatSessionsProvider>
   );
 }

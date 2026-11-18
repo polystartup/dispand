@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import "../../test/jsdom-shims.ts";
+import { ChatSessionsProvider } from "../../lib/chat-sessions.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -40,9 +41,9 @@ test("a run keeps the trigger of its own version: the chat stays a chat after it
   );
   const widget = { id: "w1", pageId: "p", type: "workflow-form", title: "W", workflowId: "wf_1", layout: {} } as never;
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider>
       <WorkflowFormWidget widget={widget} editing={false} />
-    </QueryClientProvider>,
+    </ChatSessionsProvider></QueryClientProvider>,
   );
   expect(await screen.findByLabelText("Message")).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Go|Run/ })).toBeNull();

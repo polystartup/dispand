@@ -22,6 +22,7 @@ vi.mock("../../lib/api.ts", async () => {
 });
 
 const { ChatPanel } = await import("./ChatPanel.tsx");
+const { ChatSessionsProvider } = await import("../../lib/chat-sessions.tsx");
 // jsdom has no layout.
 Element.prototype.scrollIntoView = () => {};
 
@@ -53,15 +54,15 @@ function streamOf(snap: RunSnapshot) {
 
 function Harness({ initial }: { initial: string | null }) {
   const [runId, setRunId] = useState(initial);
-  return <ChatPanel workflowId="wf_1" runId={runId} onRunStarted={setRunId} onNewConversation={() => setRunId(null)} />;
+  return <ChatPanel surfaceKey="test" workflowId="wf_1" runId={runId} onRunStarted={setRunId} onNewConversation={() => setRunId(null)} />;
 }
 
 function mount(initial: string | null) {
   fake.workflows.get.mockResolvedValue({ id: "wf_1", name: "Chat", version: 1, def: { trigger: { type: "manual", field: { id: "n_chat" } }, steps: [], edges: [] } });
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider>
       <Harness initial={initial} />
-    </QueryClientProvider>,
+    </ChatSessionsProvider></QueryClientProvider>,
   );
   return userEvent.setup();
 }
@@ -271,7 +272,7 @@ test("a finished Job with a recorded transcript sends to the same conversation",
   fake.runs.stream.mockImplementation(streamOf(snap));
   fake.jobs.def.mockResolvedValue({ trigger: { type: "manual", field: { id: "n_chat", type: "chat" } }, steps: [], edges: [] });
   fake.runs.sendChat.mockResolvedValue(undefined);
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatPanel runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></QueryClientProvider>);
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider><ChatPanel surfaceKey="test" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></ChatSessionsProvider></QueryClientProvider>);
   const user = userEvent.setup();
   const input = await screen.findByLabelText("Message");
   await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false));
@@ -286,7 +287,7 @@ test("Assistant slash picker selects without sending and passes a Dispand skill 
   fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
   fake.runs.sendChat.mockResolvedValue(undefined);
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatPanel assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></QueryClientProvider>);
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider><ChatPanel surfaceKey="test" assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></ChatSessionsProvider></QueryClientProvider>);
   const user = userEvent.setup();
   const box = screen.getByLabelText("Message");
   await user.type(box, "/ti");
@@ -302,7 +303,7 @@ test("Assistant picker supports arrows, Tab, mouse, Escape and discovery fallbac
   fake.assistantCommands.mockResolvedValue({ entries: [{ name: "first", description: "First", source: "harness" }, { name: "office:tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" }], nativeUnavailable: true });
   fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatPanel assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></QueryClientProvider>);
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider><ChatPanel surfaceKey="test" assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></ChatSessionsProvider></QueryClientProvider>);
   const user = userEvent.setup();
   const box = screen.getByLabelText("Message");
   await user.type(box, "/");
@@ -338,9 +339,9 @@ test("opening another conversation from outside takes the draft's files off too"
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   fake.workflows.get.mockResolvedValue({ id: "wf_1", name: "Chat", version: 1, def: { trigger: { type: "manual", field: { id: "n_chat" } }, steps: [], edges: [] } });
   const panel = (runId: string) => (
-    <QueryClientProvider client={client}>
-      <ChatPanel workflowId="wf_1" runId={runId} onRunStarted={() => {}} />
-    </QueryClientProvider>
+    <QueryClientProvider client={client}><ChatSessionsProvider>
+      <ChatPanel surfaceKey="test" workflowId="wf_1" runId={runId} onRunStarted={() => {}} />
+    </ChatSessionsProvider></QueryClientProvider>
   );
   const { rerender } = render(panel("run_1"));
   const user = userEvent.setup();
@@ -360,9 +361,9 @@ function LibraryComposerActions() {
 function mountComposer(questions: RunSnapshot["questions"] = []) {
   fake.runs.stream.mockImplementation(streamOf(snapshot(questions)));
   fake.jobs.def.mockResolvedValue({ trigger: { field: { id: "n_chat", type: "chat" } }, steps: [], edges: [] });
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-    <ChatPanel runId="run_1" onRunStarted={() => {}} assistantAgentId="assistant" composerTools={<LibraryComposerActions />} />
-  </QueryClientProvider>);
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider>
+    <ChatPanel surfaceKey="test" runId="run_1" onRunStarted={() => {}} assistantAgentId="assistant" composerTools={<LibraryComposerActions />} />
+  </ChatSessionsProvider></QueryClientProvider>);
   return userEvent.setup();
 }
 
@@ -497,7 +498,7 @@ test.each(["loading", "empty"])("Assistant slash %s results allow Tab to leave t
   fake.assistantCommands.mockImplementation(() => state === "loading" ? new Promise(() => {}) : Promise.resolve({ entries: [], nativeUnavailable: false }));
   fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatPanel assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></QueryClientProvider>);
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider><ChatPanel surfaceKey="test" assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></ChatSessionsProvider></QueryClientProvider>);
   const user = userEvent.setup();
   const box = screen.getByLabelText("Message");
   expect(fake.assistantCommands).not.toHaveBeenCalled();
@@ -515,7 +516,7 @@ test("Assistant slash choice during approval never submits or approves, includin
   fake.assistantCommands.mockResolvedValue({ entries: [{ name: "tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" }], nativeUnavailable: false });
   fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
   fake.runs.stream.mockImplementation(streamOf(snapshot([proposalQuestion()])));
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatPanel assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></QueryClientProvider>);
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider><ChatPanel surfaceKey="test" assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></ChatSessionsProvider></QueryClientProvider>);
   const user = userEvent.setup();
   const box = await screen.findByLabelText<HTMLTextAreaElement>("Message");
   await user.type(box, "/ti");
@@ -534,7 +535,7 @@ test("Assistant same-name commands retain their source identity and manual edits
   fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
   fake.runs.sendChat.mockResolvedValue(undefined);
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatPanel assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></QueryClientProvider>);
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider><ChatPanel surfaceKey="test" assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></ChatSessionsProvider></QueryClientProvider>);
   const user = userEvent.setup();
   const box = screen.getByLabelText<HTMLTextAreaElement>("Message");
   await user.type(box, "/ti");

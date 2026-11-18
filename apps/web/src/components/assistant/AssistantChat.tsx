@@ -9,6 +9,7 @@ import { localTimezone } from "../agents/TriggerSheet.tsx";
 import { selectClass } from "../data/NewFieldPopover.tsx";
 import { HarnessSheet } from "../settings/HarnessSheet.tsx";
 import { Empty } from "../settings/parts.tsx";
+import { useChatSelection, useChatSessions } from "../../lib/chat-sessions.tsx";
 import { useFormat } from "../../lib/format.ts";
 import { ChatPanel } from "../widgets/ChatPanel.tsx";
 import { ReviewSwitch } from "./ReviewSwitch.tsx";
@@ -40,6 +41,14 @@ function Conversation({ triggerId, agentId, reviewTriggerId, run, onOpen }: { tr
   const format = useFormat();
   const assistantName = t("messages:agent.assistant.name");
   const jobs = useQuery(orpc.runs.list.queryOptions({ input: { triggerId, kind: "chat" } }));
+  const surfaceKey = `assistant:${triggerId}`;
+  const [chosen, setChosen] = useChatSelection(surfaceKey);
+  const sessions = useChatSessions();
+  const selected = run === undefined ? chosen : run === NEW_CONVERSATION ? null : run;
+  const runId = selected === undefined ? (jobs.data?.[0]?.id ?? null) : selected;
+  useEffect(() => {
+    if (jobs.data) setChosen(runId);
+  }, [jobs.data, runId, setChosen]);
   const [history, setHistory] = useState(false);
   const [settings, setSettings] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -51,9 +60,8 @@ function Conversation({ triggerId, agentId, reviewTriggerId, run, onOpen }: { tr
   }, [expanded]);
   if (jobs.error && !jobs.data) return <p role="alert">{t("conversationsFailed", { assistant: assistantName })}</p>;
   if (!jobs.data) return <p>{t("common:loading")}</p>;
-  const runId = run === NEW_CONVERSATION ? null : (run ?? jobs.data[0]?.id ?? null);
   const title = jobs.data.find((job) => job.id === runId)?.title ?? t("newChat");
-  const open = (id: string) => { onOpen(id); setHistory(false); };
+  const open = (id: string) => { if (id === NEW_CONVERSATION) sessions.newConversation(surfaceKey); onOpen(id); setHistory(false); };
   return (
     <div className={expanded ? "fixed inset-0 z-40 flex h-dvh flex-col bg-surface" : "flex min-h-0 flex-1 flex-col bg-surface"}>
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3">
@@ -71,7 +79,7 @@ function Conversation({ triggerId, agentId, reviewTriggerId, run, onOpen }: { tr
       </SheetContent></Sheet>}
       {settings && <Sheet open onOpenChange={setSettings}><SheetContent className="bg-surface"><SheetHeader><SheetTitle>{t("options", { assistant: assistantName })}</SheetTitle><SheetDescription>{t("optionsText", { assistant: assistantName })}</SheetDescription></SheetHeader><div className="p-4">{reviewTriggerId && <ReviewSwitch triggerId={reviewTriggerId} />}</div></SheetContent></Sheet>}
       <section aria-label={t("chat", { assistant: assistantName })} className="flex min-h-0 flex-1 flex-col">
-        <ChatPanel assistantAgentId={agentId} start={(skillId) => api.jobs.start({ triggerId, timezone: localTimezone(), ...(skillId ? { skillId } : {}) })} runId={runId} onRunStarted={(id) => onOpen(id, { replace: true })} onNewConversation={() => onOpen(NEW_CONVERSATION)} welcome={t("welcome")} composerTools={<AssistantSettings agentId={agentId} />} />
+        <ChatPanel surfaceKey={surfaceKey} assistantAgentId={agentId} start={(skillId) => api.jobs.start({ triggerId, timezone: localTimezone(), ...(skillId ? { skillId } : {}) })} runId={runId} onRunStarted={(id) => onOpen(id, { replace: true })} onNewConversation={() => onOpen(NEW_CONVERSATION)} welcome={t("welcome")} composerTools={<AssistantSettings agentId={agentId} />} />
       </section>
     </div>
   );

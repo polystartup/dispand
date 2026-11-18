@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect } from "react";
+import { useChatSelection } from "../../lib/chat-sessions.tsx";
 import { useTranslation } from "react-i18next";
 import { api, orpc } from "../../lib/api.ts";
 import { localTimezone } from "../agents/TriggerSheet.tsx";
@@ -17,7 +18,8 @@ export function TriggerWidget({ widget, editing }: Props) {
   const trigger = useQuery({ ...orpc.triggers.get.queryOptions({ input: { id: widget.triggerId } }), retry: false });
   const jobs = useQuery(orpc.runs.list.queryOptions({ input: { triggerId: widget.triggerId } }));
   // undefined: follow the trigger's latest Job; null: a new conversation that hasn't started yet.
-  const [chosen, setChosen] = useState<string | null | undefined>(undefined);
+  const surfaceKey = `widget:${widget.id}:trigger:${widget.triggerId}`;
+  const [chosen, setChosen] = useChatSelection(surfaceKey);
   const runId = chosen === undefined ? (jobs.data?.[0]?.id ?? null) : chosen;
   // A Job keeps the placement it started with: a chat stays a chat after the trigger became a button.
   const jobDef = useQuery({ ...orpc.jobs.def.queryOptions({ input: { runId: runId ?? "" } }), enabled: !!runId, staleTime: Infinity });
@@ -25,6 +27,9 @@ export function TriggerWidget({ widget, editing }: Props) {
   const config = trigger.data?.config;
   const placement = runId ? (jobDef.data ? (jobDef.data.trigger.field.type === "chat" ? "chat" : "button") : jobDef.error ? undefined : null) : undefined;
   const shown = placement === undefined ? (config?.kind === "manual" ? config.placement : null) : placement;
+  useEffect(() => {
+    if (shown === "chat" && chosen === undefined && jobs.data) setChosen(runId);
+  }, [shown, chosen, jobs.data, runId, setChosen]);
 
   return (
     <section aria-label={widget.title} className="flex h-full flex-col overflow-hidden rounded-2xl bg-surface shadow-card">
@@ -42,7 +47,7 @@ export function TriggerWidget({ widget, editing }: Props) {
       ) : !trigger.data.enabled && !runId ? (
         <p className="px-5 pb-5 text-[14px] text-muted">{t("widget.triggerDisabled")}</p>
       ) : shown === "chat" ? (
-        <ChatPanel start={start} runId={runId} onRunStarted={setChosen} onNewConversation={trigger.data.enabled ? () => setChosen(null) : undefined} />
+        <ChatPanel surfaceKey={surfaceKey} start={start} runId={runId} onRunStarted={setChosen} onNewConversation={trigger.data.enabled ? () => setChosen(null) : undefined} />
       ) : (
         <StartButton label={trigger.data.name} runId={runId} start={start} onRunStarted={setChosen} disabled={!trigger.data.enabled} />
       )}

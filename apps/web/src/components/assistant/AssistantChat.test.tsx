@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import "../../test/jsdom-shims.ts";
+import { ChatSessionsProvider } from "../../lib/chat-sessions.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -59,9 +60,9 @@ function mount(initial?: string) {
   const opened: (string | undefined)[] = [];
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={queryClient}><ChatSessionsProvider>
       <Url initial={initial} seen={(run) => opened.push(run)} />
-    </QueryClientProvider>,
+    </ChatSessionsProvider></QueryClientProvider>,
   );
   return { user: userEvent.setup(), opened, queryClient };
 }
@@ -331,9 +332,9 @@ test("the chat names the built-in agent Stem, in French too", async () => {
   fake.agents.get.mockResolvedValue({ id: "agent_a", name: "Assistant", harnessId: "h1", systemPrompt: "", skills: [], tools: [] });
   render(
     <I18nextProvider i18n={createI18n("fr")}>
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider>
         <AssistantChat run={undefined} onOpen={() => {}} />
-      </QueryClientProvider>
+      </ChatSessionsProvider></QueryClientProvider>
     </I18nextProvider>,
   );
   expect(await screen.findByRole("region", { name: "Stem" })).toBeTruthy();
@@ -346,12 +347,43 @@ test("without an Assistant, the harness choice is in French and names Stem", asy
   fake.harnesses.list.mockResolvedValue([{ id: "harness_1", name: "Claude" }]);
   render(
     <I18nextProvider i18n={createI18n("fr")}>
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider>
         <AssistantChat run={undefined} onOpen={() => {}} />
-      </QueryClientProvider>
+      </ChatSessionsProvider></QueryClientProvider>
     </I18nextProvider>,
   );
   expect(await screen.findByRole("button", { name: "Démarrer Stem" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "Harnais" })).toBeTruthy();
   expect(screen.getByText(/Choisissez le harnais sur lequel Stem tourne/)).toBeTruthy();
+});
+
+
+test("returning to the Assistant restores its selected conversation while explicit URLs still win", async () => {
+  fake.harnesses.list.mockResolvedValue([]);
+  fake.agents.get.mockResolvedValue({ id: "agent_a", name: "Assistant", harnessId: "h1", systemPrompt: "", skills: [], tools: [] });
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.runs.list.mockResolvedValue([job("run_new", "Newer chat", new Date(2000)), job("run_old", "Older chat", new Date(1000))]);
+  fake.jobs.def.mockResolvedValue(chatDef);
+  fake.runs.stream.mockImplementation(streams({ run_new: conversation("run_new", "new", "New reply"), run_old: conversation("run_old", "old", "Old reply") }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = (shown: boolean, run?: string) => <QueryClientProvider client={client}><ChatSessionsProvider>{shown && <AssistantChat run={run} onOpen={() => {}} />}</ChatSessionsProvider></QueryClientProvider>;
+  const rendered = render(view(true, "run_old"));
+  const user = userEvent.setup();
+  await user.type(await screen.findByLabelText("Message"), "Older draft");
+  expect(await screen.findByText("Old reply")).toBeTruthy();
+  rendered.rerender(view(false));
+  rendered.rerender(view(true));
+  expect(await screen.findByText("Old reply")).toBeTruthy();
+  await waitFor(() => expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Older draft"));
+  rendered.rerender(view(true, "run_new"));
+  expect(await screen.findByText("New reply")).toBeTruthy();
+  expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("");
+  rendered.rerender(view(true, "new"));
+  await user.type(await screen.findByLabelText("Message"), "Unsent new draft");
+  rendered.rerender(view(false));
+  rendered.rerender(view(true));
+  await waitFor(() => expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Unsent new draft"));
+  expect(screen.queryByText("New reply")).toBeNull();
+  await user.click(screen.getByRole("button", { name: "New conversation" }));
+  await waitFor(() => expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe(""));
 });

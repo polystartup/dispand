@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import "../../test/jsdom-shims.ts";
+import { ChatSessionsProvider } from "../../lib/chat-sessions.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -41,9 +42,9 @@ const idle = async (_input: unknown, { signal }: { signal: AbortSignal }) => ({
 
 function mount() {
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider>
       <TriggerWidget widget={widget} editing={false} />
-    </QueryClientProvider>,
+    </ChatSessionsProvider></QueryClientProvider>,
   );
   return userEvent.setup();
 }
@@ -91,7 +92,7 @@ test("a chat trigger's composer takes files: one attached before the first messa
   expect(fake.jobs.start).not.toHaveBeenCalled();
   await user.type(screen.getByLabelText("Message"), "Pay this{Enter}");
   await waitFor(() => expect(fake.runs.sendChat.mock.calls[0]![0]).toEqual({ runId: "run_1", text: "Pay this", attachmentIds: ["att_1"] }));
-  await waitFor(() => expect(screen.queryByText("invoice.pdf")).toBeNull());
+  await waitFor(() => expect(within(screen.getByLabelText("Message").closest("form")!).queryByText("invoice.pdf")).toBeNull());
 });
 
 test("TriggerWidget says when its trigger is disabled or gone", async () => {
@@ -129,4 +130,32 @@ test("a disabled trigger still shows the Job it ran, without a Start", async () 
   mount();
   expect(await screen.findByText("This trigger is disabled.")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Sort the mail" })).toBeNull();
+});
+
+
+test("two widgets for the same trigger keep separate new conversations across navigation", async () => {
+  fake.triggers.get.mockResolvedValue(trigger("chat"));
+  fake.runs.list.mockResolvedValue([{ id: "existing", version: 1 }]);
+  fake.jobs.def.mockResolvedValue({ trigger: { type: "manual", field: { id: "trigger_1", key: "trigger", type: "chat", label: "Mail", agentId: "agent_1", prompt: "" } }, steps: [], edges: [] });
+  fake.runs.stream.mockImplementation(idle);
+  fake.jobs.start.mockResolvedValue({ runId: "new_run" });
+  fake.runs.sendChat.mockResolvedValue(undefined);
+  const second = { id: "w2", pageId: "p", type: "trigger-form", title: "Second mail", triggerId: "trigger_1", layout: {} } as never;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = (shown: boolean) => <QueryClientProvider client={client}><ChatSessionsProvider>{shown && <><TriggerWidget widget={widget} editing={false} /><TriggerWidget widget={second} editing={false} /></>}</ChatSessionsProvider></QueryClientProvider>;
+  const rendered = render(view(true));
+  const user = userEvent.setup();
+  const first = within(screen.getByRole("region", { name: "Mail" }));
+  const other = within(screen.getByRole("region", { name: "Second mail" }));
+  await user.click(await first.findByRole("button", { name: "New conversation" }));
+  await user.type(first.getByLabelText("Message"), "First draft");
+  await user.type(await other.findByLabelText("Message"), "Second draft");
+  rendered.rerender(view(false));
+  rendered.rerender(view(true));
+  const restored = within(screen.getByRole("region", { name: "Mail" }));
+  await waitFor(() => expect((restored.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("First draft"));
+  expect((within(screen.getByRole("region", { name: "Second mail" })).getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Second draft");
+  await user.type(restored.getByLabelText("Message"), "{Enter}");
+  await waitFor(() => expect(fake.jobs.start).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(fake.runs.sendChat.mock.calls[0]?.[0]).toEqual({ runId: "new_run", text: "First draft" }));
 });

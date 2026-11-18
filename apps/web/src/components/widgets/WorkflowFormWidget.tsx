@@ -2,7 +2,8 @@ import type { WorkflowDef } from "@dispand/domain/workflows/model";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Play } from "lucide-react";
-import { useState } from "react";
+import { useEffect } from "react";
+import { useChatSelection } from "../../lib/chat-sessions.tsx";
 import { Trans, useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { type api, orpc } from "../../lib/api.ts";
@@ -22,7 +23,8 @@ export function WorkflowFormWidget({ widget, editing }: Props) {
   const workflow = useQuery(orpc.workflows.get.queryOptions({ input: { id: widget.workflowId } }));
   const runs = useQuery(orpc.runs.list.queryOptions({ input: { workflowId: widget.workflowId } }));
   // undefined: follow the latest run; null: a new conversation that hasn't started yet.
-  const [chosen, setChosen] = useState<string | null | undefined>(undefined);
+  const surfaceKey = `widget:${widget.id}:workflow:${widget.workflowId}`;
+  const [chosen, setChosen] = useChatSelection(surfaceKey);
   const runId = chosen === undefined ? (runs.data?.[0]?.id ?? null) : chosen;
   // A run keeps the version it started on: a chat run stays a chat after the trigger changed.
   const runVersion = runs.data?.find((r) => r.id === runId)?.version;
@@ -32,6 +34,9 @@ export function WorkflowFormWidget({ widget, editing }: Props) {
     staleTime: Infinity,
   });
   const def = runVersion === undefined || runVersion === workflow.data?.version ? workflow.data?.def : (versioned.data?.def ?? (versioned.error ? workflow.data?.def : undefined));
+  useEffect(() => {
+    if (def?.trigger.field.type === "chat" && chosen === undefined && runs.data) setChosen(runId);
+  }, [def, chosen, runs.data, runId, setChosen]);
 
   return (
     <section aria-label={widget.title} className="flex h-full flex-col overflow-hidden rounded-2xl bg-surface shadow-card">
@@ -48,6 +53,7 @@ export function WorkflowFormWidget({ widget, editing }: Props) {
         <p className="px-5 pb-5 text-[14px] text-faint">{t("common:loading")}</p>
       ) : def.trigger.field.type === "chat" ? (
         <ChatPanel
+          surfaceKey={surfaceKey}
           workflowId={widget.workflowId}
           runId={runId}
           onRunStarted={setChosen}

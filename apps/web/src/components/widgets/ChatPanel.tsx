@@ -1,11 +1,11 @@
 import { ChatComposer } from "../chat/Composer.tsx";
 import { MessageNotSentError, type AppendMessage, type QuoteInfo } from "@assistant-ui/react";
-import { textOf } from "../../lib/assistant-runtime.ts";
+import { heldAttachments, textOf, useRunThread } from "../../lib/assistant-runtime.ts";
 import { nodesOf, type WorkflowDef } from "@dispand/domain/workflows/model";
 import { SHORT } from "@dispand/runner-protocol";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, CircleAlert, Loader2 } from "lucide-react";
-import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useFormat } from "../../lib/format.ts";
 import { api, orpc } from "../../lib/api.ts";
@@ -13,10 +13,11 @@ import { canReopen, type RunSnapshot } from "../../lib/run-state.ts";
 import { useRun } from "../../lib/run-watch.ts";
 import { ChatThread, composerApproval } from "../chat/Thread.tsx";
 import { useStored } from "@/lib/message";
+import { ChatSession, useChatSessions } from "../../lib/chat-sessions.tsx";
 
 type Step = RunSnapshot["steps"][number];
 
-type Props = {
+export type ChatPanelOptions = {
   /** The workflow whose Chat field this is; absent for an agent's chat trigger, whose Job has its own definition. */
   workflowId?: string;
   /** Starts the conversation's run (default: a run of `workflowId`). */
@@ -32,8 +33,32 @@ type Props = {
   assistantAgentId?: string;
 };
 
-/** Dispand's execution rules; assistant-ui owns the composer and its draft lifecycle. */
-export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId }: Props) {
+export type ChatSessionView = ReactNode;
+
+/** Visible surfaces attach to session-owned runtimes without copying composer state. */
+export function ChatPanel({ surfaceKey, ...options }: ChatPanelOptions & { surfaceKey: string }) {
+  const sessions = useChatSessions();
+  const generation = useSyncExternalStore(sessions.subscribe, () => sessions.generation(surfaceKey), () => 0);
+  const [session, setSession] = useState<ChatSession | null>(null);
+  const { workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId } = options;
+  useLayoutEffect(() => {
+    const next = sessions.get(surfaceKey, { workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId });
+    next.active = true;
+    next.update({ workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId });
+    setSession(next);
+    return () => { next.active = false; };
+  }, [sessions, surfaceKey, generation, workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId]);
+  return session ? <SessionView session={session} /> : null;
+}
+
+function SessionView({ session }: { session: ChatSession }) {
+  return useSyncExternalStore(session.subscribe, session.getView, session.getView);
+}
+
+/** Mounted until sign-out: background operations remain attached to their original composer. */
+export function ChatSessionHost({ session }: { session: ChatSession }) {
+  const sessions = useChatSessions();
+  const { workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId } = useSyncExternalStore(session.subscribe, session.getOptions, session.getOptions);
   const run = useRun(runId);
   const version = run?.run.version;
   const versionDef = useQuery({
@@ -51,30 +76,15 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [holding, setHolding] = useState(0);
-  const [conversationKey, setConversationKey] = useState(0);
   const { t } = useTranslation("chat");
   const { number } = useFormat();
-  const draft = useRef(0);
-  const started = useRef<string | null>(null);
-  useLayoutEffect(() => {
-    if (started.current !== null && runId === started.current) {
-      started.current = null;
-      return;
-    }
-    draft.current++;
-    setConversationKey((key) => key + 1);
-    setError(null);
-    setSending(false);
-  }, [runId]);
   const hold = useCallback(async (file: File) => {
-    const mine = draft.current;
     setHolding((n) => n + 1);
     try {
       const held = await api.files.hold({ file });
-      if (draft.current !== mine) throw new Error(t("attachFailed"));
       return held;
     } catch (err) {
-      if (draft.current === mine) setError(err instanceof Error ? err.message : t("attachFailed"));
+      setError(err instanceof Error ? err.message : t("attachFailed"));
       throw err;
     } finally {
       setHolding((n) => n - 1);
@@ -89,7 +99,6 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
 
   async function answerApproval(answer: { decision: "allow" } | { decision: "deny"; message: string }): Promise<boolean> {
     if (!approval || sending) return false;
-    const mine = draft.current;
     setSending(true);
     setError(null);
     try {
@@ -97,18 +106,17 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
       await api.questions.answer({ questionId: approval.id, answer: { kind: "permission", ...answer } });
       return true;
     } catch (err) {
-      if (draft.current === mine) setError((err as { code?: string }).code === "CONFLICT" ? t("conflictProposal") : err instanceof Error ? err.message : t("approveFailed"));
+      setError((err as { code?: string }).code === "CONFLICT" ? t("conflictProposal") : err instanceof Error ? err.message : t("approveFailed"));
       return false;
     } finally {
       void queryClient.invalidateQueries({ queryKey: orpc.questions.key() });
-      if (draft.current === mine) setSending(false);
+      setSending(false);
     }
   }
 
   async function send(message: AppendMessage) {
     const text = textOf(message).trim();
     if (!text || sending || !canSend || approval) throw new MessageNotSentError(t("sendFailed"));
-    const mine = draft.current;
     const chosenSkill = message.runConfig?.custom?.skill as { name: string; skillId?: string } | undefined;
     const skillId = chosenSkill && text.split(/\s/, 1)[0] === `/${chosenSkill.name}` ? chosenSkill.skillId : undefined;
     setSending(true);
@@ -117,10 +125,9 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
       let id = runId;
       if (!id) {
         id = (await (start ? start(skillId) : api.runs.start({ workflowId: workflowId ?? "" }))).runId;
-        if (draft.current === mine) {
-          started.current = id;
-          onRunStarted(id);
-        }
+        if (!sessions.alive) throw new MessageNotSentError(t("sendFailed"));
+        sessions.started(session, id);
+        if (session.active) onRunStarted(id);
         void queryClient.invalidateQueries({ queryKey: orpc.runs.list.key() });
       }
       const attachmentIds = message.attachments?.map((file) => file.id) ?? [];
@@ -130,24 +137,33 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
       void queryClient.invalidateQueries({ queryKey: orpc.runs.list.key() });
     } catch (err) {
       const reason = err instanceof Error ? err.message : t("sendFailed");
-      if (draft.current === mine) setError(reason);
+      setError(reason);
       // The library returns the submitted draft, including files and quote, without losing newer typing.
       throw new MessageNotSentError(reason);
     } finally {
-      if (draft.current === mine) setSending(false);
+      setSending(false);
     }
   }
 
-  return <div className="flex min-h-0 flex-1 flex-col">
-    <ChatThread key={conversationKey} run={run} chatStepId={chatStep?.id} canSend={canSend && !sending && holding === 0} onSend={send} onAttach={hold}
+  const attachments = useMemo(() => heldAttachments(hold), [hold]);
+  const runtime = useRunThread({ run, chatStepId: chatStep?.id, canSend: canSend && !sending && holding === 0, onSend: send, attachments,
+    suggestions: assistantAgentId && !approval ? [
+      { title: t("starterAgent"), prompt: t("starterAgentPrompt") },
+      { title: t("starterReview"), prompt: t("starterReviewPrompt") },
+    ] : [],
+  });
+  const view = <div className="flex min-h-0 flex-1 flex-col">
+    <ChatThread runtime={runtime} run={run} chatStepId={chatStep?.id} canSend={canSend && !sending && holding === 0} onSend={send} onAttach={hold}
       welcome={welcome} starterPrompts={!!assistantAgentId && !approval} centeredWelcome={!!composerTools}
       composer={<ChatComposer runId={runId} assistantAgentId={assistantAgentId} tools={composerTools} open={open} asking={asking} approval={!!approval}
-        busy={sending} error={error} onNewConversation={onNewConversation}
+        busy={sending} error={error} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined}
         onApprove={() => answerApproval({ decision: "allow" })} onDecline={(message) => answerApproval({ decision: "deny", message })} />}
     >
       <AfterChat run={run} chatStepId={chatStep?.id} def={runDef} />
     </ChatThread>
   </div>;
+  useLayoutEffect(() => { session.publish(view); });
+  return null;
 }
 
 /** Under the messages: why the conversation stopped, or the steps that follow it. */

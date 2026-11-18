@@ -1,4 +1,4 @@
-import { ActionBarPrimitive, AuiConfig, AuiIf, AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, SelectionToolbarPrimitive, SuggestionPrimitive, Tools, groupPartByType, type AppendMessage, type TextMessagePartComponent, type ToolCallMessagePartComponent } from "@assistant-ui/react";
+import { ActionBarPrimitive, AuiConfig, AuiIf, AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, SelectionToolbarPrimitive, SuggestionPrimitive, Tools, groupPartByType, type AppendMessage, type AssistantRuntime, type TextMessagePartComponent, type ToolCallMessagePartComponent } from "@assistant-ui/react";
 import type { Answer } from "@dispand/runner-protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, Check, ChevronDown, Copy, MessageSquare, Paperclip, Quote, Users, Wrench, X } from "lucide-react";
@@ -236,6 +236,7 @@ const AgentMessage = () => (
 );
 
 type Props = {
+  runtime?: AssistantRuntime;
   run: RunSnapshot | null;
   chatStepId: string | undefined;
   canSend: boolean;
@@ -252,13 +253,23 @@ type Props = {
 };
 
 /** The conversation of a run's chat step, on assistant-ui's thread: the owner's and the agent's words, the tools it used, its questions. */
-export function ChatThread({ run, chatStepId, canSend, onSend, onAttach, children, composer, welcome, centeredWelcome, starterPrompts }: Props) {
+export function ChatThread(props: Props) {
+  return props.runtime ? <ChatThreadView {...props} runtime={props.runtime} /> : <LocalChatThread {...props} />;
+}
+
+function LocalChatThread(props: Props) {
+  const { run, chatStepId, canSend, onSend, onAttach, starterPrompts } = props;
   const { t } = useTranslation("chat");
   const attachments = useMemo(() => (onAttach ? heldAttachments(onAttach) : undefined), [onAttach]);
   const runtime = useRunThread({ run, chatStepId, canSend, onSend, suggestions: starterPrompts ? [
     { title: t("starterAgent"), prompt: t("starterAgentPrompt") },
     { title: t("starterReview"), prompt: t("starterReviewPrompt") },
   ] : [], ...(attachments ? { attachments } : {}) });
+  return <ChatThreadView {...props} runtime={runtime} />;
+}
+
+function ChatThreadView({ runtime, run, chatStepId, canSend, children, composer, welcome, centeredWelcome, starterPrompts }: Props & { runtime: AssistantRuntime }) {
+  const { t } = useTranslation("chat");
   // Nothing said yet, and nothing went wrong: the invitation to start.
   const empty = threadMessages(run, chatStepId).length === 0 && run?.steps.find((s) => s.id === chatStepId)?.status !== "failed";
   const questions = new Map((run?.questions ?? []).map((q) => [q.id, q]));
