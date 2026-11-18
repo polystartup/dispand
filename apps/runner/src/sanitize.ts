@@ -69,6 +69,7 @@ function clean(e: HarnessEvent, maxBytes: number): HarnessEvent {
     case "question":
       return { type: e.type, questionId: protocolString(e.questionId, ID), payload: payload(e.payload, maxBytes) };
     case "session-ended":
+    case "turn-start":
     case "turn-end":
       return e;
     case "outputs-accepted":
