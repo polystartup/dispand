@@ -13,6 +13,17 @@ const tools: ToolSpec[] = [
 const user: ChatItem = { role: "user", text: "Find dispand" };
 
 describe("anthropic client", () => {
+  it("replays interrupted text before the next user message without inventing tool calls", async () => {
+    const { fetch, sent } = fakeFetch("anthropic-end.sse");
+    const items: ChatItem[] = [user, { role: "assistant", text: "Partial answer", toolCalls: [] }, { role: "user", text: "Continue differently" }];
+    await createModelClient(harness, { fetch }).turn({ system: "", items, tools, ...collect() });
+    expect(sent[0]!.body.messages).toEqual([
+      { role: "user", content: [{ type: "text", text: "Find dispand" }] },
+      { role: "assistant", content: [{ type: "text", text: "Partial answer" }] },
+      { role: "user", content: [{ type: "text", text: "Continue differently" }] },
+    ]);
+  });
+
   it("sends text deltas to onText", async () => {
     const { fetch } = fakeFetch("anthropic-tool-use.sse");
     const c = collect();

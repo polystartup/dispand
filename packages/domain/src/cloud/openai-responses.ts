@@ -67,7 +67,7 @@ function toInput(items: ChatItem[]): ResponseInputItem[] {
       if (!item.files?.length) return [{ role: "user", content: item.text }];
       return [{ role: "user", content: [{ type: "input_text", text: item.text }, ...item.files.map(filePart)] }];
     }
-    if (item.role === "assistant") return item.raw as ResponseInputItem[];
+    if (item.role === "assistant") return item.raw === undefined ? [{ role: "assistant", content: item.text }] : item.raw as ResponseInputItem[];
     return [{ type: "function_call_output", call_id: item.callId, output: item.result }];
   });
 }

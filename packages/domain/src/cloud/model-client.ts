@@ -9,7 +9,6 @@ import { createResponsesClient } from "./openai-responses.ts";
 export type ToolSpec = { name: string; description: string; inputSchema: Record<string, unknown> };
 export type ToolCall = { id: string; name: string; args: unknown };
 
-// `raw` is the provider-native assistant output, replayed unchanged: the history is append-only.
 /**
  * A file attached to a user message: its attachment and name, with its bytes read for each model
  * call (never stored in the transcript). `omitted`: left out of this call by `budgetFiles`.
@@ -18,7 +17,10 @@ export type ChatFile = { id: string; name: string; bytes?: Uint8Array; omitted?:
 
 export type ChatItem =
   | { role: "user"; text: string; files?: ChatFile[] }
+  // Completed provider-native output is replayed unchanged.
   | { role: "assistant"; text: string; toolCalls: ToolCall[]; raw: unknown }
+  // An interrupted stream has text, but no completed provider output or executable tool calls.
+  | { role: "assistant"; text: string; toolCalls: []; raw?: never }
   | { role: "tool"; callId: string; name: string; result: string; isError: boolean };
 
 export type ModelTurn = {

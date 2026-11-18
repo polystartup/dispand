@@ -86,7 +86,7 @@ function toMessages(items: ChatItem[]): Anthropic.MessageParam[] {
     return content;
   };
   for (const item of items) {
-    if (item.role === "assistant") messages.push({ role: "assistant", content: item.raw as Anthropic.ContentBlockParam[] });
+    if (item.role === "assistant") messages.push({ role: "assistant", content: item.raw === undefined ? [{ type: "text", text: item.text }] : item.raw as Anthropic.ContentBlockParam[] });
     else if (item.role === "user") userBlocks().push({ type: "text", text: item.text }, ...(item.files ?? []).map(fileBlock));
     else userBlocks().push({ type: "tool_result", tool_use_id: item.callId, content: item.result, is_error: item.isError });
   }

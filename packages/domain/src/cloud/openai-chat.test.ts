@@ -20,6 +20,17 @@ const tools: ToolSpec[] = [
 const user: ChatItem = { role: "user", text: "Find dispand" };
 
 describe("openai-compatible chat client", () => {
+  it("replays interrupted text before the next user message without inventing tool calls", async () => {
+    const { fetch, sent } = fakeFetch("chat-end.sse");
+    const items: ChatItem[] = [user, { role: "assistant", text: "Partial answer", toolCalls: [] }, { role: "user", text: "Continue differently" }];
+    await createModelClient(harness, { fetch }).turn({ system: "", items, tools, ...collect() });
+    expect(sent[0]!.body.messages).toEqual([
+      { role: "user", content: "Find dispand" },
+      { role: "assistant", content: "Partial answer" },
+      { role: "user", content: "Continue differently" },
+    ]);
+  });
+
   it("sends text deltas to onText", async () => {
     const { fetch } = fakeFetch("chat-tool-use.sse");
     const c = collect();

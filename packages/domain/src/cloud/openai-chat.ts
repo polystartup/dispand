@@ -84,7 +84,7 @@ function toMessages(items: ChatItem[]): Message[] {
       if (!item.files?.length) return { role: "user", content: item.text };
       return { role: "user", content: [{ type: "text", text: item.text }, ...item.files.map(filePart)] };
     }
-    if (item.role === "assistant") return item.raw as Assistant;
+    if (item.role === "assistant") return item.raw === undefined ? { role: "assistant", content: item.text } : item.raw as Assistant;
     return { role: "tool", tool_call_id: item.callId, content: item.result };
   });
 }
