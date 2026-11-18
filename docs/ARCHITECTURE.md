@@ -1252,7 +1252,9 @@
   (`aborted_tools` or `aborted_streaming`) and starts the message at once (`command_lifecycle`
   `started`, or its uuid among a result's `user_message_uuids`). The runner reports the cut turn and
   that one as a single turn; a result that ends the turn otherwise first makes the steer the next
-  message. A cloud session queues it under its lock: while turn `turnId` runs, the next model call
+  message. As `now` is bound to no turn, the runner steers only while the turn's own message is the
+  only one waiting and no question waits; a question asked while the steer is on its way makes the
+  cut a turn of its own, so the engine withdraws it. A cloud session queues it under its lock: while turn `turnId` runs, the next model call
   reads it and the turn goes on until no message is left (`steered`); otherwise it starts the next
   turn.
 - **Secrets at rest:** `packages/domain/src/secrets.ts` is the one secret box (the tool headers use it too). `createSecretBox(key)`

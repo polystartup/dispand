@@ -189,6 +189,7 @@ export function startClaudeSession(
     if (finished) return;
     // Tool callbacks can arrive before the SDK iterator yields the turn's init message.
     if (e.type === "text" || e.type === "question" || (e.type === "tool" && e.status === "started")) turnStarted();
+    if (e.type === "question" && steers.size > 0) askedWhileSteering = true;
     sessionEmit(e.type === "turn-end" && reportedTurnId ? { ...e, turnId: reportedTurnId } : e);
     if (e.type === "turn-end") reportedTurnId = undefined;
   };
@@ -212,6 +213,11 @@ export function startClaudeSession(
    * Dispand reports both as the one turn the steer joined.
    */
   const steers = new Map<string, (outcome: "steered" | "queued") => void>();
+  /**
+   * A question was asked while a steer was on its way: the cut turn can't pass for the one that
+   * goes on, or the engine would keep that question open. It ends, and the steer is the next turn.
+   */
+  let askedWhileSteering = false;
 
   /** Every user message starts (or joins) a turn. */
   function say(text: string, priority?: "now"): string | null {
@@ -548,7 +554,9 @@ export function startClaudeSession(
     steersTaken(msg.user_message_uuids ?? []);
     const aborted = msg.terminal_reason === "aborted_streaming" || msg.terminal_reason === "aborted_tools";
     // Cut by a steer, not by an interrupt: the turn goes on with it, in the CLI's next turn.
-    if (aborted && !wasInterrupted && steers.size > 0) {
+    const asked = askedWhileSteering;
+    askedWhileSteering = false;
+    if (aborted && !wasInterrupted && steers.size > 0 && !asked) {
       turnAbort.abort();
       turnAbort = new AbortController();
       return;
@@ -625,8 +633,10 @@ export function startClaudeSession(
     },
     steer(target, text) {
       if (!admit(text)) return Promise.resolve("queued");
-      // Only into the turn running now: otherwise an ordinary message.
-      if (target !== reportedTurnId || unanswered.length === 0) {
+      // Only into the turn running now, as its only message: `now` cuts whatever turn the CLI
+      // runs, so with another message waiting it could cut that one's. Not while a question waits
+      // either: the engine would keep it open. Otherwise an ordinary message.
+      if (target !== reportedTurnId || unanswered.length !== 1 || questions.waiting() > 0) {
         say(text);
         return Promise.resolve("queued");
       }

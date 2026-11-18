@@ -219,6 +219,61 @@ test("a steer cuts the CLI's turn with priority now, and Dispand reports one tur
   await session.done;
 });
 
+test("no steer cuts the CLI while another message or a question waits: it goes as an ordinary message", async () => {
+  let priorities: (string | undefined)[] = [];
+  let ask!: () => void;
+  const asked = new Promise<void>((resolve) => (ask = resolve));
+  const fake = fakeQuery(async function* (io) {
+    priorities = io.priorities;
+    await io.next();
+    yield init;
+    yield delta("Working");
+    await asked;
+    void io.options.canUseTool!("Bash", { command: "ls" }, ctx());
+    await io.next();
+    await io.next();
+    yield resultFor(io.uuids);
+    await io.next();
+  });
+  const { events, session } = run({ ...start, expectedOutputs: [] }, fake.query);
+  await vi.waitFor(() => expect(events).toContainEqual({ type: "text", delta: "Working" }));
+  const turnId = events.find((e) => e.type === "turn-start")!.turnId;
+  ask();
+  await vi.waitFor(() => expect(events.some((e) => e.type === "question")).toBe(true));
+  expect(await session.steer!(turnId, "While it asks")).toBe("queued");
+  session.answer(events.find((e) => e.type === "question")!.questionId, { kind: "permission", decision: "deny" });
+  expect(await session.steer!(turnId, "Behind another message")).toBe("queued");
+  await vi.waitFor(() => expect(priorities).toHaveLength(3));
+  expect(priorities).toEqual([undefined, undefined, undefined]);
+  session.close();
+  await session.done;
+});
+
+test("a question asked while a steer is on its way ends the cut turn: the steer takes the next one", async () => {
+  const fake = fakeQuery(async function* (io) {
+    await io.next();
+    yield init;
+    yield delta("Working");
+    await io.next();
+    void io.options.canUseTool!("Bash", { command: "ls" }, ctx());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    yield resultFor([io.uuids[0]!], "aborted_tools");
+    yield started(io.uuids[1]!);
+    yield init;
+    yield resultFor([io.uuids[1]!]);
+    await io.next();
+  });
+  const { events, session } = run({ ...start, expectedOutputs: [] }, fake.query);
+  await vi.waitFor(() => expect(events).toContainEqual({ type: "text", delta: "Working" }));
+  const turnId = events.find((e) => e.type === "turn-start")!.turnId;
+  expect(await session.steer!(turnId, "Also this")).toBe("queued");
+  // A new turn id: the engine withdraws the cut turn's question.
+  await vi.waitFor(() => expect(events.filter((e) => e.type === "turn-start")).toHaveLength(2));
+  expect(events.filter((e) => e.type === "turn-start")[1]!.turnId).not.toBe(turnId);
+  session.close();
+  await session.done;
+});
+
 test("a steer the CLI starts only after its turn ended is the next message: its own turn", async () => {
   const fake = fakeQuery(async function* (io) {
     await io.next();

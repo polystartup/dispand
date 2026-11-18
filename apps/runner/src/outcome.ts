@@ -69,6 +69,8 @@ export function ownerQuestions(emit: (e: HarnessEvent) => void) {
       pending.delete(questionId);
       resolve?.(answer);
     },
+    /** How many questions wait for their answer. */
+    waiting: () => pending.size,
     /** The session ended: every question still open is denied. */
     endAll() {
       for (const resolve of pending.values()) resolve({ kind: "permission", decision: "deny", message: "The session ended." });
