@@ -31,7 +31,8 @@ test.afterAll(async () => {
 const ids = { cloud: "", assistant: "", platformSkill: "" };
 
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
-  const res = await page.request.post(`/api/rpc/${path}`, { headers: { "x-csrf-token": "orpc" }, data: input === undefined ? {} : { json: input } });
+  // maxRetries retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
+  const res = await page.request.post(`/api/rpc/${path}`, { maxRetries: 1, headers: { "x-csrf-token": "orpc" }, data: input === undefined ? {} : { json: input } });
   expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
   return ((await res.json()) as { json: T }).json;
 }

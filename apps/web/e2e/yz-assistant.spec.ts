@@ -19,6 +19,8 @@ async function signIn(page: Page) {
 
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
   const res = await page.request.post(`/api/rpc/${path}`, {
+    // Retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
+    maxRetries: 1,
     headers: { "x-csrf-token": "orpc" },
     data: input === undefined ? {} : { json: input },
   });
