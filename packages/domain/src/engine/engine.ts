@@ -643,7 +643,12 @@ export class Engine {
         return false;
       }
       const got = await take(tx, { id: step.id, harnessId: step.harnessId! }, "person", { kind: "deliver" });
-      if (got === "queued") await pushStep(tx, step.id, out);
+      if (got === "queued" && !current.queuedAt) {
+        await pushStep(tx, step.id, out);
+        const [job] = await tx.select({ agentId: runs.agentId, harnessName: harnesses.name }).from(runs)
+          .innerJoin(harnesses, eq(harnesses.id, step.harnessId!)).where(and(eq(runs.id, step.runId), eq(runs.source, "agent")));
+        if (job) await recordAudit(tx, { ownerId: step.ownerId, actor: { type: "job", runId: step.runId }, agentId: job.agentId, jobId: step.runId, resource: { type: "job", id: step.runId }, action: "job.queued", details: { harnessId: step.harnessId!, harnessName: job.harnessName } });
+      }
       return got === "working";
     });
     this.publish(out);
