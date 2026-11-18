@@ -509,6 +509,8 @@ export const stepRuns = pgTable(
     working: boolean("working").notNull().default(false),
     // Reported by the harness, independent of its slot; unknown until this session reports.
     turnStatus: text("turn_status").$type<TurnStatus>().notNull().default("unknown"),
+    turnId: text("turn_id"),
+    interruptible: boolean("interruptible").notNull().default(false),
     // Waiting for a slot since then, served by class, then oldest first; null when not queued.
     queuedAt: timestamp("queued_at"),
     queueClass: text("queue_class").$type<QueueClass>(),
@@ -572,6 +574,7 @@ export const cloudSessions = pgTable("cloud_sessions", {
   items: jsonb("items").$type<ChatItem[]>().notNull().default([]),
   // running: the loop works on it; waiting: on the owner's answer to `pending`; idle: a chat's turn ended; done.
   status: text("status").$type<"running" | "waiting" | "idle" | "done">().notNull(),
+  turnId: text("turn_id"),
   // Chat messages that arrived during a turn: they join the history before the next model call.
   queued: jsonb("queued").$type<(string | { text: string; files: MessageFile[] })[]>().notNull().default([]),
   // The question the session waits on, for the tool call `callId` of the last assistant item.

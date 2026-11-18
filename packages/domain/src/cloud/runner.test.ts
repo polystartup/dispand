@@ -14,7 +14,7 @@ import { writeMemory } from "../memory/store.ts";
 import { TEXTS } from "./builtins.ts";
 import { type ChatItem, createModelClient } from "./model-client.ts";
 import { fakeModel, say, use, type Script } from "./test-model.ts";
-import { textStream, type ToolCaller } from "./runner.ts";
+import { CloudRunner, textStream, type ToolCaller } from "./runner.ts";
 import { stored } from "../messages/index.ts";
 
 /** Two MCP-like tools; `hold` keeps calls of `create_repo` running. */
@@ -35,6 +35,119 @@ function fakeTools(hold = false) {
 }
 
 const lastTool = (items: ChatItem[]) => items.findLast((i) => i.role === "tool") as Extract<ChatItem, { role: "tool" }>;
+
+async function cloudChat(model: ReturnType<typeof fakeModel>, tools = fakeTools().tools) {
+  const empty = (agentId: string): WorkflowDef => {
+    const def = chat(agentId);
+    return { ...def, trigger: { ...def.trigger, field: { ...def.trigger.field, prompt: "" } } as WorkflowDef["trigger"] };
+  };
+  const { context, engine, workflow } = await setup(empty, { client: model.client });
+  const runId = await engine.startRun(workflow.id);
+  await vi.waitFor(async () => expect((await stepOf(engine, runId, "n_chat")).turnStatus).toBe("idle"));
+  const sessionId = (await stepOf(engine, runId, "n_chat")).sessionId!;
+  const runner = new CloudRunner(context.db, context.secrets, { client: model.client, tools });
+  const session = async () => (await context.db.select().from(cloudSessions).where(eq(cloudSessions.id, sessionId)))[0]!;
+  return { context, runner, sessionId, session };
+}
+
+test.each([false, true])("interrupt fences late model output and errors, preserves partial text, and resumes the same session (late failure: %s)", async (fail) => {
+  let release!: () => void;
+  let lateDone = false;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const model = fakeModel(async (input) => {
+    input.onText("Partial answer");
+    await held;
+    input.onText(" late text");
+    lateDone = true;
+    if (fail) throw new Error("late provider failure");
+    return { text: "Late answer" };
+  }, say("New answer"));
+  const { runner, sessionId, session } = await cloudChat(model);
+  const events: unknown[] = [];
+  runner.onEvent(async (_id, event) => { events.push(event); });
+  await runner.send(sessionId, "First input");
+  await vi.waitFor(() => expect(events).toContainEqual({ type: "text", delta: "Partial answer" }));
+  const first = (await session()).turnId!;
+  expect(await runner.interrupt(sessionId, first)).toBe(true);
+  expect(await session()).toMatchObject({ status: "idle", pending: null, inFlight: null });
+  expect((await session()).items).toContainEqual({ role: "user", text: "First input" });
+  expect((await session()).items).toContainEqual({ role: "assistant", text: "Partial answer", toolCalls: [] });
+  await runner.send(sessionId, "Next input");
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
+  await vi.waitFor(async () => expect((await session()).status).toBe("idle"));
+  release();
+  await vi.waitFor(() => expect(lateDone).toBe(true));
+  expect(model.inputs[0]!.signal.aborted).toBe(true);
+  expect(events).not.toContainEqual({ type: "text", delta: " late text" });
+  expect(events).not.toContainEqual(expect.objectContaining({ type: "error" }));
+  expect((await session()).items.at(-1)).toMatchObject({ role: "assistant", text: "New answer" });
+  expect(model.inputs[1]!.items).toEqual(expect.arrayContaining([{ role: "user", text: "First input" }, { role: "assistant", text: "Partial answer", toolCalls: [] }, { role: "user", text: "Next input" }]));
+});
+
+test("interrupt settles every pending tool call without replaying work, and persists idle across recovery", async () => {
+  const invoke = vi.fn(async (_id: string, _key: string, _args: unknown, signal: AbortSignal) => {
+    await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+    return { text: "Late tool success", isError: false };
+  });
+  const tools: ToolCaller = { specs: async () => [{ key: "tool", label: "Tool", ask: false, spec: { name: "", description: "", inputSchema: { type: "object" } } }], call: invoke };
+  const model = fakeModel(() => ({ toolCalls: [{ id: "one", name: "Tool", args: {} }, { id: "two", name: "Tool", args: {} }] }), say("Continued"));
+  const { context, runner, sessionId, session } = await cloudChat(model, tools);
+  await runner.send(sessionId, "Do two things");
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+  const turnId = (await session()).turnId!;
+  await runner.send(sessionId, "Input accepted before stop", [{ id: "fil_kept", name: "notes.txt" }]);
+  expect(await runner.interrupt(sessionId, turnId)).toBe(true);
+  expect((await session()).items.filter((item) => item.role === "tool")).toEqual([
+    { role: "tool", callId: "one", name: "Tool", result: "Interrupted. The tool's completion is unknown.", isError: true },
+    { role: "tool", callId: "two", name: "Tool", result: "Not run: the turn was interrupted.", isError: true },
+  ]);
+  const recovered = new CloudRunner(context.db, context.secrets, { client: model.client, tools });
+  await recovered.recover();
+  expect((await session()).status).toBe("idle");
+  expect(model.inputs).toHaveLength(1);
+  expect(invoke).toHaveBeenCalledTimes(1);
+  await recovered.send(sessionId, "Continue now");
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
+  expect(model.inputs[1]!.items).toContainEqual({ role: "user", text: "Input accepted before stop", files: [{ id: "fil_kept", name: "notes.txt" }] });
+  await vi.waitFor(async () => expect((await session()).status).toBe("idle"));
+  expect(await recovered.interrupt(sessionId, turnId)).toBe(false);
+});
+
+test("interrupt clears a pending approval and ignores its late answer", async () => {
+  const model = fakeModel(use("GitHub_create_repo", { name: "x" }), say("Continued"));
+  const { runner, sessionId, session } = await cloudChat(model);
+  await runner.send(sessionId, "Create something");
+  await vi.waitFor(async () => expect((await session()).status).toBe("waiting"));
+  const pending = await session();
+  expect(await runner.interrupt(sessionId, pending.turnId!)).toBe(true);
+  await runner.answer(sessionId, pending.pending!.questionId, { kind: "permission", decision: "allow" });
+  expect((await session()).status).toBe("idle");
+  expect((await session()).pending).toBeNull();
+  expect(model.inputs).toHaveLength(1);
+  await runner.send(sessionId, "Different request");
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
+  expect(lastTool(model.inputs[1]!.items)).toMatchObject({ isError: true, result: "Not run: the turn was interrupted." });
+});
+
+test("a send during turn-end delivery starts a fresh identity and rejects the previous turn's interrupt", async () => {
+  let finish!: () => void;
+  const held = new Promise<void>((resolve) => { finish = resolve; });
+  const model = fakeModel(say("First"), async () => { await held; return { text: "Second" }; });
+  const { runner, sessionId, session } = await cloudChat(model);
+  const started: string[] = [];
+  runner.onEvent(async (_id, event) => {
+    if (event.type === "turn-start") started.push(event.turnId);
+    if (event.type === "turn-end" && started.length === 1) void runner.send(sessionId, "Next");
+  });
+  await runner.send(sessionId, "First");
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
+  expect(started).toHaveLength(2);
+  expect(started[1]).not.toBe(started[0]);
+  expect(await runner.interrupt(sessionId, started[0]!)).toBe(false);
+  expect((await session()).status).toBe("running");
+  finish();
+  await vi.waitFor(async () => expect((await session()).status).toBe("idle"));
+});
 
 const buttonStep = (agentId: string): WorkflowDef => ({
   trigger: { type: "manual", field: { id: "n_go", key: "go", type: "button", label: "Go" } },

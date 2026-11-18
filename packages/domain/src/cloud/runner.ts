@@ -4,7 +4,7 @@ import type { Db } from "../db/client.ts";
 import { cloudSessions, runs, stepRuns, type MessageFile } from "../db/schema.ts";
 import { attachmentBytes } from "../data/files.ts";
 import { answerText } from "../engine/answers.ts";
-import type { AgentAnswerer, CloudHarness, HarnessAdapter, StartParams } from "../engine/harness.ts";
+import type { AgentAnswerer, CloudHarness, HarnessAdapter, InterruptOutcome, StartParams } from "../engine/harness.ts";
 import { loadCloudHarness } from "../harnesses/cloud.ts";
 import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
@@ -105,6 +105,20 @@ export const noTools: ToolCaller = {
 type Row = typeof cloudSessions.$inferSelect;
 type Patch = Partial<Omit<Row, "id" | "seq" | "lastEvent">>;
 type Handler = (sessionId: string, event: HarnessEvent, seq: number) => Promise<void>;
+type Execution = { controller: AbortController; text: string; turnId: string };
+
+/** A provider may finish after cancellation; its detached result cannot write into the next turn. */
+async function cancellable<T>(signal: AbortSignal, work: () => Promise<T>): Promise<T> {
+  signal.throwIfAborted();
+  let cancel!: () => void;
+  const aborted = new Promise<never>((_, reject) => { cancel = () => reject(signal.reason); });
+  signal.addEventListener("abort", cancel, { once: true });
+  try {
+    return await Promise.race([work(), aborted]);
+  } finally {
+    signal.removeEventListener("abort", cancel);
+  }
+}
 
 /** Model calls in one turn (from a user message to the model's answer), as a bound on runaway tool loops. */
 export const MAX_CALLS_PER_TURN = 50;
@@ -151,8 +165,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   private handler: Handler = async () => {};
   private readonly locks = new Map<string, Promise<void>>();
   private readonly driving = new Map<string, Promise<void>>();
-  /** The tool call under way of each session, so a stop can cut it. */
-  private readonly calls = new Map<string, AbortController>();
+  private readonly executions = new Map<string, Execution>();
   private readonly again = new Set<string>();
   private readonly client: (h: ClientHarness) => ModelClient;
   private readonly tools: ToolCaller;
@@ -226,13 +239,33 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
 
   /** Ends the session without an event (its run was stopped): the loop stops before its next model or tool call. */
   async stop(sessionId: string): Promise<boolean> {
-    await this.locked(sessionId, () => this.db.update(cloudSessions).set({ status: "done" }).where(eq(cloudSessions.id, sessionId)));
-    // Its tool call under way is cut; one not dispatched yet finds the session done.
-    this.calls.get(sessionId)?.abort();
+    await this.locked(sessionId, async () => {
+      this.executions.get(sessionId)?.controller.abort();
+      await this.write(sessionId, { status: "done" });
+    });
     // A reopened session must not race the former model/tool loop on the same transcript.
     await this.driving.get(sessionId);
     await this.locked(sessionId, () => this.emit(sessionId, {}, { type: "session-ended" }));
     return true;
+  }
+
+  /** Interrupts only this turn, retaining a usable transcript and the same session. */
+  async interrupt(sessionId: string, turnId: string): Promise<InterruptOutcome> {
+    return this.locked(sessionId, async () => {
+      const [row] = await this.db.select().from(cloudSessions).where(eq(cloudSessions.id, sessionId));
+      if (!row || row.turnId !== turnId || !["running", "waiting"].includes(row.status)) return "stale";
+      const execution = this.executions.get(sessionId);
+      execution?.controller.abort();
+      const items = [...row.items];
+      if (execution?.text) items.push({ role: "assistant", text: execution.text, toolCalls: [] });
+      for (let call = nextCall(items); call; call = nextCall(items)) {
+        items.push({ role: "tool", callId: call.id, name: call.name, result: row.inFlight?.callId === call.id ? "Interrupted. The tool's completion is unknown." : "Not run: the turn was interrupted.", isError: true });
+      }
+      // Accepted input remains in history, but only a later send starts another turn.
+      items.push(...row.queued.map((q): ChatItem => typeof q === "string" ? { role: "user", text: q } : { role: "user", text: q.text, files: q.files }));
+      await this.emit(sessionId, { items, queued: [], status: "idle", turnId: null, pending: null, approvedCall: null, approvedKey: null, inFlight: null }, { type: "turn-end", turnId });
+      return "requested";
+    });
   }
 
   async send(sessionId: string, text: string, files: MessageFile[] = []): Promise<boolean> {
@@ -338,22 +371,29 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       this.again.add(id);
       return;
     }
-    const driving = this.drive(id)
+    const execution: Execution = { controller: new AbortController(), text: "", turnId: "" };
+    this.executions.set(id, execution);
+    const driving = this.drive(id, execution)
       .catch(async (err: unknown) => {
+        if (execution.controller.signal.aborted) return;
         logError("cloud session failed", err, { ref: id });
-        await this.locked(id, () => this.emit(id, { status: "done" }, { type: "error", message: stored("cloud.fail.internal") })).catch(
+        await this.active(id, execution, () => this.emit(id, { status: "done" }, { type: "error", message: stored("cloud.fail.internal") })).catch(
           (e: unknown) => logError("cloud session failed", e, { ref: id }),
         );
       })
       .finally(() => {
+        if (this.executions.get(id) === execution) this.executions.delete(id);
         this.driving.delete(id);
         if (this.again.delete(id)) this.kick(id);
       });
     this.driving.set(id, driving);
   }
 
-  private async drive(id: string) {
-    let announced = false;
+  private async active<T>(id: string, execution: Execution, work: () => Promise<T>): Promise<T | undefined> {
+    return this.locked<T | undefined>(id, () => this.executions.get(id) === execution && !execution.controller.signal.aborted ? work() : Promise.resolve(undefined));
+  }
+
+  private async drive(id: string, execution: Execution) {
     for (;;) {
       // Each turn in its Job's trace, whatever woke the session (a start, an answer, a restart).
       const [found] = await this.db
@@ -363,14 +403,15 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         .leftJoin(runs, eq(runs.id, stepRuns.runId))
         .where(eq(cloudSessions.id, id));
       const row = found?.row;
-      if (row?.status !== "running") return;
-      if (!announced) {
-        await this.locked(id, () => this.emit(id, {}, { type: "turn-start" }));
-        announced = true;
+      if (row?.status !== "running" || execution.controller.signal.aborted) return;
+      if (!row.turnId || execution.turnId !== row.turnId) {
+        await this.active(id, execution, async () => {
+          execution.turnId = row.turnId ?? newId("turn");
+          await this.emit(id, { turnId: execution.turnId }, { type: "turn-start", turnId: execution.turnId, interruptible: true });
+        });
       }
       const call = nextCall(row.items);
-      if (call) await inJobTrace(found!, () => this.handleCall(row, call));
-      else if (await inJobTrace(found!, () => this.modelCall(row))) return;
+      await cancellable(execution.controller.signal, () => inJobTrace(found!, () => (call ? this.handleCall(row, call, execution) : this.modelCall(row, execution))));
     }
   }
 
@@ -394,12 +435,13 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     return cut(specs.find((s) => s.key === key)?.label ?? key, ID);
   }
 
-  private async modelCall(row: Row) {
+  private async modelCall(row: Row, execution: Execution) {
     const id = row.id;
     const start = row.start;
     // Messages that came during the turn join it now: no tool call is waiting for its result.
     let items = row.items;
-    await this.locked(id, async () => {
+    await this.active(id, execution, async () => {
+      execution.text = "";
       const [now] = await this.db.select({ queued: cloudSessions.queued }).from(cloudSessions).where(eq(cloudSessions.id, id));
       if (now && now.queued.length > 0) {
         items = [...items, ...now.queued.map((q): ChatItem => (typeof q === "string" ? { role: "user", text: q } : { role: "user", text: q.text, files: q.files }))];
@@ -409,7 +451,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     const sinceUser = items.length - 1 - items.findLastIndex((x) => x.role === "user");
     const calls = items.slice(-sinceUser || items.length).filter((x) => x.role === "assistant").length;
     if (sinceUser > 0 && calls >= MAX_CALLS_PER_TURN) {
-      await this.locked(id, () => this.emit(id, { status: "done" }, { type: "error", message: stored("cloud.fail.tooManyCalls") }));
+      await this.active(id, execution, () => this.emit(id, { status: "done" }, { type: "error", message: stored("cloud.fail.tooManyCalls") }));
       return;
     }
 
@@ -419,10 +461,13 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       harness = { ...h, ...(row.model ? { model: row.model } : {}) };
     } catch (err) {
       const message = err instanceof SecretError ? providerError(err, { kind: "openai-compatible" }) : stored("cloud.fail.harnessGone");
-      await this.locked(id, () => this.emit(id, { status: "done" }, { type: "error", message }));
+      await this.active(id, execution, () => this.emit(id, { status: "done" }, { type: "error", message }));
       return;
     }
-    const text = textStream((delta) => this.locked(id, () => this.emit(id, {}, { type: "text", delta })));
+    const text = textStream(async (delta) => { await this.active(id, execution, async () => {
+      execution.text += delta;
+      await this.emit(id, {}, { type: "text", delta });
+    }); });
     let turn: ModelTurn;
     try {
       const { specs, names } = await this.specs(row.id);
@@ -440,25 +485,26 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       ];
       const sent = await this.withFileBytes(row.ownerId, items, harness.kind);
       turn = await modelCall(harness.kind, id, () =>
-        this.client(harness).turn({
+        cancellable(execution.controller.signal, () => this.client(harness).turn({
           system: [harness.systemPrompt, start.systemPrompt, skillsPrompt(skills)].filter(Boolean).join("\n\n"),
           items: sent,
           tools,
-          signal: new AbortController().signal,
+          signal: execution.controller.signal,
           onText: text.push,
-        }),
+        })),
       );
     } catch (err) {
       await text.done();
-      await this.locked(id, () => this.emit(id, { status: "done" }, { type: "error", message: providerError(err, harness) }));
+      await this.active(id, execution, () => this.emit(id, { status: "done" }, { type: "error", message: providerError(err, harness) }));
       return;
     }
     await text.done();
 
-    return this.locked(id, async () => {
+    await this.active(id, execution, async () => {
       const [now] = await this.db.select().from(cloudSessions).where(eq(cloudSessions.id, id));
       if (!now) return;
       const after: ChatItem[] = [...items, { role: "assistant", text: turn.text, toolCalls: turn.toolCalls, raw: turn.raw }];
+      execution.text = "";
       if (turn.toolCalls.length > 0) return this.write(id, { items: after });
       if (turn.stop === "refusal") return this.emit(id, { items: after, status: "done" }, { type: "error", message: stored("cloud.fail.refused") });
       if (turn.stop === "max_tokens") return this.emit(id, { items: after, status: "done" }, { type: "error", message: stored("cloud.fail.tokenLimit") });
@@ -466,17 +512,14 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       if (now.queued.length > 0) return this.write(id, { items: after });
       const fields = start.expectedOutputs;
       if (!start.interactive && fields.length === 0) return this.emit(id, { items: after, status: "done" }, { type: "result", text: cut(turn.text, TEXT) });
-      if (start.interactive) {
-        await this.emit(id, { items: after, status: "idle" }, { type: "turn-end" });
-        return true;
-      }
+      if (start.interactive) return this.emit(id, { items: after, status: "idle", turnId: null }, { type: "turn-end", turnId: execution.turnId });
       if (now.reminded) return this.emit(id, { items: after, status: "done" }, { type: "error", message: stored("engine.fail.noOutputs") });
       return this.write(id, { items: [...after, { role: "user", text: TEXTS.reminder(fields) }], reminded: true });
     });
   }
 
   /** One tool call of the model's last answer: answered at once, asked about, or run. */
-  private async handleCall(row: Row, call: ToolCall) {
+  private async handleCall(row: Row, call: ToolCall, execution: Execution) {
     const id = row.id;
     const items = (text: string, isError: boolean): ChatItem[] => [...row.items, { role: "tool", callId: call.id, name: call.name, result: text, isError }];
     const consults = row.start.consults ?? [];
@@ -489,7 +532,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     const approved = row.approvedCall === call.id;
     const done = (text: string, isError: boolean, extra: Patch = {}) =>
       this.emit(id, { items: items(text, isError), ...extra }, { type: "tool", name: label, status: "done" });
-    const run = await this.locked(id, async (): Promise<string | null> => {
+    const run = await this.active(id, execution, async (): Promise<string | null> => {
       // Stopped while this call was being prepared: nothing more is asked, written or run.
       const [now] = await this.db.select({ status: cloudSessions.status }).from(cloudSessions).where(eq(cloudSessions.id, id));
       if (now?.status !== "running") return null;
@@ -559,21 +602,17 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       await this.write(id, { inFlight: { callId: call.id, key }, approvedCall: null, approvedKey: null });
       return key;
     });
-    if (run === null) return;
+    if (run == null) return;
     let outcome: { text: string; isError: boolean };
-    const stopped = new AbortController();
-    this.calls.set(id, stopped);
     try {
-      outcome = await this.tools.call(id, run, call.args, stopped.signal);
+      outcome = await cancellable(execution.controller.signal, () => this.tools.call(id, run, call.args, execution.controller.signal));
     } catch (err) {
+      if (execution.controller.signal.aborted) return;
       logError("cloud tool call failed", err, { ref: id });
       outcome = { text: "The tool call failed.", isError: true };
-    } finally {
-      this.calls.delete(id);
     }
     // A stopped session keeps its state as the stop left it.
-    if (stopped.signal.aborted) return;
-    await this.locked(id, () => done(outcome.text, outcome.isError, { inFlight: null }));
+    await this.active(id, execution, () => done(outcome.text, outcome.isError, { inFlight: null }));
   }
 
   /** The owner (or, `by`, an agent) answered the question the session waits on, for `call`. Call it locked. */
