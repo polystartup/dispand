@@ -69,6 +69,9 @@ async function write(db: Db | Tx, input: Input): Promise<boolean> {
   if (input.by.type !== "user") return false;
   const ownerId = input.by.userId;
   return db.transaction(async (tx) => {
+    // A CLI rule is written on its agent: the agent is locked before the run, the order an agent's delete takes them in (`deleteAgents`).
+    const [offered] = await tx.select({ remember: questions.remember }).from(questions).where(and(eq(questions.id, input.questionId), eq(questions.ownerId, ownerId)));
+    if (offered?.remember?.subject.kind === "cli") await tx.select({ id: agents.id }).from(agents).where(and(eq(agents.id, offered.remember.subject.agentId), eq(agents.ownerId, ownerId))).for("update");
     const [found] = await tx.select({ question: questions, run: runs }).from(questions).innerJoin(runs, eq(runs.id, questions.runId))
       .where(and(eq(questions.id, input.questionId), eq(questions.ownerId, ownerId), eq(runs.ownerId, ownerId))).for("update");
     if (!found) return false;

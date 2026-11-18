@@ -411,6 +411,20 @@ test("a trigger created and started during its agent's deletion: the start and t
   await expect(call(router.jobs.start, { triggerId: trigger.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
+test("deleting an agent with a Job going locks the agent before the Job's run, as every other writer of both does", async () => {
+  // First: it empties the database, which the context below shares.
+  const recording = await recordingDb();
+  const { context, harness } = await setup();
+  const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Do it.", config: { kind: "manual", placement: "button" } }, { context });
+  await call(router.jobs.start, { triggerId: trigger.id }, { context });
+  recording.statements.length = 0;
+  await recording.db.transaction((tx) => context.engine.deleteAgents(tx, context.ownerId, [agent.id]));
+  const at = (table: string) => recording.statements.findIndex((q) => new RegExp(`^select .* from "${table}".* for update`, "s").test(q));
+  expect(at("agents")).toBeGreaterThanOrEqual(0);
+  expect(at("agents")).toBeLessThan(at("runs"));
+});
+
 test("saving an agent past a CLI session's 20 runner tools names the ones that will be left out; a cloud agent gets no warning", async () => {
   const { context, harness } = await setup();
   // Named so their order is the name order: "Tool 01" … "Tool 21".

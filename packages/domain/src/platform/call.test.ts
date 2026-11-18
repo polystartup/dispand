@@ -281,8 +281,8 @@ test("joining a table locks the agent's row and the Job's before it reads them, 
   expect(at(/from "runs".* for update/s)).toBeGreaterThanOrEqual(0);
   expect(at(/from "runs".* for update/s)).toBeLessThan(at(/^update "runs"/));
   expect(at(/^select .* from "agents"(?!.* for update)/s)).toBe(-1);
-  // The run first, then the agent, as remembering a permission does: no deadlock between the two.
-  expect(at(/from "runs".* for update/s)).toBeLessThan(at(/from "agents".* for update/s));
+  // The agent first, then the run, as an agent's delete does (`deleteAgents`): no deadlock between the two.
+  expect(at(/from "agents".* for update/s)).toBeLessThan(at(/from "runs".* for update/s));
 });
 
 test("an agent at the most tables it may have can't create one more", async () => {
