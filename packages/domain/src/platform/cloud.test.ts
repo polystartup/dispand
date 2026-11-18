@@ -58,7 +58,7 @@ test("rows_get stores only its authorized labeled display snapshot, without expo
   const transcript = await s.context.db.select().from(messages).where(eq(messages.runId, runId));
   const calls = transcript.filter((message) => message.role === "tool");
   expect(calls).toHaveLength(1);
-  expect(calls[0]!.result).toMatchObject({ toolCallId: "read", args: { id: row.id }, record: { kind: "record", rowId: row.id, tableId: s.table.id, fields: expect.arrayContaining([
+  expect(calls[0]!.result).toMatchObject({ toolCallId: expect.stringMatching(/^call_/), args: { id: row.id }, record: { kind: "record", rowId: row.id, tableId: s.table.id, fields: expect.arrayContaining([
     { id: s.name.id, name: s.name.name, type: s.name.type, value: "Authorized person" },
     { id: reference.id, name: "Matter", type: "reference", value: null },
     { id: choice.id, name: "Status", type: "single-select", value: "Active client" },
@@ -138,6 +138,24 @@ test("revoked data access after rows_get was offered produces no record result",
   const transcript = await s.context.db.select().from(messages).where(eq(messages.runId, runId));
   expect(transcript.every((message) => message.result === null)).toBe(true);
   expect(lastTool(s.model.inputs[1]!.items).isError).toBe(true);
+});
+
+test("reused provider call ids in one turn keep independent record snapshots", async () => {
+  const ids = ["", ""];
+  const s = await setup(["data"], [
+    () => ({ toolCalls: [{ id: "reused", name: "rows_get", args: { id: ids[0] } }] }),
+    () => ({ toolCalls: [{ id: "reused", name: "rows_get", args: { id: ids[1] } }] }),
+    say("Read both"),
+  ]);
+  ids[0] = (await call(router.rows.create, { tableId: s.table.id, values: { [s.name.id]: "First record" } }, { context: s.context })).id;
+  ids[1] = (await call(router.rows.create, { tableId: s.table.id, values: { [s.name.id]: "Second record" } }, { context: s.context })).id;
+  const { runId } = await call(router.jobs.start, { triggerId: s.trigger.id }, { context: s.context });
+  await s.until(runId, "succeeded");
+  const results = (await s.context.db.select().from(messages).where(eq(messages.runId, runId)).orderBy(messages.position)).flatMap((message) => message.result ? [message.result] : []);
+  expect(results.map((result) => result.record.rowId)).toEqual(ids);
+  expect(new Set(results.map((result) => result.toolCallId)).size).toBe(2);
+  expect(lastTool(s.model.inputs[1]!.items).callId).toBe("reused");
+  expect(lastTool(s.model.inputs[2]!.items).callId).toBe("reused");
 });
 
 test("a cloud Job creates a row through rows_create, with no question asked", async () => {

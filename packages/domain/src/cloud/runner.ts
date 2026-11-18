@@ -549,7 +549,8 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     const key = builtin ? undefined : names.fromName(call.name);
     const selected = specs.find((s) => s.key === key);
     const label = cut(selected?.label ?? call.name, ID);
-    const recordArgs = isRecordTool(selected) && typeof call.args === "object" && call.args !== null && "id" in call.args && typeof call.args.id === "string" ? { id: call.args.id } : undefined;
+    // Provider call ids may repeat across model responses in one turn; each read owns its snapshot.
+    const recordCall = isRecordTool(selected) && typeof call.args === "object" && call.args !== null && "id" in call.args && typeof call.args.id === "string" ? { toolCallId: newId("call"), turnId: execution.turnId, args: { id: call.args.id } } : undefined;
     const approved = row.approvedCall === call.id;
     const done = (text: string, isError: boolean, extra: Patch = {}) =>
       this.emit(id, { items: items(text, isError), ...extra }, { type: "tool", name: label, status: "done" });
@@ -558,7 +559,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       const [now] = await this.db.select({ status: cloudSessions.status }).from(cloudSessions).where(eq(cloudSessions.id, id));
       if (now?.status !== "running") return null;
       // Shown once per call: not again when it runs after the owner allowed it.
-      if (!approved) await this.emit(id, {}, recordArgs ? { type: "record-start", toolCallId: call.id, turnId: execution.turnId, args: recordArgs } : { type: "tool", name: label, status: "started" });
+      if (!approved) await this.emit(id, {}, recordCall ? { type: "record-start", ...recordCall } : { type: "tool", name: label, status: "started" });
       const ask = async (payload: QuestionPayload, askedKey?: string) => {
         const questionId = newId("cq");
         const event = questionEvent(questionId, payload);
@@ -634,8 +635,8 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     }
     // A stopped session keeps its state as the stop left it.
     await this.active(id, execution, async () => {
-      const record = !outcome.isError && recordArgs ? recordResultOf(outcome) : undefined;
-      if (record) return this.emit(id, { items: items(outcome.text, false), inFlight: null }, { type: "record-result", toolCallId: call.id, turnId: execution.turnId, args: { id: record.rowId }, record });
+      const record = !outcome.isError && recordCall ? recordResultOf(outcome) : undefined;
+      if (record && recordCall) return this.emit(id, { items: items(outcome.text, false), inFlight: null }, { type: "record-result", ...recordCall, args: { id: record.rowId }, record });
       await done(outcome.text, outcome.isError, { inFlight: null });
     });
   }
