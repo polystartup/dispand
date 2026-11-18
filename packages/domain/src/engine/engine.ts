@@ -571,8 +571,7 @@ export class Engine {
         return { row: row!, working: false, chat };
       }
       if (!chat.harnessId) return { row: row!, working: true, chat };
-      const got = await take(tx, { id: chat.id, harnessId: chat.harnessId }, "person", { kind: "deliver" });
-      if (got === "queued") await pushStep(tx, chat.id, out);
+      const got = await this.takeChatSlot(tx, chat, out);
       return { row: row!, working: got === "working", chat };
     });
     this.publish(out);
@@ -592,8 +591,7 @@ export class Engine {
         await this.hold(tx, now.id, { kind: "deliver" }, late);
         return false;
       }
-      if (now.harnessId && (await take(tx, { id: now.id, harnessId: now.harnessId }, "person", { kind: "deliver" })) === "queued") await pushStep(tx, now.id, late);
-      return true;
+      return (await this.takeChatSlot(tx, now, late)) === "working";
     });
     this.publish(late);
     if (going) await this.redeliverMessage(row.id);
@@ -650,17 +648,26 @@ export class Engine {
         await this.hold(tx, step.id, { kind: "deliver" }, out);
         return false;
       }
-      const got = await take(tx, { id: step.id, harnessId: step.harnessId! }, "person", { kind: "deliver" });
-      if (got === "queued" && !current.queuedAt) {
-        await pushStep(tx, step.id, out);
-        const [job] = await tx.select({ agentId: runs.agentId, harnessName: harnesses.name }).from(runs)
-          .innerJoin(harnesses, eq(harnesses.id, step.harnessId!)).where(and(eq(runs.id, step.runId), eq(runs.source, "agent")));
-        if (job) await recordAudit(tx, { ownerId: step.ownerId, actor: { type: "job", runId: step.runId }, agentId: job.agentId, jobId: step.runId, resource: { type: "job", id: step.runId }, action: "job.queued", details: { harnessId: step.harnessId!, harnessName: job.harnessName } });
-      }
+      const got = await this.takeChatSlot(tx, current, out);
       return got === "working";
     });
     this.publish(out);
     return working;
+  }
+
+  /** Cloud and native followups join the person's queue; audit only a new queue entry. */
+  private async takeChatSlot(tx: Tx, step: StepRow, out: Out[]): Promise<"working" | "queued"> {
+    const [current] = await tx.select().from(stepRuns).where(eq(stepRuns.id, step.id)).for("update");
+    if (!current || !ACTIVE_STEP.includes(current.status)) return "queued";
+    if (!current.harnessId) return "working";
+    const got = await take(tx, { id: current.id, harnessId: current.harnessId }, "person", { kind: "deliver" });
+    if (got === "queued" && !current.queuedAt) {
+      await pushStep(tx, current.id, out);
+      const [job] = await tx.select({ agentId: runs.agentId, harnessName: harnesses.name }).from(runs)
+        .innerJoin(harnesses, eq(harnesses.id, current.harnessId)).where(and(eq(runs.id, current.runId), eq(runs.source, "agent")));
+      if (job) await recordAudit(tx, { ownerId: current.ownerId, actor: { type: "job", runId: current.runId }, agentId: job.agentId, jobId: current.runId, resource: { type: "job", id: current.runId }, action: "job.queued", details: { harnessId: current.harnessId, harnessName: job.harnessName } });
+    }
+    return got;
   }
 
   private async handOver(stepId: string) {
@@ -1207,9 +1214,10 @@ export class Engine {
     if (!action || (action.kind === "deliver" && step.status !== "running")) return;
     const out: Out[] = [];
     const got = await this.db.transaction(async (tx) => {
-      const got = step.harnessId ? await take(tx, { id: step.id, harnessId: step.harnessId }, "resume", action) : "working";
+      const got = action.kind === "deliver" ? await this.takeChatSlot(tx, step, out)
+        : step.harnessId ? await take(tx, { id: step.id, harnessId: step.harnessId }, "resume", action) : "working";
       if (got === "working") await tx.update(stepRuns).set({ pendingAction: action }).where(and(eq(stepRuns.id, step.id), inArray(stepRuns.status, ACTIVE_STEP)));
-      else await pushStep(tx, step.id, out);
+      else if (action.kind !== "deliver") await pushStep(tx, step.id, out);
       return got;
     });
     this.publish(out);

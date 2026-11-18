@@ -62,9 +62,12 @@ class FakeAdapter implements HarnessAdapter {
 }
 
 test("Codex admits queued followups only after turn end and harness capacity", async () => {
-  const { context, adapter, engine, emit, workflow, harness } = await setup(chatThenStep);
+  const { context, adapter, engine, emit, workflow, harness, agent, runnerId } = await setup(chatThenStep);
   await context.db.update(harnessesTable).set({ kind: "codex", permissionMode: "default", maxWorking: 1 }).where(eq(harnessesTable.id, harness.id));
-  const runId = await engine.startRun(workflow.id);
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Ask what to build.", config: { kind: "manual", placement: "chat" } }, { context });
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const chat = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId)))[0]!;
+  const queuedAudit = () => context.db.select().from(audit).where(and(eq(audit.jobId, runId), eq(audit.action, "job.queued")));
   const session = adapter.starts[0]!.start.sessionId;
   await engine.sendChat(runId, "First followup");
   await engine.sendChat(runId, "Second followup");
@@ -79,7 +82,12 @@ test("Codex admits queued followups only after turn end and harness capacity", a
   });
   await engine.interruptChat(runId, "initial");
   expect(adapter.sent).toEqual([]);
-  expect((await runOf(engine, runId)).steps.n_chat).toMatchObject({ working: false, pendingAction: { kind: "deliver" } });
+  expect(await chat()).toMatchObject({ working: false, queueClass: "person", pendingAction: { kind: "deliver" } });
+  const queuedAt = (await chat()).queuedAt;
+  expect(await queuedAudit()).toHaveLength(1);
+  await engine.reconcile(runnerId, adapter.starts.map(({ start }) => start.sessionId));
+  expect((await chat()).queuedAt).toEqual(queuedAt);
+  expect(await queuedAudit()).toHaveLength(1);
   await engine.stopRun(otherRun);
   await vi.waitFor(() => expect(adapter.sent).toEqual([[session, "First followup"]]));
   await engine.sendChat(runId, "Third followup");
@@ -115,6 +123,26 @@ test("Codex retries only its admitted input after an engine restart", async () =
   await restarted.onHarnessEvent(session, { type: "turn-end", turnId: "retry" }, { runnerId, seq: 101 });
   await vi.waitFor(() => expect(adapter.sent.at(-1)).toEqual([session, "Later"]));
   expect(adapter.sent).toHaveLength(3);
+});
+
+test("cloud continuation queue entry has person priority and one audit event", async () => {
+  const { context, adapter, engine, workflow, harness, agent } = await setup(chatThenStep);
+  await context.db.update(harnessesTable).set({ maxWorking: 1 }).where(eq(harnessesTable.id, harness.id));
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const session = adapter.starts[0]!.start.sessionId;
+  await context.db.update(stepRuns).set({ runnerId: CLOUD_SOURCE }).where(eq(stepRuns.sessionId, session));
+  const queuedAudit = () => context.db.select().from(audit).where(and(eq(audit.jobId, runId), eq(audit.action, "job.queued")));
+  expect(await engine.claimCloudTurn(session)).toBe(true);
+  expect(await queuedAudit()).toHaveLength(0);
+  await engine.onHarnessEvent(session, { type: "turn-start", turnId: "first", interruptible: true }, { runnerId: CLOUD_SOURCE, seq: 1 });
+  await engine.onHarnessEvent(session, { type: "turn-end", turnId: "first" }, { runnerId: CLOUD_SOURCE, seq: 2 });
+  await engine.startRun(workflow.id);
+  expect(await engine.claimCloudTurn(session)).toBe(false);
+  expect(await Promise.all([engine.claimCloudTurn(session), engine.claimCloudTurn(session)])).toEqual([false, false]);
+  const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+  expect(step).toMatchObject({ queueClass: "person", working: false, pendingAction: { kind: "deliver" } });
+  expect(await queuedAudit()).toHaveLength(1);
 });
 
 test("Codex admits a resumed question's answer before queued chat messages", async () => {
