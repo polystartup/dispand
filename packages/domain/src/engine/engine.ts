@@ -56,7 +56,7 @@ import { sessionTooling } from "./tooling.ts";
 import { runnerGrantCurrent, stopAsking } from "../platform/exposed.ts";
 import { annotate, currentTraceId, inJobTrace, markSpan, meter, recordError, spanEvent, tracer, withJob } from "../telemetry/index.ts";
 import { CONSULT, REQUEST_APPROVAL } from "../cloud/builtins.ts";
-import { attachProposal, settleProposal } from "../platform/proposals.ts";
+import { attachProposal, settleProposal, withdrawProposal } from "../platform/proposals.ts";
 import { issueJobToken } from "../platform/token.ts";
 import type { SecretBox } from "../secrets.ts";
 import { consultOutputs, jobDef, jobSystemPrompt } from "./job-def.ts";
@@ -942,7 +942,10 @@ export class Engine {
       .where(and(where, eq(questions.status, "pending"), isNull(questions.rootId)))
       .returning();
     await recordInteractions(tx, expired.filter((q) => q.kind !== "consult"), "expired");
-    for (const q of expired) out.push({ type: "question", question: questionView(q) });
+    for (const q of expired) {
+      if (q.proposalId) await withdrawProposal(tx, q.id);
+      out.push({ type: "question", question: questionView(q) });
+    }
     await expireApprovals(tx, expired.filter((q) => q.kind === "consult").map((q) => q.id), out);
     for (const q of expired) {
       if (q.kind !== "consult") continue;

@@ -44,6 +44,17 @@ async function setup(bundles: Bundle[] = ["configure"]) {
   return { context, harness, agent, trigger, base, job, start, tool, propose, settle, idOf, newAgent, ask, answer, statusOf };
 }
 
+test("withdrawing an unanswered approval releases its proposal without authorizing it", async () => {
+  const s = await setup();
+  const id = s.idOf(await s.propose([{ tool: "agents_create", input: s.newAgent }]));
+  const questionId = await s.ask({ proposal: id });
+  expect(await s.statusOf(id)).toBe("asked");
+  await s.context.engine.stopRun(s.job.runId);
+  const [row] = await s.context.db.select().from(proposals).where(eq(proposals.id, id));
+  expect(row).toMatchObject({ status: "draft", questionId: null, settledAt: null });
+  expect(await s.context.db.select().from(questions).where(eq(questions.id, questionId))).toMatchObject([{ status: "expired" }]);
+});
+
 const NEEDS = /needs the owner's approval/;
 
 test.each([undefined, ["send_email"]])("agent setup shows and writes the approved unasked actions, even if defaults change: %j", async (unasked) => {

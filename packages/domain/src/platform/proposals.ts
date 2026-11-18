@@ -424,6 +424,11 @@ export async function attachProposal(db: Db | Tx, run: { runId: string; ownerId:
   return row?.id ?? null;
 }
 
+export async function withdrawProposal(db: Tx, questionId: string): Promise<void> {
+  await db.update(proposals).set({ status: "draft", questionId: null })
+    .where(and(eq(proposals.questionId, questionId), eq(proposals.status, "asked")));
+}
+
 /** The owner's answer to the question a proposal was asked with: approved or declined, once. */
 export async function settleProposal(db: Db | Tx, questionId: string, approved: boolean): Promise<void> {
   await db
