@@ -1,5 +1,5 @@
 {
-  "id": "233970e7-b5bc-40bd-bba0-7d1758e238c6",
+  "id": "55119d6e-fc2c-490e-8887-a5e03e654c22",
   "prevId": "60e18a05-32e9-45e4-848f-c2d8ac8a3475",
   "version": "7",
   "dialect": "postgresql",
@@ -5221,6 +5221,12 @@
         "interrupt_after_position": {
           "name": "interrupt_after_position",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "codex_input_id": {
+          "name": "codex_input_id",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
