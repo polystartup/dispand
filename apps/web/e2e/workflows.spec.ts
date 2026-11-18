@@ -350,3 +350,28 @@ test("a For each added after the trigger takes a step inside its body", async ({
   expect(def.edges).toHaveLength(2);
   expect(def.edges).toContainEqual({ from: loop.id, to: step("Wrap up").id });
 });
+
+test("a workflow is deleted from its menu, after a confirmation, and leaves the list", async ({ page }) => {
+  await signIn(page);
+  await page.goto("/settings/workflows");
+  await page.waitForLoadState("networkidle");
+  await page.getByRole("button", { name: "New workflow" }).click();
+  await expect(page).toHaveURL(/\/settings\/workflows\/wf_/);
+  await page.getByLabel("Workflow name").fill("Throwaway");
+  await expect(page.getByRole("status")).toContainText("Saved");
+
+  await page.getByRole("button", { name: "Workflow menu" }).click();
+  await page.getByRole("menuitem", { name: "Delete workflow" }).click();
+  const dialog = page.getByRole("dialog", { name: "Delete “Throwaway”?" });
+  await expect(dialog).toContainText("past runs");
+  // Cancelling keeps it.
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+
+  await page.getByRole("button", { name: "Workflow menu" }).click();
+  await page.getByRole("menuitem", { name: "Delete workflow" }).click();
+  await dialog.getByRole("button", { name: "Delete workflow" }).click();
+  await expect(page).toHaveURL(/\/settings\/workflows$/);
+  await expect(page.getByRole("link", { name: /Throwaway/ })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /Digest/ })).toBeVisible();
+});

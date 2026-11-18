@@ -29,7 +29,12 @@
     "issues_one": "{{status}} · {{count}} problème à corriger avant de pouvoir le lancer",
     "issues_other": "{{status}} · {{count}} problèmes à corriger avant de pouvoir le lancer",
     "agentsFailed": "Impossible de charger les agents : aucune étape ne peut en recevoir un avant de recharger la page.",
-    "stepSettings": "Réglages de l’étape"
+    "stepSettings": "Réglages de l’étape",
+    "menu": "Menu du workflow",
+    "delete": "Supprimer le workflow",
+    "confirm": "Supprimer « {{name}} » ?",
+    "confirmText": "Ses exécutions passées, sa planification et ses widgets sur vos pages sont supprimés avec lui. Un workflow ne peut pas être supprimé tant qu’une de ses exécutions est en cours.",
+    "cancel": "Annuler"
   },
   "schedule": {
     "kind": {

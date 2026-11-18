@@ -113,7 +113,10 @@
   with `cron-parser`, a 02:30 that a DST change skips or repeats firing at most once that day,
   and maps it to the editor's presets) and steps (agent, condition, data) joined by edges; edges out of a condition carry
   its `branch` (`then` or `else`) and it gives `matched`, from `evaluateCondition` (`condition.ts`) on an
-  upstream value; each save that changes it is a new
+  upstream value. `workflows.delete` (the editor's menu, behind a confirmation) archives it
+  (`archived_at`), refused while one of its runs is going: it no longer lists, opens or runs, its
+  schedule and widgets go, and its runs stay as history (`workflows.get` with a run's `version`
+  still reads it, and `runs.list` names it). Each save that changes it is a new
   row of `workflow_versions`, and a run keeps the version it started on. Prompts reference
   upstream outputs as `{{key.field}}` (`template.ts`); an agent-driven node's expected outputs are derived
   from those references and the values conditions compare (`derive.ts`; other nodes give a fixed list, `sourceFields`), and `validateWorkflow` refuses unknown or non-upstream

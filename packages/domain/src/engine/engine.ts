@@ -463,7 +463,8 @@ export class Engine {
   async createRun(tx: Tx, workflowId: string, trigger: RunTrigger): Promise<string> {
     // Shared with other starts, exclusive with a delete: the run never outlives its workflow.
     const [workflow] = await tx.select().from(workflows).where(eq(workflows.id, workflowId)).for("share");
-    if (!workflow) throw new EngineError("NOT_FOUND", message("workflows.notFound"));
+    // A deleted workflow (archived) never runs again.
+    if (!workflow || workflow.archivedAt) throw new EngineError("NOT_FOUND", message("workflows.notFound"));
     const [version] = await tx
       .select({ def: workflowVersions.def })
       .from(workflowVersions)

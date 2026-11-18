@@ -177,6 +177,8 @@ export const workflows = pgTable("workflows", {
   currentVersion: integer("current_version").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  /** When its owner deleted it: it no longer lists, opens or runs, and its runs stay as history. */
+  archivedAt: timestamp("archived_at"),
 });
 
 export const workflowVersions = pgTable(

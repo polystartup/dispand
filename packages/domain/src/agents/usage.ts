@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { agents, agentSkills, agentTools, runs, skillPackages, workflows, workflowVersions } from "../db/schema.ts";
 import type { Message } from "../messages/index.ts";
@@ -43,7 +43,7 @@ export async function toolHolder(db: Db | Tx, ownerId: string, toolId: string): 
     .select({ name: workflows.name })
     .from(workflows)
     .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, workflows.id), eq(workflowVersions.version, workflows.currentVersion)))
-    .where(and(eq(workflows.ownerId, ownerId), usesTool))
+    .where(and(eq(workflows.ownerId, ownerId), isNull(workflows.archivedAt), usesTool))
     .limit(1);
   if (workflow) return { key: "tools.holder.workflow", values: { name: workflow.name } };
   const [run] = await db

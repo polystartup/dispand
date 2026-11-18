@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, count, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { MAX_RESULT_FILES } from "@dispand/runner-protocol";
 import type { Db } from "../db/client.ts";
@@ -13,6 +13,7 @@ import {
   schedules,
   stepRuns,
   triggers,
+  widgets,
   workflows as workflowsTable,
   workflowVersions,
 } from "../db/schema.ts";
@@ -37,7 +38,7 @@ const Name = z.string().trim().min(1).max(100);
 type WorkflowRow = typeof workflowsTable.$inferSelect;
 
 function toWorkflow(w: WorkflowRow, def: WorkflowDef) {
-  return { id: w.id, name: w.name, version: w.currentVersion, def, updatedAt: w.updatedAt };
+  return { id: w.id, name: w.name, version: w.currentVersion, def, updatedAt: w.updatedAt, archived: w.archivedAt !== null };
 }
 
 /** JSON with sorted keys: jsonb doesn't keep key order, so compare defs through this. */
@@ -62,11 +63,12 @@ async function withSchedule<W extends { id: string }>(db: Db, workflow: W) {
   };
 }
 
-async function find(db: Db, ownerId: string, id: string) {
+/** The owner's workflow; a deleted one (archived) only when `archived` asks for it, to read its runs' history. */
+async function find(db: Db, ownerId: string, id: string, archived = false) {
   const [row] = await db
     .select()
     .from(workflowsTable)
-    .where(and(eq(workflowsTable.id, id), eq(workflowsTable.ownerId, ownerId)));
+    .where(and(eq(workflowsTable.id, id), eq(workflowsTable.ownerId, ownerId), archived ? undefined : isNull(workflowsTable.archivedAt)));
   if (!row) throw new ORPCError("NOT_FOUND", message("workflows.notFound"));
   return row;
 }
@@ -111,7 +113,7 @@ export async function agentInUse(db: Db | Tx, ownerId: string, agentId: string):
       workflowVersions,
       and(eq(workflowVersions.workflowId, workflowsTable.id), eq(workflowVersions.version, workflowsTable.currentVersion)),
     )
-    .where(eq(workflowsTable.ownerId, ownerId));
+    .where(and(eq(workflowsTable.ownerId, ownerId), isNull(workflowsTable.archivedAt)));
   const running = await db
     .select({ def: workflowVersions.def })
     .from(runsTable)
@@ -151,6 +153,8 @@ const update = owner.input(z.object({ id: z.string(), name: Name, def: WorkflowD
     await lockSchedule(tx, input.id);
     // Locked: concurrent saves get consecutive versions.
     const [current] = await tx.select().from(workflowsTable).where(eq(workflowsTable.id, input.id)).for("update");
+    // Deleted meanwhile (an autosave racing the delete): nothing more is saved.
+    if (current!.archivedAt) throw new ORPCError("NOT_FOUND", message("workflows.notFound"));
     const [stored] = await tx
       .select({ def: workflowVersions.def })
       .from(workflowVersions)
@@ -213,18 +217,25 @@ const setScheduleEnabled = owner.input(z.object({ id: z.string(), enabled: z.boo
   });
 });
 
+/**
+ * Deletes the workflow for its owner: archived, it no longer lists, opens or runs, its schedule
+ * and its widgets go, and its runs stay as history. Refused while one of its runs is going.
+ */
 const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   await find(context.db, context.ownerId, input.id);
   await context.db.transaction(async (tx) => {
     await lockSchedule(tx, input.id);
-    // Locked: a run starting now (which locks it to share) waits, then finds no workflow.
-    await tx.select({ id: workflowsTable.id }).from(workflowsTable).where(eq(workflowsTable.id, input.id)).for("update");
+    // Locked: a run starting now (which locks it to share) waits, then finds it archived.
+    const [row] = await tx.select({ archivedAt: workflowsTable.archivedAt }).from(workflowsTable).where(eq(workflowsTable.id, input.id)).for("update");
+    if (row!.archivedAt) return;
     const [active] = await tx
       .select({ n: count() })
       .from(runsTable)
       .where(and(eq(runsTable.workflowId, input.id), inArray(runsTable.status, ["running", "waiting"])));
     if (active && active.n > 0) throw new ORPCError("CONFLICT", message("workflows.runGoing"));
-    await tx.delete(workflowsTable).where(eq(workflowsTable.id, input.id));
+    await tx.update(workflowsTable).set({ archivedAt: new Date() }).where(eq(workflowsTable.id, input.id));
+    await tx.delete(schedules).where(eq(schedules.workflowId, input.id));
+    await tx.delete(widgets).where(eq(widgets.workflowId, input.id));
   });
 });
 
@@ -232,14 +243,15 @@ const list = owner.handler(async ({ context }) => {
   const rows = await context.db
     .select()
     .from(workflowsTable)
-    .where(eq(workflowsTable.ownerId, context.ownerId))
+    .where(and(eq(workflowsTable.ownerId, context.ownerId), isNull(workflowsTable.archivedAt)))
     .orderBy(desc(workflowsTable.updatedAt), asc(workflowsTable.id));
   return rows.map((w) => ({ id: w.id, name: w.name, version: w.currentVersion, updatedAt: w.updatedAt }));
 });
 
 /** The workflow with its current definition, or the definition of `version` (what a run started on). */
 const get = owner.input(z.object({ id: z.string(), version: z.number().int().min(1).optional() })).handler(async ({ input, context }) => {
-  const row = await find(context.db, context.ownerId, input.id);
+  // A version asked for is a run's: its history reads on once the workflow is deleted.
+  const row = await find(context.db, context.ownerId, input.id, input.version !== undefined);
   const version = input.version ?? row.currentVersion;
   if (version > row.currentVersion) throw new ORPCError("NOT_FOUND", message("workflows.versionNotFound"));
   return { ...(await withSchedule(context.db, toWorkflow(row, await defOf(context.db, row.id, version)))), version };
@@ -382,7 +394,7 @@ const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agent
       .where(and(eq(triggers.id, input.triggerId), eq(triggers.ownerId, context.ownerId)));
     if (!trigger) throw new ORPCError("NOT_FOUND", message("workflows.triggerNotFound"));
   }
-  if (input.workflowId) await find(context.db, context.ownerId, input.workflowId);
+  if (input.workflowId) await find(context.db, context.ownerId, input.workflowId, true);
   if (input.agentId) {
     const [agent] = await context.db
       .select({ id: agents.id })
@@ -419,7 +431,12 @@ const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agent
     : [];
   const titles = new Map(firsts.map((m) => [m.runId, m.text.replace(/\s+/g, " ").trim() || null]));
   const marks = await consultMarks(context.db, rows);
-  return rows.map((r) => ({ ...runView(r), queued: queued.has(r.id), title: titles.get(r.id) ?? null, ...marks.get(r.id)! }));
+  // Each workflow run's workflow name, a deleted workflow's included: the list names its runs.
+  const workflowIds = [...new Set(rows.flatMap((r) => r.workflowId ?? []))];
+  const names = new Map(
+    workflowIds.length ? (await context.db.select({ id: workflowsTable.id, name: workflowsTable.name }).from(workflowsTable).where(inArray(workflowsTable.id, workflowIds))).map((w) => [w.id, w.name]) : [],
+  );
+  return rows.map((r) => ({ ...runView(r), workflowName: r.workflowId ? (names.get(r.workflowId) ?? null) : null, queued: queued.has(r.id), title: titles.get(r.id) ?? null, ...marks.get(r.id)! }));
 });
 
 export const runs = { start, sendChat, stop, get: getRun, stream, list: listRuns };

@@ -56,9 +56,7 @@ export function RunList({ workflowId }: { workflowId?: string }) {
     // Follows the runs still going.
     refetchInterval: (q) => (q.state.data?.some((r: Run) => !r.finishedAt) ? 5000 : false),
   });
-  const workflows = useQuery({ ...orpc.workflows.list.queryOptions(), enabled: !workflowId });
   const agents = useQuery({ ...orpc.agents.list.queryOptions(), enabled: !workflowId });
-  const names = new Map(workflows.data?.map((w) => [w.id, w.name]));
   const agentNames = new Map(agents.data?.map((a) => [a.id, agentName(a)]));
 
   if (runs.error) return <p role="alert" className="text-[14px] text-danger">{t("list.failed")}</p>;
@@ -81,7 +79,7 @@ export function RunList({ workflowId }: { workflowId?: string }) {
           >
             <span className="flex min-w-0 items-center gap-3">
               <Status status={r.queued && r.status === "running" ? "queued" : r.status} />
-              {!workflowId && <span className="truncate text-[15px] font-medium">{r.workflowId ? (names.get(r.workflowId) ?? t("list.workflow")) : (jobAgent(r, agentNames) ?? t("list.job"))}</span>}
+              {!workflowId && <span className="truncate text-[15px] font-medium">{r.workflowId ? (r.workflowName ?? t("list.workflow")) : (jobAgent(r, agentNames) ?? t("list.job"))}</span>}
               <span className="text-[13px] text-muted">{triggerText(r.trigger)}</span>
             </span>
             <span className="shrink-0 text-[13px] text-muted">

@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { fields as fieldsTable, pages as pagesTable, tables as tablesTable, triggers, widgets as widgetsTable, workflows, workflowVersions } from "../db/schema.ts";
@@ -202,7 +202,7 @@ const create = owner.input(z.discriminatedUnion("type", [createForm, createTrigg
     .select({ name: workflows.name, def: workflowVersions.def })
     .from(workflows)
     .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, workflows.id), eq(workflowVersions.version, workflows.currentVersion)))
-    .where(and(eq(workflows.id, input.workflowId), eq(workflows.ownerId, context.ownerId)));
+    .where(and(eq(workflows.id, input.workflowId), eq(workflows.ownerId, context.ownerId), isNull(workflows.archivedAt)));
   if (!wf) throw new ORPCError("NOT_FOUND", message("workflows.notFound"));
   if (wf.def.trigger.type !== "manual") throw new ORPCError("BAD_REQUEST", message("pages.manualWorkflowForm"));
   // One form per workflow on a page: asking again returns it (a double click, a second visit).

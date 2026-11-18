@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, count, eq, inArray, sql, ne } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, sql, ne } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
 import { attachments, fields as fieldsTable, rows as rowsTable, runs, tables as tablesTable, workflows, workflowVersions } from "../db/schema.ts";
@@ -109,7 +109,7 @@ export async function tableInUse(db: Db | Tx, ownerId: string, tableId: string):
     .select({ def: workflowVersions.def })
     .from(workflows)
     .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, workflows.id), eq(workflowVersions.version, workflows.currentVersion)))
-    .where(eq(workflows.ownerId, ownerId));
+    .where(and(eq(workflows.ownerId, ownerId), isNull(workflows.archivedAt)));
   const running = await db
     .select({ def: workflowVersions.def })
     .from(runs)
@@ -127,7 +127,7 @@ export async function workflowsUsingField(db: Db | Tx, ownerId: string, tableId:
     .select({ name: workflows.name, def: workflowVersions.def })
     .from(workflows)
     .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, workflows.id), eq(workflowVersions.version, workflows.currentVersion)))
-    .where(eq(workflows.ownerId, ownerId));
+    .where(and(eq(workflows.ownerId, ownerId), isNull(workflows.archivedAt)));
   const running = await db
     .select({ name: workflows.name, def: workflowVersions.def })
     .from(runs)

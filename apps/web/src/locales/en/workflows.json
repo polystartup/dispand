@@ -29,7 +29,12 @@
     "issues_one": "{{status}} · {{count}} issue to fix before it can run",
     "issues_other": "{{status}} · {{count}} issues to fix before it can run",
     "agentsFailed": "Could not load the agents: steps can't be given one until the page is reloaded.",
-    "stepSettings": "Step settings"
+    "stepSettings": "Step settings",
+    "menu": "Workflow menu",
+    "delete": "Delete workflow",
+    "confirm": "Delete “{{name}}”?",
+    "confirmText": "Its past runs, its schedule and its widgets on your pages are deleted with it. A workflow can't be deleted while one of its runs is going.",
+    "cancel": "Cancel"
   },
   "schedule": {
     "kind": {

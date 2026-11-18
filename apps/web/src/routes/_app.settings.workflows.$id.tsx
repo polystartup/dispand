@@ -3,10 +3,12 @@ import { deriveExpectedOutputs, validateWorkflow } from "@dispand/domain/workflo
 import { addStep, type AddAt, type StepType, type WorkflowDef } from "@dispand/domain/workflows/model";
 import { useMutation, useQueries, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Ellipsis, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { BannerSlot } from "../components/settings/parts.tsx";
 import { Canvas } from "../components/workflow/Canvas.tsx";
 import { WorkflowTabs } from "../components/workflow/Runs.tsx";
@@ -64,6 +66,16 @@ function Editor({ workflow }: { workflow: Workflow }) {
   // The schedule's state and fires come with the saved workflow; pausing refreshes them.
   const pause = useMutation(
     orpc.workflows.setScheduleEnabled.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: getKey }) }),
+  );
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const remove = useMutation(
+    orpc.workflows.delete.mutationOptions({
+      onSuccess: async () => {
+        await navigate({ to: "/settings/workflows" });
+        // Its widgets went with it (cascade): Home and the pages read again.
+        await Promise.all([queryClient.invalidateQueries({ queryKey: orpc.workflows.key() }), queryClient.invalidateQueries({ queryKey: orpc.pages.key() })]);
+      },
+    }),
   );
 
   // Autosave: 800 ms after the last change, one save at a time, through one queue per workflow
@@ -171,6 +183,18 @@ function Editor({ workflow }: { workflow: Workflow }) {
         <span role="status" className={state === "error" ? "text-[13px] text-danger" : "text-[13px] text-muted"}>
           {issues.length > 0 && state !== "error" ? t("editor.issues", { status, count: issues.length }) : status}
         </span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" aria-label={t("editor.menu")}>
+              <Ellipsis />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem variant="destructive" onSelect={() => setConfirmDelete(true)}>
+              <Trash2 /> {t("editor.delete")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </header>
       <WorkflowTabs id={workflow.id} />
       {agents.error && !agents.data && (
@@ -211,6 +235,34 @@ function Editor({ workflow }: { workflow: Workflow }) {
           </aside>
         )}
       </div>
+
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <DialogContent>
+          <DialogTitle>{t("editor.confirm", { name: workflow.name })}</DialogTitle>
+          <DialogDescription>{t("editor.confirmText")}</DialogDescription>
+          {remove.error && (
+            <p role="alert" className="text-[13px] text-danger">
+              {remove.error.message}
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
+              {t("editor.cancel")}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={async () => {
+                // Edits still queued land first: none is saved after the workflow is gone.
+                await saver.flush();
+                remove.mutate({ id: workflow.id });
+              }}
+            >
+              {t("editor.delete")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

@@ -55,6 +55,39 @@ test("workflow create, get, list, update (new version only on change), delete", 
   await call(router.agents.delete, { id: agent.id }, { context });
 });
 
+test("a deleted workflow no longer lists, opens or runs, loses its schedule and widgets, and keeps its runs as history", async () => {
+  const { context, agent } = await setup();
+  const wf = await call(router.workflows.create, { name: "Ship" }, { context });
+  const def = withStep(wf.def, agent.id);
+  await call(router.workflows.update, { id: wf.id, name: "Ship", def }, { context });
+  const home = await call(router.pages.home, undefined, { context });
+  await call(router.widgets.create, { pageId: home.id, type: "workflow-form", workflowId: wf.id }, { context });
+  const { runId } = await call(router.runs.start, { workflowId: wf.id }, { context });
+
+  // Not while one of its runs is going.
+  await expect(call(router.workflows.delete, { id: wf.id }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
+  await call(router.runs.stop, { runId }, { context });
+  await call(router.workflows.update, { id: wf.id, name: "Ship", def: onSchedule(def, "0 9 * * *") }, { context });
+  expect(await context.db.select().from(schedules).where(eq(schedules.workflowId, wf.id))).toHaveLength(1);
+  await call(router.workflows.delete, { id: wf.id }, { context });
+
+  expect(await call(router.workflows.list, undefined, { context })).toEqual([]);
+  await expect(call(router.workflows.get, { id: wf.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.workflows.update, { id: wf.id, name: "Again", def }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.runs.start, { workflowId: wf.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.workflows.delete, { id: wf.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  expect(await context.db.select().from(schedules).where(eq(schedules.workflowId, wf.id))).toEqual([]);
+  expect((await call(router.pages.home, undefined, { context })).widgets.filter((w) => w.type === "workflow-form")).toEqual([]);
+
+  // Its run reads on: the version it started on, and its name in the list of runs.
+  const { run } = await call(router.runs.get, { runId }, { context });
+  expect(await call(router.workflows.get, { id: wf.id, version: run.version }, { context })).toMatchObject({ name: "Ship", archived: true });
+  expect(await call(router.runs.list, {}, { context })).toEqual([expect.objectContaining({ id: runId, workflowName: "Ship" })]);
+  expect(await call(router.runs.list, { workflowId: wf.id }, { context })).toEqual([expect.objectContaining({ id: runId })]);
+  // Its agent is no longer in use.
+  await call(router.agents.delete, { id: agent.id }, { context });
+});
+
 test("an agent used by a run still going cannot be deleted, even once the workflow dropped it", async () => {
   const { context, agent } = await setup();
   const wf = await call(router.workflows.create, { name: "Ship" }, { context });
@@ -70,7 +103,7 @@ test("an agent used by a run still going cannot be deleted, even once the workfl
     ["n_step", "running"],
     [wf.def.trigger.field.id, "succeeded"],
   ]);
-  expect(await call(router.runs.list, { workflowId: wf.id }, { context })).toEqual([{ ...got.run, queued: false, title: null, waitingOn: null, consultedBy: null }]);
+  expect(await call(router.runs.list, { workflowId: wf.id }, { context })).toEqual([{ ...got.run, workflowName: "Ship", queued: false, title: null, waitingOn: null, consultedBy: null }]);
   await expect(call(router.runs.sendChat, { runId, text: "hi" }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
 });
 

@@ -47,13 +47,20 @@ function RunPage() {
   return (
     <>
       {run.workflowId ? (
-        <Link
-          to="/settings/workflows/$id/runs"
-          params={{ id: run.workflowId }}
-          className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted transition hover:text-fg"
-        >
-          <ChevronLeft size={15} aria-hidden /> {t("page.runs")}
-        </Link>
+        // A deleted workflow has no page: its runs go back to the list of every run.
+        workflow.data?.archived ? (
+          <Link to="/settings/workflows/runs" className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted transition hover:text-fg">
+            <ChevronLeft size={15} aria-hidden /> {t("page.runs")}
+          </Link>
+        ) : (
+          <Link
+            to="/settings/workflows/$id/runs"
+            params={{ id: run.workflowId }}
+            className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted transition hover:text-fg"
+          >
+            <ChevronLeft size={15} aria-hidden /> {t("page.runs")}
+          </Link>
+        )
       ) : (
         run.source === "agent" &&
         (run.agentId ? (
