@@ -479,6 +479,7 @@ export class Engine {
 
   private async interruptedInputFinished(tx: Tx, step: StepRow): Promise<boolean> {
     if (step.interruptAfterPosition === null) return false;
+    if (step.harness?.kind === "codex") return true;
     const [newer] = await tx.select({ id: messages.id }).from(messages).where(and(eq(messages.stepRunId, step.id), eq(messages.role, "user"), sql`${messages.position} > ${step.interruptAfterPosition}`)).limit(1);
     return !newer;
   }
@@ -554,7 +555,7 @@ export class Engine {
       }
       if (refresh && chat.sessionId && !chat.resumeAfterSession && chat.cliSessionId && chat.start) {
         const sessionId = newId("ses");
-        const [updated] = await tx.update(stepRuns).set({ sessionId, turnStatus: "unknown", turnId: null, interruptible: false, interruptAfterPosition: null, start: { ...chat.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: chat.sessionId, ended: false } }).where(eq(stepRuns.id, chat.id)).returning();
+        const [updated] = await tx.update(stepRuns).set({ sessionId, turnStatus: "unknown", turnId: null, interruptible: false, interruptAfterPosition: null, codexInputId: null, start: { ...chat.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: chat.sessionId, ended: false } }).where(eq(stepRuns.id, chat.id)).returning();
         chat = updated!;
       }
       // Files held for the owner become the Job's with the message that carries them.
@@ -563,6 +564,8 @@ export class Engine {
       out.push({ type: "message", message: messageView(row!) });
       if (chat.resumeAfterSession) return { row: row!, working: false, chat };
       if (!chat.sessionId) return { row: row!, working: true, chat };
+      // Codex followups stay in the database until the current turn gives its slot back.
+      if (chat.harness?.kind === "codex" && (chat.turnStatus !== "idle" || chat.codexInputId)) return { row: row!, working: false, chat };
       if (!going) {
         await this.hold(tx, chat.id, { kind: "deliver" }, out);
         return { row: row!, working: false, chat };
@@ -575,7 +578,7 @@ export class Engine {
     this.publish(out);
     if (chat.resumeAfterSession) return this.resume(chat);
     if (chat.sessionId) {
-      if (working) this.deliverMessage(chat.sessionId, row);
+      if (working) this.deliverMessage(chat, row);
       return;
     }
     // Queued for its start: the start sends what is stored by then. If it was written meanwhile,
@@ -608,7 +611,7 @@ export class Engine {
     const [reopened] = await tx.update(runs).set({ status: "running", finishedAt: null, rootId: await newRoot(tx, run.ownerId, "chat", run.id), ...(token ? { tokenHash: token.hash, tokenSealed: token.sealed } : {}) }).where(and(eq(runs.id, run.id), eq(runs.status, "succeeded"))).returning();
     if (!reopened) throw new EngineError("CLOSED", message("engine.chatOver"));
     const sessionId = newId("ses");
-    const [chat] = await tx.update(stepRuns).set({ status: "running", turnStatus: "unknown", turnId: null, interruptible: false, interruptAfterPosition: null, finishedAt: null, sessionId, start: { ...step.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: step.sessionId, ended: false } }).where(eq(stepRuns.id, step.id)).returning();
+    const [chat] = await tx.update(stepRuns).set({ status: "running", turnStatus: "unknown", turnId: null, interruptible: false, interruptAfterPosition: null, codexInputId: null, finishedAt: null, sessionId, start: { ...step.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: step.sessionId, ended: false } }).where(eq(stepRuns.id, step.id)).returning();
     await recordAudit(tx, { ownerId: run.ownerId, actor: { type: "user", userId: run.ownerId }, agentId: run.agentId, jobId: run.id, action: "job.reopened", resource: { type: "job", id: run.id } });
     spanEvent("engine.reopen", { "dispand.job.id": run.id, "dispand.step.id": step.id, "dispand.session.id": sessionId });
     out.push({ type: "run", run: runView(reopened) }, { type: "step", step: stepView(chat!) });
@@ -622,9 +625,10 @@ export class Engine {
   }
 
   /** Sends the answers and chat messages that wait for the step's session (it holds a slot). */
-  private async flush(stepId: string, sessionId: string) {
-    for (const q of await this.undeliveredAnswers(sessionId)) this.deliverAnswer(q);
-    for (const m of await undeliveredMessages(this.db, stepId)) this.deliverMessage(sessionId, m);
+  private async flush(step: StepRow) {
+    const { id: stepId, sessionId } = step;
+    for (const q of await this.undeliveredAnswers(sessionId!)) this.deliverAnswer(q);
+    for (const m of await undeliveredMessages(this.db, stepId)) this.deliverMessage(step, m);
   }
 
   /**
@@ -677,7 +681,7 @@ export class Engine {
           .returning();
         if (claimed && !this.inFlight.has(`start:${claimed.sessionId}`) && !(await this.refusedForScope(claimed))) {
           await this.launch(claimed.harness!, claimed.start!, claimed);
-          for (const m of await undeliveredMessages(this.db, claimed.id)) this.deliverMessage(claimed.sessionId!, m);
+          for (const m of await undeliveredMessages(this.db, claimed.id)) this.deliverMessage(claimed, m);
         }
         return;
       }
@@ -691,7 +695,7 @@ export class Engine {
     if (!claimed?.sessionId) return;
     if (step.pendingAction.kind === "resume") await this.resume(claimed);
     else {
-      await this.flush(claimed.id, claimed.sessionId);
+      await this.flush(claimed);
       if (claimed.runnerId === CLOUD_SOURCE) this.cloud?.resumeQueued?.(claimed.sessionId);
     }
   }
@@ -739,7 +743,7 @@ export class Engine {
     if (!q) throw new EngineError("NOT_PENDING", message("questions.answer.notPending"));
     await this.answered(q);
     this.publish(out);
-    if (step) await this.flush(step.id, step.sessionId!);
+    if (step) await this.flush(step);
     if (root?.stopped) {
       for (const events of root.stopped.outs.values()) this.publish(events);
       this.endSessions(root.stopped.sessions);
@@ -1292,16 +1296,21 @@ export class Engine {
     }
     this.publish(out);
     if (result.next === "advance") await this.advance(result.step.runId);
+    if (result.next === "wake") {
+      const [step] = await this.db.select().from(stepRuns).where(eq(stepRuns.id, result.step.id));
+      if (step) await this.wake(step);
+    }
     // Only database work is awaited: the start itself goes out without waiting.
     if (result.next === "resume" && !this.inFlight.has(`start:${sessionId}`)) await this.resume(result.step);
   }
 
   private async retryAdvance(sessionId: string, runnerId: string) {
     const [row] = await this.db
-      .select({ runId: stepRuns.runId, status: stepRuns.status })
+      .select()
       .from(stepRuns)
       .where(and(eq(stepRuns.sessionId, sessionId), eq(stepRuns.runnerId, runnerId)));
     if (row?.status === "succeeded") await this.advance(row.runId);
+    else if (row?.harness?.kind === "codex" && row.turnStatus === "idle" && !row.codexInputId) await this.wake(row);
   }
 
   /** A runner was revoked: its open sessions never come back, so their steps (and runs) fail. */
@@ -1417,7 +1426,7 @@ export class Engine {
           if (liveSessions.includes(sessionId)) {
             await this.db.update(stepRuns).set({ resumeAfterSession: null, pendingAction: null, startDeliveredAt: new Date() }).where(eq(stepRuns.id, step.id));
             await this.adapter.narrowPermissions?.(sessionId);
-            if (holdsSlot(step)) await this.flush(step.id, sessionId);
+            if (holdsSlot(step)) await this.flush(step);
           } else if (!liveSessions.includes(step.resumeAfterSession.sessionId)) {
             if (step.resumeAfterSession.ended) await this.resume(step);
             else await this.retired(step.resumeAfterSession.sessionId, runnerId);
@@ -1448,13 +1457,14 @@ export class Engine {
           if (await this.refusedForScope(step)) continue;
           await this.launch(step.harness!, step.start!, step);
           // Chat messages sent before the start ever reached the runner go right after it.
-          for (const m of await undeliveredMessages(this.db, step.id)) this.deliverMessage(sessionId, m);
+          for (const m of await undeliveredMessages(this.db, step.id)) this.deliverMessage(step, m);
         } else if (!liveSessions.includes(sessionId)) {
           await this.unconfirmNow(step);
           await this.resume(step);
         }
         // Live: what it missed goes now, if it holds a slot; otherwise once it is handed one.
-        else if (holdsSlot(step)) await this.flush(step.id, sessionId);
+        else if (holdsSlot(step)) await this.flush(step);
+        else if (step.harness?.kind === "codex" && step.turnStatus === "idle") await this.wake(step);
       }
       // Sessions it still runs that no step still going is waiting on are ended: a stop that
       // never reached it, or a run deleted since (with its workflow or its agent). Decided from
@@ -1518,9 +1528,13 @@ export class Engine {
     const { prompt, answers, messages: carried, laterAnswers, laterMessages } = resumePrompt(
       step.cliSessionId ? null : step.start!.prompt,
       answered,
-      unsent,
+      step.harness?.kind === "codex" ? unsent.slice(0, 1) : unsent,
       waiting,
     );
+    if (step.harness?.kind === "codex") {
+      laterMessages.push(...unsent.slice(1));
+      await this.db.update(stepRuns).set({ codexInputId: carried[0]?.id ?? null }).where(eq(stepRuns.id, step.id));
+    }
     let start: StartParams;
     if (step.cliSessionId) start = { ...step.start!, prompt, resumeCliSessionId: step.cliSessionId };
     else {
@@ -1544,7 +1558,7 @@ export class Engine {
       if (carried.length) await this.db.update(messages).set({ deliveredAt: now }).where(inArray(messages.id, carried.map((m) => m.id)));
       if (step.resumeAfterSession) {
         await this.db.update(stepRuns).set({ resumeAfterSession: null, pendingAction: null }).where(and(eq(stepRuns.id, step.id), eq(stepRuns.sessionId, sessionId)));
-        await this.flush(step.id, sessionId);
+        await this.flush(step);
       }
     });
     // What didn't fit follows as messages, after the start on the same connection. The resumed
@@ -1558,7 +1572,7 @@ export class Engine {
       for (const q of orphaned) this.deliverAnswer(q);
     }
     // A reopened session is new: its written callback flushes overflow after the start.
-    if (!step.resumeAfterSession) for (const m of laterMessages) this.deliverMessage(sessionId, m);
+    if (!step.resumeAfterSession) for (const m of laterMessages) this.deliverMessage(step, m);
   }
 
   /** A Job's session resumed: its `job.started` row, `resumed`, with the harness and runner it runs on. */
@@ -1607,10 +1621,12 @@ export class Engine {
     // The new session of a reopened chat has not received any old transcript messages.
     if (step.resumeAfterSession && !step.startDeliveredAt) return;
     const since = step.startDeliveredAt ?? new Date(0);
+    // Codex admits one input at a time: completed turns must not be replayed on reconnect.
     await tx
       .update(messages)
       .set({ deliveredAt: null })
-      .where(and(eq(messages.stepRunId, step.id), eq(messages.role, "user"), gte(messages.deliveredAt, since)));
+      .where(and(eq(messages.stepRunId, step.id), eq(messages.role, "user"), gte(messages.deliveredAt, since),
+        step.harness?.kind === "codex" ? eq(messages.id, step.codexInputId ?? "") : undefined));
     await tx
       .update(questions)
       .set({ deliveredAt: null, orphaned: true })
@@ -1674,10 +1690,10 @@ export class Engine {
 
   /**
    * Applies one new event inside its transaction. "advance": a step completed (the run may go
-   * on); "resume": the runner doesn't have the session (it lost it), so it starts again.
+   * on); "resume": the runner lost its session; "wake": a native chat turn released its slot.
    */
   /** `own`: the event is Dispand's own (the cloud runner's), so its error message may be a stored one; a runner's words are stored as they came. */
-  private async apply(tx: Tx, step: StepRow, event: HarnessEvent, out: Out[], own = false): Promise<"advance" | "resume" | null> {
+  private async apply(tx: Tx, step: StepRow, event: HarnessEvent, out: Out[], own = false): Promise<"advance" | "resume" | "wake" | null> {
     // A closed step keeps its transcript and questions as they were.
     if (!OPEN_STEP.includes(step.status)) return null;
     switch (event.type) {
@@ -1685,6 +1701,11 @@ export class Engine {
         await this.turn(tx, step, "unknown", out);
         return null;
       case "turn-start":
+        // Provider activity proves the admitted input arrived, even if its socket write is still settling.
+        if (step.harness?.kind === "codex" && step.codexInputId) {
+          await tx.update(messages).set({ deliveredAt: new Date() }).where(eq(messages.id, step.codexInputId));
+          await tx.update(questions).set({ deliveredAt: new Date() }).where(eq(questions.id, step.codexInputId));
+        }
         if (step.turnId && step.turnId !== event.turnId) {
           await this.expire(tx, eq(questions.stepRunId, step.id), out, "stopped");
           await this.syncWaiting(tx, step.id, step.runId, out);
@@ -1780,6 +1801,12 @@ export class Engine {
       case "turn-end": {
         if (event.turnId ? event.turnId !== step.turnId : step.turnId !== null) return null;
         await this.turn(tx, step, "idle", out);
+        if (step.start?.interactive && step.harness?.kind === "codex") {
+          if (step.turnId && step.interruptAfterPosition !== null) await this.withdrawTurn(tx, step, step.turnId, out);
+          else await release(tx, step, out);
+          await tx.update(stepRuns).set({ codexInputId: null, turnId: null }).where(eq(stepRuns.id, step.id));
+          return "wake";
+        }
         // The durable boundary also covers a crash after the harness stopped but before its acknowledgment.
         if (step.turnId && step.interruptAfterPosition !== null) {
           await this.withdrawTurn(tx, step, step.turnId, out);
@@ -2034,7 +2061,7 @@ export class Engine {
     this.publish([{ type: "step", step: stepView(started) }]);
     // Chat messages sent while it was queued go once the start is written (an unwritten one is
     // resent with them by the runner's reconcile).
-    await this.launch(harness, start, started, [], start.interactive ? () => this.flush(started.id, start.sessionId) : undefined);
+    await this.launch(harness, start, started, [], start.interactive ? () => this.flush(started) : undefined);
   }
 
   /**
@@ -2113,6 +2140,7 @@ export class Engine {
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`q:${q.id}`, async () => {
       q = await this.checkedAnswer(q);
+      if (q.orphaned && !(await this.admitCodexInput(sessionId, q.id))) return;
       // Who answered goes with the answer itself: an agent's is never shown as the owner's.
       const ok = q.orphaned
         ? await this.adapter.send(sessionId, answerText(q))
@@ -2124,18 +2152,36 @@ export class Engine {
     this.keep(sent);
   }
 
-  private deliverMessage(sessionId: string, m: MessageRow) {
+  private deliverMessage(step: StepRow, m: MessageRow) {
+    const sessionId = step.sessionId!;
     if (this.reconciling > 0) {
       this.deferred.push(() => this.keep(this.redeliverMessage(m.id)));
       return;
     }
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`m:${m.id}`, async () => {
+      if (step.harness?.kind === "codex" && !(await this.admitCodexInput(sessionId, m.id))) return;
       if ((await this.adapter.send(sessionId, m.text, m.files ?? [])) && (this.losses.get(sessionId) ?? 0) === losses) {
         await this.db.update(messages).set({ deliveredAt: new Date() }).where(eq(messages.id, m.id));
       }
     }).catch((err: unknown) => logError("chat message delivery failed", err, { ref: m.id }));
     this.keep(sent);
+  }
+
+  /** Only one native input is admitted per turn, including the gap before turn-start arrives. */
+  private async admitCodexInput(sessionId: string, inputId: string): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const [step] = await tx.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId)).for("update");
+      if (step?.harness?.kind !== "codex" || !step.start?.interactive) return true;
+      if (!step.working || !ACTIVE_STEP.includes(step.status) || !(await rootGoing(tx, step.runId))) return false;
+      const [answer] = await tx.select().from(questions).where(and(eq(questions.sessionId, sessionId), eq(questions.status, "answered"), eq(questions.orphaned, true), isNull(questions.deliveredAt))).orderBy(asc(questions.answeredAt)).limit(1);
+      const first = answer ?? (await undeliveredMessages(tx, step.id))[0];
+      if (first?.id !== inputId) return false;
+      if (step.codexInputId) return step.codexInputId === inputId;
+      if (step.turnStatus !== "idle") return false;
+      await tx.update(stepRuns).set({ codexInputId: inputId }).where(eq(stepRuns.id, step.id));
+      return true;
+    });
   }
 
   private async redeliverAnswer(id: string) {
@@ -2153,7 +2199,7 @@ export class Engine {
       .from(messages)
       .innerJoin(stepRuns, eq(stepRuns.id, messages.stepRunId))
       .where(eq(messages.id, id));
-    if (row && !row.m.deliveredAt && row.step.sessionId && holdsSlot(row.step)) this.deliverMessage(row.step.sessionId, row.m);
+    if (row && !row.m.deliveredAt && row.step.sessionId && holdsSlot(row.step)) this.deliverMessage(row.step, row.m);
   }
 
   /** Keeps `work` in `background` until it settles; a rejection still surfaces, as it would unkept. */
@@ -2177,7 +2223,7 @@ export class Engine {
   private async complete(tx: Tx, step: StepRow, outputs: Record<string, string>, out: Out[]): Promise<boolean> {
     const [row] = await tx
       .update(stepRuns)
-      .set({ status: "succeeded", turnStatus: "idle", turnId: null, interruptible: false, interruptAfterPosition: null, outputs, finishedAt: new Date() })
+      .set({ status: "succeeded", turnStatus: "idle", turnId: null, interruptible: false, interruptAfterPosition: null, codexInputId: null, outputs, finishedAt: new Date() })
       .where(and(eq(stepRuns.id, step.id), inArray(stepRuns.status, OPEN_STEP)))
       .returning();
     if (!row) return false;
@@ -2207,7 +2253,7 @@ export class Engine {
   private async fail(tx: Tx, step: StepRow, error: string, out: Out[], stop?: StopReason) {
     const [row] = await tx
       .update(stepRuns)
-      .set({ status: "failed", turnStatus: "idle", turnId: null, interruptible: false, interruptAfterPosition: null, error, finishedAt: new Date() })
+      .set({ status: "failed", turnStatus: "idle", turnId: null, interruptible: false, interruptAfterPosition: null, codexInputId: null, error, finishedAt: new Date() })
       .where(and(eq(stepRuns.id, step.id), inArray(stepRuns.status, OPEN_STEP)))
       .returning();
     if (!row) return;

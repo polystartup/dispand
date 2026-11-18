@@ -61,6 +61,116 @@ class FakeAdapter implements HarnessAdapter {
   }
 }
 
+test("Codex admits queued followups only after turn end and harness capacity", async () => {
+  const { context, adapter, engine, emit, workflow, harness } = await setup(chatThenStep);
+  await context.db.update(harnessesTable).set({ kind: "codex", permissionMode: "default", maxWorking: 1 }).where(eq(harnessesTable.id, harness.id));
+  const runId = await engine.startRun(workflow.id);
+  const session = adapter.starts[0]!.start.sessionId;
+  await engine.sendChat(runId, "First followup");
+  await engine.sendChat(runId, "Second followup");
+  expect(adapter.sent).toEqual([]);
+  await emit(session, { type: "turn-start", turnId: "initial", interruptible: true });
+  await emit(session, { type: "question", questionId: "approval", payload: { kind: "confirm-outputs", values: {} } });
+  const otherRun = await engine.startRun(workflow.id);
+  expect((await runOf(engine, otherRun)).steps.n_chat!.working).toBe(true);
+  vi.spyOn(adapter, "interrupt").mockImplementation(async () => {
+    await emit(session, { type: "turn-end", turnId: "initial" });
+    return "requested";
+  });
+  await engine.interruptChat(runId, "initial");
+  expect(adapter.sent).toEqual([]);
+  expect((await runOf(engine, runId)).steps.n_chat).toMatchObject({ working: false, pendingAction: { kind: "deliver" } });
+  await engine.stopRun(otherRun);
+  await vi.waitFor(() => expect(adapter.sent).toEqual([[session, "First followup"]]));
+  await engine.sendChat(runId, "Third followup");
+  expect(adapter.sent).toHaveLength(1);
+  await emit(session, { type: "turn-start", turnId: "next", interruptible: true });
+  await emit(session, { type: "turn-end", turnId: "next" });
+  await vi.waitFor(() => expect(adapter.sent).toEqual([[session, "First followup"], [session, "Second followup"]]));
+});
+
+test("Codex retries only its admitted input after an engine restart", async () => {
+  const { context, adapter, engine, emit, workflow, harness, runnerId } = await setup(chatThenStep);
+  await context.db.update(harnessesTable).set({ kind: "codex", permissionMode: "default", maxWorking: 1 }).where(eq(harnessesTable.id, harness.id));
+  const runId = await engine.startRun(workflow.id);
+  const session = adapter.starts[0]!.start.sessionId;
+  await emit(session, { type: "turn-start", turnId: "initial", interruptible: true });
+  await emit(session, { type: "turn-end", turnId: "initial" });
+  adapter.online = false;
+  await engine.sendChat(runId, "Retry me");
+  await vi.waitFor(() => expect(adapter.sent).toEqual([[session, "Retry me"]]));
+  await engine.sendChat(runId, "Later");
+  const restarted = new Engine(context.db, adapter);
+  onTestFinished(() => restarted.stop());
+  adapter.online = true;
+  await restarted.reconcile(runnerId, [session]);
+  await vi.waitFor(async () => {
+    const rows = await context.db.select().from(messages).where(eq(messages.runId, runId)).orderBy(messages.position);
+    expect(rows[0]!.deliveredAt).not.toBeNull();
+    expect(rows[1]!.deliveredAt).toBeNull();
+  });
+  await restarted.reconcile(runnerId, [session]);
+  expect(adapter.sent).toEqual([[session, "Retry me"], [session, "Retry me"]]);
+  await restarted.onHarnessEvent(session, { type: "turn-start", turnId: "retry", interruptible: true }, { runnerId, seq: 100 });
+  await restarted.onHarnessEvent(session, { type: "turn-end", turnId: "retry" }, { runnerId, seq: 101 });
+  await vi.waitFor(() => expect(adapter.sent.at(-1)).toEqual([session, "Later"]));
+  expect(adapter.sent).toHaveLength(3);
+});
+
+test("Codex admits a resumed question's answer before queued chat messages", async () => {
+  const { context, adapter, engine, emit, workflow, harness, runnerId } = await setup(chatThenStep);
+  await context.db.update(harnessesTable).set({ kind: "codex", permissionMode: "default", maxWorking: 1 }).where(eq(harnessesTable.id, harness.id));
+  const runId = await engine.startRun(workflow.id);
+  const session = adapter.starts[0]!.start.sessionId;
+  await emit(session, { type: "cli-session", cliSessionId: "cli_saved" });
+  await emit(session, { type: "turn-start", turnId: "initial", interruptible: true });
+  await emit(session, { type: "question", questionId: "approval", payload: { kind: "confirm-outputs", values: {} } });
+  await engine.reconcile(runnerId, []);
+  const [question] = await context.db.select().from(questions).where(eq(questions.runId, runId));
+  await engine.answer(question!.id, { kind: "confirm-outputs", confirmed: false });
+  await engine.sendChat(runId, "Next input");
+  expect(adapter.sent).toEqual([]);
+  await emit(session, { type: "turn-start", turnId: "resumed", interruptible: true });
+  await emit(session, { type: "turn-end", turnId: "resumed" });
+  await vi.waitFor(() => expect(adapter.sent).toEqual([[session, "The owner did not confirm your values."]]));
+  await emit(session, { type: "turn-start", turnId: "answer", interruptible: true });
+  await emit(session, { type: "turn-end", turnId: "answer" });
+  await vi.waitFor(() => expect(adapter.sent.at(-1)).toEqual([session, "Next input"]));
+});
+
+test("Codex lost-session resume preserves attachment order and does not repeat a completed input", async () => {
+  const { context, adapter, engine, emit, workflow, harness, runnerId } = await setup(chatThenStep);
+  await context.db.update(harnessesTable).set({ kind: "codex", permissionMode: "default", maxWorking: 1 }).where(eq(harnessesTable.id, harness.id));
+  const send = vi.spyOn(adapter, "send");
+  const runId = await engine.startRun(workflow.id);
+  const session = adapter.starts[0]!.start.sessionId;
+  await emit(session, { type: "cli-session", cliSessionId: "cli_saved" });
+  await emit(session, { type: "turn-start", turnId: "initial", interruptible: true });
+  await emit(session, { type: "turn-end", turnId: "initial" });
+  await engine.sendChat(runId, "Completed input");
+  await vi.waitFor(() => expect(adapter.sent).toHaveLength(1));
+  await emit(session, { type: "turn-start", turnId: "completed", interruptible: true });
+  await engine.sendChat(runId, "File input");
+  const files = [{ id: "att_saved", name: "notes.txt" }];
+  await context.db.update(messages).set({ files }).where(and(eq(messages.runId, runId), eq(messages.text, "File input")));
+  await engine.sendChat(runId, "After file");
+  // The completed input is acknowledged, while queued inputs survive a lost session.
+  await emit(session, { type: "turn-end", turnId: "completed" });
+  await vi.waitFor(() => expect(send).toHaveBeenLastCalledWith(session, "File input", files));
+  await engine.reconcile(runnerId, []);
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(2));
+  expect(adapter.starts[1]!.start.prompt).not.toContain("Completed input");
+  expect(adapter.starts[1]!.start.prompt).not.toContain("After file");
+  expect(adapter.sent).toHaveLength(2);
+  await emit(session, { type: "turn-start", turnId: "resumed", interruptible: true });
+  await emit(session, { type: "turn-end", turnId: "resumed" });
+  await vi.waitFor(() => expect(send).toHaveBeenLastCalledWith(session, "File input", files));
+  await vi.waitFor(() => expect(adapter.sent).toHaveLength(3));
+  await emit(session, { type: "turn-start", turnId: "file", interruptible: true });
+  await emit(session, { type: "turn-end", turnId: "file" });
+  await vi.waitFor(() => expect(adapter.sent.at(-1)).toEqual([session, "After file"]));
+});
+
 /** Records each Tool step call; answers with `answer`, or, without one, only when the engine stops (a call under way). */
 class FakeTools implements ToolExecutor {
   calls: { step: ToolStep; values: Map<string, ArgValue> }[] = [];
