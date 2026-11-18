@@ -55,15 +55,15 @@ test("shutdown aborts live CLIs without an error, flushes the pending delta, kee
     { claude: { query: working }, resumeMap, claudeVersion: "2.1.311" },
   );
   await sessions.handle({ type: "session.start", start: start("ses_1", "run_a") });
-  await vi.waitFor(() => expect(emitted.map((e) => e.type)).toEqual(["cli-session", "text"]));
+  await vi.waitFor(() => expect(emitted.map((e) => e.type)).toEqual(["cli-session", "turn-start", "text"]));
 
   await shutdown(sessions, conn, 5000);
   expect(calls[0]!.abortController!.signal.aborted).toBe(true);
   expect(sessions.ids()).toEqual([]);
   // No error: the session is resumable, not failed.
-  expect(emitted.map((e) => e.type)).toEqual(["cli-session", "text"]);
+  expect(emitted.map((e) => e.type)).toEqual(["cli-session", "turn-start", "text"]);
   const lines = (await readFile(backlogPath, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as { event: HarnessEvent });
-  expect(lines.map((l) => l.event)).toEqual([{ type: "cli-session", cliSessionId: "cli-1" }, { type: "text", delta: "half a sent" }]);
+  expect(lines.map((l) => l.event)).toEqual([{ type: "cli-session", cliSessionId: "cli-1" }, { type: "turn-start" }, { type: "text", delta: "half a sent" }]);
   expect(JSON.parse(await readFile(resumeMap, "utf8"))).toEqual({ "cli-1": "run_a" });
   // The run folder stays, for the resume.
   expect((await stat(join(base, "root", "runs", "run_a"))).isDirectory()).toBe(true);
