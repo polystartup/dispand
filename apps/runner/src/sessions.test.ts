@@ -514,6 +514,7 @@ test("a Codex start runs on Codex, with the machine's config denied; resume only
   await ended(events, "ses_1");
   expect(events.filter(([id]) => id === "ses_1").map(([, e]) => e)).toEqual([
     { type: "cli-session", cliSessionId: "thr_1" },
+    { type: "turn-start" },
     { type: "result", text: "" },
   ]);
   const thread = (await codex.received()).find((m) => m.method === "thread/start")!;

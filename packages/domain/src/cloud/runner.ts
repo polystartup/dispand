@@ -369,7 +369,8 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         announced = true;
       }
       const call = nextCall(row.items);
-      await inJobTrace(found!, () => (call ? this.handleCall(row, call) : this.modelCall(row)));
+      if (call) await inJobTrace(found!, () => this.handleCall(row, call));
+      else if (await inJobTrace(found!, () => this.modelCall(row))) return;
     }
   }
 
@@ -454,7 +455,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     }
     await text.done();
 
-    await this.locked(id, async () => {
+    return this.locked(id, async () => {
       const [now] = await this.db.select().from(cloudSessions).where(eq(cloudSessions.id, id));
       if (!now) return;
       const after: ChatItem[] = [...items, { role: "assistant", text: turn.text, toolCalls: turn.toolCalls, raw: turn.raw }];
@@ -465,7 +466,10 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       if (now.queued.length > 0) return this.write(id, { items: after });
       const fields = start.expectedOutputs;
       if (!start.interactive && fields.length === 0) return this.emit(id, { items: after, status: "done" }, { type: "result", text: cut(turn.text, TEXT) });
-      if (start.interactive) return this.emit(id, { items: after, status: "idle" }, { type: "turn-end" });
+      if (start.interactive) {
+        await this.emit(id, { items: after, status: "idle" }, { type: "turn-end" });
+        return true;
+      }
       if (now.reminded) return this.emit(id, { items: after, status: "done" }, { type: "error", message: stored("engine.fail.noOutputs") });
       return this.write(id, { items: [...after, { role: "user", text: TEXTS.reminder(fields) }], reminded: true });
     });
