@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
+import { useAui } from "@assistant-ui/react";
 import { afterEach, expect, test, vi } from "vitest";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import "../../test/jsdom-shims.ts";
@@ -125,7 +126,7 @@ test("what is typed while a message is sending stays in the composer", async () 
   finish();
   await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledTimes(1));
   await new Promise((resolve) => setTimeout(resolve, 20));
-  expect(box.value).toBe("Hello and more");
+  expect(box.value).toBe(" and more");
 });
 
 test("a chat that failed says why", async () => {
@@ -165,7 +166,7 @@ test("Enter sends while the agent works; Shift+Enter adds a line, and a new conv
   await waitFor(() => expect(box.value).toBe(""));
   await user.type(box, "Unsent");
   await user.click(screen.getByRole("button", { name: "New conversation" }));
-  expect(box.value).toBe("");
+  expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe("");
 });
 
 const proposalPayload = { kind: "permission" as const, toolName: "request_approval", input: { message: "May I let Clerk answer questions?", proposal: "prop_1" }, canAlwaysAllow: false };
@@ -349,4 +350,102 @@ test("opening another conversation from outside takes the draft's files off too"
   rerender(panel("run_2"));
   await waitFor(() => expect(screen.queryByText("notes.txt")).toBeNull());
   expect(screen.getByLabelText("Message")).toBeTruthy();
+});
+
+function LibraryComposerActions() {
+  const aui = useAui();
+  return <button type="button" onClick={() => aui.composer().setQuote({ text: "First line\nSecond line", messageId: "answer_1" })}>Select quote</button>;
+}
+
+function mountComposer(questions: RunSnapshot["questions"] = []) {
+  fake.runs.stream.mockImplementation(streamOf(snapshot(questions)));
+  fake.jobs.def.mockResolvedValue({ trigger: { field: { id: "n_chat", type: "chat" } }, steps: [], edges: [] });
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <ChatPanel runId="run_1" onRunStarted={() => {}} assistantAgentId="assistant" composerTools={<LibraryComposerActions />} />
+  </QueryClientProvider>);
+  return userEvent.setup();
+}
+
+test("starter suggestions fill the controlled draft without sending and remain editable", async () => {
+  const user = mountComposer();
+  await user.click(await screen.findByRole("button", { name: "Set up an agent" }));
+  const box = screen.getByLabelText<HTMLTextAreaElement>("Message");
+  expect(box.value).toBe("Help me set up an agent for a recurring task.");
+  expect(fake.runs.sendChat).not.toHaveBeenCalled();
+  await user.type(box, " Every Monday.");
+  fake.runs.sendChat.mockResolvedValue(undefined);
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledWith({ runId: "run_1", text: "Help me set up an agent for a recurring task. Every Monday." }));
+  await waitFor(() => expect(box.value).toBe(""));
+});
+
+test("a quote is previewed, survives a failed send, and is included once on successful retry", async () => {
+  const user = mountComposer();
+  await user.click(screen.getByRole("button", { name: "Select quote" }));
+  expect(await screen.findByLabelText("Quoted text")).toBeTruthy();
+  const box = screen.getByLabelText<HTMLTextAreaElement>("Message");
+  await user.type(box, "Explain this");
+  fake.runs.sendChat.mockRejectedValueOnce(new Error("Offline")).mockResolvedValueOnce(undefined);
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  expect(screen.getByLabelText("Quoted text").textContent).toContain("First line");
+  expect(box.value).toBe("Explain this");
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledTimes(2));
+  expect(fake.runs.sendChat.mock.calls.map(([input]) => input.text)).toEqual(Array(2).fill("> First line\n> Second line\n\nExplain this"));
+  await waitFor(() => expect(screen.queryByLabelText("Quoted text")).toBeNull());
+});
+
+test("a quote can be dismissed without changing the draft", async () => {
+  const user = mountComposer();
+  await user.type(screen.getByLabelText("Message"), "Keep this");
+  await user.click(screen.getByRole("button", { name: "Select quote" }));
+  await user.click(await screen.findByRole("button", { name: "Remove quote" }));
+  expect(screen.queryByLabelText("Quoted text")).toBeNull();
+  expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe("Keep this");
+});
+
+test("starter suggestions are hidden when a proposal waits and a quote cannot approve it", async () => {
+  const user = mountComposer([proposalQuestion()]);
+  await screen.findByRole("button", { name: "Approve" });
+  expect(screen.queryByRole("button", { name: "Set up an agent" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Select quote" }));
+  expect(fake.questions.answer).not.toHaveBeenCalled();
+  expect(fake.runs.sendChat).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText("Quoted text")).toBeNull();
+  fake.questions.answer.mockResolvedValue(undefined);
+  await user.type(screen.getByLabelText("Message"), "Change this{Enter}");
+  await waitFor(() => expect(fake.questions.answer).toHaveBeenCalledWith({ questionId: "q1", answer: { kind: "permission", decision: "deny", message: "Change this" } }));
+});
+
+
+test("a failed stock-composer send restores the message ahead of newer typing", async () => {
+  let fail!: (error: Error) => void;
+  fake.runs.sendChat.mockImplementation(() => new Promise<void>((_resolve, reject) => { fail = reject; }));
+  fake.runs.stream.mockImplementation(streamOf(snapshot()));
+  const user = mount("run_1");
+  const box = await screen.findByLabelText<HTMLTextAreaElement>("Message");
+  await user.type(box, "First message{Enter}");
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledTimes(1));
+  await user.type(box, "New draft");
+  fail(new Error("Offline"));
+  await screen.findByRole("alert");
+  await waitFor(() => expect(box.value).toBe("First message\nNew draft"));
+});
+
+test("stock attachment submission sends held ids and restores them after failure", async () => {
+  fake.runs.stream.mockImplementation(streamOf(snapshot()));
+  fake.files.hold.mockResolvedValue({ id: "att_1", name: "notes.txt", mime: "application/octet-stream", size: 2, image: false });
+  fake.runs.sendChat.mockRejectedValueOnce(new Error("Offline")).mockResolvedValueOnce(undefined);
+  const user = mount("run_1");
+  await user.click(await screen.findByRole("button", { name: "Attach a file" }));
+  await user.upload(document.body.querySelector<HTMLInputElement>("input[type=file]")!, new File(["hi"], "notes.txt"));
+  await screen.findByText("notes.txt");
+  await user.type(screen.getByLabelText("Message"), "Read this{Enter}");
+  await screen.findByRole("alert");
+  await waitFor(() => expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe("Read this"));
+  expect(screen.getByRole("button", { name: "Remove this file" })).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledTimes(2));
+  expect(fake.runs.sendChat.mock.calls.map(([input]) => input)).toEqual(Array(2).fill({ runId: "run_1", text: "Read this", attachmentIds: ["att_1"] }));
 });

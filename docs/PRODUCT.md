@@ -231,3 +231,10 @@ required tools retain normal approvals. Wait for a running turn to finish before
 skill package. Harness discovery failures are shown explicitly; Codex currently exposes its
 skills through this integration, but not its built-in command menu. Built-in Claude commands
 retain Dispand's existing execution restrictions.
+
+Chat uses assistant-ui's standard composer lifecycle: sending opens a fresh draft immediately;
+if delivery fails, the submitted text, files and quote return ahead of anything typed since.
+Select message text and choose “Quote in reply” to include it with the next message. The
+quote can be removed before sending. Assistant starter prompts fill an editable draft and
+never send automatically. Proposal approvals still require their explicit Approve control;
+text sent while one waits declines it, without consuming held attachments or a quote.

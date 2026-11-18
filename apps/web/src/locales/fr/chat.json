@@ -61,5 +61,12 @@
   "allDone": "Tout est terminé",
   "runStopped": "Arrêté : {{error}}",
   "runStoppedStep": "Arrêté : une étape a échoué",
-  "runRunning": "En cours"
+  "runRunning": "En cours",
+  "quotedText": "Texte cité",
+  "removeQuote": "Retirer la citation",
+  "quoteReply": "Citer dans la réponse",
+  "starterAgent": "Configurer un agent",
+  "starterAgentPrompt": "Aide-moi à configurer un agent pour une tâche récurrente.",
+  "starterReview": "Examiner mon espace",
+  "starterReviewPrompt": "Examine mon espace et propose des améliorations utiles."
 }

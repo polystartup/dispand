@@ -96,7 +96,7 @@ const prose =
 export function AgentText() {
   return (
     <div className="flex min-w-0 justify-start">
-      <div className={prose}>
+      <div data-aui-quote-selectable className={prose}>
         <MarkdownTextPrimitive smooth={false} skipHtml urlTransform={urlTransform} components={components} />
       </div>
     </div>

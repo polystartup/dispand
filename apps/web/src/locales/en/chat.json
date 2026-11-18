@@ -61,5 +61,12 @@
   "allDone": "All done",
   "runStopped": "Stopped: {{error}}",
   "runStoppedStep": "Stopped: a step failed",
-  "runRunning": "Running"
+  "runRunning": "Running",
+  "quotedText": "Quoted text",
+  "removeQuote": "Remove quote",
+  "quoteReply": "Quote in reply",
+  "starterAgent": "Set up an agent",
+  "starterAgentPrompt": "Help me set up an agent for a recurring task.",
+  "starterReview": "Review my workspace",
+  "starterReviewPrompt": "Review my workspace and suggest useful improvements."
 }

@@ -1,4 +1,4 @@
-import { type AppendMessage, type AttachmentAdapter, type ThreadMessageLike, useExternalStoreRuntime } from "@assistant-ui/react";
+import { type AppendMessage, type AttachmentAdapter, type ThreadMessageLike, type ThreadSuggestion, useExternalStoreRuntime } from "@assistant-ui/react";
 import type { RunSnapshot } from "./run-state.ts";
 
 // The one place Dispand's runs meet assistant-ui. Dispand keeps its own messages, questions and
@@ -94,15 +94,16 @@ export function heldAttachments(hold: (file: File) => Promise<{ id: string; imag
   };
 }
 
-export function useRunThread(options: { run: RunSnapshot | null; chatStepId: string | undefined; canSend: boolean; onSend: (text: string) => Promise<void>; attachments?: AttachmentAdapter }) {
+export function useRunThread(options: { run: RunSnapshot | null; chatStepId: string | undefined; canSend: boolean; onSend: (message: AppendMessage) => Promise<void>; attachments?: AttachmentAdapter; suggestions?: ThreadSuggestion[] }) {
   return useExternalStoreRuntime({
     messages: threadMessages(options.run, options.chatStepId),
     convertMessage: same,
+    suggestions: options.suggestions,
     // The run view has no turn-in-progress flag: a running chat may be idle for hours.
     // Render each text snapshot as available rather than disabling copy until the Job ends.
     // Subsequent stream events still replace its text through `messages`.
     isSendDisabled: !options.canSend,
-    onNew: (message) => options.onSend(textOf(message)),
+    onNew: options.onSend,
     ...(options.attachments ? { adapters: { attachments: options.attachments } } : {}),
   });
 }

@@ -318,6 +318,8 @@ test("Assistant settings selects the next conversation's harness and model; chat
     await sheet.getByRole("button", { name: "Save settings" }).click();
     await expect(sheet).toHaveCount(0);
     const chat = page.getByRole("region", { name: "Stem", exact: true });
+    await chat.getByRole("button", { name: "Set up an agent", exact: true }).click();
+    await expect(chat.getByRole("combobox", { name: "Message", exact: true })).toHaveValue("Help me set up an agent for a recurring task.");
     await chat.getByRole("combobox", { name: "Message", exact: true }).fill("Use the selected harness and model.");
     await chat.getByRole("button", { name: "Send", exact: true }).click();
     const { start } = await settingsRunner.waitFor("session.start", WAIT_MS);
@@ -325,6 +327,17 @@ test("Assistant settings selects the next conversation's harness and model; chat
     expect(start.model).toBe("sonnet");
     settingsRunner.emit(start.sessionId, { type: "text", delta: "Using your selected settings." });
     await expect(chat.getByText("Using your selected settings.")).toBeVisible();
+
+    await chat.getByText("Using your selected settings.", { exact: true }).evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+    });
+    await page.getByRole("button", { name: "Quote in reply", exact: true }).click();
+    await expect(chat.getByLabel("Quoted text", { exact: true })).toContainText("Using your selected settings.");
 
     for (const expanded of [false, true]) {
       if (expanded) await page.getByRole("button", { name: "Full page", exact: true }).click();

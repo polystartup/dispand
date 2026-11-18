@@ -1,9 +1,9 @@
-import { ActionBarPrimitive, AttachmentPrimitive, AuiIf, AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, useAui, type TextMessagePartComponent, type ToolCallMessagePartComponent } from "@assistant-ui/react";
+import { ActionBarPrimitive, AttachmentPrimitive, AuiIf, AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, SelectionToolbarPrimitive, SuggestionPrimitive, type AppendMessage, type TextMessagePartComponent, type ToolCallMessagePartComponent } from "@assistant-ui/react";
 import type { Answer } from "@dispand/runner-protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, Check, Copy, MessageSquare, Paperclip, Users, Wrench, X } from "lucide-react";
+import { ArrowDown, Check, Copy, MessageSquare, Paperclip, Quote, Users, Wrench, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { createContext, type ComponentProps, type ReactNode, type RefObject, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, type ComponentProps, type ReactNode, useContext, useMemo, useState } from "react";
 import { orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
 import { CONSULT_TOOL, heldAttachments, QUESTION_TOOL, threadMessages, TRACE_TOOL, useRunThread, useTranscript } from "../../lib/assistant-runtime.ts";
@@ -34,7 +34,7 @@ const bubble = "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-
 
 const OwnerText: TextMessagePartComponent = ({ text }) => (
   <div className="flex justify-end">
-    <p className={`${bubble} bg-hover text-fg`}>{text}</p>
+    <p data-aui-quote-selectable className={`${bubble} bg-hover text-fg`}>{text}</p>
   </div>
 );
 
@@ -155,9 +155,18 @@ function MessageActions() {
   );
 }
 
-/** The panel owns the draft and delivery; the library supplies sizing and focus behavior. */
+/** Standard composer input; the runtime owns text, quotes, files and submission. */
 export function ChatInput(props: Omit<ComponentProps<typeof ComposerPrimitive.Input>, "submitOnEnter" | "submitMode">) {
-  return <ComposerPrimitive.Input maxRows={6} submitMode="none" cancelOnEscape={false} addAttachmentOnPaste {...props} />;
+  return <ComposerPrimitive.Input maxRows={6} submitMode="enter" cancelOnEscape={false} addAttachmentOnPaste {...props} />;
+}
+
+export function ComposerQuote() {
+  const { t } = useTranslation("chat");
+  return <ComposerPrimitive.Quote aria-label={t("quotedText")} className="order-first flex w-full items-start gap-2 rounded-lg bg-hover p-3 text-sm text-muted">
+    <Quote size={16} className="mt-0.5 shrink-0" aria-hidden />
+    <ComposerPrimitive.QuoteText className="max-h-32 min-w-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words" />
+    <ComposerPrimitive.QuoteDismiss aria-label={t("removeQuote")} title={t("removeQuote")} className="rounded p-1 hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent"><X size={16} aria-hidden /></ComposerPrimitive.QuoteDismiss>
+  </ComposerPrimitive.Quote>;
 }
 
 /** One attached file: its name, and in the composer a control that takes it off the message. */
@@ -178,28 +187,8 @@ function FileChip({ removable }: { removable?: boolean }) {
 const RemovableChip = () => <FileChip removable />;
 const SentChip = () => <FileChip />;
 
-/** What the panel reads of the composer's files: their held ids, and taking some off (those it sent, or all of them when the conversation changes). */
-export type ComposerFiles = { ids: () => string[]; remove: (ids: string[]) => Promise<void> };
-
-/** The composer's files, inside the thread's runtime: the button that attaches one, and each attached one. */
-/** `hidden`: while the composer answers a proposal; its files stay, and the panel can still take them off. */
-export function ComposerAttachments({ handle, disabled, hidden }: { handle: RefObject<ComposerFiles | null>; disabled?: boolean; hidden?: boolean }) {
+export function ComposerAttachments({ disabled, hidden }: { disabled?: boolean; hidden?: boolean }) {
   const { t } = useTranslation("chat");
-  const aui = useAui();
-  useEffect(() => {
-    handle.current = {
-      ids: () => aui.composer().getState().attachments.map((a) => a.id),
-      remove: async (ids) => {
-        for (const id of ids) {
-          // Only one still there, looked up now: the person may have taken it off meanwhile.
-          if (aui.composer().getState().attachments.some((a) => a.id === id)) await aui.composer().attachment({ id }).remove();
-        }
-      },
-    };
-    return () => {
-      handle.current = null;
-    };
-  }, [aui, handle]);
   if (hidden) return null;
   return (
     <>
@@ -234,22 +223,26 @@ type Props = {
   run: RunSnapshot | null;
   chatStepId: string | undefined;
   canSend: boolean;
-  onSend: (text: string) => Promise<void>;
+  onSend: (message: AppendMessage) => Promise<void>;
   /** Holds a file attached in the composer (`files.hold`): absent, the composer takes no file. */
   onAttach?: (file: File) => Promise<{ id: string; image: boolean }>;
   /** What follows the messages inside the scrolling area: the failure, the steps after the chat. */
   children?: ReactNode;
   composer?: ReactNode;
+  starterPrompts?: boolean;
   /** The invitation an empty conversation shows in place of the plain hello. */
   welcome?: string;
   centeredWelcome?: boolean;
 };
 
 /** The conversation of a run's chat step, on assistant-ui's thread: the owner's and the agent's words, the tools it used, its questions. */
-export function ChatThread({ run, chatStepId, canSend, onSend, onAttach, children, composer, welcome, centeredWelcome }: Props) {
+export function ChatThread({ run, chatStepId, canSend, onSend, onAttach, children, composer, welcome, centeredWelcome, starterPrompts }: Props) {
   const { t } = useTranslation("chat");
   const attachments = useMemo(() => (onAttach ? heldAttachments(onAttach) : undefined), [onAttach]);
-  const runtime = useRunThread({ run, chatStepId, canSend, onSend, ...(attachments ? { attachments } : {}) });
+  const runtime = useRunThread({ run, chatStepId, canSend, onSend, suggestions: starterPrompts ? [
+    { title: t("starterAgent"), prompt: t("starterAgentPrompt") },
+    { title: t("starterReview"), prompt: t("starterReviewPrompt") },
+  ] : [], ...(attachments ? { attachments } : {}) });
   // Nothing said yet, and nothing went wrong: the invitation to start.
   const empty = threadMessages(run, chatStepId).length === 0 && run?.steps.find((s) => s.id === chatStepId)?.status !== "failed";
   const questions = new Map((run?.questions ?? []).map((q) => [q.id, q]));
@@ -270,6 +263,11 @@ export function ChatThread({ run, chatStepId, canSend, onSend, onAttach, childre
                     <p className="max-w-64 text-[13px]">{t("sayHelloText")}</p>
                   </>
                 )}
+                {starterPrompts && canSend && <AuiIf condition={(s) => !s.composer.text && !s.composer.quote}>
+                  <div className="flex flex-wrap justify-center gap-2 px-4">
+                    <ThreadPrimitive.Suggestions>{() => <SuggestionPrimitive.Trigger send={false} className="rounded-full border border-line px-3 py-2 text-sm text-fg hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent"><SuggestionPrimitive.Title /></SuggestionPrimitive.Trigger>}</ThreadPrimitive.Suggestions>
+                  </div>
+                </AuiIf>}
               </div>}
               <div role="list" className={`mx-auto flex w-full max-w-3xl flex-col gap-5 ${centeredWelcome ? "px-4" : ""}`}>
                 <ThreadPrimitive.Messages components={{ UserMessage: OwnerMessage, AssistantMessage: AgentMessage }} />
@@ -287,6 +285,9 @@ export function ChatThread({ run, chatStepId, canSend, onSend, onAttach, childre
               </div>}
             </ThreadPrimitive.Viewport>
             {!centeredWelcome && composer}
+            {canSend && !approval && composer && <SelectionToolbarPrimitive.Root className="z-50 rounded-lg border border-line bg-surface p-1 shadow-md">
+              <SelectionToolbarPrimitive.Quote className="flex items-center gap-2 rounded px-3 py-2 text-sm text-fg hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent"><Quote size={16} aria-hidden />{t("quoteReply")}</SelectionToolbarPrimitive.Quote>
+            </SelectionToolbarPrimitive.Root>}
           </ThreadPrimitive.Root>
         </ComposerApproval.Provider>
       </Questions.Provider>
