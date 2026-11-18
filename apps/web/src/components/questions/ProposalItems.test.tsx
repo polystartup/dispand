@@ -444,3 +444,14 @@ test("a self-learning change keeps the words and the workspace warning", () => {
   expect(container.textContent).toContain("The workspace's memory");
   expect(container.textContent).toContain("What it writes steers every agent of the workspace.");
 });
+
+test("an in-flight item does not claim completion", () => {
+  render(<ProposalItems proposal={{ ...proposal, items: [{ ...proposal.items[0]!, used: true, pending: true }] }} />);
+  expect(screen.queryByText("done")).toBeNull();
+});
+
+test("answered proposals do not compare requested values with live settings", () => {
+  render(<ProposalItems proposal={{ id: "p", status: "approved", names: {}, items: [{ tool: "agents_update", input: { name: "Approved name" }, before: { name: "Later name" }, refs: [], used: false }] }} />);
+  expect(screen.getByText("Approved name")).toBeTruthy();
+  expect(screen.queryByText("Later name")).toBeNull();
+});

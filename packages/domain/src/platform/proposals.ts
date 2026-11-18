@@ -622,6 +622,7 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
       tool,
       input,
       used: usedAt !== undefined,
+      pending: item.pending === true,
       failed: failed === true,
       refs: Object.keys(REFS[tool] ?? {}),
       creates: createsOf(tool) ?? null,

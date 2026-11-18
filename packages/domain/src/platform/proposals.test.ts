@@ -819,6 +819,7 @@ test("apply waits for an item another call is still making: what comes after it 
     .set({ items: row!.items.map((item, i) => (i === 0 ? { ...item, usedAt: new Date().toISOString(), pending: true as const } : item)) })
     .where(eq(proposals.id, id));
   const applied = (await s.tool("proposal_apply", { proposalId: id })) as Applied;
+  expect((await proposalView(s.context.db, s.context.ownerId, id))!.items[0]).toMatchObject({ pending: true });
   expect(applied.output.items.map((i) => i.outcome)).toEqual(["being made", "not made"]);
   expect(applied.output.next).toMatch(/^Item 1 \(tables_create\) is being made by another call/);
   expect(await s.context.db.select().from(tablesTable)).toHaveLength(0);

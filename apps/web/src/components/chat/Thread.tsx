@@ -96,6 +96,7 @@ const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ ar
     }),
   );
   if (!q) return null;
+  if (q.status === "answered" && q.proposal) return <ProposalCard question={q} />;
   if (q.status === "answered") return <p className="px-1 text-right text-[12px] text-faint">{answeredText(q)}</p>;
   // A proposal shown whole: approved or declined from the composer (`ChatPanel`), its one control.
   if (inComposer) return <ProposalCard question={q} />;
@@ -121,9 +122,11 @@ const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ ar
 function ProposalCard({ question }: { question: Question }) {
   const { t } = useTranslation(["chat", "questions"]);
   const asked = approvalWords(question.payload);
+  const answeredText = useAnsweredText();
+  const answered = question.status === "answered";
   return (
-    <section aria-label={t("proposal")} className="mr-6 flex flex-col gap-3 rounded-2xl border border-line bg-surface p-4">
-      <p className="text-[15px]">{t("questions:proposal.intro")}</p>
+    <section aria-label={t("proposal")} className="mr-6 flex min-w-0 flex-col gap-3 [overflow-wrap:anywhere] rounded-2xl border border-line bg-surface p-4">
+      <p className="text-[15px]">{answered ? answeredText(question) : t("questions:proposal.intro")}</p>
       <ProposalItems proposal={question.proposal!} />
       {asked !== null && (
         <>
@@ -131,7 +134,7 @@ function ProposalCard({ question }: { question: Question }) {
           <p className="whitespace-pre-wrap break-words text-[15px]">{asked}</p>
         </>
       )}
-      <p className="text-[13px] text-muted">{t("proposalHint")}</p>
+      {!answered && <p className="text-[13px] text-muted">{t("proposalHint")}</p>}
     </section>
   );
 }

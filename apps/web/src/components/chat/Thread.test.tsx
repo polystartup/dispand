@@ -117,6 +117,34 @@ test("a proposal answered says approved, or declined with the owner's words", ()
   expect(screen.getByText("You declined it: Only on Clients")).toBeTruthy();
 });
 
+test.each(["allow", "deny"])("an answered proposal retains scope and item outcomes: %s", (decision) => {
+  const payload = { kind: "permission", toolName: "request_approval", input: { message: "Add the clerks", proposal: "prop_1" }, canAlwaysAllow: false };
+  const instructions = "Keep every original instruction.\n".repeat(100);
+  const proposal = { id: "prop_1", status: "asked", items: [
+    { tool: "agents_create", input: { name: "Clerk", systemPrompt: instructions }, used: false, refs: [] },
+    { tool: "agents_create", input: { name: "Second" }, used: false, refs: [] },
+    { tool: "agents_create", input: { name: "Third" }, used: false, refs: [] },
+  ], names: {} };
+  const q = question("q1", 1, { payload, proposalId: proposal.id, proposal });
+  const { update } = mount(run([], [q]));
+  update(run([], [{ ...q, status: "answered", answer: { kind: "permission", decision, message: "Only on Clients" }, proposal: {
+    ...proposal, status: decision === "allow" ? "approved" : "declined",
+    items: proposal.items.map((item, i) => ({ ...item, used: decision === "allow" && i < 2, failed: decision === "allow" && i === 1 })),
+  } }]));
+  const card = screen.getByRole("region", { name: "Proposal" });
+  expect(card.textContent).toContain(instructions.trim());
+  expect(within(card).getByText(decision === "allow" ? "You approved it" : "You declined it: Only on Clients")).toBeTruthy();
+  expect(within(card).queryByRole("button")).toBeNull();
+  expect(within(card).getByText("Third")).toBeTruthy();
+  if (decision === "allow") {
+    expect(within(card).getByText("done")).toBeTruthy();
+    expect(within(card).getByText("refused")).toBeTruthy();
+    const last = within(card).getAllByRole("listitem")[2]!;
+    expect(last.textContent).not.toMatch(/done|refused/);
+  }
+  expect(fake.questions.answer).not.toHaveBeenCalled();
+});
+
 test("copy actions copy the original message text, never a tool trace or question", async () => {
   const { user, update } = mount(run([message("m1", "user", "Hello", 1), message("m2", "assistant", "A **formatted** reply", 2), message("m3", "tool", "Read", 3)], [question("q1", 4)]));
   const copy = vi.spyOn(navigator.clipboard, "writeText");

@@ -16,7 +16,7 @@ export type ProposalView = {
    * hold `{ "$item": n }` where an id goes: what item `n` creates (`creates`), once made
    * `createdId`; `failed` when its call was refused.
    */
-  items: { tool: string; input: unknown; used: boolean; refs: string[]; creates?: string | null; createdId?: string | null; failed?: boolean; tools?: { toolId: string | { $item: number }; runs: string[] }[]; shown?: unknown; /** An agent update's fields as they are now. */ before?: Record<string, unknown> }[];
+  items: { tool: string; input: unknown; used: boolean; pending?: boolean; refs: string[]; creates?: string | null; createdId?: string | null; failed?: boolean; tools?: { toolId: string | { $item: number }; runs: string[] }[]; shown?: unknown; /** An agent update's fields as they are now. */ before?: Record<string, unknown> }[];
   names: Record<string, { kind: string; name: string; detail?: Text }>;
   /** The generated plugin ("Generated: <business name>") that records what the items create. */
   plugin?: string | null;
@@ -280,7 +280,7 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
           <p className="text-[14px] font-medium">
             <span className="mr-1.5 text-faint">{i + 1}.</span>
             {word(`proposal.titles.${item.tool}`, item.tool)}
-            {item.used && <span className={`ml-2 text-[12px] font-normal ${item.failed ? "text-danger" : "text-faint"}`}>{item.failed ? t("proposal.refused") : t("proposal.done")}</span>}
+            {item.used && !item.pending && <span className={`ml-2 text-[12px] font-normal ${item.failed ? "text-danger" : "text-faint"}`}>{item.failed ? t("proposal.refused") : t("proposal.done")}</span>}
           </p>
           <Sentence item={item} items={proposal.items} names={proposal.names} />
           {IRREVERSIBLE.has(item.tool) && <p className="mt-1 text-[13px] font-medium text-danger">{t("proposal.undone")}</p>}
@@ -292,7 +292,7 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
               <div key={name} className="contents">
                 <dt className="text-muted">{word(`proposal.labelsOf.${item.tool}.${name}`, word(`proposal.labels.${name}`, name))}</dt>
                 <dd className="min-w-0">
-                  {item.before && name in item.before ? (
+                  {(proposal.status === "draft" || proposal.status === "asked") && item.before && name in item.before ? (
                     <Change name={name} before={item.before[name]} after={value} items={proposal.items} names={proposal.names} isRef={item.refs.includes(name)} />
                   ) : name === "toolIds" && item.tools && item.tools.length > 0 ? (
                     <div className="space-y-2">
