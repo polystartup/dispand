@@ -401,22 +401,26 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   private async drive(id: string, execution: Execution) {
     for (;;) {
       // Each turn in its Job's trace, whatever woke the session (a start, an answer, a restart).
-      const [found] = await this.db
-        .select({ row: cloudSessions, traceId: runs.traceId, spanId: runs.spanId })
-        .from(cloudSessions)
-        .leftJoin(stepRuns, eq(stepRuns.id, cloudSessions.stepRunId))
-        .leftJoin(runs, eq(runs.id, stepRuns.runId))
-        .where(eq(cloudSessions.id, id));
-      const row = found?.row;
-      if (row?.status !== "running" || execution.controller.signal.aborted) return;
-      if (!row.turnId || execution.turnId !== row.turnId) {
-        await this.active(id, execution, async () => {
+      // A queued restart may wake while interruption is writing: claim only its committed transcript.
+      const found = await this.active(id, execution, async () => {
+        const [found] = await this.db
+          .select({ row: cloudSessions, traceId: runs.traceId, spanId: runs.spanId })
+          .from(cloudSessions)
+          .leftJoin(stepRuns, eq(stepRuns.id, cloudSessions.stepRunId))
+          .leftJoin(runs, eq(runs.id, stepRuns.runId))
+          .where(eq(cloudSessions.id, id));
+        const row = found?.row;
+        if (row?.status !== "running") return;
+        if (!row.turnId || execution.turnId !== row.turnId) {
           execution.turnId = row.turnId ?? newId("turn");
           await this.emit(id, { turnId: execution.turnId }, { type: "turn-start", turnId: execution.turnId, interruptible: true });
-        });
-      }
+        }
+        return found;
+      });
+      if (!found) return;
+      const row = found.row;
       const call = nextCall(row.items);
-      await cancellable(execution.controller.signal, () => inJobTrace(found!, () => (call ? this.handleCall(row, call, execution) : this.modelCall(row, execution))));
+      await cancellable(execution.controller.signal, () => inJobTrace(found, () => (call ? this.handleCall(row, call, execution) : this.modelCall(row, execution))));
     }
   }
 

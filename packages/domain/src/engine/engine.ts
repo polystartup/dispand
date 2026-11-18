@@ -1649,6 +1649,10 @@ export class Engine {
         await this.turn(tx, step, "unknown", out);
         return null;
       case "turn-start":
+        if (step.turnId && step.turnId !== event.turnId) {
+          await this.expire(tx, eq(questions.stepRunId, step.id), out, "stopped");
+          await this.syncWaiting(tx, step.id, step.runId, out);
+        }
         await this.turn(tx, step, "running", out, event);
         return null;
       case "interrupt-result":

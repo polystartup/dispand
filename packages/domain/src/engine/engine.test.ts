@@ -205,17 +205,19 @@ test("a late interrupt acknowledgment cannot withdraw a newer turn's question", 
   const runId = await engine.startRun(workflow.id);
   const sessionId = adapter.starts[0]!.start.sessionId;
   await emit(sessionId, { type: "turn-start", turnId: "old", interruptible: true });
+  await emit(sessionId, { type: "question", questionId: "rq_old", payload: { kind: "confirm-outputs", values: {} } });
   let acknowledge!: (outcome: "requested") => void;
   const held = new Promise<"requested">((resolve) => { acknowledge = resolve; });
   const interrupt = vi.spyOn(adapter, "interrupt").mockImplementation(() => held);
   const requested = engine.interruptChat(runId, "old");
   await vi.waitFor(() => expect(interrupt).toHaveBeenCalledOnce());
-  await emit(sessionId, { type: "turn-end", turnId: "old" });
+  // Queued native/cloud input starts its next turn without an idle event for the old one.
   await emit(sessionId, { type: "turn-start", turnId: "new", interruptible: true });
   await emit(sessionId, { type: "question", questionId: "rq_new", payload: { kind: "confirm-outputs", values: {} } });
   acknowledge("requested");
   expect(await requested).toEqual({ outcome: "requested" });
-  expect((await engine.db.select().from(questions))[0]!.status).toBe("pending");
+  expect((await engine.db.select().from(questions).where(eq(questions.runnerQuestionId, "rq_old")))[0]!.status).toBe("expired");
+  expect((await engine.db.select().from(questions).where(eq(questions.runnerQuestionId, "rq_new")))[0]!.status).toBe("pending");
   expect((await runOf(engine, runId)).steps.n_chat).toMatchObject({ turnId: "new", interruptible: true, turnStatus: "running" });
 });
 
