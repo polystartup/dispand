@@ -203,3 +203,22 @@ test("a first-send start resolving after logout cannot submit into the next sess
   expect(started).not.toHaveBeenCalled();
   expect(box().value).toBe("");
 });
+
+test("an old null route during first-send navigation does not replace the promoted conversation", async () => {
+  const sent = deferred<void>();
+  fake.runs.start.mockResolvedValue({ runId: "run_1" });
+  fake.runs.sendChat.mockReturnValueOnce(sent.promise);
+  const { user, show, started } = mountSession([{ surfaceKey: "left", runId: null }]);
+  await user.type(await screen.findByLabelText("Message"), "First message{Enter}");
+  await waitFor(() => expect(started).toHaveBeenCalledWith("run_1"));
+  await user.type(box(), "Draft during navigation");
+  // The router has not committed the run ID when the parent renders again.
+  show([{ surfaceKey: "left", runId: null }]);
+  await waitFor(() => expect(box().value).toBe("Draft during navigation"));
+  await act(async () => sent.resolve());
+  show([{ surfaceKey: "left", runId: "run_1" }]);
+  await waitFor(() => expect(box().value).toBe("Draft during navigation"));
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenLastCalledWith({ runId: "run_1", text: "Draft during navigation" }));
+  expect(fake.runs.start).toHaveBeenCalledTimes(1);
+});

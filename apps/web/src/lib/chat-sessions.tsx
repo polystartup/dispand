@@ -42,8 +42,8 @@ class ChatSessions {
   }
   started(session: ChatSession, runId: string) {
     const freshKey = JSON.stringify([session.surfaceKey, null]);
+    // Keep the unsent alias until explicit New: route navigation may still render its old null id.
     const wasFresh = this.conversations.get(freshKey) === session;
-    if (wasFresh) this.conversations.delete(freshKey);
     this.conversations.set(JSON.stringify([session.surfaceKey, runId]), session);
     session.update({ ...session.options, runId });
     if (wasFresh && this.selection(session.surfaceKey) === null) this.select(session.surfaceKey, runId);

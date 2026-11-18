@@ -44,7 +44,7 @@ export function ChatPanel({ surfaceKey, ...options }: ChatPanelOptions & { surfa
   useLayoutEffect(() => {
     const next = sessions.get(surfaceKey, { workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId });
     next.active = true;
-    next.update({ workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId });
+    next.update({ workflowId, start, runId: runId ?? next.options.runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId });
     setSession(next);
     return () => { next.active = false; };
   }, [sessions, surfaceKey, generation, workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId]);
