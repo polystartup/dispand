@@ -131,6 +131,24 @@ test("ask_user becomes a choice question and the answer resumes the loop", async
   ]);
 });
 
+test("cloud chat activity starts with execution and returns to idle between turns", async () => {
+  let finish!: () => void;
+  const held = new Promise<void>((resolve) => { finish = resolve; });
+  const model = fakeModel(async () => { await held; return { text: "Hello" }; }, say("Again"));
+  const { context, engine, agent } = await setup(chat, { client: model.client });
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Say hello.", config: { kind: "manual", placement: "chat" } }, { context });
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(1));
+  expect((await stepOf(engine, runId, trigger.id)).turnStatus).toBe("running");
+  finish();
+  await vi.waitFor(async () => expect((await stepOf(engine, runId, trigger.id)).turnStatus).toBe("idle"));
+  await engine.sendChat(runId, "Continue");
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
+  await vi.waitFor(async () => expect((await stepOf(engine, runId, trigger.id)).turnStatus).toBe("idle"));
+  const activity = await context.db.select().from(audit).where(eq(audit.action, "job.turn"));
+  expect(activity.map((row) => row.details)).toEqual([{ status: "running" }, { status: "idle" }, { status: "running" }, { status: "idle" }]);
+});
+
 test("submit_outputs in a chat asks confirm-outputs, then emits outputs-accepted", async () => {
   const model = fakeModel(say("What shall we build?"), use("submit_outputs", { idea: "a chat app" }), say("The plan."));
   const { engine, workflow } = await setup(chat, { client: model.client });

@@ -29,6 +29,7 @@
       "created": "Job créé",
       "queued": "Job mis en file pour son harnais",
       "started": "Job démarré",
+      "turn": "Activité du tour du Job modifiée",
       "reopened": "Job rouvert",
       "waiting": "Job en attente d’une réponse",
       "finished": "Job terminé",

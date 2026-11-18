@@ -29,6 +29,7 @@
       "created": "Job created",
       "queued": "Job queued for its harness",
       "started": "Job started",
+      "turn": "Job turn activity changed",
       "reopened": "Job reopened",
       "waiting": "Job waiting for an answer",
       "finished": "Job finished",

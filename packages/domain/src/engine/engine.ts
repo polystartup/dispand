@@ -37,6 +37,7 @@ import {
   type RunStatus,
   type RunTrigger,
   type StepStatus,
+  type TurnStatus,
 } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
@@ -500,7 +501,7 @@ export class Engine {
       }
       if (refresh && chat.sessionId && !chat.resumeAfterSession && chat.cliSessionId && chat.start) {
         const sessionId = newId("ses");
-        const [updated] = await tx.update(stepRuns).set({ sessionId, start: { ...chat.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: chat.sessionId, ended: false } }).where(eq(stepRuns.id, chat.id)).returning();
+        const [updated] = await tx.update(stepRuns).set({ sessionId, turnStatus: "unknown", start: { ...chat.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: chat.sessionId, ended: false } }).where(eq(stepRuns.id, chat.id)).returning();
         chat = updated!;
       }
       // Files held for the owner become the Job's with the message that carries them.
@@ -554,7 +555,7 @@ export class Engine {
     const [reopened] = await tx.update(runs).set({ status: "running", finishedAt: null, rootId: await newRoot(tx, run.ownerId, "chat", run.id), ...(token ? { tokenHash: token.hash, tokenSealed: token.sealed } : {}) }).where(and(eq(runs.id, run.id), eq(runs.status, "succeeded"))).returning();
     if (!reopened) throw new EngineError("CLOSED", message("engine.chatOver"));
     const sessionId = newId("ses");
-    const [chat] = await tx.update(stepRuns).set({ status: "running", finishedAt: null, sessionId, start: { ...step.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: step.sessionId, ended: false } }).where(eq(stepRuns.id, step.id)).returning();
+    const [chat] = await tx.update(stepRuns).set({ status: "running", turnStatus: "unknown", finishedAt: null, sessionId, start: { ...step.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: step.sessionId, ended: false } }).where(eq(stepRuns.id, step.id)).returning();
     await recordAudit(tx, { ownerId: run.ownerId, actor: { type: "user", userId: run.ownerId }, agentId: run.agentId, jobId: run.id, action: "job.reopened", resource: { type: "job", id: run.id } });
     spanEvent("engine.reopen", { "dispand.job.id": run.id, "dispand.step.id": step.id, "dispand.session.id": sessionId });
     out.push({ type: "run", run: runView(reopened) }, { type: "step", step: stepView(chat!) });
@@ -1350,7 +1351,7 @@ export class Engine {
         // would do now waits for the root to go on (`goOn`), a lost session's resume included.
         if (!(await rootGoing(this.db, step.runId))) {
           const lost = !!step.startDeliveredAt && !liveSessions.includes(sessionId);
-          if (lost) await this.unconfirm(this.db, step);
+          if (lost) await this.unconfirmNow(step);
           if (!step.startDeliveredAt || lost) {
             await this.holdNow(step.id, { kind: lost ? "resume" : "start" });
           }
@@ -1364,7 +1365,7 @@ export class Engine {
           // Chat messages sent before the start ever reached the runner go right after it.
           for (const m of await undeliveredMessages(this.db, step.id)) this.deliverMessage(sessionId, m);
         } else if (!liveSessions.includes(sessionId)) {
-          await this.unconfirm(this.db, step);
+          await this.unconfirmNow(step);
           await this.resume(step);
         }
         // Live: what it missed goes now, if it holds a slot; otherwise once it is handed one.
@@ -1508,7 +1509,14 @@ export class Engine {
    * those it saw: a duplicate beats a loss. Every path that resumes a lost session goes through
    * here first.
    */
-  private async unconfirm(tx: Tx | Db, step: StepRow) {
+  private async unconfirmNow(step: StepRow) {
+    const out: Out[] = [];
+    await this.db.transaction((tx) => this.unconfirm(tx, step, out));
+    this.publish(out);
+  }
+
+  private async unconfirm(tx: Tx, step: StepRow, out: Out[]) {
+    await this.turn(tx, step, "unknown", out);
     // A write under way went to the lost session: it won't mark its row delivered.
     this.losses.set(step.sessionId!, (this.losses.get(step.sessionId!) ?? 0) + 1);
     // The new session of a reopened chat has not received any old transcript messages.
@@ -1557,6 +1565,26 @@ export class Engine {
     return replaced ?? q;
   }
 
+  /** Execution reports own activity; receiving work or holding a slot does not prove a turn started. */
+  private async turn(tx: Tx, step: StepRow, status: TurnStatus, out: Out[]) {
+    if (!step.start?.interactive || !step.sessionId) return;
+    const [changed] = await tx.update(stepRuns).set({ turnStatus: status })
+      .where(and(eq(stepRuns.id, step.id), eq(stepRuns.sessionId, step.sessionId), inArray(stepRuns.status, OPEN_STEP), sql`${stepRuns.turnStatus} <> ${status}`)).returning();
+    if (!changed) return;
+    out.push({ type: "step", step: stepView(changed) });
+    spanEvent("engine.turn", { "dispand.step.id": step.id, "dispand.run.id": step.runId, "dispand.turn.status": status });
+    const [run] = await tx.select({ source: runs.source, agentId: runs.agentId }).from(runs).where(eq(runs.id, step.runId));
+    if (run?.source === "agent") await recordAudit(tx, {
+      ownerId: step.ownerId,
+      actor: { type: "job", runId: step.runId },
+      agentId: run.agentId,
+      jobId: step.runId,
+      action: "job.turn",
+      resource: { type: "job", id: step.runId },
+      details: { status },
+    });
+  }
+
   /**
    * Applies one new event inside its transaction. "advance": a step completed (the run may go
    * on); "resume": the runner doesn't have the session (it lost it), so it starts again.
@@ -1567,6 +1595,10 @@ export class Engine {
     if (!OPEN_STEP.includes(step.status)) return null;
     switch (event.type) {
       case "session-ended":
+        await this.turn(tx, step, "unknown", out);
+        return null;
+      case "turn-start":
+        await this.turn(tx, step, "running", out);
         return null;
       case "cli-session":
         await tx.update(stepRuns).set({ cliSessionId: event.cliSessionId }).where(eq(stepRuns.id, step.id));
@@ -1652,6 +1684,7 @@ export class Engine {
         return null;
       }
       case "turn-end": {
+        await this.turn(tx, step, "idle", out);
         // A chat between turns waits for the owner's next message: it holds no slot meanwhile. A
         // message sent before this was applied (the last of the transcript) started its next turn
         // on the slot it holds: that turn's end gives it back.
@@ -1680,7 +1713,7 @@ export class Engine {
           return null;
         }
         if (event.message === SESSION_NOT_RUNNING) {
-          await this.unconfirm(tx, step);
+          await this.unconfirm(tx, step, out);
           return "resume";
         }
         await this.fail(tx, step, own ? event.message : plainText(event.message), out);
@@ -2044,7 +2077,7 @@ export class Engine {
   private async complete(tx: Tx, step: StepRow, outputs: Record<string, string>, out: Out[]): Promise<boolean> {
     const [row] = await tx
       .update(stepRuns)
-      .set({ status: "succeeded", outputs, finishedAt: new Date() })
+      .set({ status: "succeeded", turnStatus: "idle", outputs, finishedAt: new Date() })
       .where(and(eq(stepRuns.id, step.id), inArray(stepRuns.status, OPEN_STEP)))
       .returning();
     if (!row) return false;
@@ -2074,7 +2107,7 @@ export class Engine {
   private async fail(tx: Tx, step: StepRow, error: string, out: Out[], stop?: StopReason) {
     const [row] = await tx
       .update(stepRuns)
-      .set({ status: "failed", error, finishedAt: new Date() })
+      .set({ status: "failed", turnStatus: "idle", error, finishedAt: new Date() })
       .where(and(eq(stepRuns.id, step.id), inArray(stepRuns.status, OPEN_STEP)))
       .returning();
     if (!row) return;

@@ -123,6 +123,49 @@ async function runOf(engine: Engine, runId: string) {
   return { run: run!, steps: Object.fromEntries(steps.map((s) => [s.nodeId, s])) };
 }
 
+test("chat turn activity follows ordered execution events, not slot allocation or message submission", async () => {
+  const { adapter, engine, emit, workflow, runnerId } = await setup(chatThenStep);
+  const runId = await engine.startRun(workflow.id);
+  const sessionId = adapter.starts[0]!.start.sessionId;
+  const chat = async () => (await runOf(engine, runId)).steps.n_chat!;
+  expect(await chat()).toMatchObject({ working: true, turnStatus: "unknown" });
+  await emit(sessionId, { type: "turn-start" });
+  expect((await chat()).turnStatus).toBe("running");
+  const runningSeq = (await chat()).eventSeq;
+  await engine.onHarnessEvent(sessionId, { type: "turn-end" }, { runnerId, seq: runningSeq });
+  expect((await chat()).turnStatus).toBe("running");
+  await emit(sessionId, { type: "turn-end" });
+  expect((await chat()).turnStatus).toBe("idle");
+  adapter.online = false;
+  await engine.sendChat(runId, "Another request");
+  expect((await chat()).turnStatus).toBe("idle");
+  await emit(sessionId, { type: "turn-start" });
+  expect((await chat()).turnStatus).toBe("running");
+  await engine.stopRun(runId);
+  expect(await chat()).toMatchObject({ status: "failed", turnStatus: "idle" });
+  await emit(sessionId, { type: "turn-start" });
+  expect((await chat()).turnStatus).toBe("idle");
+});
+
+test("chat turn activity remains separate from questions and becomes unknown after session loss", async () => {
+  const { adapter, engine, emit, workflow, runnerId } = await setup(chatThenStep);
+  const runId = await engine.startRun(workflow.id);
+  const sessionId = adapter.starts[0]!.start.sessionId;
+  await startDelivered(engine, sessionId);
+  await emit(sessionId, { type: "turn-start" });
+  await emit(sessionId, { type: "question", questionId: "rq_turn", payload: { kind: "confirm-outputs", values: {} } });
+  expect((await runOf(engine, runId)).steps.n_chat).toMatchObject({ status: "waiting", working: false, turnStatus: "running" });
+  await emit(sessionId, { type: "turn-end" });
+  expect((await runOf(engine, runId)).steps.n_chat).toMatchObject({ status: "waiting", turnStatus: "idle" });
+  await emit(sessionId, { type: "turn-start" });
+  await engine.reconcile(runnerId, []);
+  expect((await runOf(engine, runId)).steps.n_chat!.turnStatus).toBe("unknown");
+  await emit(sessionId, { type: "turn-start" });
+  expect((await runOf(engine, runId)).steps.n_chat!.turnStatus).toBe("running");
+  await emit(sessionId, { type: "outputs-accepted", values: { idea: "test", audience: "teams" } });
+  expect((await runOf(engine, runId)).steps.n_chat).toMatchObject({ status: "succeeded", turnStatus: "idle" });
+});
+
 test("the agent's model overrides the harness's", async () => {
   const { context, adapter, engine, agent, workflow } = await setup(buttonThenStep);
   await call(router.agents.update, { ...agent, model: "claude-sonnet-4-5" }, { context });

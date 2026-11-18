@@ -353,6 +353,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   }
 
   private async drive(id: string) {
+    let announced = false;
     for (;;) {
       // Each turn in its Job's trace, whatever woke the session (a start, an answer, a restart).
       const [found] = await this.db
@@ -363,6 +364,10 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         .where(eq(cloudSessions.id, id));
       const row = found?.row;
       if (row?.status !== "running") return;
+      if (!announced) {
+        await this.locked(id, () => this.emit(id, {}, { type: "turn-start" }));
+        announced = true;
+      }
       const call = nextCall(row.items);
       await inJobTrace(found!, () => (call ? this.handleCall(row, call) : this.modelCall(row)));
     }
