@@ -169,6 +169,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   private readonly again = new Set<string>();
   private readonly client: (h: ClientHarness) => ModelClient;
   private readonly tools: ToolCaller;
+  private readonly claimTurn: (sessionId: string) => Promise<boolean>;
 
   /** Where attachments are kept: a chat message's files are read from there at each model call. */
   private readonly filesDir: string | undefined;
@@ -176,15 +177,21 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   constructor(
     private readonly db: Db,
     private readonly secrets: SecretBox,
-    deps: { tools: ToolCaller; client?: (h: ClientHarness) => ModelClient; filesDir?: string },
+    deps: { tools: ToolCaller; client?: (h: ClientHarness) => ModelClient; filesDir?: string; claimTurn?: (sessionId: string) => Promise<boolean> },
   ) {
     this.tools = deps.tools;
     this.filesDir = deps.filesDir;
     this.client = deps.client ?? ((h) => createModelClient(h));
+    this.claimTurn = deps.claimTurn ?? (async () => true);
   }
 
   onEvent(h: Handler): void {
     this.handler = h;
+  }
+
+  /** The engine granted a slot for input the cloud session already holds. */
+  resumeQueued(sessionId: string): void {
+    this.kick(sessionId);
   }
 
   /**
@@ -264,7 +271,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       const settled: Patch = { items, turnId: null, pending: null, approvedCall: null, approvedKey: null, inFlight: null };
       // Like native sessions, queued input starts a new turn; stopping this one never drops it.
       if (row.queued.length > 0) {
-        await this.write(sessionId, { ...settled, status: "running" });
+        await this.emit(sessionId, { ...settled, status: "running" }, { type: "turn-end", turnId });
         this.kick(sessionId);
       } else {
         await this.emit(sessionId, { ...settled, status: "idle" }, { type: "turn-end", turnId });
@@ -412,6 +419,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         const row = found?.row;
         if (row?.status !== "running") return;
         if (!row.turnId || execution.turnId !== row.turnId) {
+          if (!(await this.claimTurn(id))) return;
           execution.turnId = row.turnId ?? newId("turn");
           await this.emit(id, { turnId: execution.turnId }, { type: "turn-start", turnId: execution.turnId, interruptible: true });
         }

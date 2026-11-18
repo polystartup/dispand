@@ -112,7 +112,7 @@ test("interrupt settles every pending tool call without replaying work, and pers
   expect(await recovered.interrupt(sessionId, turnId)).toBe("stale");
 });
 
-test("interrupt preserves queued input and attachments for a fresh turn without reporting the session idle", async () => {
+test("interrupt preserves queued input and attachments for a fresh turn after the old one ends", async () => {
   let release!: () => void;
   const held = new Promise<void>((resolve) => { release = resolve; });
   const model = fakeModel(async () => { await held; return { text: "Old" }; }, say("Next"));
@@ -130,7 +130,7 @@ test("interrupt preserves queued input and attachments for a fresh turn without 
   const starts = events.filter((event) => event.type === "turn-start");
   expect(starts).toHaveLength(2);
   expect(starts[1]!.turnId).not.toBe(oldId);
-  expect(events.filter((event) => event.type === "turn-end")).toEqual([{ type: "turn-end", turnId: starts[1]!.turnId }]);
+  expect(events.filter((event) => event.type === "turn-end")).toEqual([{ type: "turn-end", turnId: oldId }, { type: "turn-end", turnId: starts[1]!.turnId }]);
   release();
 });
 
@@ -318,6 +318,38 @@ test("engine interruption keeps the slot for input already queued on the cloud s
   releaseNext();
   await vi.waitFor(async () => expect(await stepOf(engine, runId, "n_chat")).toMatchObject({ working: false, turnStatus: "idle" }));
   releaseOld();
+});
+
+test("interrupting an approval queues the cloud continuation behind an occupied harness slot", async () => {
+  let ask!: () => void;
+  let finishOther!: () => void;
+  const first = new Promise<void>((resolve) => { ask = resolve; });
+  const other = new Promise<void>((resolve) => { finishOther = resolve; });
+  const model = fakeModel(async () => { await first; return { toolCalls: [{ id: "blocked", name: "GitHub_create_repo", args: { name: "x" } }] }; }, async () => { await other; return { text: "Other done" }; }, say("Queued response"));
+  const { context, engine, workflow, agent, harness } = await setup(chat, { client: model.client, tools: fakeTools().tools });
+  await context.db.update(harnesses).set({ maxWorking: 1 }).where(eq(harnesses.id, harness.id));
+  const runId = await engine.startRun(workflow.id);
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(1));
+  await engine.sendChat(runId, "Queued input");
+  await vi.waitFor(async () => expect((await engine.db.select().from(cloudSessions))[0]!.queued).toHaveLength(1));
+  ask();
+  await pendingQuestion(engine, runId);
+  const before = await stepOf(engine, runId, "n_chat");
+  expect(before.working).toBe(false);
+  const note = await call(router.workflows.create, { name: "Other" }, { context });
+  await call(router.workflows.update, { id: note.id, name: "Other", def: buttonStep(agent.id) }, { context });
+  const otherRun = await engine.startRun(note.id);
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
+  expect(await engine.interruptChat(runId, before.turnId!)).toEqual({ outcome: "requested" });
+  await vi.waitFor(async () => expect((await stepOf(engine, runId, "n_chat")).queuedAt).not.toBeNull());
+  expect(model.inputs).toHaveLength(2);
+  expect((await stepOf(engine, runId, "n_chat")).working).toBe(false);
+  expect((await stepOf(engine, runId, "n_chat")).turnStatus).toBe("idle");
+  finishOther();
+  await until(engine, otherRun, "succeeded");
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(3));
+  expect(model.inputs[2]!.items.filter((item) => item.role === "user" && item.text === "Queued input")).toHaveLength(1);
+  await vi.waitFor(async () => expect(await stepOf(engine, runId, "n_chat")).toMatchObject({ working: false, turnStatus: "idle", queuedAt: null }));
 });
 
 test("submit_outputs in a chat asks confirm-outputs, then emits outputs-accepted", async () => {

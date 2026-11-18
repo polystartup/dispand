@@ -188,7 +188,7 @@ export function createEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEve
   const installed = deps.connector ? new InstalledTools(db, secrets, deps.connector) : undefined;
   // A cloud session's tools: the caller's (Dispand's own, in the app) and its agent's HTTP tools, called through the connector.
   const tools = installed ? combineToolCallers(deps.tools ?? noTools, installedToolCaller(db, installed, deps.filesDir)) : (deps.tools ?? noTools);
-  const cloud = new CloudRunner(db, secrets, { tools, ...(deps.client ? { client: deps.client } : {}), ...(deps.filesDir ? { filesDir: deps.filesDir } : {}) });
+  const cloud = new CloudRunner(db, secrets, { tools, claimTurn: (sessionId) => engine.claimCloudTurn(sessionId), ...(deps.client ? { client: deps.client } : {}), ...(deps.filesDir ? { filesDir: deps.filesDir } : {}) });
   const cli = new CliHarnessAdapter(db, hub, secrets);
   const engine = new Engine(
     db,

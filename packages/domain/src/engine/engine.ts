@@ -191,7 +191,7 @@ export class Engine {
     readonly db: Db,
     private readonly adapter: HarnessAdapter,
     /** Sessions run in this process (`CloudRunner`), reconciled on `recover()` under `CLOUD_SOURCE`. */
-    private readonly cloud?: { recover(going: (runId: string) => Promise<boolean>): Promise<string[]> },
+    private readonly cloud?: { recover(going: (runId: string) => Promise<boolean>): Promise<string[]>; resumeQueued?(sessionId: string): void },
     /** Where data steps publish the rows they write (`rows.stream`). */
     private readonly dataEvents?: DataEvents,
     /** Runs Tool steps (`connectorToolExecutor`); without one, they fail. */
@@ -629,6 +629,27 @@ export class Engine {
    * the rows it sends stay undelivered until they reach the session, and every reconcile of a
    * step holding a slot sends those again.
    */
+  /** Cloud input may already be delivered when an approval releases its slot. Its next turn still waits its place. */
+  async claimCloudTurn(sessionId: string): Promise<boolean> {
+    const [step] = await this.db.select().from(stepRuns).where(and(eq(stepRuns.sessionId, sessionId), eq(stepRuns.runnerId, CLOUD_SOURCE)));
+    if (!step?.harnessId) return false;
+    const out: Out[] = [];
+    const working = await this.db.transaction(async (tx) => {
+      const going = await rootGoingLocked(tx, step.runId);
+      const [current] = await tx.select().from(stepRuns).where(and(eq(stepRuns.id, step.id), eq(stepRuns.sessionId, sessionId))).for("update");
+      if (!current || !ACTIVE_STEP.includes(current.status)) return false;
+      if (!going) {
+        await this.hold(tx, step.id, { kind: "deliver" }, out);
+        return false;
+      }
+      const got = await take(tx, { id: step.id, harnessId: step.harnessId! }, "person", { kind: "deliver" });
+      if (got === "queued") await pushStep(tx, step.id, out);
+      return got === "working";
+    });
+    this.publish(out);
+    return working;
+  }
+
   private async handOver(stepId: string) {
     const [step] = await this.db.select().from(stepRuns).where(eq(stepRuns.id, stepId));
     if (!step?.working || !step.pendingAction) return;
@@ -660,7 +681,10 @@ export class Engine {
       .returning();
     if (!claimed?.sessionId) return;
     if (step.pendingAction.kind === "resume") await this.resume(claimed);
-    else await this.flush(claimed.id, claimed.sessionId);
+    else {
+      await this.flush(claimed.id, claimed.sessionId);
+      if (claimed.runnerId === CLOUD_SOURCE) this.cloud?.resumeQueued?.(claimed.sessionId);
+    }
   }
 
   /** The run's chat step queued for a slot of its harness, or handed one (or held) and not started yet. */
