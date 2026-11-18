@@ -5,7 +5,7 @@ import { nodesOf, type WorkflowDef } from "@dispand/domain/workflows/model";
 import { SHORT } from "@dispand/runner-protocol";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, CircleAlert, Loader2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useFormat } from "../../lib/format.ts";
 import { api, orpc } from "../../lib/api.ts";
@@ -52,18 +52,18 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [holding, setHolding] = useState(0);
-  const [conversationKey, setConversationKey] = useState(runId);
+  const [conversationKey, setConversationKey] = useState(0);
   const { t } = useTranslation("chat");
   const { number } = useFormat();
   const draft = useRef(0);
   const started = useRef<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (started.current !== null && runId === started.current) {
       started.current = null;
       return;
     }
     draft.current++;
-    setConversationKey(runId);
+    setConversationKey((key) => key + 1);
     setChosenSkill(null);
     setError(null);
     setSending(false);
@@ -126,7 +126,7 @@ export function ChatPanel({ workflowId, start, runId, onRunStarted, onNewConvers
       }
       const attachmentIds = message.attachments?.map((file) => file.id) ?? [];
       const quote = message.metadata?.custom.quote as QuoteInfo | undefined;
-      const words = quote ? `${quote.text.split("\n").map((line) => `> ${line}`).join("\n")}\n\n${text}` : text;
+      const words = quote ? `${text}\n\n${quote.text.split("\n").map((line) => `> ${line}`).join("\n")}` : text;
       await api.runs.sendChat({ runId: id, text: words, ...(skillId ? { skillId } : {}), ...(attachmentIds.length ? { attachmentIds } : {}) });
       void queryClient.invalidateQueries({ queryKey: orpc.runs.list.key() });
     } catch (err) {

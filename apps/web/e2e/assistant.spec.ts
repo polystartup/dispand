@@ -361,6 +361,7 @@ test("Assistant settings selects the next conversation's harness and model; chat
     await sheet.getByRole("button", { name: "Save settings" }).click();
     await expect(sheet).toHaveCount(0);
     await page.getByRole("button", { name: "New conversation", exact: true }).click();
+    await expect(chat.getByRole("button", { name: "Set up an agent", exact: true })).toBeVisible();
     await chat.getByRole("combobox", { name: "Message", exact: true }).fill("Use the default model.");
     await chat.getByRole("button", { name: "Send", exact: true }).click();
     expect((await settingsRunner.waitFor("session.start", WAIT_MS)).start.model).toBeUndefined();

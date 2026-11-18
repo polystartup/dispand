@@ -392,7 +392,7 @@ test("a quote is previewed, survives a failed send, and is included once on succ
   expect(box.value).toBe("Explain this");
   await user.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledTimes(2));
-  expect(fake.runs.sendChat.mock.calls.map(([input]) => input.text)).toEqual(Array(2).fill("> First line\n> Second line\n\nExplain this"));
+  expect(fake.runs.sendChat.mock.calls.map(([input]) => input.text)).toEqual(Array(2).fill("Explain this\n\n> First line\n> Second line"));
   await waitFor(() => expect(screen.queryByLabelText("Quoted text")).toBeNull());
 });
 
@@ -448,4 +448,26 @@ test("stock attachment submission sends held ids and restores them after failure
   await user.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledTimes(2));
   expect(fake.runs.sendChat.mock.calls.map(([input]) => input)).toEqual(Array(2).fill({ runId: "run_1", text: "Read this", attachmentIds: ["att_1"] }));
+});
+
+ test("a conversation created here gets a fresh draft when starting another", async () => {
+  fake.runs.start.mockResolvedValue({ runId: "run_1" });
+  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.runs.stream.mockImplementation(streamOf(snapshot()));
+  const user = mount(null);
+  await user.type(screen.getByLabelText("Message"), "Hello");
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(screen.getByRole<HTMLButtonElement>("button", { name: "New conversation" }).disabled).toBe(false));
+  await user.type(screen.getByLabelText("Message"), "Private draft");
+  await user.click(screen.getByRole("button", { name: "New conversation" }));
+  expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe("");
+});
+
+test("quoting keeps a native slash command at the beginning of the submitted prompt", async () => {
+  const user = mountComposer();
+  await user.click(screen.getByRole("button", { name: "Select quote" }));
+  await user.type(screen.getByLabelText("Message"), "/review");
+  fake.runs.sendChat.mockResolvedValue(undefined);
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledWith({ runId: "run_1", text: "/review\n\n> First line\n> Second line" }));
 });
