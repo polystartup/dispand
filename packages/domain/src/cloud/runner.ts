@@ -261,9 +261,14 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       for (let call = nextCall(items); call; call = nextCall(items)) {
         items.push({ role: "tool", callId: call.id, name: call.name, result: row.inFlight?.callId === call.id ? "Interrupted. The tool's completion is unknown." : "Not run: the turn was interrupted.", isError: true });
       }
-      // Accepted input remains in history, but only a later send starts another turn.
-      items.push(...row.queued.map((q): ChatItem => typeof q === "string" ? { role: "user", text: q } : { role: "user", text: q.text, files: q.files }));
-      await this.emit(sessionId, { items, queued: [], status: "idle", turnId: null, pending: null, approvedCall: null, approvedKey: null, inFlight: null }, { type: "turn-end", turnId });
+      const settled: Patch = { items, turnId: null, pending: null, approvedCall: null, approvedKey: null, inFlight: null };
+      // Like native sessions, queued input starts a new turn; stopping this one never drops it.
+      if (row.queued.length > 0) {
+        await this.write(sessionId, { ...settled, status: "running" });
+        this.kick(sessionId);
+      } else {
+        await this.emit(sessionId, { ...settled, status: "idle" }, { type: "turn-end", turnId });
+      }
       return "requested";
     });
   }

@@ -1,5 +1,5 @@
 {
-  "id": "4d754f27-b733-423a-b0c4-9bf19cad9610",
+  "id": "60e18a05-32e9-45e4-848f-c2d8ac8a3475",
   "prevId": "1e5c39f2-1481-4216-b0a0-dc10a768960c",
   "version": "7",
   "dialect": "postgresql",
@@ -5205,6 +5205,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "interrupt_after_position": {
+          "name": "interrupt_after_position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         },
         "queued_at": {
           "name": "queued_at",

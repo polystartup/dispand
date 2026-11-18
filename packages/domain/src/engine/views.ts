@@ -13,9 +13,9 @@ export function runView(r: RunRow) {
   return { id, source, workflowId, version, agentId, deletedAgentName, triggerId, status, trigger, error, createdAt, finishedAt };
 }
 export function stepView(s: StepRow) {
-  const { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, turnStatus } = s;
+  const { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, turnStatus, turnId, interruptible } = s;
   // prompt: as the step got it, values filled in (for the owner to debug a run); null until started.
-  return { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, turnStatus, interactive: s.start?.interactive ?? false, prompt: s.start?.prompt ?? null, ...(s.cliSessionId ? { resumable: true as const } : {}) };
+  return { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, turnStatus, turnId, interruptible, interactive: s.start?.interactive ?? false, prompt: s.start?.prompt ?? null, ...(s.cliSessionId ? { resumable: true as const } : {}) };
 }
 export function messageView(m: MessageRow) {
   const { id, runId, stepRunId, role, text, createdAt, files } = m;

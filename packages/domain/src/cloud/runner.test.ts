@@ -1,4 +1,5 @@
 import { call } from "@orpc/server";
+import type { HarnessEvent } from "@dispand/runner-protocol";
 import { currentTraceId, stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { eq } from "drizzle-orm";
@@ -68,7 +69,7 @@ test.each([false, true])("interrupt fences late model output and errors, preserv
   await runner.send(sessionId, "First input");
   await vi.waitFor(() => expect(events).toContainEqual({ type: "text", delta: "Partial answer" }));
   const first = (await session()).turnId!;
-  expect(await runner.interrupt(sessionId, first)).toBe(true);
+  expect(await runner.interrupt(sessionId, first)).toBe("requested");
   expect(await session()).toMatchObject({ status: "idle", pending: null, inFlight: null });
   expect((await session()).items).toContainEqual({ role: "user", text: "First input" });
   expect((await session()).items).toContainEqual({ role: "assistant", text: "Partial answer", toolCalls: [] });
@@ -95,8 +96,7 @@ test("interrupt settles every pending tool call without replaying work, and pers
   await runner.send(sessionId, "Do two things");
   await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
   const turnId = (await session()).turnId!;
-  await runner.send(sessionId, "Input accepted before stop", [{ id: "fil_kept", name: "notes.txt" }]);
-  expect(await runner.interrupt(sessionId, turnId)).toBe(true);
+  expect(await runner.interrupt(sessionId, turnId)).toBe("requested");
   expect((await session()).items.filter((item) => item.role === "tool")).toEqual([
     { role: "tool", callId: "one", name: "Tool", result: "Interrupted. The tool's completion is unknown.", isError: true },
     { role: "tool", callId: "two", name: "Tool", result: "Not run: the turn was interrupted.", isError: true },
@@ -108,9 +108,30 @@ test("interrupt settles every pending tool call without replaying work, and pers
   expect(invoke).toHaveBeenCalledTimes(1);
   await recovered.send(sessionId, "Continue now");
   await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
-  expect(model.inputs[1]!.items).toContainEqual({ role: "user", text: "Input accepted before stop", files: [{ id: "fil_kept", name: "notes.txt" }] });
   await vi.waitFor(async () => expect((await session()).status).toBe("idle"));
-  expect(await recovered.interrupt(sessionId, turnId)).toBe(false);
+  expect(await recovered.interrupt(sessionId, turnId)).toBe("stale");
+});
+
+test("interrupt preserves queued input and attachments for a fresh turn without reporting the session idle", async () => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const model = fakeModel(async () => { await held; return { text: "Old" }; }, say("Next"));
+  const { runner, sessionId, session } = await cloudChat(model);
+  const events: HarnessEvent[] = [];
+  runner.onEvent(async (_id, event) => { events.push(event); });
+  await runner.send(sessionId, "First");
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(1));
+  const oldId = (await session()).turnId!;
+  await runner.send(sessionId, "Queued input", [{ id: "fil_kept", name: "notes.txt" }]);
+  expect(await runner.interrupt(sessionId, oldId)).toBe("requested");
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
+  expect(model.inputs[1]!.items).toContainEqual({ role: "user", text: "Queued input", files: [{ id: "fil_kept", name: "notes.txt" }] });
+  await vi.waitFor(async () => expect((await session()).status).toBe("idle"));
+  const starts = events.filter((event) => event.type === "turn-start");
+  expect(starts).toHaveLength(2);
+  expect(starts[1]!.turnId).not.toBe(oldId);
+  expect(events.filter((event) => event.type === "turn-end")).toEqual([{ type: "turn-end", turnId: starts[1]!.turnId }]);
+  release();
 });
 
 test("interrupt clears a pending approval and ignores its late answer", async () => {
@@ -119,7 +140,7 @@ test("interrupt clears a pending approval and ignores its late answer", async ()
   await runner.send(sessionId, "Create something");
   await vi.waitFor(async () => expect((await session()).status).toBe("waiting"));
   const pending = await session();
-  expect(await runner.interrupt(sessionId, pending.turnId!)).toBe(true);
+  expect(await runner.interrupt(sessionId, pending.turnId!)).toBe("requested");
   await runner.answer(sessionId, pending.pending!.questionId, { kind: "permission", decision: "allow" });
   expect((await session()).status).toBe("idle");
   expect((await session()).pending).toBeNull();
@@ -143,7 +164,7 @@ test("a send during turn-end delivery starts a fresh identity and rejects the pr
   await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
   expect(started).toHaveLength(2);
   expect(started[1]).not.toBe(started[0]);
-  expect(await runner.interrupt(sessionId, started[0]!)).toBe(false);
+  expect(await runner.interrupt(sessionId, started[0]!)).toBe("stale");
   expect((await session()).status).toBe("running");
   finish();
   await vi.waitFor(async () => expect((await session()).status).toBe("idle"));
@@ -260,6 +281,43 @@ test("cloud chat activity starts with execution and returns to idle between turn
   await vi.waitFor(async () => expect((await stepOf(engine, runId, trigger.id)).turnStatus).toBe("idle"));
   const activity = await context.db.select().from(audit).where(eq(audit.action, "job.turn"));
   expect(activity.map((row) => row.details)).toEqual([{ status: "running" }, { status: "idle" }, { status: "running" }, { status: "idle" }]);
+});
+
+test("engine interruption withdraws a cloud approval without ending the conversation", async () => {
+  const model = fakeModel(use("GitHub_create_repo", { name: "x" }), say("Different response"));
+  const tools = fakeTools();
+  const { engine, workflow } = await setup(chat, { client: model.client, tools: tools.tools });
+  const runId = await engine.startRun(workflow.id);
+  const question = await pendingQuestion(engine, runId);
+  const before = await stepOf(engine, runId, "n_chat");
+  expect(await engine.interruptChat(runId, before.turnId!)).toEqual({ outcome: "requested" });
+  expect((await engine.db.select().from(questions).where(eq(questions.id, question.id)))[0]).toMatchObject({ status: "expired", answer: null });
+  expect(await stepOf(engine, runId, "n_chat")).toMatchObject({ sessionId: before.sessionId, status: "running", turnStatus: "idle", working: false });
+  expect(tools.calls).toEqual([]);
+  await engine.sendChat(runId, "Do something else");
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
+  await vi.waitFor(async () => expect((await stepOf(engine, runId, "n_chat")).turnStatus).toBe("idle"));
+});
+
+test("engine interruption keeps the slot for input already queued on the cloud session", async () => {
+  let releaseOld!: () => void;
+  let releaseNext!: () => void;
+  const old = new Promise<void>((resolve) => { releaseOld = resolve; });
+  const next = new Promise<void>((resolve) => { releaseNext = resolve; });
+  const model = fakeModel(async () => { await old; return { text: "Old" }; }, async () => { await next; return { text: "New" }; });
+  const { engine, workflow } = await setup(chat, { client: model.client });
+  const runId = await engine.startRun(workflow.id);
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(1));
+  const before = await stepOf(engine, runId, "n_chat");
+  await engine.sendChat(runId, "Already queued");
+  await vi.waitFor(async () => expect((await engine.db.select().from(cloudSessions))[0]!.queued).toHaveLength(1));
+  expect(await engine.interruptChat(runId, before.turnId!)).toEqual({ outcome: "requested" });
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
+  expect(await stepOf(engine, runId, "n_chat")).toMatchObject({ working: true, turnStatus: "running", sessionId: before.sessionId });
+  expect((await stepOf(engine, runId, "n_chat")).turnId).not.toBe(before.turnId);
+  releaseNext();
+  await vi.waitFor(async () => expect(await stepOf(engine, runId, "n_chat")).toMatchObject({ working: false, turnStatus: "idle" }));
+  releaseOld();
 });
 
 test("submit_outputs in a chat asks confirm-outputs, then emits outputs-accepted", async () => {

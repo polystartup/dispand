@@ -511,6 +511,8 @@ export const stepRuns = pgTable(
     turnStatus: text("turn_status").$type<TurnStatus>().notNull().default("unknown"),
     turnId: text("turn_id"),
     interruptible: boolean("interruptible").notNull().default(false),
+    // Input accepted after this boundary keeps its slot when the interrupted turn ends.
+    interruptAfterPosition: integer("interrupt_after_position"),
     // Waiting for a slot since then, served by class, then oldest first; null when not queued.
     queuedAt: timestamp("queued_at"),
     queueClass: text("queue_class").$type<QueueClass>(),

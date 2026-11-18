@@ -1,4 +1,4 @@
-import { attachmentPath, isAttachmentPath, mcpActionName, parseRule, type Answer, type ServerToRunner, type SessionFile, type SessionStart } from "@dispand/runner-protocol";
+import { attachmentPath, isAttachmentPath, mcpActionName, parseRule, type Answer, type HarnessEvent, type ServerToRunner, type SessionFile, type SessionStart } from "@dispand/runner-protocol";
 import { and, eq, inArray } from "drizzle-orm";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
@@ -17,7 +17,8 @@ import type { ClientHarness, ModelClient } from "../cloud/model-client.ts";
 import type { SecretBox } from "../secrets.ts";
 import { connectorToolExecutor, InstalledTools } from "../tools/executor.ts";
 import type { ToolConnector } from "../tools/mcp.ts";
-import { type AgentAnswerer, CLOUD_SOURCE, type CliHarness, type HarnessAdapter, type StartParams } from "./harness.ts";
+import { type AgentAnswerer, CLOUD_SOURCE, type CliHarness, type HarnessAdapter, type InterruptOutcome, type StartParams } from "./harness.ts";
+import { newId } from "../ids.ts";
 import { RoutingAdapter } from "./routing-adapter.ts";
 import { oneLine } from "../text.ts";
 
@@ -41,6 +42,7 @@ const FRAME_MARGIN_BYTES = 32 * 1024;
 
 /** CLI harnesses: sessions run on a runner, reached through the hub. */
 export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
+  private readonly interrupts = new Map<string, { runnerId: string; sessionId: string; turnId: string; finish: (outcome: InterruptOutcome) => void }>();
   constructor(
     private readonly db: Db,
     private readonly hub: RunnerHub,
@@ -142,6 +144,27 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
     return this.deliver(runnerId, { type: "session.stop", sessionId });
   }
 
+  async interrupt(sessionId: string, turnId: string): Promise<InterruptOutcome> {
+    const runnerId = await this.runnerOf(sessionId);
+    const requestId = newId("int");
+    return new Promise<InterruptOutcome>((resolve) => {
+      const timer = setTimeout(() => finish("failed"), 10_000);
+      const finish = (outcome: InterruptOutcome) => {
+        clearTimeout(timer);
+        this.interrupts.delete(requestId);
+        resolve(outcome);
+      };
+      this.interrupts.set(requestId, { runnerId, sessionId, turnId, finish });
+      void this.deliver(runnerId, { type: "session.interrupt", sessionId, turnId, requestId }).then((sent) => { if (!sent) finish("failed"); }, () => finish("failed"));
+    });
+  }
+
+  acknowledge(runnerId: string, sessionId: string, event: HarnessEvent): void {
+    if (event.type !== "interrupt-result") return;
+    const pending = this.interrupts.get(event.requestId);
+    if (pending?.runnerId === runnerId && pending.sessionId === sessionId && pending.turnId === event.turnId) pending.finish(event.outcome);
+  }
+
   private deliver(runnerId: string, msg: ServerToRunner): Promise<boolean> {
     return this.hub.send(runnerId, msg);
   }
@@ -166,15 +189,19 @@ export function createEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEve
   // A cloud session's tools: the caller's (Dispand's own, in the app) and its agent's HTTP tools, called through the connector.
   const tools = installed ? combineToolCallers(deps.tools ?? noTools, installedToolCaller(db, installed, deps.filesDir)) : (deps.tools ?? noTools);
   const cloud = new CloudRunner(db, secrets, { tools, ...(deps.client ? { client: deps.client } : {}), ...(deps.filesDir ? { filesDir: deps.filesDir } : {}) });
+  const cli = new CliHarnessAdapter(db, hub, secrets);
   const engine = new Engine(
     db,
-    new RoutingAdapter(db, new CliHarnessAdapter(db, hub, secrets), cloud),
+    new RoutingAdapter(db, cli, cloud),
     cloud,
     dataEvents,
     installed ? connectorToolExecutor(installed) : undefined,
     secrets,
   );
-  hub.onEvent((runnerId, sessionId, event, seq) => engine.onHarnessEvent(sessionId, event, { runnerId, seq }));
+  hub.onEvent((runnerId, sessionId, event, seq) => {
+    cli.acknowledge(runnerId, sessionId, event);
+    return engine.onHarnessEvent(sessionId, event, { runnerId, seq });
+  });
   hub.onCaughtUp((runnerId, liveSessions) => engine.reconcile(runnerId, liveSessions));
   cloud.onEvent((sessionId, event, seq) => engine.onHarnessEvent(sessionId, event, { runnerId: CLOUD_SOURCE, seq }));
   return engine;

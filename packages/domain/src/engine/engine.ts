@@ -50,7 +50,7 @@ import { deriveExpectedOutputs } from "../workflows/derive.ts";
 import { loopOf, nodesOf, type WorkflowDef, type WorkflowNode } from "../workflows/model.ts";
 import { renderTemplate } from "../workflows/template.ts";
 import { toolIdsOf } from "../workflows/tool-steps.ts";
-import { CLOUD_SOURCE, type ConsultTarget, type Harness, type HarnessAdapter, isCloud, type StartParams } from "./harness.ts";
+import { CLOUD_SOURCE, type ConsultTarget, type Harness, type HarnessAdapter, type InterruptOutcome, isCloud, type StartParams } from "./harness.ts";
 import { runDataStep } from "./data-step.ts";
 import { sessionTooling } from "./tooling.ts";
 import { runnerGrantCurrent, stopAsking } from "../platform/exposed.ts";
@@ -430,6 +430,55 @@ export class Engine {
     this.endSessions(sessions);
   }
 
+  /** Stops the reported turn, without ending its Job or treating a pending question as approved. */
+  async interruptChat(runId: string, turnId: string): Promise<{ outcome: InterruptOutcome }> {
+    return traces.startActiveSpan("engine.interrupt", { attributes: { "dispand.run.id": runId, "dispand.turn.id": turnId } }, async (span): Promise<{ outcome: InterruptOutcome }> => {
+      try {
+        const [run] = await this.db.select().from(runs).where(eq(runs.id, runId));
+        if (!run) throw new EngineError("NOT_FOUND", message("workflows.runNotFound"));
+        const [step] = await this.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.turnId, turnId), eq(stepRuns.turnStatus, "running"), eq(stepRuns.interruptible, true), inArray(stepRuns.status, ACTIVE_STEP)));
+        if (!ACTIVE_RUN.includes(run.status) || !step?.start?.interactive || !step.sessionId) return { outcome: "stale" };
+        const [lastInput] = await this.db.select({ position: messages.position }).from(messages).where(and(eq(messages.stepRunId, step.id), eq(messages.role, "user"))).orderBy(desc(messages.position)).limit(1);
+        const [target] = await this.db.update(stepRuns).set({ interruptAfterPosition: lastInput?.position ?? -1 }).where(and(eq(stepRuns.id, step.id), eq(stepRuns.sessionId, step.sessionId), eq(stepRuns.turnId, turnId), eq(stepRuns.interruptible, true), eq(stepRuns.turnStatus, "running"), inArray(stepRuns.status, ACTIVE_STEP))).returning();
+        if (!target) return { outcome: "stale" };
+        let outcome: InterruptOutcome;
+        try {
+          outcome = await this.adapter.interrupt?.(step.sessionId, turnId) ?? "failed";
+        } catch {
+          outcome = "failed";
+        }
+        span.setAttribute("dispand.result", outcome);
+        const out: Out[] = [];
+        await this.db.transaction(async (tx) => {
+          if (run.rootId) await tx.select({ id: roots.id }).from(roots).where(eq(roots.id, run.rootId)).for("key share");
+          await tx.select({ id: runs.id }).from(runs).where(eq(runs.id, runId)).for("update");
+          if (run.source === "agent") await recordAudit(tx, { ownerId: run.ownerId, actor: { type: "user", userId: run.ownerId }, agentId: run.agentId, jobId: runId, action: "job.turnInterrupt", resource: { type: "job", id: runId }, details: { status: outcome } });
+          if (outcome !== "requested") return;
+          await this.withdrawTurn(tx, step, turnId, out);
+        });
+        this.publish(out);
+        return { outcome };
+      } finally {
+        span.end();
+      }
+    });
+  }
+
+  private async withdrawTurn(tx: Tx, step: StepRow, turnId: string, out: Out[]) {
+    const [current] = await tx.update(stepRuns).set({ interruptible: false }).where(and(eq(stepRuns.id, step.id), eq(stepRuns.sessionId, step.sessionId!), eq(stepRuns.turnId, turnId), inArray(stepRuns.status, ACTIVE_STEP))).returning();
+    if (!current) return;
+    out.push({ type: "step", step: stepView(current) });
+    await this.expire(tx, eq(questions.stepRunId, step.id), out, "stopped");
+    await this.syncWaiting(tx, step.id, step.runId, out);
+    if (current.turnStatus === "idle" && await this.interruptedInputFinished(tx, current)) await release(tx, current, out);
+  }
+
+  private async interruptedInputFinished(tx: Tx, step: StepRow): Promise<boolean> {
+    if (step.interruptAfterPosition === null) return false;
+    const [newer] = await tx.select({ id: messages.id }).from(messages).where(and(eq(messages.stepRunId, step.id), eq(messages.role, "user"), sql`${messages.position} > ${step.interruptAfterPosition}`)).limit(1);
+    return !newer;
+  }
+
   /** Fails every open step of the run, and the run, in `tx`; returns the steps, whose sessions end once it commits (`endSessions`). */
   private async stopIn(tx: Tx, runId: string, out: Out[], reason: StopReason = "stopped"): Promise<StepRow[]> {
     const open = await tx
@@ -501,7 +550,7 @@ export class Engine {
       }
       if (refresh && chat.sessionId && !chat.resumeAfterSession && chat.cliSessionId && chat.start) {
         const sessionId = newId("ses");
-        const [updated] = await tx.update(stepRuns).set({ sessionId, turnStatus: "unknown", start: { ...chat.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: chat.sessionId, ended: false } }).where(eq(stepRuns.id, chat.id)).returning();
+        const [updated] = await tx.update(stepRuns).set({ sessionId, turnStatus: "unknown", turnId: null, interruptible: false, interruptAfterPosition: null, start: { ...chat.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: chat.sessionId, ended: false } }).where(eq(stepRuns.id, chat.id)).returning();
         chat = updated!;
       }
       // Files held for the owner become the Job's with the message that carries them.
@@ -555,7 +604,7 @@ export class Engine {
     const [reopened] = await tx.update(runs).set({ status: "running", finishedAt: null, rootId: await newRoot(tx, run.ownerId, "chat", run.id), ...(token ? { tokenHash: token.hash, tokenSealed: token.sealed } : {}) }).where(and(eq(runs.id, run.id), eq(runs.status, "succeeded"))).returning();
     if (!reopened) throw new EngineError("CLOSED", message("engine.chatOver"));
     const sessionId = newId("ses");
-    const [chat] = await tx.update(stepRuns).set({ status: "running", turnStatus: "unknown", finishedAt: null, sessionId, start: { ...step.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: step.sessionId, ended: false } }).where(eq(stepRuns.id, step.id)).returning();
+    const [chat] = await tx.update(stepRuns).set({ status: "running", turnStatus: "unknown", turnId: null, interruptible: false, interruptAfterPosition: null, finishedAt: null, sessionId, start: { ...step.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: step.sessionId, ended: false } }).where(eq(stepRuns.id, step.id)).returning();
     await recordAudit(tx, { ownerId: run.ownerId, actor: { type: "user", userId: run.ownerId }, agentId: run.agentId, jobId: run.id, action: "job.reopened", resource: { type: "job", id: run.id } });
     spanEvent("engine.reopen", { "dispand.job.id": run.id, "dispand.step.id": step.id, "dispand.session.id": sessionId });
     out.push({ type: "run", run: runView(reopened) }, { type: "step", step: stepView(chat!) });
@@ -1566,10 +1615,12 @@ export class Engine {
   }
 
   /** Execution reports own activity; receiving work or holding a slot does not prove a turn started. */
-  private async turn(tx: Tx, step: StepRow, status: TurnStatus, out: Out[]) {
+  private async turn(tx: Tx, step: StepRow, status: TurnStatus, out: Out[], activity?: { turnId: string; interruptible: boolean }) {
     if (!step.start?.interactive || !step.sessionId) return;
-    const [changed] = await tx.update(stepRuns).set({ turnStatus: status })
-      .where(and(eq(stepRuns.id, step.id), eq(stepRuns.sessionId, step.sessionId), inArray(stepRuns.status, OPEN_STEP), sql`${stepRuns.turnStatus} <> ${status}`)).returning();
+    const turnId = activity?.turnId ?? (status === "unknown" ? null : step.turnId);
+    const interruptible = activity?.interruptible ?? false;
+    const [changed] = await tx.update(stepRuns).set({ turnStatus: status, turnId, interruptible, ...(status === "unknown" || (activity && activity.turnId !== step.turnId) ? { interruptAfterPosition: null } : {}) })
+      .where(and(eq(stepRuns.id, step.id), eq(stepRuns.sessionId, step.sessionId), inArray(stepRuns.status, OPEN_STEP), or(sql`${stepRuns.turnStatus} <> ${status}`, sql`${stepRuns.turnId} IS DISTINCT FROM ${turnId}`, sql`${stepRuns.interruptible} <> ${interruptible}`))).returning();
     if (!changed) return;
     out.push({ type: "step", step: stepView(changed) });
     spanEvent("engine.turn", { "dispand.step.id": step.id, "dispand.run.id": step.runId, "dispand.turn.status": status });
@@ -1598,7 +1649,10 @@ export class Engine {
         await this.turn(tx, step, "unknown", out);
         return null;
       case "turn-start":
-        await this.turn(tx, step, "running", out);
+        await this.turn(tx, step, "running", out, event);
+        return null;
+      case "interrupt-result":
+        if (event.outcome === "requested" && event.turnId === step.turnId) await this.withdrawTurn(tx, step, event.turnId, out);
         return null;
       case "cli-session":
         await tx.update(stepRuns).set({ cliSessionId: event.cliSessionId }).where(eq(stepRuns.id, step.id));
@@ -1684,7 +1738,13 @@ export class Engine {
         return null;
       }
       case "turn-end": {
+        if (event.turnId ? event.turnId !== step.turnId : step.turnId !== null) return null;
         await this.turn(tx, step, "idle", out);
+        // The durable boundary also covers a crash after the harness stopped but before its acknowledgment.
+        if (step.turnId && step.interruptAfterPosition !== null) {
+          await this.withdrawTurn(tx, step, step.turnId, out);
+          return null;
+        }
         // A chat between turns waits for the owner's next message: it holds no slot meanwhile. A
         // message sent before this was applied (the last of the transcript) started its next turn
         // on the slot it holds: that turn's end gives it back.
@@ -2077,7 +2137,7 @@ export class Engine {
   private async complete(tx: Tx, step: StepRow, outputs: Record<string, string>, out: Out[]): Promise<boolean> {
     const [row] = await tx
       .update(stepRuns)
-      .set({ status: "succeeded", turnStatus: "idle", outputs, finishedAt: new Date() })
+      .set({ status: "succeeded", turnStatus: "idle", turnId: null, interruptible: false, interruptAfterPosition: null, outputs, finishedAt: new Date() })
       .where(and(eq(stepRuns.id, step.id), inArray(stepRuns.status, OPEN_STEP)))
       .returning();
     if (!row) return false;
@@ -2107,7 +2167,7 @@ export class Engine {
   private async fail(tx: Tx, step: StepRow, error: string, out: Out[], stop?: StopReason) {
     const [row] = await tx
       .update(stepRuns)
-      .set({ status: "failed", turnStatus: "idle", error, finishedAt: new Date() })
+      .set({ status: "failed", turnStatus: "idle", turnId: null, interruptible: false, interruptAfterPosition: null, error, finishedAt: new Date() })
       .where(and(eq(stepRuns.id, step.id), inArray(stepRuns.status, OPEN_STEP)))
       .returning();
     if (!row) return;

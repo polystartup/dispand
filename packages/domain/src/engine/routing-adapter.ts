@@ -2,7 +2,7 @@ import type { Answer } from "@dispand/runner-protocol";
 import { eq } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { stepRuns, type MessageFile } from "../db/schema.ts";
-import { type AgentAnswerer, CLOUD_SOURCE, type CliHarness, type CloudHarness, type Harness, type HarnessAdapter, isCloud, type StartParams } from "./harness.ts";
+import { type AgentAnswerer, CLOUD_SOURCE, type CliHarness, type CloudHarness, type Harness, type HarnessAdapter, type InterruptOutcome, isCloud, type StartParams } from "./harness.ts";
 
 /** Hands each session to its harness's adapter: cloud sessions to the in-process runner, CLI ones to the hub. */
 export class RoutingAdapter implements HarnessAdapter {
@@ -32,7 +32,11 @@ export class RoutingAdapter implements HarnessAdapter {
     return (source === CLOUD_SOURCE ? this.cloud : this.cli).stop(sessionId, source);
   }
 
-  private async adapterOf(sessionId: string): Promise<Pick<HarnessAdapter, "send" | "answer" | "narrowPermissions">> {
+  async interrupt(sessionId: string, turnId: string): Promise<InterruptOutcome> {
+    return (await this.adapterOf(sessionId)).interrupt?.(sessionId, turnId) ?? "failed";
+  }
+
+  private async adapterOf(sessionId: string): Promise<Pick<HarnessAdapter, "send" | "answer" | "narrowPermissions" | "interrupt">> {
     const [row] = await this.db.select({ runnerId: stepRuns.runnerId }).from(stepRuns).where(eq(stepRuns.sessionId, sessionId));
     return row?.runnerId === CLOUD_SOURCE ? this.cloud : this.cli;
   }
