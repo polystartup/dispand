@@ -78,7 +78,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   /** Set once the session has its outcome (result or error): nothing runs or is emitted after it. */
   let finished = false;
   const emit = (e: HarnessEvent) => {
-    if (!finished) sessionEmit(e);
+    if (!finished) sessionEmit(e.type === "turn-end" && turnId ? { ...e, turnId } : e);
   };
   const questions = ownerQuestions(emit);
   const ask = questions.ask;
@@ -154,14 +154,13 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   function learnTurn(id: string) {
     if (turnId) return;
     turnId = id;
-    emit({ type: "turn-start" });
+    emit({ type: "turn-start", turnId: id, interruptible: true });
     if (interrupted && rpc && threadId) void rpc.request("turn/interrupt", { threadId, turnId: id }).catch(() => undefined);
   }
 
   function turnCompleted(turn: Turn) {
-    if (!running) return;
+    if (!running || (turnId !== undefined && turn.id !== turnId)) return;
     running = false;
-    turnId = undefined;
     const wasInterrupted = interrupted;
     interrupted = false;
     outcome.turnEnded({
@@ -170,6 +169,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       text: lastText,
       queued: waiting.length > 0,
     });
+    turnId = undefined;
     void nextTurn();
   }
 
@@ -465,7 +465,22 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     },
     narrowPermissions: (servers) => { permissionsVersion++; deniedToolsState.narrow(servers); narrowUnasked(unasked, agentServers.filter((s) => s !== "job_tools"), servers); },
     answer: questions.answer,
-    interrupt: async () => {
+    interrupt: async (target) => {
+      if (target !== undefined) {
+        if (!running || target !== turnId || !rpc || !threadId) return "stale";
+        try {
+          await rpc.request("turn/interrupt", { threadId, turnId: target });
+          // The reply may follow completion and the next turn's start.
+          if (running && turnId === target) {
+            interrupted = true;
+            turnAbort.abort();
+            turnAbort = new AbortController();
+          }
+          return "requested";
+        } catch {
+          return "failed";
+        }
+      }
       // Idle: nothing to cut short, and no later turn may pass for an interrupted one.
       if (!running) return;
       interrupted = true;

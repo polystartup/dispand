@@ -12,6 +12,12 @@ import {
   type SessionStart,
 } from "./index.ts";
 
+test("targeted interrupts require a request id and turn id together", () => {
+  for (const target of [{ turnId: "turn_1" }, { requestId: "request_1" }]) {
+    expect(ServerToRunner.safeParse({ type: "session.interrupt", sessionId: "ses_1", ...target }).success).toBe(false);
+  }
+});
+
 const start: SessionStart = {
   sessionId: "ses_1",
   harness: "claude-code",
@@ -86,6 +92,7 @@ const serverMessages: ServerToRunner[] = [
     answer: { kind: "confirm-outputs", confirmed: false, feedback: "shorter" },
   },
   { type: "session.interrupt", sessionId: "ses_1" },
+  { type: "session.interrupt", sessionId: "ses_1", turnId: "turn_1", requestId: "req_1" },
   { type: "session.stop", sessionId: "ses_1" },
   { type: "ack", seq: 42 },
 ];
@@ -113,7 +120,7 @@ const runnerMessages: RunnerToServer[] = [
   ...(
     [
       { type: "cli-session", cliSessionId: "cli-123" },
-      { type: "turn-start" },
+      { type: "turn-start", turnId: "turn_1", interruptible: true },
       { type: "session-ended" },
       { type: "text", delta: "Hel" },
       { type: "tool", name: "Bash", status: "started" },
@@ -139,6 +146,8 @@ const runnerMessages: RunnerToServer[] = [
       },
       { type: "question", questionId: "q3", payload: { kind: "confirm-outputs", values: { summary: "hi" } } },
       { type: "turn-end" },
+      { type: "turn-end", turnId: "turn_1" },
+      { type: "interrupt-result", turnId: "turn_1", requestId: "req_1", outcome: "requested" },
       { type: "outputs-accepted", values: { summary: "hi" } },
       { type: "result", text: "done" },
       { type: "error", message: "boom" },

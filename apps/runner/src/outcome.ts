@@ -12,7 +12,7 @@ export type HarnessSession = {
   narrowPermissions?(servers: SessionToolPermissions[]): void;
   /** Answers a question the session emitted. */
   answer(questionId: string, answer: Answer): void;
-  interrupt(): Promise<void>;
+  interrupt(turnId?: string): Promise<"requested" | "stale" | "failed" | void>;
   /** Ends the session: the CLI exits once its current turn is done. */
   close(): void;
   /** Ends the session now with an `error` event: the CLI is stopped, queued work dropped. */

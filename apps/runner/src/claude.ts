@@ -179,18 +179,18 @@ export function startClaudeSession(
   const input = inputQueue(verbatim, new Promise<void>((resolve) => (openGate = resolve)));
   /** Set once the session has its outcome (result or error): nothing runs or is emitted after it. */
   let finished = false;
-  let reportedRunning = false;
+  let reportedTurnId: string | undefined;
+  function turnStarted() {
+    if (finished || reportedTurnId) return;
+    reportedTurnId = randomUUID();
+    sessionEmit({ type: "turn-start", turnId: reportedTurnId, interruptible: false });
+  }
   const emit = (e: HarnessEvent) => {
     if (finished) return;
-    if (e.type === "turn-start" && reportedRunning) return;
     // Tool callbacks can arrive before the SDK iterator yields the turn's init message.
-    if (!reportedRunning && (e.type === "text" || e.type === "question" || (e.type === "tool" && e.status === "started"))) {
-      reportedRunning = true;
-      sessionEmit({ type: "turn-start" });
-    }
-    if (e.type === "turn-start") reportedRunning = true;
-    if (e.type === "turn-end") reportedRunning = false;
-    sessionEmit(e);
+    if (e.type === "text" || e.type === "question" || (e.type === "tool" && e.status === "started")) turnStarted();
+    sessionEmit(e.type === "turn-end" && reportedTurnId ? { ...e, turnId: reportedTurnId } : e);
+    if (e.type === "turn-end") reportedTurnId = undefined;
   };
   const questions = ownerQuestions(emit);
   const ask = questions.ask;
@@ -514,7 +514,6 @@ export function startClaudeSession(
   }
 
   function turnEnded(msg: Extract<SDKMessage, { type: "result" }>) {
-    reportedRunning = false;
     // A turn's end leaves nothing pending for the next one.
     approval?.settle(false);
     approval = null;
@@ -529,6 +528,7 @@ export function startClaudeSession(
       text: msg.subtype === "success" ? msg.result : "",
       queued: unanswered.length > 0,
     });
+    reportedTurnId = undefined;
   }
 
   const toolNames = new Map<string, string>();
@@ -539,9 +539,9 @@ export function startClaudeSession(
           emit({ type: "cli-session", cliSessionId: msg.session_id });
           const failure = pluginFailure(msg.plugin_errors, pluginRoots);
           if (failure) finish({ type: "error", message: failure });
-          else emit({ type: "turn-start" });
+          else turnStarted();
         } else if (msg.type === "system" && msg.subtype === "session_state_changed" && (msg.state === "running" || msg.state === "requires_action")) {
-          emit({ type: "turn-start" });
+          turnStarted();
         }
         // Subagents' own text and tools stay inside the tool that runs them.
         else if (msg.type === "stream_event" && msg.parent_tool_use_id === null) {
@@ -589,7 +589,9 @@ export function startClaudeSession(
     },
     narrowPermissions: (servers) => { permissionsVersion++; denied.narrow(servers); narrowUnasked(unasked, agentServers.filter((s) => s !== "job_tools"), servers, "claude-code"); },
     answer: questions.answer,
-    interrupt: async () => {
+    interrupt: async (target) => {
+      // The SDK cannot bind its interrupt to a turn. Only legacy internal calls may use it.
+      if (target !== undefined) return target === reportedTurnId ? "failed" : "stale";
       // Idle: nothing to cut short, and no later error may pass for an interrupted turn.
       if (unanswered.length === 0) return;
       interrupted = true;

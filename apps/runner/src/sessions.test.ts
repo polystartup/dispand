@@ -83,6 +83,12 @@ const start = (sessionId: string, runKey: string, resumeCliSessionId?: string): 
 const ended = (events: [string, HarnessEvent][], sessionId: string) =>
   waitFor(() => expect(events.some(([id, e]) => id === sessionId && (e.type === "result" || e.type === "error"))).toBe(true));
 
+test("a targeted interrupt for an absent session is stale without reopening it", async () => {
+  const { sessions, events } = await setup();
+  await sessions.handle({ type: "session.interrupt", sessionId: "gone", turnId: "turn_1", requestId: "request_1" });
+  expect(events).toEqual([["gone", { type: "interrupt-result", turnId: "turn_1", requestId: "request_1", outcome: "stale" }]]);
+});
+
 test("a known session id resumes in the folder it ran in", async () => {
   const { base, events, fake, sessions, resumeMap } = await setup();
   await sessions.handle({ type: "session.start", start: start("ses_1", "run_a") });
@@ -508,13 +514,29 @@ async function codexSetup(version: string | null = "0.166.0", env?: Record<strin
   return { base, codex, events, sessions, codexStart };
 }
 
+test("targeted interrupt results identify the request without ending the session", async () => {
+  const { events, sessions, codexStart } = await codexSetup("0.166.0", { FAKE_CODEX_TURNS: JSON.stringify([[{ waitInterrupt: true }]]) });
+  await sessions.handle({ type: "session.start", start: { ...codexStart("ses_1", "run_a"), interactive: true } });
+  await waitFor(() => expect(events).toContainEqual(["ses_1", { type: "turn-start", turnId: "turn_0", interruptible: true }]));
+  await sessions.handle({ type: "session.interrupt", sessionId: "ses_1", turnId: "old", requestId: "old_request" });
+  await sessions.handle({ type: "session.interrupt", sessionId: "ses_1", turnId: "turn_0", requestId: "current_request" });
+  expect(events.filter(([, e]) => e.type === "interrupt-result")).toEqual([
+    ["ses_1", { type: "interrupt-result", turnId: "old", requestId: "old_request", outcome: "stale" }],
+    ["ses_1", { type: "interrupt-result", turnId: "turn_0", requestId: "current_request", outcome: "requested" }],
+  ]);
+  await waitFor(() => expect(events).toContainEqual(["ses_1", { type: "turn-end", turnId: "turn_0" }]));
+  await sessions.handle({ type: "session.send", sessionId: "ses_1", text: "Continue" });
+  await waitFor(() => expect(events).toContainEqual(["ses_1", { type: "turn-start", turnId: "turn_1", interruptible: true }]));
+  await sessions.handle({ type: "session.stop", sessionId: "ses_1" });
+});
+
 test("a Codex start runs on Codex, with the machine's config denied; resume only for a recorded thread", async () => {
   const { base, codex, events, sessions, codexStart } = await codexSetup();
   await sessions.handle({ type: "session.start", start: codexStart("ses_1", "run_a") });
   await ended(events, "ses_1");
   expect(events.filter(([id]) => id === "ses_1").map(([, e]) => e)).toEqual([
     { type: "cli-session", cliSessionId: "thr_1" },
-    { type: "turn-start" },
+    { type: "turn-start", turnId: "turn_0", interruptible: true },
     { type: "result", text: "" },
   ]);
   const thread = (await codex.received()).find((m) => m.method === "thread/start")!;

@@ -123,11 +123,15 @@ test("native turn evidence starts each turn once, before its text, without treat
   const { events, session } = run(start, fake.query);
   expect(events).toEqual([]);
   begin();
-  await vi.waitFor(() => expect(events.at(-1)).toEqual({ type: "turn-end" }));
-  expect(events).toEqual([{ type: "cli-session", cliSessionId: "cli-1" }, { type: "turn-start" }, { type: "text", delta: "First" }, { type: "turn-end" }]);
+  await vi.waitFor(() => expect(events.at(-1)).toEqual(expect.objectContaining({ type: "turn-end" })));
+  expect(events).toEqual([{ type: "cli-session", cliSessionId: "cli-1" }, { type: "turn-start", turnId: expect.any(String), interruptible: false }, { type: "text", delta: "First" }, expect.objectContaining({ type: "turn-end" })]);
   session.send("Next");
   await vi.waitFor(() => expect(events.filter((event) => event.type === "turn-end")).toHaveLength(2));
-  expect(events.filter((event) => event.type === "turn-start" || event.type === "turn-end")).toEqual([{ type: "turn-start" }, { type: "turn-end" }, { type: "turn-start" }, { type: "turn-end" }]);
+  expect(events.filter((event) => event.type === "turn-start" || event.type === "turn-end")).toEqual([{ type: "turn-start", turnId: expect.any(String), interruptible: false }, expect.objectContaining({ type: "turn-end" }), { type: "turn-start", turnId: expect.any(String), interruptible: false }, expect.objectContaining({ type: "turn-end" })]);
+  const starts = events.filter((event) => event.type === "turn-start");
+  const ends = events.filter((event) => event.type === "turn-end");
+  expect(starts[0]!.turnId).not.toBe(starts[1]!.turnId);
+  expect(ends.map((event) => event.turnId)).toEqual(starts.map((event) => event.turnId));
   session.close();
   await session.done;
 });
@@ -190,7 +194,7 @@ test("passes the session's options and streams text", async () => {
     await next();
   });
   const { events, session } = run({ ...start, resumeCliSessionId: "cli-0", model: "sonnet" }, fake.query);
-  await vi.waitFor(() => expect(events.at(-1)).toEqual({ type: "turn-end" }));
+  await vi.waitFor(() => expect(events.at(-1)).toEqual(expect.objectContaining({ type: "turn-end" })));
   session.close();
   await session.done;
   expect(fake.calls[0]).toMatchObject({
@@ -210,10 +214,10 @@ test("passes the session's options and streams text", async () => {
   expect((fake.calls[0]!.settings as { disableSkillShellExecution?: boolean }).disableSkillShellExecution).toBe(true);
   expect(events).toEqual([
     { type: "cli-session", cliSessionId: "cli-1" },
-    { type: "turn-start" },
+    { type: "turn-start", turnId: expect.any(String), interruptible: false },
     { type: "text", delta: "Hel" },
     { type: "text", delta: "lo" },
-    { type: "turn-end" },
+    expect.objectContaining({ type: "turn-end" }),
   ]);
 });
 
@@ -306,7 +310,7 @@ test("submit_outputs in interactive mode asks confirm-outputs and emits outputs-
   await session.done;
   expect(toolResult).toBe("confirmed");
   expect(events).toEqual([
-    { type: "turn-start" },
+    { type: "turn-start", turnId: expect.any(String), interruptible: false },
     { type: "question", questionId: expect.any(String), payload: { kind: "confirm-outputs", values: { summary: "hi" } } },
     { type: "outputs-accepted", values: { summary: "hi" } },
     { type: "result", text: "All done" },
@@ -323,7 +327,7 @@ test("feedback is returned to the agent as tool result", async () => {
   });
   const { events, session } = run(start, fake.query, () => ({ kind: "confirm-outputs", confirmed: false, feedback: "shorter" }));
   // Interactive: the turn ends and the session waits for the owner's next message.
-  await vi.waitFor(() => expect(events.at(-1)).toEqual({ type: "turn-end" }));
+  await vi.waitFor(() => expect(events.at(-1)).toEqual(expect.objectContaining({ type: "turn-end" })));
   expect(toolResult).toBe("shorter");
   expect(events.some((e) => e.type === "outputs-accepted")).toBe(false);
   session.close();
@@ -359,7 +363,7 @@ test("reminds once then fails", async () => {
   expect(prompts).toEqual(["Summarize", "Call submit_outputs with: summary", null]);
   expect(events).toEqual([
     { type: "cli-session", cliSessionId: "cli-1" },
-    { type: "turn-start" },
+    { type: "turn-start", turnId: expect.any(String), interruptible: false },
     { type: "error", message: "the agent finished without its outputs" },
   ]);
 });
@@ -402,6 +406,29 @@ test("managed MCP actions still ask in bypass mode while commands and unmanaged 
 
 const interruptedResult = { type: "result", subtype: "error_during_execution", errors: [], session_id: "cli-1" } as unknown as SDKMessage;
 
+test("Claude never sends an unfenced SDK interrupt for a targeted command", async () => {
+  let interrupted = false;
+  const fake = fakeQuery(async function* ({ next, interrupted: cut }) {
+    await next();
+    yield init;
+    await cut;
+    interrupted = true;
+    yield interruptedResult;
+    await next();
+  });
+  const { events, session } = run(start, fake.query);
+  await vi.waitFor(() => expect(events).toContainEqual({ type: "turn-start", turnId: expect.any(String), interruptible: false }));
+  const active = events.find((e) => e.type === "turn-start")!;
+  if (active.type !== "turn-start") throw new Error("missing start");
+  expect(await session.interrupt(active.turnId)).toBe("failed");
+  expect(interrupted).toBe(false);
+  await session.interrupt();
+  await vi.waitFor(() => expect(events.at(-1)).toEqual({ type: "turn-end", turnId: active.turnId }));
+  expect(interrupted).toBe(true);
+  session.close();
+  await session.done;
+});
+
 test("interrupting an interactive turn ends the turn, not the session", async () => {
   const prompts: (string | null)[] = [];
   const fake = fakeQuery(async function* ({ next, interrupted }) {
@@ -416,10 +443,10 @@ test("interrupting an interactive turn ends the turn, not the session", async ()
   const { events, session } = run(start, fake.query);
   await vi.waitFor(() => expect(events).toContainEqual({ type: "cli-session", cliSessionId: "cli-1" }));
   await session.interrupt();
-  await vi.waitFor(() => expect(events.at(-1)).toEqual({ type: "turn-end" }));
+  await vi.waitFor(() => expect(events.at(-1)).toEqual(expect.objectContaining({ type: "turn-end" })));
   session.send("go on");
   await vi.waitFor(() => expect(prompts).toEqual(["Summarize", "go on"]));
-  await vi.waitFor(() => expect(events.at(-1)).toEqual({ type: "turn-end" }));
+  await vi.waitFor(() => expect(events.at(-1)).toEqual(expect.objectContaining({ type: "turn-end" })));
   expect(events.some((e) => e.type === "error")).toBe(false);
   session.close();
   await session.done;
@@ -494,7 +521,7 @@ test("an interrupt while no turn runs doesn't turn the next error into a turn en
     await next();
   });
   const { events, session } = run(start, fake.query);
-  await vi.waitFor(() => expect(events.at(-1)).toEqual({ type: "turn-end" }));
+  await vi.waitFor(() => expect(events.at(-1)).toEqual(expect.objectContaining({ type: "turn-end" })));
   await session.interrupt();
   session.send("go on");
   await session.done;
@@ -562,7 +589,7 @@ test("an interrupt during a queued follow-up turn is passed on", async () => {
   // The follow-up was still to run: no turn end yet.
   expect(events).toEqual([]);
   await session.interrupt();
-  await vi.waitFor(() => expect(events).toEqual([{ type: "turn-end" }]));
+  await vi.waitFor(() => expect(events).toEqual([expect.objectContaining({ type: "turn-end" })]));
   session.close();
   await session.done;
 });
@@ -583,7 +610,7 @@ test("an interrupt withdraws a pending outputs confirmation: a late answer is ig
   await session.interrupt();
   await vi.waitFor(() => expect(toolResult).not.toBe(""));
   session.answer(question.type === "question" ? question.questionId : "", { kind: "confirm-outputs", confirmed: true });
-  await vi.waitFor(() => expect(events.at(-1)).toEqual({ type: "turn-end" }));
+  await vi.waitFor(() => expect(events.at(-1)).toEqual(expect.objectContaining({ type: "turn-end" })));
   expect(toolResult).not.toBe("confirmed");
   expect(events.some((e) => e.type === "outputs-accepted")).toBe(false);
   session.close();
@@ -711,13 +738,13 @@ test("a chat with an empty prompt sends no empty turn: the owner's first message
   });
   const { events, session } = run({ ...start, prompt: "" }, fake.query);
   // Waits between turns until the message comes: its slot goes back.
-  expect(events).toEqual([{ type: "turn-end" }]);
+  expect(events).toEqual([expect.objectContaining({ type: "turn-end" })]);
   session.send("hello");
   await vi.waitFor(() => expect(events).toHaveLength(4));
   session.close();
   await session.done;
   expect(prompts).toEqual(["hello", null]);
-  expect(events).toEqual([{ type: "turn-end" }, { type: "cli-session", cliSessionId: "cli-1" }, { type: "turn-start" }, { type: "turn-end" }]);
+  expect(events).toEqual([expect.objectContaining({ type: "turn-end" }), { type: "cli-session", cliSessionId: "cli-1" }, { type: "turn-start", turnId: expect.any(String), interruptible: false }, expect.objectContaining({ type: "turn-end" })]);
 });
 
 test("a non-interactive session still runs its empty prompt as a turn", async () => {
@@ -811,7 +838,7 @@ test.each([
     await vi.waitFor(() => expect(events).toHaveLength(2));
     await session.interrupt();
     if (interactive) {
-      await vi.waitFor(() => expect(events.at(-1)).toEqual({ type: "turn-end" }));
+      await vi.waitFor(() => expect(events.at(-1)).toEqual(expect.objectContaining({ type: "turn-end" })));
       session.close();
     }
     await session.done;
@@ -845,11 +872,11 @@ test("an interrupted turn with a follow-up still queued doesn't report the sessi
   const { events, session } = run(start, fake.query);
   session.send("then this");
   await session.interrupt();
-  await vi.waitFor(() => expect(events).toEqual([{ type: "turn-end" }]));
+  await vi.waitFor(() => expect(events).toEqual([expect.objectContaining({ type: "turn-end" })]));
   session.close();
   await session.done;
   // One turn end, after the follow-up's turn: none for the cut turn while the follow-up was queued.
-  expect(events).toEqual([{ type: "turn-end" }]);
+  expect(events).toEqual([expect.objectContaining({ type: "turn-end" })]);
 });
 
 test("messages waiting for the agent are capped per session: past it, the session stops with an error", async () => {
@@ -976,7 +1003,7 @@ test("a CLI that exits without a result reports it", async () => {
   await session.done;
   expect(events).toEqual([
     { type: "cli-session", cliSessionId: "cli-1" },
-    { type: "turn-start" },
+    { type: "turn-start", turnId: expect.any(String), interruptible: false },
     { type: "error", message: "the CLI exited before the session finished" },
   ]);
 });
@@ -991,7 +1018,7 @@ test("a CLI that exits because the session was closed is no error", async () => 
   await vi.waitFor(() => expect(events).toHaveLength(2));
   session.close();
   await session.done;
-  expect(events).toEqual([{ type: "cli-session", cliSessionId: "cli-1" }, { type: "turn-start" }]);
+  expect(events).toEqual([{ type: "cli-session", cliSessionId: "cli-1" }, { type: "turn-start", turnId: expect.any(String), interruptible: false }]);
 });
 
 test("a custom command or alias spelled like a built-in never dispatches", async () => {
@@ -1195,7 +1222,7 @@ test("finished tool calls leave nothing behind", async () => {
     await next();
   });
   const { events, session } = run(start, fake.query);
-  await vi.waitFor(() => expect(events.at(-1)).toEqual({ type: "turn-end" }));
+  await vi.waitFor(() => expect(events.at(-1)).toEqual(expect.objectContaining({ type: "turn-end" })));
   expect(events.filter((e) => e.type === "tool")).toHaveLength(100);
   expect(session.toolsInFlight()).toBe(0);
   session.close();
@@ -1262,7 +1289,7 @@ test("the session's MCP servers are set before the first turn, dispand last", as
     query: fake.query,
     mcpServers: { github: { type: "http", url: "https://api.example.test/mcp", headers: { authorization: "Bearer s3cret" } } },
   });
-  await vi.waitFor(() => expect(events.at(-1)).toEqual({ type: "turn-end" }));
+  await vi.waitFor(() => expect(events.at(-1)).toEqual(expect.objectContaining({ type: "turn-end" })));
   session.close();
   await session.done;
   // Never in the CLI's options, which become its command line.

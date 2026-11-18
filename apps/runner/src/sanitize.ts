@@ -69,9 +69,13 @@ function clean(e: HarnessEvent, maxBytes: number): HarnessEvent {
     case "question":
       return { type: e.type, questionId: protocolString(e.questionId, ID), payload: payload(e.payload, maxBytes) };
     case "session-ended":
-    case "turn-start":
-    case "turn-end":
       return e;
+    case "turn-start":
+      return { type: e.type, turnId: protocolString(e.turnId, ID), interruptible: e.interruptible };
+    case "turn-end":
+      return { type: e.type, ...(e.turnId === undefined ? {} : { turnId: protocolString(e.turnId, ID) }) };
+    case "interrupt-result":
+      return { type: e.type, turnId: protocolString(e.turnId, ID), requestId: protocolString(e.requestId, ID), outcome: e.outcome };
     case "outputs-accepted":
       return { type: e.type, values: values(e.values, maxBytes) };
     case "result":

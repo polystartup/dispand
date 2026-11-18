@@ -232,6 +232,14 @@ export class Sessions {
       return started.finally(() => this.inFlight.delete(started));
     }
     const session = this.live.get(msg.sessionId);
+    if (msg.type === "session.interrupt" && msg.turnId !== undefined && msg.requestId !== undefined) {
+      let outcome: "requested" | "stale" | "failed" = "stale";
+      if (session) {
+        try { outcome = await session.interrupt(msg.turnId) ?? "failed"; }
+        catch { outcome = "failed"; }
+      }
+      return this.emit(msg.sessionId, { type: "interrupt-result", turnId: msg.turnId, requestId: msg.requestId, outcome });
+    }
     // Not running (ended, stopped, never started here): said once per session per connection,
     // which is what lets Dispand resume a lost session; nothing while the backlog is full.
     // A stop for a session that isn't here has nothing to end, and nothing for Dispand to resume.

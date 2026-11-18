@@ -19,7 +19,7 @@ export const HarnessCommands = z.array(z.object({
 })).max(1000);
 export type HarnessCommand = z.infer<typeof HarnessCommands>[number];
 
-export const PROTOCOL_VERSION = 31;
+export const PROTOCOL_VERSION = 32;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -239,7 +239,8 @@ export const ServerToRunner = z.discriminatedUnion("type", [
    */
   z.object({ type: z.literal("session.send"), sessionId: id(), text: text(), files: z.array(SessionFile).max(MAX_RESULT_FILES).optional() }),
   z.object({ type: z.literal("session.answer"), sessionId: id(), questionId: id(), answer: Answer }),
-  z.object({ type: z.literal("session.interrupt"), sessionId: id() }),
+  z.object({ type: z.literal("session.interrupt"), sessionId: id(), turnId: id().min(1).optional(), requestId: id().min(1).optional() })
+    .refine((message) => (message.turnId === undefined) === (message.requestId === undefined), "targeted interrupts require both turnId and requestId"),
   /** Ends the session now (its run was stopped): the CLI is stopped, and nothing is said back for a session that isn't running. */
   z.object({ type: z.literal("session.stop"), sessionId: id() }),
   z.object({ type: z.literal("ack"), seq: z.int().min(0).max(MAX_SEQ) }),

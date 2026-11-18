@@ -142,7 +142,7 @@ test("a session starts a thread with Dispand's profile and instructions, streams
   await s.ended();
   expect(s.events).toEqual([
     { type: "cli-session", cliSessionId: "thr_1" },
-    { type: "turn-start" },
+    { type: "turn-start", turnId: "turn_0", interruptible: true },
     { type: "text", delta: "Hel" },
     { type: "tool", name: "Shell", status: "started" },
     { type: "tool", name: "Shell", status: "done" },
@@ -525,7 +525,7 @@ test("an interrupt cuts the running turn: an interactive session waits for the n
   await waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(1));
   await waitFor(() => expect(s.events).toContainEqual({ type: "cli-session", cliSessionId: "thr_1" }));
   await s.session.interrupt();
-  await waitFor(() => expect(s.events.at(-1)).toEqual({ type: "turn-end" }));
+  await waitFor(() => expect(s.events.at(-1)).toEqual(expect.objectContaining({ type: "turn-end" })));
   expect((await s.sent("turn/interrupt"))[0]!.params).toEqual({ threadId: "thr_1", turnId: "turn_0" });
   s.session.send("Go on");
   await waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(2));
@@ -533,11 +533,37 @@ test("an interrupt cuts the running turn: an interactive session waits for the n
   await s.session.done;
 });
 
+test("a delayed targeted interrupt cannot cut a newer Codex turn", async () => {
+  const s = await run({ turns: [[{ waitInterrupt: true }], [
+    { notify: "turn/completed", params: { threadId: "$THREAD", turn: { id: "turn_0", items: [], status: "completed", error: null } } },
+    { waitInterrupt: true },
+  ]], start: { interactive: true } });
+  await waitFor(() => expect(s.events).toContainEqual({ type: "turn-start", turnId: "turn_0", interruptible: true }));
+  expect(await s.session.interrupt("turn_0")).toBe("requested");
+  await waitFor(() => expect(s.events.at(-1)).toEqual({ type: "turn-end", turnId: "turn_0" }));
+  s.session.send("Next");
+  await waitFor(() => expect(s.events).toContainEqual({ type: "turn-start", turnId: "turn_1", interruptible: true }));
+  expect(await s.session.interrupt("turn_0")).toBe("stale");
+  expect((await s.sent("turn/interrupt")).map((m) => m.params)).toEqual([{ threadId: "thr_1", turnId: "turn_0" }]);
+  expect(await s.session.interrupt("turn_1")).toBe("requested");
+  await waitFor(() => expect(s.events.filter((e) => e.type === "turn-end")).toHaveLength(2));
+  expect((await s.sent("turn/interrupt")).map((m) => m.params)).toEqual([{ threadId: "thr_1", turnId: "turn_0" }, { threadId: "thr_1", turnId: "turn_1" }]);
+  s.session.stop("test over");
+  await s.session.done;
+});
+
+test("a targeted interrupt reports a failed native request", async () => {
+  const s = await run({ turns: [[{ waitInterrupt: true }]], start: { interactive: true }, env: { FAKE_CODEX_EXIT_ON: "turn/interrupt" } });
+  await waitFor(() => expect(s.events).toContainEqual({ type: "turn-start", turnId: "turn_0", interruptible: true }));
+  expect(await s.session.interrupt("turn_0")).toBe("failed");
+  await s.session.done;
+});
+
 test("an interrupt before Codex names the turn is sent once it does", async () => {
   const s = await run({ turns: [[{ waitInterrupt: true }]], start: { interactive: true }, env: { FAKE_CODEX_TURN_START_DELAY: "300" } });
   await waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(1));
   await s.session.interrupt();
-  await waitFor(() => expect(s.events.at(-1)).toEqual({ type: "turn-end" }));
+  await waitFor(() => expect(s.events.at(-1)).toEqual(expect.objectContaining({ type: "turn-end" })));
   expect((await s.sent("turn/interrupt"))[0]!.params).toEqual({ threadId: "thr_1", turnId: "turn_0" });
   s.session.stop("test over");
   await s.session.done;
@@ -565,7 +591,7 @@ test("the prompt runs first, even when a message arrives while the thread opens"
 
 test("a chat with an empty prompt starts no turn: it waits, and the owner's first message is the first turn", async () => {
   const s = await run({ turns: [[message("Hi")]], start: { interactive: true, prompt: "" } });
-  await waitFor(() => expect(s.events).toEqual([{ type: "cli-session", cliSessionId: "thr_1" }, { type: "turn-end" }]));
+  await waitFor(() => expect(s.events).toEqual([{ type: "cli-session", cliSessionId: "thr_1" }, expect.objectContaining({ type: "turn-end" })]));
   expect(await s.sent("turn/start")).toHaveLength(0);
   s.session.send("Hello");
   await waitFor(async () => expect(await s.sent("turn/start")).toHaveLength(1));
