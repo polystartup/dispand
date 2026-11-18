@@ -486,3 +486,65 @@ test("Assistant slash picker offers installed Dispand skills and inserts an edit
   expect((await sent).postDataJSON()).toMatchObject({ json: { text: "/picker-test:picker-test with these arguments", skillId: selected.skillId } });
   await expect(page.getByText("Skill request received.", { exact: true })).toBeVisible();
 });
+
+test("an authorized record read stays inline across reload without another tool call", async ({ page }, testInfo) => {
+  await signIn(page);
+  const agent = await rpc<{ id: string; name: string; systemPrompt: string; skills: { packageId: string }[] }>(page, "agents/get", { id: ids.assistant });
+  await rpc(page, "agents/update", { id: agent.id, name: agent.name, systemPrompt: agent.systemPrompt, harnessId: ids.cloud, skillPackageIds: agent.skills.map((skill) => skill.packageId), toolIds: [] });
+  const table = await rpc<{ id: string; fields: { id: string }[] }>(page, "tables/create", { name: "Contract reviews" });
+  const nameId = table.fields[0]!.id;
+  const summary = await rpc<{ id: string }>(page, "fields/create", { tableId: table.id, name: "Summary", type: "long-text" });
+  const tasks = await rpc<{ id: string }>(page, "fields/create", { tableId: table.id, name: "Open tasks", type: "number" });
+  const reviewed = await rpc<{ id: string }>(page, "fields/create", { tableId: table.id, name: "Reviewed", type: "checkbox" });
+  const row = await rpc<{ id: string }>(page, "rows/create", { tableId: table.id, values: {
+    [nameId]: "Supplier renewal",
+    [summary.id]: "Review the renewal terms before approval.",
+    [tasks.id]: 0,
+    [reviewed.id]: false,
+  } });
+  const before = model!.requests.length;
+  model!.script(
+    use("rows_get", { id: row.id }, "I’ll read the saved contract review."),
+    () => ({ text: "The saved record is shown above." }),
+  );
+  await page.goto("/assistant?run=new");
+  const chat = page.getByRole("region", { name: "Stem", exact: true });
+  await chat.getByLabel("Message", { exact: true }).fill("Show the supplier renewal record.");
+  await chat.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(chat.getByText("The saved record is shown above.", { exact: true })).toBeVisible();
+  const record = chat.getByRole("button", { name: "Record result", exact: true });
+  await expect(record).toHaveAttribute("aria-expanded", "true");
+  await expect(chat.getByText("Supplier renewal", { exact: true })).toBeVisible();
+  await expect(chat.getByText("Review the renewal terms before approval.", { exact: true })).toBeVisible();
+  await expect(chat.getByText("Open tasks", { exact: true })).toBeVisible();
+  await expect(chat.getByText("0", { exact: true })).toBeVisible();
+  await expect(chat.getByText("No", { exact: true })).toBeVisible();
+  expect(model!.requests).toHaveLength(before + 2);
+  expect(lastResult<{ id: string }>(model!.requests.at(-1)!)).toMatchObject({ id: row.id });
+  const runId = new URL(page.url()).searchParams.get("run")!;
+  const reads = () => rpc<{ rows: { result: string; details: { tool?: string } }[] }>(page, "audit/list", { jobId: runId, action: "platform.call" });
+  expect((await reads()).rows.filter((entry) => entry.details.tool === "rows_get")).toEqual([expect.objectContaining({ result: "ok" })]);
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await record.scrollIntoViewIfNeeded();
+    await expect(record).toBeInViewport();
+    await expect(chat.getByText("Supplier renewal", { exact: true })).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`chat-record-${viewport.width === 1440 ? "desktop" : "phone"}.png`), animations: "disabled" });
+  }
+  await record.focus();
+  await page.keyboard.press("Enter");
+  await expect(record).toHaveAttribute("aria-expanded", "false");
+  await page.keyboard.press("Space");
+  await expect(chat.getByText("Supplier renewal", { exact: true })).toBeVisible();
+  await rpc(page, "rows/update", { id: row.id, values: { [nameId]: "Changed after the read" } });
+  let liveReads = 0;
+  page.on("request", (request) => { if (request.url().endsWith("/api/rpc/rows/get")) liveReads++; });
+  await page.reload();
+  await expect(chat.getByRole("button", { name: "Record result", exact: true })).toHaveCount(1);
+  await expect(chat.getByText("Supplier renewal", { exact: true })).toBeVisible();
+  await expect(chat.getByText("Changed after the read", { exact: true })).toHaveCount(0);
+  expect(model!.requests).toHaveLength(before + 2);
+  expect((await reads()).rows.filter((entry) => entry.details.tool === "rows_get")).toHaveLength(1);
+  expect(liveReads).toBe(0);
+});
