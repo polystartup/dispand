@@ -327,6 +327,12 @@ const sendChat = owner
     await context.engine.sendChat(input.runId, input.text, input.skillId, input.attachmentIds ?? []).catch(engineError);
   });
 
+const interruptChat = owner.input(z.object({ runId: z.string(), turnId: z.string().min(1).max(256) })).handler(async ({ input, context }) => {
+  if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
+  await requireRun(context.db, context.ownerId, input.runId);
+  return context.engine.interruptChat(input.runId, input.turnId).catch(engineError);
+});
+
 /** Stops a run or a Job still going: its open steps fail with "Stopped" and its sessions end. */
 const stop = owner.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
   await requireRun(context.db, context.ownerId, input.runId);
@@ -440,4 +446,4 @@ const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agent
   return rows.map((r) => ({ ...runView(r), workflowName: r.workflowId ? (names.get(r.workflowId) ?? null) : null, queued: queued.has(r.id), title: titles.get(r.id) ?? null, ...marks.get(r.id)! }));
 });
 
-export const runs = { start, sendChat, stop, get: getRun, stream, list: listRuns };
+export const runs = { start, sendChat, interruptChat, stop, get: getRun, stream, list: listRuns };

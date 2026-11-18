@@ -11,6 +11,7 @@ export const AUDIT_ACTIONS = [
   "job.queued",
   "job.started",
   "job.turn",
+  "job.turnInterrupt",
   "job.reopened",
   "job.waiting",
   "job.finished",

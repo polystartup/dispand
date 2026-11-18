@@ -138,6 +138,7 @@ test("cannot reference another owner's agent, workflow or run", async () => {
   for (const procedure of [
     () => call(router.runs.get, { runId }, { context: other }),
     () => call(router.runs.sendChat, { runId, text: "x" }, { context: other }),
+    () => call(router.runs.interruptChat, { runId, turnId: "turn_a" }, { context: other }),
     () => call(router.runs.list, { workflowId: wf.id }, { context: other }),
     () => call(router.workflows.delete, { id: wf.id }, { context: other }),
   ]) {
@@ -173,6 +174,7 @@ test("workflow and run procedures require the owner's session", async () => {
     () => call(router.runs.list, { workflowId: "x" }, { context }),
     () => call(router.runs.list, {}, { context }),
     () => call(router.runs.sendChat, { runId: "x", text: "a" }, { context }),
+    () => call(router.runs.interruptChat, { runId: "x", turnId: "turn_a" }, { context }),
   ]) {
     await expect(procedure()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   }

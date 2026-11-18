@@ -30,6 +30,7 @@
       "queued": "Job mis en file pour son harnais",
       "started": "Job démarré",
       "turn": "Activité du tour du Job modifiée",
+      "turnInterrupt": "Arrêt demandé pour une réponse du Job",
       "reopened": "Job rouvert",
       "waiting": "Job en attente d’une réponse",
       "finished": "Job terminé",

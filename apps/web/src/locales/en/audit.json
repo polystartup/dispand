@@ -30,6 +30,7 @@
       "queued": "Job queued for its harness",
       "started": "Job started",
       "turn": "Job turn activity changed",
+      "turnInterrupt": "Stop requested for a Job response",
       "reopened": "Job reopened",
       "waiting": "Job waiting for an answer",
       "finished": "Job finished",
