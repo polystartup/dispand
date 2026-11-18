@@ -69,7 +69,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   }).data?.def;
   const jobDef = useQuery({
     ...orpc.jobs.def.queryOptions({ input: { runId: runId ?? "" } }),
-    enabled: !workflowId && !!runId,
+    enabled: active && !workflowId && !!runId,
     staleTime: Infinity,
   }).data;
   const runDef = workflowId ? versionDef : jobDef;
