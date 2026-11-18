@@ -254,6 +254,6 @@ test("a pending proposal decline cannot clear an already-visited conversation's 
   expect(fake.runs.sendChat).not.toHaveBeenCalled();
   show([{ surfaceKey: "left", runId: "run_1" }]);
   await waitFor(() => expect(box().value).toBe(""));
-  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Approve" }).disabled).toBe(false);
+  expect((await screen.findByRole<HTMLButtonElement>("button", { name: "Approve" })).disabled).toBe(false);
   expect(fake.questions.answer).toHaveBeenCalledTimes(1);
 });
