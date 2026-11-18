@@ -170,6 +170,41 @@ test("a send during turn-end delivery starts a fresh identity and rejects the pr
   await vi.waitFor(async () => expect((await session()).status).toBe("idle"));
 });
 
+test("a steer during the turn's last model call joins that turn: the turn goes on with it and ends once", async () => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const model = fakeModel(async () => { await held; return { text: "First answer" }; }, say("Steered answer"));
+  const { runner, sessionId, session } = await cloudChat(model);
+  const events: CloudEvent[] = [];
+  runner.onEvent(async (_id, event) => { events.push(event); });
+  await runner.send(sessionId, "First");
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(1));
+  const turnId = (await session()).turnId!;
+  expect(await runner.steer(sessionId, turnId, "msg_1", "Also this")).toBe(true);
+  release();
+  await vi.waitFor(async () => expect((await session()).status).toBe("idle"));
+  expect(model.inputs[1]!.items.slice(-2)).toEqual([{ role: "assistant", text: "First answer", toolCalls: [], raw: { fake: true } }, { role: "user", text: "Also this" }]);
+  expect(events).toContainEqual({ type: "steer-result", turnId, requestId: "msg_1", outcome: "steered" });
+  expect(events.filter((e) => e.type === "turn-start")).toEqual([{ type: "turn-start", turnId, interruptible: true }]);
+  expect(events.filter((e) => e.type === "turn-end")).toEqual([{ type: "turn-end", turnId }]);
+});
+
+test("a steer for a turn that already ended is the next message: it starts a turn of its own", async () => {
+  const model = fakeModel(say("First answer"), say("Next answer"));
+  const { runner, sessionId, session } = await cloudChat(model);
+  const events: CloudEvent[] = [];
+  runner.onEvent(async (_id, event) => { events.push(event); });
+  await runner.send(sessionId, "First");
+  await vi.waitFor(async () => expect((await session()).status).toBe("idle"));
+  const [ended] = events.filter((e) => e.type === "turn-end");
+  expect(await runner.steer(sessionId, ended!.turnId!, "msg_1", "Late")).toBe(true);
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
+  await vi.waitFor(async () => expect((await session()).status).toBe("idle"));
+  expect(events).toContainEqual({ type: "steer-result", turnId: ended!.turnId, requestId: "msg_1", outcome: "queued" });
+  expect(model.inputs[1]!.items.at(-1)).toEqual({ role: "user", text: "Late" });
+  expect(events.filter((e) => e.type === "turn-start")).toHaveLength(2);
+});
+
 const buttonStep = (agentId: string): WorkflowDef => ({
   trigger: { type: "manual", field: { id: "n_go", key: "go", type: "button", label: "Go" } },
   steps: [{ id: "n_note", key: "note", type: "agent", name: "Note", agentId, prompt: "Write a note." }],

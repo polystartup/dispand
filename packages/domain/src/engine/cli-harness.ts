@@ -135,6 +135,10 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
     return this.deliver(await this.runnerOf(sessionId), { type: "session.send", sessionId, ...chatFiles(text, files) });
   }
 
+  async steer(sessionId: string, turnId: string, requestId: string, text: string, files: MessageFile[] = []): Promise<boolean> {
+    return this.deliver(await this.runnerOf(sessionId), { type: "session.send", sessionId, ...chatFiles(text, files), steer: { turnId, requestId } });
+  }
+
   async answer(sessionId: string, questionId: string, answer: Answer, by?: AgentAnswerer): Promise<boolean> {
     // The protocol's answer has no answerer: an agent's says it in its own words.
     return this.deliver(await this.runnerOf(sessionId), { type: "session.answer", sessionId, questionId, answer: by ? attributed(answer, by.name) : answer });

@@ -24,6 +24,11 @@ export class RoutingAdapter implements HarnessAdapter {
     return (await this.adapterOf(sessionId)).send(sessionId, text, files);
   }
 
+  async steer(sessionId: string, turnId: string, requestId: string, text: string, files?: MessageFile[]): Promise<boolean> {
+    const adapter = await this.adapterOf(sessionId);
+    return adapter.steer ? adapter.steer(sessionId, turnId, requestId, text, files) : adapter.send(sessionId, text, files);
+  }
+
   async answer(sessionId: string, questionId: string, answer: Answer, by?: AgentAnswerer): Promise<boolean> {
     return (await this.adapterOf(sessionId)).answer(sessionId, questionId, answer, by);
   }
@@ -36,7 +41,7 @@ export class RoutingAdapter implements HarnessAdapter {
     return (await this.adapterOf(sessionId)).interrupt?.(sessionId, turnId) ?? "failed";
   }
 
-  private async adapterOf(sessionId: string): Promise<Pick<HarnessAdapter, "send" | "answer" | "narrowPermissions" | "interrupt">> {
+  private async adapterOf(sessionId: string): Promise<Pick<HarnessAdapter, "send" | "steer" | "answer" | "narrowPermissions" | "interrupt">> {
     const [row] = await this.db.select({ runnerId: stepRuns.runnerId }).from(stepRuns).where(eq(stepRuns.sessionId, sessionId));
     return row?.runnerId === CLOUD_SOURCE ? this.cloud : this.cli;
   }

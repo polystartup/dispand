@@ -37,6 +37,7 @@ const cases: Record<HarnessEvent["type"], unknown> = {
   "turn-start": { type: "turn-start", turnId: "turn_1", interruptible: true },
   "turn-end": { type: "turn-end", turnId: "turn_1" },
   "interrupt-result": { type: "interrupt-result", turnId: "turn_1", requestId: "req_1", outcome: "requested" },
+  "steer-result": { type: "steer-result", turnId: bad(300), requestId: bad(300), outcome: "steered" },
   "session-ended": { type: "session-ended" },
   "outputs-accepted": { type: "outputs-accepted", values: { summary: huge } },
   result: { type: "result", text: huge },

@@ -34,6 +34,15 @@ export function isCloud(h: Harness): h is CloudHarness {
 }
 
 /**
+ * Whether the harness steers (`HarnessAdapter.steer`): a message joins the turn running now. Codex
+ * does (`turn/steer`), and so does a cloud session (at its next model call). Claude Code can't
+ * promise it: its CLI takes a message into a turn only between tool rounds, else after the turn.
+ */
+export function canSteer(h: Harness): boolean {
+  return isCloud(h) || h.kind === "codex";
+}
+
+/**
  * What the engine decides about a session; the harness adds where and how it runs. `runKey` names a per-run directory.
  * Skills and MCP servers aren't sent yet: every start carries none.
  */
@@ -63,6 +72,12 @@ export interface HarnessAdapter<H extends Harness = Harness> {
   start(harness: H, start: StartParams): Promise<boolean>;
   /** `files`: what the person attached to this chat message, attachments of the session's Job. */
   send(sessionId: string, text: string, files?: MessageFile[]): Promise<boolean>;
+  /**
+   * Sends a message that joins turn `turnId` while it runs, where the harness can (`canSteer`);
+   * otherwise it goes like `send`, once either way. A `steer-result` event with `requestId` then
+   * says whether it joined the turn (`steered`) or went as the next message (`queued`).
+   */
+  steer?(sessionId: string, turnId: string, requestId: string, text: string, files?: MessageFile[]): Promise<boolean>;
   narrowPermissions?(sessionId: string, db?: Db): Promise<boolean>;
   /** `by`: the agent that gave it (`inbox`), which the session is told with the answer; none for a person's. */
   answer(sessionId: string, questionId: string, answer: Answer, by?: AgentAnswerer): Promise<boolean>;

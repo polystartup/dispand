@@ -1749,6 +1749,8 @@ export class Engine {
         }
         await this.turn(tx, step, "running", out, event);
         return null;
+      case "steer-result":
+        return null;
       case "interrupt-result":
         if (event.outcome === "requested" && event.turnId === step.turnId) await this.withdrawTurn(tx, step, event.turnId, out);
         return null;

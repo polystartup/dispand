@@ -19,6 +19,10 @@
 //   (a server request, ids "r0", "r1"..., waited on), `{ waitInterrupt: true }` (until
 //   `turn/interrupt`; the turn ends "interrupted") or `{ fail: "<message>" }` (it ends "failed").
 //   "$THREAD", "$TURN" and "$CWD" (its working directory) in any string are replaced. Turns past the array just complete.
+// - FAKE_CODEX_STEER: how `turn/steer` on the running turn goes: by default it is taken and its
+//   user message shown (`item/started`, `clientId` set); "drop": taken, never shown (as Codex
+//   drops it on an interrupt); "refuse": refused; "end": the turn completes, then it is refused.
+//   A steer for another turn than the running one is refused.
 import { appendFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
@@ -55,6 +59,7 @@ let turnCount = 0;
 let requestCount = 0;
 const replies = new Map<string, () => void>();
 let onInterrupt: (() => void) | undefined;
+let activeTurn: string | undefined;
 
 async function play(steps: Step[], threadId: string, turnId: string) {
   const fill = (v: unknown) => JSON.parse(JSON.stringify(v ?? {}).replaceAll("$THREAD", threadId).replaceAll("$TURN", turnId).replaceAll("$CWD", process.cwd())) as unknown;
@@ -77,6 +82,7 @@ async function play(steps: Step[], threadId: string, turnId: string) {
       error = { message: step.fail };
     }
   }
+  activeTurn = undefined;
   send({ method: "turn/completed", params: { threadId, turn: { id: turnId, items: [], status, error } } });
 }
 
@@ -110,12 +116,23 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     const turn = turns[turnCount++] ?? [];
     const delay = Number(env.FAKE_CODEX_TURN_START_DELAY ?? 0);
     const begin = () => {
+      activeTurn = turnId;
       reply({ turn: { id: turnId, items: [], status: "inProgress", error: null } });
       send({ method: "turn/started", params: { threadId: msg.params?.threadId, turn: { id: turnId } } });
       void play(turn, msg.params?.threadId as string, turnId);
     };
     if (delay > 0) setTimeout(begin, delay);
     else begin();
+  } else if (msg.method === "turn/steer") {
+    const refuse = () => send({ id: msg.id, error: { code: -32600, message: "no active turn to steer" } });
+    if (activeTurn === undefined || activeTurn !== msg.params?.expectedTurnId || env.FAKE_CODEX_STEER === "refuse") refuse();
+    else if (env.FAKE_CODEX_STEER === "end") {
+      onInterrupt?.();
+      setImmediate(refuse);
+    } else {
+      reply({ turnId: activeTurn });
+      if (env.FAKE_CODEX_STEER !== "drop") send({ method: "item/started", params: { threadId: msg.params?.threadId, turnId: activeTurn, item: { type: "userMessage", id: `u${requestCount++}`, clientId: msg.params?.clientUserMessageId, content: msg.params?.input } } });
+    }
   } else if (msg.method === "turn/interrupt") {
     reply({});
     onInterrupt?.();

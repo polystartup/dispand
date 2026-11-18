@@ -74,6 +74,8 @@ function clean(e: HarnessEvent, maxBytes: number): HarnessEvent {
       return { type: e.type, turnId: protocolString(e.turnId, ID), interruptible: e.interruptible };
     case "turn-end":
       return { type: e.type, ...(e.turnId === undefined ? {} : { turnId: protocolString(e.turnId, ID) }) };
+    case "steer-result":
+      return { type: e.type, turnId: protocolString(e.turnId, ID), requestId: protocolString(e.requestId, ID), outcome: e.outcome };
     case "interrupt-result":
       return { type: e.type, turnId: protocolString(e.turnId, ID), requestId: protocolString(e.requestId, ID), outcome: e.outcome };
     case "outputs-accepted":

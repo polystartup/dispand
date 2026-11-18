@@ -3,7 +3,7 @@ import { mkdtemp, readdir, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Options, query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { type HarnessEvent, MAX_LIVE_SESSIONS, type SessionStart } from "@dispand/runner-protocol";
+import { type HarnessEvent, MAX_LIVE_SESSIONS, SESSION_NOT_RUNNING, type SessionStart } from "@dispand/runner-protocol";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import { Sessions, type SessionsOptions } from "./sessions.ts";
 import { clearSessions, SkillsRefused, sessionPluginsDir, unlock } from "./skills.ts";
@@ -528,6 +528,34 @@ test("targeted interrupt results identify the request without ending the session
   await sessions.handle({ type: "session.send", sessionId: "ses_1", text: "Continue" });
   await waitFor(() => expect(events).toContainEqual(["ses_1", { type: "turn-start", turnId: "turn_1", interruptible: true }]));
   await sessions.handle({ type: "session.stop", sessionId: "ses_1" });
+});
+
+test("a steer reports whether it joined the running Codex turn; one for an ended turn goes as the next message", async () => {
+  const { events, sessions, codexStart } = await codexSetup("0.166.0", { FAKE_CODEX_TURNS: JSON.stringify([[{ waitInterrupt: true }]]) });
+  await sessions.handle({ type: "session.start", start: { ...codexStart("ses_1", "run_a"), interactive: true } });
+  await waitFor(() => expect(events).toContainEqual(["ses_1", { type: "turn-start", turnId: "turn_0", interruptible: true }]));
+  await sessions.handle({ type: "session.send", sessionId: "ses_1", text: "Also this", steer: { turnId: "turn_0", requestId: "msg_1" } });
+  await sessions.handle({ type: "session.send", sessionId: "ses_1", text: "Later", steer: { turnId: "turn_old", requestId: "msg_2" } });
+  // Each settles on its own: the stale one at once, the other once Codex shows it.
+  await waitFor(() => expect(events.filter(([, e]) => e.type === "steer-result")).toEqual(expect.arrayContaining([
+    ["ses_1", { type: "steer-result", turnId: "turn_0", requestId: "msg_1", outcome: "steered" }],
+    ["ses_1", { type: "steer-result", turnId: "turn_old", requestId: "msg_2", outcome: "queued" }],
+  ])));
+  expect(events.filter(([, e]) => e.type === "steer-result")).toHaveLength(2);
+  await sessions.handle({ type: "session.interrupt", sessionId: "ses_1", turnId: "turn_0", requestId: "int_1" });
+  await waitFor(() => expect(events).toContainEqual(["ses_1", { type: "turn-start", turnId: "turn_1", interruptible: true }]));
+  await sessions.handle({ type: "session.stop", sessionId: "ses_1" });
+});
+
+test("Claude Code can't steer: a steer goes as an ordinary message and says so; none reaches a session that isn't running", async () => {
+  const { events, fake, sessions } = await setup();
+  await sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), interactive: true, prompt: "" } });
+  await waitFor(() => expect(events).toContainEqual(["ses_1", { type: "turn-end" }]));
+  await sessions.handle({ type: "session.send", sessionId: "ses_1", text: "Also this", steer: { turnId: "turn_x", requestId: "msg_1" } });
+  await waitFor(() => expect(events).toContainEqual(["ses_1", { type: "steer-result", turnId: "turn_x", requestId: "msg_1", outcome: "queued" }]));
+  await waitFor(() => expect(fake.inputs).toEqual(["Also this"]));
+  await sessions.handle({ type: "session.send", sessionId: "gone", text: "Hello", steer: { turnId: "turn_x", requestId: "msg_2" } });
+  expect(events.filter(([id]) => id === "gone")).toEqual([["gone", { type: "error", message: SESSION_NOT_RUNNING }]]);
 });
 
 test("a Codex start runs on Codex, with the machine's config denied; resume only for a recorded thread", async () => {

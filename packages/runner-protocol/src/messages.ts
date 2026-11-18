@@ -19,7 +19,7 @@ export const HarnessCommands = z.array(z.object({
 })).max(1000);
 export type HarnessCommand = z.infer<typeof HarnessCommands>[number];
 
-export const PROTOCOL_VERSION = 32;
+export const PROTOCOL_VERSION = 33;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -237,7 +237,15 @@ export const ServerToRunner = z.discriminatedUnion("type", [
    * Dispand (`RUNNER_ATTACHMENTS_PATH`, by id) and writes at `path` in the run folder before the
    * text goes to the CLI; the text names those paths. Every path is `isAttachmentPath`.
    */
-  z.object({ type: z.literal("session.send"), sessionId: id(), text: text(), files: z.array(SessionFile).max(MAX_RESULT_FILES).optional() }),
+  z.object({
+    type: z.literal("session.send"), sessionId: id(), text: text(), files: z.array(SessionFile).max(MAX_RESULT_FILES).optional(),
+    /**
+     * Steers: the message joins turn `turnId` while it runs, where the CLI can (protocol 33).
+     * Otherwise (another turn or none runs, or the CLI can't steer) it goes as an ordinary
+     * message. Either way it is delivered once, and `steer-result` says which.
+     */
+    steer: z.object({ turnId: id().min(1), requestId: id().min(1) }).optional(),
+  }),
   z.object({ type: z.literal("session.answer"), sessionId: id(), questionId: id(), answer: Answer }),
   z.object({ type: z.literal("session.interrupt"), sessionId: id(), turnId: id().min(1).optional(), requestId: id().min(1).optional() })
     .refine((message) => (message.turnId === undefined) === (message.requestId === undefined), "targeted interrupts require both turnId and requestId"),

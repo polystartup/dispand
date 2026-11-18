@@ -88,6 +88,8 @@ export const HarnessEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("question"), questionId: id(), payload: QuestionPayload }),
   z.object({ type: z.literal("turn-start"), turnId: id().min(1), interruptible: z.boolean() }),
   z.object({ type: z.literal("turn-end"), turnId: id().min(1).optional() }),
+  // A steered message joined turn `turnId` (`steered`), or went as an ordinary message (`queued`).
+  z.object({ type: z.literal("steer-result"), requestId: id().min(1), turnId: id().min(1), outcome: z.enum(["steered", "queued"]) }),
   z.object({ type: z.literal("interrupt-result"), requestId: id().min(1), turnId: id().min(1), outcome: z.enum(["requested", "stale", "failed"]) }),
   // The process exited (or is absent): its transcript is safe to resume in a new session.
   z.object({ type: z.literal("session-ended") }),

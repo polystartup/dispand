@@ -252,7 +252,12 @@ export class Sessions {
       const failed = msg.files?.length && cwd ? await copyAttachments(cwd, msg.files, this.options.skills) : undefined;
       // Stopped while its files were fetched: the message goes nowhere.
       if (this.live.get(msg.sessionId) !== session || this.stopping.has(msg.sessionId)) return;
-      session.send(failed ? `${msg.text}\n\n${failed}` : msg.text);
+      const text = failed ? `${msg.text}\n\n${failed}` : msg.text;
+      if (!msg.steer) return session.send(text);
+      const { turnId, requestId } = msg.steer;
+      // Not awaited: an answer the turn waits for must not queue behind it.
+      const outcome = session.steer ? session.steer(turnId, text) : (session.send(text), Promise.resolve("queued" as const));
+      void outcome.then((outcome) => this.emit(msg.sessionId, { type: "steer-result", turnId, requestId, outcome }));
     }
     else if (msg.type === "session.answer") session.answer(msg.questionId, msg.answer);
     else await session.interrupt();
@@ -409,6 +414,8 @@ export class Sessions {
             });
       const send = session.send.bind(session);
       session.send = (text) => send(resolve(text));
+      const steer = session.steer?.bind(session);
+      if (steer) session.steer = (turnId, text) => steer(turnId, resolve(text));
       this.live.set(start.sessionId, session);
       this.folders.set(start.sessionId, cwd);
       this.staged.set(start.sessionId, fallback);

@@ -1,5 +1,6 @@
 import { skillCommands, skillInputs } from "./skills.ts";
 // One Codex session: a `codex app-server` of its own, confined by Dispand's permission profile.
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { CliRuleCall, HarnessEvent, QuestionPayload, SessionStart } from "@dispand/runner-protocol";
 import { CODEX_DENIAL_UNSUPPORTED, nativePermissions, nativeRuleForCall } from "../native-permissions.ts";
@@ -104,6 +105,11 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
    * An empty prompt (a chat whose trigger has no instructions) is no turn: the owner's first message is.
    */
   const waiting: string[] = start.prompt || !start.interactive ? [start.prompt] : [];
+  /**
+   * Steers sent to the running turn, by their client id. One joined the turn once Codex shows its
+   * user message; one the turn ended without (Codex drops it on an interrupt) is the next message.
+   */
+  const steers = new Map<string, { text: string; settle: (outcome: "steered" | "queued") => void }>();
   /** The text of the turn's last agent message: its result. */
   let lastText = "";
   const inFlight = new Map<string, string>();
@@ -141,13 +147,27 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     lastText = "";
     const started = ++turnsStarted;
     try {
-      const skills = text.startsWith("/") && !restricted ? (await rpc.request("skills/list", { cwds: [cwd], forceReload: true })).data.flatMap((entry) => entry.skills) : [];
       // Restricted: no environment, so no native tool (apply_patch included) reaches a file or a command.
-      const { turn } = await rpc.request("turn/start", { threadId, input: skillInputs(text, skills, deps.skillAliases), ...(restricted ? { environments: [] } : {}) });
+      const { turn } = await rpc.request("turn/start", { threadId, input: await inputOf(rpc, text), ...(restricted ? { environments: [] } : {}) });
       if (running && started === turnsStarted) learnTurn(turn.id);
     } catch (err) {
       finish({ type: "error", message: err instanceof Error ? err.message : String(err) });
     }
+  }
+
+  async function inputOf(rpc: CodexRpc, text: string) {
+    const skills = text.startsWith("/") && !restricted ? (await rpc.request("skills/list", { cwds: [cwd], forceReload: true })).data.flatMap((entry) => entry.skills) : [];
+    return skillInputs(text, skills, deps.skillAliases);
+  }
+
+  /** Whether the session may take `text` on top of what waits: past the limits, it ends. */
+  function admit(text: string): boolean {
+    const texts = [...waiting, ...[...steers.values()].map((s) => s.text)];
+    const bytes = texts.reduce((sum, t) => sum + Buffer.byteLength(t), 0);
+    if (texts.length < MAX_WAITING && bytes + Buffer.byteLength(text) <= MAX_WAITING_BYTES) return true;
+    // Every error is terminal for the engine, so the session ends with it.
+    finish({ type: "error", message: "too many messages waiting for the agent: the session was stopped" });
+    return false;
   }
 
   /** The running turn's id, from `turn/start`'s reply or `turn/started`: an interrupt asked before it was known is sent now. */
@@ -163,6 +183,11 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     running = false;
     const wasInterrupted = interrupted;
     interrupted = false;
+    for (const [id, steer] of steers) {
+      steers.delete(id);
+      waiting.push(steer.text);
+      steer.settle("queued");
+    }
     outcome.turnEnded({
       interrupted: wasInterrupted || turn.status === "interrupted",
       ...(turn.status === "failed" ? { error: turn.error?.message || "the turn failed" } : {}),
@@ -183,6 +208,11 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       }
       // Subagents' own text and tools stay inside the tool that runs them.
       if (n.params.threadId !== threadId) return;
+      const steer = item.type === "userMessage" && item.clientId ? steers.get(item.clientId) : undefined;
+      if (steer && item.type === "userMessage" && item.clientId) {
+        steers.delete(item.clientId);
+        steer.settle("steered");
+      }
       if (item.type === "agentMessage" && n.method === "item/completed") lastText = item.text;
       const name = toolName(item);
       if (!name) return;
@@ -456,12 +486,28 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       return skillCommands(list.data.flatMap((entry) => entry.skills));
     },
     send(text) {
-      // Every error is terminal for the engine, so the session ends with it.
-      const bytes = waiting.reduce((sum, t) => sum + Buffer.byteLength(t), 0);
-      if (waiting.length >= MAX_WAITING || bytes + Buffer.byteLength(text) > MAX_WAITING_BYTES) {
-        return finish({ type: "error", message: "too many messages waiting for the agent: the session was stopped" });
+      if (admit(text)) say(text);
+    },
+    steer(target, text) {
+      if (!admit(text)) return Promise.resolve("queued");
+      const codex = rpc;
+      if (!running || target !== turnId || !codex || !threadId) {
+        say(text);
+        return Promise.resolve("queued");
       }
-      say(text);
+      const id = randomUUID();
+      const thread = threadId;
+      return new Promise((settle) => {
+        steers.set(id, { text, settle });
+        // Refused (the turn ended, or can't be steered): the next message, unless its end already made it one.
+        void inputOf(codex, text)
+          .then((input) => codex.request("turn/steer", { threadId: thread, expectedTurnId: target, clientUserMessageId: id, input }))
+          .catch(() => {
+            if (!steers.delete(id)) return;
+            say(text);
+            settle("queued");
+          });
+      });
     },
     narrowPermissions: (servers) => { permissionsVersion++; deniedToolsState.narrow(servers); narrowUnasked(unasked, agentServers.filter((s) => s !== "job_tools"), servers); },
     answer: questions.answer,

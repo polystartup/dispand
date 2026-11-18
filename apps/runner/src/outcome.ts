@@ -8,6 +8,11 @@ import { protocolEvents, protocolString } from "./sanitize.ts";
 export type HarnessSession = {
   /** Sends the owner's next message. */
   send(text: string): void;
+  /**
+   * Steers: `text` joins turn `turnId` if it runs and the CLI takes it, else it is sent as the next
+   * message, exactly once. Settles once the CLI showed which. Absent: the CLI can't steer.
+   */
+  steer?(turnId: string, text: string): Promise<"steered" | "queued">;
   commands?(): Promise<import("@dispand/runner-protocol").HarnessCommand[]>;
   narrowPermissions?(servers: SessionToolPermissions[]): void;
   /** Answers a question the session emitted. */

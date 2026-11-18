@@ -282,12 +282,29 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     });
   }
 
-  async send(sessionId: string, text: string, files: MessageFile[] = []): Promise<boolean> {
+  send(sessionId: string, text: string, files: MessageFile[] = []): Promise<boolean> {
+    return this.queue(sessionId, text, files);
+  }
+
+  /**
+   * A message queued while turn `turnId` runs joins it at its next model call: the turn goes on
+   * until none is left (`modelCall`). Otherwise it starts the next turn.
+   */
+  steer(sessionId: string, turnId: string, requestId: string, text: string, files: MessageFile[] = []): Promise<boolean> {
+    return this.queue(sessionId, text, files, { turnId, requestId });
+  }
+
+  private async queue(sessionId: string, text: string, files: MessageFile[], steer?: { turnId: string; requestId: string }): Promise<boolean> {
     const known = await this.locked(sessionId, async () => {
       const [row] = await this.db.select().from(cloudSessions).where(eq(cloudSessions.id, sessionId));
       if (!row) return false;
       if (row.status === "done") return true;
-      await this.write(sessionId, { queued: [...row.queued, files.length ? { text, files } : text], ...(row.status === "idle" ? { status: "running" as const } : {}) });
+      const patch: Patch = { queued: [...row.queued, files.length ? { text, files } : text], ...(row.status === "idle" ? { status: "running" as const } : {}) };
+      if (!steer) await this.write(sessionId, patch);
+      else {
+        const joins = row.turnId === steer.turnId && (row.status === "running" || row.status === "waiting");
+        await this.emit(sessionId, patch, { type: "steer-result", ...steer, outcome: joins ? "steered" : "queued" });
+      }
       return true;
     });
     if (known) this.kick(sessionId);

@@ -580,6 +580,51 @@ test("an interrupt reaches the running turn, not one whose turn/start reply came
   await s.session.done;
 });
 
+const turnTexts = async (s: Awaited<ReturnType<typeof run>>) => (await s.sent("turn/start")).map((m) => (m.params as { input: { text: string }[] }).input[0]!.text);
+
+test("a steer joins the running turn once Codex shows its message, with no turn of its own", async () => {
+  const s = await run({ turns: [[{ waitInterrupt: true }]], start: { interactive: true } });
+  await waitFor(() => expect(s.events).toContainEqual({ type: "turn-start", turnId: "turn_0", interruptible: true }));
+  expect(await s.session.steer!("turn_0", "Also this")).toBe("steered");
+  expect((await s.sent("turn/steer"))[0]!.params).toMatchObject({ threadId: "thr_1", expectedTurnId: "turn_0", input: [{ type: "text", text: "Also this" }] });
+  await s.session.interrupt("turn_0");
+  await waitFor(() => expect(s.events.at(-1)).toEqual({ type: "turn-end", turnId: "turn_0" }));
+  expect(await turnTexts(s)).toEqual(["Summarize"]);
+  s.session.stop("test over");
+  await s.session.done;
+});
+
+test("a steer for another turn than the running one is the next message, without asking Codex", async () => {
+  const s = await run({ turns: [[{ waitInterrupt: true }]], start: { interactive: true } });
+  await waitFor(() => expect(s.events).toContainEqual({ type: "turn-start", turnId: "turn_0", interruptible: true }));
+  expect(await s.session.steer!("turn_old", "Later")).toBe("queued");
+  await s.session.interrupt("turn_0");
+  await waitFor(async () => expect(await turnTexts(s)).toEqual(["Summarize", "Later"]));
+  expect(await s.sent("turn/steer")).toHaveLength(0);
+  s.session.stop("test over");
+  await s.session.done;
+});
+
+test.each([
+  ["refused while the turn runs", "refuse"],
+  ["refused after the turn ended", "end"],
+  ["taken, then dropped by an interrupt before Codex showed it", "drop"],
+])("a steer %s is the next message, exactly once", async (_name, mode) => {
+  const s = await run({ turns: [[{ waitInterrupt: true }], [message("ok")]], start: { interactive: true }, env: { FAKE_CODEX_STEER: mode } });
+  await waitFor(() => expect(s.events).toContainEqual({ type: "turn-start", turnId: "turn_0", interruptible: true }));
+  const steered = s.session.steer!("turn_0", "Also this");
+  if (mode !== "end") {
+    await waitFor(async () => expect(await s.sent("turn/steer")).toHaveLength(1));
+    await s.session.interrupt("turn_0");
+  }
+  expect(await steered).toBe("queued");
+  await waitFor(async () => expect(await turnTexts(s)).toEqual(["Summarize", "Also this"]));
+  await waitFor(() => expect(s.events).toContainEqual({ type: "turn-end", turnId: "turn_1" }));
+  expect(await turnTexts(s)).toEqual(["Summarize", "Also this"]);
+  s.session.stop("test over");
+  await s.session.done;
+});
+
 test("the prompt runs first, even when a message arrives while the thread opens", async () => {
   const s = await run({ turns: [[message("One")], [message("Two")]], start: { interactive: true } });
   s.session.send("And then this");
