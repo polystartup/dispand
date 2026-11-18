@@ -16,7 +16,7 @@ export function choicesFromLines(text: string) {
   return labels.map((label) => ({ id: `c_${crypto.randomUUID().slice(0, 12)}`, label }));
 }
 
-export const selectClass = "h-9 w-full rounded-md border border-input bg-transparent px-2 text-[14px] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
+export const selectClass = "h-9 w-full rounded-md border border-input bg-transparent px-2 text-[14px] outline-none focus-visible:ring-[3px] focus-visible:ring-ring";
 
 /** The "+" header of the grid: name, type, and choices for a single select. */
 export function NewFieldPopover({ tableId, onCreated }: { tableId: string; onCreated: () => void }) {

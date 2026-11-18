@@ -1,16 +1,18 @@
-/* Design tokens: neutral palette, one accent. Light by default, dark through
+/* Design tokens: Mineral light, charcoal dark, blue actions. Light by default, dark through
    prefers-color-scheme, and `data-theme` (set from the user menu) overrides both. */
 :root {
   color-scheme: light;
-  --bg: #f5f5f7;
-  --surface: #ffffff;
+  --bg: #fbfdf8;
+  --surface: #fbfdf8;
   --surface-hover: rgba(0, 0, 0, 0.05);
   --surface-active: rgba(0, 0, 0, 0.08);
-  --fg: #1d1d1f;
-  --muted: #6e6e73;
-  --faint: #a1a1a6;
-  --line: rgba(0, 0, 0, 0.08);
-  --accent: #0071e3;
+  --fg: #273e33;
+  --muted: #596b5e;
+  --faint: #596b5e;
+  --line: #ced8c8;
+  --input: #788872;
+  --selected: #dce5f4;
+  --accent: #3c518f;
   --accent-fg: #ffffff;
   --danger: #d70015;
   --sidebar: rgba(246, 246, 248, 0.72);
@@ -23,16 +25,18 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #101012;
+    --bg: #1c1c1e;
     --surface: #1c1c1e;
     --surface-hover: rgba(255, 255, 255, 0.07);
     --surface-active: rgba(255, 255, 255, 0.11);
-    --fg: #f5f5f7;
-    --muted: #98989d;
-    --faint: #636366;
-    --line: rgba(255, 255, 255, 0.1);
-    --accent: #2997ff;
-    --accent-fg: #ffffff;
+    --fg: #f2f2f4;
+    --muted: #b7b7bd;
+    --faint: #b7b7bd;
+    --line: #45454c;
+    --input: #85858e;
+    --selected: #334b6b;
+    --accent: #b5c7f5;
+    --accent-fg: #172744;
     --danger: #ff453a;
     --sidebar: rgba(34, 34, 38, 0.72);
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
@@ -42,16 +46,18 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #101012;
+  --bg: #1c1c1e;
   --surface: #1c1c1e;
   --surface-hover: rgba(255, 255, 255, 0.07);
   --surface-active: rgba(255, 255, 255, 0.11);
-  --fg: #f5f5f7;
-  --muted: #98989d;
-  --faint: #636366;
-  --line: rgba(255, 255, 255, 0.1);
-  --accent: #2997ff;
-  --accent-fg: #ffffff;
+  --fg: #f2f2f4;
+  --muted: #b7b7bd;
+  --faint: #b7b7bd;
+  --line: #45454c;
+  --input: #85858e;
+  --selected: #334b6b;
+  --accent: #b5c7f5;
+  --accent-fg: #172744;
   --danger: #ff453a;
   --sidebar: rgba(34, 34, 38, 0.72);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
@@ -82,7 +88,8 @@
   --color-secondary-foreground: var(--fg);
   --color-primary: var(--accent);
   --color-primary-foreground: var(--accent-fg);
-  --color-input: var(--line);
+  --color-input: var(--input);
+  --color-selected: var(--selected);
   --color-destructive: var(--danger);
   --color-border: var(--line);
   --color-ring: var(--accent);
@@ -105,6 +112,11 @@ body {
   line-height: 1.5;
   letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--selected);
+  color: var(--fg);
 }
 
 :focus-visible {
