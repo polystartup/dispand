@@ -161,7 +161,7 @@ test("two widgets for the same trigger keep separate new conversations across na
 });
 
 
-test("a button trigger follows the latest Job again after navigating away", async () => {
+test("a button trigger follows the latest Job after navigation and releases selection when it becomes a chat", async () => {
   fake.triggers.get.mockResolvedValue(trigger("button"));
   fake.runs.list.mockResolvedValue([]);
   fake.jobs.def.mockResolvedValue({ trigger: { field: { type: "button" } } });
@@ -170,10 +170,20 @@ test("a button trigger follows the latest Job again after navigating away", asyn
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = (shown: boolean) => <QueryClientProvider client={client}><ChatSessionsProvider>{shown && <TriggerWidget widget={widget} editing={false} />}</ChatSessionsProvider></QueryClientProvider>;
   const rendered = render(view(true));
-  await userEvent.setup().click(await screen.findByRole("button", { name: "Sort the mail" }));
-  await waitFor(() => expect(fake.runs.stream.mock.calls.at(-1)?.[0]).toEqual({ runId: "run_a" }));
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Sort the mail" }));
+  await waitFor(() => expect([...fake.runs.stream.mock.calls, ...fake.runs.get.mock.calls].map(([input]) => input.runId)).toContain("run_a"));
   rendered.rerender(view(false));
   fake.runs.list.mockResolvedValue([{ id: "run_b" }]);
   rendered.rerender(view(true));
-  await waitFor(() => expect(fake.runs.stream.mock.calls.at(-1)?.[0]).toEqual({ runId: "run_b" }));
+  await waitFor(() => expect([...fake.runs.stream.mock.calls, ...fake.runs.get.mock.calls].map(([input]) => input.runId)).toContain("run_b"));
+  await user.click(screen.getByRole("button", { name: "Sort the mail" }));
+  fake.triggers.get.mockResolvedValue(trigger("chat"));
+  fake.jobs.def.mockResolvedValue({ trigger: { field: { type: "chat", id: "trigger_1" } }, steps: [], edges: [] });
+  await client.invalidateQueries();
+  await user.click(await screen.findByRole("button", { name: "New conversation" }));
+  fake.jobs.start.mockResolvedValue({ runId: "run_c" });
+  fake.runs.sendChat.mockResolvedValue(undefined);
+  await user.type(await screen.findByLabelText("Message"), "A fresh conversation{Enter}");
+  await waitFor(() => expect(fake.runs.sendChat.mock.calls[0]?.[0]).toEqual({ runId: "run_c", text: "A fresh conversation" }));
 });

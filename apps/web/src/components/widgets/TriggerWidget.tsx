@@ -29,8 +29,11 @@ export function TriggerWidget({ widget, editing }: Props) {
   const placement = runId ? (jobDef.data ? (jobDef.data.trigger.field.type === "chat" ? "chat" : "button") : jobDef.error ? undefined : null) : undefined;
   const shown = placement === undefined ? (config?.kind === "manual" ? config.placement : null) : placement;
   useEffect(() => {
-    if (shown === "chat" && chosen === undefined && jobs.data) setChosen(runId);
-  }, [shown, chosen, jobs.data, runId, setChosen]);
+    if (shown === "chat" && jobs.data && (chosen === undefined || buttonRun !== undefined)) {
+      setChosen(runId);
+      setButtonRun(undefined);
+    }
+  }, [shown, chosen, buttonRun, jobs.data, runId, setChosen]);
 
   return (
     <section aria-label={widget.title} className="flex h-full flex-col overflow-hidden rounded-2xl bg-surface shadow-card">

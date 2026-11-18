@@ -48,7 +48,7 @@ export function ChatPanel({ surfaceKey, ...options }: ChatPanelOptions & { surfa
     setSession(next);
     return () => { sessions.deactivate(next); };
   }, [sessions, surfaceKey, generation, workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId]);
-  return session ? <SessionView session={session} /> : null;
+  return session ? <SessionView key={session.id} session={session} /> : null;
 }
 
 function SessionView({ session }: { session: ChatSession }) {

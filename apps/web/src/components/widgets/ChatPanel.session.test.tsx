@@ -222,3 +222,38 @@ test("an old null route during first-send navigation does not replace the promot
   await waitFor(() => expect(fake.runs.sendChat).toHaveBeenLastCalledWith({ runId: "run_1", text: "Draft during navigation" }));
   expect(fake.runs.start).toHaveBeenCalledTimes(1);
 });
+
+test("a pending proposal decline cannot clear an already-visited conversation's identical draft", async () => {
+  const answered = deferred<void>();
+  fake.questions.answer.mockReturnValueOnce(answered.promise);
+  fake.runs.stream.mockImplementation(async ({ runId }: { runId: string }, { signal }: { signal: AbortSignal }) => (async function* () {
+    const run = snapshot(runId);
+    if (runId === "run_1") {
+      run.questions = [{
+        id: "q_decline", runId, stepRunId: `${runId}_chat`, placement: "chat", status: "pending", answer: null, createdAt: at,
+        about: null, proposalId: "prop_1", rootId: null, consultId: null,
+        proposal: { id: "prop_1", status: "asked", plugin: null, items: [{ tool: "agents_update", input: { id: "agt_1", name: "Clerk" }, used: false, pending: false, failed: false, refs: ["id"], creates: null, createdId: null }], names: { agt_1: { kind: "agent", name: "Clerk" } } },
+        payload: { kind: "permission", toolName: "request_approval", input: { message: "May I update Clerk?", proposal: "prop_1" }, canAlwaysAllow: false },
+      }];
+    }
+    yield { type: "snapshot", ...run };
+    await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+  })());
+  const { user, show } = mountSession([{ surfaceKey: "left", runId: "run_2" }]);
+  await user.type(await screen.findByLabelText("Message"), "Make it smaller");
+  show([{ surfaceKey: "left", runId: "run_1" }]);
+  await screen.findByRole("button", { name: "Approve" });
+  await user.type(box(), "Make it smaller");
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(fake.questions.answer).toHaveBeenCalledWith({ questionId: "q_decline", answer: { kind: "permission", decision: "deny", message: "Make it smaller" } }));
+
+  show([{ surfaceKey: "left", runId: "run_2" }]);
+  await waitFor(() => expect(box().value).toBe("Make it smaller"));
+  await act(async () => answered.resolve());
+  expect(box().value).toBe("Make it smaller");
+  expect(fake.runs.sendChat).not.toHaveBeenCalled();
+  show([{ surfaceKey: "left", runId: "run_1" }]);
+  await waitFor(() => expect(box().value).toBe(""));
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Approve" }).disabled).toBe(false);
+  expect(fake.questions.answer).toHaveBeenCalledTimes(1);
+});

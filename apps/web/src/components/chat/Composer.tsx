@@ -25,6 +25,7 @@ export function ChatComposer({ runId, assistantAgentId, tools, open, asking, app
   const { t } = useTranslation("chat");
   const aui = useAui();
   const text = useAuiState((s) => s.composer.text);
+  const canSend = useAuiState((s) => s.composer.canSend);
   function chooseSkill(entry: { name: string; skillId?: string }) {
     const config = aui.composer().getState().runConfig;
     aui.composer().setRunConfig({ ...config, custom: { ...config.custom, skill: entry } });
@@ -61,7 +62,7 @@ export function ChatComposer({ runId, assistantAgentId, tools, open, asking, app
       {assistantAgentId ? <AssistantInput agentId={assistantAgentId} runId={runId} onTextChange={(value) => aui.composer().setText(value)} onSkillChange={chooseSkill} inputProps={{ ...input.props, value: text }} /> : input}
       {tools && <div className="min-w-0 flex-1">{tools}</div>}
       {approval ? <Button type="submit" size="icon-sm" aria-label={t("send")} disabled={busy || !text.trim()} className="rounded-full"><ArrowUp aria-hidden /></Button> :
-        <ComposerPrimitive.Send asChild><Button type="button" size="icon-sm" aria-label={t("send")} disabled={!text.trim() || busy} className="rounded-full"><ArrowUp aria-hidden /></Button></ComposerPrimitive.Send>}
+        <ComposerPrimitive.Send asChild><Button type="button" size="icon-sm" aria-label={t("send")} disabled={!text.trim() || busy || !canSend} className="rounded-full"><ArrowUp aria-hidden /></Button></ComposerPrimitive.Send>}
     </ComposerPrimitive.Root>
     </ComposerPrimitive.AttachmentDropzone>
     <p className="mx-auto mt-2 hidden max-w-3xl px-1 text-[11px] text-faint md:block">{approval ? t("hintApproval", { mod: MOD }) : t("hintSend")}</p>

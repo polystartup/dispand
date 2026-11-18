@@ -36,8 +36,11 @@ export function WorkflowFormWidget({ widget, editing }: Props) {
   });
   const def = runVersion === undefined || runVersion === workflow.data?.version ? workflow.data?.def : (versioned.data?.def ?? (versioned.error ? workflow.data?.def : undefined));
   useEffect(() => {
-    if (def?.trigger.field.type === "chat" && chosen === undefined && runs.data) setChosen(runId);
-  }, [def, chosen, runs.data, runId, setChosen]);
+    if (def?.trigger.field.type === "chat" && runs.data && (chosen === undefined || buttonRun !== undefined)) {
+      setChosen(runId);
+      setButtonRun(undefined);
+    }
+  }, [def, chosen, buttonRun, runs.data, runId, setChosen]);
 
   return (
     <section aria-label={widget.title} className="flex h-full flex-col overflow-hidden rounded-2xl bg-surface shadow-card">
