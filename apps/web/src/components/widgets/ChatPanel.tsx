@@ -43,10 +43,10 @@ export function ChatPanel({ surfaceKey, ...options }: ChatPanelOptions & { surfa
   const { workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId } = options;
   useLayoutEffect(() => {
     const next = sessions.get(surfaceKey, { workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId });
-    next.active = true;
+    next.setActive(true);
     next.update({ workflowId, start, runId: runId ?? next.options.runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId });
     setSession(next);
-    return () => { next.active = false; };
+    return () => { sessions.deactivate(next); };
   }, [sessions, surfaceKey, generation, workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId]);
   return session ? <SessionView session={session} /> : null;
 }
@@ -59,7 +59,8 @@ function SessionView({ session }: { session: ChatSession }) {
 export function ChatSessionHost({ session }: { session: ChatSession }) {
   const sessions = useChatSessions();
   const { workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId } = useSyncExternalStore(session.subscribe, session.getOptions, session.getOptions);
-  const run = useRun(runId);
+  const active = useSyncExternalStore(session.subscribe, session.getActive, session.getActive);
+  const run = useRun(active ? runId : null);
   const version = run?.run.version;
   const versionDef = useQuery({
     ...orpc.workflows.get.queryOptions({ input: { id: workflowId ?? "", version: version ?? 0 } }),
@@ -79,6 +80,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   const { t } = useTranslation("chat");
   const { number } = useFormat();
   const hold = useCallback(async (file: File) => {
+    sessions.begin(session);
     setHolding((n) => n + 1);
     try {
       const held = await api.files.hold({ file });
@@ -88,17 +90,19 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
       throw err;
     } finally {
       setHolding((n) => n - 1);
+      sessions.settle(session);
     }
-  }, [t]);
+  }, [t, sessions, session]);
   const chatField = runDef?.trigger.field.type === "chat" ? runDef.trigger.field.id : undefined;
   const chatStep = run?.steps.find((s) => s.interactive) ?? run?.steps.find((s) => s.nodeId === chatField && s.status === "pending");
   const open = !runId || !run || canReopen(run) || (!!chatStep && ["running", "waiting", "pending"].includes(chatStep.status));
   const approval = composerApproval(run?.questions ?? [], chatStep?.id);
   const asking = !approval && !!run?.questions.some((q) => q.stepRunId === chatStep?.id && q.status === "pending");
-  const canSend = open && !asking;
+  const canSend = active && (!runId || !!run) && open && !asking;
 
   async function answerApproval(answer: { decision: "allow" } | { decision: "deny"; message: string }): Promise<boolean> {
     if (!approval || sending) return false;
+    sessions.begin(session);
     setSending(true);
     setError(null);
     try {
@@ -111,12 +115,14 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
     } finally {
       void queryClient.invalidateQueries({ queryKey: orpc.questions.key() });
       setSending(false);
+      sessions.settle(session);
     }
   }
 
   async function send(message: AppendMessage) {
     const text = textOf(message).trim();
     if (!text || sending || !canSend || approval) throw new MessageNotSentError(t("sendFailed"));
+    sessions.begin(session);
     const chosenSkill = message.runConfig?.custom?.skill as { name: string; skillId?: string } | undefined;
     const skillId = chosenSkill && text.split(/\s/, 1)[0] === `/${chosenSkill.name}` ? chosenSkill.skillId : undefined;
     setSending(true);
@@ -142,6 +148,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
       throw new MessageNotSentError(reason);
     } finally {
       setSending(false);
+      sessions.settle(session);
     }
   }
 

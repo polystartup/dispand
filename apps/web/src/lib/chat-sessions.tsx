@@ -6,11 +6,14 @@ export class ChatSession {
   readonly id = crypto.randomUUID();
   view: ChatSessionView | null = null;
   active = false;
+  pending = 0;
   private listeners = new Set<() => void>();
   constructor(readonly surfaceKey: string, public options: ChatPanelOptions) {}
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   getOptions = () => this.options;
   getView = () => this.view;
+  getActive = () => this.active;
+  setActive(active: boolean) { this.active = active; this.notify(); }
   notify = () => { for (const listener of this.listeners) listener(); };
   update(options: ChatPanelOptions) { this.options = options; this.notify(); }
   publish(view: ChatSessionView) { this.view = view; this.notify(); }
@@ -26,6 +29,14 @@ class ChatSessions {
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   getHosts = () => this.hosts;
   private notify() { for (const listener of this.listeners) listener(); }
+  private collect(session: ChatSession) {
+    if (session.active || session.pending > 0 || [...this.conversations.values()].includes(session)) return;
+    this.hosts = this.hosts.filter((host) => host !== session);
+    this.notify();
+  }
+  deactivate(session: ChatSession) { session.setActive(false); this.collect(session); }
+  begin(session: ChatSession) { session.pending++; }
+  settle(session: ChatSession) { session.pending--; this.collect(session); }
   generation(surfaceKey: string) { return this.generations.get(surfaceKey) ?? 0; }
   selection(surfaceKey: string) { return this.selections.get(surfaceKey); }
   select(surfaceKey: string, runId: string | null | undefined) { this.selections.set(surfaceKey, runId); this.notify(); }
@@ -49,7 +60,10 @@ class ChatSessions {
     if (wasFresh && this.selection(session.surfaceKey) === null) this.select(session.surfaceKey, runId);
   }
   newConversation(surfaceKey: string) {
-    this.conversations.delete(JSON.stringify([surfaceKey, null]));
+    const key = JSON.stringify([surfaceKey, null]);
+    const previous = this.conversations.get(key);
+    this.conversations.delete(key);
+    if (previous) this.collect(previous);
     this.generations.set(surfaceKey, this.generation(surfaceKey) + 1);
     this.select(surfaceKey, null);
   }
