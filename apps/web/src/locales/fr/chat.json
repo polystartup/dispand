@@ -1,4 +1,6 @@
 {
+  "stopResponse": "Arrêter la réponse",
+  "stopFailed": "Impossible d’arrêter la réponse. Réessayez.",
   "code": "Code",
   "copyCode": "Copier le code",
   "copied": "Copié",

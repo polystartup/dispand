@@ -5,12 +5,12 @@ import { nodesOf, type WorkflowDef } from "@dispand/domain/workflows/model";
 import { SHORT } from "@dispand/runner-protocol";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, CircleAlert, Loader2 } from "lucide-react";
-import { useCallback, useLayoutEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useFormat } from "../../lib/format.ts";
 import { api, orpc } from "../../lib/api.ts";
 import { canReopen, type RunSnapshot } from "../../lib/run-state.ts";
-import { useRun } from "../../lib/run-watch.ts";
+import { refreshRun, useRun } from "../../lib/run-watch.ts";
 import { ChatThread, composerApproval } from "../chat/Thread.tsx";
 import { useStored } from "@/lib/message";
 import { ChatSession, useChatSessions } from "../../lib/chat-sessions.tsx";
@@ -76,6 +76,8 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const stopPending = useRef(false);
   const [holding, setHolding] = useState(0);
   const { t } = useTranslation("chat");
   const { number } = useFormat();
@@ -99,9 +101,29 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   const approval = composerApproval(run?.questions ?? [], chatStep?.id);
   const asking = !approval && !!run?.questions.some((q) => q.stepRunId === chatStep?.id && q.status === "pending");
   const canSend = active && (!runId || !!run) && open && !asking;
+  const canStop = active && open && chatStep?.turnStatus === "running" && ["running", "waiting"].includes(chatStep.status) && chatStep.interruptible && !!chatStep.turnId;
+
+  async function stop() {
+    if (!canStop || !runId || !chatStep?.turnId || sending || stopPending.current) return;
+    stopPending.current = true;
+    sessions.begin(session);
+    setStopping(true);
+    setError(null);
+    try {
+      const result = await api.runs.interruptChat({ runId, turnId: chatStep.turnId });
+      if (result.outcome === "failed") setError(t("stopFailed"));
+      else if (result.outcome === "stale") await refreshRun(runId);
+    } catch {
+      setError(t("stopFailed"));
+    } finally {
+      stopPending.current = false;
+      setStopping(false);
+      sessions.settle(session);
+    }
+  }
 
   async function answerApproval(answer: { decision: "allow" } | { decision: "deny"; message: string }): Promise<boolean> {
-    if (!approval || sending) return false;
+    if (!approval || sending || stopPending.current) return false;
     sessions.begin(session);
     setSending(true);
     setError(null);
@@ -121,7 +143,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
 
   async function send(message: AppendMessage) {
     const text = textOf(message).trim();
-    if (!text || sending || !canSend || approval) throw new MessageNotSentError(t("sendFailed"));
+    if (!text || sending || stopPending.current || !canSend || approval) throw new MessageNotSentError(t("sendFailed"));
     sessions.begin(session);
     const chosenSkill = message.runConfig?.custom?.skill as { name: string; skillId?: string } | undefined;
     const skillId = chosenSkill && text.split(/\s/, 1)[0] === `/${chosenSkill.name}` ? chosenSkill.skillId : undefined;
@@ -153,7 +175,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   }
 
   const attachments = useMemo(() => heldAttachments(hold), [hold]);
-  const runtime = useRunThread({ run, chatStepId: chatStep?.id, canSend: canSend && !sending && holding === 0, onSend: send, attachments,
+  const runtime = useRunThread({ run, chatStepId: chatStep?.id, canSend: canSend && !sending && !stopping && holding === 0, onSend: send, onCancel: canStop ? stop : undefined, attachments,
     suggestions: assistantAgentId && !approval ? [
       { title: t("starterAgent"), prompt: t("starterAgentPrompt") },
       { title: t("starterReview"), prompt: t("starterReviewPrompt") },
@@ -163,7 +185,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
     <ChatThread runtime={runtime} run={run} chatStepId={chatStep?.id} canSend={canSend && !sending && holding === 0} onSend={send} onAttach={hold}
       welcome={welcome} starterPrompts={!!assistantAgentId && !approval} centeredWelcome={!!composerTools}
       composer={<ChatComposer runId={runId} assistantAgentId={assistantAgentId} tools={composerTools} open={open} asking={asking} approval={!!approval}
-        busy={sending} error={error} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined}
+        busy={sending || stopping} error={error} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined}
         onApprove={() => answerApproval({ decision: "allow" })} onDecline={(message) => answerApproval({ decision: "deny", message })} />}
     >
       <AfterChat run={run} chatStepId={chatStep?.id} def={runDef} />

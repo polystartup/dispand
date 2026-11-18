@@ -89,6 +89,17 @@ async function watch(runId: string, entry: Entry) {
   }
 }
 
+/** Refresh a stale action without overwriting an event received while the read was in flight. */
+export async function refreshRun(runId: string): Promise<void> {
+  const entry = entries.get(runId);
+  if (!entry) return;
+  const before = entry.state;
+  const state = await api.runs.get({ runId }, { signal: entry.stop.signal });
+  if (entries.get(runId) !== entry || entry.state !== before) return;
+  entry.state = state;
+  for (const listener of entry.listeners) listener(state);
+}
+
 /** The run as it is and as it changes, until it is over. Null: none yet. */
 export function useRun(runId: string | null): RunSnapshot | null {
   const [state, setState] = useState<RunSnapshot | null>(null);

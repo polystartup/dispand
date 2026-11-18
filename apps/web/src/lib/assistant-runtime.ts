@@ -112,14 +112,13 @@ export function heldAttachments(hold: (file: File) => Promise<{ id: string; imag
   };
 }
 
-export function useRunThread(options: { run: RunSnapshot | null; chatStepId: string | undefined; canSend: boolean; onSend: (message: AppendMessage) => Promise<void>; attachments?: AttachmentAdapter; suggestions?: ThreadSuggestion[] }) {
+export function useRunThread(options: { run: RunSnapshot | null; chatStepId: string | undefined; canSend: boolean; onSend: (message: AppendMessage) => Promise<void>; onCancel?: () => Promise<void>; attachments?: AttachmentAdapter; suggestions?: ThreadSuggestion[] }) {
   return useExternalStoreRuntime({
     messages: threadMessages(options.run, options.chatStepId),
     convertMessage: same,
     suggestions: options.suggestions,
-    // The run view has no turn-in-progress flag: a running chat may be idle for hours.
-    // Render each text snapshot as available rather than disabling copy until the Job ends.
-    // Subsequent stream events still replace its text through `messages`.
+    isRunning: options.run?.steps.find((step) => step.id === options.chatStepId)?.turnStatus === "running",
+    onCancel: options.onCancel,
     isSendDisabled: !options.canSend,
     onNew: options.onSend,
     ...(options.attachments ? { adapters: { attachments: options.attachments } } : {}),

@@ -1,5 +1,5 @@
 import { ComposerPrimitive, useAui, useAuiState } from "@assistant-ui/react";
-import { ArrowUp, MessageSquarePlus, ShieldCheck } from "lucide-react";
+import { ArrowUp, MessageSquarePlus, ShieldCheck, Square } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,9 @@ export function ChatComposer({ runId, assistantAgentId, tools, open, asking, app
   const aui = useAui();
   const text = useAuiState((s) => s.composer.text);
   const canSend = useAuiState((s) => s.composer.canSend);
+  const running = useAuiState((s) => s.thread.isRunning);
+  // Cancel also cancels local submission; our API only interrupts an established turn.
+  const canStop = useAuiState((s) => s.thread.isRunning && s.thread.capabilities.cancel && s.composer.submission === undefined);
   function chooseSkill(entry: { name: string; skillId?: string }) {
     const config = aui.composer().getState().runConfig;
     aui.composer().setRunConfig({ ...config, custom: { ...config.custom, skill: entry } });
@@ -44,6 +47,11 @@ export function ChatComposer({ runId, assistantAgentId, tools, open, asking, app
         e.preventDefault();
         void onApprove();
       }
+      // The stock input blocks Enter during a turn without a queue; Dispand accepts steering.
+      if (running && (approval ? !busy && !!text.trim() : canSend) && e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+        e.currentTarget.closest("form")?.requestSubmit();
+      }
     }}
     className={`${tools ? "w-full basis-full" : "flex-1"} min-h-9 min-w-0 resize-none bg-transparent px-2 py-[7px] text-[15px] leading-5 outline-none placeholder:text-faint disabled:opacity-60`} />;
   return <div className={`shrink-0 px-4 pb-4 pt-2 ${tools ? "" : "bg-surface"}`}>
@@ -55,13 +63,17 @@ export function ChatComposer({ runId, assistantAgentId, tools, open, asking, app
     </div>}
     <ComposerPrimitive.AttachmentDropzone asChild disabled={!open || asking || approval || busy}>
     <ComposerPrimitive.Root className={`mx-auto flex w-full max-w-3xl flex-wrap items-end gap-2 rounded-2xl border border-line p-3 focus-within:border-accent data-[dragging=true]:border-accent data-[dragging=true]:bg-hover ${tools ? "bg-surface/85 shadow-sm backdrop-blur-xl" : "bg-surface"}`}
-      onSubmit={(e) => { if (approval) { e.preventDefault(); void decline(); } }}>
+      onSubmit={(e) => {
+        if (approval) { e.preventDefault(); void decline(); }
+        else if (running) { e.preventDefault(); if (canSend) aui.composer().send(); }
+      }}>
       {runId && !tools && onNewConversation && <Button type="button" variant="ghost" size="icon-sm" aria-label={t("newConversation")} title={t("newConversation")} className="rounded-full text-muted" disabled={busy} onClick={onNewConversation}><MessageSquarePlus aria-hidden /></Button>}
       {!approval && <ComposerQuote />}
       <ComposerAttachments hidden={approval} disabled={!open || asking || busy} />
       {assistantAgentId ? <AssistantInput agentId={assistantAgentId} runId={runId} onTextChange={(value) => aui.composer().setText(value)} onSkillChange={chooseSkill} inputProps={{ ...input.props, value: text }} /> : input}
       {tools && <div className="min-w-0 flex-1">{tools}</div>}
-      {approval ? <Button type="submit" size="icon-sm" aria-label={t("send")} disabled={busy || !text.trim()} className="rounded-full"><ArrowUp aria-hidden /></Button> :
+      {canStop && <ComposerPrimitive.Cancel asChild><Button type="button" variant="outline" size="icon-sm" aria-label={t("stopResponse")} title={t("stopResponse")} disabled={busy} className="rounded-full"><Square aria-hidden /></Button></ComposerPrimitive.Cancel>}
+      {approval || running ? <Button type="submit" size="icon-sm" aria-label={t("send")} disabled={busy || !text.trim() || (!approval && !canSend)} className="rounded-full"><ArrowUp aria-hidden /></Button> :
         <ComposerPrimitive.Send asChild><Button type="button" size="icon-sm" aria-label={t("send")} disabled={!text.trim() || busy || !canSend} className="rounded-full"><ArrowUp aria-hidden /></Button></ComposerPrimitive.Send>}
     </ComposerPrimitive.Root>
     </ComposerPrimitive.AttachmentDropzone>

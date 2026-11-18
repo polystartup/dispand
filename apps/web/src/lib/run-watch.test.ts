@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import type { RunSnapshot } from "./run-state.ts";
 
 const fake = vi.hoisted(() => ({ runs: { stream: vi.fn(), get: vi.fn() } }));
 vi.mock("./api.ts", () => ({ api: fake }));
-const { MAX_RUN_STREAMS, STREAM_WAIT_MS, useRun } = await import("./run-watch.ts");
+const { MAX_RUN_STREAMS, STREAM_WAIT_MS, refreshRun, useRun } = await import("./run-watch.ts");
 
 afterEach(() => {
   cleanup();
@@ -31,6 +31,28 @@ function openStreams() {
   );
   fake.runs.get.mockImplementation(async ({ runId }: { runId: string }) => snap(runId));
 }
+
+test("a stale action refresh cannot overwrite a newer streamed snapshot", async () => {
+  let emit!: () => void;
+  fake.runs.stream.mockImplementation(async (_input: unknown, { signal }: { signal: AbortSignal }) => (async function* () {
+    yield { type: "snapshot" as const, ...snap("run_a") };
+    await new Promise<void>((resolve) => { emit = resolve; });
+    yield { type: "snapshot" as const, ...snap("run_a"), run: { ...snap("run_a").run, version: 3 } };
+    await new Promise((resolve) => signal.addEventListener("abort", resolve));
+  })());
+  const hook = renderHook(() => useRun("run_a"));
+  await waitFor(() => expect(hook.result.current?.run.version).toBe(1));
+  let resolve!: (value: RunSnapshot) => void;
+  fake.runs.get.mockImplementation(() => new Promise<RunSnapshot>((yes) => { resolve = yes; }));
+  const refresh = refreshRun("run_a");
+  await act(async () => emit());
+  await waitFor(() => expect(hook.result.current?.run.version).toBe(3));
+  await act(async () => {
+    resolve({ ...snap("run_a"), run: { ...snap("run_a").run, version: 2 } });
+    await refresh;
+  });
+  expect(hook.result.current?.run.version).toBe(3);
+});
 
 test("widgets showing one run share its stream", async () => {
   openStreams();

@@ -1,4 +1,6 @@
 {
+  "stopResponse": "Stop response",
+  "stopFailed": "Could not stop the response. Try again.",
   "code": "Code",
   "copyCode": "Copy code",
   "copied": "Copied",

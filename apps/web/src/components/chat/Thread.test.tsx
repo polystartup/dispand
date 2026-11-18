@@ -25,7 +25,7 @@ const message = (id: string, role: "assistant" | "user" | "tool", text: string, 
 const choice = { kind: "choice" as const, questions: [{ question: "Who is it for?", header: "Who", options: [{ label: "Me" }, { label: "You" }], multiSelect: false }] };
 const question = (id: string, s: number, extra: Record<string, unknown> = {}) => ({ id, runId: "run_1", stepRunId: "s_chat", placement: "chat", status: "pending", createdAt: at(s), about: null, proposalId: null, payload: choice, answer: null, ...extra });
 const run = (messages: unknown[], questions: unknown[] = [], step = "running") =>
-  ({ run: { id: "run_1", status: "running", error: null }, steps: [{ id: "s_chat", status: step, turnStatus: "unknown", interactive: true, error: null }], messages, questions }) as unknown as RunSnapshot;
+  ({ run: { id: "run_1", status: "running", error: null }, steps: [{ id: "s_chat", status: step, turnStatus: "unknown", turnId: null, interruptible: false, interactive: true, error: null }], messages, questions }) as unknown as RunSnapshot;
 
 function mount(snapshot: RunSnapshot | null) {
   const view = (snap: RunSnapshot | null) => (

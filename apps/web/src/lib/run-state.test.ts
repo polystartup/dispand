@@ -26,7 +26,7 @@ test("the stream stops only once the run is over; otherwise it reconnects, backi
   expect(afterStream(over, 0)).toEqual({ stop: true });
   expect(afterStream({ ...over, run: { ...over.run, status: "failed" } }, 0)).toEqual({ stop: true });
   // Failed, but a parallel step still works: its result is still to come.
-  const working = { id: "s2", runId: "run_1", nodeId: "n2", iteration: 0, status: "running" as const, turnStatus: "unknown" as const, outputs: null, error: null, startedAt: at, finishedAt: null, queuedAt: null, interactive: false, prompt: null };
+  const working = { id: "s2", runId: "run_1", nodeId: "n2", iteration: 0, status: "running" as const, turnStatus: "unknown" as const, turnId: null, interruptible: false, outputs: null, error: null, startedAt: at, finishedAt: null, queuedAt: null, interactive: false, prompt: null };
   expect(afterStream({ ...over, run: { ...over.run, status: "failed" }, steps: [working] }, 0)).toEqual({ stop: false, delayMs: 1000 });
   // An active run whose stream ended (error or a proxy's clean close) reconnects.
   expect(afterStream(snapshot, 0)).toEqual({ stop: false, delayMs: 1000 });
@@ -36,7 +36,7 @@ test("the stream stops only once the run is over; otherwise it reconnects, backi
 });
 
 test("a successful Job chat keeps listening for its next turn, while closed conversations stop", () => {
-  const chat: RunSnapshot = { ...snapshot, run: { ...snapshot.run, source: "agent", workflowId: null, agentId: "agent_1", status: "succeeded" }, steps: [{ id: "s1", runId: "run_1", nodeId: "chat", iteration: 0, status: "succeeded", turnStatus: "idle", outputs: {}, error: null, startedAt: at, finishedAt: at, queuedAt: null, interactive: true, prompt: "", resumable: true }] };
+  const chat: RunSnapshot = { ...snapshot, run: { ...snapshot.run, source: "agent", workflowId: null, agentId: "agent_1", status: "succeeded" }, steps: [{ id: "s1", runId: "run_1", nodeId: "chat", iteration: 0, status: "succeeded", turnStatus: "idle", turnId: null, interruptible: false, outputs: {}, error: null, startedAt: at, finishedAt: at, queuedAt: null, interactive: true, prompt: "", resumable: true }] };
   expect(afterStream(chat, 0)).toEqual({ stop: false, delayMs: 1000 });
   expect(afterStream({ ...chat, run: { ...chat.run, status: "failed" } }, 0)).toEqual({ stop: true });
   expect(afterStream({ ...chat, run: { ...chat.run, source: "workflow", workflowId: "wf_1" } }, 0)).toEqual({ stop: true });

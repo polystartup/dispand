@@ -95,7 +95,7 @@ const at = new Date(0);
 function snapshot(runId: string): RunSnapshot {
   return {
     run: { id: runId, source: "workflow", workflowId: "wf_1", agentId: null, deletedAgentName: null, triggerId: null, version: 1, status: "running", trigger: { type: "manual" }, error: null, createdAt: at, finishedAt: null },
-    steps: [{ id: `${runId}_chat`, runId, nodeId: "n_chat", iteration: 0, status: "running", turnStatus: "unknown", outputs: null, error: null, startedAt: at, finishedAt: null, queuedAt: null, interactive: true, prompt: null }],
+    steps: [{ id: `${runId}_chat`, runId, nodeId: "n_chat", iteration: 0, status: "running", turnStatus: "unknown", turnId: null, interruptible: false, outputs: null, error: null, startedAt: at, finishedAt: null, queuedAt: null, interactive: true, prompt: null }],
     messages: [],
     questions: [],
   };

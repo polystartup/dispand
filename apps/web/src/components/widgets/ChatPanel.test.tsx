@@ -10,7 +10,7 @@ import "../../test/jsdom-shims.ts";
 
 const fake = vi.hoisted(() => ({
   assistantCommands: vi.fn(),
-  runs: { start: vi.fn(), sendChat: vi.fn(), stream: vi.fn(), list: vi.fn() },
+  runs: { start: vi.fn(), sendChat: vi.fn(), interruptChat: vi.fn(), get: vi.fn(), stream: vi.fn(), list: vi.fn() },
   workflows: { get: vi.fn() },
   jobs: { start: vi.fn(), def: vi.fn() },
   questions: { answer: vi.fn() },
@@ -36,7 +36,7 @@ function snapshot(questions: RunSnapshot["questions"] = []): RunSnapshot {
   return {
     run: { id: "run_1", source: "workflow" as const, workflowId: "wf_1", agentId: null, deletedAgentName: null, triggerId: null, version: 1, status: questions.length ? "waiting" : "running", trigger: { type: "manual" }, error: null, createdAt: at, finishedAt: null },
     steps: [
-      { id: "s_chat", runId: "run_1", nodeId: "n_chat", iteration: 0, status: questions.length ? "waiting" : "running", turnStatus: "unknown", outputs: null, error: null, startedAt: at, finishedAt: null, queuedAt: null, interactive: true, prompt: null },
+      { id: "s_chat", runId: "run_1", nodeId: "n_chat", iteration: 0, status: questions.length ? "waiting" : "running", turnStatus: "unknown", turnId: null, interruptible: false, outputs: null, error: null, startedAt: at, finishedAt: null, queuedAt: null, interactive: true, prompt: null },
     ],
     messages: [],
     questions,
@@ -66,6 +66,108 @@ function mount(initial: string | null) {
   );
   return userEvent.setup();
 }
+
+test.each([
+  { turnStatus: "unknown" as const, interruptible: true, turnId: "turn_1" },
+  { turnStatus: "idle" as const, interruptible: true, turnId: "turn_1" },
+  { turnStatus: "running" as const, interruptible: false, turnId: "turn_1" },
+  { turnStatus: "running" as const, interruptible: true, turnId: null },
+  { turnStatus: "running" as const, interruptible: true, turnId: "turn_1", status: "succeeded" },
+])("Stop requires a known supported active turn: %j", async (turn) => {
+  const snap = snapshot();
+  Object.assign(snap.steps[0]!, turn);
+  fake.runs.stream.mockImplementation(streamOf(snap));
+  mount("run_1");
+  await screen.findByLabelText("Message");
+  expect(screen.queryByRole("button", { name: "Stop response" })).toBeNull();
+});
+
+test("Stop targets the current turn, keeps the draft, and can retry a failed request", async () => {
+  const snap = snapshot();
+  Object.assign(snap.steps[0]!, { turnStatus: "running", turnId: "turn_1", interruptible: true });
+  fake.runs.stream.mockImplementation(streamOf(snap));
+  let fail!: (error: Error) => void;
+  fake.runs.interruptChat.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { fail = reject; })).mockResolvedValue({ outcome: "requested" });
+  const user = mount("run_1");
+  const stop = await screen.findByRole<HTMLButtonElement>("button", { name: "Stop response" });
+  const box = screen.getByLabelText<HTMLTextAreaElement>("Message");
+  await user.type(box, "Keep this draft");
+  await user.click(stop);
+  expect(stop.disabled).toBe(true);
+  await user.click(stop);
+  expect(fake.runs.interruptChat).toHaveBeenCalledTimes(1);
+  expect(fake.runs.interruptChat).toHaveBeenCalledWith({ runId: "run_1", turnId: "turn_1" });
+  await user.type(box, " while stopping");
+  fail(new Error("Internal transport detail"));
+  expect((await screen.findByRole("alert")).textContent).toBe("Could not stop the response. Try again.");
+  expect(box.value).toBe("Keep this draft while stopping");
+  await user.click(stop);
+  await waitFor(() => expect(fake.runs.interruptChat).toHaveBeenCalledTimes(2));
+  expect(fake.runs.sendChat).not.toHaveBeenCalled();
+  expect(fake.questions.answer).not.toHaveBeenCalled();
+  expect(box.value).toBe("Keep this draft while stopping");
+});
+
+test("a stale Stop refreshes the current turn instead of leaving a stale control", async () => {
+  const snap = snapshot();
+  Object.assign(snap.steps[0]!, { turnStatus: "running", turnId: "turn_1", interruptible: true });
+  fake.runs.stream.mockImplementation(streamOf(snap));
+  const idle = snapshot();
+  Object.assign(idle.steps[0]!, { turnStatus: "idle" });
+  fake.runs.get.mockResolvedValue(idle);
+  fake.runs.interruptChat.mockResolvedValue({ outcome: "stale" });
+  const user = mount("run_1");
+  await user.click(await screen.findByRole("button", { name: "Stop response" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Stop response" })).toBeNull());
+  expect(fake.runs.get).toHaveBeenCalledWith({ runId: "run_1" }, expect.anything());
+});
+
+test("a refused Stop reports a localized retryable error", async () => {
+  const snap = snapshot();
+  Object.assign(snap.steps[0]!, { turnStatus: "running", turnId: "turn_1", interruptible: true });
+  fake.runs.stream.mockImplementation(streamOf(snap));
+  fake.runs.interruptChat.mockResolvedValue({ outcome: "failed" });
+  const user = mount("run_1");
+  await user.click(await screen.findByRole("button", { name: "Stop response" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("Could not stop the response. Try again.");
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Stop response" }).disabled).toBe(false);
+});
+
+test("Stop while an approval waits never answers or approves it", async () => {
+  const snap = snapshot([proposalQuestion()]);
+  Object.assign(snap.steps[0]!, { turnStatus: "running", turnId: "turn_1", interruptible: true });
+  fake.runs.stream.mockImplementation(streamOf(snap));
+  fake.runs.interruptChat.mockResolvedValue({ outcome: "requested" });
+  const user = mount("run_1");
+  await user.click(await screen.findByRole("button", { name: "Stop response" }));
+  expect(fake.runs.interruptChat).toHaveBeenCalledWith({ runId: "run_1", turnId: "turn_1" });
+  expect(fake.questions.answer).not.toHaveBeenCalled();
+  expect(fake.runs.sendChat).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
+  fake.questions.answer.mockResolvedValue(undefined);
+  await user.type(screen.getByLabelText("Message"), "Change the proposal{Enter}");
+  await waitFor(() => expect(fake.questions.answer).toHaveBeenCalledWith({ questionId: "q1", answer: { kind: "permission", decision: "deny", message: "Change the proposal" } }));
+});
+
+test("Stop never cancels a local message submission", async () => {
+  const snap = snapshot();
+  Object.assign(snap.steps[0]!, { turnStatus: "running", turnId: "turn_1", interruptible: true });
+  fake.runs.stream.mockImplementation(streamOf(snap));
+  let finish!: () => void;
+  fake.runs.sendChat.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+  const user = mount("run_1");
+  await screen.findByRole("button", { name: "Stop response" });
+  await user.type(screen.getByLabelText("Message"), "Steer the response{Enter}");
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledTimes(1));
+  const stop = screen.queryByRole<HTMLButtonElement>("button", { name: "Stop response" });
+  if (stop) {
+    expect(stop.disabled).toBe(true);
+    await user.click(stop);
+  }
+  expect(fake.runs.interruptChat).not.toHaveBeenCalled();
+  finish();
+  await waitFor(() => expect(screen.getByRole<HTMLButtonElement>("button", { name: "Stop response" }).disabled).toBe(false));
+});
 
 test("while the chat's question waits, sending is off with a hint", async () => {
   fake.runs.stream.mockImplementation(
@@ -135,6 +237,7 @@ test("a chat that failed says why", async () => {
   failed.run = { ...failed.run, status: "failed", error: "claude is not signed in" };
   failed.steps = [{ ...failed.steps[0]!, status: "failed", error: "claude is not signed in" }];
   fake.runs.stream.mockImplementation(streamOf(failed));
+  fake.runs.get.mockResolvedValue(failed);
   mount("run_1");
   expect((await screen.findByRole("alert")).textContent).toContain("The conversation stopped: claude is not signed in");
   expect(screen.queryByText("Say hello to start.")).toBeNull();

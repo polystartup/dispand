@@ -42,7 +42,7 @@ function row(id: string, nodeId: string, iteration: number, over: Partial<Step> 
     finishedAt: new Date(2026, 10, 7, 9, 0, seconds),
     queuedAt: null,
     interactive: false,
-    turnStatus: "unknown",
+    turnStatus: "unknown", turnId: null, interruptible: false,
     prompt: null,
     ...over,
   };

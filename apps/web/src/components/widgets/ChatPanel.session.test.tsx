@@ -9,7 +9,7 @@ import "../../test/jsdom-shims.ts";
 
 const fake = vi.hoisted(() => ({
   assistantCommands: vi.fn(),
-  runs: { start: vi.fn(), sendChat: vi.fn(), stream: vi.fn(), list: vi.fn() },
+  runs: { start: vi.fn(), sendChat: vi.fn(), interruptChat: vi.fn(), stream: vi.fn(), list: vi.fn() },
   workflows: { get: vi.fn() },
   jobs: { def: vi.fn() },
   questions: { answer: vi.fn() },
@@ -27,7 +27,7 @@ const at = new Date(0);
 function snapshot(runId: string): RunSnapshot {
   return {
     run: { id: runId, source: "workflow", workflowId: "wf_1", agentId: null, deletedAgentName: null, triggerId: null, version: 1, status: "running", trigger: { type: "manual" }, error: null, createdAt: at, finishedAt: null },
-    steps: [{ id: `${runId}_chat`, runId, nodeId: "n_chat", iteration: 0, status: "running", turnStatus: "unknown", outputs: null, error: null, startedAt: at, finishedAt: null, queuedAt: null, interactive: true, prompt: null }],
+    steps: [{ id: `${runId}_chat`, runId, nodeId: "n_chat", iteration: 0, status: "running", turnStatus: "unknown", turnId: null, interruptible: false, outputs: null, error: null, startedAt: at, finishedAt: null, queuedAt: null, interactive: true, prompt: null }],
     messages: [],
     questions: [],
   };
@@ -106,6 +106,40 @@ test("switching conversations retains the text, quote, held file and selected sk
   expect(fake.files.hold).toHaveBeenCalledTimes(1);
   show([{ surfaceKey: "left", runId: "run_2" }]);
   await waitFor(() => expect(box().value).toBe("Another draft"));
+});
+
+test("stopping in the background retains its draft, quote, file and skill in the original conversation", async () => {
+  fake.runs.stream.mockImplementation(async ({ runId }: { runId: string }, { signal }: { signal: AbortSignal }) => (async function* () {
+    const snap = snapshot(runId);
+    Object.assign(snap.steps[0]!, { turnStatus: "running", turnId: runId + "_turn", interruptible: true });
+    yield { type: "snapshot", ...snap };
+    await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+  })());
+  const interrupt = deferred<{ outcome: "failed" }>();
+  fake.runs.interruptChat.mockReturnValue(interrupt.promise);
+  const { user, show } = mountSession();
+  await user.type(await screen.findByLabelText("Message"), "/ti");
+  await user.click(await screen.findByRole("option", { name: /Tidy tables/ }));
+  await user.type(box(), "these rows");
+  await user.click(screen.getByRole("button", { name: "Quote source" }));
+  await user.click(screen.getByRole("button", { name: "Attach a file" }));
+  await user.upload(document.body.querySelector<HTMLInputElement>("input[type=file]")!, new File(["hi"], "notes.txt"));
+  await screen.findByText("notes.txt");
+  await user.click(screen.getByRole("button", { name: "Stop response" }));
+  expect(fake.runs.interruptChat).toHaveBeenCalledWith({ runId: "run_1", turnId: "run_1_turn" });
+  show([{ surfaceKey: "left", runId: "run_2" }]);
+  await waitFor(() => expect(box().value).toBe(""));
+  await user.type(box(), "Other draft");
+  await act(async () => interrupt.resolve({ outcome: "failed" }));
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(box().value).toBe("Other draft");
+  show([{ surfaceKey: "left", runId: "run_1" }]);
+  await waitFor(() => expect(box().value).toBe("/tidy these rows"));
+  expect((await screen.findByRole("alert")).textContent).toBe("Could not stop the response. Try again.");
+  expect(screen.getByLabelText("Quoted text").textContent).toContain("Quoted source");
+  expect(screen.getByText("notes.txt")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledWith({ runId: "run_1", text: "/tidy these rows\n\n> Quoted source", skillId: "skill_tidy", attachmentIds: ["att_notes"] }));
 });
 
 test("two widgets showing the same Job have independent composers", async () => {
