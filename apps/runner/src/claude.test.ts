@@ -112,7 +112,7 @@ test("native turn evidence starts each turn once, before its text, without treat
     await next();
     await gate;
     yield init;
-    yield { type: "system", subtype: "session_state_changed", state: "running", session_id: "cli-1", uuid: "state_1" } as SDKMessage;
+    yield { type: "system", subtype: "session_state_changed", state: "running", session_id: "cli-1", uuid: "00000000-0000-0000-0000-000000000001" } as SDKMessage;
     yield delta("First");
     yield result();
     await next();
@@ -210,6 +210,7 @@ test("passes the session's options and streams text", async () => {
   expect((fake.calls[0]!.settings as { disableSkillShellExecution?: boolean }).disableSkillShellExecution).toBe(true);
   expect(events).toEqual([
     { type: "cli-session", cliSessionId: "cli-1" },
+    { type: "turn-start" },
     { type: "text", delta: "Hel" },
     { type: "text", delta: "lo" },
     { type: "turn-end" },
@@ -305,6 +306,7 @@ test("submit_outputs in interactive mode asks confirm-outputs and emits outputs-
   await session.done;
   expect(toolResult).toBe("confirmed");
   expect(events).toEqual([
+    { type: "turn-start" },
     { type: "question", questionId: expect.any(String), payload: { kind: "confirm-outputs", values: { summary: "hi" } } },
     { type: "outputs-accepted", values: { summary: "hi" } },
     { type: "result", text: "All done" },
@@ -357,6 +359,7 @@ test("reminds once then fails", async () => {
   expect(prompts).toEqual(["Summarize", "Call submit_outputs with: summary", null]);
   expect(events).toEqual([
     { type: "cli-session", cliSessionId: "cli-1" },
+    { type: "turn-start" },
     { type: "error", message: "the agent finished without its outputs" },
   ]);
 });
@@ -431,7 +434,7 @@ test("interrupting a non-interactive session reports the error", async () => {
     await next();
   });
   const { events, session } = run({ ...start, interactive: false }, fake.query);
-  await vi.waitFor(() => expect(events).toHaveLength(1));
+  await vi.waitFor(() => expect(events).toHaveLength(2));
   await session.interrupt();
   await session.done;
   expect(events.at(-1)).toEqual({ type: "error", message: "interrupted" });
@@ -710,11 +713,11 @@ test("a chat with an empty prompt sends no empty turn: the owner's first message
   // Waits between turns until the message comes: its slot goes back.
   expect(events).toEqual([{ type: "turn-end" }]);
   session.send("hello");
-  await vi.waitFor(() => expect(events).toHaveLength(3));
+  await vi.waitFor(() => expect(events).toHaveLength(4));
   session.close();
   await session.done;
   expect(prompts).toEqual(["hello", null]);
-  expect(events).toEqual([{ type: "turn-end" }, { type: "cli-session", cliSessionId: "cli-1" }, { type: "turn-end" }]);
+  expect(events).toEqual([{ type: "turn-end" }, { type: "cli-session", cliSessionId: "cli-1" }, { type: "turn-start" }, { type: "turn-end" }]);
 });
 
 test("a non-interactive session still runs its empty prompt as a turn", async () => {
@@ -805,7 +808,7 @@ test.each([
       prompts.push(await next());
     });
     const { events, session } = run({ ...start, interactive }, fake.query);
-    await vi.waitFor(() => expect(events).toHaveLength(1));
+    await vi.waitFor(() => expect(events).toHaveLength(2));
     await session.interrupt();
     if (interactive) {
       await vi.waitFor(() => expect(events.at(-1)).toEqual({ type: "turn-end" }));
@@ -857,7 +860,7 @@ test("messages waiting for the agent are capped per session: past it, the sessio
     await new Promise((resolve) => options.abortController!.signal.addEventListener("abort", resolve));
   });
   const { events, session } = run(start, fake.query);
-  await vi.waitFor(() => expect(events).toHaveLength(1));
+  await vi.waitFor(() => expect(events).toHaveLength(2));
   for (let i = 0; i < 25; i++) session.send(`m${i}`);
   // The 22nd ends the session; the ones after it go nowhere.
   expect(events.filter((e) => e.type === "error")).toEqual([{ type: "error", message: expect.stringContaining("waiting for the agent") }]);
@@ -872,7 +875,7 @@ test("one message past the 4 MiB waiting stops the session", async () => {
     await new Promise((resolve) => options.abortController!.signal.addEventListener("abort", resolve));
   });
   const { events, session } = run(start, fake.query);
-  await vi.waitFor(() => expect(events).toHaveLength(1));
+  await vi.waitFor(() => expect(events).toHaveLength(2));
   session.send("x".repeat(2_500_000));
   session.send("y".repeat(2_500_000));
   expect(events.filter((e) => e.type === "error")).toHaveLength(1);
@@ -890,7 +893,7 @@ test("follow-ups count as waiting until their turn ends, even once the CLI has r
     }
   });
   const { events, session } = run(start, fake.query);
-  await vi.waitFor(() => expect(events).toHaveLength(1));
+  await vi.waitFor(() => expect(events).toHaveLength(2));
   for (let i = 0; i < 25; i++) {
     session.send(`${i}`.padEnd(100_000, "."));
     await new Promise((resolve) => setImmediate(resolve));
@@ -973,6 +976,7 @@ test("a CLI that exits without a result reports it", async () => {
   await session.done;
   expect(events).toEqual([
     { type: "cli-session", cliSessionId: "cli-1" },
+    { type: "turn-start" },
     { type: "error", message: "the CLI exited before the session finished" },
   ]);
 });
@@ -984,10 +988,10 @@ test("a CLI that exits because the session was closed is no error", async () => 
     await next();
   });
   const { events, session } = run(start, fake.query);
-  await vi.waitFor(() => expect(events).toHaveLength(1));
+  await vi.waitFor(() => expect(events).toHaveLength(2));
   session.close();
   await session.done;
-  expect(events).toEqual([{ type: "cli-session", cliSessionId: "cli-1" }]);
+  expect(events).toEqual([{ type: "cli-session", cliSessionId: "cli-1" }, { type: "turn-start" }]);
 });
 
 test("a custom command or alias spelled like a built-in never dispatches", async () => {
