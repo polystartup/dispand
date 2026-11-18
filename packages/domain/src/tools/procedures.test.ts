@@ -5,7 +5,7 @@ import { runners, tools, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { secretAad, SecretError } from "../secrets.ts";
-import { headerAad, MAX_HEADERS, retarget, toolTarget } from "./procedures.ts";
+import { headerAad, MAX_HEADERS, retarget, toolTarget } from "./store.ts";
 import { resealToolHeaders } from "./reseal.ts";
 import { startFakeMcp, type FakeAction, type FakeMcp } from "./test-server.ts";
 import { stored, storedSentence, storedText } from "../messages/index.ts";

@@ -19,7 +19,9 @@ import { jobTokenOf, jobOfToken } from "../platform/token.ts";
 import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
-import { Engine, RESUME_PROMPT, STOPPED, TOOL_RESTARTED } from "./engine.ts";
+import { Engine } from "./engine.ts";
+import { RESUME_PROMPT } from "./answers.ts";
+import { STOPPED, TOOL_RESTARTED } from "./errors.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, type StartParams } from "./harness.ts";
 import { stored, storedText } from "../messages/index.ts";
 

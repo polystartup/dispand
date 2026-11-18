@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { api, orpc } from "../../lib/api.ts";
 import { cliLabels, type Harness, type Runner } from "./HarnessSheet.tsx";
-import { refusal } from "./PluginInstallSheet.tsx";
+import { refusal } from "../../lib/refusal.ts";
 
 type CliHarness = Extract<Harness, { type: "cli" }>;
 type Resource = Parameters<typeof api.runners.workspacePlugin>[0]["resource"];

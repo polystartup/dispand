@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { orpc } from "../../lib/api.ts";
-import { refusal } from "./PluginInstallSheet.tsx";
+import { refusal } from "../../lib/refusal.ts";
 
 /** A value as plain text: a text as it is, anything else as JSON. */
 const shown = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value, null, 2));

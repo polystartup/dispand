@@ -12,7 +12,7 @@ import { callPlatformTool, toolsOf, type JobIdentity } from "./call.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { PLATFORM_TOOLS } from "./tools.ts";
 import { harnessDetail, itemsView, proposalView } from "./proposals.ts";
-import { retarget } from "../tools/procedures.ts";
+import { retarget } from "../tools/store.ts";
 
 /** An agent with `bundles`, a Job of it still going, and what its tools answer. */
 async function setup(bundles: Bundle[] = ["configure"]) {

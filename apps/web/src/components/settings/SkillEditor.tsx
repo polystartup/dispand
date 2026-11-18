@@ -9,6 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
+import { refusal } from "../../lib/refusal.ts";
+import { toBase64 } from "../../lib/utils.ts";
 import { FormField } from "./parts.tsx";
 
 export type SkillPackage = Awaited<ReturnType<typeof api.skills.list>>[number];
@@ -21,19 +23,11 @@ type Upload = { path: string; base64: string; size: number };
 
 async function toUpload(file: File): Promise<Upload> {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return { path: file.name, base64: btoa(binary), size: bytes.length };
+  return { path: file.name, base64: toBase64(bytes), size: bytes.length };
 }
 
 /** Why the procedure refused, when it says (a file's path and what is wrong with it); else a generic line. */
-function reason(e: unknown, fallback: string): string {
-  if (typeof e === "object" && e !== null && "code" in e) {
-    const { code, message } = e as { code: unknown; message?: unknown };
-    if ((code === "BAD_REQUEST" || code === "CONFLICT") && typeof message === "string") return message;
-  }
-  return fallback;
-}
+const reason = (e: unknown, fallback: string) => refusal(e, fallback, ["BAD_REQUEST", "CONFLICT"]);
 
 type Props = {
   /** The package being edited; absent when creating. */

@@ -13,6 +13,7 @@ import type { DataEvent } from "./events.ts";
 import { refuseOwnDelete } from "../plugins/overrides.ts";
 import { joinCreatedTable } from "../platform/rights.ts";
 import { type Cell, Choice, convertCells, FIELD_TYPES, type FieldSchema, type FieldType, MAX_CHOICES } from "./fields.ts";
+import { uniqueConstraint } from "../db/unique.ts";
 
 // Tables and their fields. Every schema change locks the table's row `FOR UPDATE` first, so
 // changes to one table run one at a time, and a row write (which takes it `FOR SHARE`) waits for
@@ -49,8 +50,7 @@ const schemaOf = (f: FieldRow): FieldSchema => ({ id: f.id, name: f.name, type: 
 /** A unique index refused the name: a CONFLICT naming it. Anything else goes on. */
 function nameTaken(key: "data.table.nameTaken" | "data.field.nameTaken", name: string) {
   return (err: unknown): never => {
-    const e = err as { code?: unknown; cause?: { code?: unknown } };
-    if (e.code === "23505" || e.cause?.code === "23505") throw new ORPCError("CONFLICT", message(key, { name }));
+    if (uniqueConstraint(err) !== null) throw new ORPCError("CONFLICT", message(key, { name }));
     throw err;
   };
 }

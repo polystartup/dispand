@@ -3,7 +3,7 @@ import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents, messages, questions, runs, stepRuns, triggers } from "../db/schema.ts";
-import { messageView, questionView } from "../engine/engine.ts";
+import { messageView, questionView } from "../engine/views.ts";
 import { authed, base } from "../rpc/context.ts";
 import { knownTimezone } from "../workflows/schedule.ts";
 import { engineError, runQuestion } from "../workflows/procedures.ts";

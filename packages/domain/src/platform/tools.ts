@@ -14,11 +14,9 @@ import { readMemory, ReadInput, refuseProposedWrite, RemoveInput, removeMemoryTo
 import type { Rights } from "./rights.ts";
 import { isMessageKey, type Message, sentence, storedSentence, type Text } from "../messages/index.ts";
 import { type Decision, decide, type Refused } from "../plugins/resolve.ts";
-import { marketplaceUrl } from "../plugins/procedures.ts";
+import { marketplaceUrl } from "../plugins/marketplace-procedures.ts";
 import { wellKnownIndexUrl, WellKnownError } from "../plugins/well-known.ts";
 import { checkGitUrl, GitError } from "../plugins/git.ts";
-
-export { BUNDLES, type Bundle, type TableScope } from "./bundles.ts";
 
 // Which of Dispand's procedures a Job's session gets as tools. By declaration, never by
 // omission: a procedure is a tool only when it is listed here under a bundle, every other one is
@@ -619,7 +617,6 @@ export const NOT_TOOLS: string[] = [
   "workspace.setStrictPermissions",
   // The owner's memory pages; agents have their own memory tools, gated by their targets.
   "memories.list",
-  "memories.get",
   "memories.write",
   "memories.remove",
   "memories.accept",

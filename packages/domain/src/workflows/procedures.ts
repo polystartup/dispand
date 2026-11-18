@@ -16,7 +16,9 @@ import {
   workflows as workflowsTable,
   workflowVersions,
 } from "../db/schema.ts";
-import { EngineError, messageView, passOn, questionView, runIssues, runView, stepView, type RunEvent } from "../engine/engine.ts";
+import { EngineError, passOn } from "../engine/errors.ts";
+import { runIssues } from "../engine/problems.ts";
+import { messageView, questionView, runView, stepView, type RunEvent } from "../engine/views.ts";
 import { proposalView } from "../platform/proposals.ts";
 import { loadToolSchemas } from "../tools/executor.ts";
 import { newId } from "../ids.ts";

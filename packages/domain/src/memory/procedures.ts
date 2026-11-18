@@ -8,7 +8,6 @@ import { type MemoryAuthor, MemoryEntryShape, type MemoryScope } from "./model.t
 import {
   acceptMemory,
   memoryIndex,
-  memoryRevisionsOf,
   NOT_FOUND,
   type Refusal,
   removeMemoryById,
@@ -86,37 +85,6 @@ const list = owner.input(Scope).handler(async ({ input, context }) => {
   return { index: memoryIndex(entries), entries, removed: view.filter((e) => e.removedAt) };
 });
 
-/** One entry with its revisions, the latest first. */
-const get = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => {
-  const [row] = await context.db.select().from(memories).where(and(eq(memories.id, input.id), eq(memories.ownerId, context.ownerId)));
-  if (!row) throw new ORPCError("NOT_FOUND", message("memory.notFound"));
-  const revisions = await memoryRevisionsOf(context.db, row.id);
-  const names = await authorNames(context.db, context.ownerId, [row.author, ...revisions.map((r) => r.author)]);
-  return {
-    id: row.id,
-    path: row.path,
-    name: row.name,
-    description: row.description,
-    type: row.type,
-    body: row.body,
-    author: authorView(row.author, names),
-    acceptedAt: row.acceptedAt,
-    removedAt: row.removedAt,
-    updatedAt: row.updatedAt,
-    revisions: revisions.map((r) => ({
-      revision: r.revision,
-      path: r.path,
-      name: r.name,
-      description: r.description,
-      type: r.type,
-      body: r.body,
-      removed: r.removed,
-      author: authorView(r.author, names),
-      createdAt: r.createdAt,
-    })),
-  };
-});
-
 /** Adds the entry at its path, or changes the one there: the person becomes its author. */
 const write = owner
   .input(z.object({ where: Scope, entry: Entry }))
@@ -130,4 +98,4 @@ const revert = owner.input(z.object({ id: ID })).handler(async ({ input, context
 
 const restore = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => done(await restoreMemory(context.db, context.ownerId, input.id)));
 
-export const memoriesRouter = { list, get, write, remove, accept, revert, restore };
+export const memoriesRouter = { list, write, remove, accept, revert, restore };

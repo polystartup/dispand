@@ -37,7 +37,7 @@ export const METRICS = {
   "dispand.proposals.applied": ["dispand.result"],
   // A plugin's setup run by its owner (`plugins/setup.ts`): every item made (done), stopped at a refusal, or failed.
   "dispand.plugins.setups": ["dispand.result"],
-  // A plugin's install, update, uninstall or table change applied from its row (`plugins/procedures.ts`), and how it ended: done or failed.
+  // A plugin's install, update, uninstall or table change applied from its row (`plugins/common.ts`, `acted`), and how it ended: done or failed.
   "dispand.plugins.actions": ["dispand.plugin.action", "dispand.result"],
   // An Audit row written (`audit/record.ts`), by its action; `failed`: a write after the fact that didn't go through.
   "dispand.audit.rows": ["dispand.audit.action", "dispand.result"],

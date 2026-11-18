@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -9,8 +8,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { orpc } from "../../lib/api.ts";
 import { FormField } from "./parts.tsx";
 import { PollableActions } from "./PollableActions.tsx";
-import { ActionItem, errorMessage, type Tool } from "./ToolSheet.tsx";
-import { useStored } from "@/lib/message";
+import { errorMessage, ToolActions, type Tool } from "./ToolSheet.tsx";
 
 type Props = {
   /** The runner tool being edited; absent when adding one. */
@@ -27,7 +25,6 @@ type Props = {
  */
 export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
   const { t } = useTranslation("tools");
-  const stored = useStored();
   const runners = useQuery(orpc.runners.list.queryOptions({ refetchInterval: 5000 }));
   const [name, setName] = useState(tool?.name ?? suggested?.name ?? "");
   const [runnerId, setRunnerId] = useState(tool?.runnerId ?? "");
@@ -203,30 +200,7 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
             </div>
           </form>
 
-          {current && (
-            <section aria-labelledby="runner-tool-actions" className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <h2 id="runner-tool-actions" className="text-[15px] font-medium">
-                  {t("sheet.actions", { count: current.actions.length })}
-                </h2>
-                <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void reload()}>
-                  <RefreshCw /> {t("sheet.refresh")}
-                </Button>
-              </div>
-              {current.actionsError && (
-                <p role="status" className="text-[13px] text-danger">
-                  {stored(current.actionsError)}
-                </p>
-              )}
-              <p className="text-[13px] text-muted">{t("sheet.actionsNote")}</p>
-              <ul className="divide-y divide-line rounded-xl border border-line">
-                {current.actions.map((a) => (
-                  <ActionItem key={a.name} action={a} tool={current.name} enabled={!current.disabled.includes(a.name)} busy={busy} onChange={(enabled) => actionEnabled.mutate({ toolId: current.id, action: a.name, enabled })} />
-                ))}
-                {current.actions.length === 0 && <li className="px-4 py-3 text-[13px] text-muted">{t("sheet.noAction")}</li>}
-              </ul>
-            </section>
-          )}
+          {current && <ToolActions tool={current} busy={busy} onReload={() => void reload()} onToggle={(action, enabled) => actionEnabled.mutate({ toolId: current.id, action, enabled })} />}
           {current && <PollableActions toolId={current.id} />}
         </div>
       </SheetContent>

@@ -8,7 +8,7 @@ import { router } from "../rpc/router.ts";
 import { ownerContext, recordingDb } from "../runners/test-support.ts";
 import { startFakeMcp } from "../tools/test-server.ts";
 import { checkChoices, inUse, REFERENCES, type Element } from "./closure.ts";
-import { lockElements } from "./procedures.ts";
+import { lockElements } from "./uninstall-procedures.ts";
 import { lawFirmMarket, installReviewed } from "./test-support.ts";
 
 const ELEMENT_TABLES = ["agents", "tools", "skill_packages", "tables", "fields", "triggers"];

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { orpc } from "../../lib/api.ts";
+import { refusal } from "../../lib/refusal.ts";
 import type { Harness } from "./HarnessSheet.tsx";
 import { FormField } from "./parts.tsx";
 
@@ -92,8 +93,7 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
       const saved = harness ? await update.mutateAsync({ ...fields, id: harness.id }) : await create.mutateAsync(fields);
       onSaved(saved, !harness);
     } catch (e) {
-      const message = typeof e === "object" && e !== null && "code" in e && e.code === "BAD_REQUEST" && "message" in e ? String(e.message) : null;
-      setError(message ? message : t("sheet.saveFailed"));
+      setError(refusal(e, t("sheet.saveFailed"), ["BAD_REQUEST"]));
     }
   }
 

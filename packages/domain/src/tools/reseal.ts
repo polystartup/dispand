@@ -4,7 +4,7 @@ import { tools as toolsTable } from "../db/schema.ts";
 import { errorKind, logError } from "../log.ts";
 import { secretAad, type SecretBox } from "../secrets.ts";
 import { inSpan, meter, tracer } from "../telemetry/index.ts";
-import { headerAad } from "./procedures.ts";
+import { headerAad } from "./store.ts";
 
 const traces = tracer("tools");
 const counts = meter("tools");

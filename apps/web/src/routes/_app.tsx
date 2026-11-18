@@ -3,7 +3,6 @@ import { Menu } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { usePendingQuestionsStream } from "../components/shell/NotificationsBell.tsx";
 import { Sidebar } from "../components/shell/Sidebar.tsx";
 
@@ -32,9 +31,8 @@ function AppShell() {
     return () => desktop.removeEventListener("change", onChange);
   }, []);
 
+  // One Sheet around trigger and content, so Radix returns focus to the trigger on close.
   return (
-    <TooltipProvider delayDuration={400}>
-      {/* One Sheet around trigger and content, so Radix returns focus to the trigger on close. */}
       <Sheet open={open} onOpenChange={setOpen}>
       <div className="min-h-dvh md:pl-64">
         <header className="sticky top-0 z-20 flex h-12 items-center gap-2 bg-sidebar px-3 backdrop-blur-xl backdrop-saturate-150 md:hidden">
@@ -72,6 +70,5 @@ function AppShell() {
         </main>
       </div>
       </Sheet>
-    </TooltipProvider>
   );
 }

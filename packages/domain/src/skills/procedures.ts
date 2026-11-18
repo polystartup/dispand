@@ -12,6 +12,7 @@ import { authed, base } from "../rpc/context.ts";
 import { StorableText } from "../workflows/model.ts";
 import { MAX_DESCRIPTION, MAX_FILE_BYTES, MAX_FILES, PackageError, SKILL_NAME, skillMd, type SkillFile, splitSkillMd, validatePackage } from "./package.ts";
 import { message } from "../messages/index.ts";
+import { uniqueConstraint } from "../db/unique.ts";
 
 const owner = base.use(authed);
 
@@ -53,8 +54,7 @@ async function requireTools(tx: Tx, ownerId: string, ids: string[]): Promise<voi
 
 function nameTaken(name: string) {
   return (err: unknown): never => {
-    const e = err as { code?: unknown; cause?: { code?: unknown } };
-    if (e.code === "23505" || e.cause?.code === "23505") throw new ORPCError("CONFLICT", message("skills.nameTaken", { name }));
+    if (uniqueConstraint(err) !== null) throw new ORPCError("CONFLICT", message("skills.nameTaken", { name }));
     throw err;
   };
 }

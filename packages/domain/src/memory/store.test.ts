@@ -7,7 +7,7 @@ import { asCli, ownerContext } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { stopTelemetry } from "../telemetry/index.ts";
 import { MAX_MEMORY_ENTRIES, type MemoryAuthor, PATH_RULE } from "./model.ts";
-import { acceptMemory, listMemory, memoryIndex, removeMemory, restoreMemory, revertMemory, writeMemory } from "./store.ts";
+import { acceptMemory, listMemory, memoryIndex, memoryRevisionsOf, removeMemory, restoreMemory, revertMemory, writeMemory } from "./store.ts";
 
 const entry = (path: string, body = "Body", type = "fact") => ({ path, name: `Name of ${path}`, description: `About ${path}`, type, body });
 
@@ -33,8 +33,7 @@ test("owner's procedures add, update, remove and list an entry in every scope", 
       ["clients/acme.md", "Second", { type: "user" }],
     ]);
     expect(listed.index).toBe("How the business works:\n- [Name of billing.md](billing.md): About billing.md\n\nFacts:\n- [Name of clients/acme.md](clients/acme.md): About clients/acme.md");
-    const got = await call(router.memories.get, { id }, { context });
-    expect(got.revisions.map((r) => [r.revision, r.body])).toEqual([
+    expect((await memoryRevisionsOf(context.db, id)).map((r) => [r.revision, r.body])).toEqual([
       [2, "Second"],
       [1, "First"],
     ]);

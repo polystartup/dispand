@@ -5,7 +5,7 @@ import type { Text } from "@dispand/domain";
 import { useFormat } from "../../lib/format.ts";
 import { useText } from "../../lib/message.ts";
 import { Button } from "@/components/ui/button";
-import { refusal } from "./PluginInstallSheet.tsx";
+import { refusal } from "../../lib/refusal.ts";
 import { PluginRemoveSheet } from "./PluginRemoveSheet.tsx";
 import { PluginSetupSheet } from "./PluginSetupSheet.tsx";
 import { api, orpc } from "../../lib/api.ts";

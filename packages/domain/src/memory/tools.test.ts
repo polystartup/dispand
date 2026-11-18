@@ -7,7 +7,7 @@ import { asCli, ownerContext } from "../runners/test-support.ts";
 import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { MAX_MEMORY_ENTRIES, type MemoryTarget, PATH_RULE } from "./model.ts";
-import { listMemory } from "./store.ts";
+import { listMemory, memoryRevisionsOf } from "./store.ts";
 
 const entry = (path: string, body = "Body") => ({ path, name: `Name of ${path}`, description: `About ${path}`, type: "fact", body });
 const notFound = { ok: false, error: "Not found" };
@@ -159,9 +159,9 @@ test("two Jobs writing one path at once: one add lands, both updates are kept", 
   expect(added.find((r) => !r.ok)).toEqual({ ok: false, error: "An entry a.md exists already." });
   await Promise.all([tool("memory_update", { scope: "workspace", ...entry("a.md", "Three") }), second.tool("memory_update", { scope: "workspace", ...entry("a.md", "Four") })]);
   const [row] = await listMemory(context.db, context.ownerId, { scope: "workspace" });
-  const got = await call(router.memories.get, { id: row!.id }, { context });
-  expect(got.revisions.map((r) => r.revision)).toEqual([3, 2, 1]);
-  expect(got.body).toBe(got.revisions[0]!.body);
+  const revisions = await memoryRevisionsOf(context.db, row!.id);
+  expect(revisions.map((r) => r.revision)).toEqual([3, 2, 1]);
+  expect(row!.body).toBe(revisions[0]!.body);
   expect(await tool("memory_update", { scope: "workspace", ...entry("b.md") })).toEqual({ ok: false, error: "There is no entry b.md." });
 });
 

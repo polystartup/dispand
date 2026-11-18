@@ -13,7 +13,7 @@ import { coerceArguments, toolErrorText, toolOutputs, type ArgValue } from "./ar
 import { stored } from "../messages/index.ts";
 import { ToolError, type ToolConnector, type ToolResult } from "./mcp.ts";
 import { enabledActions } from "./catalog.ts";
-import { connectionTarget } from "./procedures.ts";
+import { connectionTarget } from "./store.ts";
 
 type Row = typeof toolsTable.$inferSelect;
 

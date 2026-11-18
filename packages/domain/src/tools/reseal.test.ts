@@ -4,7 +4,7 @@ import { tools } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { secretAad } from "../secrets.ts";
-import { toolTarget } from "./procedures.ts";
+import { toolTarget } from "./store.ts";
 import { resealToolHeaders } from "./reseal.ts";
 
 const URL_A = "https://a.example/mcp";

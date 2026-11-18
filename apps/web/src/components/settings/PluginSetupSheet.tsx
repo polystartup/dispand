@@ -8,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ProposalItems } from "../questions/ProposalItems.tsx";
 import { type api, orpc } from "../../lib/api.ts";
-import { Check, refusal, Section, toggled } from "./PluginInstallSheet.tsx";
+import { refusal } from "../../lib/refusal.ts";
+import { Check, Section, toggled } from "./PluginInstallSheet.tsx";
 import { useDefinitionPicks } from "./PluginDefinitionPicks.tsx";
 
 type Plugin = Awaited<ReturnType<typeof api.plugins.list>>[number];

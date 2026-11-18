@@ -3,7 +3,7 @@ import { storable } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { type Message, type MessageKey, say } from "../messages/index.ts";
 import { isLoopback } from "../harnesses/procedures.ts";
-import { Headers } from "../tools/procedures.ts";
+import { Headers } from "../tools/store.ts";
 import { FOLDER, readDefinitions, readExtension } from "./definitions.ts";
 import { allStorable } from "./marketplace.ts";
 import { inside, kindAt, list, MAX_JSON_BYTES, type NotImported, Notes, PluginError, readRegular, readSkillFolders, spend } from "./fs.ts";

@@ -5,7 +5,7 @@ import { agents, questions, roots, runs, stepRuns } from "../db/schema.ts";
 import { consultsOf, pairProblem } from "../agents/consults.ts";
 import { sentence, storedSentence } from "../messages/index.ts";
 import { storableText } from "../text.ts";
-import { STOPPED } from "./engine.ts";
+import { STOPPED } from "./errors.ts";
 import { JOB_STEP } from "./job-def.ts";
 import { ROOT_STOPPED } from "./roots.ts";
 

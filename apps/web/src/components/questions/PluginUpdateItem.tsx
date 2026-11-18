@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { orpc } from "../../lib/api.ts";
-import { refusal } from "../settings/PluginInstallSheet.tsx";
+import { refusal } from "../../lib/refusal.ts";
 import { label, says, type UpdateTableChange } from "../settings/PluginUpdate.tsx";
 import type { InboxEntry } from "./InboxItem.tsx";
 import { useText } from "../../lib/message.ts";

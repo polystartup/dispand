@@ -8,7 +8,7 @@ import type { TurnInput } from "../cloud/model-client.ts";
 import { fakeModel, say, type Script } from "../cloud/test-model.ts";
 import * as schema from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
-import { startProblem } from "../engine/engine.ts";
+import { startProblem } from "../engine/problems.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";

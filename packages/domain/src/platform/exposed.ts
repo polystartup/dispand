@@ -55,34 +55,7 @@ export async function exposedTools(db: Db, job: { runId: string; ownerId: string
 export const askedName = (name: string) => `${PREFIX}${name}`;
 
 /** What a permission question is about, when it is one of the Job's agent's tools; `toolId` only for a runner tool. */
-export type About = { tool: string; action: string; description: string; toolId?: string };
-
-/**
- * Which tool and action a permission question is about, when it is one of a Job's exposed
- * tools (the name alone is words cut short and a mark, so the owner is told in full) or an
- * action of a runner tool the agent chose, on the session's runner. A runner tool's name is its
- * session server name (`runnerServers`), which says nothing of the tool for good: the tool it
- * stands for now is kept on the question (`toolId`), and "always allow" acts on that one.
- */
-export async function aboutExposed(db: Db, job: { runId: string; ownerId: string; agentId: string; runnerId?: string | null }, toolName: string): Promise<About | null> {
-  if (toolName.startsWith(PREFIX)) {
-    const item = (await exposedTools(db, job)).find((t) => askedName(t.name) === toolName);
-    return item ? { tool: item.tool, action: item.action, description: item.description } : null;
-  }
-  if (!job.runnerId) return null;
-  const found = (await runnerToolsOf(db, job, job.runnerId)).find((t) => toolName.startsWith(`mcp__${t.server}__`));
-  const action = found?.actions.find((a) => toolName === `mcp__${found.server}__${a.name}`);
-  return found && action ? { tool: found.name, action: action.name, description: action.description, toolId: found.id } : null;
-}
-
-/** The runner tools a Job still going gets on its runner, under their session server names. */
-async function runnerToolsOf(db: Db, job: { runId: string; ownerId: string; agentId: string }, runnerId: string) {
-  const [run] = await db
-    .select({ ownerId: runs.ownerId, snapshot: runs.snapshot, remembered: runs.remembered })
-    .from(runs)
-    .where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId), eq(runs.agentId, job.agentId), inArray(runs.status, ["running", "waiting"])));
-  return run ? runnerServers(await toolingOf(db, run, job.agentId), runnerId) : [];
-}
+type About = { tool: string; action: string; description: string; toolId?: string };
 
 /** Whether a tool name is one of the Job's tools server's, whatever it stands for. */
 export const isExposedName = (toolName: string) => toolName.startsWith(PREFIX);

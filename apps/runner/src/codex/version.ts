@@ -7,9 +7,7 @@ import { protocolString } from "../sanitize.ts";
 import { atLeast } from "../sessions.ts";
 import { CodexRpc } from "./rpc.ts";
 
-/** The Codex `src/codex/protocol` was generated from. */
-export const CODEX_TESTED = "0.166.0";
-/** The oldest Codex sessions may run on. */
+/** The oldest Codex sessions may run on, and the one `src/codex/protocol` was generated from. */
 export const MIN_CODEX = "0.166.0";
 
 /**

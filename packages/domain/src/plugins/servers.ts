@@ -8,7 +8,7 @@ import type { InitialContext } from "../rpc/context.ts";
 import { recordCreated } from "../platform/proposals.ts";
 import { authed, base } from "../rpc/context.ts";
 import { TRANSPORTS } from "../tools/mcp.ts";
-import { createTool, Name, nameTaken, refreshRunnerActions, toolView, Url } from "../tools/procedures.ts";
+import { createTool, Name, nameTaken, refreshRunnerActions, view as toolView, Url } from "../tools/store.ts";
 import { toolName } from "./components.ts";
 import type { PluginComponents } from "./read-plugin.ts";
 import { message } from "../messages/index.ts";

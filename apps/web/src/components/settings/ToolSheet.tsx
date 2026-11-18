@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
+import { refusal } from "../../lib/refusal.ts";
 import { FormField } from "./parts.tsx";
 import { PollableActions } from "./PollableActions.tsx";
 import { CatalogSettings } from "./CatalogSettings.tsx";
@@ -32,17 +33,12 @@ type Props = {
   onSaved: (tool: Tool) => void;
 };
 
-export function errorMessage(e: unknown, fallback: string): string {
-  if (typeof e === "object" && e !== null && "code" in e && "message" in e && (e.code === "BAD_REQUEST" || e.code === "CONFLICT")) {
-    return String(e.message);
-  }
-  return fallback;
-}
+/** Why a tools procedure refused, when it says; else `fallback`. */
+export const errorMessage = (e: unknown, fallback: string) => refusal(e, fallback, ["BAD_REQUEST", "CONFLICT"]);
 
 /** "Add MCP server", or the editor of a tool with its actions. Mount it only while open. */
 export function ToolSheet({ tool, onClose, onSaved }: Props) {
   const { t } = useTranslation("tools");
-  const stored = useStored();
   const fieldLabels = t("sheet.field", { returnObjects: true });
   const [name, setName] = useState(tool?.name ?? "");
   const [url, setUrl] = useState(tool?.url ?? "");
@@ -310,34 +306,41 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
             />
           )}
 
-          {current && (
-            <section aria-labelledby="tool-actions" className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <h2 id="tool-actions" className="text-[15px] font-medium">
-                  {t("sheet.actions", { count: current.actions.length })}
-                </h2>
-                <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void reload()}>
-                  <RefreshCw /> {t("sheet.refresh")}
-                </Button>
-              </div>
-              {current.actionsError && (
-                <p role="status" className="text-[13px] text-danger">
-                  {stored(current.actionsError)}
-                </p>
-              )}
-              <p className="text-[13px] text-muted">{t("sheet.actionsNote")}</p>
-              <ul className="divide-y divide-line rounded-xl border border-line">
-                {current.actions.map((a) => (
-                  <ActionItem key={a.name} action={a} tool={current.name} enabled={!current.disabled.includes(a.name)} busy={busy} onChange={(enabled) => actionEnabled.mutate({ toolId: current.id, action: a.name, enabled })} />
-                ))}
-                {current.actions.length === 0 && <li className="px-4 py-3 text-[13px] text-muted">{t("sheet.noAction")}</li>}
-              </ul>
-            </section>
-          )}
+          {current && <ToolActions tool={current} busy={busy} onReload={() => void reload()} onToggle={(action, enabled) => actionEnabled.mutate({ toolId: current.id, action, enabled })} />}
           {current && <PollableActions toolId={current.id} />}
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+/** A saved tool's actions, each with its switch, and the button that reads them from the server again. */
+export function ToolActions({ tool, busy, onReload, onToggle }: { tool: Tool; busy: boolean; onReload: () => void; onToggle: (action: string, enabled: boolean) => void }) {
+  const { t } = useTranslation("tools");
+  const stored = useStored();
+  return (
+    <section aria-labelledby="tool-actions" className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <h2 id="tool-actions" className="text-[15px] font-medium">
+          {t("sheet.actions", { count: tool.actions.length })}
+        </h2>
+        <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onReload}>
+          <RefreshCw /> {t("sheet.refresh")}
+        </Button>
+      </div>
+      {tool.actionsError && (
+        <p role="status" className="text-[13px] text-danger">
+          {stored(tool.actionsError)}
+        </p>
+      )}
+      <p className="text-[13px] text-muted">{t("sheet.actionsNote")}</p>
+      <ul className="divide-y divide-line rounded-xl border border-line">
+        {tool.actions.map((a) => (
+          <ActionItem key={a.name} action={a} tool={tool.name} enabled={!tool.disabled.includes(a.name)} busy={busy} onChange={(enabled) => onToggle(a.name, enabled)} />
+        ))}
+        {tool.actions.length === 0 && <li className="px-4 py-3 text-[13px] text-muted">{t("sheet.noAction")}</li>}
+      </ul>
+    </section>
   );
 }
 

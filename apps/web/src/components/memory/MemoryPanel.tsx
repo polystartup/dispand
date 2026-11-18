@@ -10,6 +10,7 @@ import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
 import { useAgentName } from "../../lib/agent-name.ts";
 import { useFormat } from "../../lib/format.ts";
+import { refusal } from "../../lib/refusal.ts";
 import { selectClass } from "../data/NewFieldPopover.tsx";
 import { Empty, FormField, List } from "../settings/parts.tsx";
 
@@ -32,15 +33,6 @@ function useByline() {
 
 /** Written by a Job without `configure` and not accepted since: agents that configure don't read it (design 6.5). */
 const unread = (e: Pick<Entry, "author" | "acceptedAt" | "removedAt">) => e.author.type === "agent" && !e.author.configure && !e.acceptedAt && !e.removedAt;
-
-/** Why the procedure refused, when it says; else a generic line. */
-function reason(e: unknown, fallback: string): string {
-  if (typeof e === "object" && e !== null && "code" in e) {
-    const { code, message } = e as { code: unknown; message?: unknown };
-    if (code === "BAD_REQUEST" && typeof message === "string") return message;
-  }
-  return fallback;
-}
 
 /**
  * A memory (design 6.5): its entries grouped by type as the index groups them, each opening in
@@ -150,7 +142,7 @@ function EntrySheet({ where, entry, onClose }: { where: MemoryScope; entry?: Ent
       await action();
       if (close) onClose();
     } catch (e) {
-      setError(reason(e, fallback));
+      setError(refusal(e, fallback, ["BAD_REQUEST"]));
     }
   }
 

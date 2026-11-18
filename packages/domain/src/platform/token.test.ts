@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { runs } from "../db/schema.ts";
-import { runView } from "../engine/engine.ts";
+import { runView } from "../engine/views.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { jobOfToken, jobTokenOf } from "./token.ts";

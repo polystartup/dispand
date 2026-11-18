@@ -9,7 +9,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
 import { FormField } from "./parts.tsx";
-import type { Tool } from "./ToolSheet.tsx";
+import { errorMessage, type Tool } from "./ToolSheet.tsx";
 
 type Entry = Awaited<ReturnType<typeof api.tools.catalog>>[number];
 
@@ -94,8 +94,7 @@ function InstallHttp({ entry, onInstalled }: { entry: Extract<Entry, { kind: "ht
       const result = await install.mutateAsync({ catalogId: entry.id, name, settings });
       if ("tool" in result) onInstalled(result.tool);
     } catch (e) {
-      const known = typeof e === "object" && e !== null && "code" in e && (e.code === "BAD_REQUEST" || e.code === "CONFLICT") && "message" in e;
-      setError(known ? String(e.message) : t("catalog.installFailed"));
+      setError(errorMessage(e, t("catalog.installFailed")));
     }
   }
 

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { resumePrompt } from "./engine.ts";
+import { resumePrompt } from "./answers.ts";
 
 test("a restarted chat with no instructions carries only what it missed, and nothing when it missed nothing", () => {
   const unsent = [{ id: "msg_1", text: "Hi" }] as Parameters<typeof resumePrompt>[2];

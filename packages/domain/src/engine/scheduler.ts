@@ -32,7 +32,9 @@ import { signInOf } from "../tools/catalog.ts";
 import { agentScope, startable } from "../questions/inbox-scope.ts";
 import { canonicalJson, INTERACTION, JOB, type TriggerConfig } from "../triggers/model.ts";
 import { latestFireBetween, nextFireAfter } from "../workflows/schedule.ts";
-import { EngineError, runIssues, type Engine } from "./engine.ts";
+import { type Engine } from "./engine.ts";
+import { EngineError } from "./errors.ts";
+import { runIssues } from "./problems.ts";
 import { newRoot, ROOT_STOPPED } from "./roots.ts";
 import { eventOutputs, jobOutputs, pollOutputs } from "./job-def.ts";
 

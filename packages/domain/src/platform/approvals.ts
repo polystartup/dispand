@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { questions, runs } from "../db/schema.ts";
 import type { JobIdentity } from "./call.ts";
+import { createHash } from "node:crypto";
 
 // Approvals an endpoint can act on. A CLI session asks the owner before it calls a tool; the
 // question and its answer are rows of `questions`. A server-side call that must have been
@@ -22,6 +23,11 @@ export function canonical(value: unknown): string {
     return v;
   };
   return JSON.stringify(sorted(value)) ?? "null";
+}
+
+/** The SHA-256 of `canonical(value)`, in hex: what a review token is. */
+export function canonicalHash(value: unknown): string {
+  return createHash("sha256").update(canonical(value)).digest("hex");
 }
 
 /**

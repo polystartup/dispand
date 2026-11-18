@@ -10,7 +10,7 @@ import { ToolError } from "./errors.ts";
 import type { ToolConnector } from "./mcp.ts";
 import { clientDocumentUrl, clientMetadata, type OAuthState } from "./oauth-provider.ts";
 import { oauthStep, oauthStore, openState, sameTarget, sealState, stateHash } from "./oauth-store.ts";
-import { refreshActions, toolTarget } from "./procedures.ts";
+import { refreshActions, toolTarget } from "./store.ts";
 
 export type OAuthApp = { db: Db; auth: Auth; secrets: SecretBox; tools: ToolConnector };
 

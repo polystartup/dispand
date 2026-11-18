@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { api } from "../../lib/api.ts";
-import { refusal } from "./PluginInstallSheet.tsx";
+import { refusal } from "../../lib/refusal.ts";
 import { type RemovalChoice, RemovalChoices, removalPlan } from "./PluginRemoval.tsx";
 import { NativeMoves, ReleaseNotes, startingTicks, TableChanges, UpdatePlan } from "./PluginUpdate.tsx";
 

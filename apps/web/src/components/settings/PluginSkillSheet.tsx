@@ -6,24 +6,15 @@ import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { orpc } from "../../lib/api.ts";
+import { refusal } from "../../lib/refusal.ts";
+import { toBase64 } from "../../lib/utils.ts";
 import { FormField } from "./parts.tsx";
 import type { SkillPackage } from "./SkillEditor.tsx";
 import { SkillFiles } from "./SkillFiles.tsx";
 import { StemMarks } from "./StemMarks.tsx";
 
-/** Text as the base64 the server takes, bytes kept as UTF-8. */
-function toBase64(text: string): string {
-  const bytes = new TextEncoder().encode(text);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(binary);
-}
-
 /** Why the server refused (a file's path and what is wrong with it), when it says; else `fallback`. */
-function reason(e: unknown, fallback: string): string {
-  const { code, message } = (typeof e === "object" && e !== null ? e : {}) as { code?: unknown; message?: unknown };
-  return (code === "BAD_REQUEST" || code === "NOT_FOUND") && typeof message === "string" ? message : fallback;
-}
+const reason = (e: unknown, fallback: string) => refusal(e, fallback, ["BAD_REQUEST", "NOT_FOUND"]);
 
 /**
  * The files of a plugin's skill package. A file its owner edits, adds or removes is theirs and
@@ -64,7 +55,7 @@ export function PluginSkillSheet({ pkg, onClose }: { pkg: SkillPackage; onClose:
 
   async function save() {
     if (!draft) return;
-    if (await run(() => setFile.mutateAsync({ packageId, path: draft.path.trim(), base64: toBase64(draft.text) }), t("skillSheet.saveFailed"))) setDraft(null);
+    if (await run(() => setFile.mutateAsync({ packageId, path: draft.path.trim(), base64: toBase64(new TextEncoder().encode(draft.text)) }), t("skillSheet.saveFailed"))) setDraft(null);
   }
 
   return (

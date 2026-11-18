@@ -6,7 +6,7 @@ import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { CATALOG, catalogEntry, defaultDisabled, defaultUnasked, searchCatalog } from "./catalog.ts";
 import type { ToolConnector, ToolTarget } from "./mcp.ts";
-import { toolTarget } from "./procedures.ts";
+import { toolTarget } from "./store.ts";
 
 /** Never the real servers: a connector that records where it was sent and lists one action. */
 function recording() {

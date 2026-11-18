@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { api, orpc } from "../../lib/api.ts";
+import { refusal } from "../../lib/refusal.ts";
 import { FormField } from "./parts.tsx";
 import { NativeTargetPicker, useNativeTargets } from "./NativeSkills.tsx";
 import { useDefinitionPicks } from "./PluginDefinitionPicks.tsx";
@@ -16,17 +17,6 @@ export const pluginTabs = [
   { to: "/settings/plugins", label: "tabs.discover" },
   { to: "/settings/plugins/installed", label: "tabs.installed" },
 ] as const;
-
-/** Why the procedure refused, when it says; else `fallback`. */
-export function refusal(e: unknown, fallback: string): string {
-  if (typeof e === "object" && e !== null && "code" in e) {
-    const { code, message } = e as { code: unknown; message?: unknown };
-    if ((code === "BAD_REQUEST" || code === "CONFLICT" || code === "FORBIDDEN" || code === "NOT_FOUND") && typeof message === "string") {
-      return message;
-    }
-  }
-  return fallback;
-}
 
 type Preview = Awaited<ReturnType<typeof api.plugins.preview>>;
 

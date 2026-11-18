@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
+import { refusal } from "../../lib/refusal.ts";
 import { ConsultList, type ConsultEntry } from "./ConsultList.tsx";
 import { ToolAsk } from "./ToolAsk.tsx";
 import { CliRules } from "./CliRules.tsx";
@@ -31,11 +32,7 @@ export type Agent = Awaited<ReturnType<typeof api.agents.get>>;
 const toolLabel = (tool: { name: string; plugin: { name: string } | null } | undefined) => tool && qualifiedName(tool.plugin?.name ?? null, tool.name);
 
 /** Why the server refused the change, when it says so for a person to read; else `fallback`. */
-function refusal(e: unknown, fallback: string): string {
-  const { code, message } = (typeof e === "object" && e !== null ? e : {}) as { code?: unknown; message?: unknown };
-  const readable = (code === "FORBIDDEN" || code === "BAD_REQUEST") && typeof message === "string";
-  return readable ? message : fallback;
-}
+const reason = (e: unknown, fallback: string) => refusal(e, fallback, ["FORBIDDEN", "BAD_REQUEST"]);
 
 /** Create (no `agent`) or edit an agent. A new agent goes back to the list; both offer the next step. */
 export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agent; defaultHarnessId?: string; /** A field went back to its plugin's value: the form is stale. */ onReset?: () => void }) {
@@ -114,7 +111,7 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
       await update.mutateAsync({ ...fields, id: agent.id });
       setSaved(true);
     } catch (e) {
-      setError(refusal(e, t("editor.saveFailed")));
+      setError(reason(e, t("editor.saveFailed")));
     }
   }
 
@@ -137,7 +134,7 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
             <StemMarks kind="agent" id={agent.id} labels={fieldLabels} onResolved={() => onReset?.()} />
           </>
         )}
-        {reset.error && <p role="alert" className="text-[13px] text-danger">{refusal(reset.error, t("editor.resetFailed"))}</p>}
+        {reset.error && <p role="alert" className="text-[13px] text-danger">{reason(reset.error, t("editor.resetFailed"))}</p>}
         <FormField label={t("editor.name")} htmlFor="agent-name">
           {/* The built-in agent shows its label; its stored name never changes here. */}
           <Input id="agent-name" value={assistant ? assistantName : name} readOnly={assistant} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus={!agent} />

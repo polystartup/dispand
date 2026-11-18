@@ -6,7 +6,7 @@ import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { addStep, type AgentStep, type WorkflowDef } from "./model.ts";
 import { STREAM_BUFFER } from "./procedures.ts";
-import type { RunEvent } from "../engine/engine.ts";
+import type { RunEvent } from "../engine/views.ts";
 import { stored } from "../messages/index.ts";
 
 async function setup() {
