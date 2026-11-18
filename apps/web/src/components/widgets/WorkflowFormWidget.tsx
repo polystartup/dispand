@@ -2,7 +2,7 @@ import type { WorkflowDef } from "@dispand/domain/workflows/model";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Play } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useChatSelection } from "../../lib/chat-sessions.tsx";
 import { Trans, useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,8 @@ export function WorkflowFormWidget({ widget, editing }: Props) {
   // undefined: follow the latest run; null: a new conversation that hasn't started yet.
   const surfaceKey = `widget:${widget.id}:workflow:${widget.workflowId}`;
   const [chosen, setChosen] = useChatSelection(surfaceKey);
-  const runId = chosen === undefined ? (runs.data?.[0]?.id ?? null) : chosen;
+  const [buttonRun, setButtonRun] = useState<string>();
+  const runId = buttonRun ?? (chosen === undefined ? (runs.data?.[0]?.id ?? null) : chosen);
   // A run keeps the version it started on: a chat run stays a chat after the trigger changed.
   const runVersion = runs.data?.find((r) => r.id === runId)?.version;
   const versioned = useQuery({
@@ -60,7 +61,7 @@ export function WorkflowFormWidget({ widget, editing }: Props) {
           onNewConversation={() => setChosen(null)}
         />
       ) : (
-        <ButtonField workflowId={widget.workflowId} def={def} runId={runId} onRunStarted={setChosen} />
+        <ButtonField workflowId={widget.workflowId} def={def} runId={runId} onRunStarted={setButtonRun} />
       )}
     </section>
   );

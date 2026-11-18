@@ -2,7 +2,8 @@
 import "../../test/jsdom-shims.ts";
 import { ChatSessionsProvider } from "../../lib/chat-sessions.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
 const fake = vi.hoisted(() => ({
@@ -47,4 +48,24 @@ test("a run keeps the trigger of its own version: the chat stays a chat after it
   );
   expect(await screen.findByLabelText("Message")).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Go|Run/ })).toBeNull();
+});
+
+
+test("a button workflow follows the latest run again after navigating away", async () => {
+  fake.workflows.get.mockResolvedValue({ id: "wf_1", name: "W", version: 1, def: button });
+  fake.runs.list.mockResolvedValue([]);
+  fake.runs.start.mockResolvedValue({ runId: "run_a" });
+  fake.runs.stream.mockImplementation(async (_input: unknown, { signal }: { signal: AbortSignal }) => ({
+    [Symbol.asyncIterator]: () => ({ next: () => new Promise<IteratorResult<never>>((resolve) => signal.addEventListener("abort", () => resolve({ done: true, value: undefined }))) }),
+  }));
+  const widget = { id: "w1", pageId: "p", type: "workflow-form", title: "W", workflowId: "wf_1", layout: {} } as never;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = (shown: boolean) => <QueryClientProvider client={client}><ChatSessionsProvider>{shown && <WorkflowFormWidget widget={widget} editing={false} />}</ChatSessionsProvider></QueryClientProvider>;
+  const rendered = render(view(true));
+  await userEvent.setup().click(await screen.findByRole("button", { name: "Go" }));
+  await waitFor(() => expect(fake.runs.stream.mock.calls.at(-1)?.[0]).toEqual({ runId: "run_a" }));
+  rendered.rerender(view(false));
+  fake.runs.list.mockResolvedValue([{ id: "run_b", version: 1 }]);
+  rendered.rerender(view(true));
+  await waitFor(() => expect(fake.runs.stream.mock.calls.at(-1)?.[0]).toEqual({ runId: "run_b" }));
 });

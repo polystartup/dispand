@@ -74,6 +74,23 @@ test("another visible widget keeps the shared run watcher until it also leaves",
   await waitFor(() => expect(signal.aborted).toBe(true));
 });
 
+test("reactivation waits for a current run snapshot before sending a retained draft", async () => {
+  const { show, user } = mountSession();
+  await user.type(await screen.findByLabelText("Message"), "Retained draft");
+  show([]);
+  const resumed = deferred<RunSnapshot>();
+  fake.runs.stream.mockImplementationOnce(async (_input: unknown, { signal }: { signal: AbortSignal }) => (async function* () {
+    yield { type: "snapshot", ...await resumed.promise };
+    await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+  })());
+  show([{ surfaceKey: "left", runId: "run_1" }]);
+  await waitFor(() => expect(fake.runs.stream).toHaveBeenCalledTimes(2));
+  expect(box().value).toBe("Retained draft");
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Send" }).disabled).toBe(true);
+  await act(async () => resumed.resolve(snapshot("run_1")));
+  await waitFor(() => expect(screen.getByRole<HTMLButtonElement>("button", { name: "Send" }).disabled).toBe(false));
+});
+
 const at = new Date(0);
 function snapshot(runId: string): RunSnapshot {
   return {

@@ -159,3 +159,21 @@ test("two widgets for the same trigger keep separate new conversations across na
   await waitFor(() => expect(fake.jobs.start).toHaveBeenCalledTimes(1));
   await waitFor(() => expect(fake.runs.sendChat.mock.calls[0]?.[0]).toEqual({ runId: "new_run", text: "First draft" }));
 });
+
+
+test("a button trigger follows the latest Job again after navigating away", async () => {
+  fake.triggers.get.mockResolvedValue(trigger("button"));
+  fake.runs.list.mockResolvedValue([]);
+  fake.jobs.def.mockResolvedValue({ trigger: { field: { type: "button" } } });
+  fake.jobs.start.mockResolvedValue({ runId: "run_a" });
+  fake.runs.stream.mockImplementation(idle);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = (shown: boolean) => <QueryClientProvider client={client}><ChatSessionsProvider>{shown && <TriggerWidget widget={widget} editing={false} />}</ChatSessionsProvider></QueryClientProvider>;
+  const rendered = render(view(true));
+  await userEvent.setup().click(await screen.findByRole("button", { name: "Sort the mail" }));
+  await waitFor(() => expect(fake.runs.stream.mock.calls.at(-1)?.[0]).toEqual({ runId: "run_a" }));
+  rendered.rerender(view(false));
+  fake.runs.list.mockResolvedValue([{ id: "run_b" }]);
+  rendered.rerender(view(true));
+  await waitFor(() => expect(fake.runs.stream.mock.calls.at(-1)?.[0]).toEqual({ runId: "run_b" }));
+});

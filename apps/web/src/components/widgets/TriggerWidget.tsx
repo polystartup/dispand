@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useChatSelection } from "../../lib/chat-sessions.tsx";
 import { useTranslation } from "react-i18next";
 import { api, orpc } from "../../lib/api.ts";
@@ -20,7 +20,8 @@ export function TriggerWidget({ widget, editing }: Props) {
   // undefined: follow the trigger's latest Job; null: a new conversation that hasn't started yet.
   const surfaceKey = `widget:${widget.id}:trigger:${widget.triggerId}`;
   const [chosen, setChosen] = useChatSelection(surfaceKey);
-  const runId = chosen === undefined ? (jobs.data?.[0]?.id ?? null) : chosen;
+  const [buttonRun, setButtonRun] = useState<string>();
+  const runId = buttonRun ?? (chosen === undefined ? (jobs.data?.[0]?.id ?? null) : chosen);
   // A Job keeps the placement it started with: a chat stays a chat after the trigger became a button.
   const jobDef = useQuery({ ...orpc.jobs.def.queryOptions({ input: { runId: runId ?? "" } }), enabled: !!runId, staleTime: Infinity });
   const start = () => api.jobs.start({ triggerId: widget.triggerId, timezone: localTimezone() });
@@ -49,7 +50,7 @@ export function TriggerWidget({ widget, editing }: Props) {
       ) : shown === "chat" ? (
         <ChatPanel surfaceKey={surfaceKey} start={start} runId={runId} onRunStarted={setChosen} onNewConversation={trigger.data.enabled ? () => setChosen(null) : undefined} />
       ) : (
-        <StartButton label={trigger.data.name} runId={runId} start={start} onRunStarted={setChosen} disabled={!trigger.data.enabled} />
+        <StartButton label={trigger.data.name} runId={runId} start={start} onRunStarted={setButtonRun} disabled={!trigger.data.enabled} />
       )}
     </section>
   );
