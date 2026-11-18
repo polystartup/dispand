@@ -1,5 +1,6 @@
 import { ActionBarPrimitive, AuiConfig, AuiIf, AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, SelectionToolbarPrimitive, SuggestionPrimitive, Tools, groupPartByType, type AppendMessage, type AssistantRuntime, type TextMessagePartComponent, type ToolCallMessagePartComponent } from "@assistant-ui/react";
 import type { Answer } from "@dispand/runner-protocol";
+import type { RecordResult } from "@dispand/domain/messages/record-result.ts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, Check, ChevronDown, Copy, MessageSquare, Paperclip, Quote, Users, Wrench, X } from "lucide-react";
 import { Collapsible } from "radix-ui";
@@ -7,7 +8,7 @@ import { useTranslation } from "react-i18next";
 import { createContext, type ComponentProps, type ReactNode, useContext, useMemo, useState } from "react";
 import { orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
-import { CONSULT_TOOL, heldAttachments, QUESTION_TOOL, threadMessages, TRACE_TOOL, useRunThread, useTranscript } from "../../lib/assistant-runtime.ts";
+import { CONSULT_TOOL, heldAttachments, QUESTION_TOOL, RECORD_TOOL, threadMessages, TRACE_TOOL, useRunThread, useTranscript } from "../../lib/assistant-runtime.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import { ProposalItems } from "../questions/ProposalItems.tsx";
 import { approvalWords, QuestionForm } from "../questions/QuestionForm.tsx";
@@ -47,6 +48,26 @@ const Trace: ToolCallMessagePartComponent<{ text: string }> = ({ args }) => (
     <span className="min-w-0 whitespace-pre-wrap break-words">{args.text}</span>
   </p>
 );
+
+/** Display the saved result only: opening history never re-reads or changes a record. */
+const RecordPart: ToolCallMessagePartComponent<{ id: string }, RecordResult> = ({ result }) => {
+  const { t } = useTranslation("chat");
+  if (!result) return null;
+  const valueText = (value: RecordResult["fields"][number]["value"]) => value === null ? t("recordEmpty") : typeof value === "boolean" ? t(value ? "recordYes" : "recordNo") : Array.isArray(value) ? value.join("\n") || t("recordEmpty") : String(value);
+  return <Collapsible.Root defaultOpen className="rounded-xl border border-line bg-surface text-[13px]">
+    <Collapsible.Trigger className="flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left font-medium hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent">
+      <span>{t("recordResult")}</span><ChevronDown size={16} aria-hidden />
+    </Collapsible.Trigger>
+    <Collapsible.Content>
+      {result.fields.length ? <dl className="space-y-3 border-t border-line px-3 py-3">
+        {result.fields.map((field) => <div key={field.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-3">
+          <dt className="whitespace-pre-wrap break-words text-muted">{field.name}</dt>
+          <dd className="min-w-0 whitespace-pre-wrap break-words">{valueText(field.value)}</dd>
+        </div>)}
+      </dl> : <p className="border-t border-line px-3 py-3 text-muted">{t("recordNoFields")}</p>}
+    </Collapsible.Content>
+  </Collapsible.Root>;
+};
 
 /** A consult of the chat's agent, as one quiet line naming the agent it asks: the owner answers nothing. */
 const ConsultPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ args }) => {
@@ -200,6 +221,7 @@ const OwnerMessage = () => (
 const groupBy = groupPartByType({ [`tool-call:${TRACE_TOOL}`]: ["group-tool"] });
 const toolConfig = AuiConfig({ tools: Tools({ toolkit: {
   [TRACE_TOOL]: { type: "backend", render: Trace },
+  [RECORD_TOOL]: { type: "backend", display: "standalone", render: RecordPart },
   [QUESTION_TOOL]: { type: "backend", display: "standalone", render: QuestionPart },
   [CONSULT_TOOL]: { type: "backend", display: "standalone", render: ConsultPart },
 } }) });

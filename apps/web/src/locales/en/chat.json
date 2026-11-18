@@ -1,4 +1,9 @@
 {
+  "recordResult": "Record result",
+  "recordEmpty": "Empty",
+  "recordYes": "Yes",
+  "recordNo": "No",
+  "recordNoFields": "This record has no saved fields.",
   "stopResponse": "Stop response",
   "stopFailed": "Could not stop the response. Try again.",
   "code": "Code",

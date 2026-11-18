@@ -1,7 +1,8 @@
 import { expect, test } from "vitest";
 import type { RunSnapshot } from "./run-state.ts";
+import type { RecordResult } from "@dispand/domain/messages/record-result.ts";
 import { applyRunEvent } from "./run-state.ts";
-import { CONSULT_TOOL, QUESTION_TOOL, threadMessages, TRACE_TOOL } from "./assistant-runtime.ts";
+import { CONSULT_TOOL, QUESTION_TOOL, RECORD_TOOL, threadMessages, TRACE_TOOL } from "./assistant-runtime.ts";
 
 const at = (s: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, s));
 const message = (id: string, role: "assistant" | "user" | "tool", text: string, s: number, stepRunId = "s_chat") => ({ id, role, text, createdAt: at(s), stepRunId, runId: "run_1" });
@@ -81,6 +82,27 @@ test("adjacent traces share a message without swallowing text or questions", () 
     { type: "tool-call", toolCallId: "t1", toolName: TRACE_TOOL, args: { text: "Read" }, result: "done" },
     { type: "tool-call", toolCallId: "t2", toolName: TRACE_TOOL, args: { text: "Bash" }, result: "done" },
   ]);
+});
+
+test("a saved record replaces its trace with real arguments and result, outside routine groups", () => {
+  const started = message("record", "tool", "rows_get", 2);
+  const first = snapshot([message("t1", "tool", "Read", 1), started, message("t2", "tool", "Search", 3)], []);
+  expect(threadMessages(first, "s_chat")).toHaveLength(1);
+  const record: RecordResult = { kind: "record", tableId: "table_1", rowId: "row_1", fields: [{ id: "f1", name: "Name", type: "text", value: "Client" }] };
+  const result = { toolCallId: "call_1", turnId: "turn_1", args: { id: "row_1" }, record };
+  const updated = applyRunEvent(first, { type: "message", message: { ...started, result } });
+  const thread = threadMessages(updated, "s_chat");
+  expect(thread.map((item) => item.id)).toEqual(["t1", "record", "t2"]);
+  expect(thread[1]!.content).toEqual([{ type: "tool-call", toolCallId: "turn_1:call_1", toolName: RECORD_TOOL, args: { id: "row_1" }, result: record }]);
+});
+
+test("provider call ids reused in later turns retain separate record identities", () => {
+  const record = { kind: "record", tableId: "table_1", rowId: "row_1", fields: [] };
+  const thread = threadMessages(snapshot(["turn_1", "turn_2"].map((turnId, i) => ({
+    ...message("m" + i, "tool", "rows_get", i),
+    result: { toolCallId: "call_1", turnId, args: { id: "row_1" }, record },
+  })), []), "s_chat");
+  expect(thread.flatMap((item) => typeof item.content === "string" ? [] : item.content).map((part) => part.type === "tool-call" ? part.toolCallId : null)).toEqual(["turn_1:call_1", "turn_2:call_1"]);
 });
 
 test("held attachments report upload progress before server validation and send the server id", async () => {

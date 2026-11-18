@@ -245,6 +245,53 @@ test("a failed consult remains visible between separate tool groups", async () =
 });
 
 
+test("saved record results stay visible between routine traces and render untrusted values as text", async () => {
+  const saved = { ...message("record", "tool", "rows_get", 3), result: {
+    toolCallId: "call_1", turnId: "turn_1", args: { id: "row_1" },
+    record: { kind: "record", tableId: "table_1", rowId: "row_1", fields: [
+      { id: "name", name: "<img src=x onerror=alert(1)>", type: "text", value: "<script>alert(1)</script>" },
+      { id: "link", name: "Website", type: "url", value: "javascript:alert(1)" },
+      { id: "count", name: "Count", type: "number", value: 0 },
+      { id: "active", name: "Active", type: "checkbox", value: false },
+      { id: "missing", name: "Related record", type: "reference", value: null },
+      { id: "files", name: "Files", type: "attachment", value: ["report.pdf", "notes.txt"] },
+    ] },
+  } };
+  const snap = run([message("t1", "tool", "Read", 1), message("t2", "tool", "Search", 2), saved, message("t3", "tool", "Inspect", 4), message("t4", "tool", "Check", 5)]);
+  const { user } = mount(snap);
+  expect(screen.getAllByRole("button", { name: "2 tool calls" })).toHaveLength(2);
+  const toggle = screen.getByRole("button", { name: "Record result" });
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  expect(screen.getByText("<script>alert(1)</script>")).toBeTruthy();
+  expect(screen.getByText("<img src=x onerror=alert(1)>")).toBeTruthy();
+  expect(screen.getByText("javascript:alert(1)")).toBeTruthy();
+  expect(screen.getByText("0")).toBeTruthy();
+  expect(screen.getByText("No")).toBeTruthy();
+  expect(screen.getByText("Empty")).toBeTruthy();
+  expect(screen.getByText(/report.pdf/).textContent).toBe("report.pdf\nnotes.txt");
+  expect(document.querySelector("script, img, a[href]")).toBeNull();
+  toggle.focus();
+  await user.keyboard("{Enter}");
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  await user.keyboard(" ");
+  expect(screen.getByText("<script>alert(1)</script>")).toBeTruthy();
+  cleanup();
+  render(<ChatTranscript messages={snap.messages} />);
+  expect(screen.getByText("<script>alert(1)</script>")).toBeTruthy();
+  expect(fake.questions.answer).not.toHaveBeenCalled();
+  expect(fake.agents.list).not.toHaveBeenCalled();
+  expect(fake.jobs.consults).not.toHaveBeenCalled();
+});
+
+test("old rows_get traces remain readable and an empty saved record is explicit", () => {
+  mount(run([message("old", "tool", "rows_get", 1), { ...message("new", "tool", "rows_get", 2), result: {
+    toolCallId: "call_1", turnId: "turn_1", args: { id: "row_1" },
+    record: { kind: "record", tableId: "table_1", rowId: "row_1", fields: [] },
+  } }]));
+  expect(screen.getByText("rows_get")).toBeTruthy();
+  expect(screen.getByText("This record has no saved fields.")).toBeTruthy();
+});
+
 test("read-only transcripts use the same tool disclosure", async () => {
   const user = userEvent.setup();
   render(<ChatTranscript messages={[

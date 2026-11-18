@@ -1,4 +1,9 @@
 {
+  "recordResult": "Résultat de la fiche",
+  "recordEmpty": "Vide",
+  "recordYes": "Oui",
+  "recordNo": "Non",
+  "recordNoFields": "Cette fiche ne contient aucun champ enregistré.",
   "stopResponse": "Arrêter la réponse",
   "stopFailed": "Impossible d’arrêter la réponse. Réessayez.",
   "code": "Code",
