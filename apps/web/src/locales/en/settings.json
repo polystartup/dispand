@@ -48,6 +48,7 @@
     "revoking": "Revoking invitation…",
     "revoked": "Invitation revoked.",
     "revokeFailed": "Could not revoke the invitation. Try again.",
+    "discard": "Discard link and close",
     "linkTitle": "Share the invitation link",
     "handoff": "Verify that you’re speaking to {{email}}, then give them this link directly. Anyone holding it can use it to register a new account if the invitation allows that.",
     "unavailable": "This invitation is no longer pending.",

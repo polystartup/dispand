@@ -82,3 +82,19 @@ test("a successful creation keeps its link when refreshing the pending list fail
   await user.click(screen.getByRole("button", { name: "Create link" }));
   expect((await screen.findByLabelText<HTMLInputElement>("Invitation link")).value).toContain("#" + token);
 });
+
+test("the one-time link appears before a slow list refresh completes", async () => {
+  workspace.invitations.mockResolvedValue([]);
+  let finish!: (list: typeof pending[]) => void;
+  workspace.invite.mockImplementation(async () => {
+    workspace.invitations.mockImplementation(() => new Promise<typeof pending[]>((resolve) => { finish = resolve; }));
+    return { id: pending.id, token, expiresAt: pending.expiresAt };
+  });
+  open();
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Invite person" }));
+  await user.type(screen.getByLabelText("Email address"), pending.email);
+  await user.click(screen.getByRole("button", { name: "Create link" }));
+  expect((await screen.findByLabelText<HTMLInputElement>("Invitation link")).value).toContain("#" + token);
+  await act(async () => finish([pending]));
+});

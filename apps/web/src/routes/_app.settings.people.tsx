@@ -20,9 +20,13 @@ function People() {
     <PageHeader title={t("people.title")} />
     {managed.isError ? <p role="alert">{t("people.loadFailed")}</p>
       : !managed.data ? <p role="status">{t("loading")}</p>
-      : managed.data.length === 1 ? <Directory key={managed.data[0]!.workspaceId} scope={managed.data[0]!} />
+      : managed.data.length === 1 ? <WorkspacePeople key={managed.data[0]!.workspaceId} scope={managed.data[0]!} />
       : <p>{t("people.unavailable")}</p>}
   </>;
+}
+
+function WorkspacePeople({ scope }: { scope: Scope }) {
+  return <><Directory scope={scope} /><WorkspaceInvitations scope={scope} /></>;
 }
 
 function Directory({ scope }: { scope: Scope }) {
@@ -53,7 +57,6 @@ function Directory({ scope }: { scope: Scope }) {
     <p ref={status} tabIndex={-1} role="status" className="mt-3 text-sm text-muted">
       {remove.isPending ? t("people.removing", { name }) : remove.isSuccess && t("people.removed", { name })}
     </p>
-    <WorkspaceInvitations scope={scope} />
   </>;
 }
 

@@ -48,6 +48,7 @@
     "revoking": "Révocation de l’invitation…",
     "revoked": "Invitation révoquée.",
     "revokeFailed": "Impossible de révoquer l’invitation. Réessayez.",
+    "discard": "Abandonner le lien et fermer",
     "linkTitle": "Partager le lien d’invitation",
     "handoff": "Vérifiez que vous êtes en contact avec {{email}}, puis remettez-lui directement ce lien. Toute personne qui le détient peut s’en servir pour créer un compte si l’invitation le permet.",
     "unavailable": "Cette invitation n’est plus en attente.",

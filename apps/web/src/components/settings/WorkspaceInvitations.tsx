@@ -28,10 +28,7 @@ export function WorkspaceInvitations({ scope }: { scope: Scope }) {
   return <section aria-labelledby="invitations-title" className="mt-8">
     <div className="mb-4 flex items-center justify-between gap-3">
       <h2 id="invitations-title" className="text-lg font-semibold">{t("invitations.title")}</h2>
-      <Dialog>
-        <DialogTrigger asChild><Button disabled={pending.isError}>{t("invitations.invite")}</Button></DialogTrigger>
-        <DialogContent><InviteForm scope={scope} pending={pending.isSuccess ? pending.data : undefined} refresh={refresh} /></DialogContent>
-      </Dialog>
+      <CreateInvitation scope={scope} pending={pending.isSuccess ? pending.data : undefined} refresh={refresh} />
     </div>
     {pending.isError ? <p role="alert">{t("invitations.loadFailed")}</p> : pending.data.length === 0 ? <p className="text-sm text-muted">{t("invitations.empty")}</p> : <List>
       {pending.data.map((invitation) => <li key={invitation.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
@@ -47,23 +44,35 @@ export function WorkspaceInvitations({ scope }: { scope: Scope }) {
   </section>;
 }
 
-function InviteForm({ scope, pending, refresh }: { scope: Scope; pending?: Invitation[]; refresh: () => Promise<void> }) {
+type InviteProps = { scope: Scope; pending?: Invitation[]; refresh: () => Promise<void> };
+
+function CreateInvitation(props: InviteProps) {
+  const { t } = useTranslation("settings");
+  const [open, setOpen] = useState(false);
+  return <Dialog open={open} onOpenChange={setOpen}>
+    <DialogTrigger asChild><Button disabled={!props.pending}>{t("invitations.invite")}</Button></DialogTrigger>
+    {open && <InviteForm {...props} />}
+  </Dialog>;
+}
+
+function InviteForm({ scope, pending, refresh }: InviteProps) {
   const { t } = useTranslation(["settings", "common"]);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Invitation["role"]>("member");
   const [issued, setIssued] = useState<{ id: string; link: string; email: string }>();
+  const [refreshed, setRefreshed] = useState(false);
   const [copied, setCopied] = useState<"copied" | "manual">();
   const field = useRef<HTMLInputElement>(null);
   const invite = useMutation({ mutationFn: async () => {
     // The token lives only in this open dialog. The mutation cache receives no invitation link.
     const { id, token } = await api.workspace.invite({ ...scope, email, role });
-    await refresh();
     setIssued({ id, email: email.trim().toLowerCase(), link: window.location.origin + "/invitation#" + token });
+    void refresh().then(() => setRefreshed(true));
   } });
 
   if (issued) {
-    const available = !pending || pending.some((row) => row.id === issued.id);
-    return <>
+    const available = !refreshed || !pending || pending.some((row) => row.id === issued.id);
+    return <DialogContent>
       <DialogTitle>{t("invitations.linkTitle")}</DialogTitle>
       <DialogDescription>{available ? t("invitations.handoff", { email: issued.email }) : t("invitations.unavailable")}</DialogDescription>
       {available && <>
@@ -79,10 +88,13 @@ function InviteForm({ scope, pending, refresh }: { scope: Scope; pending?: Invit
           catch { field.current?.focus(); field.current?.select(); setCopied("manual"); }
         }}>{t("invitations.copy")}</Button>}
       </div>
-    </>;
+    </DialogContent>;
   }
 
-  return <>
+  return <DialogContent
+    onEscapeKeyDown={(event) => { if (invite.isPending) event.preventDefault(); }}
+    onInteractOutside={(event) => { if (invite.isPending) event.preventDefault(); }}
+  >
     <DialogTitle>{t("invitations.invite")}</DialogTitle>
     <DialogDescription>{t("invitations.instructions")}</DialogDescription>
     <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); invite.mutate(); }}>
@@ -94,9 +106,9 @@ function InviteForm({ scope, pending, refresh }: { scope: Scope; pending?: Invit
       </FormField>
       {invite.error && <p role="alert" className="text-sm text-danger">{refusal(invite.error, t("invitations.createFailed"))}</p>}
       <div className="flex justify-end gap-2">
-        <DialogClose asChild><Button type="button" variant="outline">{t(invite.isPending ? "common:actions.close" : "common:actions.cancel")}</Button></DialogClose>
+        <DialogClose asChild><Button type="button" variant="outline">{t(invite.isPending ? "invitations.discard" : "common:actions.cancel")}</Button></DialogClose>
         <Button type="submit" disabled={invite.isPending}>{t("invitations.create")}</Button>
       </div>
     </form>
-  </>;
+  </DialogContent>;
 }
