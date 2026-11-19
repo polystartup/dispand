@@ -57,7 +57,7 @@ export function ChatComposer({ runId, assistantAgentId, tools, open, asking, app
       }
     }}
     className={`${tools ? "w-full basis-full" : "flex-[1_1_12rem]"} min-h-11 min-w-0 resize-none bg-transparent px-2 py-2 text-base leading-relaxed sm:text-[15px] outline-none placeholder:text-faint disabled:opacity-60`} />;
-  return <div className={`shrink-0 px-4 pb-4 pt-2 ${tools ? "" : "bg-surface"}`}>
+  return <div className={`shrink-0 pb-4 pt-2 ${tools ? "px-4" : "bg-surface px-2"}`}>
     {error && <p role="alert" className="mb-2 px-1 text-[13px] text-danger">{error}</p>}
     {asking && <p className="mb-2 px-1 text-[13px] text-muted">{t("answerAbove")}</p>}
     {approval && open && <div className="mx-auto mb-2 flex max-w-3xl items-center gap-2 px-1">
@@ -66,7 +66,7 @@ export function ChatComposer({ runId, assistantAgentId, tools, open, asking, app
     </div>}
     {queued}
     <ComposerPrimitive.AttachmentDropzone asChild disabled={!open || asking || approval || busy}>
-    <ComposerPrimitive.Root className={`mx-auto flex w-full max-w-3xl flex-wrap items-end gap-2 rounded-2xl border border-line bg-surface p-3 focus-within:border-accent data-[dragging=true]:border-accent data-[dragging=true]:bg-hover ${tools ? "shadow-sm" : ""}`}
+    <ComposerPrimitive.Root className={`mx-auto flex w-full max-w-3xl flex-wrap items-end rounded-2xl border border-line bg-surface focus-within:border-accent data-[dragging=true]:border-accent data-[dragging=true]:bg-hover ${tools ? "gap-2 p-3 shadow-sm" : "gap-1 p-2"}`}
       onSubmit={(e) => {
         if (approval) { e.preventDefault(); void decline(); }
         else if (running) { e.preventDefault(); if (canSend) aui.composer().send(); }
@@ -75,8 +75,8 @@ export function ChatComposer({ runId, assistantAgentId, tools, open, asking, app
       {!approval && <div className="flex basis-full flex-wrap gap-1.5 empty:hidden">
         <ComposerPrimitive.Attachments components={{ Attachment: ComposerAttachment }} />
       </div>}
-      {runId && !tools && onNewConversation && <Button type="button" variant="ghost" size="icon-sm" aria-label={t("newConversation")} title={t("newConversation")} className="rounded-full text-muted" disabled={busy} onClick={onNewConversation}><MessageSquarePlus aria-hidden /></Button>}
       {assistantAgentId ? <AssistantInput agentId={assistantAgentId} runId={runId} onTextChange={(value) => aui.composer().setText(value)} onSkillChange={chooseSkill} inputProps={{ ...input.props, value: text }} /> : input}
+      {runId && !tools && onNewConversation && <Button type="button" variant="ghost" size="icon-sm" aria-label={t("newConversation")} title={t("newConversation")} className="rounded-full text-muted" disabled={busy} onClick={onNewConversation}><MessageSquarePlus aria-hidden /></Button>}
       {!approval && <ComposerPrimitive.AddAttachment multiple disabled={!open || asking || busy} aria-label={t("attachFile")} title={t("attachFile")} className="grid size-11 shrink-0 place-items-center rounded-full text-muted hover:bg-hover hover:text-fg disabled:opacity-60">
         <Paperclip size={16} aria-hidden />
       </ComposerPrimitive.AddAttachment>}
