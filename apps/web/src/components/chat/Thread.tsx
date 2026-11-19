@@ -2,7 +2,7 @@ import { ActionBarPrimitive, AuiConfig, AuiIf, AssistantRuntimeProvider, Compose
 import type { Answer } from "@dispand/runner-protocol";
 import type { RecordResult } from "@dispand/domain/messages/record-result.ts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, Check, ChevronDown, Copy, MessageSquare, Paperclip, Quote, Users, Wrench, X } from "lucide-react";
+import { ArrowDown, Check, ChevronDown, Copy, MessageSquare, Quote, Users, Wrench, X } from "lucide-react";
 import { Collapsible } from "radix-ui";
 import { useTranslation } from "react-i18next";
 import { createContext, type ComponentProps, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
@@ -14,7 +14,7 @@ import { ProposalItems } from "../questions/ProposalItems.tsx";
 import { approvalWords, QuestionForm } from "../questions/QuestionForm.tsx";
 import { AgentText } from "./AgentText.tsx";
 import { ArtifactPart, DraftPrompt } from "./ArtifactPart.tsx";
-import { ComposerAttachment, MessageAttachment } from "./Attachment.tsx";
+import { MessageAttachment } from "./Attachment.tsx";
 
 type Question = RunSnapshot["questions"][number];
 
@@ -191,21 +191,6 @@ export function ComposerQuote() {
     <ComposerPrimitive.QuoteText className="max-h-32 min-w-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words" />
     <ComposerPrimitive.QuoteDismiss aria-label={t("removeQuote")} title={t("removeQuote")} className="grid size-11 shrink-0 place-items-center rounded-lg hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent"><X size={16} aria-hidden /></ComposerPrimitive.QuoteDismiss>
   </ComposerPrimitive.Quote>;
-}
-
-export function ComposerAttachments({ disabled, hidden }: { disabled?: boolean; hidden?: boolean }) {
-  const { t } = useTranslation("chat");
-  if (hidden) return null;
-  return (
-    <>
-      <ComposerPrimitive.AddAttachment multiple disabled={disabled} aria-label={t("attachFile")} title={t("attachFile")} className="grid size-11 shrink-0 place-items-center rounded-full text-muted hover:bg-hover hover:text-fg disabled:opacity-60">
-        <Paperclip size={16} aria-hidden />
-      </ComposerPrimitive.AddAttachment>
-      <div className="order-first flex basis-full flex-wrap gap-1.5 empty:hidden">
-        <ComposerPrimitive.Attachments components={{ Attachment: ComposerAttachment }} />
-      </div>
-    </>
-  );
 }
 
 const OwnerMessage = () => (
