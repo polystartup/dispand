@@ -72,6 +72,6 @@ export function NextStep({ title, children }: { title: string; children: ReactNo
  * go with each save don't move the content below them.
  */
 export function BannerSlot({ children }: { children?: ReactNode }) {
-  // 104 px: on narrow screens the banner wraps its button below the text.
-  return <div className="mb-6 min-h-[104px] sm:min-h-[68px] [&>*]:mb-0">{children}</div>;
+  // Reserve the 44px action and vertical padding, plus the title and row gap when stacked.
+  return <div className="mb-6 min-h-28 sm:min-h-19 [&>*]:mb-0">{children}</div>;
 }
