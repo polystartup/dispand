@@ -13,7 +13,7 @@ vi.mock("../lib/api.ts", () => ({ api: { workspace: rpc } }));
 vi.mock("../lib/auth-call.ts", () => auth);
 const { Recipient } = await import("./-invitation.tsx");
 const token = "q".repeat(43);
-const summary = { role: "manager", inviterName: "Ada", workspaceId: "engineering", organizationId: "studio" };
+const summary = { role: "manager", inviterName: "Ada", workspaceId: "ws_private", organizationId: "org_private", workspaceName: "Engineering", organizationName: "Northwind" };
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 async function submit(name: string) {
@@ -33,8 +33,8 @@ function mount(email: string | null) {
 test("the signed-in recipient reviews the scope and explicitly accepts", async () => {
   rpc.invitation.mockResolvedValue(summary);
   mount("pat@example.test");
-  expect(await screen.findByText("engineering")).toBeTruthy();
-  expect(screen.getByText("studio")).toBeTruthy();
+  expect(await screen.findByText("Engineering")).toBeTruthy();
+  expect(screen.getByText("Northwind")).toBeTruthy();
   expect(screen.getByText("Manager")).toBeTruthy();
   expect(screen.getByText("Ada")).toBeTruthy();
   expect(rpc.acceptInvitation).not.toHaveBeenCalled();
@@ -59,7 +59,7 @@ test("a new recipient previews the invitation before setting a password", async 
   fireEvent.click(screen.getByText("Create an account"));
   fireEvent.change(screen.getByLabelText("Email"), { target: { value: "new@example.test" } });
   await submit("Review invitation");
-  expect(await screen.findByText("engineering")).toBeTruthy();
+  expect(await screen.findByText("Engineering")).toBeTruthy();
   expect(rpc.registerInvitation).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "New" } });
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "new-password" } });
@@ -85,7 +85,7 @@ test("registration that succeeds before sign-in fails allows signing in again wi
   fireEvent.click(screen.getByText("Create an account"));
   fireEvent.change(screen.getByLabelText("Email"), { target: { value: "new@example.test" } });
   await submit("Review invitation");
-  await screen.findByText("engineering");
+  await screen.findByText("Engineering");
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "New" } });
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "new-password" } });
   await submit("Create account and accept");

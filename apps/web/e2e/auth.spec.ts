@@ -6,6 +6,8 @@ test("fresh app asks for setup, shows the shell, and signs out to login", async 
   await page.waitForLoadState("networkidle"); // the form submits through JS once hydrated
 
   await page.getByLabel("Name").fill("Ada");
+  await page.getByLabel("Organization (optional)").fill("Northwind");
+  await page.getByLabel("Workspace (optional)").fill("Engineering");
   await page.getByLabel("Setup code").fill("dev-setup-code-0123456789");
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");

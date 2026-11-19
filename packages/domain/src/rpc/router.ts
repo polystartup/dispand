@@ -27,6 +27,7 @@ import { triggers } from "../triggers/procedures.ts";
 import { skills } from "../skills/procedures.ts";
 import { runs, workflows } from "../workflows/procedures.ts";
 import { signedIn, base } from "./context.ts";
+import { StorableText } from "../text.ts";
 import { message } from "../messages/index.ts";
 
 /** Constant-time comparison (digests have equal length whatever the inputs). */
@@ -35,11 +36,15 @@ function sameSecret(given: string, expected: string): boolean {
   return timingSafeEqual(digest(given), digest(expected));
 }
 
+const DisplayName = z.string().trim().min(1).pipe(StorableText(120));
+
 const setup = base
   .input(
     z.object({
       name: z.string().trim().min(1),
       email: z.email(),
+      organizationName: DisplayName.optional(),
+      workspaceName: DisplayName.optional(),
       setupCode: z.string().max(256),
       password: z.string().min(8).max(128), // 128 is Better Auth's sign-in limit
     }),
@@ -68,9 +73,9 @@ const setup = base
         password,
       });
       const organizationId = newId("org");
-      await tx.insert(organizations).values({ id: organizationId });
+      await tx.insert(organizations).values({ id: organizationId, name: input.organizationName });
       await tx.insert(organizationMembers).values({ organizationId, userId: ownerId, role: "owner" });
-      await tx.insert(workspaces).values({ id: newId("ws"), organizationId });
+      await tx.insert(workspaces).values({ id: newId("ws"), organizationId, name: input.workspaceName });
       await seedMarketplaces(tx, ownerId);
     });
     return { ownerId };

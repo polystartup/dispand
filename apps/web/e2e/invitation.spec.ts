@@ -26,7 +26,9 @@ test("an invitation registers a new recipient, then returns an existing account 
     await recipient.getByLabel("Email").fill(email);
     await recipient.getByRole("button", { name: "Review invitation" }).click();
     await expect(recipient.getByText("Ada", { exact: true })).toBeVisible();
-    await expect(recipient.getByText(scope.workspaceId, { exact: true })).toBeVisible();
+    await expect(recipient.getByText("Northwind", { exact: true })).toBeVisible();
+    await expect(recipient.getByText("Engineering", { exact: true })).toBeVisible();
+    await expect(recipient.getByText(scope.workspaceId, { exact: true })).toHaveCount(0);
     await recipient.getByLabel("Name").fill("Pat");
     await recipient.getByLabel("Password").fill("invited-person-password");
     await recipient.getByRole("button", { name: "Create account and accept" }).click();

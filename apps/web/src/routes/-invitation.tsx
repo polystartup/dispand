@@ -13,8 +13,8 @@ function Details({ preview }: { preview: Preview }) {
   const { t } = useTranslation("auth");
   const details = [
     [t("invitation.inviter"), preview.inviterName],
-    [t("invitation.organization"), preview.organizationId],
-    [t("invitation.workspace"), preview.workspaceId],
+    [t("invitation.organization"), preview.organizationName],
+    [t("invitation.workspace"), preview.workspaceName],
     [t("invitation.role"), t(`invitation.${preview.role}`)],
   ];
   return <dl className="mb-5 grid gap-3">{details.map(([label, value]) =>

@@ -179,8 +179,8 @@ test("0091 gives the existing owner a workspace and preserves their job, file an
 
   const db = await createDb(url);
   onTestFinished(() => closeDb(db));
-  expect(rowsOf(await db.execute(sql`select m.user_id, m.role, w.id as workspace_id from organization_members m
-    join workspaces w using (organization_id)`))).toEqual([{ user_id: "u", role: "owner", workspace_id: expect.any(String) }]);
+  expect(rowsOf(await db.execute(sql`select m.user_id, m.role, w.id as workspace_id, w.name as workspace_name, o.name as organization_name from organization_members m
+    join workspaces w using (organization_id) join organizations o on o.id = w.organization_id`))).toEqual([{ user_id: "u", role: "owner", workspace_id: "ws_u", workspace_name: "Main workspace", organization_name: "My organization" }]);
   expect(rowsOf(await db.execute(sql`select j.id, a.id as file from runs j
     join workflows f on f.id = j.workflow_id and f.workspace_id = j.workspace_id
     join workspaces w on w.id = j.workspace_id

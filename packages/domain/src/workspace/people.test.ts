@@ -26,7 +26,7 @@ test("a workspace manager sees its effective members and revokes only the select
   expect(await call(router.workspace.managed, undefined, { context })).toHaveLength(2);
   expect(await list({ workspaceId: "other", organizationId })).toContainEqual(expect.objectContaining({ userId: ownerId, role: "owner" }));
   await db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, ownerId));
-  expect(await call(router.workspace.managed, undefined, { context })).toEqual([scope]);
+  expect(await call(router.workspace.managed, undefined, { context })).toEqual([{ ...scope, organizationName: "My organization", workspaceName: "Main workspace" }]);
   expect((await list()).map(({ userId, role }) => [userId, role]).sort()).toEqual([[ownerId, "manager"], ["pat", "member"], ["team-owner", "owner"]].sort());
   const denied = { code: "NOT_FOUND" };
   await expect(list({ ...scope, organizationId: "foreign-org" })).rejects.toMatchObject(denied);

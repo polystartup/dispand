@@ -35,6 +35,7 @@ export const user = pgTable("user", {
 
 export const organizations = pgTable("organizations", {
   id: text("id").primaryKey(),
+  name: text("name").notNull().default("My organization"),
 });
 
 export const organizationMembers = pgTable("organization_members", {
@@ -48,6 +49,7 @@ export const organizationMembers = pgTable("organization_members", {
 
 export const workspaces = pgTable("workspaces", {
   id: text("id").primaryKey(),
+  name: text("name").notNull().default("Main workspace"),
   organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
 });
 

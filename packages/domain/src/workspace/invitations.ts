@@ -4,7 +4,7 @@ import { and, asc, eq, exists, gt, inArray, notExists, sql, type SQL } from "dri
 import { z } from "zod";
 import { recordAudit } from "../audit/record.ts";
 import type { Db, Tx } from "../db/client.ts";
-import { account, organizationMembers, user, workspaceInvitations, workspaceMembers, workspaces } from "../db/schema.ts";
+import { account, organizationMembers, organizations, user, workspaceInvitations, workspaceMembers, workspaces } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
 import { lockForManager, managedWorkspaces, person, Scope } from "./people.ts";
@@ -58,8 +58,10 @@ export const revokeInvitation = person.input(Scope.extend({ id: z.string().min(1
 async function findInvitation(db: Db | Tx, token: string, address: SQL) {
   const [row] = await db.select({
     id: workspaceInvitations.id, organizationId: workspaces.organizationId, workspaceId: workspaces.id,
+    organizationName: organizations.name, workspaceName: workspaces.name,
     role: workspaceInvitations.role, expiresAt: workspaceInvitations.expiresAt, inviterId: workspaceInvitations.inviterId,
   }).from(workspaceInvitations).innerJoin(workspaces, eq(workspaces.id, workspaceInvitations.workspaceId))
+    .innerJoin(organizations, eq(organizations.id, workspaces.organizationId))
     .where(and(eq(workspaceInvitations.tokenHash, hash(token)), address, live()));
   if (!row) throw missing();
   return row;
@@ -73,7 +75,7 @@ async function summary(db: Db, row: Invitation) {
   const [inviter] = await db.select({ inviterName: user.name }).from(user)
     .where(and(eq(user.id, row.inviterId), exists(managedWorkspaces(db, row.inviterId, row))));
   if (!inviter) throw missing();
-  return { organizationId: row.organizationId, workspaceId: row.workspaceId, role: row.role, expiresAt: row.expiresAt, ...inviter };
+  return { organizationId: row.organizationId, workspaceId: row.workspaceId, organizationName: row.organizationName, workspaceName: row.workspaceName, role: row.role, expiresAt: row.expiresAt, ...inviter };
 }
 
 export const invitation = person.input(Token).handler(async ({ context, input }) =>

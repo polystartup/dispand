@@ -25,6 +25,8 @@ async function fixture() {
 test("only the intended signed-in account may see and accept the latest invitation once", async () => {
   const { api, context, pat, scope, issue, accept } = await fixture();
   const { db } = context;
+  await db.update(organizations).set({ name: "Northwind" }).where(eq(organizations.id, scope.organizationId));
+  await db.update(workspaces).set({ name: "Design" }).where(eq(workspaces.id, scope.workspaceId));
   await db.insert(organizations).values({ id: "other" });
   await db.insert(organizationMembers).values({ organizationId: "other", userId: "pat", role: "owner" });
   const old = await issue();
@@ -33,7 +35,7 @@ test("only the intended signed-in account may see and accept the latest invitati
   await expect(accept(old.token)).rejects.toMatchObject(missing);
   await expect(call(api.invitation, { token: current.token }, { context })).rejects.toMatchObject(missing);
   await expect(call(api.acceptInvitation, { token: current.token }, { context })).rejects.toMatchObject(missing);
-  expect(await call(api.invitation, { token: current.token }, { context: pat })).toMatchObject({ ...scope, role: "member", inviterName: "Ada" });
+  expect(await call(api.invitation, { token: current.token }, { context: pat })).toMatchObject({ ...scope, organizationName: "Northwind", workspaceName: "Design", role: "member", inviterName: "Ada" });
   const pending = await call(api.invitations, scope, { context });
   expect(pending).toMatchObject([{ id: current.id, email: "pat@example.test", role: "member" }]);
   expect(JSON.stringify([pending, await db.select().from(workspaceInvitations)])).not.toContain(current.token);
@@ -81,7 +83,7 @@ test("the installation owner can onboard a new identity by trusted handoff witho
   const register = (value: string, targetEmail = email) => call(api.registerInvitation, { token: value, name: "New", email: targetEmail, password }, { context: anonymous });
   const preview = (token: string, email: string) => call(api.registrationPreview, { token, email }, { context: anonymous });
   await expect(preview(token, "different@example.test")).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect(preview(token, email)).resolves.toMatchObject({ ...scope, inviterName: "Ada", role: "manager" });
+  await expect(preview(token, email)).resolves.toMatchObject({ ...scope, organizationName: "My organization", workspaceName: "Main workspace", inviterName: "Ada", role: "manager" });
   await expect(register(token, "different@example.test")).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(register(token)).resolves.toEqual(scope);
   await expect(register(token)).rejects.toMatchObject({ code: "NOT_FOUND" });

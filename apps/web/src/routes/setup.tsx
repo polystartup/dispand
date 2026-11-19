@@ -35,6 +35,8 @@ function Setup() {
           try {
             await api.auth.setup({
               name: String(form.get("name")),
+              organizationName: String(form.get("organizationName")).trim() || undefined,
+              workspaceName: String(form.get("workspaceName")).trim() || undefined,
               email,
               password,
               setupCode: String(form.get("setupCode")),
@@ -57,6 +59,8 @@ function Setup() {
         <Field label={t("setup.password")} name="password" type="password" autoComplete="new-password" minLength={8} maxLength={128} required />
         <Field label={t("setup.code")} name="setupCode" autoComplete="off" required />
         <p className="-mt-2 text-[13px] text-muted">{t("setup.codeHint")}</p>
+        <Field label={t("setup.organizationName")} name="organizationName" maxLength={120} />
+        <Field label={t("setup.workspaceName")} name="workspaceName" maxLength={120} />
         <FormError message={error} />
         <SubmitButton busy={busy}>{t("setup.submit")}</SubmitButton>
       </form>

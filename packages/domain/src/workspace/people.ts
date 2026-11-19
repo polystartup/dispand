@@ -3,7 +3,7 @@ import { and, asc, eq, exists, inArray, isNotNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { recordAudit } from "../audit/record.ts";
 import type { Db, Tx } from "../db/client.ts";
-import { organizationMembers, user, workspaceInvitations, workspaceMembers, workspaces } from "../db/schema.ts";
+import { organizationMembers, organizations, user, workspaceInvitations, workspaceMembers, workspaces } from "../db/schema.ts";
 import { message } from "../messages/index.ts";
 import { base, signedIn } from "../rpc/context.ts";
 
@@ -15,8 +15,9 @@ export const Scope = z.object({ organizationId: z.string().min(1), workspaceId: 
 const missing = () => new ORPCError("NOT_FOUND", message("workspace.membershipNotFound"));
 
 export function managedWorkspaces(db: Db | Tx, userId: string, scope?: z.infer<typeof Scope>) {
-  return db.select({ workspaceId: workspaces.id, organizationId: workspaces.organizationId })
+  return db.select({ workspaceId: workspaces.id, workspaceName: workspaces.name, organizationId: organizations.id, organizationName: organizations.name })
     .from(workspaces)
+    .innerJoin(organizations, eq(organizations.id, workspaces.organizationId))
     .innerJoin(organizationMembers, and(eq(organizationMembers.organizationId, workspaces.organizationId), eq(organizationMembers.userId, userId)))
     .leftJoin(workspaceMembers, and(eq(workspaceMembers.workspaceId, workspaces.id), eq(workspaceMembers.userId, userId)))
     .where(and(
