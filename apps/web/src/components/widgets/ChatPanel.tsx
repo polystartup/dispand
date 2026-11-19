@@ -3,14 +3,14 @@ import { QueuedMessages } from "../chat/QueuedMessages.tsx";
 import { MessageNotSentError, type AppendMessage, type QuoteInfo } from "@assistant-ui/react";
 import { heldAttachments, type QueueActions, textOf, useRunThread } from "../../lib/assistant-runtime.ts";
 import { nodesOf, type WorkflowDef } from "@dispand/domain/workflows/model";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, CircleAlert, Loader2 } from "lucide-react";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api, orpc } from "../../lib/api.ts";
 import { canReopen, type RunSnapshot } from "../../lib/run-state.ts";
 import { refreshRun, useRun } from "../../lib/run-watch.ts";
-import { ChatThread } from "../chat/Thread.tsx";
+import { ChatThread, turnActionKey } from "../chat/Thread.tsx";
 import { useStored } from "@/lib/message";
 import { ChatSession, useChatSessions } from "../../lib/chat-sessions.tsx";
 
@@ -75,8 +75,11 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [stopping, setStopping] = useState(false);
-  const stopPending = useRef(false);
+  const stopFilter = { mutationKey: turnActionKey(runId, "stop") };
+  const proposalFilter = { mutationKey: turnActionKey(runId, "proposal") };
+  const stopping = useIsMutating(stopFilter) > 0;
+  const deciding = useIsMutating(proposalFilter) > 0;
+  const interrupt = useMutation({ ...orpc.runs.interruptChat.mutationOptions(), ...stopFilter });
   const [holding, setHolding] = useState(0);
   const { t } = useTranslation("chat");
   const hold = useCallback(async (file: File) => {
@@ -102,27 +105,23 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   const canStop = active && open && chatStep?.turnStatus === "running" && ["running", "waiting"].includes(chatStep.status) && chatStep.interruptible && !!chatStep.turnId;
 
   async function stop() {
-    if (!canStop || !runId || !chatStep?.turnId || sending || stopPending.current) return;
-    stopPending.current = true;
+    if (!canStop || !runId || !chatStep?.turnId || sending || queryClient.isMutating(stopFilter) || queryClient.isMutating(proposalFilter)) return;
     sessions.begin(session);
-    setStopping(true);
     setError(null);
     try {
-      const result = await api.runs.interruptChat({ runId, turnId: chatStep.turnId });
+      const result = await interrupt.mutateAsync({ runId, turnId: chatStep.turnId });
       if (result.outcome === "failed") setError(t("stopFailed"));
       else if (result.outcome === "stale") await refreshRun(runId);
     } catch {
       setError(t("stopFailed"));
     } finally {
-      stopPending.current = false;
-      setStopping(false);
       sessions.settle(session);
     }
   }
 
   async function send(message: AppendMessage) {
     const text = textOf(message).trim();
-    if (!text || sending || stopPending.current || !canSend) throw new MessageNotSentError(t("sendFailed"));
+    if (!text || sending || queryClient.isMutating(stopFilter) || !canSend) throw new MessageNotSentError(t("sendFailed"));
     sessions.begin(session);
     const chosenSkill = message.runConfig?.custom?.skill as { name: string; skillId?: string } | undefined;
     const skillId = chosenSkill && text.split(/\s/, 1)[0] === `/${chosenSkill.name}` ? chosenSkill.skillId : undefined;
@@ -194,10 +193,10 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
     ] : [],
   });
   const view = <div className="flex min-h-0 flex-1 flex-col">
-    <ChatThread runtime={runtime} run={run} chatStepId={chatStep?.id} canSend={canSend && !sending && holding === 0} onSend={send} onAttach={hold}
+    <ChatThread runtime={runtime} run={run} chatStepId={chatStep?.id} canSend={canSend && !sending && holding === 0} canDraft={open && waiting !== "question"} onSend={send} onAttach={hold}
       welcome={welcome} starterPrompts={!!assistantAgentId} centeredWelcome={!!composerTools}
       composer={<ChatComposer runId={runId} assistantAgentId={assistantAgentId} tools={composerTools} open={open} waiting={waiting}
-        busy={sending || stopping} error={error} queued={<QueuedMessages queued={new Map((run?.queue ?? []).map((q) => [q.id, q]))} onEdit={editQueued} steering={!waiting && chatStep?.turnStatus === "running" && chatStep.turnId ? chatStep.steering : null} />} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined} />}
+        busy={sending || stopping || deciding} error={error} queued={<QueuedMessages queued={new Map((run?.queue ?? []).map((q) => [q.id, q]))} onEdit={editQueued} steering={!pending.some((q) => q.proposalId) && chatStep?.turnStatus === "running" && chatStep.turnId ? chatStep.steering : null} />} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined} />}
     >
       <AfterChat run={run} chatStepId={chatStep?.id} def={runDef} />
     </ChatThread>

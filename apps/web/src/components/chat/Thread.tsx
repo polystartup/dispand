@@ -1,7 +1,7 @@
 import { ActionBarPrimitive, AuiConfig, AuiIf, AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, SelectionToolbarPrimitive, SuggestionPrimitive, Tools, groupPartByType, type AppendMessage, type AssistantRuntime, type TextMessagePartComponent, type ToolCallMessagePartComponent } from "@assistant-ui/react";
 import { SHORT, type Answer } from "@dispand/runner-protocol";
 import type { RecordResult } from "@dispand/domain/messages/record-result.ts";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, Check, ChevronDown, Copy, MessageSquare, Quote, Users, Wrench, X } from "lucide-react";
 import { Collapsible } from "radix-ui";
 import { useTranslation } from "react-i18next";
@@ -19,6 +19,9 @@ import { ArtifactPart, DraftPrompt } from "./ArtifactPart.tsx";
 import { MessageAttachment } from "./Attachment.tsx";
 
 type Question = RunSnapshot["questions"][number];
+
+/** Stop can withdraw a proposal in the same conversation. */
+export const turnActionKey = (runId: string | null | undefined, action: "stop" | "proposal") => ["chat-turn", runId, action];
 
 /** The chat's questions by id: a question's part of the thread only carries its id. */
 const Questions = createContext<Map<string, Question>>(new Map());
@@ -99,16 +102,20 @@ const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ ar
   const answeredText = useAnsweredText();
   const q = useContext(Questions).get(args.questionId);
   const queryClient = useQueryClient();
+  const stop = { mutationKey: turnActionKey(q?.runId, "stop") };
+  const stopping = useIsMutating(stop) > 0;
   const card = useRef<HTMLElement>(null);
   const [conflict, setConflict] = useState(false);
-  const answer = useMutation(
-    orpc.questions.answer.mutationOptions({
+  const answer = useMutation({
+    ...orpc.questions.answer.mutationOptions({
       onError: (err) => setConflict((err as { code?: string }).code === "CONFLICT"),
       onSettled: () => void queryClient.invalidateQueries({ queryKey: orpc.questions.key() }),
     }),
-  );
+    ...(q?.proposal && { mutationKey: turnActionKey(q.runId, "proposal") }),
+  });
   if (!q) return null;
   const onAnswer = (value: Answer) => {
+    if (q.proposal && queryClient.isMutating(stop)) return;
     // The submitted control disappears when the run publishes its decision.
     card.current?.focus({ preventScroll: true });
     answer.mutate({ questionId: q.id, answer: value });
@@ -116,7 +123,7 @@ const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ ar
   if (q.proposalId && q.proposal) return (
     <ProposalCard question={q} ref={card}>
       {q.status === "pending" && (conflict ? <p role="status">{t("conflict")}</p> : <>
-        <ProposalDecisions busy={answer.isPending || answer.isSuccess} onAnswer={onAnswer} />
+        <ProposalDecisions busy={stopping || answer.isPending || answer.isSuccess} onAnswer={onAnswer} />
         {answer.error && <p role="alert" className="text-[13px] text-danger">{answer.error.message}</p>}
       </>)}
     </ProposalCard>
@@ -286,6 +293,7 @@ type Props = {
   run: RunSnapshot | null;
   chatStepId: string | undefined;
   canSend: boolean;
+  canDraft?: boolean;
   onSend: (message: AppendMessage) => Promise<void>;
   /** Holds a file attached in the composer (`files.hold`): absent, the composer takes no file. */
   onAttach?: (file: File) => Promise<{ id: string; image: boolean }>;
@@ -314,7 +322,7 @@ function LocalChatThread(props: Props) {
   return <ChatThreadView {...props} runtime={runtime} />;
 }
 
-function ChatThreadView({ runtime, run, chatStepId, canSend, children, composer, welcome, centeredWelcome, starterPrompts }: Props & { runtime: AssistantRuntime }) {
+function ChatThreadView({ runtime, run, chatStepId, canSend, canDraft = canSend, children, composer, welcome, centeredWelcome, starterPrompts }: Props & { runtime: AssistantRuntime }) {
   const { t } = useTranslation("chat");
   // Nothing said yet, and nothing went wrong: the invitation to start.
   const empty = threadMessages(run, chatStepId).length === 0 && run?.steps.find((s) => s.id === chatStepId)?.status !== "failed";
@@ -327,7 +335,7 @@ function ChatThreadView({ runtime, run, chatStepId, canSend, children, composer,
   }, [runtime]);
   return (
     <AssistantRuntimeProvider runtime={runtime} config={toolConfig}>
-      <DraftPrompt.Provider value={canSend && composer ? draft : undefined}>
+      <DraftPrompt.Provider value={canDraft && composer ? draft : undefined}>
       <Questions.Provider value={questions}>
           <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">
             <ThreadPrimitive.Viewport className={centeredWelcome ? `flex min-h-0 flex-1 flex-col overflow-y-auto pt-6 ${empty ? "justify-center-safe" : ""}` : "min-h-0 flex-1 overflow-y-auto px-4 py-6"} aria-live="polite">
@@ -363,7 +371,7 @@ function ChatThreadView({ runtime, run, chatStepId, canSend, children, composer,
               </div>}
             </ThreadPrimitive.Viewport>
             {!centeredWelcome && composer}
-            {canSend && composer && <SelectionToolbarPrimitive.Root className="z-50 rounded-lg border border-line bg-surface p-1 shadow-md">
+            {canDraft && composer && <SelectionToolbarPrimitive.Root className="z-50 rounded-lg border border-line bg-surface p-1 shadow-md">
               <SelectionToolbarPrimitive.Quote className="flex min-h-11 items-center gap-2 rounded px-3 py-2 text-sm text-fg hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent"><Quote size={16} aria-hidden />{t("quoteReply")}</SelectionToolbarPrimitive.Quote>
             </SelectionToolbarPrimitive.Root>}
           </ThreadPrimitive.Root>

@@ -127,6 +127,16 @@ test("a proposal in the Assistant's chat: approved or revised on its card while 
     return card;
   };
   const first = await ask(2, 1);
+  await chat.getByText("Let the Assistant box run two sessions at once.", { exact: true }).evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  await page.getByRole("button", { name: "Quote in reply", exact: true }).click();
+  await expect(chat.getByLabel("Quoted text")).toContainText("Let the Assistant box run two sessions at once.");
   await box.fill("Which cases would this affect?");
   await box.press("Enter");
   await expect(chat.getByRole("button", { name: "Send", exact: true })).toBeDisabled();

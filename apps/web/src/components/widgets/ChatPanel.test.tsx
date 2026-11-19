@@ -97,7 +97,7 @@ test("Stop targets the current turn, keeps the draft, and can retry a failed req
   expect(stop.disabled).toBe(true);
   await user.click(stop);
   expect(fake.runs.interruptChat).toHaveBeenCalledTimes(1);
-  expect(fake.runs.interruptChat).toHaveBeenCalledWith({ runId: "run_1", turnId: "turn_1" });
+  expect(fake.runs.interruptChat).toHaveBeenCalledWith({ runId: "run_1", turnId: "turn_1" }, expect.anything());
   await user.type(box, " while stopping");
   fail(new Error("Internal transport detail"));
   expect((await screen.findByRole("alert")).textContent).toBe("Could not stop the response. Try again.");
@@ -139,13 +139,19 @@ test("Stop while an approval waits never answers or approves it", async () => {
   snap.questions = [proposalQuestion()];
   Object.assign(snap.steps[0]!, { status: "waiting", turnStatus: "running", turnId: "turn_1", interruptible: true });
   fake.runs.stream.mockImplementation(streamOf(snap));
-  fake.runs.interruptChat.mockResolvedValue({ outcome: "requested" });
+  let stopped!: () => void;
+  fake.runs.interruptChat.mockImplementation(() => new Promise((resolve) => { stopped = () => resolve({ outcome: "requested" }); }));
   const user = mount("run_1");
   await user.click(await screen.findByRole("button", { name: "Stop response" }));
-  expect(fake.runs.interruptChat).toHaveBeenCalledWith({ runId: "run_1", turnId: "turn_1" });
+  expect(fake.runs.interruptChat).toHaveBeenCalledWith({ runId: "run_1", turnId: "turn_1" }, expect.anything());
   expect(fake.questions.answer).not.toHaveBeenCalled();
   expect(fake.runs.sendChat).not.toHaveBeenCalled();
-  expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
+  const approve = screen.getByRole<HTMLButtonElement>("button", { name: "Approve" });
+  expect(approve.disabled).toBe(true);
+  await user.click(approve);
+  expect(fake.questions.answer).not.toHaveBeenCalled();
+  stopped();
+  await waitFor(() => expect(approve.disabled).toBe(false));
   expect(screen.queryByRole("button", { name: "Interrupt and send" })).toBeNull();
   const box = screen.getByLabelText<HTMLTextAreaElement>("Message");
   await user.type(box, "Pending follow-up{Enter}");
@@ -153,6 +159,37 @@ test("Stop while an approval waits never answers or approves it", async () => {
   expect(screen.getByRole<HTMLButtonElement>("button", { name: "Send" }).disabled).toBe(true);
   expect(fake.runs.sendChat).not.toHaveBeenCalled();
   expect(fake.questions.answer).not.toHaveBeenCalled();
+});
+
+test("Stop waits for a proposal answer already in flight", async () => {
+  const snap = steerableSnapshot({ interruptsTools: false }, []);
+  snap.questions = [proposalQuestion()];
+  Object.assign(snap.steps[0]!, { status: "waiting", turnId: "turn_1", interruptible: true });
+  fake.runs.stream.mockImplementation(streamOf(snap));
+  let answer!: () => void;
+  fake.questions.answer.mockImplementation(() => new Promise<void>((resolve) => { answer = resolve; }));
+  const user = mount("run_1");
+  await user.click(await screen.findByRole("button", { name: "Approve" }));
+  const stop = screen.getByRole<HTMLButtonElement>("button", { name: "Stop response" });
+  await waitFor(() => expect(stop.disabled).toBe(true));
+  await user.click(stop);
+  expect(fake.runs.interruptChat).not.toHaveBeenCalled();
+  answer();
+  await waitFor(() => expect(stop.disabled).toBe(false));
+});
+
+test("queued steering stays available for an ordinary question until a proposal also waits", async () => {
+  const snap = steerableSnapshot({ interruptsTools: false }, [{}]);
+  const ordinary = { ...proposalQuestion(), id: "q2", proposalId: null, proposal: null, payload: { kind: "permission" as const, toolName: "read", input: {}, canAlwaysAllow: false } };
+  snap.questions = [ordinary];
+  fake.runs.stream.mockImplementation(streamOf(snap));
+  mount("run_1");
+  await screen.findByRole("button", { name: "Send now" });
+  cleanup();
+  fake.runs.stream.mockImplementation(streamOf({ ...snap, questions: [ordinary, proposalQuestion()] }));
+  mount("run_1");
+  await screen.findByRole("button", { name: "Approve" });
+  expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
 });
 
 test("Stop never cancels a local message submission", async () => {
