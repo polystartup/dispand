@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { PageHeader } from "../components/Placeholder.tsx";
 import { List } from "../components/settings/parts.tsx";
-import { orpc } from "../lib/api.ts";
+import { orpc, type api } from "../lib/api.ts";
 
 export const Route = createFileRoute("/_app/settings/people")({ component: People });
 
@@ -25,28 +25,37 @@ function People() {
 }
 
 function Directory({ scope }: { scope: Scope }) {
+  const { t } = useTranslation("settings");
+  const people = useQuery(orpc.workspace.people.queryOptions({
+    input: scope, gcTime: 0, refetchInterval: 5000, refetchIntervalInBackground: true, retry: false,
+  }));
+  if (people.isError || people.fetchStatus === "paused") return <p role="alert">{t("people.loadFailed")}</p>;
+  if (!people.data || !people.isFetchedAfterMount) return <p role="status">{t("loading")}</p>;
+  return <PeopleList scope={scope} people={people.data} />;
+}
+
+function PeopleList({ scope, people }: { scope: Scope; people: Awaited<ReturnType<typeof api.workspace.people>> }) {
   const { t } = useTranslation(["settings", "common"]);
   const client = useQueryClient();
-  const people = useQuery(orpc.workspace.people.queryOptions({ input: scope, gcTime: 0, refetchInterval: 5000, retry: false }));
+  const status = useRef<HTMLParagraphElement>(null);
   const [selected, setSelected] = useState<string>();
   const [notice, setNotice] = useState("");
   const remove = useMutation(orpc.workspace.removePerson.mutationOptions({
-    onSuccess: async () => {
-      const name = people.data?.find((p) => p.userId === selected)?.name;
+    onSuccess: async (_, input) => {
+      const name = people.find((p) => p.userId === input.userId)?.name;
       setSelected(undefined);
       await Promise.all([
         client.invalidateQueries({ queryKey: orpc.workspace.people.queryKey({ input: scope }) }),
         client.invalidateQueries({ queryKey: orpc.workspace.managed.key() }),
       ]);
       if (name) setNotice(t("people.removed", { name }));
+      if (document.activeElement === document.body) status.current?.focus();
     },
   }));
 
-  if (people.isError) return <p role="alert">{t("people.loadFailed")}</p>;
-  if (!people.data || !people.isFetchedAfterMount) return <p role="status">{t("loading")}</p>;
   return <>
     <List>
-      {people.data.map((person) => (
+      {people.map((person) => (
         <li key={person.userId} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4">
           <div className="min-w-0 flex-1 basis-40">
             <p className="break-words text-[15px] font-medium">{person.name}</p>
@@ -55,20 +64,19 @@ function Directory({ scope }: { scope: Scope }) {
           <span className="text-sm text-muted">{t(`people.role.${person.role}`)}</span>
           {person.role !== "owner" && (
             <Dialog open={selected === person.userId} onOpenChange={(open) => {
-              if (remove.isPending) return;
-              remove.reset();
+              if (open) remove.reset();
               setNotice("");
               setSelected(open ? person.userId : undefined);
             }}>
               <DialogTrigger asChild>
-                <Button size="sm" variant="outline" aria-label={t("people.removePerson", { name: person.name })}>{t("people.remove")}</Button>
+                <Button size="sm" variant="outline" disabled={remove.isPending} aria-label={t("people.removePerson", { name: person.name })}>{t("people.remove")}</Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogTitle>{t("people.confirm", { name: person.name })}</DialogTitle>
                 <DialogDescription>{t("people.effect", { email: person.email })}</DialogDescription>
                 {remove.isError && <p role="alert" className="text-sm text-danger">{t("people.removeFailed")}</p>}
                 <div className="flex justify-end gap-2">
-                  <DialogClose asChild><Button variant="outline" disabled={remove.isPending}>{t("common:actions.cancel")}</Button></DialogClose>
+                  <DialogClose asChild><Button variant="outline">{t(remove.isPending ? "common:actions.close" : "common:actions.cancel")}</Button></DialogClose>
                   <Button variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate({ ...scope, userId: person.userId })}>{t("people.remove")}</Button>
                 </div>
               </DialogContent>
@@ -77,6 +85,6 @@ function Directory({ scope }: { scope: Scope }) {
         </li>
       ))}
     </List>
-    <p role="status" className="mt-3 text-sm text-muted">{notice}</p>
+    <p ref={status} tabIndex={-1} role="status" className="mt-3 text-sm text-muted">{notice}</p>
   </>;
 }

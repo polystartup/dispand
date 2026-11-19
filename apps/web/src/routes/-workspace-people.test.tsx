@@ -67,4 +67,24 @@ test("a denied refresh clears the directory, including an open confirmation", as
   expect(await screen.findByRole("alert")).toBeTruthy();
   expect(screen.queryByText(member.email)).toBeNull();
   expect(screen.queryByRole("dialog")).toBeNull();
+  workspace.people.mockResolvedValue([owner, member]);
+  await act(() => client.invalidateQueries());
+  expect(await screen.findByText(member.email)).toBeTruthy();
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+test("a pending removal dialog can be closed while the request completes", async () => {
+  workspace.managed.mockResolvedValue([scope]);
+  workspace.people.mockResolvedValue([owner, member]);
+  let finish!: () => void;
+  workspace.removePerson.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+  open();
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Remove access for Sam" }));
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Remove access" }));
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  workspace.people.mockResolvedValue([owner]);
+  finish();
+  expect(await screen.findByText("Access removed for Sam.")).toBeTruthy();
 });
