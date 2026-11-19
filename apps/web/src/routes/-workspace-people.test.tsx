@@ -32,10 +32,8 @@ test("removing a member confirms the identity and refreshes access; ownership is
   const user = userEvent.setup();
   workspace.managed.mockResolvedValue([scope]);
   workspace.people.mockResolvedValue([owner, member]);
-  workspace.removePerson.mockImplementation(() => {
-    workspace.people.mockResolvedValue([owner]);
-    return { removed: true };
-  });
+  let finish!: () => void;
+  workspace.removePerson.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
   open();
   await user.click(await screen.findByRole("button", { name: "Remove access for Sam" }));
   const dialog = screen.getByRole("dialog", { name: "Remove Sam’s workspace access?" });
@@ -44,7 +42,11 @@ test("removing a member confirms the identity and refreshes access; ownership is
   expect(workspace.removePerson).not.toHaveBeenCalled();
   await user.click(screen.getByRole("button", { name: "Remove access for Sam" }));
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Remove access" }));
-  expect(await screen.findByText("Access removed for Sam.")).toBeTruthy();
+  const progress = await screen.findByText("Removing access for Sam…");
+  await vi.waitFor(() => expect(document.activeElement).toBe(progress));
+  workspace.people.mockResolvedValue([owner]);
+  finish();
+  expect(await screen.findByText("Access removed for Sam.")).toBe(document.activeElement);
   expect(workspace.removePerson.mock.calls[0]?.[0]).toEqual({ ...scope, userId: member.userId });
   expect(screen.queryByText(member.email)).toBeNull();
   expect(screen.queryByRole("button", { name: /Ada/ })).toBeNull();

@@ -37,7 +37,6 @@ function Directory({ scope }: { scope: Scope }) {
         client.invalidateQueries({ queryKey: orpc.workspace.people.queryKey({ input: scope }) }),
         client.invalidateQueries({ queryKey: orpc.workspace.managed.key() }),
       ]);
-      if (document.activeElement === document.body) status.current?.focus();
     },
   }));
   const [name, setName] = useState("");
@@ -45,7 +44,7 @@ function Directory({ scope }: { scope: Scope }) {
   if (!people.data || !people.isFetchedAfterMount) return <p role="status">{t("loading")}</p>;
 
   return <>
-    <PeopleList people={people.data} busy={remove.isPending} onRemove={(person) => {
+    <PeopleList people={people.data} busy={remove.isPending} focusStatus={() => status.current?.focus()} onRemove={(person) => {
       setName(person.name);
       remove.mutate({ ...scope, userId: person.userId });
     }} />
@@ -56,10 +55,11 @@ function Directory({ scope }: { scope: Scope }) {
   </>;
 }
 
-type People = Awaited<ReturnType<typeof api.workspace.people>>;
+type Person = Awaited<ReturnType<typeof api.workspace.people>>[number];
 
-function PeopleList({ people, busy, onRemove }: { people: People; busy: boolean; onRemove: (person: People[number]) => void }) {
+function PeopleList({ people, busy, focusStatus, onRemove }: { people: Person[]; busy: boolean; focusStatus: () => void; onRemove: (person: Person) => void }) {
   const { t } = useTranslation(["settings", "common"]);
+  const submitted = useRef(false);
   const [selected, setSelected] = useState<string>();
   return <List>
       {people.map((person) => (
@@ -76,12 +76,18 @@ function PeopleList({ people, busy, onRemove }: { people: People; busy: boolean;
               <DialogTrigger asChild>
                 <Button size="sm" variant="outline" aria-disabled={busy} aria-label={t("people.removePerson", { name: person.name })}>{t("people.remove")}</Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent onCloseAutoFocus={(event) => {
+                if (submitted.current) {
+                  event.preventDefault();
+                  submitted.current = false;
+                  focusStatus();
+                }
+              }}>
                 <DialogTitle>{t("people.confirm", { name: person.name })}</DialogTitle>
                 <DialogDescription>{t("people.effect", { email: person.email })}</DialogDescription>
                 <div className="flex justify-end gap-2">
                   <DialogClose asChild><Button variant="outline">{t("common:actions.cancel")}</Button></DialogClose>
-                  <Button variant="destructive" onClick={() => { setSelected(undefined); onRemove(person); }}>{t("people.remove")}</Button>
+                  <Button variant="destructive" onClick={() => { submitted.current = true; setSelected(undefined); onRemove(person); }}>{t("people.remove")}</Button>
                 </div>
               </DialogContent>
             </Dialog>
