@@ -258,7 +258,7 @@ test("an old null route during first-send navigation does not replace the promot
   expect(fake.runs.start).toHaveBeenCalledTimes(1);
 });
 
-test("a pending proposal decline cannot clear an already-visited conversation's identical draft", async () => {
+test("submitting proposal feedback preserves identical drafts across conversation switches", async () => {
   const answered = deferred<void>();
   fake.questions.answer.mockReturnValueOnce(answered.promise);
   fake.runs.stream.mockImplementation(async ({ runId }: { runId: string }, { signal }: { signal: AbortSignal }) => (async function* () {
@@ -279,8 +279,10 @@ test("a pending proposal decline cannot clear an already-visited conversation's 
   show([{ surfaceKey: "left", runId: "run_1" }]);
   await screen.findByRole("button", { name: "Approve" });
   await user.type(box(), "Make it smaller");
-  await user.click(screen.getByRole("button", { name: "Send" }));
-  await waitFor(() => expect(fake.questions.answer).toHaveBeenCalledWith({ questionId: "q_decline", answer: { kind: "permission", decision: "deny", message: "Make it smaller" } }));
+  await user.click(screen.getByRole("button", { name: "Request changes" }));
+  await user.type(screen.getByRole("textbox", { name: "What should change?" }), "Make it smaller");
+  await user.click(screen.getByRole("button", { name: "Send feedback" }));
+  await waitFor(() => expect(fake.questions.answer.mock.calls[0]?.[0]).toEqual({ questionId: "q_decline", answer: { kind: "permission", decision: "deny", message: "Make it smaller" } }));
 
   show([{ surfaceKey: "left", runId: "run_2" }]);
   await waitFor(() => expect(box().value).toBe("Make it smaller"));
@@ -288,7 +290,7 @@ test("a pending proposal decline cannot clear an already-visited conversation's 
   expect(box().value).toBe("Make it smaller");
   expect(fake.runs.sendChat).not.toHaveBeenCalled();
   show([{ surfaceKey: "left", runId: "run_1" }]);
-  await waitFor(() => expect(box().value).toBe(""));
+  await waitFor(() => expect(box().value).toBe("Make it smaller"));
   expect((await screen.findByRole<HTMLButtonElement>("button", { name: "Approve" })).disabled).toBe(false);
   expect(fake.questions.answer).toHaveBeenCalledTimes(1);
 });
