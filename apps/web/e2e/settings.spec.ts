@@ -42,7 +42,10 @@ test("an owner revokes an invitation, then hands off a fresh link and sees the r
   await expect(person.getByRole("button")).toHaveCount(0);
   await page.getByRole("button", { name: "Invite person" }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog).toContainText("Engineering in Northwind");
+  const scopes = await page.request.post("/api/rpc/workspace/managed", { headers: { "x-csrf-token": "orpc" }, data: {} });
+  expect(scopes.ok()).toBe(true);
+  const [{ workspaceName, organizationName }] = (await scopes.json()).json;
+  await expect(dialog).toContainText(`${workspaceName} in ${organizationName}`);
   await dialog.getByLabel("Email address").fill("teammate@example.com");
   await test.info().attach("invite-person", { body: await page.screenshot({ animations: "disabled" }), contentType: "image/png" });
   await dialog.getByRole("button", { name: "Create link" }).click();

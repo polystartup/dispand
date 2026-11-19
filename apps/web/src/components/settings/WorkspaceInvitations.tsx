@@ -83,7 +83,7 @@ function InviteForm({ scope, names, pending, onCreated }: InviteProps) {
     const available = !pending || pending.some((row) => row.id === issued.id);
     return <DialogContent>
       <DialogTitle>{t("invitations.linkTitle")}</DialogTitle>
-      <DialogDescription>{available ? t("invitations.handoff", { email: issued.email }) : t("invitations.unavailable")}</DialogDescription>
+      <DialogDescription className="wrap-anywhere">{available ? t("invitations.handoff", { email: issued.email }) : t("invitations.unavailable")}</DialogDescription>
       {available && <>
         <FormField htmlFor="invitation-link" label={t("invitations.linkLabel")}>
           <Input id="invitation-link" ref={field} readOnly value={issued.link} onFocus={(event) => event.target.select()} />
@@ -105,7 +105,7 @@ function InviteForm({ scope, names, pending, onCreated }: InviteProps) {
     onInteractOutside={(event) => { if (invite.isPending) event.preventDefault(); }}
   >
     <DialogTitle>{t("invitations.invite")}</DialogTitle>
-    <DialogDescription>{t("invitations.instructions", names)}</DialogDescription>
+    <DialogDescription className="wrap-anywhere">{t("invitations.instructions", names)}</DialogDescription>
     <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); invite.mutate(); }}>
       <FormField htmlFor="invite-email" label={t("invitations.email")}><Input id="invite-email" type="email" autoComplete="off" maxLength={254} required value={email} disabled={invite.isPending} onChange={(event) => setEmail(event.target.value)} /></FormField>
       <FormField htmlFor="invite-role" label={t("invitations.role")}>
