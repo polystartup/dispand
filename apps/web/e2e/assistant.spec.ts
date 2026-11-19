@@ -280,6 +280,7 @@ test("the studio: a second conversation's setup stops at a name taken, goes on, 
 
   // Applied again, it goes on from the first item not made: that one names the refused item, so it can't run.
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
   await box.fill("Use the Features table I made.");
   const history = chat.getByRole("region", { name: "Proposal" });
   const scope = history.getByRole("button", { name: `${items.length} proposed changes`, exact: true });
