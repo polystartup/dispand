@@ -80,7 +80,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   const stopping = useIsMutating(stopFilter) > 0;
   const deciding = useIsMutating(proposalFilter) > 0;
   const interrupt = useMutation({
-    ...orpc.runs.interruptChat.mutationOptions(),
+    mutationFn: (input: Parameters<typeof api.runs.interruptChat>[0]) => api.runs.interruptChat(input),
     ...stopFilter,
     networkMode: "always",
     onSuccess: async (result, input) => {

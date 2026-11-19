@@ -10,7 +10,7 @@ import "../../test/jsdom-shims.ts";
 
 const fake = vi.hoisted(() => ({
   assistantCommands: vi.fn(),
-  runs: { start: vi.fn(), sendChat: vi.fn(), interruptChat: vi.fn(), stream: vi.fn(), list: vi.fn() },
+  runs: { start: vi.fn(), sendChat: vi.fn(), stream: vi.fn(), list: vi.fn() },
   workflows: { get: vi.fn() },
   jobs: { def: vi.fn() },
   questions: { answer: vi.fn() },

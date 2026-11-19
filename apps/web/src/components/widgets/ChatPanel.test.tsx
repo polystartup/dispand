@@ -97,7 +97,7 @@ test("Stop targets the current turn, keeps the draft, and can retry a failed req
   expect(stop.disabled).toBe(true);
   await user.click(stop);
   expect(fake.runs.interruptChat).toHaveBeenCalledTimes(1);
-  expect(fake.runs.interruptChat).toHaveBeenCalledWith({ runId: "run_1", turnId: "turn_1" }, expect.anything());
+  expect(fake.runs.interruptChat).toHaveBeenCalledWith({ runId: "run_1", turnId: "turn_1" });
   await user.type(box, " while stopping");
   fail(new Error("Internal transport detail"));
   expect((await screen.findByRole("alert")).textContent).toBe("Could not stop the response. Try again.");
@@ -143,7 +143,7 @@ test("Stop while an approval waits never answers or approves it", async () => {
   fake.runs.interruptChat.mockImplementation(() => new Promise((resolve) => { stopped = () => resolve({ outcome: "requested" }); }));
   const user = mount("run_1");
   await user.click(await screen.findByRole("button", { name: "Stop response" }));
-  expect(fake.runs.interruptChat).toHaveBeenCalledWith({ runId: "run_1", turnId: "turn_1" }, expect.anything());
+  expect(fake.runs.interruptChat).toHaveBeenCalledWith({ runId: "run_1", turnId: "turn_1" });
   expect(fake.questions.answer).not.toHaveBeenCalled();
   expect(fake.runs.sendChat).not.toHaveBeenCalled();
   const approve = screen.getByRole<HTMLButtonElement>("button", { name: "Approve" });
