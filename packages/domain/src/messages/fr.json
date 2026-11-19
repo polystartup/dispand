@@ -1,4 +1,7 @@
 {
+  "workspace": {
+    "placementRequired": "La création de cette ressource nécessite un espace de travail unique."
+  },
   "agent": {
     "assistant": {
       "name": "Stem"

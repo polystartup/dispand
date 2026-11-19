@@ -1,3 +1,4 @@
+import { initialWorkspace } from "../workspace/placement.ts";
 import { ORPCError } from "@orpc/server";
 import { MAX_CLI_RULE_LENGTH } from "@dispand/runner-protocol";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
@@ -249,6 +250,7 @@ const create = owner.input(AgentFields).handler(async ({ input, context }) => {
         selfLearning: selfLearning ?? [],
         dataTables: dataTables ?? "all",
         id: newId("agent"),
+        workspaceId: await initialWorkspace(tx, context.ownerId),
         ownerId: context.ownerId,
         // Made as a plugin's element: these are the plugin's values, and a later change of one is an override.
         ...(context.pluginElement

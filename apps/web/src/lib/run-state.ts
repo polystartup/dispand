@@ -1,6 +1,6 @@
 import type { api } from "./api.ts";
 
-export type RunSnapshot = Awaited<ReturnType<typeof api.runs.get>>;
+export type RunSnapshot = Omit<Awaited<ReturnType<typeof api.runs.get>>, "canManage">;
 export type RunChange = Exclude<Awaited<ReturnType<typeof api.runs.stream>> extends AsyncIterable<infer E> ? E : never, { type: "snapshot" }>;
 export type RunStreamEvent = RunChange | ({ type: "snapshot" } & RunSnapshot);
 

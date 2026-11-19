@@ -9,6 +9,7 @@ import { knownTimezone } from "../workflows/schedule.ts";
 import { engineError, runQuestion } from "../workflows/procedures.ts";
 import { jobAgentNameSql } from "./agent-name.ts";
 import { consultsOfJob } from "./consults.ts";
+import { accessibleWorkspaces, readableRun } from "../workspace/access.ts";
 import { message } from "../messages/index.ts";
 
 const owner = base.use(authed);
@@ -16,9 +17,10 @@ const owner = base.use(authed);
 /** Starts a Job of a manual trigger, in the owner's `timezone` when the browser gives it; a chat placement also gives the conversation's session. */
 const start = owner.input(z.object({ triggerId: z.string(), timezone: z.string().refine(knownTimezone, "workflows.schedule.unknownTimezone").optional(), skillId: z.string().max(64).optional() })).handler(async ({ input, context }) => {
   const [trigger] = await context.db
-    .select()
+    .select({ id: triggers.id, config: triggers.config, enabled: triggers.enabled })
     .from(triggers)
-    .where(and(eq(triggers.id, input.triggerId), eq(triggers.ownerId, context.ownerId)));
+    .innerJoin(agents, eq(agents.id, triggers.agentId))
+    .where(and(eq(triggers.id, input.triggerId), eq(triggers.ownerId, context.ownerId), inArray(agents.workspaceId, accessibleWorkspaces(context))));
   if (!trigger) throw new ORPCError("NOT_FOUND", message("triggers.notFound"));
   if (trigger.config.kind !== "manual") throw new ORPCError("BAD_REQUEST", message("jobs.manualOnly"));
   if (!trigger.enabled) throw new ORPCError("BAD_REQUEST", message("jobs.disabled"));
@@ -37,7 +39,7 @@ const def = owner.input(z.object({ runId: z.string() })).handler(async ({ input,
   const [run] = await context.db
     .select({ def: runs.def })
     .from(runs)
-    .where(and(eq(runs.id, input.runId), eq(runs.ownerId, context.ownerId)));
+    .where(and(eq(runs.id, input.runId), readableRun(context)));
   if (!run?.def) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
   return run.def;
 });
@@ -47,7 +49,7 @@ const consults = owner.input(z.object({ runId: z.string() })).handler(async ({ i
   const [run] = await context.db
     .select({ id: runs.id, ownerId: runs.ownerId, cause: runs.cause })
     .from(runs)
-    .where(and(eq(runs.id, input.runId), eq(runs.ownerId, context.ownerId)));
+    .where(and(eq(runs.id, input.runId), eq(runs.ownerId, context.ownerId), readableRun(context)));
   if (!run) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
   return consultsOfJob(context.db, run);
 });
@@ -88,6 +90,7 @@ const list = owner
       .where(
         and(
           eq(runs.ownerId, context.ownerId),
+          readableRun(context),
           eq(runs.source, "agent"),
           input.agentId ? eq(runs.agentId, input.agentId) : undefined,
           input.triggerId ? eq(runs.triggerId, input.triggerId) : undefined,
@@ -123,7 +126,7 @@ const get = owner
     }),
   )
   .handler(async ({ input, context }) => {
-    const [job] = await selectJobs(context.db).where(and(eq(runs.id, input.id), eq(runs.ownerId, context.ownerId), eq(runs.source, "agent")));
+    const [job] = await selectJobs(context.db).where(and(eq(runs.id, input.id), readableRun(context), eq(runs.source, "agent")));
     if (!job) throw new ORPCError("NOT_FOUND", message("jobs.notFound"));
     const { run } = job;
     const [transcript, [total], asked] = await Promise.all([

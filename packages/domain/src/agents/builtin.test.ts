@@ -50,10 +50,10 @@ test("an owner has no Assistant until one is made, then exactly one, however man
 
 test("two at once make one Assistant even when the second doesn't see the first", async () => {
   const { context, harness } = await setup();
-  await context.db.insert(agents).values({ id: "agent_made", ownerId: context.ownerId, name: "Assistant", harnessId: harness.id, systemPrompt: "", builtIn: "assistant" });
+  await context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_made", ownerId: context.ownerId, name: "Assistant", harnessId: harness.id, systemPrompt: "", builtIn: "assistant" });
   // The partial unique index is what stops a second row.
   await expect(
-    context.db.insert(agents).values({ id: "agent_twice", ownerId: context.ownerId, name: "Assistant", harnessId: harness.id, systemPrompt: "", builtIn: "assistant" }),
+    context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_twice", ownerId: context.ownerId, name: "Assistant", harnessId: harness.id, systemPrompt: "", builtIn: "assistant" }),
   ).rejects.toThrow();
   // An existing Assistant keeps its harness and gets the chat it lacked.
   const ids = await ensureAssistant(context.db, context.ownerId, harness.id);
@@ -157,7 +157,7 @@ test("an Assistant Job's system prompt starts with the fixed text, then the owne
 
 test("at start, every owner's Assistant gets the chat it lacks, on its own harness", async () => {
   const { context, harness } = await setup();
-  await context.db.insert(agents).values({ id: "agent_old", ownerId: context.ownerId, name: "Assistant", harnessId: harness.id, systemPrompt: "", bundles: ["data", "configure"], builtIn: "assistant" });
+  await context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_old", ownerId: context.ownerId, name: "Assistant", harnessId: harness.id, systemPrompt: "", bundles: ["data", "configure"], builtIn: "assistant" });
   await ensureAssistants(context.db);
   const ids = await call(router.agents.assistant, undefined, { context });
   expect(ids).toEqual({ agentId: "agent_old", triggerId: expect.stringMatching(/^trigger_/), reviewTriggerId: expect.stringMatching(/^trigger_/) });

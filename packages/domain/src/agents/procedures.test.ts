@@ -291,7 +291,7 @@ test("the owner takes an action off the asking ones and puts it back; nothing el
     await expect(call(router.agents.setToolPermission, { ...input, permission: "run" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   }
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(agentsTable).values({ id: "agent_eve", ownerId: "user_other", name: "Eve's", harnessId: harness.id, systemPrompt: "" });
+  await context.db.insert(agentsTable).values({ workspaceId: context.workspaceId, id: "agent_eve", ownerId: "user_other", name: "Eve's", harnessId: harness.id, systemPrompt: "" });
   await context.db.insert(agentTools).values({ agentId: "agent_eve", toolId: "tool_gh" });
   await expect(call(router.agents.setToolPermission, { agentId: "agent_eve", toolId: "tool_gh", action: "search", permission: "run" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.agents.toolAsk, { id: "agent_eve" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });

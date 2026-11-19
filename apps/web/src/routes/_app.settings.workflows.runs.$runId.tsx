@@ -11,7 +11,7 @@ import { nodesOf } from "@dispand/domain/workflows/model";
 import { orpc } from "../lib/api.ts";
 import { useAgentName } from "../lib/agent-name.ts";
 import { useFormat } from "../lib/format.ts";
-import { useRun } from "../lib/run-watch.ts";
+import { POLL_MS, useRun } from "../lib/run-watch.ts";
 import { useStored } from "@/lib/message";
 
 export const Route = createFileRoute("/_app/settings/workflows/runs/$runId")({ component: RunPage });
@@ -23,21 +23,26 @@ function RunPage() {
   const format = useFormat();
   const agentName = useAgentName();
   const { runId } = Route.useParams();
-  // The live state comes from the stream; this read only tells a missing run from a loading one.
-  const check = useQuery({ ...orpc.runs.get.queryOptions({ input: { runId } }), retry: false });
-  const live = useRun(runId);
-  const state = live ?? check.data ?? null;
+  const check = useQuery({
+    ...orpc.runs.get.queryOptions({ input: { runId } }),
+    retry: false,
+    // Recheck a shared link even after the run finishes so removal clears the open page.
+    refetchInterval: (query) => query.state.data?.canManage === false ? POLL_MS : false,
+  });
+  const canManage = !check.isError && check.data?.canManage === true;
+  const live = useRun(canManage ? runId : null);
+  const state = canManage && live?.run.id === runId ? live : check.data;
   const run = state?.run;
   const workflow = useQuery({
     ...orpc.workflows.get.queryOptions({ input: { id: run?.workflowId ?? "", version: run?.version ?? 0 } }),
-    enabled: !!run?.workflowId,
+    enabled: canManage && !!run?.workflowId,
     staleTime: Infinity,
   });
   // A Job has no workflow: its definition is its own, and it goes back to its agent.
   const job = useQuery({ ...orpc.jobs.def.queryOptions({ input: { runId } }), enabled: run?.source === "agent", staleTime: Infinity });
-  const agents = useQuery(orpc.agents.list.queryOptions());
+  const agents = useQuery({ ...orpc.agents.list.queryOptions(), enabled: canManage });
 
-  if (check.error && !state) return <p role="alert" className="text-[14px] text-danger">{t("page.failed")}</p>;
+  if (check.error) return <p role="alert" className="text-[14px] text-danger">{t("page.failed")}</p>;
   if (!state || !run) return null;
 
   const agentNames = new Map(agents.data?.map((a) => [a.id, agentName(a)]));
@@ -46,7 +51,7 @@ function RunPage() {
 
   return (
     <>
-      {run.workflowId ? (
+      {canManage && (run.workflowId ? (
         // A deleted workflow has no page: its runs go back to the list of every run.
         workflow.data?.archived ? (
           <Link to="/settings/workflows/runs" className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted transition hover:text-fg">
@@ -76,7 +81,7 @@ function RunPage() {
           // Its agent was deleted: no page to go back to.
           <p className="mb-3 text-[13px] text-muted">{run.deletedAgentName ?? t("deletedAgent")}</p>
         ))
-      )}
+      ))}
       <header className="mb-6">
         <h1 className="truncate text-[28px] font-semibold leading-tight tracking-tight">{workflow.data?.name ?? job.data?.trigger.field.label ?? t("page.run")}</h1>
         <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[14px] text-muted">
@@ -85,18 +90,16 @@ function RunPage() {
             {run.workflowId ? ` · ${t("page.version", { version: run.version })}` : ""} · {t("page.started", { when: format.dateTimeSeconds(run.createdAt) })} · {run.finishedAt ? t("page.took", { duration: format.duration(run.createdAt, run.finishedAt) }) : t("stillGoing")}
           </span>
         </p>
-        <div className="mt-3">
-          <StopRun runId={run.id} status={run.status} />
-        </div>
+        {canManage && <div className="mt-3"><StopRun runId={run.id} status={run.status} /></div>}
         {run.error && (
           <p role="alert" className="mt-3 whitespace-pre-wrap rounded-xl bg-surface px-4 py-3 text-[14px] text-danger shadow-card">
             {stored(run.error)}
           </p>
         )}
       </header>
-      {run.source === "agent" && <RunConsults runId={run.id} live={!run.finishedAt} />}
+      {canManage && run.source === "agent" && <RunConsults runId={run.id} live={!run.finishedAt} />}
       <RunSteps state={state} def={workflow.data?.def ?? job.data} agentNames={agentNames} />
-      {run.source === "agent" && <JobAudit jobId={run.id} live={!run.finishedAt} />}
+      {canManage && run.source === "agent" && <JobAudit jobId={run.id} live={!run.finishedAt} />}
     </>
   );
 }

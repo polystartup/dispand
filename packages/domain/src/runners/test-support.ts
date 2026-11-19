@@ -73,7 +73,8 @@ export async function ownerContext() {
     .getSetCookie()
     .map((c) => c.split(";")[0])
     .join("; ");
-  return { ...context, ownerId, headers: new Headers({ cookie }) };
+  const [workspace] = await context.db.select({ workspaceId: schema.workspaces.id }).from(schema.workspaces);
+  return { ...context, ownerId, workspaceId: workspace!.workspaceId, headers: new Headers({ cookie }) };
 }
 
 /** Narrows a harness view to a CLI one, for tests that made it so. */

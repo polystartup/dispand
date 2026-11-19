@@ -111,7 +111,7 @@ test("cannot reference another owner's agent, workflow or run", async () => {
   const { context, harness } = await setup();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(harnesses).values({ ...harness, id: "harness_other", ownerId: "user_other", model: null });
-  await context.db.insert(agents).values({ id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
+  await context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
   const wf = await call(router.workflows.create, { name: "Ship" }, { context });
   await expect(
     call(router.workflows.update, { id: wf.id, name: "Ship", def: withStep(wf.def, "agent_other") }, { context }),

@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agentConsults, agents, harnesses, proposals, questions, runs, stepRuns, user } from "../db/schema.ts";
+import { agentConsults, agents, harnesses, proposals, questions, runs, stepRuns, user, workspaces } from "../db/schema.ts";
 import { callPlatformTool, type JobIdentity } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
@@ -55,12 +55,16 @@ test("an entry naming the agent itself, another owner's agent, or an agent acros
   // Another owner's agent is not one to consult.
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(harnesses).values({ id: "harness_other", ownerId: "user_other", name: "Eve's", runnerId: harness.runnerId, kind: "claude-code", permissionMode: "default" });
-  await context.db.insert(agents).values({ id: "agent_eve", ownerId: "user_other", name: "Eve's clerk", harnessId: "harness_other", systemPrompt: "", bundles: ["data"] });
+  await context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_eve", ownerId: "user_other", name: "Eve's clerk", harnessId: "harness_other", systemPrompt: "", bundles: ["data"] });
   await expect(update([{ agentId: "agent_eve", ask: false }])).rejects.toMatchObject({ code: "BAD_REQUEST", message: "This agent doesn't exist." });
   expect(await context.db.select().from(agentConsults)).toEqual([]);
   // Both with configure, or both without: allowed.
   const admin = await call(router.agents.create, { ...base, name: "Admin", bundles: ["configure"], consults: [{ agentId: builder.id, ask: false }] }, { context });
   expect(await pairProblem(context.db, context.ownerId, admin.id, builder.id)).toBeNull();
+  const [first] = await context.db.select().from(workspaces);
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: first!.organizationId });
+  await context.db.update(agents).set({ workspaceId: "ws_other" }).where(eq(agents.id, builder.id));
+  expect(await pairProblem(context.db, context.ownerId, admin.id, builder.id)).toEqual({ key: "agent.notFound" });
 });
 
 test("an entry a later bundle change puts across the configure line is kept, shown inactive, and saving the agent keeps it", async () => {

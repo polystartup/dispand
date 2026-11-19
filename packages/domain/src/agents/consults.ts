@@ -12,18 +12,18 @@ export type ConsultEntry = { agentId: string; ask: boolean };
 
 /**
  * Why `askerId` may not consult `consultedId`, or null when the pair is allowed: never itself,
- * both the owner's, and both with `configure` or both without, as the agents are now. Checked
+ * both in the same workspace and the owner's, and both with `configure` or both without, as the agents are now. Checked
  * when an entry is made, and again at each consult.
  */
 export async function pairProblem(db: Db | Tx, ownerId: string, askerId: string, consultedId: string): Promise<Message | null> {
   if (askerId === consultedId) return say("agent.consult.self");
   const rows = await db
-    .select({ id: agents.id, name: agents.name, bundles: agents.bundles })
+    .select({ id: agents.id, workspaceId: agents.workspaceId, name: agents.name, bundles: agents.bundles })
     .from(agents)
     .where(and(inArray(agents.id, [askerId, consultedId]), eq(agents.ownerId, ownerId)));
   const asker = rows.find((r) => r.id === askerId);
   const consulted = rows.find((r) => r.id === consultedId);
-  if (!asker || !consulted) return say("agent.notFound");
+  if (!asker || !consulted || asker.workspaceId !== consulted.workspaceId) return say("agent.notFound");
   const configures = (a: { bundles: string[] }) => a.bundles.includes("configure");
   if (configures(asker) !== configures(consulted)) {
     const [has, hasNot] = configures(asker) ? [asker, consulted] : [consulted, asker];

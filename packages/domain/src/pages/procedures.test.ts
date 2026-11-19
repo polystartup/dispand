@@ -57,7 +57,7 @@ test("widget for a non-manual or other owner's workflow is refused", async () =>
   const home = await call(router.pages.home, undefined, { context });
 
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(workflows).values({ id: "wf_other", ownerId: "user_other", name: "Eve's", currentVersion: 1 });
+  await context.db.insert(workflows).values({ workspaceId: context.workspaceId, id: "wf_other", ownerId: "user_other", name: "Eve's", currentVersion: 1 });
   await expect(call(router.widgets.create, { pageId: home.id, type: "workflow-form", workflowId: "wf_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
   // A trigger other than manual (stored by a later version of the app) can't back a form.
@@ -289,7 +289,7 @@ test("creates a trigger-form widget titled after the trigger and refuses another
 
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(harnessesTable).values({ id: "harness_other", ownerId: "user_other", name: "Eve's", runnerId, kind: "claude-code", permissionMode: "default" });
-  await context.db.insert(agentsTable).values({ id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
+  await context.db.insert(agentsTable).values({ workspaceId: context.workspaceId, id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
   await context.db.insert(triggersTable).values({ id: "trigger_other", ownerId: "user_other", agentId: "agent_other", kind: "manual", name: "T", instructions: "Do it.", config: { kind: "manual", placement: "button" } });
   await expect(call(router.widgets.create, { pageId: home.id, type: "trigger-form", triggerId: "trigger_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 

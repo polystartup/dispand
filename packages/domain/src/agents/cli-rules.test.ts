@@ -47,7 +47,7 @@ test("concurrent removals keep each other's changes", async () => {
 test("CLI rule controls require the agent's owner session and are absent from Job tools", async () => {
   const { context, agent } = await setup();
   await context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.test" });
-  await context.db.insert(agents).values({ id: "other_agent", ownerId: "other", name: "Other", harnessId: agent.harnessId, systemPrompt: "", cliRules: rules });
+  await context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "other_agent", ownerId: "other", name: "Other", harnessId: agent.harnessId, systemPrompt: "", cliRules: rules });
   for (const id of ["other_agent", "missing"]) {
     await expect(call(router.agents.cliRules, { id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(call(router.agents.removeCliRule, { id, ...rules[0]! }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });

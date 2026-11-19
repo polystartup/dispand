@@ -51,6 +51,15 @@ export const workspaces = pgTable("workspaces", {
   organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
 });
 
+export const workspaceMembers = pgTable("workspace_members", {
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  role: text("role").$type<"manager" | "member">().notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.workspaceId, t.userId] }),
+  check("workspace_members_role_check", sql`${t.role} in ('manager', 'member')`),
+]);
+
 export const session = pgTable("session", {
   id: text("id").primaryKey(),
   expiresAt: timestamp("expires_at").notNull(),
@@ -155,6 +164,7 @@ export const harnesses = pgTable("harnesses", {
 
 export const agents = pgTable("agents", {
   id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
   ownerId: text("owner_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
@@ -189,6 +199,7 @@ export const agents = pgTable("agents", {
 // Workflows: the trigger and steps live in versions; a run keeps the version it started on.
 export const workflows = pgTable("workflows", {
   id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
   ownerId: text("owner_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
@@ -335,6 +346,7 @@ export const runs = pgTable(
   "runs",
   {
     id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),

@@ -25,12 +25,14 @@ test("0025 keeps existing runs as workflow runs", async () => {
   const db = await createDb("pglite://memory");
   onTestFinished(() => closeDb(db));
   await db.execute(sql`insert into "user" (id, name, email) values ('user_1', 'Ada', 'ada@example.com')`);
+  await db.execute(sql`insert into organizations (id) values ('org_1')`);
+  await db.execute(sql`insert into workspaces (id, organization_id) values ('ws_1', 'org_1')`);
   await db.execute(
-    sql`insert into workflows (id, owner_id, name, current_version) values ('wf_1', 'user_1', 'Old', 1)`,
+    sql`insert into workflows (id, workspace_id, owner_id, name, current_version) values ('wf_1', 'ws_1', 'user_1', 'Old', 1)`,
   );
-  // A run as it was written before the migration: no source, no definition.
+  // Omitting the source and definition still creates a workflow run.
   await db.execute(
-    sql`insert into runs (id, owner_id, workflow_id, version, status) values ('run_1', 'user_1', 'wf_1', 1, 'succeeded')`,
+    sql`insert into runs (id, workspace_id, owner_id, workflow_id, version, status) values ('run_1', 'ws_1', 'user_1', 'wf_1', 1, 'succeeded')`,
   );
   const run = await db.execute(sql`select source, def, agent_id, trigger_id, cause, snapshot from runs`);
   expect(rowsOf(run)[0]).toEqual({
@@ -180,6 +182,9 @@ test("0091 gives the existing owner a workspace and preserves their job, file an
   expect(rowsOf(await db.execute(sql`select m.user_id, m.role, w.id as workspace_id from organization_members m
     join workspaces w using (organization_id)`))).toEqual([{ user_id: "u", role: "owner", workspace_id: expect.any(String) }]);
   expect(rowsOf(await db.execute(sql`select j.id, a.id as file from runs j
+    join workflows f on f.id = j.workflow_id and f.workspace_id = j.workspace_id
+    join workspaces w on w.id = j.workspace_id
+    join organization_members m on m.organization_id = w.organization_id and m.user_id = j.owner_id
     join attachments a on a.job_id = j.id and a.owner_id = j.owner_id where j.owner_id = 'u'`))).toEqual([{ id: "j", file: "a" }]);
   expect(await findRunnerByToken(db, paired.token)).toMatchObject({ id: paired.runnerId, ownerId: "u" });
   const { openAttachment } = await import("../data/files.ts");

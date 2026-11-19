@@ -4,7 +4,7 @@ import { call } from "@orpc/server";
 import { type Answer, parseServerMessage, type ServerToRunner, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING, TEXT } from "@dispand/runner-protocol";
 import { and, eq, or } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { attachments, audit, agents as agentsTable, agentTools, agentConsults, chatQueue, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools } from "../db/schema.ts";
+import { attachments, audit, agents as agentsTable, agentTools, agentConsults, chatQueue, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools, workspaces, organizations, organizationMembers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { ArgValue } from "../tools/arguments.ts";
@@ -1415,6 +1415,21 @@ test("run uses the version current at start", async () => {
 
   const second = await engine.startRun(workflow.id);
   expect(adapter.starts[1]!.start).toMatchObject({ runKey: expect.stringMatching(new RegExp(`^${second}-`)), prompt: "Write a poem." });
+});
+
+test("jobs keep the source workspace when the resource owner changes organizations", async () => {
+  const { context, engine, workflow, agent } = await setup(buttonThenStep);
+  const { id: triggerId } = await call(router.triggers.create, { agentId: agent.id, name: "Start", instructions: "Begin.", config: { kind: "manual", placement: "button" } }, { context });
+  await context.db.delete(organizationMembers).where(eq(organizationMembers.userId, context.ownerId));
+  await context.db.insert(organizations).values({ id: "another-org" });
+  await context.db.insert(workspaces).values({ id: "another-workspace", organizationId: "another-org" });
+  await context.db.insert(organizationMembers).values({ organizationId: "another-org", userId: context.ownerId, role: "owner" });
+  const workflowRun = await engine.startRun(workflow.id);
+  const agentRun = await engine.startJob(triggerId, context.ownerId);
+  const placed = await context.db.select({ id: runs.id, workspaceId: runs.workspaceId }).from(runs);
+  expect(placed).toHaveLength(2);
+  expect(placed).toEqual(expect.arrayContaining([workflowRun, agentRun].map((id) => ({ id, workspaceId: context.workspaceId }))));
+  await expect(call(router.workflows.create, { name: "Unscoped" }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
 });
 
 test("start refuses a workflow with issues", async () => {

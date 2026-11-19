@@ -249,7 +249,7 @@ export class Engine {
     const [issue] = await runIssues(tx, workflow.ownerId, def);
     if (issue) throw new EngineError("INVALID", message(issue.message.key, issue.message.values));
     const runId = newId("run");
-    await tx.insert(runs).values({ id: runId, ownerId: workflow.ownerId, workflowId, version: workflow.currentVersion, status: "running", trigger, traceId: currentTraceId() ?? null });
+    await tx.insert(runs).values({ id: runId, workspaceId: workflow.workspaceId, ownerId: workflow.ownerId, workflowId, version: workflow.currentVersion, status: "running", trigger, traceId: currentTraceId() ?? null });
     counts.counter("dispand.runs.created").add(1, { "dispand.run.source": "workflow", "dispand.run.trigger": trigger.type });
     // A loop's body gets its rows when each iteration opens.
     const top = nodesOf(def).filter((n) => n.loopId === undefined);
@@ -365,6 +365,7 @@ export class Engine {
     const span = withJob(runId, () => markSpan(traces, "engine.job", { "dispand.job.id": runId, "dispand.agent.id": agentId, "dispand.run.trigger": firing.type }));
     await tx.insert(runs).values({
       id: runId,
+      workspaceId: agent.workspaceId,
       ownerId,
       source: "agent",
       ...(token ? { tokenHash: token.hash, tokenSealed: token.sealed } : {}),

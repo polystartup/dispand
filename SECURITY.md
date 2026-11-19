@@ -506,9 +506,13 @@ changes it updates this file.
   server's tools and the agent's explicitly unasked MCP actions run without a question on a runner; every other MCP tool still asks. A CLI
   names a tool `mcp__<server>__<tool>`, so the protocol only accepts session server names made of
   words joined by single underscores: no other name can give tools that read as the Job server's.
-- **Only the owner has a session.** Sign-up is disabled; `auth.setup` (public) creates the
+- **First-run setup creates the initial owner.** Sign-up is disabled; `auth.setup` (public) creates the
   owner only while no user exists, and only with the one-time code from the server's settings
   (`DISPAND_SETUP_CODE`), so the first-run window can't be claimed from the network.
+- **Workspace access to a job is checked against the current membership.** The job belongs to one workspace.
+  Its organization owners can read it. Other organization members need an assignment to that workspace.
+  A shared job link allows inspection of the job and its transcript. The server checks membership again
+  before delivering subsequent stream events. Runner credentials and job tokens retain their separate grants.
 - **The app is reachable only through the reverse proxy**, which terminates TLS and sets
   `X-Real-IP` to the peer it saw, overwriting what the client sent. That header alone is the
   sign-in rate-limit identity, so nothing but the proxy may reach the app's published port 3000

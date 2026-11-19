@@ -645,6 +645,13 @@
       "when": 1795089746531,
       "tag": "0091_workspace_bootstrap",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1795105781105,
+      "tag": "0092_workspace_job_access",
+      "breakpoints": true
     }
   ]
 }

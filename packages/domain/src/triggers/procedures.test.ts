@@ -58,7 +58,7 @@ test("refuses another owner's agent", async () => {
     kind: "claude-code",
     permissionMode: "default",
   });
-  await context.db.insert(agents).values({ id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
+  await context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
   const config = { kind: "manual", placement: "button" } as const;
   await expect(call(router.triggers.create, { agentId: "agent_other", name: "T", instructions: "Do it.", config }, { context })).rejects.toMatchObject({
     code: "NOT_FOUND",
