@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import { ID } from "@dispand/runner-protocol";
 import { artifacts, messages, stepRuns } from "../db/schema.ts";
@@ -6,7 +6,7 @@ import { messageView } from "../engine/views.ts";
 import { newId } from "../ids.ts";
 import type { ArtifactRef } from "../messages/record-result.ts";
 import type { JobIdentity, PlatformApp, ToolResult } from "../platform/call.ts";
-import { meter, tracer } from "../telemetry/index.ts";
+import { meter, recordError, tracer } from "../telemetry/index.ts";
 
 // `artifact_show`: a Job shows generated HTML or SVG in its chat. The code is stored in
 // `artifacts`; the chat gets a tool message whose result is a reference to it, published as the
@@ -43,8 +43,8 @@ export function showArtifact(app: PlatformApp, job: JobIdentity, input: Show): P
           const [earlier] = await tx.select({ id: artifacts.id }).from(artifacts).where(and(eq(artifacts.id, input.replaces), eq(artifacts.runId, job.runId)));
           if (!earlier) return null;
         }
-        // The Job's step: the one its session works for.
-        const [step] = await tx.select({ id: stepRuns.id }).from(stepRuns).where(eq(stepRuns.runId, job.runId)).orderBy(desc(stepRuns.startedAt)).limit(1);
+        // The Job's step: the one whose session calls.
+        const [step] = await tx.select({ id: stepRuns.id }).from(stepRuns).where(and(eq(stepRuns.runId, job.runId), isNotNull(stepRuns.sessionId))).limit(1);
         const artifactId = newId("art");
         const result: ArtifactRef = { kind: "artifact", artifactId, title: input.title, format, size: bytes };
         const [message] = await tx.insert(messages).values({ id: newId("msg"), ownerId: job.ownerId, runId: job.runId, stepRunId: step!.id, role: "tool", text: "artifact_show", result }).returning();
@@ -57,6 +57,10 @@ export function showArtifact(app: PlatformApp, job: JobIdentity, input: Show): P
       span.setAttribute("dispand.artifact.id", made.artifactId);
       app.engine.settled([{ type: "message", message: messageView(made.message) }]);
       return { ok: true, output: { artifactId: made.artifactId } };
+    } catch (err) {
+      span.setAttribute("dispand.result", "failed");
+      recordError(span, "failed");
+      throw err;
     } finally {
       span.end();
     }

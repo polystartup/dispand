@@ -129,6 +129,8 @@ test("a cloud session's artifact_show goes through the in-process platform calle
   const [artifact] = await context.db.select().from(artifacts);
   expect(artifact).toMatchObject({ runId, format: "svg", code: CODE });
   const shown = (await context.db.select().from(messages).where(eq(messages.runId, runId))).filter((m) => m.result !== null);
+  // The session's own trace line of the call comes first, then the artifact, then the answer.
+  expect((await context.db.select().from(messages).where(eq(messages.runId, runId)).orderBy(messages.position)).map((m) => [m.role, m.text, m.result && "kind" in m.result ? m.result.kind : null])).toEqual([["tool", "artifact_show", null], ["tool", "artifact_show", "artifact"], ["assistant", "Shown", null]]);
   expect(shown.map((m) => m.result)).toEqual([{ kind: "artifact", artifactId: artifact!.id, title: "Chart", format: "svg", size: Buffer.byteLength(CODE) }]);
   await engine.stop();
 });
