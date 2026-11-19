@@ -66,12 +66,12 @@ export const ArtifactPart: ToolCallMessagePartComponent<Record<string, never>, A
       {showCode && code !== undefined && <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-hover p-3 font-mono text-[12px]">{code}</pre>}
       {/* Esc and the focus trap come from the dialog; the focus goes back to Expand by hand (no Trigger). Esc closes it only while the focus is outside the frame (a frame's keys are its own). */}
       <Dialog open={expanded} onOpenChange={setExpanded}>
-        <DialogContent className="h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-none grid-rows-[auto_1fr] gap-2 p-3" aria-describedby={undefined} onCloseAutoFocus={(event) => { event.preventDefault(); expandButton.current?.focus(); }}>
+        <DialogContent className="h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-none grid-rows-[auto_1fr] gap-2 p-3" onCloseAutoFocus={(event) => { event.preventDefault(); expandButton.current?.focus(); }}>
           <div className="flex items-center gap-3">
             {/* The agent wrote the title and the frame: the app's own words say so, outside the frame. */}
             <div className="min-w-0 flex-1">
               <DialogTitle className="truncate text-[15px]">{result.title}</DialogTitle>
-              <p className="text-[12px] text-muted">{t("artifactGenerated")}</p>
+              <DialogDescription className="text-[12px]">{t("artifactGenerated")}</DialogDescription>
             </div>
             <Button size="sm" variant="outline" onClick={() => setExpanded(false)}><Minimize2 aria-hidden />{t("artifactCollapse")}</Button>
           </div>
