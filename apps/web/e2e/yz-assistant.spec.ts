@@ -149,6 +149,8 @@ test("a proposal in the Assistant's chat: approved or revised on its card while 
   const second = await ask(5, 2);
   await second.getByRole("button", { name: "Request changes" }).click();
   await second.getByRole("textbox", { name: "What should change?" }).fill("Approve it, but three at most");
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await second.evaluate((card) => card.scrollIntoView({ block: "start" }));
   await second.screenshot({ path: test.info().outputPath("proposal-revision.png"), animations: "disabled" });
   await second.getByRole("button", { name: "Send feedback" }).click();
   expect((await runner!.waitFor("session.answer", WAIT_MS)).answer).toEqual({ kind: "permission", decision: "deny", message: "Approve it, but three at most" });

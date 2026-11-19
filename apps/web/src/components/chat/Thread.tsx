@@ -361,7 +361,7 @@ function ChatThreadView({ runtime, run, chatStepId, canSend, canDraft = canSend,
               <div className={`mx-auto w-full max-w-3xl ${centeredWelcome ? "px-4" : ""}`}>
                 {children}
               </div>
-              {centeredWelcome ? <ThreadPrimitive.ViewportFooter className={`z-10 shrink-0 pt-4 ${empty ? "" : "sticky bottom-0 mt-auto"}`}>
+              {centeredWelcome ? <ThreadPrimitive.ViewportFooter className={`z-10 shrink-0 pt-4 ${empty ? "" : "sticky bottom-0 mt-auto bg-surface"}`}>
                 <div className="relative flex justify-center">
                   <ThreadPrimitive.ScrollToBottom aria-label={t("jump")} title={t("jump")} className="absolute bottom-2 grid size-11 place-items-center rounded-full border border-line bg-surface p-2 text-fg shadow-md disabled:invisible"><ArrowDown size={18} aria-hidden /></ThreadPrimitive.ScrollToBottom>
                 </div>
