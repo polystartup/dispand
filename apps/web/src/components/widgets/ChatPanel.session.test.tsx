@@ -127,7 +127,7 @@ test("stopping in the background retains its draft, quote, file and skill in the
   await user.upload(document.body.querySelector<HTMLInputElement>("input[type=file]")!, new File(["hi"], "notes.txt"));
   await screen.findByText("notes.txt");
   await user.click(screen.getByRole("button", { name: "Stop response" }));
-  expect(fake.runs.interruptChat).toHaveBeenCalledWith({ runId: "run_1", turnId: "run_1_turn" });
+  expect(fake.runs.interruptChat).toHaveBeenCalledWith({ runId: "run_1", turnId: "run_1_turn" }, expect.anything());
   show([{ surfaceKey: "left", runId: "run_2" }]);
   await waitFor(() => expect(box().value).toBe(""));
   await user.type(box(), "Other draft");

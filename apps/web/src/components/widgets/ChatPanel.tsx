@@ -79,7 +79,14 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   const proposalFilter = { mutationKey: turnActionKey(runId, "proposal") };
   const stopping = useIsMutating(stopFilter) > 0;
   const deciding = useIsMutating(proposalFilter) > 0;
-  const interrupt = useMutation({ ...orpc.runs.interruptChat.mutationOptions(), ...stopFilter });
+  const interrupt = useMutation({
+    ...orpc.runs.interruptChat.mutationOptions(),
+    ...stopFilter,
+    networkMode: "always",
+    onSuccess: async (result, input) => {
+      if (result.outcome === "stale") await refreshRun(input.runId);
+    },
+  });
   const [holding, setHolding] = useState(0);
   const { t } = useTranslation("chat");
   const hold = useCallback(async (file: File) => {
@@ -101,6 +108,8 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   const open = !runId || !run || canReopen(run) || (!!chatStep && ["running", "waiting", "pending"].includes(chatStep.status));
   const pending = run?.questions.filter((q) => q.stepRunId === chatStep?.id && q.status === "pending") ?? [];
   const waiting = pending.some((q) => !q.proposalId || !q.proposal) ? "question" : pending.length ? "proposal" : undefined;
+  const steering = chatStep?.turnStatus === "running" && chatStep.turnId ? chatStep.steering : null;
+  const canSteer = !pending.some((q) => q.proposalId) && !(waiting && steering?.interruptsTools);
   const canSend = active && (!runId || !!run) && open && !waiting;
   const canStop = active && open && chatStep?.turnStatus === "running" && ["running", "waiting"].includes(chatStep.status) && chatStep.interruptible && !!chatStep.turnId;
 
@@ -111,7 +120,6 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
     try {
       const result = await interrupt.mutateAsync({ runId, turnId: chatStep.turnId });
       if (result.outcome === "failed") setError(t("stopFailed"));
-      else if (result.outcome === "stale") await refreshRun(runId);
     } catch {
       setError(t("stopFailed"));
     } finally {
@@ -196,7 +204,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
     <ChatThread runtime={runtime} run={run} chatStepId={chatStep?.id} canSend={canSend && !sending && holding === 0} canDraft={open && waiting !== "question"} onSend={send} onAttach={hold}
       welcome={welcome} starterPrompts={!!assistantAgentId} centeredWelcome={!!composerTools}
       composer={<ChatComposer runId={runId} assistantAgentId={assistantAgentId} tools={composerTools} open={open} waiting={waiting}
-        busy={sending || stopping || deciding} error={error} queued={<QueuedMessages queued={new Map((run?.queue ?? []).map((q) => [q.id, q]))} onEdit={editQueued} steering={!pending.some((q) => q.proposalId) && chatStep?.turnStatus === "running" && chatStep.turnId ? chatStep.steering : null} />} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined} />}
+        busy={sending || stopping || deciding} error={error} queued={<QueuedMessages queued={new Map((run?.queue ?? []).map((q) => [q.id, q]))} onEdit={editQueued} steering={canSteer ? steering : null} />} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined} />}
     >
       <AfterChat run={run} chatStepId={chatStep?.id} def={runDef} />
     </ChatThread>
