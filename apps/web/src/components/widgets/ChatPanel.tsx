@@ -110,7 +110,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   const waiting = pending.some((q) => !q.proposalId || !q.proposal) ? "question" : pending.length ? "proposal" : undefined;
   const steering = chatStep?.turnStatus === "running" && chatStep.turnId ? chatStep.steering : null;
   const canSteer = !pending.some((q) => q.proposalId) && !(waiting && steering?.interruptsTools);
-  const canSend = active && (!runId || !!run) && open && !waiting;
+  const canSend = active && (!runId || !!run) && open && !waiting && !deciding;
   const canStop = active && open && chatStep?.turnStatus === "running" && ["running", "waiting"].includes(chatStep.status) && chatStep.interruptible && !!chatStep.turnId;
 
   async function stop() {
@@ -129,7 +129,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
 
   async function send(message: AppendMessage) {
     const text = textOf(message).trim();
-    if (!text || sending || queryClient.isMutating(stopFilter) || !canSend) throw new MessageNotSentError(t("sendFailed"));
+    if (!text || sending || queryClient.isMutating(stopFilter) || queryClient.isMutating(proposalFilter) || !canSend) throw new MessageNotSentError(t("sendFailed"));
     sessions.begin(session);
     const chosenSkill = message.runConfig?.custom?.skill as { name: string; skillId?: string } | undefined;
     const skillId = chosenSkill && text.split(/\s/, 1)[0] === `/${chosenSkill.name}` ? chosenSkill.skillId : undefined;
