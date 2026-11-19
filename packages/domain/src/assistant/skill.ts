@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { globSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { and, eq, sql } from "drizzle-orm";
@@ -23,7 +23,7 @@ export const PLATFORM_SKILL = "dispand-platform";
 const skillDirectory = fileURLToPath(new URL("./skill/", import.meta.url));
 
 /** The build's files of the platform skill, as `<skill>/<path>`. */
-export const PLATFORM_SKILL_FILES: SkillFile[] = readdirSync(skillDirectory, { recursive: true, withFileTypes: true })
+export const PLATFORM_SKILL_FILES: SkillFile[] = globSync("**/*", { cwd: skillDirectory, withFileTypes: true })
   .filter((entry) => entry.isFile())
   .map((entry) => {
     const path = join(entry.parentPath, entry.name);

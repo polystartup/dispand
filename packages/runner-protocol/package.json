@@ -12,7 +12,7 @@
     "typecheck": "tsc -p .",
     "test": "vitest run",
     "build": "tsc -p .",
-    "prepack": "tsc -p tsconfig.pack.json"
+    "prepack": "node ../prepare-tarball.mjs && tsc -p tsconfig.pack.json"
   },
   "dependencies": {
     "zod": "^4.6.7"

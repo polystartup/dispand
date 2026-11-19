@@ -23,7 +23,7 @@
     "test": "vitest run",
     "build": "tsc -p .",
     "db:generate": "drizzle-kit generate",
-    "prepack": "tsc -p tsconfig.pack.json && node --input-type=module -e \"import { cpSync } from 'node:fs'; cpSync('src/assistant/skill', 'dist/assistant/skill', { recursive: true })\""
+    "prepack": "node ../prepare-tarball.mjs assistant/skill && tsc -p tsconfig.pack.json"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",
@@ -42,6 +42,7 @@
     "@opentelemetry/sdk-metrics": "3.0.0",
     "@opentelemetry/sdk-trace": "3.0.0",
     "@orpc/server": "^1.16.1",
+    "@types/web-push": "^3.6.4",
     "better-auth": "^1.7.15",
     "cron-parser": "^5.10.3",
     "drizzle-orm": "^0.45.4",
@@ -59,7 +60,6 @@
     "@modelcontextprotocol/node": "^2.1.2",
     "@types/node": "^26.6.6",
     "@types/pg": "^8.23.1",
-    "@types/web-push": "^3.6.4",
     "@types/ws": "^8.18.2",
     "drizzle-kit": "^0.31.11",
     "vitest": "^5.1.0"
