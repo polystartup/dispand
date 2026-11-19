@@ -68,7 +68,11 @@ export const ArtifactPart: ToolCallMessagePartComponent<Record<string, never>, A
       <Dialog open={expanded} onOpenChange={setExpanded}>
         <DialogContent className="h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-none grid-rows-[auto_1fr] gap-2 p-3" aria-describedby={undefined} onCloseAutoFocus={(event) => { event.preventDefault(); expandButton.current?.focus(); }}>
           <div className="flex items-center gap-3">
-            <DialogTitle className="min-w-0 flex-1 truncate text-[15px]">{result.title}</DialogTitle>
+            {/* The agent wrote the title and the frame: the app's own words say so, outside the frame. */}
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="truncate text-[15px]">{result.title}</DialogTitle>
+              <p className="text-[12px] text-muted">{t("artifactGenerated")}</p>
+            </div>
             <Button size="sm" variant="outline" onClick={() => setExpanded(false)}><Minimize2 aria-hidden />{t("artifactCollapse")}</Button>
           </div>
           {code !== undefined && <ArtifactFrame code={code} onFailed={() => setFailed(true)} expanded />}

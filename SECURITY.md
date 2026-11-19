@@ -306,8 +306,8 @@ changes it updates this file.
   sends only goes into the draft, which the owner still sends; a link opens only if it is
   `https:`, after the owner confirms its address, with `noopener`. Messages count only from
   the frame's own window. Expand exists only on a running artifact and mounts the same frame
-  with the same options in a dialog; the frame is given the app's theme (colors and font), no
-  data.
+  with the same options in a dialog under the app's own line saying the agent generated it and not to enter secrets
+  in it; the frame is given the app's theme (colors and font), no data.
 - **A Job writes memory only where its agent's self-learning says, and only as itself.** The
   memory tools (`memory/tools.ts`) are the Job's own: `memory_read` reads the workspace's
   memory, its own agent's, its tables' (with `data`) and another agent's only with

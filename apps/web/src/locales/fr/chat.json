@@ -110,6 +110,7 @@
   "artifactLinkTitle": "Ouvrir ce lien ?",
   "artifactLinkText": "L’artefact demande à ouvrir cette adresse dans un nouvel onglet :",
   "artifactExpand": "Agrandir",
+  "artifactGenerated": "Généré par l’agent. N’y saisissez ni mot de passe ni secret.",
   "artifactCollapse": "Réduire",
   "artifactOpen": "Ouvrir"
 }
