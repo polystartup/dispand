@@ -12,6 +12,7 @@ import {
   ScrollText,
   Puzzle,
   Sparkles,
+  Users,
   Workflow,
   Wrench,
   type LucideIcon,
@@ -62,6 +63,7 @@ function Group({ label, children }: { label: string; children: React.ReactNode }
 
 export function Sidebar({ user, onNavigate }: { user: { name: string; email: string; language: Language | null }; onNavigate: () => void }) {
   const { t } = useTranslation(["shell", "messages"]);
+  const managed = useQuery(orpc.workspace.managed.queryOptions({ gcTime: 0 }));
   const pages = useQuery(orpc.pages.list.queryOptions());
   return (
     <div className="flex h-full flex-col px-3 pb-3 pt-4">
@@ -88,6 +90,7 @@ export function Sidebar({ user, onNavigate }: { user: { name: string; email: str
             ))}
         </div>
         <Group label={t("nav.settings")}>
+          {managed.isSuccess && managed.data.length === 1 && <NavLink to="/settings/people" label={t("nav.people")} Icon={Users} onNavigate={onNavigate} />}
           {settings.map((s) => (
             <NavLink key={s.to} to={s.to} label={t(s.label)} Icon={s.Icon} onNavigate={onNavigate} />
           ))}

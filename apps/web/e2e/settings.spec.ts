@@ -31,6 +31,15 @@ test.describe.configure({ mode: "serial" });
 let runner: FakeRunner | undefined;
 test.afterAll(() => runner?.close());
 
+test("the owner opens People from Settings and sees their inherited access", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "People" }).click();
+  await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
+  const person = page.getByRole("main").getByRole("listitem").filter({ hasText: "ada@example.com" });
+  await expect(person).toContainText("Organization owner");
+  await expect(person.getByRole("button")).toHaveCount(0);
+});
+
 test("empty states, then a runner pairs, a harness goes online and an agent is created", async ({ page }) => {
   await signIn(page);
 

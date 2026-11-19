@@ -19,5 +19,21 @@
     "resetLabel": "Rétablir {{label}} comme dans le plugin",
     "reset": "Rétablir comme dans le plugin"
   },
-  "loading": "Chargement…"
+  "loading": "Chargement…",
+  "people": {
+    "title": "Personnes",
+    "unavailable": "La gestion des personnes est indisponible dans cet espace de travail.",
+    "loadFailed": "Impossible de charger les accès à cet espace de travail.",
+    "role": {
+      "owner": "Propriétaire de l’organisation",
+      "manager": "Gestionnaire de l’espace",
+      "member": "Membre de l’espace"
+    },
+    "remove": "Retirer l’accès",
+    "removePerson": "Retirer l’accès de {{name}}",
+    "confirm": "Retirer à {{name}} l’accès à cet espace de travail ?",
+    "effect": "{{email}} perdra l’accès à cet espace de travail et à ses Jobs.",
+    "removeFailed": "Impossible de retirer l’accès. Réessayez.",
+    "removed": "Accès retiré pour {{name}}."
+  }
 }

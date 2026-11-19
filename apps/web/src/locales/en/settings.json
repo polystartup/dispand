@@ -19,5 +19,21 @@
     "resetLabel": "Reset {{label}} to the plugin's",
     "reset": "Reset to the plugin's"
   },
-  "loading": "Loading…"
+  "loading": "Loading…",
+  "people": {
+    "title": "People",
+    "unavailable": "People is unavailable in this workspace.",
+    "loadFailed": "Could not load workspace access.",
+    "role": {
+      "owner": "Organization owner",
+      "manager": "Workspace manager",
+      "member": "Workspace member"
+    },
+    "remove": "Remove access",
+    "removePerson": "Remove access for {{name}}",
+    "confirm": "Remove {{name}}’s workspace access?",
+    "effect": "{{email}} will lose access to this workspace and its jobs.",
+    "removeFailed": "Could not remove access. Try again.",
+    "removed": "Access removed for {{name}}."
+  }
 }
