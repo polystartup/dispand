@@ -10,9 +10,10 @@ import { refusal } from "../../lib/refusal.ts";
 import { FormField, List } from "./parts.tsx";
 
 type Scope = Parameters<typeof api.workspace.invitations>[0];
+type Names = { workspaceName: string; organizationName: string };
 type Invitation = Awaited<ReturnType<typeof api.workspace.invitations>>[number];
 
-export function WorkspaceInvitations({ scope }: { scope: Scope }) {
+export function WorkspaceInvitations({ scope, names }: { scope: Scope; names: Names }) {
   const { t } = useTranslation("settings");
   const format = useFormat();
   const client = useQueryClient();
@@ -36,7 +37,7 @@ export function WorkspaceInvitations({ scope }: { scope: Scope }) {
   return <section aria-labelledby="invitations-title" className="mt-8">
     <div className="mb-4 flex items-center justify-between gap-3">
       <h2 id="invitations-title" className="text-lg font-semibold">{t("invitations.title")}</h2>
-      <CreateInvitation scope={scope} pending={pending.isSuccess ? pending.data : undefined} onCreated={rememberInvitation} />
+      <CreateInvitation scope={scope} names={names} pending={pending.isSuccess ? pending.data : undefined} onCreated={rememberInvitation} />
     </div>
     {pending.isError ? <p role="alert">{t("invitations.loadFailed")}</p> : pending.data.length === 0 ? <p className="text-sm text-muted">{t("invitations.empty")}</p> : <List>
       {pending.data.map((invitation) => <li key={invitation.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
@@ -52,7 +53,7 @@ export function WorkspaceInvitations({ scope }: { scope: Scope }) {
   </section>;
 }
 
-type InviteProps = { scope: Scope; pending?: Invitation[]; onCreated: (row: Invitation) => Promise<void> };
+type InviteProps = { scope: Scope; names: Names; pending?: Invitation[]; onCreated: (row: Invitation) => Promise<void> };
 
 function CreateInvitation(props: InviteProps) {
   const { t } = useTranslation("settings");
@@ -63,7 +64,7 @@ function CreateInvitation(props: InviteProps) {
   </Dialog>;
 }
 
-function InviteForm({ scope, pending, onCreated }: InviteProps) {
+function InviteForm({ scope, names, pending, onCreated }: InviteProps) {
   const { t } = useTranslation(["settings", "common"]);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Invitation["role"]>("member");
@@ -104,7 +105,7 @@ function InviteForm({ scope, pending, onCreated }: InviteProps) {
     onInteractOutside={(event) => { if (invite.isPending) event.preventDefault(); }}
   >
     <DialogTitle>{t("invitations.invite")}</DialogTitle>
-    <DialogDescription>{t("invitations.instructions")}</DialogDescription>
+    <DialogDescription>{t("invitations.instructions", names)}</DialogDescription>
     <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); invite.mutate(); }}>
       <FormField htmlFor="invite-email" label={t("invitations.email")}><Input id="invite-email" type="email" autoComplete="off" maxLength={254} required value={email} disabled={invite.isPending} onChange={(event) => setEmail(event.target.value)} /></FormField>
       <FormField htmlFor="invite-role" label={t("invitations.role")}>

@@ -15,7 +15,7 @@ const pending = { id: "inv", email: "sam@example.com", role: "manager", expiresA
 
 function open() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={client}><WorkspaceInvitations scope={scope} /></QueryClientProvider>);
+  render(<QueryClientProvider client={client}><WorkspaceInvitations scope={scope} names={{ workspaceName: "Engineering", organizationName: "Northwind" }} /></QueryClientProvider>);
   return client;
 }
 
@@ -31,6 +31,7 @@ test("creates a scoped handoff link and discards the secret when the dialog clos
   const client = open();
   await user.click(await screen.findByRole("button", { name: "Invite person" }));
   const dialog = screen.getByRole("dialog");
+  expect(within(dialog).getByText(/Engineering in Northwind/)).toBeTruthy();
   await user.type(within(dialog).getByLabelText("Email address"), pending.email);
   await user.selectOptions(within(dialog).getByRole("combobox", { name: "Workspace role" }), "manager");
   await user.click(within(dialog).getByRole("button", { name: "Create link" }));

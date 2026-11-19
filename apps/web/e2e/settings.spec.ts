@@ -12,6 +12,8 @@ async function signIn(page: Page) {
   await page.waitForLoadState("networkidle");
   if (page.url().endsWith("/setup")) {
     await page.getByLabel("Name").fill("Ada");
+    await page.getByLabel("Organization (optional)").fill("Northwind");
+    await page.getByLabel("Workspace (optional)").fill("Engineering");
     await page.getByLabel("Setup code").fill("dev-setup-code-0123456789");
     await page.getByLabel("Email").fill("ada@example.com");
     await page.getByLabel("Password").fill("correct horse battery");
@@ -40,6 +42,7 @@ test("an owner revokes an invitation, then hands off a fresh link and sees the r
   await expect(person.getByRole("button")).toHaveCount(0);
   await page.getByRole("button", { name: "Invite person" }).click();
   const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Engineering in Northwind");
   await dialog.getByLabel("Email address").fill("teammate@example.com");
   await test.info().attach("invite-person", { body: await page.screenshot({ animations: "disabled" }), contentType: "image/png" });
   await dialog.getByRole("button", { name: "Create link" }).click();

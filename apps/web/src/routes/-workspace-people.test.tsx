@@ -13,6 +13,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 const { Route } = await import("./_app.settings.people.tsx");
 const scope = { workspaceId: "w", organizationId: "o" };
+const managedScope = { ...scope, workspaceName: "Engineering", organizationName: "Northwind" };
 const owner = { userId: "owner", name: "Ada", email: "ada@example.com", role: "owner" };
 const member = { userId: "member", name: "Sam", email: "sam@example.com", role: "member" };
 
@@ -31,7 +32,7 @@ function open() {
 
 test("removing a member confirms the identity and refreshes access; ownership is inherited", async () => {
   const user = userEvent.setup();
-  workspace.managed.mockResolvedValue([scope]);
+  workspace.managed.mockResolvedValue([managedScope]);
   workspace.people.mockResolvedValue([owner, member]);
   let finish!: () => void;
   workspace.removePerson.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
@@ -61,7 +62,7 @@ test.each([{ scopes: [] }, { scopes: [scope, { workspaceId: "other", organizatio
 });
 
 test("a denied refresh clears the directory, including an open confirmation", async () => {
-  workspace.managed.mockResolvedValue([scope]);
+  workspace.managed.mockResolvedValue([managedScope]);
   workspace.people.mockResolvedValue([owner, member]);
   const client = open();
   await userEvent.click(await screen.findByRole("button", { name: "Remove access for Sam" }));
@@ -77,7 +78,7 @@ test("a denied refresh clears the directory, including an open confirmation", as
 });
 
 test("submitting closes the dialog and a later failure is announced in the directory", async () => {
-  workspace.managed.mockResolvedValue([scope]);
+  workspace.managed.mockResolvedValue([managedScope]);
   workspace.people.mockResolvedValue([owner, member]);
   let fail!: () => void;
   workspace.removePerson.mockImplementation(() => new Promise<void>((_, reject) => { fail = () => reject(new Error("Offline")); }));

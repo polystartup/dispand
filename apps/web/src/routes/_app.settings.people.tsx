@@ -25,8 +25,9 @@ function People() {
   </>;
 }
 
-function WorkspacePeople({ scope }: { scope: Scope }) {
-  return <><Directory scope={scope} /><WorkspaceInvitations scope={scope} /></>;
+function WorkspacePeople({ scope: workspace }: { scope: Awaited<ReturnType<typeof api.workspace.managed>>[number] }) {
+  const scope = { workspaceId: workspace.workspaceId, organizationId: workspace.organizationId };
+  return <><Directory scope={scope} /><WorkspaceInvitations scope={scope} names={workspace} /></>;
 }
 
 function Directory({ scope }: { scope: Scope }) {

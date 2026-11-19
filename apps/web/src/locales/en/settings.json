@@ -57,7 +57,7 @@
     "copied": "Link copied.",
     "manual": "Select and copy the link above.",
     "done": "Done",
-    "instructions": "Create a link for this workspace. A new link replaces any pending invitation for the same address. An organization owner must invite anyone who needs a new account.",
+    "instructions": "Invite someone to {{workspaceName}} in {{organizationName}}. A new link replaces any pending invitation for the same address. An organization owner must invite anyone who needs a new account.",
     "email": "Email address",
     "role": "Workspace role",
     "create": "Create link",

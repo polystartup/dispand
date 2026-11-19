@@ -57,7 +57,7 @@
     "copied": "Lien copié.",
     "manual": "Sélectionnez et copiez le lien ci-dessus.",
     "done": "Terminé",
-    "instructions": "Créez un lien pour cet espace de travail. Un nouveau lien remplace toute invitation en attente pour la même adresse. Seul un propriétaire de l’organisation peut inviter une personne qui doit créer un compte.",
+    "instructions": "Invitez une personne dans l’espace {{workspaceName}} de l’organisation {{organizationName}}. Un nouveau lien remplace toute invitation en attente pour la même adresse. Seul un propriétaire de l’organisation peut inviter une personne qui doit créer un compte.",
     "email": "Adresse e-mail",
     "role": "Rôle dans l’espace de travail",
     "create": "Créer le lien",
