@@ -279,26 +279,7 @@ test("the studio: a second conversation's setup stops at a name taken, goes on, 
   expect((await rpc<{ name: string }[]>(page, "agents/list")).map((a) => a.name)).not.toContain("Designer");
 
   // Applied again, it goes on from the first item not made: that one names the refused item, so it can't run.
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.reload();
   await box.fill("Use the Features table I made.");
-  const history = chat.getByRole("region", { name: "Proposal" });
-  const scope = history.getByRole("button", { name: `${items.length} proposed changes`, exact: true });
-  const changes = history.getByRole("list", { name: "What is proposed" });
-  await expect(scope).toHaveAttribute("aria-expanded", "false");
-  await expect(changes).toBeHidden();
-  await scope.focus();
-  await scope.scrollIntoViewIfNeeded();
-  const position = () => scope.evaluate((button) => button.getBoundingClientRect().top);
-  const before = await position();
-  await scope.press("Enter");
-  await expect(changes.getByRole("listitem")).toHaveCount(items.length);
-  await expect(scope).toBeFocused();
-  expect(Math.abs(await position() - before)).toBeLessThanOrEqual(1);
-  await scope.press("Space");
-  await expect(changes).toBeHidden();
-  await expect(scope).toBeFocused();
-  await expect(box).toHaveValue("Use the Features table I made.");
   await box.press("Enter");
   await approve(page, 7, ["Pull request", "GitHub", "Designer", "Website reviewer", "New feature", "Monday review"]);
   const again = lastResult<Applied>(request(5));
@@ -323,6 +304,28 @@ test("the studio: a second conversation's setup stops at a name taken, goes on, 
 
   await chat.getByRole("button", { name: "GitHub", exact: true }).click();
   await expect(page.getByRole("dialog").getByText(/^Needs sign-in: enter its Personal access token/)).toBeVisible();
+
+  // Inspect saved scope after the live conversation has completed its follow-up.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await box.fill("Which changes were refused?");
+  const history = chat.getByRole("region", { name: "Proposal" }).filter({ has: page.getByRole("button", { name: `${items.length} proposed changes`, exact: true }) });
+  const scope = history.getByRole("button", { name: `${items.length} proposed changes`, exact: true });
+  const changes = history.getByRole("list", { name: "What is proposed" });
+  await expect(scope).toHaveAttribute("aria-expanded", "false");
+  await expect(changes).toBeHidden();
+  await scope.focus();
+  await scope.scrollIntoViewIfNeeded();
+  const position = () => scope.evaluate((button) => button.getBoundingClientRect().top);
+  const before = await position();
+  await scope.press("Enter");
+  await expect(changes.getByRole("listitem")).toHaveCount(items.length);
+  await expect(scope).toBeFocused();
+  expect(Math.abs(await position() - before)).toBeLessThanOrEqual(1);
+  await scope.press("Space");
+  await expect(changes).toBeHidden();
+  await expect(scope).toBeFocused();
+  await expect(box).toHaveValue("Which changes were refused?");
 });
 
 test("Assistant settings selects the next conversation's harness and model; chat fills desktop and mobile", async ({ page }, testInfo) => {
