@@ -406,6 +406,25 @@ test("a steer whose result arrives after the turn's end still lets the next item
   await vi.waitFor(() => expect(adapter.sent).toEqual([[sessionId, "Next"]]));
 });
 
+test("a steer claimed before a restart that never reached the runner goes as any message, and the queue moves on", async () => {
+  const { adapter, engine, emit, runId, sessionId, runnerId } = await busyChat();
+  await engine.sendChat(runId, "Next");
+  const { queuedId: now } = await engine.sendChat(runId, "Now");
+  adapter.online = false;
+  await engine.steerQueued(runId, now!);
+  await vi.waitFor(() => expect(adapter.steers).toHaveLength(1));
+  // As a restart between the claim and the write leaves it: claimed, never written.
+  await engine.db.update(chatQueue).set({ state: "steering" }).where(eq(chatQueue.id, now!));
+  adapter.online = true;
+  // The live session is reconciled: what it never got is sent again, as any message.
+  await engine.reconcile(runnerId, [sessionId]);
+  await vi.waitFor(() => expect(adapter.sent).toEqual([[sessionId, "Now"]]));
+  await emit(sessionId, { type: "turn-end", turnId: "first" });
+  await emit(sessionId, { type: "turn-start", turnId: "second", interruptible: true });
+  await emit(sessionId, { type: "turn-end", turnId: "second" });
+  await vi.waitFor(() => expect(adapter.sent).toEqual([[sessionId, "Now"], [sessionId, "Next"]]));
+});
+
 test("a Codex steer its lost session never settled is sent again, as any message, once", async () => {
   const { context, adapter, engine, emit, harness, workflow, runnerId } = await setup(chatThenStep);
   await context.db.update(harnessesTable).set({ kind: "codex", permissionMode: "default" }).where(eq(harnessesTable.id, harness.id));
