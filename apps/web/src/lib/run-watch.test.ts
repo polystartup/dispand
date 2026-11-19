@@ -148,7 +148,8 @@ test("a run switch never renders the previous run's interruption, even before th
 test("a buffered stream recovers from a failed poll when a read succeeds", async () => {
   vi.useFakeTimers();
   fake.runs.stream.mockImplementation(async (_: unknown, { signal }: { signal: AbortSignal }) => (async function* () {
-    await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve()));
+    await new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
+    yield { type: "snapshot", ...snap("run_p") };
   })());
   fake.runs.get.mockRejectedValueOnce(new Error("offline")).mockResolvedValue(snap("run_p"));
   const hook = renderHook(() => useRunWatch("run_p"));
