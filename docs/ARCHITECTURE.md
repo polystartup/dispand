@@ -960,7 +960,9 @@
   workflow through `runs.stream` and shows the chat's questions inline; they are counted in
   the Inbox too, and answering in either place updates both. Widgets showing one run share
   its watch (`apps/web/src/lib/run-watch.ts`); at most 3 run streams are open at once and other
-  runs are polled. The cap is per tab: the reverse proxy serves HTTP/2 (`deploy/README.md`), so several tabs
+  runs are polled. An interrupted watch keeps its last snapshot. The chat shows a reconnecting
+  notice until a stream event or successful poll arrives. A quiet open stream leaves the notice hidden.
+  The cap is per tab: the reverse proxy serves HTTP/2 (`deploy/README.md`), so several tabs
   don't exhaust the browser's connections.
   Grid and Table widgets (`type: "grid" | "table"`, `table_id` and a `config` of 1-20 field ids, plus a cover
   for a Grid and a default sort for a Table; a database check keeps each type's columns exactly)

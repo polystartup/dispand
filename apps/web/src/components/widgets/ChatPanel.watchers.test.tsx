@@ -40,6 +40,38 @@ test("inactive conversations release watchers and reactivate with their draft", 
   await waitFor(() => expect((fake.runs.stream.mock.calls[2]![1].signal as AbortSignal).aborted).toBe(true));
 });
 
+test("a break in live updates keeps the transcript and focused draft until fresh data arrives", async () => {
+  const run = snapshot("run_1");
+  run.messages = [{ id: "msg_1", runId: "run_1", stepRunId: "run_1_chat", role: "user", text: "Check this case", createdAt: at }];
+  const disconnect = deferred<void>();
+  const nextSnapshot = deferred<void>();
+  fake.runs.stream.mockImplementationOnce(async () => (async function* () {
+    yield { type: "snapshot", ...run };
+    await disconnect.promise;
+  })()).mockImplementationOnce(async (_input: unknown, { signal }: { signal: AbortSignal }) => (async function* () {
+    await nextSnapshot.promise;
+    yield { type: "snapshot", ...run };
+    await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+  })());
+  const { user } = mountSession();
+  await screen.findByText("Check this case");
+  await user.type(box(), "Follow-up draft");
+  await act(async () => disconnect.resolve());
+  const notice = await screen.findByText("Reconnecting to live updates…");
+  expect(notice.getAttribute("role")).toBe("status");
+  expect(screen.getByText("Check this case")).toBeTruthy();
+  expect(box().value).toBe("Follow-up draft");
+  expect(document.activeElement).toBe(box());
+
+  await waitFor(() => expect(fake.runs.stream).toHaveBeenCalledTimes(2), { timeout: 4000 });
+  expect(notice.isConnected).toBe(true);
+  await act(async () => nextSnapshot.resolve());
+  await waitFor(() => expect(notice.isConnected).toBe(false));
+  expect(screen.getByText("Check this case")).toBeTruthy();
+  expect(box().value).toBe("Follow-up draft");
+  expect(document.activeElement).toBe(box());
+});
+
 test("explicit New disposes unreachable fresh runtimes after an upload settles", async () => {
   const upload = deferred<{ id: string; image: boolean }>();
   fake.files.hold.mockReturnValue(upload.promise);

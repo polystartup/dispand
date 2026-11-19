@@ -9,7 +9,7 @@ import { useCallback, useLayoutEffect, useMemo, useState, useSyncExternalStore, 
 import { useTranslation } from "react-i18next";
 import { api, orpc } from "../../lib/api.ts";
 import { canReopen, type RunSnapshot } from "../../lib/run-state.ts";
-import { refreshRun, useRun } from "../../lib/run-watch.ts";
+import { refreshRun, useRunWatch } from "../../lib/run-watch.ts";
 import { ChatThread, turnActionKey } from "../chat/Thread.tsx";
 import { useStored } from "@/lib/message";
 import { ChatSession, useChatSessions } from "../../lib/chat-sessions.tsx";
@@ -59,7 +59,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   const sessions = useChatSessions();
   const { workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId } = useSyncExternalStore(session.subscribe, session.getOptions, session.getOptions);
   const active = useSyncExternalStore(session.subscribe, session.getActive, session.getActive);
-  const run = useRun(active ? runId : null);
+  const { state: run, interrupted } = useRunWatch(active ? runId : null);
   const version = run?.run.version;
   const versionDef = useQuery({
     ...orpc.workflows.get.queryOptions({ input: { id: workflowId ?? "", version: version ?? 0 } }),
@@ -207,6 +207,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
         busy={sending || stopping || deciding} error={error} queued={<QueuedMessages queued={new Map((run?.queue ?? []).map((q) => [q.id, q]))} onEdit={editQueued} steering={canSteer ? steering : null} />} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined} />}
     >
       <AfterChat run={run} chatStepId={chatStep?.id} def={runDef} />
+      {interrupted && <p role="status" className="mt-3 px-1 text-[13px] text-muted">{t("reconnecting")}</p>}
     </ChatThread>
   </div>;
   useLayoutEffect(() => { session.publish(view); });

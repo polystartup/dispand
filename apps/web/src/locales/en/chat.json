@@ -48,6 +48,7 @@
   "hintSend": "Enter to send · Shift+Enter for a new line",
   "stopped": "The conversation stopped: {{error}}",
   "stoppedAgent": "The conversation stopped: the agent failed.",
+  "reconnecting": "Reconnecting to live updates…",
   "progress": "Progress",
   "step": "Step",
   "stepStatus": {

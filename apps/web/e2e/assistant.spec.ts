@@ -563,8 +563,15 @@ test("an authorized record read stays inline across reload without another tool 
   await rpc(page, "rows/update", { id: row.id, values: { [nameId]: "Changed after the read" } });
   let liveReads = 0;
   page.on("request", (request) => { if (request.url().endsWith("/api/rpc/rows/get")) liveReads++; });
+  const stream = "**/api/rpc/runs/stream";
+  await page.route(stream, (route) => route.abort("connectionreset"));
   await page.reload();
+  const reconnecting = chat.getByRole("status").filter({ hasText: "Reconnecting to live updates…" });
+  await expect(reconnecting).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("chat-reconnecting.png"), animations: "disabled" });
+  await page.unroute(stream);
   await expect(chat.getByRole("button", { name: "Record result", exact: true })).toHaveCount(1);
+  await expect(reconnecting).toHaveCount(0);
   await expect(chat.getByText("Supplier renewal", { exact: true })).toBeVisible();
   await expect(chat.getByText("Changed after the read", { exact: true })).toHaveCount(0);
   expect(model!.requests).toHaveLength(before + 2);

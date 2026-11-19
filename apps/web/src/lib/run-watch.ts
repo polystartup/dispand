@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { api } from "./api.ts";
 import { afterStream, applyRunEvent, runOver, type RunSnapshot } from "./run-state.ts";
 
@@ -12,7 +12,15 @@ export const POLL_MS = 3000;
 /** A stream that sends nothing this long is held back on the way (a buffering proxy): the run is polled instead. */
 export const STREAM_WAIT_MS = 5000;
 
-type Entry = { state: RunSnapshot | null; listeners: Set<(s: RunSnapshot | null) => void>; stop: AbortController };
+type WatchedRun = { state: RunSnapshot | null; interrupted: boolean };
+const initial: WatchedRun = { state: null, interrupted: false };
+type Entry = { value: WatchedRun; listeners: Set<() => void>; stop: AbortController };
+
+function publish(entry: Entry, state: RunSnapshot | null, interrupted = false) {
+  if (entry.value.state === state && entry.value.interrupted === interrupted) return;
+  entry.value = { state, interrupted };
+  for (const listener of entry.listeners) listener();
+}
 
 /** One watch per run, shared by every widget showing it. */
 const entries = new Map<string, Entry>();
@@ -20,20 +28,22 @@ let streaming = 0;
 
 const sleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => (clearTimeout(timer), resolve()), { once: true });
+    if (signal.aborted) { resolve(); return; }
+    function done() {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    }
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
   });
 
 async function watch(runId: string, entry: Entry) {
   const { signal } = entry.stop;
-  const set = (state: RunSnapshot | null) => {
-    entry.state = state;
-    for (const listener of entry.listeners) listener(state);
-  };
   // Once a stream was held back, this run is polled: the next one would be held back too.
   let held = false;
   for (let attempt = 0; !signal.aborted; attempt++) {
-    if (!held && streaming < MAX_RUN_STREAMS) {
+    if (!held && !runOver(entry.value.state) && streaming < MAX_RUN_STREAMS) {
       streaming++;
       // The stream's first event, its snapshot, comes at once from the server.
       const connection = new AbortController();
@@ -48,11 +58,11 @@ async function watch(runId: string, entry: Entry) {
       try {
         for await (const event of await api.runs.stream({ runId }, { signal: connection.signal })) {
           heard = true;
-          set(applyRunEvent(entry.state, event));
+          publish(entry, applyRunEvent(entry.value.state, event));
           // Something came through: the next end of the stream starts the backoff over.
           attempt = -1;
           // A final run lets the connection go; resumable Job chats keep listening.
-          if (runOver(entry.state)) break;
+          if (runOver(entry.value.state)) break;
         }
       } catch {
         // Offline or the server restarted: decided below like a clean close.
@@ -61,28 +71,21 @@ async function watch(runId: string, entry: Entry) {
         signal.removeEventListener("abort", stop);
         streaming--;
       }
-      if (held) continue;
-      const next = afterStream(entry.state, Math.max(attempt, 0));
       if (signal.aborted) return;
-      if (next.stop) {
-        // The event that ended the run may come before the last changes of the same commit (a
-        // question it expired): read the run once more rather than stop on a partial picture.
-        try {
-          set(await api.runs.get({ runId }, { signal }));
-        } catch {
-          // The streamed state stands.
-        }
-        return;
-      }
-      await sleep(next.delayMs, signal);
+      const next = afterStream(entry.value.state, Math.max(attempt, 0));
+      // The terminal event can precede other changes in its commit. Fetch the final snapshot
+      // on the next pass, and keep polling if that read fails.
+      if (next.stop) continue;
+      publish(entry, entry.value.state, true);
+      if (!held) await sleep(next.delayMs, signal);
     } else {
-      // No stream free: poll, and try for a stream again next time.
       try {
-        set(await api.runs.get({ runId }, { signal }));
+        publish(entry, await api.runs.get({ runId }, { signal }));
         attempt = -1;
-        if (runOver(entry.state)) return;
+        if (runOver(entry.value.state)) return;
       } catch {
-        // Retried below.
+        if (signal.aborted) return;
+        publish(entry, entry.value.state, true);
       }
       await sleep(POLL_MS, signal);
     }
@@ -93,35 +96,36 @@ async function watch(runId: string, entry: Entry) {
 export async function refreshRun(runId: string): Promise<void> {
   const entry = entries.get(runId);
   if (!entry) return;
-  const before = entry.state;
+  const before = entry.value.state;
   const state = await api.runs.get({ runId }, { signal: entry.stop.signal });
-  if (entries.get(runId) !== entry || entry.state !== before) return;
-  entry.state = state;
-  for (const listener of entry.listeners) listener(state);
+  if (entries.get(runId) !== entry || entry.value.state !== before) return;
+  publish(entry, state, entry.value.interrupted);
 }
 
-/** The run as it is and as it changes, until it is over. Null: none yet. */
-export function useRun(runId: string | null): RunSnapshot | null {
-  const [state, setState] = useState<RunSnapshot | null>(null);
-  useEffect(() => {
-    setState(null);
-    if (!runId) return;
+/** One shared snapshot and delivery status for all consumers watching this run. */
+export function useRunWatch(runId: string | null): WatchedRun {
+  const subscribe = useCallback((listener: () => void) => {
+    if (!runId) return () => {};
     let entry = entries.get(runId);
     if (!entry) {
-      entry = { state: null, listeners: new Set(), stop: new AbortController() };
+      entry = { value: initial, listeners: new Set(), stop: new AbortController() };
       entries.set(runId, entry);
       void watch(runId, entry);
     }
     const mine = entry;
-    mine.listeners.add(setState);
-    setState(mine.state);
+    mine.listeners.add(listener);
     return () => {
-      mine.listeners.delete(setState);
+      mine.listeners.delete(listener);
       if (mine.listeners.size === 0) {
         mine.stop.abort();
         entries.delete(runId);
       }
     };
   }, [runId]);
-  return state;
+  return useSyncExternalStore(subscribe, () => (runId && entries.get(runId)?.value) || initial, () => initial);
+}
+
+/** The run as it is and as it changes, until it is over. Null: none yet. */
+export function useRun(runId: string | null): RunSnapshot | null {
+  return useRunWatch(runId).state;
 }

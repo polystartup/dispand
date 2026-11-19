@@ -5,7 +5,7 @@ import type { RunSnapshot } from "./run-state.ts";
 
 const fake = vi.hoisted(() => ({ runs: { stream: vi.fn(), get: vi.fn() } }));
 vi.mock("./api.ts", () => ({ api: fake }));
-const { MAX_RUN_STREAMS, STREAM_WAIT_MS, refreshRun, useRun } = await import("./run-watch.ts");
+const { MAX_RUN_STREAMS, POLL_MS, STREAM_WAIT_MS, refreshRun, useRun, useRunWatch } = await import("./run-watch.ts");
 
 afterEach(() => {
   cleanup();
@@ -104,5 +104,76 @@ test("a stream held back on the way (a buffering proxy) gives way to polling, so
   const hook = renderHook(() => useRun("run_h"));
   await vi.advanceTimersByTimeAsync(STREAM_WAIT_MS);
   await waitFor(() => expect(hook.result.current?.run.id).toBe("run_h"));
+  expect(fake.runs.stream).toHaveBeenCalledTimes(1);
+});
+
+test("an active stream that closes keeps its last state and reconnects for both subscribers", async () => {
+  vi.useFakeTimers();
+  openStreams();
+  fake.runs.stream.mockImplementationOnce(async () => (async function* () {
+    yield { type: "snapshot", ...snap("run_a") };
+  })());
+  const a = renderHook(() => useRunWatch("run_a"));
+  const b = renderHook(() => useRunWatch("run_a"));
+  await act(async () => {});
+  expect(a.result.current).toEqual({ state: snap("run_a"), interrupted: true });
+  expect(b.result.current).toBe(a.result.current);
+  await act(() => vi.advanceTimersByTimeAsync(1000));
+  expect(a.result.current.interrupted).toBe(false);
+  expect(b.result.current).toBe(a.result.current);
+  await act(() => vi.advanceTimersByTimeAsync(STREAM_WAIT_MS * 2));
+  expect(a.result.current.interrupted).toBe(false);
+  expect(fake.runs.stream).toHaveBeenCalledTimes(2);
+  expect(fake.runs.get).not.toHaveBeenCalled();
+});
+
+test("a run switch never renders the previous run's interruption, even before the first snapshot", async () => {
+  vi.useFakeTimers();
+  openStreams();
+  fake.runs.stream.mockRejectedValueOnce(new Error("offline"));
+  const renders: boolean[] = [];
+  const hook = renderHook(({ id }) => {
+    const value = useRunWatch(id);
+    if (id === "run_b") renders.push(value.interrupted);
+    return value;
+  }, { initialProps: { id: "run_a" } });
+  await act(async () => {});
+  expect(hook.result.current).toEqual({ state: null, interrupted: true });
+  hook.rerender({ id: "run_b" });
+  await act(async () => {});
+  expect(hook.result.current.state?.run.id).toBe("run_b");
+  expect(renders).not.toContain(true);
+});
+
+test("a buffered stream recovers from a failed poll when a read succeeds", async () => {
+  vi.useFakeTimers();
+  fake.runs.stream.mockImplementation(async (_: unknown, { signal }: { signal: AbortSignal }) => (async function* () {
+    await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve()));
+  })());
+  fake.runs.get.mockRejectedValueOnce(new Error("offline")).mockResolvedValue(snap("run_p"));
+  const hook = renderHook(() => useRunWatch("run_p"));
+  await act(() => vi.advanceTimersByTimeAsync(STREAM_WAIT_MS));
+  expect(hook.result.current).toEqual({ state: null, interrupted: true });
+  await act(() => vi.advanceTimersByTimeAsync(POLL_MS));
+  expect(hook.result.current).toEqual({ state: snap("run_p"), interrupted: false });
+  expect(fake.runs.stream).toHaveBeenCalledTimes(1);
+});
+
+test("a failed final read keeps the last state and retries until reconciled", async () => {
+  vi.useFakeTimers();
+  const over = snap("run_x");
+  over.run.status = "succeeded";
+  fake.runs.stream.mockImplementation(async () => (async function* () {
+    yield { type: "snapshot", ...over };
+  })());
+  const final = { ...over, run: { ...over.run, finishedAt: at } };
+  fake.runs.get.mockRejectedValueOnce(new Error("offline")).mockResolvedValue(final);
+  const hook = renderHook(() => useRunWatch("run_x"));
+  await act(async () => {});
+  expect(hook.result.current).toEqual({ state: over, interrupted: true });
+  await act(() => vi.advanceTimersByTimeAsync(POLL_MS));
+  expect(hook.result.current).toEqual({ state: final, interrupted: false });
+  await act(() => vi.advanceTimersByTimeAsync(POLL_MS * 2));
+  expect(fake.runs.get).toHaveBeenCalledTimes(2);
   expect(fake.runs.stream).toHaveBeenCalledTimes(1);
 });

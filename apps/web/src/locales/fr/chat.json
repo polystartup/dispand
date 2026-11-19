@@ -48,6 +48,7 @@
   "hintSend": "Entrée pour envoyer · Maj+Entrée pour un retour à la ligne",
   "stopped": "La conversation s’est arrêtée : {{error}}",
   "stoppedAgent": "La conversation s’est arrêtée : l’agent a échoué.",
+  "reconnecting": "Reconnexion aux mises à jour en direct…",
   "progress": "Progression",
   "step": "Étape",
   "stepStatus": {
