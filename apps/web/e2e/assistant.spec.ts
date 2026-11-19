@@ -61,7 +61,7 @@ async function approve(page: Page, count: number, texts: string[]) {
   await expect(card.getByRole("list", { name: "What is proposed" }).getByRole("listitem")).toHaveCount(count);
   for (const text of texts) await expect(card).toContainText(text);
   if (texts.includes("Other enabled actions ask")) await page.screenshot({ path: test.info().outputPath("agent-tool-permissions.png"), animations: "disabled" });
-  await chat.getByRole("button", { name: "Approve" }).click();
+  await card.getByRole("button", { name: "Approve", exact: true }).click();
   await expect(approved).toHaveCount(before + 1);
 }
 

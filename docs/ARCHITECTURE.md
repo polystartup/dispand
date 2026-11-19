@@ -393,10 +393,9 @@
   `questions.answer`. A Job's run page shows each step's transcript on the same thread,
   read-only (`ChatTranscript` over `useTranscript`: the step's messages only, no composer;
   its questions keep their own section). A pending Approval of a proposal carries its `proposalView` in the run's
-  snapshot and stream (`runs.get`, `runs.stream`): the thread shows it whole (`ProposalItems`,
-  no control of its own) and, while it is the chat's one waiting question (`composerApproval`; with
-  several, each card keeps `QuestionForm`'s own controls), `ChatPanel`'s composer answers it, Approve or Mod+Enter on an
-  empty draft as `allow`, the text sent as `deny` with that text as the message. The agent's text goes through `components/chat/AgentText.tsx` (the library's markdown
+  snapshot and stream (`runs.get`, `runs.stream`): each proposal card shows its complete scope and answers its own Question
+  through `questions.answer`. Requesting changes sends a denial with the revision feedback.
+  The composer keeps the conversation draft separate from that decision. The agent's text goes through `components/chat/AgentText.tsx` (the library's markdown
   primitive with a `urlTransform`, `img` and `a` overrides and `skipHtml`). Nothing else
   imports the library. The thread uses message copy actions and a jump-to-latest control;
   code fences have language headers and copy buttons. The panel uses the library's growing

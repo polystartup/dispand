@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { SHORT } from "@dispand/runner-protocol";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -83,18 +84,42 @@ test("a proposal the run can't show is not answered in the chat: it sends the ow
   expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
 });
 
-test("a proposal in the chat shows every item whole, long instructions included, with no control of its own", () => {
+test("a proposal shows every item whole and edits revision feedback beneath its own actions", async () => {
   const payload = { kind: "permission", toolName: "request_approval", input: { message: "May I add a clerk?", proposal: "prop_1" }, canAlwaysAllow: false };
   const instructions = Array.from({ length: 400 }, (_, i) => `Rule ${i + 1}: file every letter of a client under its matter.`).join("\n");
   const proposal = { id: "prop_1", status: "asked", items: [{ tool: "agents_create", input: { name: "Clerk", systemPrompt: instructions }, used: false, refs: [] }], names: {} };
-  mount(run([], [question("q1", 1, { payload, proposalId: "prop_1", proposal })]));
+  const { user } = mount(run([], [question("q1", 1, { payload, proposalId: "prop_1", proposal })]));
   const card = screen.getByRole("region", { name: "Proposal" });
   expect(within(card).getByText("Create an agent")).toBeTruthy();
   expect(within(card).getByText("May I add a clerk?")).toBeTruthy();
   expect(card.textContent).toContain(instructions);
   // Nothing in the card clips it: the thread scrolls.
   for (const el of [card, ...card.querySelectorAll("*")]) expect(el.className).not.toMatch(/max-h-|line-clamp|truncate|overflow-hidden/);
-  expect(within(card).queryByRole("button")).toBeNull();
+  const request = within(card).getByRole("button", { name: "Request changes" });
+  await user.click(request);
+  const field = within(card).getByRole("textbox", { name: "What should change?" });
+  expect(document.activeElement).toBe(field);
+  await user.keyboard("{Escape}");
+  expect(document.activeElement).toBe(request);
+  expect(fake.questions.answer).not.toHaveBeenCalled();
+  await user.click(request);
+  const send = within(card).getByRole("button", { name: "Send feedback" });
+  expect(send).toHaveProperty("disabled", true);
+  const editor = within(card).getByRole("textbox", { name: "What should change?" });
+  await user.paste("x".repeat(SHORT + 1));
+  expect(editor).toHaveProperty("value", "x".repeat(SHORT + 1));
+  expect(send).toHaveProperty("disabled", true);
+  expect(within(card).getByRole("alert").textContent).toContain("4,000");
+  await user.clear(editor);
+  await user.type(editor, "  Use client files only.  ");
+  fake.questions.answer.mockRejectedValueOnce(new Error("Offline")).mockResolvedValue(undefined);
+  await user.click(send);
+  expect((await within(card).findByRole("alert")).textContent).toBe("Offline");
+  expect(document.activeElement).toBe(card);
+  expect(editor).toHaveProperty("value", "  Use client files only.  ");
+  await user.click(send);
+  await waitFor(() => expect(send).toHaveProperty("disabled", true));
+  expect(fake.questions.answer.mock.calls[1]![0]).toMatchObject({ questionId: "q1", answer: { kind: "permission", decision: "deny", message: "Use client files only." } });
   expect(screen.queryByRole("link", { name: /Inbox/ })).toBeNull();
 });
 
@@ -103,12 +128,23 @@ test("two proposals waiting at once: each card answers its own, with every item 
   const view = (id: string, name: string) => ({ id, status: "asked", items: [{ tool: "agents_create", input: { name }, used: false, refs: [] }], names: {} });
   fake.questions.answer.mockResolvedValue(undefined);
   const { user } = mount(run([], [question("q1", 1, { payload: ask("prop_1", "Add a clerk"), proposalId: "prop_1", proposal: view("prop_1", "Clerk") }), question("q2", 2, { payload: ask("prop_2", "Add a typist"), proposalId: "prop_2", proposal: view("prop_2", "Typist") })]));
-  expect(screen.queryByRole("region", { name: "Proposal" })).toBeNull();
-  const second = screen.getAllByRole("listitem").find((li) => li.textContent?.includes("Add a typist"))!;
+  const cards = screen.getAllByRole("region", { name: "Proposal" });
+  expect(cards).toHaveLength(2);
+  const second = cards.find((card) => card.textContent?.includes("Add a typist"))!;
   expect(within(second).getByText("Typist")).toBeTruthy();
   await user.click(within(second).getByRole("button", { name: "Approve" }));
   await waitFor(() => expect(fake.questions.answer).toHaveBeenCalledTimes(1));
+  expect(document.activeElement).toBe(second);
   expect(fake.questions.answer.mock.calls[0]![0]).toMatchObject({ questionId: "q2", answer: { kind: "permission", decision: "allow" } });
+  // The Inbox can answer the other question before this card's decision reaches the server.
+  fake.questions.answer.mockRejectedValueOnce(Object.assign(new Error("Already answered"), { code: "CONFLICT" }));
+  const first = cards.find((card) => card.textContent?.includes("Add a clerk"))!;
+  await user.click(within(first).getByRole("button", { name: "Decline" }));
+  expect(await within(first).findByText("This question was already answered elsewhere.")).toBeTruthy();
+  expect(document.activeElement).toBe(first);
+  expect(within(first).getByText("Clerk")).toBeTruthy();
+  expect(within(first).queryByRole("button")).toBeNull();
+  expect(fake.questions.answer.mock.calls[1]![0]).toMatchObject({ questionId: "q1", answer: { kind: "permission", decision: "deny" } });
 });
 
 test("a proposal answered says approved, or declined with the owner's words", () => {
@@ -127,11 +163,17 @@ test.each(["allow", "deny"])("an answered proposal retains scope and item outcom
   ], names: {} };
   const q = question("q1", 1, { payload, proposalId: proposal.id, proposal });
   const { update } = mount(run([], [q]));
+  // A decision arriving from another tab leaves focus on the owner's current work.
+  const elsewhere = document.createElement("button");
+  document.body.append(elsewhere);
+  elsewhere.focus();
   update(run([], [{ ...q, status: "answered", answer: { kind: "permission", decision, message: "Only on Clients" }, proposal: {
     ...proposal, status: decision === "allow" ? "approved" : "declined",
     items: proposal.items.map((item, i) => ({ ...item, used: decision === "allow" && i < 2, failed: decision === "allow" && i === 1 })),
   } }]));
   const card = screen.getByRole("region", { name: "Proposal" });
+  expect(document.activeElement).toBe(elsewhere);
+  elsewhere.remove();
   expect(card.textContent).toContain(instructions.trim());
   expect(within(card).getByText(decision === "allow" ? "You approved it" : "You declined it: Only on Clients")).toBeTruthy();
   expect(within(card).queryByRole("button")).toBeNull();

@@ -135,8 +135,9 @@ test("a refused Stop reports a localized retryable error", async () => {
 });
 
 test("Stop while an approval waits never answers or approves it", async () => {
-  const snap = snapshot([proposalQuestion()]);
-  Object.assign(snap.steps[0]!, { turnStatus: "running", turnId: "turn_1", interruptible: true });
+  const snap = steerableSnapshot({ interruptsTools: true }, [{}]);
+  snap.questions = [proposalQuestion()];
+  Object.assign(snap.steps[0]!, { status: "waiting", turnStatus: "running", turnId: "turn_1", interruptible: true });
   fake.runs.stream.mockImplementation(streamOf(snap));
   fake.runs.interruptChat.mockResolvedValue({ outcome: "requested" });
   const user = mount("run_1");
@@ -145,9 +146,13 @@ test("Stop while an approval waits never answers or approves it", async () => {
   expect(fake.questions.answer).not.toHaveBeenCalled();
   expect(fake.runs.sendChat).not.toHaveBeenCalled();
   expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
-  fake.questions.answer.mockResolvedValue(undefined);
-  await user.type(screen.getByLabelText("Message"), "Change the proposal{Enter}");
-  await waitFor(() => expect(fake.questions.answer).toHaveBeenCalledWith({ questionId: "q1", answer: { kind: "permission", decision: "deny", message: "Change the proposal" } }));
+  expect(screen.queryByRole("button", { name: "Interrupt and send" })).toBeNull();
+  const box = screen.getByLabelText<HTMLTextAreaElement>("Message");
+  await user.type(box, "Pending follow-up{Enter}");
+  expect(box.value.trim()).toBe("Pending follow-up");
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Send" }).disabled).toBe(true);
+  expect(fake.runs.sendChat).not.toHaveBeenCalled();
+  expect(fake.questions.answer).not.toHaveBeenCalled();
 });
 
 test("Stop never cancels a local message submission", async () => {
@@ -392,7 +397,7 @@ function proposalQuestion(shown = true): RunSnapshot["questions"][number] {
   };
 }
 
-test("Approve shows in the composer only while a proposal waits, and a click approves it", async () => {
+test("a pending proposal offers approval outside the composer", async () => {
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
   mount("run_1");
   await screen.findByLabelText("Message");
@@ -401,7 +406,9 @@ test("Approve shows in the composer only while a proposal waits, and a click app
   fake.runs.stream.mockImplementation(streamOf(snapshot([proposalQuestion()])));
   fake.questions.answer.mockResolvedValue(undefined);
   const user = mount("run_1");
-  await user.click(await screen.findByRole("button", { name: "Approve" }));
+  const approve = await screen.findByRole("button", { name: "Approve" });
+  expect(screen.getByLabelText("Message").closest("form")!.contains(approve)).toBe(false);
+  await user.click(approve);
   await waitFor(() => expect(fake.questions.answer).toHaveBeenCalledTimes(1));
   expect(fake.questions.answer.mock.calls[0]![0]).toEqual({ questionId: "q1", answer: { kind: "permission", decision: "allow" } });
   expect(fake.runs.sendChat).not.toHaveBeenCalled();
@@ -415,56 +422,46 @@ test("a proposal the thread can't show offers no Approve, and sending waits", as
   expect(screen.getByLabelText<HTMLTextAreaElement>("Message").disabled).toBe(true);
 });
 
-test("words sent while a proposal waits decline it with them, and never approve it", async () => {
-  fake.runs.stream.mockImplementation(streamOf(snapshot([proposalQuestion()])));
-  fake.questions.answer.mockResolvedValue(undefined);
+test("a pending proposal holds the draft across Enter and approval shortcuts until the decision arrives", async () => {
+  const question = proposalQuestion();
+  let decide!: () => void;
+  const answered = new Promise<void>((resolve) => { decide = resolve; });
+  fake.runs.stream.mockImplementation(async (_input, { signal }: { signal: AbortSignal }) => (async function* () {
+    yield { type: "snapshot", ...snapshot([question]) };
+    await answered;
+    yield { type: "snapshot", ...snapshot([{ ...question, status: "answered", answer: { kind: "permission", decision: "allow" } }]) };
+    await new Promise((resolve) => signal.addEventListener("abort", resolve));
+  })());
+  fake.runs.sendChat.mockResolvedValue(undefined);
   const user = mount("run_1");
-  const box = await screen.findByLabelText<HTMLTextAreaElement>("Message");
-  expect(box.disabled).toBe(false);
-  expect(box.placeholder).toMatch(/declines the proposal/);
-  // An empty send does nothing.
+  await screen.findByRole("button", { name: "Approve" });
+  const box = screen.getByLabelText<HTMLTextAreaElement>("Message");
+  fake.files.hold.mockResolvedValue({ id: "file_notes", image: false });
+  await user.click(screen.getByRole("button", { name: "Attach a file" }));
+  await user.upload(document.body.querySelector<HTMLInputElement>("input[type=file]")!, new File(["notes"], "notes.txt"));
+  await screen.findByText("notes.txt");
   await user.click(box);
-  await user.keyboard("{Enter}");
-  expect(fake.questions.answer).not.toHaveBeenCalled();
-  // Words, even with the Approve shortcut, are sent as a decline.
-  await user.type(box, "Approve, but only on Clients");
-  await user.keyboard("{Control>}{Enter}{/Control}");
-  await waitFor(() => expect(fake.questions.answer).toHaveBeenCalledTimes(1));
-  expect(fake.questions.answer.mock.calls[0]![0]).toEqual({ questionId: "q1", answer: { kind: "permission", decision: "deny", message: "Approve, but only on Clients" } });
-  expect(fake.runs.sendChat).not.toHaveBeenCalled();
-  await waitFor(() => expect(box.value).toBe(""));
-});
-
-test("the shortcut on an empty composer approves", async () => {
-  fake.runs.stream.mockImplementation(streamOf(snapshot([proposalQuestion()])));
-  fake.questions.answer.mockResolvedValue(undefined);
-  const user = mount("run_1");
-  await user.click(await screen.findByLabelText("Message"));
   await user.keyboard("{Meta>}{Enter}{/Meta}");
-  await waitFor(() => expect(fake.questions.answer).toHaveBeenCalledTimes(1));
-  expect(fake.questions.answer.mock.calls[0]![0]).toEqual({ questionId: "q1", answer: { kind: "permission", decision: "allow" } });
-});
-
-test("a proposal answered elsewhere first says so, and the words stay in the composer", async () => {
-  fake.runs.stream.mockImplementation(streamOf(snapshot([proposalQuestion()])));
-  fake.questions.answer.mockRejectedValue(Object.assign(new Error("This question is no longer waiting for an answer"), { code: "CONFLICT" }));
-  const user = mount("run_1");
-  const box = await screen.findByLabelText<HTMLTextAreaElement>("Message");
-  await user.type(box, "Not this one");
-  await user.keyboard("{Enter}");
-  expect((await screen.findByRole("alert")).textContent).toBe("This proposal was already answered elsewhere.");
-  expect(box.value).toBe("Not this one");
-  await user.click(screen.getByRole("button", { name: "Approve" }));
-  await waitFor(() => expect(fake.questions.answer).toHaveBeenCalledTimes(2));
-  expect(screen.getByRole("alert").textContent).toBe("This proposal was already answered elsewhere.");
+  await user.type(box, "Which records will change?{Enter}");
+  await user.keyboard("{Control>}{Enter}{/Control}");
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Send" }).disabled).toBe(true);
+  expect(fake.questions.answer).not.toHaveBeenCalled();
+  expect(fake.runs.sendChat).not.toHaveBeenCalled();
+  expect(box.value.trim()).toBe("Which records will change?");
+  decide();
+  const send = screen.getByRole<HTMLButtonElement>("button", { name: "Send" });
+  await waitFor(() => expect(send.disabled).toBe(false));
+  await user.click(send);
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledWith({ runId: "run_1", text: "Which records will change?", attachmentIds: ["file_notes"] }));
+  expect(fake.questions.answer).not.toHaveBeenCalled();
 });
 
 test("with two proposals waiting, the composer answers neither: each is answered on its card", async () => {
   fake.runs.stream.mockImplementation(streamOf(snapshot([proposalQuestion(), { ...proposalQuestion(), id: "q2", proposalId: "prop_2" }])));
   mount("run_1");
-  expect(await screen.findByText("Answer the question above to continue.")).toBeTruthy();
+  expect(await screen.findByText(/You can draft a message here/)).toBeTruthy();
   expect(await screen.findAllByRole("button", { name: "Approve" })).toHaveLength(2);
-  expect(screen.getByLabelText<HTMLTextAreaElement>("Message").disabled).toBe(true);
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Send" }).disabled).toBe(true);
 });
 
 test("a finished Job with a recorded transcript sends to the same conversation", async () => {
@@ -608,19 +605,17 @@ test("a quote can be dismissed without changing the draft", async () => {
   expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe("Keep this");
 });
 
-test("starter suggestions are hidden when a proposal waits and a quote cannot approve it", async () => {
+test("a waiting proposal leaves quotes in the ordinary draft and cannot be answered with one", async () => {
   const user = mountComposer([proposalQuestion()]);
   await screen.findByRole("button", { name: "Approve" });
   expect(screen.queryByRole("button", { name: "Set up an agent" })).toBeNull();
   await user.click(screen.getByRole("button", { name: "Select quote" }));
+  expect(await screen.findByLabelText("Quoted text")).toBeTruthy();
+  await user.type(screen.getByLabelText("Message"), "Explain this{Enter}");
   expect(fake.questions.answer).not.toHaveBeenCalled();
   expect(fake.runs.sendChat).not.toHaveBeenCalled();
-  expect(screen.queryByLabelText("Quoted text")).toBeNull();
-  fake.questions.answer.mockResolvedValue(undefined);
-  await user.type(screen.getByLabelText("Message"), "Change this{Enter}");
-  await waitFor(() => expect(fake.questions.answer).toHaveBeenCalledWith({ questionId: "q1", answer: { kind: "permission", decision: "deny", message: "Change this" } }));
+  expect(screen.getByLabelText("Quoted text")).toBeTruthy();
 });
-
 
 test("a failed stock-composer send restores the message ahead of newer typing", async () => {
   let fail!: (error: Error) => void;

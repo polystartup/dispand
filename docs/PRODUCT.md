@@ -138,9 +138,9 @@ Status: Prototype
     catalog entry, that an agent names and isn't a tool yet is added first, with no credentials:
     the owner enters them, or signs in, on the tool's page. A skill it names that isn't installed,
     or a server that runs on a machine or needs a setting, is listed, and the agent is made without it.
-    Nothing else an agent says approves anything. In a chat, the composer then offers
-    Approve (or Ctrl/⌘+Enter on an empty message); whatever you type and send instead declines
-    the proposal, and the agent is told your words to make a new one.
+    Nothing else an agent says approves anything. In a chat, each proposal shows its scope and has its own
+    decision controls. You can approve it, decline it, or request changes with feedback for
+    the agent. Requesting changes declines that version.
   - In a chat, the agent's words are shown formatted (headings, lists, code, emphasis). An
     image shows only when it is a file of the workspace, and a link says where it goes and
     opens only when clicked.
@@ -237,8 +237,8 @@ Chat uses assistant-ui's standard composer lifecycle: sending opens a fresh draf
 if delivery fails, the submitted text, files and quote return ahead of anything typed since.
 Select message text and choose “Quote in reply” to include it with the next message. The
 quote can be removed before sending. Assistant starter prompts fill an editable draft and
-never send automatically. Proposal approvals still require their explicit Approve control;
-text sent while one waits declines it, without consuming held attachments or a quote.
+never send automatically. While a proposal awaits a decision, you can prepare a message. It stays in the
+composer with its files and quote until you choose to send it after the decision.
 
 Chat attachments show upload and failure states and can be dropped onto the composer.
 Server-validated raster images open in a preview dialog, including after reopening new

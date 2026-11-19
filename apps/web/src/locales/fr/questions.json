@@ -144,6 +144,11 @@
     "note": "Chaque outil que reçoivent ses agents demande avant chaque action ; ses serveurs et son installation native restent à vous d’ajouter. Un plugin modifié depuis sa proposition n’installe rien."
   },
   "proposal": {
+    "requestChanges": "Demander des modifications",
+    "decline": "Refuser",
+    "feedback": "Que faut-il modifier ?",
+    "feedbackTooLong": "Limitez votre commentaire à {{max}} caractères.",
+    "sendFeedback": "Envoyer le commentaire",
     "intro": "L’agent vous demande d’approuver ces changements. Approuver lui permet de faire exactement ceux-là, une fois chacun.",
     "says": "L’agent dit :",
     "inInbox": "Cela vous demande d’approuver une proposition : des changements à ce que les agents peuvent faire. <0>Lisez-la et répondez dans la boîte de réception</0>.",

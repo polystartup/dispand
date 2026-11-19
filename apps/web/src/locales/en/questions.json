@@ -144,6 +144,11 @@
     "note": "Every tool its agents get asks before each action; its servers and native install are yours to add. A plugin changed since it was proposed installs nothing."
   },
   "proposal": {
+    "requestChanges": "Request changes",
+    "decline": "Decline",
+    "feedback": "What should change?",
+    "feedbackTooLong": "Keep feedback to {{max}} characters or fewer.",
+    "sendFeedback": "Send feedback",
     "intro": "The agent asks you to approve these changes. Approving lets it make exactly these, once each.",
     "says": "The agent says:",
     "inInbox": "This asks you to approve a proposal: changes to what agents may do. <0>Read and answer it in the Inbox</0>.",

@@ -106,7 +106,7 @@ test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ pa
   await expect(page.getByRole("checkbox", { name: /Change tables and fields/ })).toBeDisabled();
 });
 
-test("a proposal in the Assistant's chat: shown whole, approved from the composer, or declined by what is typed", async ({ page }) => {
+test("a proposal in the Assistant's chat: approved or revised on its card while the message draft stays intact", async ({ page }) => {
   test.skip(!runner || !harnessId, "needs the Assistant on the fake runner, from the test above");
   await signIn(page);
   await page.goto("/assistant?run=new");
@@ -118,27 +118,32 @@ test("a proposal in the Assistant's chat: shown whole, approved from the compose
   await runner!.waitFor("session.send", WAIT_MS);
   await expect(chat.getByRole("button", { name: "Approve" })).toHaveCount(0);
 
-  // The agent proposes, then asks: the chat shows the items, and Approve in its composer.
+  // Each request names the exact proposal the card can answer.
   const ask = async (maxWorking: number, n: number) => {
     const { proposalId } = await jobTool<{ proposalId: string }>(page, start.jobToken!, "propose", { items: [{ tool: "harnesses_set_limit", input: { id: harnessId, maxWorking } }] });
     runner!.emit(start.sessionId, { type: "question", questionId: `rq_${n}`, payload: { kind: "permission", toolName: "request_approval", input: { message: `May the harness run ${maxWorking} at once?`, proposal: proposalId }, canAlwaysAllow: false } });
-    const card = chat.getByRole("region", { name: "Proposal" });
+    const card = chat.getByRole("region", { name: "Proposal" }).filter({ hasText: `May the harness run ${maxWorking} at once?` });
     await expect(card.getByText("Change how many sessions of a harness work at once")).toBeVisible();
-    await expect(card.getByText(`May the harness run ${maxWorking} at once?`)).toBeVisible();
+    return card;
   };
-  await ask(2, 1);
-  await chat.getByRole("button", { name: "Approve" }).click();
+  const first = await ask(2, 1);
+  await box.fill("Which cases would this affect?");
+  await box.press("Enter");
+  await expect(chat.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+  await expect(box).toHaveValue("Which cases would this affect?");
+  await first.getByRole("button", { name: "Approve", exact: true }).click();
   expect((await runner!.waitFor("session.answer", WAIT_MS)).answer).toEqual({ kind: "permission", decision: "allow" });
   await expect(chat.getByText("You approved it")).toBeVisible();
   await expect(chat.getByRole("button", { name: "Approve" })).toHaveCount(0);
 
-  // What is typed declines the next one, and reaches the agent as the reason.
-  await ask(5, 2);
-  await box.fill("Approve it, but three at most");
-  await box.press("Enter");
+  const second = await ask(5, 2);
+  await second.getByRole("button", { name: "Request changes" }).click();
+  await second.getByRole("textbox", { name: "What should change?" }).fill("Approve it, but three at most");
+  await second.screenshot({ path: test.info().outputPath("proposal-revision.png"), animations: "disabled" });
+  await second.getByRole("button", { name: "Send feedback" }).click();
   expect((await runner!.waitFor("session.answer", WAIT_MS)).answer).toEqual({ kind: "permission", decision: "deny", message: "Approve it, but three at most" });
   await expect(chat.getByText("You declined it: Approve it, but three at most")).toBeVisible();
-  await expect(box).toHaveValue("");
+  await expect(box).toHaveValue("Which cases would this affect?");
 
   // The Inbox shows both answered from the chat.
   await page.goto("/inbox");

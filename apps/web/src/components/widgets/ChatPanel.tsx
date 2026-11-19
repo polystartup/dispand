@@ -3,16 +3,14 @@ import { QueuedMessages } from "../chat/QueuedMessages.tsx";
 import { MessageNotSentError, type AppendMessage, type QuoteInfo } from "@assistant-ui/react";
 import { heldAttachments, type QueueActions, textOf, useRunThread } from "../../lib/assistant-runtime.ts";
 import { nodesOf, type WorkflowDef } from "@dispand/domain/workflows/model";
-import { SHORT } from "@dispand/runner-protocol";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, CircleAlert, Loader2 } from "lucide-react";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { useFormat } from "../../lib/format.ts";
 import { api, orpc } from "../../lib/api.ts";
 import { canReopen, type RunSnapshot } from "../../lib/run-state.ts";
 import { refreshRun, useRun } from "../../lib/run-watch.ts";
-import { ChatThread, composerApproval } from "../chat/Thread.tsx";
+import { ChatThread } from "../chat/Thread.tsx";
 import { useStored } from "@/lib/message";
 import { ChatSession, useChatSessions } from "../../lib/chat-sessions.tsx";
 
@@ -81,7 +79,6 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   const stopPending = useRef(false);
   const [holding, setHolding] = useState(0);
   const { t } = useTranslation("chat");
-  const { number } = useFormat();
   const hold = useCallback(async (file: File) => {
     sessions.begin(session);
     setHolding((n) => n + 1);
@@ -99,9 +96,9 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   const chatField = runDef?.trigger.field.type === "chat" ? runDef.trigger.field.id : undefined;
   const chatStep = run?.steps.find((s) => s.interactive) ?? run?.steps.find((s) => s.nodeId === chatField && s.status === "pending");
   const open = !runId || !run || canReopen(run) || (!!chatStep && ["running", "waiting", "pending"].includes(chatStep.status));
-  const approval = composerApproval(run?.questions ?? [], chatStep?.id);
-  const asking = !approval && !!run?.questions.some((q) => q.stepRunId === chatStep?.id && q.status === "pending");
-  const canSend = active && (!runId || !!run) && open && !asking;
+  const pending = run?.questions.filter((q) => q.stepRunId === chatStep?.id && q.status === "pending") ?? [];
+  const waiting = pending.some((q) => !q.proposalId || !q.proposal) ? "question" : pending.length ? "proposal" : undefined;
+  const canSend = active && (!runId || !!run) && open && !waiting;
   const canStop = active && open && chatStep?.turnStatus === "running" && ["running", "waiting"].includes(chatStep.status) && chatStep.interruptible && !!chatStep.turnId;
 
   async function stop() {
@@ -123,28 +120,9 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
     }
   }
 
-  async function answerApproval(answer: { decision: "allow" } | { decision: "deny"; message: string }): Promise<boolean> {
-    if (!approval || sending || stopPending.current) return false;
-    sessions.begin(session);
-    setSending(true);
-    setError(null);
-    try {
-      if (answer.decision === "deny" && answer.message.length > SHORT) throw new Error(t("tooLong", { max: number(SHORT) }));
-      await api.questions.answer({ questionId: approval.id, answer: { kind: "permission", ...answer } });
-      return true;
-    } catch (err) {
-      setError((err as { code?: string }).code === "CONFLICT" ? t("conflictProposal") : err instanceof Error ? err.message : t("approveFailed"));
-      return false;
-    } finally {
-      void queryClient.invalidateQueries({ queryKey: orpc.questions.key() });
-      setSending(false);
-      sessions.settle(session);
-    }
-  }
-
   async function send(message: AppendMessage) {
     const text = textOf(message).trim();
-    if (!text || sending || stopPending.current || !canSend || approval) throw new MessageNotSentError(t("sendFailed"));
+    if (!text || sending || stopPending.current || !canSend) throw new MessageNotSentError(t("sendFailed"));
     sessions.begin(session);
     const chosenSkill = message.runConfig?.custom?.skill as { name: string; skillId?: string } | undefined;
     const skillId = chosenSkill && text.split(/\s/, 1)[0] === `/${chosenSkill.name}` ? chosenSkill.skillId : undefined;
@@ -210,17 +188,16 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
 
   const attachments = useMemo(() => heldAttachments(hold), [hold]);
   const runtime = useRunThread({ run, chatStepId: chatStep?.id, canSend: canSend && !sending && !stopping && holding === 0, onSend: send, onCancel: canStop ? stop : undefined, attachments, queue,
-    suggestions: assistantAgentId && !approval ? [
+    suggestions: assistantAgentId ? [
       { title: t("starterAgent"), prompt: t("starterAgentPrompt") },
       { title: t("starterReview"), prompt: t("starterReviewPrompt") },
     ] : [],
   });
   const view = <div className="flex min-h-0 flex-1 flex-col">
     <ChatThread runtime={runtime} run={run} chatStepId={chatStep?.id} canSend={canSend && !sending && holding === 0} onSend={send} onAttach={hold}
-      welcome={welcome} starterPrompts={!!assistantAgentId && !approval} centeredWelcome={!!composerTools}
-      composer={<ChatComposer runId={runId} assistantAgentId={assistantAgentId} tools={composerTools} open={open} asking={asking} approval={!!approval}
-        busy={sending || stopping} error={error} queued={<QueuedMessages queued={new Map((run?.queue ?? []).map((q) => [q.id, q]))} onEdit={editQueued} steering={chatStep?.turnStatus === "running" && chatStep.turnId ? chatStep.steering : null} />} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined}
-        onApprove={() => answerApproval({ decision: "allow" })} onDecline={(message) => answerApproval({ decision: "deny", message })} />}
+      welcome={welcome} starterPrompts={!!assistantAgentId} centeredWelcome={!!composerTools}
+      composer={<ChatComposer runId={runId} assistantAgentId={assistantAgentId} tools={composerTools} open={open} waiting={waiting}
+        busy={sending || stopping} error={error} queued={<QueuedMessages queued={new Map((run?.queue ?? []).map((q) => [q.id, q]))} onEdit={editQueued} steering={!waiting && chatStep?.turnStatus === "running" && chatStep.turnId ? chatStep.steering : null} />} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined} />}
     >
       <AfterChat run={run} chatStepId={chatStep?.id} def={runDef} />
     </ChatThread>

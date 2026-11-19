@@ -1,39 +1,27 @@
 import { ActionBarPrimitive, AuiConfig, AuiIf, AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, SelectionToolbarPrimitive, SuggestionPrimitive, Tools, groupPartByType, type AppendMessage, type AssistantRuntime, type TextMessagePartComponent, type ToolCallMessagePartComponent } from "@assistant-ui/react";
-import type { Answer } from "@dispand/runner-protocol";
+import { SHORT, type Answer } from "@dispand/runner-protocol";
 import type { RecordResult } from "@dispand/domain/messages/record-result.ts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, Check, ChevronDown, Copy, MessageSquare, Quote, Users, Wrench, X } from "lucide-react";
 import { Collapsible } from "radix-ui";
 import { useTranslation } from "react-i18next";
-import { createContext, type ComponentProps, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, type ComponentProps, type ReactNode, type Ref, useCallback, useContext, useId, useMemo, useRef, useState } from "react";
 import { orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
 import { ARTIFACT_TOOL, CONSULT_TOOL, heldAttachments, QUESTION_TOOL, RECORD_TOOL, threadMessages, TRACE_TOOL, useRunThread, useTranscript } from "../../lib/assistant-runtime.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import { ProposalItems } from "../questions/ProposalItems.tsx";
 import { approvalWords, QuestionForm } from "../questions/QuestionForm.tsx";
+import { Button } from "../ui/button.tsx";
+import { Textarea } from "../ui/textarea.tsx";
 import { AgentText } from "./AgentText.tsx";
 import { ArtifactPart, DraftPrompt } from "./ArtifactPart.tsx";
 import { MessageAttachment } from "./Attachment.tsx";
 
 type Question = RunSnapshot["questions"][number];
 
-/**
- * The proposal Approval the chat's composer answers (Approve, or words that decline it): only
- * when it is the one question of the chat that waits, and its items can be shown. With more than
- * one waiting, each is answered on its own card, so a click can't go to another than the one read.
- */
-export function composerApproval(questions: readonly Question[], chatStepId: string | undefined): Question | undefined {
-  const pending = questions.filter((q) => q.stepRunId === chatStepId && q.status === "pending");
-  const [only] = pending;
-  return pending.length === 1 && only!.proposalId && only!.proposal ? only : undefined;
-}
-
 /** The chat's questions by id: a question's part of the thread only carries its id. */
 const Questions = createContext<Map<string, Question>>(new Map());
-/** The id of the proposal Approval the composer answers (`composerApproval`). */
-const ComposerApproval = createContext<string | undefined>(undefined);
-
 const bubble = "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-[15px] leading-relaxed";
 
 const OwnerText: TextMessagePartComponent = ({ text }) => (
@@ -110,8 +98,8 @@ const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ ar
   const { t } = useTranslation("chat");
   const answeredText = useAnsweredText();
   const q = useContext(Questions).get(args.questionId);
-  const inComposer = useContext(ComposerApproval) === args.questionId;
   const queryClient = useQueryClient();
+  const card = useRef<HTMLElement>(null);
   const [conflict, setConflict] = useState(false);
   const answer = useMutation(
     orpc.questions.answer.mutationOptions({
@@ -120,10 +108,20 @@ const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ ar
     }),
   );
   if (!q) return null;
-  if (q.status === "answered" && q.proposal) return <ProposalCard question={q} />;
+  const onAnswer = (value: Answer) => {
+    // The submitted control disappears when the run publishes its decision.
+    card.current?.focus({ preventScroll: true });
+    answer.mutate({ questionId: q.id, answer: value });
+  };
+  if (q.proposalId && q.proposal) return (
+    <ProposalCard question={q} ref={card}>
+      {q.status === "pending" && (conflict ? <p role="status">{t("conflict")}</p> : <>
+        <ProposalDecisions busy={answer.isPending || answer.isSuccess} onAnswer={onAnswer} />
+        {answer.error && <p role="alert" className="text-[13px] text-danger">{answer.error.message}</p>}
+      </>)}
+    </ProposalCard>
+  );
   if (q.status === "answered") return <p className="px-1 text-right text-[12px] text-faint">{answeredText(q)}</p>;
-  // A proposal shown whole: approved or declined from the composer (`ChatPanel`), its one control.
-  if (inComposer) return <ProposalCard question={q} />;
   return (
     <div className="mr-6 rounded-2xl border border-line bg-surface p-4">
       {conflict ? (
@@ -135,7 +133,7 @@ const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ ar
           question={q}
           busy={answer.isPending}
           error={answer.error && !conflict ? answer.error.message : null}
-          onAnswer={(a: Answer) => answer.mutate({ questionId: q.id, answer: a })}
+          onAnswer={onAnswer}
         />
       )}
     </div>
@@ -143,13 +141,13 @@ const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ ar
 };
 
 /** A proposal's Approval in the chat: every item whole, and the agent's words. Never cut: the thread scrolls. */
-function ProposalCard({ question }: { question: Question }) {
+function ProposalCard({ question, children, ref }: { question: Question; children: ReactNode; ref: Ref<HTMLElement> }) {
   const { t } = useTranslation(["chat", "questions"]);
   const asked = approvalWords(question.payload);
   const answeredText = useAnsweredText();
   const answered = question.status === "answered";
   return (
-    <section aria-label={t("proposal")} className="mr-6 flex min-w-0 flex-col gap-3 [overflow-wrap:anywhere] rounded-2xl border border-line bg-surface p-4">
+    <section ref={ref} tabIndex={-1} aria-label={t("proposal")} className="mr-6 flex min-w-0 flex-col gap-3 [overflow-wrap:anywhere] rounded-2xl border border-line bg-surface p-4">
       <p className="text-[15px]">{answered ? answeredText(question) : t("questions:proposal.intro")}</p>
       <ProposalItems proposal={question.proposal!} />
       {asked !== null && (
@@ -158,8 +156,47 @@ function ProposalCard({ question }: { question: Question }) {
           <p className="whitespace-pre-wrap break-words text-[15px]">{asked}</p>
         </>
       )}
-      {!answered && <p className="text-[13px] text-muted">{t("proposalHint")}</p>}
+      {children}
     </section>
+  );
+}
+
+function ProposalDecisions({ busy, onAnswer }: { busy: boolean; onAnswer: (value: Answer) => void }) {
+  const { t } = useTranslation(["questions", "common"]);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const editorId = useId();
+  const format = useFormat();
+  const message = feedback?.trim() ?? "";
+  const tooLong = message.length > SHORT;
+  function cancel() {
+    setFeedback(null);
+    trigger.current?.focus({ preventScroll: true });
+  }
+  return (
+    <>
+      <div className="flex flex-wrap gap-2">
+        <Button disabled={busy || feedback !== null} onClick={() => onAnswer({ kind: "permission", decision: "allow" })}>{t("approve")}</Button>
+        <Button ref={trigger} variant="outline" disabled={busy} aria-expanded={feedback !== null} aria-controls={feedback !== null ? editorId : undefined} onClick={() => feedback === null ? setFeedback("") : cancel()}>{t("proposal.requestChanges")}</Button>
+        <Button variant="ghost" disabled={busy || feedback !== null} onClick={() => onAnswer({ kind: "permission", decision: "deny" })}>{t("proposal.decline")}</Button>
+      </div>
+      {feedback !== null && <form id={editorId} className="space-y-2 rounded-lg bg-soft p-3" onKeyDown={(e) => {
+        if (e.key === "Escape" && !e.nativeEvent.isComposing && !busy) { e.preventDefault(); cancel(); }
+      }} onSubmit={(e) => {
+        e.preventDefault();
+        if (!busy && message && !tooLong) onAnswer({ kind: "permission", decision: "deny", message });
+      }}>
+        <label className="block space-y-2">
+          <span>{t("proposal.feedback")}</span>
+          <Textarea autoFocus disabled={busy} aria-invalid={tooLong || undefined} aria-describedby={tooLong ? `${editorId}-limit` : undefined} value={feedback} onChange={(e) => setFeedback(e.target.value)} />
+        </label>
+        {tooLong && <p id={`${editorId}-limit`} role="alert" className="text-sm text-danger">{t("proposal.feedbackTooLong", { max: format.number(SHORT) })}</p>}
+        <div className="flex flex-wrap gap-2">
+          <Button type="submit" disabled={busy || !message || tooLong}>{t("proposal.sendFeedback")}</Button>
+          <Button type="button" variant="ghost" disabled={busy} onClick={cancel}>{t("common:actions.cancel")}</Button>
+        </div>
+      </form>}
+    </>
   );
 }
 
@@ -282,7 +319,6 @@ function ChatThreadView({ runtime, run, chatStepId, canSend, children, composer,
   // Nothing said yet, and nothing went wrong: the invitation to start.
   const empty = threadMessages(run, chatStepId).length === 0 && run?.steps.find((s) => s.id === chatStepId)?.status !== "failed";
   const questions = new Map((run?.questions ?? []).map((q) => [q.id, q]));
-  const approval = composerApproval(run?.questions ?? [], chatStepId)?.id;
   // An artifact's prompt goes after the draft, as the owner's words given back do (`ChatPanel`).
   const draft = useCallback((text: string) => {
     const composer = runtime.thread.composer;
@@ -293,7 +329,6 @@ function ChatThreadView({ runtime, run, chatStepId, canSend, children, composer,
     <AssistantRuntimeProvider runtime={runtime} config={toolConfig}>
       <DraftPrompt.Provider value={canSend && composer ? draft : undefined}>
       <Questions.Provider value={questions}>
-        <ComposerApproval.Provider value={approval}>
           <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">
             <ThreadPrimitive.Viewport className={centeredWelcome ? `flex min-h-0 flex-1 flex-col overflow-y-auto pt-6 ${empty ? "justify-center-safe" : ""}` : "min-h-0 flex-1 overflow-y-auto px-4 py-6"} aria-live="polite">
               {empty && <div className="flex min-h-36 shrink-0 flex-col items-center justify-center gap-3 px-4 text-center text-muted">
@@ -328,11 +363,10 @@ function ChatThreadView({ runtime, run, chatStepId, canSend, children, composer,
               </div>}
             </ThreadPrimitive.Viewport>
             {!centeredWelcome && composer}
-            {canSend && !approval && composer && <SelectionToolbarPrimitive.Root className="z-50 rounded-lg border border-line bg-surface p-1 shadow-md">
+            {canSend && composer && <SelectionToolbarPrimitive.Root className="z-50 rounded-lg border border-line bg-surface p-1 shadow-md">
               <SelectionToolbarPrimitive.Quote className="flex min-h-11 items-center gap-2 rounded px-3 py-2 text-sm text-fg hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent"><Quote size={16} aria-hidden />{t("quoteReply")}</SelectionToolbarPrimitive.Quote>
             </SelectionToolbarPrimitive.Root>}
           </ThreadPrimitive.Root>
-        </ComposerApproval.Provider>
       </Questions.Provider>
       </DraftPrompt.Provider>
     </AssistantRuntimeProvider>
