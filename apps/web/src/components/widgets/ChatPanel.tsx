@@ -201,13 +201,13 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
     ] : [],
   });
   const view = <div className="flex min-h-0 flex-1 flex-col">
+    {interrupted && <p role="status" className="mx-auto w-full max-w-3xl shrink-0 px-4 py-2 text-[13px] text-muted">{t("reconnecting")}</p>}
     <ChatThread runtime={runtime} run={run} chatStepId={chatStep?.id} canSend={canSend && !sending && holding === 0} canDraft={open && waiting !== "question"} onSend={send} onAttach={hold}
       welcome={welcome} starterPrompts={!!assistantAgentId} centeredWelcome={!!composerTools}
       composer={<ChatComposer runId={runId} assistantAgentId={assistantAgentId} tools={composerTools} open={open} waiting={waiting}
         busy={sending || stopping || deciding} error={error} queued={<QueuedMessages queued={new Map((run?.queue ?? []).map((q) => [q.id, q]))} onEdit={editQueued} steering={canSteer ? steering : null} />} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined} />}
     >
       <AfterChat run={run} chatStepId={chatStep?.id} def={runDef} />
-      {interrupted && <p role="status" className="mt-3 px-1 text-[13px] text-muted">{t("reconnecting")}</p>}
     </ChatThread>
   </div>;
   useLayoutEffect(() => { session.publish(view); });
