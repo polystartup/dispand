@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import { acceptInvitation, invitation, invitations, invite, revokeInvitation } from "./invitations.ts";
 import { managed, people, removePerson } from "./people.ts";
 import { reviewSignals } from "../assistant/review.ts";
 import { DEFAULT_RETENTION_DAYS } from "../audit/sweep.ts";
@@ -104,4 +105,4 @@ const review = owner.handler(async ({ context }) => {
   return reviewSignals(context.db, context.ownerId, (context.now ?? (() => new Date()))(), timezone);
 });
 
-export const workspace = { managed, people, removePerson, checkpoint, setCheckpoint, auditRetention, setAuditRetention, filesLimit, setFilesLimit, strictPermissions, setStrictPermissions, review };
+export const workspace = { invite, invitations, invitation, acceptInvitation, revokeInvitation, managed, people, removePerson, checkpoint, setCheckpoint, auditRetention, setAuditRetention, filesLimit, setFilesLimit, strictPermissions, setStrictPermissions, review };

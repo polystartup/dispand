@@ -69,6 +69,9 @@
       "decided": "Plugin change decided"
     },
     "workspace": {
+      "invited": "Workspace invitation issued",
+      "invitationRevoked": "Workspace invitation revoked",
+      "invitationAccepted": "Workspace invitation accepted",
       "memberRemoved": "Workspace access removed"
     }
   },

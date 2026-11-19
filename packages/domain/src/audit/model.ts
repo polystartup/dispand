@@ -31,6 +31,9 @@ export const AUDIT_ACTIONS = [
   "memory.written",
   "plugin.decided",
   "workspace.memberRemoved",
+  "workspace.invited",
+  "workspace.invitationRevoked",
+  "workspace.invitationAccepted",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

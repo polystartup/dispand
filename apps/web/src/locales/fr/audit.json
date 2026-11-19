@@ -69,6 +69,9 @@
       "decided": "Modification de plugin décidée"
     },
     "workspace": {
+      "invited": "Invitation à l’espace de travail créée",
+      "invitationRevoked": "Invitation à l’espace de travail révoquée",
+      "invitationAccepted": "Invitation à l’espace de travail acceptée",
       "memberRemoved": "Accès à l’espace de travail retiré"
     }
   },

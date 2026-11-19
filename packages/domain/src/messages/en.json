@@ -1,5 +1,6 @@
 {
   "workspace": {
+    "invitationNotFound": "Invitation unavailable.",
     "membershipNotFound": "Workspace or membership not found."
   },
   "agent": {

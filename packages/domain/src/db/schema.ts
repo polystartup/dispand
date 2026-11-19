@@ -60,6 +60,19 @@ export const workspaceMembers = pgTable("workspace_members", {
   check("workspace_members_role_check", sql`${t.role} in ('manager', 'member')`),
 ]);
 
+export const workspaceInvitations = pgTable("workspace_invitations", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  inviterId: text("inviter_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  role: text("role").$type<"manager" | "member">().notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  unique().on(t.workspaceId, t.email),
+  check("workspace_invitations_role_check", sql`${t.role} in ('manager', 'member')`),
+]);
+
 export const session = pgTable("session", {
   id: text("id").primaryKey(),
   expiresAt: timestamp("expires_at").notNull(),
