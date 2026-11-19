@@ -19,6 +19,11 @@ export function WorkspaceInvitations({ scope }: { scope: Scope }) {
   const options = orpc.workspace.invitations.queryOptions({ input: scope, gcTime: 0, refetchInterval: 5000, refetchIntervalInBackground: true, retry: false });
   const pending = useQuery(options);
   const refresh = () => client.invalidateQueries({ queryKey: options.queryKey });
+  async function rememberInvitation(row: Invitation) {
+    await client.cancelQueries({ queryKey: options.queryKey });
+    client.setQueryData(options.queryKey, (rows) => rows && [...rows.filter((old) => old.email !== row.email), row]);
+    void refresh();
+  }
   const revoke = useMutation(orpc.workspace.revokeInvitation.mutationOptions({ onSettled: refresh }));
   const status = useRef<HTMLParagraphElement>(null);
   const refused = pending.error && "code" in pending.error && ["UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND"].includes(String(pending.error.code));
@@ -28,7 +33,7 @@ export function WorkspaceInvitations({ scope }: { scope: Scope }) {
   return <section aria-labelledby="invitations-title" className="mt-8">
     <div className="mb-4 flex items-center justify-between gap-3">
       <h2 id="invitations-title" className="text-lg font-semibold">{t("invitations.title")}</h2>
-      <CreateInvitation scope={scope} pending={pending.isSuccess ? pending.data : undefined} refresh={refresh} />
+      <CreateInvitation scope={scope} pending={pending.isSuccess ? pending.data : undefined} onCreated={rememberInvitation} />
     </div>
     {pending.isError ? <p role="alert">{t("invitations.loadFailed")}</p> : pending.data.length === 0 ? <p className="text-sm text-muted">{t("invitations.empty")}</p> : <List>
       {pending.data.map((invitation) => <li key={invitation.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
@@ -44,7 +49,7 @@ export function WorkspaceInvitations({ scope }: { scope: Scope }) {
   </section>;
 }
 
-type InviteProps = { scope: Scope; pending?: Invitation[]; refresh: () => Promise<void> };
+type InviteProps = { scope: Scope; pending?: Invitation[]; onCreated: (row: Invitation) => Promise<void> };
 
 function CreateInvitation(props: InviteProps) {
   const { t } = useTranslation("settings");
@@ -55,23 +60,23 @@ function CreateInvitation(props: InviteProps) {
   </Dialog>;
 }
 
-function InviteForm({ scope, pending, refresh }: InviteProps) {
+function InviteForm({ scope, pending, onCreated }: InviteProps) {
   const { t } = useTranslation(["settings", "common"]);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Invitation["role"]>("member");
   const [issued, setIssued] = useState<{ id: string; link: string; email: string }>();
-  const [refreshed, setRefreshed] = useState(false);
   const [copied, setCopied] = useState<"copied" | "manual">();
   const field = useRef<HTMLInputElement>(null);
   const invite = useMutation({ mutationFn: async () => {
     // The token lives only in this open dialog. The mutation cache receives no invitation link.
-    const { id, token } = await api.workspace.invite({ ...scope, email, role });
-    setIssued({ id, email: email.trim().toLowerCase(), link: window.location.origin + "/invitation#" + token });
-    void refresh().then(() => setRefreshed(true));
+    const { id, token, expiresAt } = await api.workspace.invite({ ...scope, email, role });
+    const address = email.trim().toLowerCase();
+    await onCreated({ id, expiresAt, email: address, role });
+    setIssued({ id, email: address, link: window.location.origin + "/invitation#" + token });
   } });
 
   if (issued) {
-    const available = !refreshed || !pending || pending.some((row) => row.id === issued.id);
+    const available = !pending || pending.some((row) => row.id === issued.id);
     return <DialogContent>
       <DialogTitle>{t("invitations.linkTitle")}</DialogTitle>
       <DialogDescription>{available ? t("invitations.handoff", { email: issued.email }) : t("invitations.unavailable")}</DialogDescription>

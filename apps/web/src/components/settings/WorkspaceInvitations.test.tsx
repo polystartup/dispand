@@ -83,8 +83,8 @@ test("a successful creation keeps its link when refreshing the pending list fail
   expect((await screen.findByLabelText<HTMLInputElement>("Invitation link")).value).toContain("#" + token);
 });
 
-test("the one-time link appears before a slow list refresh completes", async () => {
-  workspace.invitations.mockResolvedValue([]);
+test("replacing a link immediately updates the revocation target while the list refreshes", async () => {
+  workspace.invitations.mockResolvedValue([{ ...pending, id: "previous" }]);
   let finish!: (list: typeof pending[]) => void;
   workspace.invite.mockImplementation(async () => {
     workspace.invitations.mockImplementation(() => new Promise<typeof pending[]>((resolve) => { finish = resolve; }));
@@ -96,5 +96,8 @@ test("the one-time link appears before a slow list refresh completes", async () 
   await user.type(screen.getByLabelText("Email address"), pending.email);
   await user.click(screen.getByRole("button", { name: "Create link" }));
   expect((await screen.findByLabelText<HTMLInputElement>("Invitation link")).value).toContain("#" + token);
-  await act(async () => finish([pending]));
+  await user.click(screen.getByRole("button", { name: "Done" }));
+  await user.click(screen.getByRole("button", { name: "Revoke invitation for sam@example.com" }));
+  expect(workspace.revokeInvitation.mock.calls[0]?.[0]).toEqual({ ...scope, id: pending.id });
+  await act(async () => finish([]));
 });
