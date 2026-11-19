@@ -1,5 +1,5 @@
 import { message, router } from "@dispand/domain";
-import { emptyContext } from "@dispand/domain/test-support";
+import { emptyContext, jobIdentity, ownerContext } from "@dispand/domain/test-support";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { ORPCError, os, type RouterClient } from "@orpc/server";
@@ -74,13 +74,17 @@ const failing = {
 };
 const handler = new RPCHandler(failing);
 
-async function client(language: Language) {
-  // A Job's context passes `authed`: what fails here is the input, before any handler runs.
-  const app = { ...(await emptyContext()), job: { runId: "run", ownerId: "owner", agentId: "agent" } };
+async function jobContext() {
+  const context = await ownerContext();
+  return { ...context, job: await jobIdentity(context) };
+}
+
+async function client(language: Language, app?: Awaited<ReturnType<typeof jobContext>>) {
+  const context = app ?? await emptyContext();
   const link = new RPCLink({
     url: "http://localhost:3000/api/rpc",
     headers: { "x-csrf-token": "orpc" },
-    fetch: (request) => handleRpc(request as Request, app, handler as never),
+    fetch: (request) => handleRpc(request as Request, context, handler as never),
     interceptors: [translateErrors(() => language)],
   });
   return createORPCClient<RouterClient<typeof failing>>(link);
@@ -111,7 +115,7 @@ test("a tables refusal shows in French, with its plural and the name the person 
 test("a trigger refusal, a schedule's and a workflow's issue show in French, their values kept as typed", async () => {
   expect(await refusal((await client("fr")).fails.trigger())).toBe("Seul un agent doté de la Boîte de réception peut être lancé par des Questions : donnez-lui d’abord la Boîte de réception.");
   const config = { kind: "primitive", tableId: "interaction", operations: ["updated"] };
-  expect(await refusal((await client("fr")).triggers.create({ agentId: "a", name: "T", config } as never))).toBe("Ces changements ne sont pas de ceux de ce que le déclencheur surveille.");
+  expect(await refusal((await client("fr", await jobContext())).triggers.create({ agentId: "a", name: "T", config } as never))).toBe("Ces changements ne sont pas de ceux de ce que le déclencheur surveille.");
   expect(await refusal((await client("fr")).fails.schedule())).toBe("Utilisez 5 champs : minute heure jour mois jour de la semaine.");
   expect(await refusal((await client("fr")).fails.issue())).toBe("{{go.x}} : « go » est un bouton, il n’a pas de valeurs");
   expect(await refusal((await client("en")).fails.issue())).toBe("{{go.x}}: “go” is a button, it has no values");
@@ -123,19 +127,19 @@ test("an agents refusal and a tools refusal show in French, the agent's name as 
   expect(await refusal((await client("en")).fails.holder())).toBe("The agent “Searcher” uses this tool: it stays on its runner.");
   // A refinement of the tools area, through the server's own validation.
   const add = { name: "A", url: "https://u:p@example.com/mcp", transport: "streamable-http" } as const;
-  expect(await refusal((await client("fr")).tools.add(add))).toBe("L’URL ne peut pas contenir d’identifiants.");
+  expect(await refusal((await client("fr", await jobContext())).tools.add(add))).toBe("L’URL ne peut pas contenir d’identifiants.");
 });
 
 test("an auth refusal and a runners refusal show in French", async () => {
   expect(await refusal((await client("fr")).fails.setup())).toBe("La configuration initiale n’est pas autorisée.");
   expect(await refusal((await client("fr")).fails.runnerUsed())).toBe("Un harnais utilise ce runner.");
   // Through the real router: a Job passes `authed` but can't ask a runner to update.
-  expect(await refusal((await client("fr")).runners.installUpdate({ runnerId: "r" }))).toBe("Seul le propriétaire peut faire cela, pas un agent.");
-  expect(await refusal((await client("en")).runners.installUpdate({ runnerId: "r" }))).toBe("Only the owner can do this, not an agent.");
+  expect(await refusal((await client("fr", await jobContext())).runners.installUpdate({ runnerId: "r" }))).toBe("Seul le propriétaire peut faire cela, pas un agent.");
+  expect(await refusal((await client("en", await jobContext())).runners.installUpdate({ runnerId: "r" }))).toBe("Only the owner can do this, not an agent.");
 });
 
 test("an input its Zod schema rejects shows a validation message in French", async () => {
-  const api = await client("fr");
+  const api = await client("fr", await jobContext());
   expect(await refusal(api.questions.answer({ questionId: 7 } as never))).toBe("« questionId » n’a pas le bon type.");
   expect(await refusal(api.questions.list({ status: "everything" } as never))).toBe("« status » doit valoir l’un de : pending, all.");
 });
