@@ -70,7 +70,8 @@ function ArtifactFrame({ code, onFailed }: { code: string; onFailed: () => void 
     maxHeight: 480,
     ...(prompt ? { onPrompt: prompt } : {}),
     onOpenLink: (url) => {
-      if (new URL(url).protocol === "https:") setLink(url);
+      // The address the owner reads stays the one Open opens: a later request waits for the dialog to close.
+      if (new URL(url).protocol === "https:") setLink((shown) => shown ?? url);
     },
     onError: onFailed,
   });
@@ -82,7 +83,8 @@ function ArtifactFrame({ code, onFailed }: { code: string; onFailed: () => void 
   }, [widget, code, onFailed]);
   return (
     <>
-      <div ref={ref} className="min-w-0" />
+      {/* The frame's default text is dark (Generative Frame's light theme): a light ground keeps it readable in dark mode until the theme is passed. */}
+      <div ref={ref} className="min-w-0 rounded-lg bg-white" />
       <Dialog open={link !== null} onOpenChange={(open) => !open && setLink(null)}>
         <DialogContent>
           <DialogTitle>{t("artifactLinkTitle")}</DialogTitle>
