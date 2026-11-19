@@ -48,7 +48,7 @@ export const METRICS = {
   // A memory write (`memory/store.ts`): its scope, operation and result, never a path or a body.
   "dispand.memory.writes": ["dispand.memory.scope", "dispand.memory.op", "dispand.result"],
   // A Job's `memory_read` (`memory/tools.ts`): its scope and result.
-  // A Job's `artifact_show` (`artifacts/show.ts`): its format, and whether it was stored (ok) or named no artifact to replace (not-found).
+  // A Job's `artifact_show` (`artifacts/show.ts`): its format, and whether it was stored (ok), named no artifact to replace (not-found) or failed.
   "dispand.artifacts.shown": ["dispand.artifact.format", "dispand.result"],
   "dispand.memory.reads": ["dispand.memory.scope", "dispand.result"],
   // A Job's session start with its memory (`memory/read.ts`): none, whole, or cut to its budget.

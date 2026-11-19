@@ -59,6 +59,7 @@ export function showArtifact(app: PlatformApp, job: JobIdentity, input: Show): P
       return { ok: true, output: { artifactId: made.artifactId } };
     } catch (err) {
       span.setAttribute("dispand.result", "failed");
+      counts.counter("dispand.artifacts.shown").add(1, { "dispand.artifact.format": format, "dispand.result": "failed" });
       recordError(span, "failed");
       throw err;
     } finally {

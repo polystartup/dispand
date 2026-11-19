@@ -78,7 +78,7 @@ test("a Job that learns nothing reads memory but has no write tool", async () =>
   expect(await tool("memory_add", { scope: "agent", ...entry("a.md") })).toEqual({ ok: false, error: "This agent may not use memory_add" });
   // Every Job reads, with no bundle at all.
   const bare = await setup([], []);
-  expect((await toolsOf(bare.context.db, bare.job)).map((t) => t.name)).toEqual(["memory_read"]);
+  expect((await toolsOf(bare.context.db, bare.job)).map((t) => t.name)).toEqual(["memory_read", "artifact_show"]);
   expect(await bare.tool("memory_read", { scope: "workspace" })).toEqual({ ok: true, output: { entries: 0, index: "" } });
 });
 

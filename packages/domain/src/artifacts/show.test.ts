@@ -66,11 +66,13 @@ test("a revision names an earlier artifact of the same Job, never another Job's"
   const first = (await callPlatformTool(context, job, "artifact_show", { title: "Chart", format: "html", code: "<p>1</p>" })) as { output: { artifactId: string } };
   const second = await callPlatformTool(context, job, "artifact_show", { title: "Chart", format: "html", code: "<p>2</p>", replaces: first.output.artifactId });
   expect(second.ok).toBe(true);
-  const other = await cliJob();
-  const foreign = await callPlatformTool(other.context, other.job, "artifact_show", { title: "Chart", format: "html", code: "<p>3</p>", replaces: "art_unknown" });
+  // Another Job of the same owner can't name it.
+  const { runId } = await call(router.jobs.start, { triggerId: (await context.db.select({ triggerId: runs.triggerId }).from(runs).where(eq(runs.id, job.runId)))[0]!.triggerId! }, { context });
+  const other = { ...job, runId };
+  const foreign = await callPlatformTool(context, other, "artifact_show", { title: "Chart", format: "html", code: "<p>3</p>", replaces: first.output.artifactId });
   expect(foreign).toEqual({ ok: false, error: expect.stringContaining("Not found") });
-  expect(await other.context.db.select().from(artifacts)).toHaveLength(0);
-  expect(await other.context.db.select().from(messages).where(eq(messages.runId, other.job.runId))).toHaveLength(0);
+  expect(await context.db.select().from(artifacts).where(eq(artifacts.runId, runId))).toHaveLength(0);
+  expect(await context.db.select().from(messages).where(eq(messages.runId, runId))).toHaveLength(0);
 });
 
 test("code past the cap, a bad format and a Job without the tool are refused, and store nothing", async () => {
