@@ -98,14 +98,10 @@ export const acceptInvitation = person.input(Token).handler(({ context, input })
 
 /** The single-workspace installation's owner can vouch for a new account through a direct handoff. */
 export const registerInvitation = base.input(Token.extend({
-  email: Email, name: z.string().trim().min(1).max(200), password: z.string().min(8).max(128),
+  email: Email, name: z.string().trim().min(1).max(200).refine((name) => !name.includes("\0")), password: z.string().min(8).max(128),
 })).handler(async ({ context, input }) => {
   if (context.job) throw missing();
   const row = await findInvitation(context.db, input.token, eq(workspaceInvitations.email, input.email));
-  if (!(await hasLegacyWorkspaceAccess({ db: context.db, ownerId: row.inviterId }))) throw missing();
-  const [existing] = await context.db.select({ id: user.id }).from(user).where(eq(user.email, input.email));
-  if (existing) throw missing();
-  const password = await (await context.auth.$context).password.hash(input.password);
   return context.db.transaction(async (tx) => {
     await lockForManager(tx, row.inviterId, row);
     if (!(await hasLegacyWorkspaceAccess({ db: tx, ownerId: row.inviterId }))) throw missing();
@@ -113,7 +109,10 @@ export const registerInvitation = base.input(Token.extend({
     const [created] = await tx.insert(user).values({ id: userId, email: input.email, name: input.name })
       .onConflictDoNothing({ target: user.email }).returning({ id: user.id });
     if (!created) throw missing();
+    // Only the transaction that consumed the invitation spends a password hash.
+    const scope = await grant(tx, row, userId);
+    const password = await (await context.auth.$context).password.hash(input.password);
     await tx.insert(account).values({ id: newId("acct"), userId, accountId: userId, providerId: "credential", password });
-    return grant(tx, row, userId);
+    return scope;
   });
 });
