@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as InvitationRouteImport } from './routes/invitation'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
@@ -54,6 +55,11 @@ import { Route as AppSettingsWorkflowsRunsRunIdRouteImport } from './routes/_app
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InvitationRoute = InvitationRouteImport.update({
+  id: '/invitation',
+  path: '/invitation',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -271,6 +277,7 @@ const AppSettingsWorkflowsRunsRunIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/invitation': typeof InvitationRoute
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
   '/assistant': typeof AppAssistantRoute
@@ -313,6 +320,7 @@ export interface FileRoutesByFullPath {
   '/settings/workflows/runs/': typeof AppSettingsWorkflowsRunsIndexRoute
 }
 export interface FileRoutesByTo {
+  '/invitation': typeof InvitationRoute
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
   '/assistant': typeof AppAssistantRoute
@@ -358,6 +366,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
+  '/invitation': typeof InvitationRoute
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
   '/_app/assistant': typeof AppAssistantRoute
@@ -404,6 +413,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/invitation'
     | '/login'
     | '/setup'
     | '/assistant'
@@ -446,6 +456,7 @@ export interface FileRouteTypes {
     | '/settings/workflows/runs/'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/invitation'
     | '/login'
     | '/setup'
     | '/assistant'
@@ -490,6 +501,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_app'
+    | '/invitation'
     | '/login'
     | '/setup'
     | '/_app/assistant'
@@ -535,6 +547,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  InvitationRoute: typeof InvitationRoute
   LoginRoute: typeof LoginRoute
   SetupRoute: typeof SetupRoute
   ApiHealthRoute: typeof ApiHealthRoute
@@ -560,6 +573,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/invitation': {
+      id: '/invitation'
+      path: '/invitation'
+      fullPath: '/invitation'
+      preLoaderRoute: typeof InvitationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -912,6 +932,7 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  InvitationRoute: InvitationRoute,
   LoginRoute: LoginRoute,
   SetupRoute: SetupRoute,
   ApiHealthRoute: ApiHealthRoute,

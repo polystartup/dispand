@@ -636,6 +636,7 @@ export const NOT_TOOLS: string[] = [
   "workspace.acceptInvitation",
   "workspace.revokeInvitation",
   "workspace.registerInvitation",
+  "workspace.registrationPreview",
   "workspace.removePerson",
   "workspace.auditRetention",
   "workspace.setAuditRetention",

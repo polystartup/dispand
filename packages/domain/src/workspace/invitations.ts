@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq, exists, gt, inArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, exists, gt, inArray, notExists, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { recordAudit } from "../audit/record.ts";
 import type { Db, Tx } from "../db/client.ts";
@@ -69,12 +69,26 @@ function addressedTo(db: Db | Tx, userId: string, token: string) {
   return findInvitation(db, token, inArray(workspaceInvitations.email, db.select({ email: user.email }).from(user).where(eq(user.id, userId))));
 }
 
-export const invitation = person.input(Token).handler(async ({ context, input }) => {
-  const row = await addressedTo(context.db, context.ownerId, input.token);
-  const [inviter] = await context.db.select({ inviterName: user.name }).from(user)
-    .where(and(eq(user.id, row.inviterId), exists(managedWorkspaces(context.db, row.inviterId, row))));
+async function summary(db: Db, row: Invitation) {
+  const [inviter] = await db.select({ inviterName: user.name }).from(user)
+    .where(and(eq(user.id, row.inviterId), exists(managedWorkspaces(db, row.inviterId, row))));
   if (!inviter) throw missing();
   return { organizationId: row.organizationId, workspaceId: row.workspaceId, role: row.role, expiresAt: row.expiresAt, ...inviter };
+}
+
+export const invitation = person.input(Token).handler(async ({ context, input }) =>
+  summary(context.db, await addressedTo(context.db, context.ownerId, input.token))
+);
+
+/** A new user can review the owner's trusted handoff before choosing a password. */
+export const registrationPreview = base.input(Token.extend({ email: Email })).handler(async ({ context, input }) => {
+  if (context.job) throw missing();
+  const row = await findInvitation(context.db, input.token, and(
+    eq(workspaceInvitations.email, input.email),
+    notExists(context.db.select({ id: user.id }).from(user).where(eq(user.email, input.email))),
+  )!);
+  if (!(await hasLegacyWorkspaceAccess({ db: context.db, ownerId: row.inviterId }))) throw missing();
+  return summary(context.db, row);
 });
 
 type Invitation = Awaited<ReturnType<typeof findInvitation>>;

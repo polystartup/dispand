@@ -79,6 +79,9 @@ test("the installation owner can onboard a new identity by trusted handoff witho
   const { token } = await call(api.invite, { ...scope, email, role: "manager" }, { context });
   const anonymous = { ...context, headers: new Headers() };
   const register = (value: string, targetEmail = email) => call(api.registerInvitation, { token: value, name: "New", email: targetEmail, password }, { context: anonymous });
+  const preview = (token: string, email: string) => call(api.registrationPreview, { token, email }, { context: anonymous });
+  await expect(preview(token, "different@example.test")).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(preview(token, email)).resolves.toMatchObject({ ...scope, inviterName: "Ada", role: "manager" });
   await expect(register(token, "different@example.test")).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(register(token)).resolves.toEqual(scope);
   await expect(register(token)).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -86,10 +89,12 @@ test("the installation owner can onboard a new identity by trusted handoff witho
   expect(login.user.email).toBe(email);
   expect(await context.db.select().from(workspaceMembers).where(eq(workspaceMembers.userId, login.user.id))).toEqual([{ workspaceId: scope.workspaceId, userId: login.user.id, role: "manager" }]);
   const existing = await call(api.invite, { ...scope, email: "pat@example.test", role: "member" }, { context });
+  await expect(preview(existing.token, "pat@example.test")).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(register(existing.token, "pat@example.test")).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(await context.db.select().from(workspaceInvitations).where(eq(workspaceInvitations.id, existing.id))).toHaveLength(1);
   await context.db.insert(organizations).values({ id: "another-org" });
   await context.db.insert(workspaces).values({ id: "another-workspace", organizationId: "another-org" });
   const other = await call(api.invite, { ...scope, email: "other@example.test", role: "member" }, { context });
+  await expect(preview(other.token, "other@example.test")).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(register(other.token, "other@example.test")).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
