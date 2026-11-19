@@ -302,9 +302,6 @@ test("the studio: a second conversation's setup stops at a name taken, goes on, 
   expect(made.find((t) => t.name === "New feature")).toMatchObject({ agentId: designer.id, config: { kind: "primitive", tableId: owned.features } });
   expect(made.find((t) => t.name === "Monday review")).toMatchObject({ config: { kind: "schedule", cron: "0 9 * * 1" } });
 
-  await chat.getByRole("button", { name: "GitHub", exact: true }).click();
-  await expect(page.getByRole("dialog").getByText(/^Needs sign-in: enter its Personal access token/)).toBeVisible();
-
   // Inspect saved scope after the live conversation has completed its follow-up.
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
@@ -326,6 +323,9 @@ test("the studio: a second conversation's setup stops at a name taken, goes on, 
   await expect(changes).toBeHidden();
   await expect(scope).toBeFocused();
   await expect(box).toHaveValue("Which changes were refused?");
+
+  await chat.getByRole("button", { name: "GitHub", exact: true }).click();
+  await expect(page.getByRole("dialog").getByText(/^Needs sign-in: enter its Personal access token/)).toBeVisible();
 });
 
 test("Assistant settings selects the next conversation's harness and model; chat fills desktop and mobile", async ({ page }, testInfo) => {
