@@ -81,5 +81,17 @@
   "uploadFailed": "Upload failed",
   "downloadFile": "Download {{name}}",
   "toolActivity_one": "{{count}} tool call",
-  "toolActivity_other": "{{count}} tool calls"
+  "toolActivity_other": "{{count}} tool calls",
+  "queuedMessages": "Queued messages",
+  "queuedWaiting": "Sends when the agent finishes its turn",
+  "queuedFailed": "Not sent: {{error}}",
+  "queuedFailedPlain": "Not sent",
+  "editQueued": "Edit queued message",
+  "saveQueued": "Save",
+  "cancelEdit": "Cancel",
+  "removeQueued": "Remove queued message",
+  "queuedGone": "This message was already sent.",
+  "queuedRemoveFailed": "Could not remove the queued message. Try again.",
+  "queuedSentBeforeEdit": "The message was sent before your edit. Your edit is back in the message box.",
+  "queuedEditFailed": "Could not save the edit. Try again."
 }

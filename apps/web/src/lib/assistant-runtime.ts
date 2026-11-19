@@ -1,4 +1,4 @@
-import { type AppendMessage, type AttachmentAdapter, type PendingAttachment, type ThreadMessageLike, type ThreadSuggestion, useExternalStoreRuntime } from "@assistant-ui/react";
+import { type AppendMessage, type AttachmentAdapter, type ExternalThreadQueueAdapter, type PendingAttachment, type QueueItemState, type ThreadMessageLike, type ThreadSuggestion, useExternalStoreRuntime } from "@assistant-ui/react";
 import type { RunSnapshot } from "./run-state.ts";
 
 // The one place Dispand's runs meet assistant-ui. Dispand keeps its own messages, questions and
@@ -8,6 +8,7 @@ import type { RunSnapshot } from "./run-state.ts";
 
 type Message = RunSnapshot["messages"][number];
 type Question = RunSnapshot["questions"][number];
+type Queued = RunSnapshot["queue"][number];
 
 /** A tool's trace line ("Read", "Bash"…): the library has no tool role, so it is a finished tool call of the assistant. */
 export const TRACE_TOOL = "dispand_trace";
@@ -115,15 +116,39 @@ export function heldAttachments(hold: (file: File) => Promise<{ id: string; imag
   };
 }
 
-export function useRunThread(options: { run: RunSnapshot | null; chatStepId: string | undefined; canSend: boolean; onSend: (message: AppendMessage) => Promise<void>; onCancel?: () => Promise<void>; attachments?: AttachmentAdapter; suggestions?: ThreadSuggestion[] }) {
+/** What the owner does with the chat's queued messages, through Dispand's procedures. */
+export type QueueActions = { send: (message: AppendMessage) => void; edit: (queuedId: string, text: string) => void; remove: (queuedId: string) => void };
+
+const queueItems = new WeakMap<object, QueueItemState>();
+const ofQueued = (q: Queued): QueueItemState => ({ id: q.id, prompt: q.text, parts: [{ type: "text", text: q.text }] });
+
+/**
+ * The chat's queued messages as the library's queue (`ComposerPrimitive.Queue`). The server keeps
+ * them and decides what waits, so both lanes send the same way, and no item moves ahead of
+ * another here. While a turn runs or items wait, the composer sends through it; otherwise
+ * through `onNew`, which gives a failed draft back.
+ */
+function queueOf(run: RunSnapshot | null, chatStepId: string | undefined, running: boolean, actions: QueueActions | undefined): ExternalThreadQueueAdapter | undefined {
+  const items = (run?.queue ?? []).filter((q) => q.stepRunId === chatStepId).map((q) => {
+    let item = queueItems.get(q);
+    if (!item) queueItems.set(q, (item = ofQueued(q)));
+    return item;
+  });
+  if (!actions || (!running && items.length === 0)) return undefined;
+  return { items, steerItems: [], enqueue: actions.send, steer: actions.send, move: () => {}, edit: (id, message) => actions.edit(id, textOf(message)), remove: actions.remove };
+}
+
+export function useRunThread(options: { run: RunSnapshot | null; chatStepId: string | undefined; canSend: boolean; onSend: (message: AppendMessage) => Promise<void>; onCancel?: () => Promise<void>; attachments?: AttachmentAdapter; suggestions?: ThreadSuggestion[]; queue?: QueueActions }) {
+  const isRunning = options.run?.steps.find((step) => step.id === options.chatStepId)?.turnStatus === "running";
   return useExternalStoreRuntime({
     messages: threadMessages(options.run, options.chatStepId),
     convertMessage: same,
     suggestions: options.suggestions,
-    isRunning: options.run?.steps.find((step) => step.id === options.chatStepId)?.turnStatus === "running",
+    isRunning,
     onCancel: options.onCancel,
     isSendDisabled: !options.canSend,
     onNew: options.onSend,
+    queue: queueOf(options.run, options.chatStepId, isRunning, options.queue),
     ...(options.attachments ? { adapters: { attachments: options.attachments } } : {}),
   });
 }

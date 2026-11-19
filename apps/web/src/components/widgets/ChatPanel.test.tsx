@@ -10,7 +10,7 @@ import "../../test/jsdom-shims.ts";
 
 const fake = vi.hoisted(() => ({
   assistantCommands: vi.fn(),
-  runs: { start: vi.fn(), sendChat: vi.fn(), interruptChat: vi.fn(), get: vi.fn(), stream: vi.fn(), list: vi.fn() },
+  runs: { start: vi.fn(), sendChat: vi.fn(), editQueued: vi.fn(), removeQueued: vi.fn(), interruptChat: vi.fn(), get: vi.fn(), stream: vi.fn(), list: vi.fn() },
   workflows: { get: vi.fn() },
   jobs: { start: vi.fn(), def: vi.fn() },
   questions: { answer: vi.fn() },
@@ -272,6 +272,61 @@ test("Enter sends while the agent works; Shift+Enter adds a line, and a new conv
   await user.type(box, "Unsent");
   await user.click(screen.getByRole("button", { name: "New conversation" }));
   expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe("");
+});
+
+/** A chat whose turn runs, with messages queued behind it. */
+function busySnapshot(queue: Partial<RunSnapshot["queue"][number]>[] = []): RunSnapshot {
+  const snap = snapshot();
+  Object.assign(snap.steps[0]!, { turnStatus: "running", turnId: "turn_1", interruptible: true });
+  snap.queue = queue.map((q, i) => ({ id: `msg_q${i}`, runId: "run_1", stepRunId: "s_chat", state: "pending", text: `Queued ${i}`, skillId: null, error: null, createdAt: at, ...q }));
+  return snap;
+}
+
+test("queued messages show above the composer and can be edited or removed while they wait", async () => {
+  fake.runs.stream.mockImplementation(streamOf(busySnapshot([{}, { state: "failed", error: JSON.stringify({ key: "engine.chatOver" }) }])));
+  fake.runs.editQueued.mockResolvedValue(undefined);
+  fake.runs.removeQueued.mockResolvedValue(undefined);
+  const user = mount("run_1");
+  const list = await screen.findByRole("list", { name: "Queued messages" });
+  expect(list.textContent).toContain("Queued 0");
+  expect(list.textContent).toContain("Sends when the agent finishes its turn");
+  expect(list.textContent).toContain("Not sent: The chat is over.");
+  // A failed one can only be removed.
+  expect(screen.getAllByRole("button", { name: "Edit queued message" })).toHaveLength(1);
+  await user.click(screen.getByRole("button", { name: "Edit queued message" }));
+  const editor = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Edit queued message" });
+  await user.clear(editor);
+  await user.type(editor, "Changed");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(fake.runs.editQueued).toHaveBeenCalledWith({ runId: "run_1", queuedId: "msg_q0", text: "Changed" }));
+  await user.click(screen.getAllByRole("button", { name: "Remove queued message" })[1]!);
+  await waitFor(() => expect(fake.runs.removeQueued).toHaveBeenCalledWith({ runId: "run_1", queuedId: "msg_q1" }));
+});
+
+test("an edit that loses to the dispatch keeps its words in the composer", async () => {
+  fake.runs.stream.mockImplementation(streamOf(busySnapshot([{}])));
+  fake.runs.editQueued.mockRejectedValue(Object.assign(new Error("Conflict"), { code: "CONFLICT" }));
+  const user = mount("run_1");
+  await user.click(await screen.findByRole("button", { name: "Edit queued message" }));
+  const editor = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Edit queued message" });
+  await user.clear(editor);
+  await user.type(editor, "Too late{Enter}");
+  expect((await screen.findByRole("alert")).textContent).toBe("The message was sent before your edit. Your edit is back in the message box.");
+  expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe("Too late");
+});
+
+test("a message sent during a turn goes to the server's queue; a failed one gives its words back", async () => {
+  fake.runs.stream.mockImplementation(streamOf(busySnapshot()));
+  fake.runs.sendChat.mockResolvedValueOnce({ queuedId: "msg_new" }).mockRejectedValueOnce(new Error("Offline"));
+  const user = mount("run_1");
+  const box = await screen.findByLabelText<HTMLTextAreaElement>("Message");
+  await user.type(box, "While you work{Enter}");
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledWith({ runId: "run_1", text: "While you work" }));
+  await waitFor(() => expect(box.value).toBe(""));
+  await user.type(box, "Lost{Enter}");
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(box.value).toBe("Lost"));
+  expect((await screen.findByRole("alert")).textContent).toBe("Offline");
 });
 
 const proposalPayload = { kind: "permission" as const, toolName: "request_approval", input: { message: "May I let Clerk answer questions?", proposal: "prop_1" }, canAlwaysAllow: false };

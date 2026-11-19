@@ -1,6 +1,7 @@
 import { ChatComposer } from "../chat/Composer.tsx";
+import { QueuedMessages } from "../chat/QueuedMessages.tsx";
 import { MessageNotSentError, type AppendMessage, type QuoteInfo } from "@assistant-ui/react";
-import { heldAttachments, textOf, useRunThread } from "../../lib/assistant-runtime.ts";
+import { heldAttachments, type QueueActions, textOf, useRunThread } from "../../lib/assistant-runtime.ts";
 import { nodesOf, type WorkflowDef } from "@dispand/domain/workflows/model";
 import { SHORT } from "@dispand/runner-protocol";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -174,8 +175,39 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
     }
   }
 
+  /** Keeps the owner's words: back in the composer, after what it holds. */
+  function giveBack(words: string) {
+    const composer = runtime.thread.composer;
+    const current = composer.getState().text;
+    composer.setText(current.trim() ? `${current}\n\n${words}` : words);
+  }
+
+  const conflict = (err: unknown) => (err as { code?: string }).code === "CONFLICT";
+  const queue: QueueActions | undefined = runId ? {
+    // Sent while a turn runs: the server queues it. The library cleared the draft already, so a failure gives the words back.
+    send: (message) => void send(message).catch(() => giveBack(textOf(message))),
+    edit: (queuedId, text) => void editQueued(queuedId, text),
+    remove: (queuedId) => void api.runs.removeQueued({ runId, queuedId }).catch((err: unknown) => setError(conflict(err) ? t("queuedGone") : t("queuedRemoveFailed"))),
+  } : undefined;
+
+  async function editQueued(queuedId: string, text: string): Promise<boolean> {
+    if (!runId) return false;
+    setError(null);
+    try {
+      await api.runs.editQueued({ runId, queuedId, text });
+      return true;
+    } catch (err) {
+      // Sent before the edit landed: the edit isn't lost, it waits in the composer.
+      if (conflict(err)) {
+        giveBack(text);
+        setError(t("queuedSentBeforeEdit"));
+      } else setError(t("queuedEditFailed"));
+      return false;
+    }
+  }
+
   const attachments = useMemo(() => heldAttachments(hold), [hold]);
-  const runtime = useRunThread({ run, chatStepId: chatStep?.id, canSend: canSend && !sending && !stopping && holding === 0, onSend: send, onCancel: canStop ? stop : undefined, attachments,
+  const runtime = useRunThread({ run, chatStepId: chatStep?.id, canSend: canSend && !sending && !stopping && holding === 0, onSend: send, onCancel: canStop ? stop : undefined, attachments, queue,
     suggestions: assistantAgentId && !approval ? [
       { title: t("starterAgent"), prompt: t("starterAgentPrompt") },
       { title: t("starterReview"), prompt: t("starterReviewPrompt") },
@@ -185,7 +217,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
     <ChatThread runtime={runtime} run={run} chatStepId={chatStep?.id} canSend={canSend && !sending && holding === 0} onSend={send} onAttach={hold}
       welcome={welcome} starterPrompts={!!assistantAgentId && !approval} centeredWelcome={!!composerTools}
       composer={<ChatComposer runId={runId} assistantAgentId={assistantAgentId} tools={composerTools} open={open} asking={asking} approval={!!approval}
-        busy={sending || stopping} error={error} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined}
+        busy={sending || stopping} error={error} queued={<QueuedMessages queued={new Map((run?.queue ?? []).map((q) => [q.id, q]))} onEdit={editQueued} />} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined}
         onApprove={() => answerApproval({ decision: "allow" })} onDecline={(message) => answerApproval({ decision: "deny", message })} />}
     >
       <AfterChat run={run} chatStepId={chatStep?.id} def={runDef} />

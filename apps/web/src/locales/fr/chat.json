@@ -81,5 +81,17 @@
   "uploadFailed": "Échec de l’envoi",
   "downloadFile": "Télécharger {{name}}",
   "toolActivity_one": "{{count}} appel d’outil",
-  "toolActivity_other": "{{count}} appels d’outil"
+  "toolActivity_other": "{{count}} appels d’outil",
+  "queuedMessages": "Messages en attente",
+  "queuedWaiting": "Envoyé quand l’agent aura fini son tour",
+  "queuedFailed": "Non envoyé : {{error}}",
+  "queuedFailedPlain": "Non envoyé",
+  "editQueued": "Modifier le message en attente",
+  "saveQueued": "Enregistrer",
+  "cancelEdit": "Annuler",
+  "removeQueued": "Retirer le message en attente",
+  "queuedGone": "Ce message a déjà été envoyé.",
+  "queuedRemoveFailed": "Impossible de retirer le message en attente. Réessayez.",
+  "queuedSentBeforeEdit": "Le message est parti avant votre modification. Elle est revenue dans la zone de saisie.",
+  "queuedEditFailed": "Impossible d’enregistrer la modification. Réessayez."
 }
