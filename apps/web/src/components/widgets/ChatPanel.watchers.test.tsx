@@ -66,7 +66,8 @@ test("a break in live updates keeps the transcript and focused draft until fresh
   await waitFor(() => expect(fake.runs.stream).toHaveBeenCalledTimes(2), { timeout: 4000 });
   expect(notice.isConnected).toBe(true);
   await act(async () => nextSnapshot.resolve());
-  await waitFor(() => expect(notice.isConnected).toBe(false));
+  await waitFor(() => expect(notice.textContent).toBe(""));
+  expect(notice.isConnected).toBe(true);
   expect(screen.getByText("Check this case")).toBeTruthy();
   expect(box().value).toBe("Follow-up draft");
   expect(document.activeElement).toBe(box());
