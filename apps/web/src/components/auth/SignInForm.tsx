@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Field, FormError, SubmitButton } from "./AuthCard.tsx";
 import { authErrorMessage, signIn } from "../../lib/auth-call.ts";
 
-export function SignInForm({ onSuccess }: { onSuccess: () => Promise<void> | void }) {
+export function SignInForm({ email, onSuccess }: { email?: string; onSuccess: () => Promise<void> | void }) {
   const { t } = useTranslation("auth");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -27,8 +27,8 @@ export function SignInForm({ onSuccess }: { onSuccess: () => Promise<void> | voi
         }
       }}
     >
-      <Field label={t("signIn.email")} name="email" type="email" autoComplete="email" required autoFocus />
-      <Field label={t("signIn.password")} name="password" type="password" autoComplete="current-password" required />
+      <Field label={t("signIn.email")} name="email" type="email" autoComplete="email" defaultValue={email} readOnly={!!email} required autoFocus={!email} />
+      <Field label={t("signIn.password")} name="password" type="password" autoComplete="current-password" required autoFocus={!!email} />
       <FormError message={error} />
       <SubmitButton busy={busy}>{t("signIn.submit")}</SubmitButton>
     </form>

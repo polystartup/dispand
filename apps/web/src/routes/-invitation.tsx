@@ -62,7 +62,10 @@ export function Recipient({ token, email, refresh }: { token: string | null; ema
     if (!valid) return <FormError message={t("invitation.invalid")} />;
     if (accepted) return <>
       <p role="status">{t("invitation.accepted")}</p>
-      {needsLogin ? <a href="/login" className={secondary}>{t("signIn.submit")}</a> : <p className="mt-2 text-sm text-muted">{t("invitation.next")}</p>}
+      {needsLogin ? <>
+        <p className="my-3 text-sm text-muted">{t("invitation.signInAgain")}</p>
+        <SignInForm email={address} onSuccess={() => setNeedsLogin(false)} />
+      </> : <p className="mt-2 text-sm text-muted">{t("invitation.next")}</p>}
     </>;
     if (!email && !register) return <>
       <SignInForm onSuccess={refresh} />
@@ -91,7 +94,7 @@ export function Recipient({ token, email, refresh }: { token: string | null; ema
             else {
               const password = String(form.get("password"));
               await api.workspace.registerInvitation({ token, email: address, name: String(form.get("name")), password });
-              // Registration consumed the link. A sign-in failure must lead to normal login.
+              // Registration consumed the link. Retry only sign-in if it fails.
               try { await signIn(address, password); } catch { setNeedsLogin(true); }
             }
             setAccepted(true);

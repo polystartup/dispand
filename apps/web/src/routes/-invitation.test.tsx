@@ -71,3 +71,23 @@ test("signing in from an invitation returns to the recipient's preview", async (
   await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
   expect(rpc.acceptInvitation).not.toHaveBeenCalled();
 });
+
+test("registration that succeeds before sign-in fails allows signing in again without reclaiming the link", async () => {
+  rpc.registrationPreview.mockResolvedValue(summary);
+  auth.signIn.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(undefined);
+  mount(null);
+  fireEvent.click(screen.getByText("Create an account"));
+  fireEvent.change(screen.getByLabelText("Email"), { target: { value: "new@example.test" } });
+  fireEvent.click(screen.getByText("Review invitation"));
+  await screen.findByText("engineering");
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "New" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "new-password" } });
+  fireEvent.click(screen.getByText("Create account and accept"));
+  expect(await screen.findByText("Invitation accepted")).toBeTruthy();
+  expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe("new@example.test");
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "new-password" } });
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  expect(await screen.findByText(/open job links/)).toBeTruthy();
+  expect(rpc.registerInvitation).toHaveBeenCalledTimes(1);
+  expect(auth.signIn).toHaveBeenCalledTimes(2);
+});
