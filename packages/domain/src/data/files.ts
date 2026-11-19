@@ -1,12 +1,12 @@
 import { MAX_FILE_BYTES, MAX_RESULT_FILES, resultRefusal } from "@dispand/runner-protocol";
 import { ORPCError } from "@orpc/server";
-import { and, count, eq, inArray, isNotNull, isNull, notExists, or, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { mkdir, open, readdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
-import { attachments, chatQueue, messages, rows as rowsTable, runs, stepRuns, tables as tablesTable, workspaceSettings, type EventActor, type MessageFile } from "../db/schema.ts";
+import { attachments, messages, rows as rowsTable, runs, stepRuns, tables as tablesTable, workspaceSettings, type EventActor, type MessageFile } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -267,16 +267,13 @@ export async function attachmentsById(db: Db, ownerId: string, ids: string[]): P
   return Object.fromEntries(found.map((a) => [a.id, attachmentView(a)]));
 }
 
-/** A table or draft belongs to its owner. A file held only by a Job follows the Job's workspace access. */
+/** Other Job readers can download only a file attached to a person's committed transcript message. */
 export async function openAttachment(db: Db, filesDir: string, userId: string, id: string) {
-  // Enqueuing reserves the file for the Job before its private draft becomes a delivered message.
-  const queued = db.select({ id: chatQueue.id }).from(chatQueue).where(and(eq(chatQueue.runId, attachments.jobId),
-    sql`${chatQueue.files} @> jsonb_build_array(jsonb_build_object('id', ${attachments.id}))`));
   const [row] = await db.select({ file: attachments }).from(attachments)
     .leftJoin(runs, and(eq(runs.id, attachments.jobId), eq(runs.ownerId, attachments.ownerId)))
     .where(and(eq(attachments.id, id), or(
       and(eq(attachments.ownerId, userId), or(isNull(attachments.jobId), isNotNull(attachments.tableId))),
-      and(isNull(attachments.tableId), readableRun({ db, ownerId: userId }), or(eq(attachments.ownerId, userId), notExists(queued))),
+      and(isNull(attachments.tableId), readableRun({ db, ownerId: userId }), or(eq(attachments.ownerId, userId), inUserMessage)),
     )));
   if (!row || (row.file.tableId !== null && !await hasLegacyWorkspaceAccess({ db, ownerId: userId }))) return null;
   return streamAttachment(filesDir, row.file);
@@ -328,8 +325,10 @@ const referenced = sql`exists (select 1 from ${rowsTable} where ${rowsTable.tabl
   and jsonb_path_exists(${rowsTable.values}, '$.*[*] ? (@ == $id)', jsonb_build_object('id', ${attachments.id})))`;
 
 /** A message of the attachment's Job carries it: the chat's history reads it at every turn. */
-const inMessage = sql`exists (select 1 from ${messages} where ${messages.runId} = ${attachments.jobId}
-  and ${messages.files} @> jsonb_build_array(jsonb_build_object('id', ${attachments.id})))`;
+const carriesFile = sql`${messages.runId} = ${attachments.jobId}
+  and ${messages.files} @> jsonb_build_array(jsonb_build_object('id', ${attachments.id}))`;
+const inMessage = sql`exists (select 1 from ${messages} where ${carriesFile})`;
+const inUserMessage = sql`exists (select 1 from ${messages} where ${carriesFile} and ${messages.role} = 'user')`;
 
 /**
  * What the sweep removes, `cutoff` being an hour ago and `heldCutoff` a day ago: a table's file no

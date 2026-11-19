@@ -22,7 +22,7 @@ import { router } from "../rpc/router.ts";
 import { RunnerHub } from "./hub.ts";
 import { upgradeRunner } from "./upgrade.ts";
 import { pair } from "./pairing.ts";
-import { ownerContext } from "./test-support.ts";
+import { jobIdentity, ownerContext } from "./test-support.ts";
 
 /**
  * Holds the hub's token lookups once they have read the runner, until `release`, to race an upgrade
@@ -949,8 +949,8 @@ test("native plugin requests are owner-scoped, correlated, and counted without c
 
 test("native plugin management rejects a Job even when it belongs to the owner", async () => {
   const context = await ownerContext();
-  const jobContext = { ...context, job: { runId: "run_1", ownerId: context.ownerId, agentId: "agent_1" } };
-  await expect(call(router.runners.plugins, { runnerId: "runner_1", operation: { action: "list" } }, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  const jobContext = { ...context, job: await jobIdentity(context) };
+  await expect(call(router.runners.plugins, { runnerId: "runner_1", operation: { action: "list" } }, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "runners.nativeOwnerOnly" } });
 });
 
 test("an owner can preview and apply an unused workspace skill through the runner protocol without exposing its content to telemetry", async () => {

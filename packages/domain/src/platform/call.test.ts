@@ -109,7 +109,8 @@ test("a tool of a bundle the Job doesn't have is refused", async () => {
 test("owner-keyed platform tools disappear and refuse direct calls when a Job loses legacy access", async () => {
   const { context, tool, job } = await setup(["configure"], () => "all");
   await context.db.delete(organizationMembers).where(eq(organizationMembers.userId, job.ownerId));
-  expect((await toolsOf(context.db, job)).map((t) => t.name).sort()).toEqual(["jobs_def", "jobs_get"]);
+  expect((await toolsOf(context.db, job)).map((t) => t.name).sort()).toEqual(["artifact_show", "jobs_def", "jobs_get"]);
+  expect(await tool("artifact_show", { title: "Table", format: "html", code: "<p>Result</p>" })).toMatchObject({ ok: true });
   expect(await tool("memory_read", {})).toEqual(notFound);
   expect(await tool("propose", {})).toEqual(notFound);
   expect(await tool("proposal_apply", {})).toEqual(notFound);

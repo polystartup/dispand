@@ -4,7 +4,7 @@ import { readdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { say } from "../messages/index.ts";
 import { expect, test } from "vitest";
-import { attachments, chatQueue, organizationMembers, rows, runs, stepRuns, tables, user, workspaceMembers, workspaces } from "../db/schema.ts";
+import { attachments, chatQueue, messages, organizationMembers, rows, runs, stepRuns, tables, user, workspaceMembers, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { detectImage, MAX_FILE_BYTES, openAttachment, sweepAttachments } from "./files.ts";
@@ -174,7 +174,7 @@ test("another owner's row can't have its files edited", async () => {
   await expect(call(router.rows.editFiles, { id: "row_other", fieldId: "fld_x", add: [], remove: [] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
-test("a job file follows workspace access until a table adopts it; drafts stay private", async () => {
+test("workspace readers can download human-published chat files; drafts, raw tool files and table files stay private", async () => {
   const context = await ownerContext();
   const { db, ownerId, filesDir } = context;
   const table = await call(router.tables.create, { name: "Projects" }, { context });
@@ -193,6 +193,9 @@ test("a job file follows workspace access until a table adopts it; drafts stay p
   await db.insert(chatQueue).values({ id: "draft", ownerId, runId: "job", stepRunId: "step", text: "Queued", files: [{ id: file.id, name: file.name }] });
   expect(await get("reader")).toBeNull();
   await db.update(chatQueue).set({ state: "dispatched", files: null });
+  await db.insert(messages).values({ id: "output", ownerId, runId: "job", stepRunId: "step", role: "tool", text: file.id, files: [{ id: file.id, name: file.name }] });
+  expect(await get("reader")).toBeNull();
+  await db.insert(messages).values({ id: "published", ownerId, runId: "job", stepRunId: "step", role: "user", text: "Result", files: [{ id: file.id, name: file.name }] });
   const shared = await get("reader");
   expect(shared).not.toBeNull();
   expect(new Uint8Array(await new Response(shared!.body).arrayBuffer())).toEqual(PNG);

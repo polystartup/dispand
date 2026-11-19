@@ -8,7 +8,7 @@ import { skillFileUpstream } from "../db/schema.ts";
 import { messages, plugins as pluginsTable, questions, runs as runsTable, skillFiles, skillPackages, stepRuns, tools } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { jobIdentity, ownerContext } from "../runners/test-support.ts";
 import { BUILT_IN_MARKETPLACES } from "./marketplace.ts";
 import { marketplaceUrl, packageName } from "./marketplace-procedures.ts";
 import { fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd, updatePlugin, installReviewed } from "./test-support.ts";
@@ -904,11 +904,13 @@ test("a workflow tool prevents removal without partially unlinking kept agents",
 
 
 test("destructive plugin checklists and previews require an owner session", async () => {
-  const { ctx, fx, pluginId, packageId, toolIds, agentIds } = await removablePlugin();
+  const { ctx, fx, pluginId, agentIds } = await removablePlugin();
   try {
-    const job = { ...ctx, job: { ownerId: ctx.ownerId, runId: "run_1", agentId: "agent_1" } };
-    await expect(call(router.plugins.uninstallPreview, { id: pluginId }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(removePlugin(job, pluginId, { remove: [...[packageId], ...toolIds, ...agentIds] })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const job = { ...ctx, job: await jobIdentity(ctx, agentIds[0]!) };
+    await expect(call(router.plugins.uninstallPreview, { id: pluginId }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "plugins.ownerSession" } });
+    const preview = await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx });
+    const choices = Object.fromEntries(preview.elements.map((element) => [element.key, "delete" as const]));
+    await expect(call(router.plugins.uninstall, { id: pluginId, reviewed: preview.reviewed, choices }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "plugins.ownerSession" } });
     expect(await call(router.agents.get, { id: agentIds[0]! }, { context: ctx })).toMatchObject({ plugin: { id: pluginId } });
   } finally { await fx.remove(); }
 });

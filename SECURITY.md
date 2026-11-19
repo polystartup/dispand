@@ -512,7 +512,8 @@ changes it updates this file.
   (`DISPAND_SETUP_CODE`), so the first-run window can't be claimed from the network.
 - **Workspace access to a job is checked against the current membership.** The job belongs to one workspace.
   Its organization owners can read it. Other organization members need an assignment to that workspace.
-  A shared job link allows inspection of an agent job and its delivered transcript. Workflow runs and unsent drafts stay owner-scoped. The server checks membership again
+  A shared job link allows inspection of an agent job and the messages committed to its transcript,
+  including a submitted message awaiting runner delivery. Editable queue entries and workflow runs stay owner-scoped. The server checks membership again
   before delivering subsequent stream events. Operations that still address records only by owner require current
   ownership of the installation’s sole workspace organization. A multi-workspace deployment must port each such
   operation to explicit workspace authorization before enabling it. Runner credentials and job tokens retain
@@ -701,8 +702,11 @@ changes it updates this file.
 - **File downloads enforce the attachment's current scope and never run in the app's origin.** Each is stored at `<filesDir>/<ownerId>/<attachmentId>`, both ids made
   by the server: nothing from the upload or the tool's result (name, type, URI) reaches the path. They are reachable only through the app, at
   `GET /files/<id>`, which checks the signed-in user on each request and answers 404 for inaccessible ids.
-  A file held only by a Job requires current access to that Job. Drafts belong to the uploader,
-  including files reserved by a queued message before delivery. Table files require the parent
+  A Job's file requires current access to that Job. Other readers can download only attachments
+  carried in the structured files of a committed user message in that Job's transcript.
+  A queued message publishes its attachments when dispatch or steering writes that transcript
+  entry, independent of subsequent runner execution. Held drafts belong to the uploader;
+  raw tool-result bytes remain available only to the Job's authorized owner. Table files require the parent
   table’s single-workspace owner access, including after a table adopts a Job file. Downloads use no-store. A file
   is an image only if its first bytes are PNG, JPEG, GIF or WebP; only those are served inline,
   with that type. Everything else, SVG and HTML included whatever their name or declared type,

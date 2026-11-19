@@ -68,7 +68,10 @@ test("unknown choices and agent-originated choices are refused without creating 
   const s = await setup();
   await expect(call(router.jobs.start, { triggerId: s.assistant.triggerId, skillId: "missing" }, { context: s.context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(await s.context.db.select().from(runs)).toEqual([]);
-  await expect(call(router.jobs.start, { triggerId: s.assistant.triggerId, skillId: s.skill.id }, { context: { ...s.context, job: { ownerId: s.context.ownerId, runId: "job", agentId: s.assistant.agentId } } })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  const { runId } = await call(router.jobs.start, { triggerId: s.assistant.triggerId }, { context: s.context });
+  const job = { ownerId: s.context.ownerId, runId, agentId: s.assistant.agentId };
+  await expect(call(router.jobs.start, { triggerId: s.assistant.triggerId, skillId: s.skill.id }, { context: { ...s.context, job } })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "workflows.ownerSkill" } });
+  expect(await s.context.db.select({ id: runs.id }).from(runs)).toEqual([{ id: runId }]);
 });
 
 test("selected required tools still ask, and incompatible runner tools are refused", async () => {

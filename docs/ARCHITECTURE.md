@@ -1216,7 +1216,9 @@
   sessions keep none: their text has placeholders only. `writeRow` accepts ids of the same
   table, locked `FOR SHARE`, and, when a Job writes, that Job's files no table has, locked
   `FOR UPDATE` and given to the table once the row is written. `GET /files/<id>` (`apps/web/src/server/files.ts`, the one route outside oRPC,
-  checks the session itself) authorizes a Job-only file through its parent Job and a draft or table file through its owner. It serves PNG, JPEG, GIF and WebP sniffed on upload inline and
+  checks the session itself) checks the parent Job for Job-only files. Shared readers can download a file only when
+  its ID appears in a user message's attachments in that Job. A draft is its uploader's,
+  and table files retain their table's owner access. It serves PNG, JPEG, GIF and WebP sniffed on upload inline and
   everything else as a download, all with `nosniff` and a sandbox CSP. `sweepAttachments` runs
   on boot and hourly: it removes attachments no row of their table references, a Job's files no
   table took and no message of it carries once the Job has ended, then files on disk with no row

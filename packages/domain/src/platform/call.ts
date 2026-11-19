@@ -38,16 +38,14 @@ const counts = meter("platform");
 export type { JobIdentity };
 
 /** These calls enforce workspace scope themselves. Every other tool still uses owner-keyed data. */
-function workspaceScoped(tool: PlatformTool): boolean {
-  return tool.path === "jobs.get" || tool.path === "jobs.def" || INBOX_TOOLS.includes(tool);
-}
+const WORKSPACE_SCOPED = new Set(["jobs_get", "jobs_def", "questions_list", "questions_get", "questions_answer", "artifact_show"]);
 
 /** The tools the Job may use now; none once it is over. */
 export async function toolsOf(db: Db, job: JobIdentity): Promise<PlatformTool[]> {
   const rights = await rightsOf(db, job);
   if (!rights) return [];
   const legacy = await hasLegacyWorkspaceAccess({ db, ownerId: job.ownerId, job });
-  return ALL_TOOLS.filter((tool) => allowed(tool, rights) && (legacy || workspaceScoped(tool)));
+  return ALL_TOOLS.filter((tool) => allowed(tool, rights) && (legacy || WORKSPACE_SCOPED.has(tool.name)));
 }
 
 /** What a call came to, for its Audit row: never its input or its output's content. */
@@ -128,7 +126,7 @@ async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, i
     const rights = await rightsOf(app.db, job);
     if (!rights) return refuse("over", OVER);
     if (!allowed(tool, rights)) return refuse("bundle", `This agent may not use ${tool.name}`);
-    if (!workspaceScoped(tool) && !(await hasLegacyWorkspaceAccess({ db: app.db, ownerId: job.ownerId, job }))) return refuse("not-found", NOT_FOUND);
+    if (!WORKSPACE_SCOPED.has(tool.name) && !(await hasLegacyWorkspaceAccess({ db: app.db, ownerId: job.ownerId, job }))) return refuse("not-found", NOT_FOUND);
     const parsed = tool.input.safeParse(input ?? {});
     if (!parsed.success) return refuse("invalid", issues(parsed.error));
     const scope = rights.tables;

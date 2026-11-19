@@ -5,7 +5,7 @@ import { expect, test, vi } from "vitest";
 import { harnesses, marketplaces, plugins, runners, skillFiles, skillFileUpstream, skillPackages, skills, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
-import { ownerContext } from "./test-support.ts";
+import { jobIdentity, ownerContext } from "./test-support.ts";
 
 async function setup() {
   const context = await ownerContext();
@@ -66,10 +66,10 @@ test("native workspace APIs reject foreign records, unreviewed apply, jobs and u
   await expect(call(router.runners.workspacePlugin, { ...base, resource: { kind: "skill", id: "foreign" } }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.runners.workspacePlugin, { ...base, harnessIds: ["unknown"] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.runners.workspacePlugin, { ...base, dryRun: false }, { context })).rejects.toThrow();
-  const jobContext = { ...context, job: { runId: "run_1", ownerId: context.ownerId, agentId: "agent_1" } };
-  await expect(call(router.runners.workspacePlugin, base, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN" });
-  await expect(call(router.runners.workspaceSkills, undefined, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN" });
-  await expect(call(router.runners.plugins, { runnerId: "runner_1", operation: { action: "list" } }, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  const jobContext = { ...context, job: await jobIdentity(context) };
+  await expect(call(router.runners.workspacePlugin, base, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "runners.nativeOwnerOnly" } });
+  await expect(call(router.runners.workspaceSkills, undefined, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "auth.ownerOnly" } });
+  await expect(call(router.runners.plugins, { runnerId: "runner_1", operation: { action: "list" } }, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "runners.nativeOwnerOnly" } });
   await context.db.update(plugins).set({ url: "file:///private/source" }).where(eq(plugins.id, "plugin_1"));
   await expect(call(router.runners.workspacePlugin, base, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   expect(request).not.toHaveBeenCalled();

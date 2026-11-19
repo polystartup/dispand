@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { afterEach, expect, test, vi } from "vitest";
-import { tools } from "../db/schema.ts";
+import { organizationMembers, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { InstalledTools } from "./executor.ts";
@@ -222,6 +222,20 @@ test("a callback with a wrong state is refused, and the flow under way stays", a
   expect(done.headers.get("referrer-policy")).toBe("no-referrer");
   expect((await row(ctx, tool.id)).oauthStatus).toBe("connected");
   expect((await handleToolOAuthCallback(request(ctx.headers), app)).status).toBe(400);
+});
+
+test("a signed-in tool owner who lost workspace access cannot exchange the pending OAuth code", async () => {
+  const { as, mcp } = await servers({ metadataDocuments: true });
+  const ctx = await context();
+  const tool = await oauthTool(ctx, mcp.url);
+  const { url } = await call(router.tools.authorize, { id: tool.id }, { context: ctx });
+  const params = await signIn(url);
+  await ctx.db.delete(organizationMembers).where(eq(organizationMembers.userId, ctx.ownerId));
+  const requests = as.paths.length;
+  const request = new Request(`${APP}/oauth/callback?${params}`, { headers: ctx.headers });
+  expect((await handleToolOAuthCallback(request, ctx)).status).toBe(400);
+  expect(as.paths).toHaveLength(requests);
+  expect((await row(ctx, tool.id)).oauthStatus).toBe("authorize");
 });
 
 test("a redirect to another origin during discovery is refused, and nothing reaches it", async () => {

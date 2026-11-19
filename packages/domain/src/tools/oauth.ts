@@ -6,6 +6,7 @@ import { tools as toolsTable } from "../db/schema.ts";
 import { logError } from "../log.ts";
 import { stored } from "../messages/index.ts";
 import type { SecretBox } from "../secrets.ts";
+import { hasLegacyWorkspaceAccess } from "../workspace/access.ts";
 import { ToolError } from "./errors.ts";
 import type { ToolConnector } from "./mcp.ts";
 import { clientDocumentUrl, clientMetadata, type OAuthState } from "./oauth-provider.ts";
@@ -45,7 +46,8 @@ async function takeFlow(db: Db, secrets: SecretBox, ownerId: string, state: stri
  */
 export async function finishToolAuthorization(app: Omit<OAuthApp, "auth">, ownerId: string, params: URLSearchParams): Promise<{ toolId?: string; ok: boolean }> {
   const state = params.get("state");
-  const flow = state && state.length <= 200 ? await takeFlow(app.db, app.secrets, ownerId, state) : null;
+  if (!state || state.length > 200 || !(await hasLegacyWorkspaceAccess({ db: app.db, ownerId }))) return { ok: false };
+  const flow = await takeFlow(app.db, app.secrets, ownerId, state);
   if (!flow) return { ok: false };
   const { row, pending } = flow;
   const fail = async (reason: string) => {

@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 import { agents, user } from "../db/schema.ts";
 import { PLATFORM_TOOLS } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { jobIdentity, ownerContext } from "../runners/test-support.ts";
 
 async function setup() {
   const context = await ownerContext();
@@ -52,9 +52,9 @@ test("CLI rule controls require the agent's owner session and are absent from Jo
     await expect(call(router.agents.cliRules, { id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(call(router.agents.removeCliRule, { id, ...rules[0]! }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   }
-  const job = { ...context, job: { runId: "run", ownerId: context.ownerId, agentId: agent.id } };
-  await expect(call(router.agents.cliRules, { id: agent.id }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN" });
-  await expect(call(router.agents.removeCliRule, { id: agent.id, ...rules[0]! }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  const job = { ...context, job: await jobIdentity(context, agent.id) };
+  await expect(call(router.agents.cliRules, { id: agent.id }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "plugins.ownerSession" } });
+  await expect(call(router.agents.removeCliRule, { id: agent.id, ...rules[0]! }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "plugins.ownerSession" } });
   const guest = { ...context, headers: new Headers() };
   await expect(call(router.agents.cliRules, { id: agent.id }, { context: guest })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   await expect(call(router.agents.removeCliRule, { id: agent.id, ...rules[0]! }, { context: guest })).rejects.toMatchObject({ code: "UNAUTHORIZED" });

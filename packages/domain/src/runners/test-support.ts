@@ -77,6 +77,19 @@ export async function ownerContext() {
   return { ...context, ownerId, ...workspace!, headers: new Headers({ cookie }) };
 }
 
+/** Starts a real Job in the owner's workspace so owner-session tests reach the procedure's guard. */
+export async function jobIdentity(context: Awaited<ReturnType<typeof ownerContext>>, agentId?: string) {
+  if (!agentId) {
+    const { runnerId } = await call(router.runners.create, { name: "Job runner" }, { context });
+    const harness = await call(router.harnesses.create, { name: "Job harness", runnerId, kind: "codex", permissionMode: "default" }, { context });
+    const agent = await call(router.agents.create, { name: "Job agent", harnessId: harness.id, systemPrompt: "" }, { context });
+    agentId = agent.id;
+  }
+  const trigger = await call(router.triggers.create, { name: "Start", agentId, instructions: "Start the job", config: { kind: "manual", placement: "button" } }, { context });
+  const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
+  return { runId, ownerId: context.ownerId, agentId };
+}
+
 /** Narrows a harness view to a CLI one, for tests that made it so. */
 export function asCli<H extends { type: string }>(harness: H): Extract<H, { type: "cli" }> {
   if (harness.type !== "cli") throw new Error("expected a CLI harness");
