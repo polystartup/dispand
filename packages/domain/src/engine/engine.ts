@@ -103,7 +103,7 @@ const ACTIVE_STEP: StepStatus[] = ["running", "waiting"];
 const OPEN_STEP: StepStatus[] = ["pending", "running", "waiting"];
 
 /** Events after which a chat may be idle, its queue to drain. */
-const SETTLING = new Set<HarnessEvent["type"]>(["turn-end", "interrupt-result", "session-ended", "result", "outputs-accepted", "error"]);
+const SETTLING = new Set<HarnessEvent["type"]>(["turn-end", "steer-result", "interrupt-result", "session-ended", "result", "outputs-accepted", "error"]);
 
 /** The run an event is about, which `publish` sends it to. */
 function runOf(e: RunEvent): string {
@@ -661,7 +661,7 @@ export class Engine {
     const open = OPEN_STEP.includes(chat.status);
     if (open && chat.turnStatus === "running") return true;
     if (!open && !owner) return false;
-    const inFlight = and(eq(chatQueue.state, "dispatched"), isNull(chatQueue.ackedAt));
+    const inFlight = or(eq(chatQueue.state, "steering"), and(eq(chatQueue.state, "dispatched"), isNull(chatQueue.ackedAt)));
     const waiting = open && owner ? or(eq(chatQueue.state, "pending"), inFlight) : open ? inFlight : eq(chatQueue.state, "pending");
     const [row] = await tx.select({ id: chatQueue.id }).from(chatQueue).where(and(eq(chatQueue.stepRunId, chat.id), waiting)).limit(1);
     return !!row;
@@ -692,6 +692,36 @@ export class Engine {
         }
       }
     }
+  }
+
+  /**
+   * Sends a pending queued message now, into the turn running (`HarnessAdapter.steer`). Its claim
+   * is the dispatch's (one transaction under the chat step's lock, the item locked while pending),
+   * so it, an edit, a removal and the normal dispatch have one winner. The harness delivers it once
+   * either way: joined to the turn, or as the next message when the turn ended first; the item stays
+   * `steering` (in flight) until its `steer-result` or the turn's end says which.
+   */
+  async steerQueued(runId: string, queuedId: string): Promise<void> {
+    const steps = await this.db.select({ id: stepRuns.id, start: stepRuns.start, sessionId: stepRuns.sessionId }).from(stepRuns).where(eq(stepRuns.runId, runId));
+    const candidate = steps.find((s) => s.start?.interactive && s.sessionId);
+    const out: Out[] = [];
+    const { chat, row, turnId } = await this.db.transaction(async (tx) => {
+      const going = await rootGoingLocked(tx, runId);
+      const [chat] = candidate ? await tx.select().from(stepRuns).where(eq(stepRuns.id, candidate.id)).for("update") : [];
+      const [item] = await tx.select().from(chatQueue).where(and(eq(chatQueue.id, queuedId), eq(chatQueue.runId, runId), eq(chatQueue.state, "pending"))).for("update");
+      if (!item || !chat || item.stepRunId !== chat.id) throw new EngineError("NOT_PENDING", message("engine.queuedGone"));
+      // Only into a turn under way that the harness can take it in; a skill may replace the session, so it waits.
+      const live = going && OPEN_STEP.includes(chat.status) && chat.turnStatus === "running" && chat.turnId && !chat.resumeAfterSession && chat.interruptAfterPosition === null;
+      if (!live || !chat.harness || item.skillId) throw new EngineError("CLOSED", message("engine.steerUnavailable"));
+      const [steered] = await tx.update(chatQueue).set({ state: "steering", text: "", files: null, updatedAt: new Date() }).where(eq(chatQueue.id, item.id)).returning();
+      out.push({ type: "queued", queued: queuedView(steered!) });
+      const [row] = await tx.insert(messages).values({ id: item.id, ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text: item.text, ...(item.files?.length ? { files: item.files } : {}) }).returning();
+      out.push({ type: "message", message: messageView(row!) });
+      spanEvent("engine.queue", { "dispand.queue.action": "steer", "dispand.step.id": chat.id });
+      return { chat, row: row!, turnId: chat.turnId! };
+    });
+    this.publish(out);
+    this.deliverMessage(chat, row, turnId);
   }
 
   /** Changes a queued message's words, only while it is pending: once dispatched, it is the conversation's. */
@@ -1881,8 +1911,16 @@ export class Engine {
         }
         await this.turn(tx, step, "running", out, event);
         return null;
-      case "steer-result":
+      case "steer-result": {
+        // It joined the turn: acknowledged (that turn's end may have come first). Went as the next
+        // message instead: still in flight, until the end of the turn it starts.
+        if (event.outcome === "steered") {
+          await tx.update(chatQueue).set({ state: "dispatched", ackedAt: new Date(), updatedAt: new Date() })
+            .where(and(eq(chatQueue.id, event.requestId), eq(chatQueue.stepRunId, step.id), or(eq(chatQueue.state, "steering"), and(eq(chatQueue.state, "dispatched"), isNull(chatQueue.ackedAt)))));
+        }
+        spanEvent("engine.queue", { "dispand.queue.action": event.outcome === "steered" ? "steered" : "steer-queued", "dispand.step.id": step.id });
         return null;
+      }
       case "interrupt-result":
         if (event.outcome === "requested" && event.turnId === step.turnId) await this.withdrawTurn(tx, step, event.turnId, out);
         return null;
@@ -1974,6 +2012,8 @@ export class Engine {
         await this.turn(tx, step, "idle", out);
         // The messages sent before it are acknowledged: the next queued one may go.
         await tx.update(chatQueue).set({ ackedAt: new Date() }).where(and(eq(chatQueue.stepRunId, step.id), eq(chatQueue.state, "dispatched"), isNull(chatQueue.ackedAt)));
+        // A steer not known to have joined it is the harness's next message: in flight until that turn ends.
+        await tx.update(chatQueue).set({ state: "dispatched", updatedAt: new Date() }).where(and(eq(chatQueue.stepRunId, step.id), eq(chatQueue.state, "steering")));
         if (step.start?.interactive && step.harness?.kind === "codex") {
           if (step.turnId && step.interruptAfterPosition !== null) await this.withdrawTurn(tx, step, step.turnId, out);
           else await release(tx, step, out);
@@ -2325,7 +2365,8 @@ export class Engine {
     this.keep(sent);
   }
 
-  private deliverMessage(step: StepRow, m: MessageRow) {
+  /** `steer`: the turn it joins while that turn runs (`steerQueued`); a redelivery sends it as any message. */
+  private deliverMessage(step: StepRow, m: MessageRow, steer?: string) {
     const sessionId = step.sessionId!;
     if (this.reconciling > 0) {
       this.deferred.push(() => this.keep(this.redeliverMessage(m.id)));
@@ -2333,8 +2374,10 @@ export class Engine {
     }
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`m:${m.id}`, async () => {
-      if (step.harness?.kind === "codex" && !(await this.admitCodexInput(sessionId, m.id))) return;
-      if ((await this.adapter.send(sessionId, m.text, m.files ?? [])) && (this.losses.get(sessionId) ?? 0) === losses) {
+      if (!steer && step.harness?.kind === "codex" && !(await this.admitCodexInput(sessionId, m.id))) return;
+      const files = m.files ?? [];
+      const delivered = steer && this.adapter.steer ? await this.adapter.steer(sessionId, steer, m.id, m.text, files) : await this.adapter.send(sessionId, m.text, files);
+      if (delivered && (this.losses.get(sessionId) ?? 0) === losses) {
         await this.db.update(messages).set({ deliveredAt: new Date() }).where(eq(messages.id, m.id));
       }
     }).catch((err: unknown) => logError("chat message delivery failed", err, { ref: m.id }));

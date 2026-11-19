@@ -116,8 +116,8 @@ export function heldAttachments(hold: (file: File) => Promise<{ id: string; imag
   };
 }
 
-/** What the owner does with the chat's queued messages, through Dispand's procedures. */
-export type QueueActions = { send: (message: AppendMessage) => void; edit: (queuedId: string, text: string) => void; remove: (queuedId: string) => void };
+/** What the owner does with the chat's queued messages, through Dispand's procedures; `steer`: send it now, into the running turn. */
+export type QueueActions = { send: (message: AppendMessage) => void; steer: (queuedId: string) => void; edit: (queuedId: string, text: string) => void; remove: (queuedId: string) => void };
 
 const queueItems = new WeakMap<object, QueueItemState>();
 const ofQueued = (q: Queued): QueueItemState => ({ id: q.id, prompt: q.text, parts: [{ type: "text", text: q.text }] });
@@ -135,7 +135,8 @@ function queueOf(run: RunSnapshot | null, chatStepId: string | undefined, runnin
     return item;
   });
   if (!actions || (!running && items.length === 0)) return undefined;
-  return { items, steerItems: [], enqueue: actions.send, steer: actions.send, move: () => {}, edit: (id, message) => actions.edit(id, textOf(message)), remove: actions.remove };
+  // `QueueItemPrimitive.Steer` moves an item to the steer lane: the server sends it now. No other move reorders the server's queue.
+  return { items, steerItems: [], enqueue: actions.send, steer: actions.send, move: (id, placement) => { if (placement.lane === "steer") actions.steer(id); }, edit: (id, message) => actions.edit(id, textOf(message)), remove: actions.remove };
 }
 
 export function useRunThread(options: { run: RunSnapshot | null; chatStepId: string | undefined; canSend: boolean; onSend: (message: AppendMessage) => Promise<void>; onCancel?: () => Promise<void>; attachments?: AttachmentAdapter; suggestions?: ThreadSuggestion[]; queue?: QueueActions }) {

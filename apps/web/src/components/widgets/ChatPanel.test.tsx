@@ -10,7 +10,7 @@ import "../../test/jsdom-shims.ts";
 
 const fake = vi.hoisted(() => ({
   assistantCommands: vi.fn(),
-  runs: { start: vi.fn(), sendChat: vi.fn(), editQueued: vi.fn(), removeQueued: vi.fn(), interruptChat: vi.fn(), get: vi.fn(), stream: vi.fn(), list: vi.fn() },
+  runs: { start: vi.fn(), sendChat: vi.fn(), steerQueued: vi.fn(), editQueued: vi.fn(), removeQueued: vi.fn(), interruptChat: vi.fn(), get: vi.fn(), stream: vi.fn(), list: vi.fn() },
   workflows: { get: vi.fn() },
   jobs: { start: vi.fn(), def: vi.fn() },
   questions: { answer: vi.fn() },
@@ -313,6 +313,49 @@ test("an edit that loses to the dispatch keeps its words in the composer", async
   await user.type(editor, "Too late{Enter}");
   expect((await screen.findByRole("alert")).textContent).toBe("The message was sent before your edit. Your edit is back in the message box.");
   expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe("Too late");
+});
+
+/** `busySnapshot` whose chat runs on a harness that steers as `steering` says. */
+function steerableSnapshot(steering: { interruptsTools: boolean } | undefined, queue: Partial<RunSnapshot["queue"][number]>[]): RunSnapshot {
+  const snap = busySnapshot(queue);
+  if (steering) snap.steps[0]!.steering = steering;
+  return snap;
+}
+
+test.each([
+  [true, "Interrupt and send", "Stops the agent's running tool and sends this message into its turn"],
+  [false, "Send now", "Sends this message into the agent's current turn"],
+])("a pending message can be sent now into the running turn, labelled as its harness takes it (stops tools: %s)", async (interruptsTools, label, hint) => {
+  fake.runs.stream.mockImplementation(streamOf(steerableSnapshot({ interruptsTools }, [{}, { state: "failed" }, { skillId: "skill_1" }])));
+  fake.runs.steerQueued.mockResolvedValue(undefined);
+  const user = mount("run_1");
+  await screen.findByRole("list", { name: "Queued messages" });
+  // Not for a failed message, nor one calling a skill: those wait for the turn's end.
+  const buttons = screen.getAllByRole("button", { name: label });
+  expect(buttons).toHaveLength(1);
+  expect(buttons[0]!.title).toBe(hint);
+  await user.click(buttons[0]!);
+  await waitFor(() => expect(fake.runs.steerQueued).toHaveBeenCalledWith({ runId: "run_1", queuedId: "msg_q0" }));
+});
+
+test("send now isn't offered without a harness that steers or a turn running, and a late one says it", async () => {
+  fake.runs.stream.mockImplementation(streamOf(steerableSnapshot(undefined, [{}])));
+  mount("run_1");
+  await screen.findByRole("list", { name: "Queued messages" });
+  expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+  cleanup();
+  const idle = steerableSnapshot({ interruptsTools: false }, [{}]);
+  Object.assign(idle.steps[0]!, { turnStatus: "idle", turnId: null });
+  fake.runs.stream.mockImplementation(streamOf(idle));
+  mount("run_1");
+  await screen.findByRole("list", { name: "Queued messages" });
+  expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+  cleanup();
+  fake.runs.stream.mockImplementation(streamOf(steerableSnapshot({ interruptsTools: false }, [{}])));
+  fake.runs.steerQueued.mockRejectedValue(Object.assign(new Error("Conflict"), { code: "CONFLICT" }));
+  const user = mount("run_1");
+  await user.click(await screen.findByRole("button", { name: "Send now" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("This message didn't go now: it was already sent, or the agent's turn just ended. If it is still queued, it goes after the turn.");
 });
 
 test("a message sent during a turn goes to the server's queue; a failed one gives its words back", async () => {

@@ -1,5 +1,5 @@
 import { AuiIf, ComposerPrimitive, QueueItemPrimitive, useAuiState } from "@assistant-ui/react";
-import { Clock, CircleAlert, Pencil, X } from "lucide-react";
+import { Clock, CircleAlert, Pencil, SendHorizontal, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,8 @@ type Props = {
   queued: ReadonlyMap<string, Queued>;
   /** Saves new words for a pending item; false when they didn't land (the item was sent first). */
   onEdit: (queuedId: string, text: string) => Promise<boolean>;
+  /** How the running turn takes a message sent now (its harness's); none: no turn runs, nothing to send now. */
+  steering?: { interruptsTools: boolean } | null;
 };
 
 /** The messages waiting for the agent's turn to end, above the composer: each can be edited or removed until it goes. */
@@ -25,7 +27,7 @@ export function QueuedMessages(props: Props) {
   </AuiIf>;
 }
 
-function QueuedMessage({ queued, onEdit }: Props) {
+function QueuedMessage({ queued, onEdit, steering }: Props) {
   const { t } = useTranslation("chat");
   const stored = useStored();
   const id = useAuiState((s) => s.queueItem.id);
@@ -56,6 +58,12 @@ function QueuedMessage({ queued, onEdit }: Props) {
         {failed ? (item.error ? t("queuedFailed", { error: stored(item.error) }) : t("queuedFailedPlain")) : t("queuedWaiting")}
       </span>
     </div>
+    {/* A skill may replace the session: such a message waits for the turn's end. */}
+    {!failed && draft === null && steering && !item?.skillId && <QueueItemPrimitive.Steer asChild>
+      <Button type="button" variant="ghost" size="sm" title={t(steering.interruptsTools ? "steerInterruptHint" : "steerNowHint")} className="rounded-full text-muted">
+        <SendHorizontal aria-hidden />{t(steering.interruptsTools ? "steerInterrupt" : "steerNow")}
+      </Button>
+    </QueueItemPrimitive.Steer>}
     {!failed && (draft === null
       ? <Button type="button" variant="ghost" size="icon-sm" aria-label={t("editQueued")} title={t("editQueued")} className="rounded-full text-muted" onClick={() => setDraft(words)}><Pencil aria-hidden /></Button>
       : <>

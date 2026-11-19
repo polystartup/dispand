@@ -4,7 +4,7 @@ import { currentTraceId, stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { audit, cloudSessions, harnesses, messages, questions, roots, runs, stepRuns } from "../db/schema.ts";
+import { audit, chatQueue, cloudSessions, harnesses, messages, questions, roots, runs, stepRuns } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { type Engine } from "../engine/engine.ts";
 import { STOPPED } from "../engine/errors.ts";
@@ -353,6 +353,29 @@ test("engine interruption keeps the slot for input already queued for the chat",
   releaseNext();
   await vi.waitFor(async () => expect(await stepOf(engine, runId, "n_chat")).toMatchObject({ working: false, turnStatus: "idle" }));
   releaseOld();
+});
+
+test("send now steers a queued message into the running cloud turn: the model reads it once, at its next call", async () => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const model = fakeModel(async () => { await held; return { text: "First answer" }; }, say("Steered answer"), say("Later answer"));
+  const { context, engine, workflow } = await setup(chat, { client: model.client });
+  const runId = await engine.startRun(workflow.id);
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(1));
+  const { queuedId: later } = await engine.sendChat(runId, "Later");
+  const { queuedId: now } = await engine.sendChat(runId, "Also this");
+  await engine.steerQueued(runId, now!);
+  const queue = async () => Object.fromEntries((await context.db.select().from(chatQueue).where(eq(chatQueue.runId, runId))).map((q) => [q.id, q]));
+  // The cloud session says at once that it joined the turn.
+  await vi.waitFor(async () => expect((await queue())[now!]).toMatchObject({ state: "dispatched", ackedAt: expect.any(Date) }));
+  release();
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(3));
+  expect(model.inputs[1]!.items.at(-1)).toEqual({ role: "user", text: "Also this" });
+  expect(model.inputs[2]!.items.at(-1)).toEqual({ role: "user", text: "Later" });
+  expect(model.inputs[2]!.items.filter((i) => i.role === "user" && i.text === "Also this")).toHaveLength(1);
+  expect((await queue())[later!]!.state).toBe("dispatched");
+  // A cloud session takes it beside its tools: steering stops none.
+  expect((await call(router.runs.get, { runId }, { context })).steps.find((s) => s.interactive)!.steering).toEqual({ interruptsTools: false });
 });
 
 test("interrupting an approval queues the cloud continuation behind an occupied harness slot", async () => {

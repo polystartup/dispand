@@ -593,6 +593,7 @@ export const NOT_TOOLS: string[] = [
   "workflows.setScheduleEnabled",
   "runs.start",
   "runs.sendChat",
+  "runs.steerQueued",
   "runs.editQueued",
   "runs.removeQueued",
   "runs.interruptChat",

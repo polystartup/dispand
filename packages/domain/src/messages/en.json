@@ -520,6 +520,7 @@
     "runOver": "This run is over.",
     "chatOver": "The chat is over.",
     "queuedGone": "This queued message was already sent or removed.",
+    "steerUnavailable": "This message can't join the agent's turn now: it goes when the turn ends.",
     "chatRunnerGone": "The chat's runner is no longer available.",
     "skillChatOnly": "Skills can be invoked in Assistant chats only.",
     "skillWait": "Wait for the Assistant to finish its turn before loading another skill.",

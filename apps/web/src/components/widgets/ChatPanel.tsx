@@ -186,6 +186,8 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   const queue: QueueActions | undefined = runId ? {
     // Sent while a turn runs: the server queues it. The library cleared the draft already, so a failure gives the words back.
     send: (message) => void send(message).catch(() => giveBack(textOf(message))),
+    // Refused when the turn ended or the message went first: it stays queued, or is sent already.
+    steer: (queuedId) => void api.runs.steerQueued({ runId, queuedId }).catch((err: unknown) => setError(conflict(err) ? t("steerLate") : t("steerFailed"))),
     edit: (queuedId, text) => void editQueued(queuedId, text),
     remove: (queuedId) => void api.runs.removeQueued({ runId, queuedId }).catch((err: unknown) => setError(conflict(err) ? t("queuedGone") : t("queuedRemoveFailed"))),
   } : undefined;
@@ -217,7 +219,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
     <ChatThread runtime={runtime} run={run} chatStepId={chatStep?.id} canSend={canSend && !sending && holding === 0} onSend={send} onAttach={hold}
       welcome={welcome} starterPrompts={!!assistantAgentId && !approval} centeredWelcome={!!composerTools}
       composer={<ChatComposer runId={runId} assistantAgentId={assistantAgentId} tools={composerTools} open={open} asking={asking} approval={!!approval}
-        busy={sending || stopping} error={error} queued={<QueuedMessages queued={new Map((run?.queue ?? []).map((q) => [q.id, q]))} onEdit={editQueued} />} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined}
+        busy={sending || stopping} error={error} queued={<QueuedMessages queued={new Map((run?.queue ?? []).map((q) => [q.id, q]))} onEdit={editQueued} steering={chatStep?.turnStatus === "running" && chatStep.turnId ? chatStep.steering : null} />} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined}
         onApprove={() => answerApproval({ decision: "allow" })} onDecline={(message) => answerApproval({ decision: "deny", message })} />}
     >
       <AfterChat run={run} chatStepId={chatStep?.id} def={runDef} />

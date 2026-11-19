@@ -330,6 +330,13 @@ const sendChat = owner
     return context.engine.sendChat(input.runId, input.text, input.skillId, input.attachmentIds ?? []).catch(engineError);
   });
 
+/** The owner sends a pending queued message now, into the agent's running turn (`Engine.steerQueued`). */
+const steerQueued = owner.input(z.object({ runId: z.string(), queuedId: z.string().max(64) })).handler(async ({ input, context }) => {
+  if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
+  await requireRun(context.db, context.ownerId, input.runId);
+  await context.engine.steerQueued(input.runId, input.queuedId).catch(engineError);
+});
+
 /** The owner changes a message queued while the chat was busy, while it is still pending. */
 const editQueued = owner.input(z.object({ runId: z.string(), queuedId: z.string().max(64), text: StorableText(100_000).trim().min(1) })).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
@@ -463,4 +470,4 @@ const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agent
   return rows.map((r) => ({ ...runView(r), workflowName: r.workflowId ? (names.get(r.workflowId) ?? null) : null, queued: queued.has(r.id), title: titles.get(r.id) ?? null, ...marks.get(r.id)! }));
 });
 
-export const runs = { start, sendChat, editQueued, removeQueued, interruptChat, stop, get: getRun, stream, list: listRuns };
+export const runs = { start, sendChat, steerQueued, editQueued, removeQueued, interruptChat, stop, get: getRun, stream, list: listRuns };

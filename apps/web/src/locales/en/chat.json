@@ -93,5 +93,11 @@
   "queuedGone": "This message was already sent.",
   "queuedRemoveFailed": "Could not remove the queued message. Try again.",
   "queuedSentBeforeEdit": "The message was sent before your edit. Your edit is back in the message box.",
-  "queuedEditFailed": "Could not save the edit. Try again."
+  "queuedEditFailed": "Could not save the edit. Try again.",
+  "steerNow": "Send now",
+  "steerNowHint": "Sends this message into the agent's current turn",
+  "steerInterrupt": "Interrupt and send",
+  "steerInterruptHint": "Stops the agent's running tool and sends this message into its turn",
+  "steerLate": "This message didn't go now: it was already sent, or the agent's turn just ended. If it is still queued, it goes after the turn.",
+  "steerFailed": "Could not send the message now. It stays queued."
 }

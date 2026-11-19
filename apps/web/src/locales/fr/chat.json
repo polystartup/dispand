@@ -93,5 +93,11 @@
   "queuedGone": "Ce message a déjà été envoyé.",
   "queuedRemoveFailed": "Impossible de retirer le message en attente. Réessayez.",
   "queuedSentBeforeEdit": "Le message est parti avant votre modification. Elle est revenue dans la zone de saisie.",
-  "queuedEditFailed": "Impossible d’enregistrer la modification. Réessayez."
+  "queuedEditFailed": "Impossible d’enregistrer la modification. Réessayez.",
+  "steerNow": "Envoyer maintenant",
+  "steerNowHint": "Envoie ce message dans le tour en cours de l’agent",
+  "steerInterrupt": "Interrompre et envoyer",
+  "steerInterruptHint": "Arrête l’outil en cours de l’agent et envoie ce message dans son tour",
+  "steerLate": "Ce message n’est pas parti maintenant : il avait déjà été envoyé, ou le tour de l’agent venait de finir. S’il est encore en attente, il partira après le tour.",
+  "steerFailed": "Impossible d’envoyer le message maintenant. Il reste en attente."
 }

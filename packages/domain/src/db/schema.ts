@@ -562,8 +562,12 @@ export const messages = pgTable(
   (t) => [index("messages_step_idx").on(t.stepRunId, t.position), index("messages_run_idx").on(t.runId, t.position)],
 );
 
-/** `pending` may change (edit, remove) or go (dispatch); every move out of it is a conditional update, so one of them wins. */
-export type ChatQueueState = "pending" | "dispatched" | "failed" | "removed";
+/**
+ * `pending` may change (edit, remove) or go (dispatch, or `steering` into the running turn); every
+ * move out of it is a conditional update, so one of them wins. `steering` is a dispatched one whose
+ * harness hasn't said yet whether it joined the turn (`steer-result`).
+ */
+export type ChatQueueState = "pending" | "steering" | "dispatched" | "failed" | "removed";
 
 /**
  * The owner's chat messages sent while the chat was busy (`Engine.sendChat`), sent one per turn

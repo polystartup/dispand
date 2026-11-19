@@ -1957,7 +1957,21 @@ with `CONFLICT`; a removed item keeps no words, and its files go back to held (s
 reopened) is `failed` with its reason. A message sent while the chat is idle goes at once, as
 before. `runs.get` and `runs.stream` carry the pending and failed items (`queue`, `queued`
 events). Telemetry: an `engine.queue` span event (action, step id) on each enqueue, edit,
-removal, dispatch and failure; no words.
+removal, dispatch, steer and failure; no words.
+
+`runs.steerQueued` (the owner's only) sends a pending item now, into the running turn
+(`HarnessAdapter.steer`, its item id as `requestId`). Its claim is the dispatch's, under the same
+locks: the item must still be pending (else `CONFLICT`, as an edit's), and the chat's turn running,
+not being interrupted, with a live session; an item that invokes a skill waits for the turn's end,
+as its skill may replace the session. A refused one stays pending and goes at the turn's end. The
+claim marks it `steering` and writes the message under its id; the harness then delivers it once
+(every harness steers, attachments included). A `steer-result` `steered` acknowledges it; a
+`turn-end` makes a `steering` item `dispatched` but not acknowledged: the harness holds it as its
+next message, so the next item waits for that turn's end. A `steering` item counts as in flight,
+whichever event comes first. The step's view carries `steering` (`{ interruptsTools }`, from
+`steering(harness)`) for an interactive step: the composer offers "Send now", or "Interrupt and
+send" where steering stops the running tool (Claude Code), only on a pending item without a skill
+while the turn runs; otherwise the item says it goes when the turn ends.
 
 ## Assistant slash picker
 

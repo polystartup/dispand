@@ -1,5 +1,6 @@
 import type { chatQueue, messages, questions, runs, stepRuns } from "../db/schema.ts";
 import { deletedAgent } from "../jobs/agent-name.ts";
+import { steering } from "./harness.ts";
 
 export type RunRow = typeof runs.$inferSelect;
 export type StepRow = typeof stepRuns.$inferSelect;
@@ -16,7 +17,7 @@ export function runView(r: RunRow) {
 export function stepView(s: StepRow) {
   const { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, turnStatus, turnId, interruptible } = s;
   // prompt: as the step got it, values filled in (for the owner to debug a run); null until started.
-  return { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, turnStatus, turnId, interruptible, interactive: s.start?.interactive ?? false, prompt: s.start?.prompt ?? null, ...(s.cliSessionId ? { resumable: true as const } : {}) };
+  return { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, turnStatus, turnId, interruptible, interactive: s.start?.interactive ?? false, prompt: s.start?.prompt ?? null, ...(s.cliSessionId ? { resumable: true as const } : {}), ...(s.start?.interactive && s.harness ? { steering: steering(s.harness) } : {}) };
 }
 export function messageView(m: MessageRow) {
   const { id, runId, stepRunId, role, text, createdAt, files, result } = m;

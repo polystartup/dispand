@@ -50,6 +50,12 @@ class FakeAdapter implements HarnessAdapter {
     this.sent.push([sessionId, text]);
     return this.online;
   }
+  /** Each steer: session, turn, request id (the queued item's), text. */
+  steers: [string, string, string, string][] = [];
+  async steer(sessionId: string, turnId: string, requestId: string, text: string) {
+    this.steers.push([sessionId, turnId, requestId, text]);
+    return this.online;
+  }
   async answer(sessionId: string, questionId: string, answer: Answer) {
     this.answers.push([sessionId, questionId, answer]);
     return this.online;
@@ -328,6 +334,105 @@ test("an edit or a removal and the dispatch of a queued message have one winner"
   await vi.waitFor(() => expect(adapter.sent).toHaveLength(2));
   expect(adapter.sent[1]![1]).toBe(edit.status === "fulfilled" ? "Raced edit" : "Original");
   expect(await userMessages()).toEqual(["Edited", adapter.sent[1]![1]]);
+});
+
+test.each(["claude-code", "codex"] as const)("send now steers a pending queued message into the running %s turn over the runner protocol", async (kind) => {
+  const { context, harness, workflow, runnerId } = await setup(chatThenStep);
+  if (kind === "codex") await context.db.update(harnessesTable).set({ kind, permissionMode: "default" }).where(eq(harnessesTable.id, harness.id));
+  const sent: ServerToRunner[] = [];
+  const engine = new Engine(context.db, new CliHarnessAdapter(context.db, { send: (_: string, msg: ServerToRunner) => (sent.push(msg), true) } as unknown as RunnerHub));
+  onTestFinished(() => engine.stop());
+  let seq = 0;
+  const emit = (event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(sessionId, event, { runnerId, seq: ++seq });
+  const runId = await engine.startRun(workflow.id);
+  await vi.waitFor(() => expect(sent).toHaveLength(1));
+  const sessionId = (sent[0] as Extract<ServerToRunner, { type: "session.start" }>).start.sessionId;
+  await emit({ type: "turn-start", turnId: "first", interruptible: true });
+  const { queuedId: later } = await engine.sendChat(runId, "Later");
+  const { queuedId: now } = await engine.sendChat(runId, "Also this");
+  await engine.steerQueued(runId, now!);
+  const sends = () => sent.filter((m) => m.type === "session.send");
+  await vi.waitFor(() => expect(sends()).toEqual([{ type: "session.send", sessionId, text: "Also this", steer: { turnId: "first", requestId: now } }]));
+  const item = async (id: string) => (await context.db.select().from(chatQueue).where(eq(chatQueue.id, id)))[0]!;
+  expect((await item(now!)).state).toBe("steering");
+  await emit({ type: "steer-result", turnId: "first", requestId: now!, outcome: "steered" });
+  expect(await item(now!)).toMatchObject({ state: "dispatched", ackedAt: expect.any(Date) });
+  // The one waiting before it goes at the turn's end, as any message.
+  expect((await item(later!)).state).toBe("pending");
+  await emit({ type: "turn-end", turnId: "first" });
+  await vi.waitFor(() => expect(sends().map((m) => [m.text, m.steer])).toEqual([["Also this", { turnId: "first", requestId: now }], ["Later", undefined]]));
+  // Claude Code takes it by cutting the running tools; Codex beside them.
+  const chat = (await call(router.runs.get, { runId }, { context })).steps.find((s) => s.interactive)!;
+  expect(chat.steering).toEqual({ interruptsTools: kind === "claude-code" });
+});
+
+test.each([
+  ["queued", "before"],
+  ["queued", "after"],
+  ["steered", "after"],
+] as const)("a steer whose result is %s %s the turn's end is delivered once, and the next item waits for it", async (outcome, order) => {
+  const { adapter, engine, emit, runId, sessionId, userMessages } = await busyChat();
+  await engine.sendChat(runId, "Next");
+  const { queuedId: now } = await engine.sendChat(runId, "Now");
+  await engine.steerQueued(runId, now!);
+  await vi.waitFor(() => expect(adapter.steers).toEqual([[sessionId, "first", now, "Now"]]));
+  const result = () => emit(sessionId, { type: "steer-result", turnId: "first", requestId: now!, outcome });
+  if (order === "before") await result();
+  await emit(sessionId, { type: "turn-end", turnId: "first" });
+  if (order === "after") await result();
+  if (outcome === "queued") {
+    // The harness holds it as its next message: that turn ends before the next item goes.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(adapter.sent).toEqual([]);
+    await emit(sessionId, { type: "turn-start", turnId: "second", interruptible: true });
+    await emit(sessionId, { type: "turn-end", turnId: "second" });
+  }
+  await vi.waitFor(() => expect(adapter.sent).toEqual([[sessionId, "Next"]]));
+  expect(adapter.steers).toHaveLength(1);
+  expect(await userMessages()).toEqual(["Now", "Next"]);
+});
+
+test.each([1, 2, 3])("send now, an edit, a removal and the turn's end have one winner (round %i)", async () => {
+  const { context, adapter, engine, emit, runId, sessionId } = await busyChat();
+  const { queuedId } = await engine.sendChat(runId, "Original");
+  const [steer, edit, remove] = await Promise.allSettled([
+    engine.steerQueued(runId, queuedId!),
+    call(router.runs.editQueued, { runId, queuedId: queuedId!, text: "Edited" }, { context }),
+    call(router.runs.removeQueued, { runId, queuedId: queuedId! }, { context }),
+    emit(sessionId, { type: "turn-end", turnId: "first" }),
+  ]);
+  const deliveries = () => adapter.steers.length + adapter.sent.length;
+  const written = async () => engine.db.select().from(messages).where(eq(messages.id, queuedId!));
+  if (remove.status === "fulfilled") {
+    expect(steer.status).toBe("rejected");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(deliveries()).toBe(0);
+    expect(await written()).toEqual([]);
+  } else {
+    await vi.waitFor(() => expect(deliveries()).toBe(1));
+    expect(adapter.steers).toHaveLength(steer.status === "fulfilled" ? 1 : 0);
+    const [message] = await written();
+    expect(message!.text).toBe(edit.status === "fulfilled" ? "Edited" : "Original");
+  }
+});
+
+test("send now is refused, leaving the item queued, when no turn runs or the message calls a skill", async () => {
+  const { context, adapter, engine, emit, runId, sessionId, queue } = await busyChat();
+  const { queuedId: skill } = await engine.sendChat(runId, "/review it");
+  const { queuedId: plain } = await engine.sendChat(runId, "Plain");
+  await engine.db.update(chatQueue).set({ skillId: "skill_x" }).where(eq(chatQueue.id, skill!));
+  // A skill may replace the session: it waits for the turn's end.
+  await expect(call(router.runs.steerQueued, { runId, queuedId: skill! }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
+  await call(router.runs.removeQueued, { runId, queuedId: skill! }, { context });
+  // The turn just ended, before its event was applied: nothing to steer into.
+  await engine.db.update(stepRuns).set({ turnStatus: "idle" }).where(eq(stepRuns.sessionId, sessionId));
+  await expect(call(router.runs.steerQueued, { runId, queuedId: plain! }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
+  expect((await queue()).map((q) => q.state)).toEqual(["removed", "pending"]);
+  await emit(sessionId, { type: "turn-end", turnId: "first" });
+  await vi.waitFor(() => expect(adapter.sent).toEqual([[sessionId, "Plain"]]));
+  expect(adapter.steers).toEqual([]);
+  // Sent, it can't be sent now again.
+  await expect(engine.steerQueued(runId, plain!)).rejects.toMatchObject({ code: "NOT_PENDING" });
 });
 
 test("a queued message takes its files for the Job, and gives them back when removed", async () => {
