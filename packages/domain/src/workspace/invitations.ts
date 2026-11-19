@@ -1,14 +1,18 @@
 import { createHash, randomBytes } from "node:crypto";
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq, exists, gt, sql } from "drizzle-orm";
+import { and, asc, eq, exists, gt, inArray, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { recordAudit } from "../audit/record.ts";
 import type { Db, Tx } from "../db/client.ts";
-import { organizationMembers, user, workspaceInvitations, workspaceMembers, workspaces } from "../db/schema.ts";
+import { account, organizationMembers, user, workspaceInvitations, workspaceMembers, workspaces } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
 import { lockForManager, managedWorkspaces, person, Scope } from "./people.ts";
 
+import { base } from "../rpc/context.ts";
+import { hasLegacyWorkspaceAccess } from "./access.ts";
+
+const Email = z.string().trim().max(254).toLowerCase().pipe(z.email());
 const Token = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) });
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
 const missing = () => new ORPCError("NOT_FOUND", message("workspace.invitationNotFound"));
@@ -19,7 +23,7 @@ function auditChange(tx: Tx, userId: string, workspaceId: string, action: "works
   return recordAudit(tx, { ownerId: userId, actor: { type: "user", userId }, action, resource: { type: "workspace", id: workspaceId } });
 }
 
-export const invite = person.input(Scope.extend({ email: z.string().trim().max(254).pipe(z.email()).toLowerCase(), role })).handler(({ context, input }) =>
+export const invite = person.input(Scope.extend({ email: Email, role })).handler(({ context, input }) =>
   context.db.transaction(async (tx) => {
     await lockForManager(tx, context.ownerId, input);
     const id = newId("inv");
@@ -51,15 +55,18 @@ export const revokeInvitation = person.input(Scope.extend({ id: z.string().min(1
   })
 );
 
-async function addressedTo(db: Db | Tx, userId: string, token: string) {
+async function findInvitation(db: Db | Tx, token: string, address: SQL) {
   const [row] = await db.select({
     id: workspaceInvitations.id, organizationId: workspaces.organizationId, workspaceId: workspaces.id,
     role: workspaceInvitations.role, expiresAt: workspaceInvitations.expiresAt, inviterId: workspaceInvitations.inviterId,
   }).from(workspaceInvitations).innerJoin(workspaces, eq(workspaces.id, workspaceInvitations.workspaceId))
-    .innerJoin(user, and(eq(user.id, userId), eq(workspaceInvitations.email, user.email)))
-    .where(and(eq(workspaceInvitations.tokenHash, hash(token)), live()));
+    .where(and(eq(workspaceInvitations.tokenHash, hash(token)), address, live()));
   if (!row) throw missing();
   return row;
+}
+
+function addressedTo(db: Db | Tx, userId: string, token: string) {
+  return findInvitation(db, token, inArray(workspaceInvitations.email, db.select({ email: user.email }).from(user).where(eq(user.id, userId))));
 }
 
 export const invitation = person.input(Token).handler(async ({ context, input }) => {
@@ -70,15 +77,43 @@ export const invitation = person.input(Token).handler(async ({ context, input })
   return { organizationId: row.organizationId, workspaceId: row.workspaceId, role: row.role, expiresAt: row.expiresAt, ...inviter };
 });
 
+type Invitation = Awaited<ReturnType<typeof findInvitation>>;
+
+async function grant(tx: Tx, row: Invitation, userId: string) {
+  const [claimed] = await tx.delete(workspaceInvitations).where(and(eq(workspaceInvitations.id, row.id), live())).returning({ id: workspaceInvitations.id });
+  if (!claimed) throw missing();
+  await tx.insert(organizationMembers).values({ organizationId: row.organizationId, userId, role: "member" }).onConflictDoNothing();
+  await tx.insert(workspaceMembers).values({ workspaceId: row.workspaceId, userId, role: row.role }).onConflictDoNothing();
+  await auditChange(tx, userId, row.workspaceId, "workspace.invitationAccepted");
+  return { organizationId: row.organizationId, workspaceId: row.workspaceId };
+}
+
 export const acceptInvitation = person.input(Token).handler(({ context, input }) =>
   context.db.transaction(async (tx) => {
     const row = await addressedTo(tx, context.ownerId, input.token);
     await lockForManager(tx, row.inviterId, row);
-    const [claimed] = await tx.delete(workspaceInvitations).where(and(eq(workspaceInvitations.id, row.id), live())).returning({ id: workspaceInvitations.id });
-    if (!claimed) throw missing();
-    await tx.insert(organizationMembers).values({ organizationId: row.organizationId, userId: context.ownerId, role: "member" }).onConflictDoNothing();
-    await tx.insert(workspaceMembers).values({ workspaceId: row.workspaceId, userId: context.ownerId, role: row.role }).onConflictDoNothing();
-    await auditChange(tx, context.ownerId, row.workspaceId, "workspace.invitationAccepted");
-    return { organizationId: row.organizationId, workspaceId: row.workspaceId };
+    return grant(tx, row, context.ownerId);
   })
 );
+
+/** The single-workspace installation's owner can vouch for a new account through a direct handoff. */
+export const registerInvitation = base.input(Token.extend({
+  email: Email, name: z.string().trim().min(1).max(200), password: z.string().min(8).max(128),
+})).handler(async ({ context, input }) => {
+  if (context.job) throw missing();
+  const row = await findInvitation(context.db, input.token, eq(workspaceInvitations.email, input.email));
+  if (!(await hasLegacyWorkspaceAccess({ db: context.db, ownerId: row.inviterId }))) throw missing();
+  const [existing] = await context.db.select({ id: user.id }).from(user).where(eq(user.email, input.email));
+  if (existing) throw missing();
+  const password = await (await context.auth.$context).password.hash(input.password);
+  return context.db.transaction(async (tx) => {
+    await lockForManager(tx, row.inviterId, row);
+    if (!(await hasLegacyWorkspaceAccess({ db: tx, ownerId: row.inviterId }))) throw missing();
+    const userId = newId("user");
+    const [created] = await tx.insert(user).values({ id: userId, email: input.email, name: input.name })
+      .onConflictDoNothing({ target: user.email }).returning({ id: user.id });
+    if (!created) throw missing();
+    await tx.insert(account).values({ id: newId("acct"), userId, accountId: userId, providerId: "credential", password });
+    return grant(tx, row, userId);
+  });
+});
