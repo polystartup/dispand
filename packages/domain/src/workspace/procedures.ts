@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import { managed, people, removePerson } from "./people.ts";
 import { reviewSignals } from "../assistant/review.ts";
 import { DEFAULT_RETENTION_DAYS } from "../audit/sweep.ts";
 import { strictPermissionsOf } from "../agents/tool-ask.ts";
@@ -103,4 +104,4 @@ const review = owner.handler(async ({ context }) => {
   return reviewSignals(context.db, context.ownerId, (context.now ?? (() => new Date()))(), timezone);
 });
 
-export const workspace = { checkpoint, setCheckpoint, auditRetention, setAuditRetention, filesLimit, setFilesLimit, strictPermissions, setStrictPermissions, review };
+export const workspace = { managed, people, removePerson, checkpoint, setCheckpoint, auditRetention, setAuditRetention, filesLimit, setFilesLimit, strictPermissions, setStrictPermissions, review };

@@ -510,6 +510,7 @@ changes it updates this file.
 - **First-run setup creates the initial owner.** Sign-up is disabled; `auth.setup` (public) creates the
   owner only while no user exists, and only with the one-time code from the server's settings
   (`DISPAND_SETUP_CODE`), so the first-run window can't be claimed from the network.
+- **Workspace membership management requires a signed-in person.** Organization owners and explicitly assigned workspace managers can inspect that workspace’s directory and remove explicit assignments. Removal preserves organization ownership and assignments in other workspaces.
 - **Workspace access to a job is checked against the current membership.** The job belongs to one workspace.
   Its organization owners can read it. Other organization members need an assignment to that workspace.
   A shared job link allows inspection of an agent job and the messages committed to its transcript,

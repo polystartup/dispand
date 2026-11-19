@@ -67,6 +67,9 @@
     },
     "plugin": {
       "decided": "Plugin change decided"
+    },
+    "workspace": {
+      "memberRemoved": "Workspace access removed"
     }
   },
   "resource": {
@@ -131,7 +134,8 @@
     "found": "Found",
     "bytes": "Bytes",
     "tool": "Dispand tool",
-    "action": "Action"
+    "action": "Action",
+    "userId": "User ID"
   },
   "filters": {
     "label": "Filter Audit",
@@ -161,7 +165,8 @@
     "poll": "Polls",
     "event": "Row changes",
     "memory": "Memory writes",
-    "plugin": "Plugin changes"
+    "plugin": "Plugin changes",
+    "workspace": "Workspace access"
   },
   "openInAudit": "Open in Audit"
 }

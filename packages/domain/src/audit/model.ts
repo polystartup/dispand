@@ -30,6 +30,7 @@ export const AUDIT_ACTIONS = [
   "event.recorded",
   "memory.written",
   "plugin.decided",
+  "workspace.memberRemoved",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -76,6 +77,7 @@ const n = z.number().int().nonnegative();
 
 /** The details a row may carry; any other key is refused. */
 export const AuditDetails = z.strictObject({
+  userId: id,
   agentId: id,
   harnessId: id,
   runnerId: id,

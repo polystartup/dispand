@@ -67,6 +67,9 @@
     },
     "plugin": {
       "decided": "Modification de plugin décidée"
+    },
+    "workspace": {
+      "memberRemoved": "Accès à l’espace de travail retiré"
     }
   },
   "resource": {
@@ -131,7 +134,8 @@
     "found": "Trouvés",
     "bytes": "Octets",
     "tool": "Outil Dispand",
-    "action": "Action"
+    "action": "Action",
+    "userId": "Identifiant utilisateur"
   },
   "filters": {
     "label": "Filtrer l’audit",
@@ -161,7 +165,8 @@
     "poll": "Interrogations",
     "event": "Changements de lignes",
     "memory": "Écritures en mémoire",
-    "plugin": "Changements de plugins"
+    "plugin": "Changements de plugins",
+    "workspace": "Accès à l’espace de travail"
   },
   "openInAudit": "Ouvrir dans l’audit"
 }

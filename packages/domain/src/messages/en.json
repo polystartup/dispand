@@ -1,4 +1,7 @@
 {
+  "workspace": {
+    "membershipNotFound": "Workspace or membership not found."
+  },
   "agent": {
     "assistant": {
       "name": "Stem"

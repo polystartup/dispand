@@ -1,4 +1,7 @@
 {
+  "workspace": {
+    "membershipNotFound": "Espace de travail ou adhésion introuvable."
+  },
   "agent": {
     "assistant": {
       "name": "Stem"
