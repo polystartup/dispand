@@ -3,7 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import { afterEach, expect, test, vi } from "vitest";
 import type { ToolCaller } from "../cloud/runner.ts";
 import { fakeModel, say, use } from "../cloud/test-model.ts";
-import { artifacts, audit, messages, runs } from "../db/schema.ts";
+import { artifacts, audit, messages, organizationMembers, runs, workspaceMembers } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import type { RunEvent } from "../engine/views.ts";
 import { callPlatformTool, toolsOf } from "../platform/call.ts";
@@ -29,7 +29,7 @@ async function cliJob() {
   return { context, job: { runId, ownerId: context.ownerId, agentId: agent.id } };
 }
 
-test("artifact_show stores the code, publishes a reference to the open chat, and only its owner reads the code back", async () => {
+test("artifact_show stores the code, publishes a reference to the open chat, and authorizes its code against the parent job", async () => {
   const { context, job } = await cliJob();
   const seen: RunEvent[] = [];
   const unsubscribe = context.engine.events.subscribe(job.runId, (e) => seen.push(e));
@@ -54,11 +54,17 @@ test("artifact_show stores the code, publishes a reference to the open chat, and
   const everything = (await t.all()) + JSON.stringify(await context.db.select().from(audit));
   expect(everything).not.toContain("SENTINEL ARTIFACT CODE");
   expect(everything).not.toContain(TITLE);
-  // Not signed in, or not the owner's: not found either way.
+  await context.db.update(organizationMembers).set({ role: "member" });
+  await expect(call(router.artifacts.get, { id: artifactId }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const [parent] = await context.db.select({ workspaceId: runs.workspaceId }).from(runs).where(eq(runs.id, job.runId));
+  await context.db.insert(workspaceMembers).values({ workspaceId: parent!.workspaceId, userId: context.ownerId, role: "member" });
+  // Unauthenticated reads and artifacts inconsistent with their parent remain unavailable.
   await expect(call(router.artifacts.get, { id: artifactId }, { context: { ...context, headers: new Headers() } })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   await context.db.execute(sql`insert into "user" (id, name, email) values ('user_other', 'Other', 'other@example.com')`);
   await context.db.update(artifacts).set({ ownerId: "user_other" }).where(eq(artifacts.id, artifactId));
   await expect(call(router.artifacts.get, { id: artifactId }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await context.db.update(runs).set({ ownerId: "user_other" }).where(eq(runs.id, job.runId));
+  await expect(call(router.artifacts.get, { id: artifactId }, { context })).resolves.toMatchObject({ code: CODE });
 });
 
 test("a revision names an earlier artifact of the same Job, never another Job's", async () => {

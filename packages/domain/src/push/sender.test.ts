@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { WebPushError } from "web-push";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { pushSubscriptions, questions, stepRuns, user } from "../db/schema.ts";
+import { organizationMembers, pushSubscriptions, questions, stepRuns, user } from "../db/schema.ts";
 import { rendered } from "../messages/index.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
@@ -75,6 +75,15 @@ test("a new approval sends one payload of exactly the sentence, the count and th
   expect(Object.keys(sent[0]!.payload).sort()).toEqual(["count", "itemId", "text"]);
   expect(sent[0]!.payload.text).toBe("Drafting needs your decision.");
   expect(JSON.stringify(sent)).not.toContain("Ship");
+});
+
+test("a pending approval stops generating pushes after the subscriber loses access", async () => {
+  const { context, subscribe, sender, send, ask } = await setup();
+  await subscribe("phone");
+  await ask("approval");
+  await context.db.delete(organizationMembers).where(eq(organizationMembers.userId, context.ownerId));
+  await sender().flush();
+  expect(send).not.toHaveBeenCalled();
 });
 
 test("an item pending at start is pushed once after a restart", async () => {

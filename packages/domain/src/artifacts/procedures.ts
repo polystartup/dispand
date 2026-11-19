@@ -2,22 +2,24 @@ import { ORPCError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { ID } from "@dispand/runner-protocol";
-import { artifacts as table } from "../db/schema.ts";
+import { artifacts as table, runs } from "../db/schema.ts";
 import { message } from "../messages/index.ts";
-import { authed, base } from "../rpc/context.ts";
+import { readableRun } from "../workspace/access.ts";
+import { base, signedIn } from "../rpc/context.ts";
 
-// The owner's generated artifacts: the chat fetches an artifact's code when its card shows.
+// The chat fetches generated code when its reader opens the artifact.
 // Not a tool: a Job shows artifacts with `artifact_show` and never reads them back this way.
 
-/** One of the owner's artifacts, with its code. */
+/** The generated code of an artifact in a Job the reader can open. */
 const get = base
-  .use(authed)
+  .use(signedIn)
   .input(z.object({ id: z.string().min(1).max(ID) }))
   .handler(async ({ input, context }) => {
     const [row] = await context.db
       .select({ id: table.id, runId: table.runId, title: table.title, format: table.format, code: table.code, replaces: table.replaces, createdAt: table.createdAt })
       .from(table)
-      .where(and(eq(table.id, input.id), eq(table.ownerId, context.ownerId)));
+      .innerJoin(runs, and(eq(runs.id, table.runId), eq(runs.ownerId, table.ownerId)))
+      .where(and(eq(table.id, input.id), readableRun(context)));
     if (!row) throw new ORPCError("NOT_FOUND", message("artifacts.notFound"));
     return row;
   });

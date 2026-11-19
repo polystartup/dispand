@@ -1429,7 +1429,7 @@ test("jobs keep the source workspace when the resource owner changes organizatio
   const placed = await context.db.select({ id: runs.id, workspaceId: runs.workspaceId }).from(runs);
   expect(placed).toHaveLength(2);
   expect(placed).toEqual(expect.arrayContaining([workflowRun, agentRun].map((id) => ({ id, workspaceId: context.workspaceId }))));
-  await expect(call(router.workflows.create, { name: "Unscoped" }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
+  await expect(call(router.workflows.create, { name: "Unscoped" }, { context })).rejects.toMatchObject({ code: "FORBIDDEN" });
 });
 
 test("start refuses a workflow with issues", async () => {

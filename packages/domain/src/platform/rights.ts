@@ -36,15 +36,16 @@ export function within(inner: TableScope, outer: TableScope): boolean {
  * Rights shrink with the agent at once and never grow after the Job was created. Null once the
  * Job is over (or when the identity names no Job of that owner and agent).
  */
-export async function rightsOf(db: Db | Tx, job: JobIdentity): Promise<Rights | null> {
+export async function rightsOf(db: Db | Tx, job: JobIdentity): Promise<(Rights & { workspaceId: string }) | null> {
   const [row] = await db
-    .select({ status: runs.status, snapshot: runs.snapshot, bundles: agents.bundles, dataTables: agents.dataTables, selfLearning: agents.selfLearning })
+    .select({ workspaceId: runs.workspaceId, status: runs.status, snapshot: runs.snapshot, bundles: agents.bundles, dataTables: agents.dataTables, selfLearning: agents.selfLearning })
     .from(runs)
     .innerJoin(agents, eq(agents.id, runs.agentId))
     .where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId), eq(runs.agentId, job.agentId), eq(runs.source, "agent")));
   if (!row || (row.status !== "running" && row.status !== "waiting")) return null;
   const snapshot = row.snapshot;
   return {
+    workspaceId: row.workspaceId,
     bundles: (snapshot?.bundles ?? []).filter((b) => row.bundles.includes(b)),
     tables: narrow(snapshot?.tables ?? "all", row.dataTables),
     selfLearning: (snapshot?.selfLearning ?? []).filter((t) => row.selfLearning.includes(t)),

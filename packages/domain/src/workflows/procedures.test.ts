@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
 import { eq } from "drizzle-orm";
-import { account, agents, harnesses, schedules, tools, user, workflowVersions } from "../db/schema.ts";
+import { account, organizationMembers, agents, harnesses, schedules, tools, user, workflowVersions } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { addStep, type AgentStep, type WorkflowDef } from "./model.ts";
@@ -107,9 +107,10 @@ test("an agent used by a run still going cannot be deleted, even once the workfl
   await expect(call(router.runs.sendChat, { runId, text: "hi" }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
 });
 
-test("cannot reference another owner's agent, workflow or run", async () => {
+test("cannot reference another owner's agent, workflow or workflow run", async () => {
   const { context, harness } = await setup();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
+  await context.db.insert(organizationMembers).values({ organizationId: context.organizationId, userId: "user_other", role: "owner" });
   await context.db.insert(harnesses).values({ ...harness, id: "harness_other", ownerId: "user_other", model: null });
   await context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
   const wf = await call(router.workflows.create, { name: "Ship" }, { context });
@@ -314,6 +315,7 @@ test("another owner's workflow can't be paused", async () => {
   const wf = await call(router.workflows.create, { name: "Ship" }, { context });
   await call(router.workflows.update, { id: wf.id, name: "Ship", def: onSchedule(withStep(wf.def, agent.id), "0 9 * * *") }, { context });
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
+  await context.db.insert(organizationMembers).values({ organizationId: context.organizationId, userId: "user_other", role: "owner" });
   const auth = await context.auth.$context;
   await context.db.insert(account).values({
     id: "acct_other",

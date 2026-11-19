@@ -285,13 +285,14 @@ changes it updates this file.
   and the asking session is told which agent answered in the answer itself, so it never resumes
   on an agent's words taken for the owner's. `inbox` is granted like any bundle: by
   a person, or by an approved proposal.
-- **A generated artifact's code reaches only its owner, and only `artifact_show` makes one.**
+- **A generated artifact's code requires access to its Job, and only `artifact_show` makes one.**
   The code lives in `artifacts` and leaves the server only through `artifacts.get`, which checks
-  the owner; messages, snapshots, events, Audit rows and telemetry carry a reference (ids, title
+  the parent Job's current workspace access and matches its owner to the artifact owner.
+  Messages, snapshots, events, Audit rows and telemetry carry a reference (ids, title
   for the card, format, size) or less. A tool message gets an artifact reference only from
   `artifact_show` run by `callPlatformTool`: an MCP or native tool's result shaped like one is
   never stored as one. No route serves artifact code as a page.
-- **An artifact runs only when its owner clicks Run, alone in an opaque frame.** Before Run,
+- **An artifact runs only when its viewer clicks Run, alone in an opaque frame.** Before Run,
   the chat shows a card (title, format, size) and, on "Show code", the code as plain text:
   nothing of it is rendered as HTML, so no frame, script or request exists
   (`components/chat/ArtifactPart.tsx`). Run first says, in the app's own words, that the code
@@ -511,8 +512,11 @@ changes it updates this file.
   (`DISPAND_SETUP_CODE`), so the first-run window can't be claimed from the network.
 - **Workspace access to a job is checked against the current membership.** The job belongs to one workspace.
   Its organization owners can read it. Other organization members need an assignment to that workspace.
-  A shared job link allows inspection of the job and its transcript. The server checks membership again
-  before delivering subsequent stream events. Runner credentials and job tokens retain their separate grants.
+  A shared job link allows inspection of an agent job and its delivered transcript. Workflow runs and unsent drafts stay owner-scoped. The server checks membership again
+  before delivering subsequent stream events. Operations that still address records only by owner require current
+  ownership of the installation’s sole workspace organization. A multi-workspace deployment must port each such
+  operation to explicit workspace authorization before enabling it. Runner credentials and job tokens retain
+  their separate grants.
 - **The app is reachable only through the reverse proxy**, which terminates TLS and sets
   `X-Real-IP` to the peer it saw, overwriting what the client sent. That header alone is the
   sign-in rate-limit identity, so nothing but the proxy may reach the app's published port 3000
@@ -694,10 +698,12 @@ changes it updates this file.
   shows: a tool input too large to show whole is denied to the agent, never shown cut. The runner holds no API key and never reads the CLIs' credentials; its token sits in
   `config.json`, mode 0600, written once with the config. AskUserQuestion questions or options
   that the cut to the protocol's limits makes identical are denied to the agent, never asked.
-- **Files uploaded to tables, or returned by a Job's tools, are the owner's only, and never run
-  in the app's origin.** Each is stored at `<filesDir>/<ownerId>/<attachmentId>`, both ids made
+- **File downloads enforce the attachment's current scope and never run in the app's origin.** Each is stored at `<filesDir>/<ownerId>/<attachmentId>`, both ids made
   by the server: nothing from the upload or the tool's result (name, type, URI) reaches the path. They are reachable only through the app, at
-  `GET /files/<id>`, which needs the owner's session and answers 404 for anyone else's id. A file
+  `GET /files/<id>`, which checks the signed-in user on each request and answers 404 for inaccessible ids.
+  A file held only by a Job requires current access to that Job. Drafts belong to the uploader,
+  including files reserved by a queued message before delivery. Table files require the parent
+  table’s single-workspace owner access, including after a table adopts a Job file. Downloads use no-store. A file
   is an image only if its first bytes are PNG, JPEG, GIF or WebP; only those are served inline,
   with that type. Everything else, SVG and HTML included whatever their name or declared type,
   is a download (`application/octet-stream`). Every file gets `X-Content-Type-Options: nosniff`
@@ -721,7 +727,7 @@ changes it updates this file.
   A Job can write in a cell only its own such files that no table has
   yet, which then become that table's for good (`writeRow` takes the writer from the call, never
   from its input): never another Job's, nor one a person writes. The bytes are stored as the
-  server sent them, not redacted like the result's text: only the owner can read them.
+  server sent them. A reader must have the download permission for the file's current scope.
 - **A file attached in a chat reaches only that chat's agent, and never as configuration.** The
   owner attaches files in any chat (`files.hold`, owner-only, refused to a Job, not a tool): each
   is held for them (no table, no Job), counted in the install's total from then on, removed a day

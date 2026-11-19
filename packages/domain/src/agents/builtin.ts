@@ -1,4 +1,4 @@
-import { initialWorkspace } from "../workspace/placement.ts";
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { platformSkillOf, syncPlatformSkill } from "../assistant/skill.ts";
@@ -115,7 +115,7 @@ export async function ensureAssistant(db: Db, ownerId: string, harnessId: string
       const [existing] = await tx.select({ workspaceId: agents.workspaceId }).from(agents).where(own);
       const [made] = await tx
         .insert(agents)
-        .values({ id: newId("agent"), ownerId, workspaceId: existing?.workspaceId ?? await initialWorkspace(tx, ownerId), name: "Assistant", harnessId, systemPrompt: "", bundles: ASSISTANT_BUNDLES, dataTables: "all", selfLearning: ["workspace"], builtIn: "assistant" })
+        .values({ id: newId("agent"), ownerId, workspaceId: existing?.workspaceId ?? await requireLegacyWorkspace({ db: tx, ownerId }), name: "Assistant", harnessId, systemPrompt: "", bundles: ASSISTANT_BUNDLES, dataTables: "all", selfLearning: ["workspace"], builtIn: "assistant" })
         .onConflictDoNothing()
         .returning({ id: agents.id });
       const [agent] = made ? [made] : await tx.select({ id: agents.id }).from(agents).where(own);

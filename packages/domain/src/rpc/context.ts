@@ -1,4 +1,5 @@
 import { ORPCError, os, ValidationError } from "@orpc/server";
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import type { Auth } from "../auth.ts";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
@@ -144,8 +145,8 @@ const validation = os.$context<InitialContext>().middleware(async ({ next }) => 
 
 export const base = os.$context<InitialContext>().use(traced).use(validation);
 
-/** Rejects requests without a session and hands the owner id to the procedure. */
-export const authed = os.$context<InitialContext>().middleware(async ({ context, next }) => {
+/** Resolves a session or trusted Job identity. Each scoped procedure checks its own resource. */
+export const signedIn = os.$context<InitialContext>().middleware(async ({ context, next }) => {
   if (context.job) {
     annotate({ "dispand.owner.id": context.job.ownerId, "dispand.job.id": context.job.runId });
     return next({ context: { ownerId: context.job.ownerId } satisfies Pick<Context, "ownerId"> });
@@ -158,4 +159,10 @@ export const authed = os.$context<InitialContext>().middleware(async ({ context,
   if (!session) throw new ORPCError("UNAUTHORIZED", message("auth.signIn"));
   annotate({ "dispand.owner.id": session.user.id });
   return next({ context: { ownerId: session.user.id } satisfies Pick<Context, "ownerId"> });
+});
+
+/** Procedures that still address data by owner require the original self-hosted access boundary. */
+export const authed = signedIn.concat(async ({ context, next }) => {
+  await requireLegacyWorkspace(context);
+  return next();
 });

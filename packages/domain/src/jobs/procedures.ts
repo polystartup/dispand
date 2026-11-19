@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents, messages, questions, runs, stepRuns, triggers } from "../db/schema.ts";
 import { messageView, questionView } from "../engine/views.ts";
-import { authed, base } from "../rpc/context.ts";
+import { authed, base, signedIn } from "../rpc/context.ts";
 import { knownTimezone } from "../workflows/schedule.ts";
 import { engineError, runQuestion } from "../workflows/procedures.ts";
 import { jobAgentNameSql } from "./agent-name.ts";
@@ -13,6 +13,7 @@ import { accessibleWorkspaces, readableRun } from "../workspace/access.ts";
 import { message } from "../messages/index.ts";
 
 const owner = base.use(authed);
+const reader = base.use(signedIn);
 
 /** Starts a Job of a manual trigger, in the owner's `timezone` when the browser gives it; a chat placement also gives the conversation's session. */
 const start = owner.input(z.object({ triggerId: z.string(), timezone: z.string().refine(knownTimezone, "workflows.schedule.unknownTimezone").optional(), skillId: z.string().max(64).optional() })).handler(async ({ input, context }) => {
@@ -35,7 +36,7 @@ const start = owner.input(z.object({ triggerId: z.string(), timezone: z.string()
 });
 
 /** A Job's definition, as it was created: what its run page and its conversation name the steps from. */
-const def = owner.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
+const def = reader.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
   const [run] = await context.db
     .select({ def: runs.def })
     .from(runs)
@@ -117,7 +118,7 @@ export const MAX_MESSAGES = 200;
  * One Job with its transcript (a page of its messages, oldest first, and how many it has) and
  * its Questions and Approvals, answered ones included.
  */
-const get = owner
+const get = reader
   .input(
     z.object({
       id: z.string(),

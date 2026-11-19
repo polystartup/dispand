@@ -7,15 +7,15 @@ import { rightsOf, within, type JobIdentity, type Rights } from "../platform/rig
 // `interaction` trigger's agent and, for the `inbox` tools, for the calling Job.
 
 /** Who reads, and what it may use: its bundles and the tables they apply to. */
-export type InboxScope = Pick<Rights, "bundles" | "tables"> & { ownerId: string; agentId: string };
+export type InboxScope = Pick<Rights, "bundles" | "tables"> & { ownerId: string; agentId: string; workspaceId: string };
 
 /** At dispatch: the agent's rights as they are now. Null when it no longer exists. */
 export async function agentScope(db: Db | Tx, ownerId: string, agentId: string): Promise<InboxScope | null> {
   const [row] = await db
-    .select({ bundles: agents.bundles, tables: agents.dataTables })
+    .select({ workspaceId: agents.workspaceId, bundles: agents.bundles, tables: agents.dataTables })
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)));
-  return row ? { ownerId, agentId, bundles: row.bundles, tables: row.tables } : null;
+  return row ? { ownerId, agentId, ...row } : null;
 }
 
 /**
@@ -42,7 +42,7 @@ export async function reachable(db: Db | Tx, scope: InboxScope, questionId: stri
     .select({ kind: questions.kind, payload: questions.payload, source: runs.source, agentId: runs.agentId, snapshot: runs.snapshot })
     .from(questions)
     .innerJoin(runs, eq(runs.id, questions.runId))
-    .where(and(eq(questions.id, questionId), eq(questions.ownerId, scope.ownerId)));
+    .where(and(eq(questions.id, questionId), eq(questions.ownerId, scope.ownerId), eq(runs.workspaceId, scope.workspaceId)));
   if (!row || row.kind !== "question" || row.payload.kind !== "choice" || row.source !== "agent" || !row.agentId || row.agentId === scope.agentId) return false;
   const bundles = row.snapshot?.bundles ?? [];
   if (bundles.includes("configure")) return false;

@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import type { Answer, QuestionPayload, ServerToRunner } from "@dispand/runner-protocol";
 import { and, eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { agents, audit, events, questions, stepRuns } from "../db/schema.ts";
+import { agents, audit, events, questions, runs, stepRuns, workspaces } from "../db/schema.ts";
 import { CliHarnessAdapter } from "../engine/cli-harness.ts";
 import { Engine } from "../engine/engine.ts";
 import { answerText, attributed } from "../engine/answers.ts";
@@ -130,6 +130,20 @@ test("an inbox Job lists, reads and answers another agent's Question on its tabl
     details: { questionKind: "question", decision: "choice", answeredBy: "agent" },
   });
   holdsNothing(rows);
+});
+
+test("an Inbox Job cannot discover or answer a sibling workspace's Question from the same owner", async () => {
+  const s = await setup();
+  const asking = await s.jobOn(s.clerk, s.clients);
+  const q = await s.ask(asking);
+  const job = await s.jobOf(s.answerer);
+  const [workspace] = await s.context.db.select().from(workspaces);
+  await s.context.db.insert(workspaces).values({ id: "sibling", organizationId: workspace!.organizationId });
+  await s.context.db.update(runs).set({ workspaceId: "sibling" }).where(eq(runs.id, asking));
+  expect(await s.tool(job, "questions_list")).toEqual({ ok: true, output: [] });
+  expect(await s.tool(job, "questions_get", { questionId: q.id })).toEqual(NOT_FOUND);
+  expect(await s.tool(job, "questions_answer", { questionId: q.id, answer: yes })).toEqual(NOT_FOUND);
+  expect((await s.questionOf(q.id)).status).toBe("pending");
 });
 
 test("a Question of a Job with configure, of the reader's own agent, or on tables beyond the reader's, and an Approval, are refused alike and wait for a person", async () => {

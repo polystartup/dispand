@@ -772,7 +772,7 @@
   in one transaction, a tool message whose `result` is a reference
   (`{ kind: "artifact", artifactId, title, format, size }`), published to the open chat through
   `engine.settled`, for cloud and CLI Jobs alike. Snapshots and events carry the reference only;
-  `artifacts.get` (owner checked) returns the code. Its Audit row and its `artifacts.show` span
+  `artifacts.get` checks access to the parent Job before returning the code. Its Audit row and its `artifacts.show` span
   hold ids, the format and the size in bytes, never the code or the title.
   The chat shows the reference as a card (`components/chat/ArtifactPart.tsx`, the `artifact_show`
   tool of the thread's toolkit, so history replays it without running a tool). Run, after a
@@ -1216,7 +1216,7 @@
   sessions keep none: their text has placeholders only. `writeRow` accepts ids of the same
   table, locked `FOR SHARE`, and, when a Job writes, that Job's files no table has, locked
   `FOR UPDATE` and given to the table once the row is written. `GET /files/<id>` (`apps/web/src/server/files.ts`, the one route outside oRPC,
-  checks the session itself) serves PNG, JPEG, GIF and WebP sniffed on upload inline and
+  checks the session itself) authorizes a Job-only file through its parent Job and a draft or table file through its owner. It serves PNG, JPEG, GIF and WebP sniffed on upload inline and
   everything else as a download, all with `nosniff` and a sandbox CSP. `sweepAttachments` runs
   on boot and hourly: it removes attachments no row of their table references, a Job's files no
   table took and no message of it carries once the Job has ended, then files on disk with no row

@@ -1,3 +1,4 @@
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { ORPCError } from "@orpc/server";
 import { and, asc, count, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -458,7 +459,10 @@ const stream = owner.input(z.object({ tableIds: z.array(z.string()).min(1).max(2
       .from(tablesTable)
       .where(and(inArray(tablesTable.id, ids), eq(tablesTable.ownerId, context.ownerId)));
     if (mine!.n !== ids.length) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
-    for await (const event of events) yield event;
+    for await (const event of events) {
+      await requireLegacyWorkspace(context);
+      yield event;
+    }
   } finally {
     await events.return?.();
   }

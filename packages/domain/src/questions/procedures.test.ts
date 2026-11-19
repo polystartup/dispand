@@ -5,7 +5,7 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import { Engine } from "../engine/engine.ts";
 import { answerText } from "../engine/answers.ts";
 import type { Harness, HarnessAdapter, StartParams } from "../engine/harness.ts";
-import { questions, stepRuns, user } from "../db/schema.ts";
+import { organizationMembers, questions, stepRuns, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 
@@ -97,6 +97,26 @@ test("list and count show pending questions with their workflow, run and step", 
     run: { id: runId },
     step: { name: "Note" },
   });
+});
+
+test("losing workspace access hides and disables a pending Inbox approval on the same session", async () => {
+  const { context, question, adapter } = await asked({ kind: "confirm-outputs", values: {} });
+  const abort = new AbortController();
+  const stream = await call(router.questions.stream, undefined, { context, signal: abort.signal });
+  try {
+    expect((await stream.next()).value).toEqual({ count: 1 });
+    await context.db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, context.ownerId));
+    context.engine.questionChanges.publish("changed", true);
+    const denied = { code: "FORBIDDEN" };
+    await expect(stream.next()).rejects.toMatchObject(denied);
+    await expect(call(router.questions.list, { status: "all" }, { context })).rejects.toMatchObject(denied);
+    await expect(call(router.questions.count, undefined, { context })).rejects.toMatchObject(denied);
+    await expect(call(router.questions.answer, { questionId: question.id, answer: { kind: "confirm-outputs", confirmed: true } }, { context })).rejects.toMatchObject(denied);
+    expect(adapter.answers).toHaveLength(0);
+  } finally {
+    abort.abort();
+    await stream.return?.(undefined);
+  }
 });
 
 test("second answer is rejected", async () => {

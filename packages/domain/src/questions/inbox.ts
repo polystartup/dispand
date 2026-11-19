@@ -39,7 +39,7 @@ async function openItem(db: Db, scope: InboxScope, questionId: string): Promise<
     .from(questions)
     .innerJoin(runs, eq(runs.id, questions.runId))
     .leftJoin(agents, eq(agents.id, runs.agentId))
-    .where(and(eq(questions.id, questionId), eq(questions.ownerId, scope.ownerId)));
+    .where(and(eq(questions.id, questionId), eq(questions.ownerId, scope.ownerId), eq(runs.workspaceId, scope.workspaceId)));
   return row?.q.status === "pending" ? row : CLOSED;
 }
 
@@ -75,7 +75,7 @@ export function listQuestions(app: PlatformApp, job: JobIdentity): Promise<ToolR
       .from(questions)
       .innerJoin(runs, eq(runs.id, questions.runId))
       .leftJoin(agents, eq(agents.id, runs.agentId))
-      .where(and(eq(questions.ownerId, job.ownerId), eq(questions.status, "pending"), eq(questions.kind, "question")))
+      .where(and(eq(questions.ownerId, job.ownerId), eq(runs.workspaceId, scope.workspaceId), eq(questions.status, "pending"), eq(questions.kind, "question")))
       .orderBy(desc(questions.createdAt), desc(questions.id));
     const listed = [];
     for (const row of open) {

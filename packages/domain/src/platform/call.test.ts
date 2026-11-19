@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { expect, test } from "vitest";
 import type { Db } from "../db/client.ts";
 import * as schema from "../db/schema.ts";
-import { account, agents, runs, user } from "../db/schema.ts";
+import { account, organizationMembers, agents, runs, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
@@ -85,6 +85,7 @@ test("a table outside the Job's tables is refused like a missing one", async () 
 test("another owner's row is refused the same way", async () => {
   const { context, tool } = await setup(["data"], () => "all");
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
+  await context.db.insert(organizationMembers).values({ organizationId: context.organizationId, userId: "user_other", role: "owner" });
   const ctx = await context.auth.$context;
   await context.db.insert(account).values({ id: "acct_other", accountId: "user_other", providerId: "credential", userId: "user_other", password: await ctx.password.hash("eve's password") });
   const res = await context.auth.api.signInEmail({ body: { email: "eve@example.com", password: "eve's password" }, returnHeaders: true });
@@ -103,6 +104,17 @@ test("a tool of a bundle the Job doesn't have is refused", async () => {
   expect(await tool("tables_create", { name: "New" })).toEqual({ ok: false, error: "This agent may not use tables_create" });
   // Memory is read by every Job, and written only within its self-learning targets (none here); every Job may show artifacts.
   expect((await toolsOf(context.db, job)).map((t) => t.name).sort()).toEqual(["artifact_show", "memory_read", "rows_create", "rows_delete", "rows_get", "rows_list", "rows_update", "tables_get", "tables_list"]);
+});
+
+test("owner-keyed platform tools disappear and refuse direct calls when a Job loses legacy access", async () => {
+  const { context, tool, job } = await setup(["configure"], () => "all");
+  await context.db.delete(organizationMembers).where(eq(organizationMembers.userId, job.ownerId));
+  expect((await toolsOf(context.db, job)).map((t) => t.name).sort()).toEqual(["jobs_def", "jobs_get"]);
+  expect(await tool("memory_read", {})).toEqual(notFound);
+  expect(await tool("propose", {})).toEqual(notFound);
+  expect(await tool("proposal_apply", {})).toEqual(notFound);
+  expect(await tool("agents_list", {})).toEqual(notFound);
+  expect(await tool("jobs_get", { id: job.runId })).toMatchObject({ ok: true, output: { id: job.runId } });
 });
 
 test("a bundle or a table removed from the agent applies to its running Job", async () => {

@@ -1,4 +1,4 @@
-import { initialWorkspace } from "../workspace/placement.ts";
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { createHash } from "node:crypto";
 import { ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
@@ -156,7 +156,7 @@ export const install = owner
           await tx.insert(agentsTable).values({
             id,
             ownerId: context.ownerId,
-            workspaceId: await initialWorkspace(tx, context.ownerId),
+            workspaceId: await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job }),
             name: agent.name,
             harnessId: harnessId!,
             systemPrompt: agent.systemPrompt,

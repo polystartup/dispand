@@ -4,7 +4,7 @@ import { readdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { say } from "../messages/index.ts";
 import { expect, test } from "vitest";
-import { attachments, rows, tables, user } from "../db/schema.ts";
+import { attachments, chatQueue, organizationMembers, rows, runs, stepRuns, tables, user, workspaceMembers, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { detectImage, MAX_FILE_BYTES, openAttachment, sweepAttachments } from "./files.ts";
@@ -172,4 +172,41 @@ test("another owner's row can't have its files edited", async () => {
   await context.db.insert(tables).values({ id: "tbl_other", ownerId: "user_other", name: "Secrets" });
   await context.db.insert(rows).values({ id: "row_other", ownerId: "user_other", tableId: "tbl_other", values: {} });
   await expect(call(router.rows.editFiles, { id: "row_other", fieldId: "fld_x", add: [], remove: [] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("a job file follows workspace access until a table adopts it; drafts stay private", async () => {
+  const context = await ownerContext();
+  const { db, ownerId, filesDir } = context;
+  const table = await call(router.tables.create, { name: "Projects" }, { context });
+  const [workspace] = await db.select().from(workspaces);
+  const { id: workspaceId, organizationId } = workspace!;
+  const file = await call(router.files.hold, { file: new File([PNG], "result.png") }, { context });
+  const get = (reader: string) => openAttachment(db, filesDir, reader, file.id);
+  await db.insert(user).values({ id: "reader", name: "Reader", email: "reader@example.com" });
+  await db.insert(organizationMembers).values({ organizationId, userId: "reader", role: "member" });
+  await db.insert(workspaceMembers).values({ workspaceId, userId: "reader", role: "member" });
+  expect(await get("reader")).toBeNull();
+
+  await db.insert(runs).values({ id: "job", workspaceId, ownerId, version: 0, status: "succeeded", source: "agent" });
+  await db.update(attachments).set({ jobId: "job" }).where(eq(attachments.id, file.id));
+  await db.insert(stepRuns).values({ id: "step", ownerId, runId: "job", nodeId: "chat", status: "running" });
+  await db.insert(chatQueue).values({ id: "draft", ownerId, runId: "job", stepRunId: "step", text: "Queued", files: [{ id: file.id, name: file.name }] });
+  expect(await get("reader")).toBeNull();
+  await db.update(chatQueue).set({ state: "dispatched", files: null });
+  const shared = await get("reader");
+  expect(shared).not.toBeNull();
+  expect(new Uint8Array(await new Response(shared!.body).arrayBuffer())).toEqual(PNG);
+  await db.delete(workspaceMembers).where(eq(workspaceMembers.userId, "reader"));
+  expect(await get("reader")).toBeNull();
+  await db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, ownerId));
+  expect(await get(ownerId)).toBeNull();
+
+  await db.update(attachments).set({ tableId: table.id }).where(eq(attachments.id, file.id));
+  await db.insert(workspaceMembers).values({ workspaceId, userId: "reader", role: "member" });
+  expect(await get("reader")).toBeNull();
+  expect(await get(ownerId)).toBeNull();
+  await db.update(organizationMembers).set({ role: "owner" }).where(eq(organizationMembers.userId, ownerId));
+  const adopted = await get(ownerId);
+  expect(adopted).not.toBeNull();
+  await adopted!.body.cancel();
 });

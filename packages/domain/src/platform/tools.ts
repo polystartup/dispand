@@ -615,6 +615,7 @@ export const NOT_TOOLS: string[] = [
   "runs.interruptChat",
   "runs.stop",
   "runs.get",
+  "runs.access",
   "runs.stream",
   "runs.list",
   "jobs.start",

@@ -12,6 +12,7 @@ import { proposalView } from "../platform/proposals.ts";
 import { approvalView, PLUGIN_UPDATE } from "../plugins/resolve.ts";
 import { message } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { nodesOf, type WorkflowDef } from "../workflows/model.ts";
 
 const owner = base.use(authed);
@@ -147,10 +148,18 @@ const countPending = owner.handler(({ context }) => pendingCount(context.db, con
 const stream = owner.handler(async function* ({ context, signal }) {
   // Subscribed before the first count is read, so no change falls between them.
   const changes = context.engine.questionChanges.subscribe("changed", { signal });
-  yield await pendingCount(context.db, context.ownerId);
-  for await (const change of changes) {
-    void change;
-    yield await pendingCount(context.db, context.ownerId);
+  const currentCount = async () => {
+    await requireLegacyWorkspace(context);
+    return pendingCount(context.db, context.ownerId);
+  };
+  try {
+    yield await currentCount();
+    for await (const change of changes) {
+      void change;
+      yield await currentCount();
+    }
+  } finally {
+    await changes.return(undefined);
   }
 });
 

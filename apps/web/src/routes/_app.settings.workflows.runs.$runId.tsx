@@ -24,14 +24,14 @@ function RunPage() {
   const agentName = useAgentName();
   const { runId } = Route.useParams();
   const check = useQuery({
-    ...orpc.runs.get.queryOptions({ input: { runId } }),
+    ...orpc.runs.access.queryOptions({ input: { runId } }),
     retry: false,
-    // Recheck a shared link even after the run finishes so removal clears the open page.
-    refetchInterval: (query) => query.state.data?.canManage === false ? POLL_MS : false,
+    // Recheck permission even when the run is quiet or complete.
+    refetchInterval: POLL_MS,
   });
-  const canManage = !check.isError && check.data?.canManage === true;
-  const live = useRun(canManage ? runId : null);
-  const state = canManage && live?.run.id === runId ? live : check.data;
+  const canManage = check.isSuccess && check.data.canManage;
+  const live = useRun(check.isSuccess ? runId : null);
+  const state = live?.run.id === runId ? live : null;
   const run = state?.run;
   const workflow = useQuery({
     ...orpc.workflows.get.queryOptions({ input: { id: run?.workflowId ?? "", version: run?.version ?? 0 } }),
@@ -47,7 +47,9 @@ function RunPage() {
 
   const agentNames = new Map(agents.data?.map((a) => [a.id, agentName(a)]));
   // A Job of a deleted agent names it as it kept it, on its steps too.
-  if (run.deletedAgentName) for (const n of job.data ? nodesOf(job.data) : []) if (n.agentId) agentNames.set(n.agentId, run.deletedAgentName);
+  if (job.data) for (const node of nodesOf(job.data)) {
+    if (node.agentId && !agentNames.has(node.agentId)) agentNames.set(node.agentId, run.deletedAgentName ?? node.name);
+  }
 
   return (
     <>

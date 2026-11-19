@@ -2,7 +2,7 @@ import { STOPPED } from "../engine/errors.ts";
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
 import { eq } from "drizzle-orm";
-import { account, messages, questions, runs as runsTable, stepRuns, user } from "../db/schema.ts";
+import { account, organizationMembers, messages, questions, runs as runsTable, stepRuns, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
@@ -47,6 +47,7 @@ test("refuses a disabled trigger, a schedule trigger and another owner's", async
   await call(router.triggers.update, { id: button.id, enabled: true }, { context });
 
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
+  await context.db.insert(organizationMembers).values({ organizationId: context.organizationId, userId: "user_other", role: "owner" });
   // Eve signs in on the same app.
   const ctx = await context.auth.$context;
   await context.db.insert(account).values({

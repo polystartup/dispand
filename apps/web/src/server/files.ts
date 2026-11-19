@@ -6,7 +6,7 @@ type FilesApp = { db: Db; auth: Auth; filesDir: string };
 const encodedName = (name: string) => encodeURIComponent(name).replace(/['()*!]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 
 /**
- * `GET /files/<id>`: an attachment, to the owner's session only. Only images sniffed on upload
+ * `GET /files/<id>`: an authorized session's attachment. Only images sniffed on upload
  * (PNG, JPEG, GIF, WebP) are served inline; everything else, SVG included, is a download. Both
  * get `nosniff` and a sandbox CSP, so even a file opened in a tab runs nothing.
  */
@@ -24,7 +24,7 @@ export async function handleFileDownload(request: Request, app: FilesApp): Promi
       "content-disposition": disposition,
       "x-content-type-options": "nosniff",
       "content-security-policy": "default-src 'none'; sandbox",
-      "cache-control": "private, max-age=3600",
+      "cache-control": "no-store",
     },
   });
 }

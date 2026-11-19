@@ -1,4 +1,3 @@
-import { initialWorkspace } from "../workspace/placement.ts";
 import { ORPCError } from "@orpc/server";
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -26,17 +25,18 @@ import { proposalView } from "../platform/proposals.ts";
 import { loadToolSchemas } from "../tools/executor.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
-import { authed, base } from "../rpc/context.ts";
+import { authed, base, signedIn } from "../rpc/context.ts";
 import { loadTableSchemas } from "../data/tables.ts";
 import { consultMarks } from "../jobs/consults.ts";
 import { tableIdsOf } from "./data-steps.ts";
 import { structuralIssues } from "./derive.ts";
 import { agentIdsOf, defaultWorkflowDef, StorableText, WorkflowDef } from "./model.ts";
 import { cronProblem, nextFireAfter } from "./schedule.ts";
-import { accessibleWorkspaces, readableRun, type RunReader } from "../workspace/access.ts";
+import { requireLegacyWorkspace, accessibleWorkspaces, hasLegacyWorkspaceAccess, readableRun, type RunReader } from "../workspace/access.ts";
 import { toolIdsOf } from "./tool-steps.ts";
 
 const owner = base.use(authed);
+const reader = base.use(signedIn);
 
 const Name = z.string().trim().min(1).max(100);
 
@@ -134,7 +134,7 @@ const create = owner.input(z.object({ name: Name })).handler(async ({ input, con
   const id = newId("wf");
   const def = defaultWorkflowDef(newId("node"));
   const row = await context.db.transaction(async (tx) => {
-    const [row] = await tx.insert(workflowsTable).values({ id, ownerId: context.ownerId, workspaceId: await initialWorkspace(tx, context.ownerId), name: input.name, currentVersion: 1 }).returning();
+    const [row] = await tx.insert(workflowsTable).values({ id, ownerId: context.ownerId, workspaceId: await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job }), name: input.name, currentVersion: 1 }).returning();
     await tx.insert(workflowVersions).values({ workflowId: id, version: 1, ownerId: context.ownerId, def });
     return row!;
   });
@@ -294,7 +294,7 @@ async function snapshot({ db, ownerId }: RunReader, run: typeof runsTable.$infer
     db.select().from(stepRuns).where(eq(stepRuns.runId, runId)),
     db.select().from(messages).where(eq(messages.runId, runId)).orderBy(asc(messages.position)),
     db.select().from(questions).where(eq(questions.runId, runId)).orderBy(asc(questions.createdAt)),
-    db.select().from(chatQueue).where(and(eq(chatQueue.runId, runId), inArray(chatQueue.state, ["pending", "failed"]))).orderBy(asc(chatQueue.position)),
+    ownerId !== run.ownerId ? [] : db.select().from(chatQueue).where(and(eq(chatQueue.runId, runId), inArray(chatQueue.state, ["pending", "failed"]))).orderBy(asc(chatQueue.position)),
   ]);
   return {
     run: runView(run),
@@ -369,14 +369,19 @@ const stop = owner.input(z.object({ runId: z.string() })).handler(async ({ input
   await context.engine.stopRun(input.runId).catch(engineError);
 });
 
-const getRun = owner.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
-  const run = await readRun(context, input.runId);
-  return { ...(await snapshot(context, run)), canManage: run.ownerId === context.ownerId };
+const runInput = z.object({ runId: z.string() });
+const access = reader.input(runInput).handler(async ({ input, context }) => {
+  const [row] = await context.db.select({ ownerId: runsTable.ownerId }).from(runsTable)
+    .where(and(eq(runsTable.id, input.runId), readableRun(context)));
+  if (!row) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
+  return { canManage: row.ownerId === context.ownerId && await hasLegacyWorkspaceAccess(context) };
 });
 
+const getRun = reader.input(runInput).handler(async ({ input, context }) => snapshot(context, await readRun(context, input.runId)));
+
 /** The run as it is, then every change to it while the client listens. */
-const stream = owner.input(z.object({ runId: z.string() })).handler(async function* ({ input, context, signal }) {
-  const allowed = () => context.db.select({ id: runsTable.id }).from(runsTable)
+const stream = reader.input(runInput).handler(async function* ({ input, context, signal }) {
+  const allowed = () => context.db.select({ ownerId: runsTable.ownerId }).from(runsTable)
     .where(and(eq(runsTable.id, input.runId), readableRun(context)));
   // Subscribed before the snapshot is read, so no change falls between them. A client that falls
   // more than STREAM_BUFFER changes behind gets a fresh snapshot instead: nothing is dropped unseen.
@@ -400,7 +405,9 @@ const stream = owner.input(z.object({ runId: z.string() })).handler(async functi
         yield { type: "snapshot" as const, ...(await snapshot(context, await readRun(context, input.runId))) };
       } else if (queue.length > 0) {
         const change = queue.shift()! satisfies RunEvent;
-        if (!(await allowed()).length) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
+        const [row] = await allowed();
+        if (!row) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
+        if (change.type === "queued" && row.ownerId !== context.ownerId) continue;
         yield change.type === "question" ? { ...change, question: await runQuestion(context.db, context.ownerId, change.question) } : change;
       }
       else await new Promise<void>((resolve) => (wake = resolve));
@@ -478,4 +485,4 @@ const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agent
   return rows.map((r) => ({ ...runView(r), workflowName: r.workflowId ? (names.get(r.workflowId) ?? null) : null, queued: queued.has(r.id), title: titles.get(r.id) ?? null, ...marks.get(r.id)! }));
 });
 
-export const runs = { start, sendChat, steerQueued, editQueued, removeQueued, interruptChat, stop, get: getRun, stream, list: listRuns };
+export const runs = { access, start, sendChat, steerQueued, editQueued, removeQueued, interruptChat, stop, get: getRun, stream, list: listRuns };

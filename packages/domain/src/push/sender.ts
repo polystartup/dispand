@@ -8,6 +8,7 @@ import { errorKind, logError } from "../log.ts";
 import { type Language, rendered } from "../messages/index.ts";
 import type { SecretBox } from "../secrets.ts";
 import { inSpan, meter, recordError, tracer } from "../telemetry/index.ts";
+import { hasLegacyWorkspaceAccess } from "../workspace/access.ts";
 import { subscriptionKeysAad, vapidKeys } from "./keys.ts";
 
 const traces = tracer("push");
@@ -68,6 +69,7 @@ function waitingItems(db: Db) {
       builtIn: agents.builtIn,
       workflowName: workflows.name,
       subscriptionId: pushSubscriptions.id,
+      ownerId: pushSubscriptions.ownerId,
       endpoint: pushSubscriptions.endpoint,
       keys: pushSubscriptions.keys,
       language: pushSubscriptions.language,
@@ -171,8 +173,9 @@ export class PushSender {
   }
 
   /** One push to one subscription for its waiting items (newest first): sent, gone (404 or 410: deleted), or failed (tried again). */
-  private sendOne(items: Waiting[], vapid: { publicKey: string; privateKey: string }): Promise<string> {
+  private async sendOne(items: Waiting[], vapid: { publicKey: string; privateKey: string }): Promise<string> {
     const newest = items[0]!;
+    if (!(await hasLegacyWorkspaceAccess({ db: this.db, ownerId: newest.ownerId }))) return "skipped";
     return traces.startActiveSpan("push.send", { attributes: { "dispand.push.subscription": newest.subscriptionId, "dispand.push.count": items.length } }, async (span) => {
       let outcome = "sent";
       try {

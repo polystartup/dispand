@@ -15,7 +15,7 @@ async function owner() {
   const table = await call(router.tables.create, { name: "Projects" }, { context });
   const upload = (bytes: Uint8Array<ArrayBuffer>, name: string) => call(router.files.upload, { tableId: table.id, file: new File([bytes], name) }, { context });
   const get = (id: string, headers: Record<string, string> = { cookie }) => handleFileDownload(new Request(`http://localhost:3000/files/${id}`, { headers }), context);
-  return { db: context.db, upload, get };
+  return { context, db: context.db, upload, get };
 }
 
 test("download needs the owner's session", async () => {
@@ -50,8 +50,16 @@ test("a PNG is served inline with its sniffed type", async () => {
   expect(res.headers.get("content-type")).toBe("image/png");
   expect(res.headers.get("content-disposition")).toMatch(/^inline;/);
   expect(res.headers.get("x-content-type-options")).toBe("nosniff");
-  expect(res.headers.get("cache-control")).toBe("private, max-age=3600");
+  expect(res.headers.get("cache-control")).toBe("no-store");
   expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
+});
+
+test("a chat attachment is never cached across changes in workspace access", async () => {
+  const { context, get } = await owner();
+  const file = await call(router.files.hold, { file: new File([PNG], "chat.png") }, { context });
+  const response = await get(file.id);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  await response.body?.cancel();
 });
 
 test("a name with quotes and non-ASCII is encoded", async () => {
