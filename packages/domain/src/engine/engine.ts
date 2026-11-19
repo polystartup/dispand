@@ -2386,16 +2386,14 @@ export class Engine {
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`m:${m.id}`, async () => {
       if (!steer && step.harness?.kind === "codex" && !(await this.admitCodexInput(sessionId, m.id))) return;
-      // A steer sent again as any message (a redelivery): no steer-result will settle it.
-      if (!steer) await this.db.update(chatQueue).set({ state: "dispatched", updatedAt: new Date() }).where(and(eq(chatQueue.id, m.id), eq(chatQueue.state, "steering")));
       const files = m.files ?? [];
       const delivered = steer && this.adapter.steer ? await this.adapter.steer(sessionId, steer, m.id, m.text, files) : await this.adapter.send(sessionId, m.text, files);
       if (delivered && (this.losses.get(sessionId) ?? 0) === losses) {
         await this.db.update(messages).set({ deliveredAt: new Date() }).where(eq(messages.id, m.id));
-      } else if (steer) {
-        // Never reached the harness: it goes again as any message, so no steer-result will come.
-        await this.db.update(chatQueue).set({ state: "dispatched", updatedAt: new Date() }).where(and(eq(chatQueue.id, m.id), eq(chatQueue.state, "steering")));
       }
+      // Sent as any message (a redelivery), or a steer that never reached the harness (it goes
+      // again as any message): no steer-result will settle it.
+      if (!steer || !delivered) await this.db.update(chatQueue).set({ state: "dispatched", updatedAt: new Date() }).where(and(eq(chatQueue.id, m.id), eq(chatQueue.state, "steering")));
     }).catch((err: unknown) => logError("chat message delivery failed", err, { ref: m.id }));
     this.keep(sent);
   }
