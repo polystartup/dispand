@@ -21,7 +21,10 @@ export function WorkspaceInvitations({ scope }: { scope: Scope }) {
   const refresh = () => client.invalidateQueries({ queryKey: options.queryKey });
   async function rememberInvitation(row: Invitation) {
     await client.cancelQueries({ queryKey: options.queryKey });
-    client.setQueryData(options.queryKey, (rows) => rows && [...rows.filter((old) => old.email !== row.email), row]);
+    // A slower creation response must not repopulate a directory that a newer read denied.
+    if (client.getQueryState(options.queryKey)?.status === "success") {
+      client.setQueryData(options.queryKey, (rows) => rows && [...rows.filter((old) => old.email !== row.email), row]);
+    }
     void refresh();
   }
   const revoke = useMutation(orpc.workspace.revokeInvitation.mutationOptions({ onSettled: refresh }));
