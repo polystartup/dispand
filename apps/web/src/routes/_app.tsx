@@ -37,17 +37,17 @@ function AppShell() {
       <ChatSessionsProvider key={user.email}>
       <Sheet open={open} onOpenChange={setOpen}>
       <div className="min-h-dvh md:pl-64">
-        <header className="sticky top-0 z-20 flex h-12 items-center gap-2 bg-sidebar px-3 backdrop-blur-xl backdrop-saturate-150 md:hidden">
+        <header className={`sticky top-0 z-20 flex h-12 items-center gap-2 bg-surface px-3 md:hidden ${open ? "" : "spectrum-header"}`}>
           <SheetTrigger asChild>
             <button
               type="button"
               aria-label={t("openMenu")}
-              className="grid size-9 place-items-center rounded-lg text-fg transition hover:bg-hover"
+              className="grid size-11 place-items-center rounded-lg text-fg transition hover:bg-hover"
             >
               <Menu size={20} aria-hidden />
             </button>
           </SheetTrigger>
-          <span className="text-[15px] font-semibold tracking-tight">Dispand</span>
+          <span className="text-xl font-semibold tracking-[-0.03em] lowercase">Dispand</span>
         </header>
 
         <aside

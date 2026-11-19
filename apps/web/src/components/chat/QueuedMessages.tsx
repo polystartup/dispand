@@ -43,9 +43,9 @@ function QueuedMessage({ queued, onEdit, steering }: Props) {
     setSaving(false);
     if (saved) setDraft(null);
   }
-  return <div role="listitem" className="flex items-start gap-2 rounded-xl border border-line bg-hover px-3 py-2 text-sm">
+  return <div role="listitem" className="flex flex-wrap items-start gap-2 rounded-xl border border-line bg-hover px-3 py-2 text-sm">
     {failed ? <CircleAlert size={16} className="mt-0.5 shrink-0 text-danger" aria-hidden /> : <Clock size={16} className="mt-0.5 shrink-0 text-muted" aria-hidden />}
-    <div className="flex min-w-0 flex-1 flex-col gap-1">
+    <div className="flex min-w-0 flex-[1_1_12rem] flex-col gap-1">
       {draft === null
         ? <QueueItemPrimitive.Text className="whitespace-pre-wrap break-words text-fg" />
         : <textarea aria-label={t("editQueued")} value={draft} autoFocus rows={2} onChange={(e) => setDraft(e.target.value)}
@@ -53,7 +53,7 @@ function QueuedMessage({ queued, onEdit, steering }: Props) {
               if (e.key === "Escape") setDraft(null);
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void save(); }
             }}
-            className="w-full resize-none rounded-lg border border-line bg-surface px-2 py-1 text-fg outline-none focus:border-accent" />}
+            className="w-full resize-none rounded-lg border border-line bg-surface px-2 py-1 text-base text-fg outline-none sm:text-[15px] focus:border-accent" />}
       <span className={`text-[12px] ${failed ? "text-danger" : "text-muted"}`}>
         {failed ? (item.error ? t("queuedFailed", { error: stored(item.error) }) : t("queuedFailedPlain")) : t("queuedWaiting")}
       </span>

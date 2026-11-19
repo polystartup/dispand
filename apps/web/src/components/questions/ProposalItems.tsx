@@ -270,11 +270,11 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
   return (
     <>
       {proposal.plugin && (
-        <p className="mb-2 text-[13px] text-muted">
+        <p className="mb-2 text-[13px] text-muted [overflow-wrap:anywhere]">
           <Trans t={t} i18nKey="proposal.recorded" values={{ plugin: proposal.plugin }} components={[<span className="font-medium text-fg" />]} />
         </p>
       )}
-    <ol aria-label={t("proposal.label")} className="space-y-3">
+    <ol aria-label={t("proposal.label")} className="min-w-0 space-y-3 [overflow-wrap:anywhere]">
       {proposal.items.map((item, i) => (
         <li key={i} className="rounded-xl border border-line p-3">
           <p className="text-[14px] font-medium">
@@ -287,7 +287,7 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
           {item.tool === "plugins_install" ? (
             <PluginInstallItem input={item.input as never} shown={item.shown as never} />
           ) : (
-          <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1.5 text-[13px]">
+          <dl className="mt-2 grid grid-cols-[fit-content(40%)_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[13px]">
             {Object.entries((item.input ?? {}) as Record<string, unknown>).filter(([name]) => !(item.tools && name === "toolPermissions") && !(item.tool === "fields_retype" && name === "dryRun")).map(([name, value]) => (
               <div key={name} className="contents">
                 <dt className="text-muted">{word(`proposal.labelsOf.${item.tool}.${name}`, word(`proposal.labels.${name}`, name))}</dt>

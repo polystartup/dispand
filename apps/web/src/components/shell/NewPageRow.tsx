@@ -45,7 +45,7 @@ export function NewPageRow({ className, onNavigate }: { className: string; onNav
           if (e.key === "Enter" && title.trim() !== "") create.mutate({ title: title.trim() });
         }}
         onBlur={() => !create.isPending && title.trim() === "" && setTitle(null)}
-        className="h-8 w-full rounded-lg bg-surface px-2.5 text-[14px] outline-none ring-1 ring-line focus-visible:ring-2 focus-visible:ring-accent"
+        className="min-h-11 w-full rounded-lg bg-surface px-2.5 text-[14px] outline-none ring-1 ring-line focus-visible:ring-2 focus-visible:ring-accent"
       />
       {create.error && (
         <p role="alert" className="mt-1 px-1 text-[12px] text-danger">

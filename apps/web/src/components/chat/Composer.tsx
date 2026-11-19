@@ -55,7 +55,7 @@ export function ChatComposer({ runId, assistantAgentId, tools, open, asking, app
         e.currentTarget.closest("form")?.requestSubmit();
       }
     }}
-    className={`${tools ? "w-full basis-full" : "flex-1"} min-h-9 min-w-0 resize-none bg-transparent px-2 py-[7px] text-[15px] leading-5 outline-none placeholder:text-faint disabled:opacity-60`} />;
+    className={`${tools ? "w-full basis-full" : "flex-1"} min-h-11 min-w-0 resize-none bg-transparent px-2 py-2 text-base leading-relaxed sm:text-[15px] outline-none placeholder:text-faint disabled:opacity-60`} />;
   return <div className={`shrink-0 px-4 pb-4 pt-2 ${tools ? "" : "bg-surface"}`}>
     {error && <p role="alert" className="mb-2 px-1 text-[13px] text-danger">{error}</p>}
     {asking && <p className="mb-2 px-1 text-[13px] text-muted">{t("answerAbove")}</p>}
@@ -65,22 +65,22 @@ export function ChatComposer({ runId, assistantAgentId, tools, open, asking, app
     </div>}
     {queued}
     <ComposerPrimitive.AttachmentDropzone asChild disabled={!open || asking || approval || busy}>
-    <ComposerPrimitive.Root className={`mx-auto flex w-full max-w-3xl flex-wrap items-end gap-2 rounded-2xl border border-line p-3 focus-within:border-accent data-[dragging=true]:border-accent data-[dragging=true]:bg-hover ${tools ? "bg-surface/85 shadow-sm backdrop-blur-xl" : "bg-surface"}`}
+    <ComposerPrimitive.Root className={`mx-auto flex w-full max-w-3xl flex-wrap items-end gap-2 rounded-2xl border border-line bg-surface p-3 focus-within:border-accent data-[dragging=true]:border-accent data-[dragging=true]:bg-hover ${tools ? "shadow-sm" : ""}`}
       onSubmit={(e) => {
         if (approval) { e.preventDefault(); void decline(); }
         else if (running) { e.preventDefault(); if (canSend) aui.composer().send(); }
       }}>
       {runId && !tools && onNewConversation && <Button type="button" variant="ghost" size="icon-sm" aria-label={t("newConversation")} title={t("newConversation")} className="rounded-full text-muted" disabled={busy} onClick={onNewConversation}><MessageSquarePlus aria-hidden /></Button>}
       {!approval && <ComposerQuote />}
-      <ComposerAttachments hidden={approval} disabled={!open || asking || busy} />
       {assistantAgentId ? <AssistantInput agentId={assistantAgentId} runId={runId} onTextChange={(value) => aui.composer().setText(value)} onSkillChange={chooseSkill} inputProps={{ ...input.props, value: text }} /> : input}
+      <ComposerAttachments hidden={approval} disabled={!open || asking || busy} />
       {tools && <div className="min-w-0 flex-1">{tools}</div>}
       {canStop && <ComposerPrimitive.Cancel asChild><Button type="button" variant="outline" size="icon-sm" aria-label={t("stopResponse")} title={t("stopResponse")} disabled={busy} className="rounded-full"><Square aria-hidden /></Button></ComposerPrimitive.Cancel>}
       {approval || running ? <Button type="submit" size="icon-sm" aria-label={t("send")} disabled={busy || !text.trim() || (!approval && !canSend)} className="rounded-full"><ArrowUp aria-hidden /></Button> :
         <ComposerPrimitive.Send asChild><Button type="button" size="icon-sm" aria-label={t("send")} disabled={!text.trim() || busy || !canSend} className="rounded-full"><ArrowUp aria-hidden /></Button></ComposerPrimitive.Send>}
     </ComposerPrimitive.Root>
     </ComposerPrimitive.AttachmentDropzone>
-    <p className="mx-auto mt-2 hidden max-w-3xl px-1 text-[11px] text-faint md:block">{approval ? t("hintApproval", { mod: MOD }) : t("hintSend")}</p>
+    <p className="mx-auto mt-2 hidden max-w-3xl px-1 text-xs text-faint md:block">{approval ? t("hintApproval", { mod: MOD }) : t("hintSend")}</p>
   </div>;
 }
 

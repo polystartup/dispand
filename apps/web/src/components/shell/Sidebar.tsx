@@ -35,7 +35,7 @@ const settings = [
 ] as const;
 
 const row =
-  "flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-[14px] text-fg transition hover:bg-hover";
+  "flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-[14px] text-fg transition hover:bg-hover";
 
 function NavLink({ to, label, Icon, onNavigate }: { to: string; label: string; Icon: LucideIcon; onNavigate: () => void }) {
   return (
@@ -65,13 +65,8 @@ export function Sidebar({ user, onNavigate }: { user: { name: string; email: str
   const pages = useQuery(orpc.pages.list.queryOptions());
   return (
     <div className="flex h-full flex-col px-3 pb-3 pt-4">
-      <div className="flex items-center justify-between px-3 pb-4">
-        <div className="flex items-center gap-2.5">
-          <span className="grid size-7 place-items-center rounded-lg bg-accent text-accent-foreground" aria-hidden>
-            <Workflow size={16} />
-          </span>
-          <span className="text-[15px] font-semibold tracking-tight">Dispand</span>
-        </div>
+      <div className="spectrum-header relative mb-2 flex items-center justify-between px-3 pb-3">
+        <span className="text-xl font-semibold tracking-[-0.03em] lowercase">Dispand</span>
         <NotificationsBell onNavigate={onNavigate} />
       </div>
 

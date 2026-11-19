@@ -2,6 +2,33 @@
 @import "tw-animate-css";
 @import "./styles/tokens.css";
 
+@font-face {
+  font-family: "Hanken Grotesk";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("@fontsource-variable/hanken-grotesk/files/hanken-grotesk-latin-wght-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Hanken Grotesk";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("@fontsource-variable/hanken-grotesk/files/hanken-grotesk-latin-wght-italic.woff2") format("woff2");
+}
+
+/* The brand header owns the spectrum; it stays still while work runs. */
+.spectrum-header::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0.75rem;
+  bottom: 0;
+  height: 3px;
+  background: var(--spectrum);
+  pointer-events: none;
+}
+
 /* React Flow on the shell's tokens, in light and dark. */
 .react-flow {
   --xy-background-color: transparent;

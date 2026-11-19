@@ -99,7 +99,7 @@ export function NotificationsBell({ onNavigate }: { onNavigate: () => void }) {
       }}
       aria-label={unknown ? t("inbox.unknownLabel") : pending > 0 ? t("inbox.waiting", { count: pending }) : t("inbox.label")}
       title={unknown ? t("inbox.unknown") : undefined}
-      className="relative grid size-8 place-items-center rounded-lg text-muted transition hover:bg-hover hover:text-fg"
+      className="relative grid size-11 place-items-center rounded-lg text-muted transition hover:bg-hover hover:text-fg"
     >
       <Bell size={17} aria-hidden />
       {unknown && <span aria-hidden className="absolute right-0.5 top-0.5 size-2 rounded-full bg-danger" />}

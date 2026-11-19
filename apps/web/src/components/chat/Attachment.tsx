@@ -11,7 +11,7 @@ function AttachmentTile({ composer }: { composer: boolean }) {
   const failed = attachment.status.type === "incomplete";
   const image = attachment.type === "image" ? attachment.content?.find((part) => part.type === "image") : undefined;
   const src = image?.type === "image" && /^\/files\/[A-Za-z0-9_]{1,64}$/.test(image.image) ? image.image : undefined;
-  const tile = "flex max-w-56 items-center gap-2 rounded-lg border border-line bg-surface p-2 text-sm text-muted focus-visible:outline-2 focus-visible:outline-accent";
+  const tile = "flex min-h-11 max-w-56 items-center gap-2 rounded-lg border border-line bg-surface p-2 text-sm text-muted focus-visible:outline-2 focus-visible:outline-accent";
   return (
     <AttachmentPrimitive.Root className="relative">
       {src ? (
@@ -20,9 +20,9 @@ function AttachmentTile({ composer }: { composer: boolean }) {
             <img src={src} alt={attachment.name} className="size-20 rounded-lg object-cover" />
           </DialogTrigger>
           <DialogContent className="max-w-3xl" aria-describedby={undefined}>
-            <DialogTitle className="pr-8 break-words">{attachment.name}</DialogTitle>
+            <DialogTitle className="pr-11 break-words">{attachment.name}</DialogTitle>
             <img src={src} alt={attachment.name} className="mx-auto max-h-[75vh] object-contain" />
-            <DialogClose aria-label={t("common:actions.close")} className="absolute right-3 top-3 rounded p-1 hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent"><X size={18} aria-hidden /></DialogClose>
+            <DialogClose aria-label={t("common:actions.close")} className="absolute right-2 top-2 grid size-11 place-items-center rounded hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent"><X size={18} aria-hidden /></DialogClose>
           </DialogContent>
         </Dialog>
       ) : !composer ? (
@@ -30,13 +30,13 @@ function AttachmentTile({ composer }: { composer: boolean }) {
           <FileText size={18} className="shrink-0" aria-hidden /><span className="truncate"><AttachmentPrimitive.Name /></span>
         </a>
       ) : (
-        <div className={`${tile} pr-8`}>
+        <div className={`${tile} pr-12`}>
           <FileText size={18} className="shrink-0" aria-hidden /><span className="truncate"><AttachmentPrimitive.Name /></span>
         </div>
       )}
       {uploading && <span role="status" className="flex items-center gap-1 text-xs text-muted"><Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden />{t("uploadingFile")}</span>}
       {failed && <span role="alert" className="flex items-center gap-1 text-xs text-danger"><AlertCircle size={12} aria-hidden />{t("uploadFailed")}</span>}
-      {composer && <AttachmentPrimitive.Remove aria-label={t("removeFile")} title={t("removeFile")} className="absolute right-1 top-1 rounded-full bg-surface p-1 text-muted hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"><X size={14} aria-hidden /></AttachmentPrimitive.Remove>}
+      {composer && <AttachmentPrimitive.Remove aria-label={t("removeFile")} title={t("removeFile")} className="absolute right-0 top-0 grid size-11 place-items-center rounded-lg bg-surface text-muted hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"><X size={14} aria-hidden /></AttachmentPrimitive.Remove>}
     </AttachmentPrimitive.Root>
   );
 }

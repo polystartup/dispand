@@ -63,7 +63,7 @@ export const ArtifactPart: ToolCallMessagePartComponent<Record<string, never>, A
       {artifact.isError && <p role="alert" className="text-danger">{t("artifactLoadFailed")}</p>}
       {failed && <p role="status" className="text-muted">{t("artifactFailed")}</p>}
       {/* Literal text: React writes it as a text node, so the markup creates no element. */}
-      {showCode && code !== undefined && <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-hover p-3 font-mono text-[12px]">{code}</pre>}
+      {showCode && code !== undefined && <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-soft p-3 font-mono text-[12px]">{code}</pre>}
       {/* Esc and the focus trap come from the dialog; the focus goes back to Expand by hand (no Trigger). Esc closes it only while the focus is outside the frame (a frame's keys are its own). */}
       <Dialog open={expanded} onOpenChange={setExpanded}>
         <DialogContent className="h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-none grid-rows-[auto_1fr] gap-2 p-3" onCloseAutoFocus={(event) => { event.preventDefault(); expandButton.current?.focus(); }}>

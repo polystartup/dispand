@@ -769,3 +769,50 @@ test("a running artifact expands to most of the window, follows the theme, and c
   await expect(expanded).toHaveCount(0);
   await expect(expand).toBeFocused();
 });
+
+test.describe("French browser", () => {
+  test.use({ locale: "fr-FR" });
+
+  test("the conversation keeps the draft and selection across themes and reflows along with Inbox proposal history", async ({ page }, testInfo) => {
+    const login = await page.request.post("/api/auth/sign-in/email", {
+      headers: { origin: SERVER },
+      data: { email: "ada@example.com", password: "correct horse battery" },
+    });
+    expect(login.ok()).toBe(true);
+    await page.goto("/assistant?run=new");
+    await expect(page.locator("html")).toHaveAttribute("lang", "fr");
+    const chat = page.getByRole("region", { name: "Stem", exact: true });
+    const box = chat.getByRole("textbox", { name: "Message", exact: true });
+    const send = chat.getByRole("button", { name: "Envoyer", exact: true });
+    const draft = "Vérifie le dossier avant de préparer la réponse.";
+    await expect(box).toHaveCSS("font-family", /Hanken Grotesk/);
+    const fonts = await page.evaluate(async () => (await document.fonts.load('16px "Hanken Grotesk"')).map((face) => face.status));
+    expect(fonts).toContain("loaded");
+    await box.fill(draft);
+    await box.press("Home");
+    await box.press("Shift+End");
+    const selection = () => box.evaluate((el: HTMLTextAreaElement) => el.value.slice(el.selectionStart, el.selectionEnd));
+    expect(await selection()).toBe(draft);
+
+    // 640 × 400 also exercises the layout space of a 1280 × 800 window at 200% browser zoom.
+    for (const [width, height, appearance] of [[1280, 800, "light"], [640, 400, "dark"], [390, 844, "dark"]] as const) {
+      await page.setViewportSize({ width, height });
+      await page.emulateMedia({ colorScheme: appearance });
+      await expect(page.locator("html")).toHaveCSS("color-scheme", appearance);
+      await expect(box).toBeFocused();
+      await expect(box).toHaveValue(draft);
+      expect(await selection()).toBe(draft);
+      await box.scrollIntoViewIfNeeded();
+      await expect(box).toBeInViewport({ ratio: 1 });
+      await send.scrollIntoViewIfNeeded();
+      await expect(send).toBeInViewport({ ratio: 1 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`assistant-fr-${appearance}-${width}.png`), animations: "disabled" });
+    }
+
+    await page.goto("/inbox");
+    const proposal = page.getByRole("list", { name: "Ce qui est proposé" }).first();
+    await expect(proposal).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+});

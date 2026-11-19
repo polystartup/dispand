@@ -86,7 +86,7 @@ const components: ComponentProps<typeof MarkdownTextPrimitive>["components"] = {
 };
 
 const prose =
-  "min-w-0 w-full break-words text-[15px] leading-relaxed text-fg " +
+  "min-w-0 w-full max-w-[65ch] [overflow-wrap:anywhere] text-[15px] leading-relaxed text-fg " +
   "[&_p]:whitespace-pre-wrap [&_p+p]:mt-2 [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 " +
   "[&_h1]:mt-1 [&_h1]:text-[17px] [&_h1]:font-semibold [&_h2]:mt-1 [&_h2]:text-[16px] [&_h2]:font-semibold [&_h3]:mt-1 [&_h3]:font-semibold " +
   "[&_code]:rounded [&_code]:bg-surface [&_code]:px-1 [&_code]:font-mono [&_code]:text-[13px] [&_pre]:mb-3 [&_pre]:mt-0 [&_pre]:overflow-x-auto [&_pre]:rounded-b-lg [&_pre]:border [&_pre]:border-t-0 [&_pre]:border-line [&_pre]:bg-surface [&_pre]:p-2 " +

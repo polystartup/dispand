@@ -64,9 +64,15 @@ function Conversation({ triggerId, agentId, reviewTriggerId, run, onOpen }: { tr
   const open = (id: string) => { if (id === NEW_CONVERSATION) sessions.newConversation(surfaceKey); onOpen(id); setHistory(false); };
   return (
     <div className={expanded ? "fixed inset-0 z-40 flex h-dvh flex-col bg-surface" : "flex min-h-0 flex-1 flex-col bg-surface"}>
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3">
+      <header className={`relative flex min-h-16 shrink-0 items-center gap-1 px-3 sm:gap-2 ${expanded ? "spectrum-header" : "border-b border-line"}`}>
         <Button variant="ghost" size="icon" aria-label={t("history")} onClick={() => setHistory(true)}><PanelLeft aria-hidden /></Button>
-        <h1 className="min-w-0 flex-1 truncate text-[15px] font-medium">{title}</h1>
+        <div className="flex min-w-0 flex-1 flex-col justify-center">
+          <h1 className="truncate text-sm font-semibold min-[521px]:text-base" title={title}>{title}</h1>
+          <span className="inline-flex items-center gap-2 text-[13px] text-muted">
+            <span aria-hidden className="size-[7px] shrink-0 rounded-full bg-accent" />
+            {assistantName}
+          </span>
+        </div>
         <Button variant="ghost" size="icon" aria-label={t("newConversation")} onClick={() => open(NEW_CONVERSATION)}><MessageSquarePlus aria-hidden /></Button>
         <Button variant="ghost" size="icon" aria-label={t("options", { assistant: assistantName })} onClick={() => setSettings(true)}><MoreHorizontal aria-hidden /></Button>
         <Button variant="ghost" size="icon" aria-label={expanded ? t("exitFullPage") : t("fullPage")} aria-pressed={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? <Minimize2 aria-hidden /> : <Maximize2 aria-hidden />}</Button>
