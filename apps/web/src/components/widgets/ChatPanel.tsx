@@ -201,7 +201,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
     ] : [],
   });
   const view = <div className="flex min-h-0 flex-1 flex-col">
-    {interrupted && <p role="status" className="mx-auto w-full max-w-3xl shrink-0 px-4 py-2 text-[13px] text-muted">{t("reconnecting")}</p>}
+    <p role="status" className="mx-auto w-full max-w-3xl shrink-0 px-4 py-2 text-[13px] text-muted empty:py-0">{interrupted ? t("reconnecting") : null}</p>
     <ChatThread runtime={runtime} run={run} chatStepId={chatStep?.id} canSend={canSend && !sending && holding === 0} canDraft={open && waiting !== "question"} onSend={send} onAttach={hold}
       welcome={welcome} starterPrompts={!!assistantAgentId} centeredWelcome={!!composerTools}
       composer={<ChatComposer runId={runId} assistantAgentId={assistantAgentId} tools={composerTools} open={open} waiting={waiting}
