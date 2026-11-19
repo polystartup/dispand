@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { PageHeader } from "../components/Placeholder.tsx";
+import { WorkspaceInvitations } from "../components/settings/WorkspaceInvitations.tsx";
 import { List } from "../components/settings/parts.tsx";
 import { orpc, type api } from "../lib/api.ts";
 
@@ -52,6 +53,7 @@ function Directory({ scope }: { scope: Scope }) {
     <p ref={status} tabIndex={-1} role="status" className="mt-3 text-sm text-muted">
       {remove.isPending ? t("people.removing", { name }) : remove.isSuccess && t("people.removed", { name })}
     </p>
+    <WorkspaceInvitations scope={scope} />
   </>;
 }
 

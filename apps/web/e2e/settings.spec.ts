@@ -31,13 +31,45 @@ test.describe.configure({ mode: "serial" });
 let runner: FakeRunner | undefined;
 test.afterAll(() => runner?.close());
 
-test("the owner opens People from Settings and sees their inherited access", async ({ page }) => {
+test("an owner revokes an invitation, then hands off a fresh link and sees the recipient join", async ({ page, browser }) => {
   await signIn(page);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "People" }).click();
   await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
   const person = page.getByRole("main").getByRole("listitem").filter({ hasText: "ada@example.com" });
   await expect(person).toContainText("Organization owner");
   await expect(person.getByRole("button")).toHaveCount(0);
+  await page.getByRole("button", { name: "Invite person" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Email address").fill("teammate@example.com");
+  await test.info().attach("invite-person", { body: await page.screenshot({ animations: "disabled" }), contentType: "image/png" });
+  await dialog.getByRole("button", { name: "Create link" }).click();
+  await expect(dialog.getByLabel("Invitation link")).toHaveValue(/^http:\/\/localhost:3100\/invitation#[a-zA-Z0-9_-]{43}$/);
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Revoke invitation for teammate@example.com" }).click();
+  await expect(page.getByText("Invitation revoked.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Revoke invitation for teammate@example.com" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Invite person" }).click();
+  await dialog.getByLabel("Email address").fill("teammate@example.com");
+  await dialog.getByRole("button", { name: "Create link" }).click();
+  const link = await dialog.getByLabel("Invitation link").inputValue();
+  await dialog.getByRole("button", { name: "Done" }).click();
+
+  const guest = await browser.newContext();
+  try {
+    const recipient = await guest.newPage();
+    await recipient.goto(link);
+    await recipient.getByRole("button", { name: "Create an account" }).click();
+    await recipient.getByLabel("Email").fill("teammate@example.com");
+    await recipient.getByRole("button", { name: "Review invitation" }).click();
+    await recipient.getByLabel("Name").fill("Invited teammate");
+    await recipient.getByLabel("Password").fill("a-new-teammate-password");
+    await recipient.getByRole("button", { name: "Create account and accept" }).click();
+    await expect(recipient.getByText("Invitation accepted")).toBeVisible();
+    await expect(page.getByRole("listitem").filter({ hasText: "Invited teammate" })).toContainText("Workspace member", { timeout: 15_000 });
+  } finally {
+    await guest.close();
+  }
 });
 
 test("empty states, then a runner pairs, a harness goes online and an agent is created", async ({ page }) => {

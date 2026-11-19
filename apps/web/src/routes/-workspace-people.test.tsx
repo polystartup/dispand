@@ -4,7 +4,7 @@ import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const workspace = vi.hoisted(() => ({ managed: vi.fn(), people: vi.fn(), removePerson: vi.fn() }));
+const workspace = vi.hoisted(() => ({ managed: vi.fn(), people: vi.fn(), invitations: vi.fn(), revokeInvitation: vi.fn(), removePerson: vi.fn() }));
 vi.mock("../lib/api.ts", async () => ({
   orpc: (await import("@orpc/tanstack-query")).createTanstackQueryUtils({ workspace } as never),
 }));
@@ -22,6 +22,7 @@ afterEach(() => {
 });
 
 function open() {
+  workspace.invitations.mockResolvedValue([]);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const Page = Route.options.component as () => React.JSX.Element;
   render(<QueryClientProvider client={client}><Page /></QueryClientProvider>);

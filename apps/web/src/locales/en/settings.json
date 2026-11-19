@@ -36,5 +36,30 @@
     "removeFailed": "Could not remove access. Try again.",
     "removing": "Removing access for {{name}}…",
     "removed": "Access removed for {{name}}."
+  },
+  "invitations": {
+    "title": "Pending invitations",
+    "invite": "Invite person",
+    "empty": "No pending invitations.",
+    "loadFailed": "Could not load invitations.",
+    "detail": "{{role}} · Expires {{date}}",
+    "revokeFor": "Revoke invitation for {{email}}",
+    "revoke": "Revoke",
+    "revoking": "Revoking invitation…",
+    "revoked": "Invitation revoked.",
+    "revokeFailed": "Could not revoke the invitation. Try again.",
+    "linkTitle": "Share the invitation link",
+    "handoff": "Verify that you’re speaking to {{email}}, then give them this link directly. Anyone holding it can use it to register a new account if the invitation allows that.",
+    "unavailable": "This invitation is no longer pending.",
+    "linkLabel": "Invitation link",
+    "copy": "Copy link",
+    "copied": "Link copied.",
+    "manual": "Select and copy the link above.",
+    "done": "Done",
+    "instructions": "Create a link for this workspace. A new link replaces any pending invitation for the same address. An organization owner must invite anyone who needs a new account.",
+    "email": "Email address",
+    "role": "Workspace role",
+    "create": "Create link",
+    "createFailed": "Could not create an invitation. Try again."
   }
 }
