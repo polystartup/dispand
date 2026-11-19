@@ -1,9 +1,9 @@
 import type { ToolCallMessagePartComponent } from "@assistant-ui/react";
 import type { ArtifactRef } from "@dispand/domain/messages/record-result.ts";
 import { useQuery } from "@tanstack/react-query";
-import { useWidget } from "generative-frame/react";
-import { Code, Play } from "lucide-react";
-import { createContext, useContext, useEffect, useState } from "react";
+import { useThemeTokens, useWidget } from "generative-frame/react";
+import { Code, Maximize2, Minimize2, Play } from "lucide-react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -17,6 +17,22 @@ import { useFormat } from "../../lib/format.ts";
 // links only after the owner confirms them.
 
 /** Puts an artifact's prompt in the composer's draft, which the owner still sends; absent where there is no composer. */
+// Where the frame's theme tokens come from in the app's own (`styles/tokens.css`): the frame follows the light and dark theme, and each change is sent to it.
+const THEME_SOURCES: Parameters<typeof useThemeTokens>[1] = {
+  "--color-background": "--bg",
+  "--color-surface": "--surface",
+  "--color-surface-muted": "--surface-hover",
+  "--color-text": "--fg",
+  "--color-text-muted": "--muted",
+  "--color-text-subtle": "--faint",
+  "--color-border": "--line",
+  "--color-border-strong": "--input",
+  "--color-accent": "--accent",
+  "--color-accent-text": "--accent-fg",
+  "--color-danger": "--danger",
+  "--font-sans": "--font",
+};
+
 export const DraftPrompt = createContext<((text: string) => void) | undefined>(undefined);
 
 export const ArtifactPart: ToolCallMessagePartComponent<Record<string, never>, ArtifactRef> = ({ result }) => {
@@ -24,6 +40,8 @@ export const ArtifactPart: ToolCallMessagePartComponent<Record<string, never>, A
   const format = useFormat();
   const [confirming, setConfirming] = useState(false);
   const [running, setRunning] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const expandButton = useRef<HTMLButtonElement>(null);
   const [showCode, setShowCode] = useState(false);
   const [failed, setFailed] = useState(false);
   const artifact = useQuery({ ...orpc.artifacts.get.queryOptions({ input: { id: result?.artifactId ?? "" } }), enabled: !!result && (running || showCode), staleTime: Infinity });
@@ -37,13 +55,25 @@ export const ArtifactPart: ToolCallMessagePartComponent<Record<string, never>, A
           <p className="text-muted">{result.format.toUpperCase()} · {format.size(result.size)}</p>
         </div>
         {!running && <Button size="sm" onClick={() => setConfirming(true)}><Play aria-hidden />{t("artifactRun")}</Button>}
+        {running && <Button ref={expandButton} size="sm" variant="outline" onClick={() => setExpanded(true)}><Maximize2 aria-hidden />{t("artifactExpand")}</Button>}
         <Button size="sm" variant="outline" aria-expanded={showCode} onClick={() => setShowCode(!showCode)}><Code aria-hidden />{t(showCode ? "artifactHideCode" : "artifactShowCode")}</Button>
       </div>
-      {running && code !== undefined && <ArtifactFrame code={code} onFailed={() => setFailed(true)} />}
+      {/* One frame at a time: expanding mounts a new one in the dialog, so the artifact's scripts start over. */}
+      {running && !expanded && code !== undefined && <ArtifactFrame code={code} onFailed={() => setFailed(true)} />}
       {artifact.isError && <p role="alert" className="text-danger">{t("artifactLoadFailed")}</p>}
       {failed && <p role="status" className="text-muted">{t("artifactFailed")}</p>}
       {/* Literal text: React writes it as a text node, so the markup creates no element. */}
       {showCode && code !== undefined && <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-hover p-3 font-mono text-[12px]">{code}</pre>}
+      {/* Esc and the focus trap come from the dialog; the focus goes back to Expand by hand (no Trigger). Esc closes it only while the focus is outside the frame (a frame's keys are its own). */}
+      <Dialog open={expanded} onOpenChange={setExpanded}>
+        <DialogContent className="h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-none grid-rows-[auto_1fr] gap-2 p-3" aria-describedby={undefined} onCloseAutoFocus={(event) => { event.preventDefault(); expandButton.current?.focus(); }}>
+          <div className="flex items-center gap-3">
+            <DialogTitle className="min-w-0 flex-1 truncate text-[15px]">{result.title}</DialogTitle>
+            <Button size="sm" variant="outline" onClick={() => setExpanded(false)}><Minimize2 aria-hidden />{t("artifactCollapse")}</Button>
+          </div>
+          {code !== undefined && <ArtifactFrame code={code} onFailed={() => setFailed(true)} expanded />}
+        </DialogContent>
+      </Dialog>
       <Dialog open={confirming} onOpenChange={setConfirming}>
         <DialogContent>
           <DialogTitle>{t("artifactRunTitle")}</DialogTitle>
@@ -59,15 +89,19 @@ export const ArtifactPart: ToolCallMessagePartComponent<Record<string, never>, A
   );
 };
 
-function ArtifactFrame({ code, onFailed }: { code: string; onFailed: () => void }) {
+function ArtifactFrame({ code, onFailed, expanded = false }: { code: string; onFailed: () => void; expanded?: boolean }) {
   const { t } = useTranslation(["chat", "common"]);
   const prompt = useContext(DraftPrompt);
   const [link, setLink] = useState<string | null>(null);
+  const tokens = useThemeTokens(undefined, THEME_SOURCES);
+  // Inline the frame grows with its content up to 480 px; expanded it fills the dialog (its title bar and padding take about 4.5 rem).
+  const [height] = useState(() => Math.max(240, window.innerHeight - 88));
   const { ref, widget } = useWidget({
     opaqueOrigin: true,
+    tokens,
     // Self-contained: no CDN, no connections, no nested frames, no eval.
     csp: { cdnOrigins: [] },
-    maxHeight: 480,
+    ...(expanded ? { minHeight: height, maxHeight: height } : { maxHeight: 480 }),
     ...(prompt ? { onPrompt: prompt } : {}),
     onOpenLink: (url) => {
       // The address the owner reads stays the one Open opens: a later request waits for the dialog to close.
@@ -83,8 +117,7 @@ function ArtifactFrame({ code, onFailed }: { code: string; onFailed: () => void 
   }, [widget, code, onFailed]);
   return (
     <>
-      {/* The frame's default text is dark (Generative Frame's light theme): a light ground keeps it readable in dark mode until the theme is passed. */}
-      <div ref={ref} className="min-w-0 rounded-lg bg-white" />
+      <div ref={ref} className="min-w-0 rounded-lg bg-surface" />
       <Dialog open={link !== null} onOpenChange={(open) => !open && setLink(null)}>
         <DialogContent>
           <DialogTitle>{t("artifactLinkTitle")}</DialogTitle>

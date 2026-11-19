@@ -691,3 +691,80 @@ test("a generated artifact shows as a card, runs only after Run, in a frame that
   expect(model!.requests).toHaveLength(before + 2);
   expect(await shown()).toHaveLength(1);
 });
+
+// An artifact that reads the theme the host passes it, and says again when it changes.
+const THEMED = `<style>body{margin:0;padding:16px;font-family:var(--font-sans);color:var(--color-text)}p{color:var(--color-text-muted)}</style>
+<h3 style="margin:0 0 8px">Tasks done this week</h3>
+<svg width="320" height="120" role="img" aria-label="Bar chart">${[3, 5, 2, 6, 4].map((n, i) => `<rect x="${i * 60 + 10}" y="${110 - n * 16}" width="40" height="${n * 16}" fill="var(--color-accent)"/>`).join("")}</svg>
+<p id="scheme">pending</p>
+<script>
+  const show = () => { document.getElementById("scheme").textContent = document.documentElement.dataset.theme + " " + getComputedStyle(document.documentElement).getPropertyValue("--color-background").trim(); };
+  show();
+  window.addEventListener("themechange", show);
+</script>`;
+
+test("a running artifact expands to most of the window, follows the theme, and collapses back to its button", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.emulateMedia({ colorScheme: "light" });
+  await signIn(page);
+  model!.script(use("artifact_show", { title: "Weekly tasks", format: "html", code: THEMED }, "Here is the chart."), () => ({ text: "The chart is above." }));
+  await page.goto("/assistant?run=new");
+  const chat = page.getByRole("region", { name: "Stem", exact: true });
+  await chat.getByLabel("Message", { exact: true }).fill("Chart my week again.");
+  await chat.getByRole("button", { name: "Send", exact: true }).click();
+  const card = chat.getByRole("region", { name: "Weekly tasks", exact: true });
+  await expect(card).toBeVisible();
+
+  // Nothing to expand before Run, not even after Run was refused.
+  const expand = card.getByRole("button", { name: "Expand", exact: true });
+  await expect(expand).toHaveCount(0);
+  await card.getByRole("button", { name: "Run", exact: true }).click();
+  const confirm = page.getByRole("dialog", { name: "Run this artifact?" });
+  await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(expand).toHaveCount(0);
+  await card.getByRole("button", { name: "Run", exact: true }).click();
+  await confirm.getByRole("button", { name: "Run", exact: true }).click();
+  await expect(expand).toBeVisible();
+  await expect(card.locator("iframe")).toHaveCount(1);
+
+  // Expanded: one frame, in the dialog, filling most of the window, in the app's light theme.
+  const expanded = page.getByRole("dialog", { name: "Weekly tasks", exact: true });
+  const frame = expanded.frameLocator("iframe");
+  const open = async () => {
+    await expand.click();
+    await expect(expanded).toBeVisible();
+    await expect(page.locator("iframe")).toHaveCount(1);
+    await expect(card.locator("iframe")).toHaveCount(0);
+    await expect(frame.locator("#scheme")).not.toHaveText("pending");
+    const height = (await expanded.locator("iframe").boundingBox())!.height;
+    expect(height).toBeGreaterThan(page.viewportSize()!.height * 0.75);
+  };
+  await open();
+  await expect(frame.locator("#scheme")).toHaveText("light #fbfdf8");
+  await page.screenshot({ path: testInfo.outputPath("chat-artifact-expanded-light-desktop.png"), animations: "disabled" });
+
+  // The theme changes under a running frame: it is told, and shows it.
+  await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
+  await expect(frame.locator("#scheme")).toHaveText("dark #1c1c1e");
+  await page.screenshot({ path: testInfo.outputPath("chat-artifact-expanded-dark-desktop.png"), animations: "disabled" });
+
+  // Esc collapses it, the focus goes back to Expand, and the frame is inline again.
+  await page.keyboard.press("Escape");
+  await expect(expanded).toHaveCount(0);
+  await expect(expand).toBeFocused();
+  await expect(page.locator("iframe")).toHaveCount(1);
+  await expect(card.locator("iframe")).toHaveCount(1);
+  await expect(card.frameLocator("iframe").locator("#scheme")).toHaveText("dark #1c1c1e");
+
+  // A phone's width, in both themes; Collapse closes it too.
+  await page.setViewportSize({ width: 390, height: 800 });
+  await open();
+  await expect(frame.locator("#scheme")).toHaveText("dark #1c1c1e");
+  await page.screenshot({ path: testInfo.outputPath("chat-artifact-expanded-dark-phone.png"), animations: "disabled" });
+  await page.evaluate(() => document.documentElement.setAttribute("data-theme", "light"));
+  await expect(frame.locator("#scheme")).toHaveText("light #fbfdf8");
+  await page.screenshot({ path: testInfo.outputPath("chat-artifact-expanded-light-phone.png"), animations: "disabled" });
+  await expanded.getByRole("button", { name: "Collapse", exact: true }).click();
+  await expect(expanded).toHaveCount(0);
+  await expect(expand).toBeFocused();
+});

@@ -109,5 +109,7 @@
   "artifactFailed": "This artifact didn't render as expected. Its code may have an error.",
   "artifactLinkTitle": "Open this link?",
   "artifactLinkText": "The artifact asks to open this address in a new tab:",
+  "artifactExpand": "Expand",
+  "artifactCollapse": "Collapse",
   "artifactOpen": "Open"
 }

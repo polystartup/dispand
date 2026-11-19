@@ -777,7 +777,12 @@
   The chat shows the reference as a card (`components/chat/ArtifactPart.tsx`, the `artifact_show`
   tool of the thread's toolkit, so history replays it without running a tool). Run, after a
   warning, fetches the code and renders it with Generative Frame (`generative-frame/react`,
-  opaque-origin `srcdoc` frame, no CDN, height up to 480 px); see `SECURITY.md`.
+  opaque-origin `srcdoc` frame, no CDN, height up to 480 px); see `SECURITY.md`. A running
+  artifact has Expand: a dialog (so Esc, the focus trap and the focus's return to Expand are
+  Radix's) with a new frame filling the window's height, the inline one unmounted, so the
+  artifact's scripts start over. The frame is given the app's theme (`styles/tokens.css`, read by
+  `useThemeTokens`) and told of each light or dark change. Esc doesn't reach a frame that holds
+  the focus: the dialog has a Collapse button.
   Every start the engine sends for a Job (`launch`: the first, one sent again after its runner was
   away or its slot came, a resume) reads its memory again (`memory/read.ts`), and the stored
   start never holds it; a resumed cloud session keeps the new system prompt for its next calls.
