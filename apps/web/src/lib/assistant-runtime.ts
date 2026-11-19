@@ -14,6 +14,8 @@ type Queued = RunSnapshot["queue"][number];
 export const TRACE_TOOL = "dispand_trace";
 /** A saved, authorized rows_get result; its values already carry display labels. */
 export const RECORD_TOOL = "rows_get";
+/** A generated artifact (`artifact_show`): its stored reference; the code is fetched when the owner runs or reads it. */
+export const ARTIFACT_TOOL = "artifact_show";
 /** A question of the chat: a tool call with no result while it waits, its answer as the result after. */
 export const QUESTION_TOOL = "dispand_question";
 /** A consult of the chat's agent: one line naming the agent it asks, with nothing to answer. */
@@ -29,7 +31,7 @@ const converted = new WeakMap<object, ThreadMessageLike>();
 function ofMessage(m: Message): ThreadMessageLike {
   const createdAt = new Date(m.createdAt);
   if (m.role === "tool") {
-    // An artifact's reference shows as its trace line until the chat renders artifacts.
+    if (m.result && "artifactId" in m.result) return { id: m.id, role: "assistant", createdAt, content: [{ type: "tool-call", toolCallId: m.result.artifactId, toolName: ARTIFACT_TOOL, args: {}, result: m.result }] };
     if (m.result && "record" in m.result) return { id: m.id, role: "assistant", createdAt, content: [{ type: "tool-call", toolCallId: `${m.result.turnId}:${m.result.toolCallId}`, toolName: RECORD_TOOL, args: m.result.args, result: m.result.record }] };
     return { id: m.id, role: "assistant", createdAt, content: [{ type: "tool-call", toolCallId: m.id, toolName: TRACE_TOOL, args: { text: m.text }, result: "done" }] };
   }

@@ -774,6 +774,10 @@
   `engine.settled`, for cloud and CLI Jobs alike. Snapshots and events carry the reference only;
   `artifacts.get` (owner checked) returns the code. Its Audit row and its `artifacts.show` span
   hold ids, the format and the size in bytes, never the code or the title.
+  The chat shows the reference as a card (`components/chat/ArtifactPart.tsx`, the `artifact_show`
+  tool of the thread's toolkit, so history replays it without running a tool). Run, after a
+  warning, fetches the code and renders it with Generative Frame (`generative-frame/react`,
+  opaque-origin `srcdoc` frame, no CDN, height up to 480 px); see `SECURITY.md`.
   Every start the engine sends for a Job (`launch`: the first, one sent again after its runner was
   away or its slot came, a resume) reads its memory again (`memory/read.ts`), and the stored
   start never holds it; a resumed cloud session keeps the new system prompt for its next calls.

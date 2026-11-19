@@ -99,5 +99,15 @@
   "steerInterrupt": "Interrompre et envoyer",
   "steerInterruptHint": "Arrête l’outil en cours de l’agent et envoie ce message dans son tour",
   "steerLate": "Ce message n’est pas parti maintenant : il avait déjà été envoyé, ou le tour de l’agent venait de finir. S’il est encore en attente, il partira après le tour.",
-  "steerFailed": "Impossible d’envoyer le message maintenant. Il reste en attente."
+  "steerFailed": "Impossible d’envoyer le message maintenant. Il reste en attente.",
+  "artifactRun": "Exécuter",
+  "artifactShowCode": "Voir le code",
+  "artifactHideCode": "Masquer le code",
+  "artifactRunTitle": "Exécuter cet artefact ?",
+  "artifactRunWarning": "Son code s’exécute dans un cadre isolé, mais une fois lancé il peut envoyer hors de Dispand tout ce qu’il contient, y compris des données qu’il n’affiche pas. Ne l’exécutez que si vous faites confiance à ce que l’agent a écrit.",
+  "artifactLoadFailed": "Impossible de charger cet artefact.",
+  "artifactFailed": "Cet artefact ne s’est pas affiché comme prévu. Son code contient peut-être une erreur.",
+  "artifactLinkTitle": "Ouvrir ce lien ?",
+  "artifactLinkText": "L’artefact demande à ouvrir cette adresse dans un nouvel onglet :",
+  "artifactOpen": "Ouvrir"
 }

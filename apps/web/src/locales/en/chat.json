@@ -99,5 +99,15 @@
   "steerInterrupt": "Interrupt and send",
   "steerInterruptHint": "Stops the agent's running tool and sends this message into its turn",
   "steerLate": "This message didn't go now: it was already sent, or the agent's turn just ended. If it is still queued, it goes after the turn.",
-  "steerFailed": "Could not send the message now. It stays queued."
+  "steerFailed": "Could not send the message now. It stays queued.",
+  "artifactRun": "Run",
+  "artifactShowCode": "Show code",
+  "artifactHideCode": "Hide code",
+  "artifactRunTitle": "Run this artifact?",
+  "artifactRunWarning": "Its code runs in a sandboxed frame, but once it runs it may send anything it holds outside Dispand, including data it doesn't show. Run it only if you trust what the agent wrote.",
+  "artifactLoadFailed": "Could not load this artifact.",
+  "artifactFailed": "This artifact didn't render as expected. Its code may have an error.",
+  "artifactLinkTitle": "Open this link?",
+  "artifactLinkText": "The artifact asks to open this address in a new tab:",
+  "artifactOpen": "Open"
 }

@@ -5,14 +5,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, Check, ChevronDown, Copy, MessageSquare, Paperclip, Quote, Users, Wrench, X } from "lucide-react";
 import { Collapsible } from "radix-ui";
 import { useTranslation } from "react-i18next";
-import { createContext, type ComponentProps, type ReactNode, useContext, useMemo, useState } from "react";
+import { createContext, type ComponentProps, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
 import { orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
-import { CONSULT_TOOL, heldAttachments, QUESTION_TOOL, RECORD_TOOL, threadMessages, TRACE_TOOL, useRunThread, useTranscript } from "../../lib/assistant-runtime.ts";
+import { ARTIFACT_TOOL, CONSULT_TOOL, heldAttachments, QUESTION_TOOL, RECORD_TOOL, threadMessages, TRACE_TOOL, useRunThread, useTranscript } from "../../lib/assistant-runtime.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import { ProposalItems } from "../questions/ProposalItems.tsx";
 import { approvalWords, QuestionForm } from "../questions/QuestionForm.tsx";
 import { AgentText } from "./AgentText.tsx";
+import { ArtifactPart, DraftPrompt } from "./ArtifactPart.tsx";
 import { ComposerAttachment, MessageAttachment } from "./Attachment.tsx";
 
 type Question = RunSnapshot["questions"][number];
@@ -222,6 +223,7 @@ const groupBy = groupPartByType({ [`tool-call:${TRACE_TOOL}`]: ["group-tool"] })
 const toolConfig = AuiConfig({ tools: Tools({ toolkit: {
   [TRACE_TOOL]: { type: "backend", render: Trace },
   [RECORD_TOOL]: { type: "backend", display: "standalone", render: RecordPart },
+  [ARTIFACT_TOOL]: { type: "backend", display: "standalone", render: ArtifactPart },
   [QUESTION_TOOL]: { type: "backend", display: "standalone", render: QuestionPart },
   [CONSULT_TOOL]: { type: "backend", display: "standalone", render: ConsultPart },
 } }) });
@@ -296,8 +298,15 @@ function ChatThreadView({ runtime, run, chatStepId, canSend, children, composer,
   const empty = threadMessages(run, chatStepId).length === 0 && run?.steps.find((s) => s.id === chatStepId)?.status !== "failed";
   const questions = new Map((run?.questions ?? []).map((q) => [q.id, q]));
   const approval = composerApproval(run?.questions ?? [], chatStepId)?.id;
+  // An artifact's prompt goes after the draft, as the owner's words given back do (`ChatPanel`).
+  const draft = useCallback((text: string) => {
+    const composer = runtime.thread.composer;
+    const current = composer.getState().text;
+    composer.setText(current.trim() ? `${current}\n\n${text}` : text);
+  }, [runtime]);
   return (
     <AssistantRuntimeProvider runtime={runtime} config={toolConfig}>
+      <DraftPrompt.Provider value={canSend && composer ? draft : undefined}>
       <Questions.Provider value={questions}>
         <ComposerApproval.Provider value={approval}>
           <ThreadPrimitive.Root className={`relative flex min-h-0 flex-1 flex-col ${centeredWelcome && empty ? "justify-center overflow-y-auto" : ""}`}>
@@ -340,6 +349,7 @@ function ChatThreadView({ runtime, run, chatStepId, canSend, children, composer,
           </ThreadPrimitive.Root>
         </ComposerApproval.Provider>
       </Questions.Provider>
+      </DraftPrompt.Provider>
     </AssistantRuntimeProvider>
   );
 }

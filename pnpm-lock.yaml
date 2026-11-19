@@ -297,6 +297,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      generative-frame:
+        specifier: 0.0.11
+        version: 0.0.11(@assistant-ui/core@0.3.33(@assistant-ui/store@0.3.23(@assistant-ui/tap@0.9.25(@types/react@19.3.0)(react@19.3.1))(@types/react@19.3.0)(react@19.3.1))(@assistant-ui/tap@0.9.25(@types/react@19.3.0)(react@19.3.1))(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-http@0.300.0(@opentelemetry/api@1.10.0))(@types/react@19.3.0)(react@19.3.1))(@assistant-ui/react@0.15.32(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-http@0.300.0(@opentelemetry/api@1.10.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(use-sync-external-store@1.7.0(react@19.3.1)))(@types/react@19.3.0)(react@19.3.1)
       i18next:
         specifier: ^27.1.1
         version: 27.1.1(typescript@6.0.3)
@@ -3543,6 +3546,35 @@ packages:
 
   function-bind@1.1.2:
     resolution: {integrity: sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA==}
+
+  generative-frame@0.0.11:
+    resolution: {integrity: sha512-AtccM8frMmCFpRuXK98rzZxbQ8m9+GCGFgEr7T+twYcXY+R1+EXP9BNqTJSdjuj4Gpwn8IpDEUtoxcbPfuh+kA==}
+    peerDependencies:
+      '@assistant-ui/core': ^0.3.26
+      '@assistant-ui/react': ^0.15.0
+      '@assistant-ui/react-native': ^0.1.47
+      '@assistant-ui/vue': ^0.0.8
+      '@types/react': '*'
+      react: ^18 || ^19
+      react-native: '*'
+      vue: ^3.5.0
+    peerDependenciesMeta:
+      '@assistant-ui/core':
+        optional: true
+      '@assistant-ui/react':
+        optional: true
+      '@assistant-ui/react-native':
+        optional: true
+      '@assistant-ui/vue':
+        optional: true
+      '@types/react':
+        optional: true
+      react:
+        optional: true
+      react-native:
+        optional: true
+      vue:
+        optional: true
 
   gensync@1.0.0-beta.2:
     resolution: {integrity: sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg==}
@@ -7906,6 +7938,15 @@ snapshots:
     optional: true
 
   function-bind@1.1.2: {}
+
+  generative-frame@0.0.11(@assistant-ui/core@0.3.33(@assistant-ui/store@0.3.23(@assistant-ui/tap@0.9.25(@types/react@19.3.0)(react@19.3.1))(@types/react@19.3.0)(react@19.3.1))(@assistant-ui/tap@0.9.25(@types/react@19.3.0)(react@19.3.1))(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-http@0.300.0(@opentelemetry/api@1.10.0))(@types/react@19.3.0)(react@19.3.1))(@assistant-ui/react@0.15.32(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-http@0.300.0(@opentelemetry/api@1.10.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(use-sync-external-store@1.7.0(react@19.3.1)))(@types/react@19.3.0)(react@19.3.1):
+    dependencies:
+      safe-content-frame: 0.0.34
+    optionalDependencies:
+      '@assistant-ui/core': 0.3.33(@assistant-ui/store@0.3.23(@assistant-ui/tap@0.9.25(@types/react@19.3.0)(react@19.3.1))(@types/react@19.3.0)(react@19.3.1))(@assistant-ui/tap@0.9.25(@types/react@19.3.0)(react@19.3.1))(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-http@0.300.0(@opentelemetry/api@1.10.0))(@types/react@19.3.0)(react@19.3.1)
+      '@assistant-ui/react': 0.15.32(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-http@0.300.0(@opentelemetry/api@1.10.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(use-sync-external-store@1.7.0(react@19.3.1))
+      '@types/react': 19.3.0
+      react: 19.3.1
 
   gensync@1.0.0-beta.2: {}
 

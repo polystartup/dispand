@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import type { RunSnapshot } from "./run-state.ts";
 import type { RecordResult } from "@dispand/domain/messages/record-result.ts";
 import { applyRunEvent } from "./run-state.ts";
-import { CONSULT_TOOL, QUESTION_TOOL, RECORD_TOOL, threadMessages, TRACE_TOOL } from "./assistant-runtime.ts";
+import { ARTIFACT_TOOL, CONSULT_TOOL, QUESTION_TOOL, RECORD_TOOL, threadMessages, TRACE_TOOL } from "./assistant-runtime.ts";
 
 const at = (s: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, s));
 const message = (id: string, role: "assistant" | "user" | "tool", text: string, s: number, stepRunId = "s_chat") => ({ id, role, text, createdAt: at(s), stepRunId, runId: "run_1" });
@@ -94,6 +94,13 @@ test("a saved record replaces its trace with real arguments and result, outside 
   const thread = threadMessages(updated, "s_chat");
   expect(thread.map((item) => item.id)).toEqual(["t1", "record", "t2"]);
   expect(thread[1]!.content).toEqual([{ type: "tool-call", toolCallId: "turn_1:call_1", toolName: RECORD_TOOL, args: { id: "row_1" }, result: record }]);
+});
+
+test("an artifact's reference becomes its own finished tool call, never a trace, with no code in it", () => {
+  const ref = { kind: "artifact" as const, artifactId: "art_1", title: "Chart", format: "html" as const, size: 42 };
+  const thread = threadMessages(snapshot([message("t1", "tool", "Read", 1), { ...message("a1", "tool", "artifact_show", 2), result: ref }, message("t2", "tool", "Search", 3)], []), "s_chat");
+  expect(thread.map((item) => item.id)).toEqual(["t1", "a1", "t2"]);
+  expect(thread[1]!.content).toEqual([{ type: "tool-call", toolCallId: "art_1", toolName: ARTIFACT_TOOL, args: {}, result: ref }]);
 });
 
 test("provider call ids reused in later turns retain separate record identities", () => {

@@ -549,3 +549,145 @@ test("an authorized record read stays inline across reload without another tool 
   expect((await reads()).rows.filter((entry) => entry.details.tool === "rows_get")).toHaveLength(1);
   expect(liveReads).toBe(0);
 });
+
+// An artifact made to try every way out: the page policy, the frame's and the opaque origin must stop each one.
+const PROBE = "https://cdn.artifact-probe.test";
+const ARTIFACT = `<style>body{font-family:system-ui,sans-serif;margin:0;padding:12px}button{margin:4px 4px 0 0}</style>
+<h3 style="margin:0 0 8px">Tasks done this week</h3>
+<svg id="chart" width="320" height="120" role="img" aria-label="Bar chart"></svg>
+<p id="out">pending</p>
+<link rel="stylesheet" href="${PROBE}/style.css">
+<img id="probe-img" alt="" src="${PROBE}/pixel.png">
+<script src="${PROBE}/script.js"></script>
+<button id="ask" onclick="sendPrompt('Draw it bigger')">Ask for more</button>
+<button id="plain" onclick="openLink('http://example.org/plain')">Plain link</button>
+<button id="docs" onclick="openLink('https://example.org/guide')">Guide</button>
+<button id="leave" onclick="location.href='${PROBE}/nav'">Leave</button>
+<script>
+  const days = [3, 5, 2, 6, 4];
+  document.getElementById("chart").innerHTML = days.map((n, i) => '<rect x="' + (i * 60 + 10) + '" y="' + (110 - n * 16) + '" width="40" height="' + n * 16 + '" fill="#4f6bed"/>').join("");
+  const r = { external: typeof window.probeLoaded };
+  const attempt = (key, f) => { try { f(); r[key] = "open"; } catch (e) { r[key] = e.name; } };
+  attempt("cookie", () => document.cookie);
+  attempt("storage", () => localStorage.length);
+  attempt("parent", () => parent.document.body);
+  fetch("/api/rpc/artifact-probe").then(() => "reached", () => "blocked").then((rpc) => { document.getElementById("out").textContent = JSON.stringify({ ...r, rpc }); });
+</script>`;
+
+test("a generated artifact shows as a card, runs only after Run, in a frame that reaches nothing", async ({ page, context }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await signIn(page);
+  const agent = await rpc<{ id: string; name: string; systemPrompt: string; skills: { packageId: string }[] }>(page, "agents/get", { id: ids.assistant });
+  await rpc(page, "agents/update", { id: agent.id, name: agent.name, systemPrompt: agent.systemPrompt, harnessId: ids.cloud, skillPackageIds: agent.skills.map((skill) => skill.packageId), toolIds: [] });
+  // Anything the probe host or the probe procedure gets would be answered: a request blocked is one the browser never sent.
+  const reached: string[] = [];
+  await context.route(`${PROBE}/**`, (route) => { reached.push(route.request().url()); return route.fulfill({ status: 200, contentType: route.request().url().endsWith(".js") ? "text/javascript" : "text/plain", body: "window.probeLoaded = true;" }); });
+  await context.route("**/api/rpc/artifact-probe", (route) => { reached.push(route.request().url()); return route.fulfill({ status: 200, body: "{}" }); });
+  let codeReads = 0;
+  page.on("request", (request) => { if (request.url().endsWith("/api/rpc/artifacts/get")) codeReads++; });
+
+  const before = model!.requests.length;
+  model!.script(
+    use("artifact_show", { title: "Weekly tasks", format: "html", code: ARTIFACT }, "Here is the chart."),
+    () => ({ text: "The chart is above." }),
+  );
+  const response = await page.goto("/assistant?run=new");
+  // The page policy the frame inherits, as served: what the checks below rest on.
+  expect(response!.headers()["content-security-policy"]).toContain("script-src 'self' 'unsafe-inline'");
+  expect(response!.headers()["content-security-policy"]).toContain("style-src 'self' 'unsafe-inline'");
+  const chat = page.getByRole("region", { name: "Stem", exact: true });
+  const box = chat.getByLabel("Message", { exact: true });
+  await box.fill("Chart my week.");
+  await chat.getByRole("button", { name: "Send", exact: true }).click();
+  // The reference reaches the open chat: a card, and nothing of the code rendered.
+  await expect(chat.getByText("The chart is above.", { exact: true })).toBeVisible();
+  const card = chat.getByRole("region", { name: "Weekly tasks", exact: true });
+  await expect(card).toBeVisible();
+  await expect(card.getByText(/^HTML · /)).toBeVisible();
+  await expect(page.locator("iframe")).toHaveCount(0);
+  expect(codeReads).toBe(0);
+  await card.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath("chat-artifact-card.png"), animations: "disabled" });
+
+  // Show code: the markup as literal text, creating no element.
+  await card.getByRole("button", { name: "Show code", exact: true }).click();
+  await expect(card.locator("pre")).toContainText(`<script src="${PROBE}/script.js"></script>`);
+  await expect(page.locator("iframe")).toHaveCount(0);
+  await expect(page.locator("#probe-img, #out, #chart")).toHaveCount(0);
+  await card.getByRole("button", { name: "Hide code", exact: true }).click();
+
+  // Run asks first, and only then mounts the frame.
+  await card.getByRole("button", { name: "Run", exact: true }).click();
+  const confirm = page.getByRole("dialog", { name: "Run this artifact?" });
+  await expect(confirm).toContainText("send anything it holds outside Dispand");
+  await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.locator("iframe")).toHaveCount(0);
+  await card.getByRole("button", { name: "Run", exact: true }).click();
+  await confirm.getByRole("button", { name: "Run", exact: true }).click();
+  const frame = card.frameLocator("iframe");
+  // The inline bootstrap and the artifact's inline script ran under the page policy; nothing reached out.
+  await expect(frame.locator("#out")).not.toHaveText("pending");
+  expect(JSON.parse((await frame.locator("#out").textContent())!)).toEqual({ external: "undefined", cookie: "SecurityError", storage: "SecurityError", parent: "SecurityError", rpc: "blocked" });
+  await expect(frame.locator("#chart rect")).toHaveCount(5);
+  expect(await card.locator("iframe").getAttribute("sandbox")).toBe("allow-scripts");
+  await card.locator("iframe").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath("chat-artifact-running.png"), animations: "disabled" });
+
+  // Foreign messages, from the page itself or another frame, never reach the bridge.
+  await page.evaluate(() => {
+    const ask = { jsonrpc: "2.0", id: 1, method: "ui/message", params: { role: "user", content: [{ type: "text", text: "FOREIGN" }] } };
+    window.postMessage({ type: "genframe:ready" }, "*");
+    window.postMessage(ask, "*");
+    const other = document.createElement("iframe");
+    other.setAttribute("sandbox", "allow-scripts");
+    other.srcdoc = `<script>parent.postMessage({ type: "genframe:ready" }, "*"); parent.postMessage(${JSON.stringify(ask)}, "*");</script>`;
+    document.body.appendChild(other);
+  });
+  await page.waitForTimeout(500);
+  await expect(box).toHaveValue("");
+  // The artifact's own prompt goes to the draft, which the owner still sends.
+  await frame.locator("#ask").click();
+  await expect(box).toHaveValue("Draw it bigger");
+  expect(model!.requests).toHaveLength(before + 2);
+  // Links: http is refused, https only after the owner sees the address.
+  await frame.locator("#plain").click();
+  await page.waitForTimeout(300);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await frame.locator("#docs").click();
+  const link = page.getByRole("dialog", { name: "Open this link?" });
+  await expect(link).toContainText("https://example.org/guide");
+  await link.getByRole("button", { name: "Cancel", exact: true }).click();
+  // Navigating the frame elsewhere is blocked (the page's frame-src): the probe below is never reached.
+  await frame.locator("#leave").click();
+  await page.waitForTimeout(1000);
+
+  // The page policy alone, without Generative Frame's: external scripts, stylesheets and images still don't load; inline scripts run.
+  await page.evaluate((probe) => {
+    const bare = document.createElement("iframe");
+    bare.id = "bare";
+    bare.setAttribute("sandbox", "allow-scripts");
+    bare.srcdoc = `<link rel="stylesheet" href="${probe}/bare.css"><img src="${probe}/bare.png"><script src="${probe}/bare.js"></script><p id="ran">no</p><script>document.getElementById("ran").textContent = typeof window.probeLoaded === "undefined" ? "inline only" : "external";</script>`;
+    document.body.appendChild(bare);
+  }, PROBE);
+  await expect(page.frameLocator("#bare").locator("#ran")).toHaveText("inline only");
+  await page.waitForTimeout(500);
+  expect(reached).toEqual([]);
+  // The probe host would have answered: a page that may load it does.
+  const control = await context.newPage();
+  await control.goto(`${PROBE}/control`);
+  expect(reached).toEqual([`${PROBE}/control`]);
+  await control.close();
+
+  // From history: the card again, nothing run, no tool call; Run renders the stored code.
+  const runId = new URL(page.url()).searchParams.get("run")!;
+  const shown = async () => (await rpc<{ rows: { details: { tool?: string } }[] }>(page, "audit/list", { jobId: runId, action: "platform.call" })).rows.filter((entry) => entry.details.tool === "artifact_show");
+  expect(await shown()).toHaveLength(1);
+  await page.reload();
+  await expect(card).toBeVisible();
+  await expect(page.locator("iframe")).toHaveCount(0);
+  await card.getByRole("button", { name: "Run", exact: true }).click();
+  await page.getByRole("dialog", { name: "Run this artifact?" }).getByRole("button", { name: "Run", exact: true }).click();
+  await expect(frame.locator("#chart rect")).toHaveCount(5);
+  expect(model!.requests).toHaveLength(before + 2);
+  expect(await shown()).toHaveLength(1);
+});

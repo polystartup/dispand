@@ -115,12 +115,13 @@ changes it updates this file.
   origin it went to (a tool's address may hold a secret in its path); a statement is recorded
   without its values; a connection string keeps no password.
 - **A page loads from, and connects to, the app's own origin only.** Every HTML page is
-  served with a Content-Security-Policy that keeps images (plus inline `data:` and `blob:`),
-  media and fonts to the app's origin, connections to it too, and allows no frame, object,
-  foreign `base` or form target, nor being framed (`server/page-security.ts`). Text an agent
-  wrote is shown in many places; whatever a renderer makes of it, the browser can't be made
-  to fetch from, or send to, another host. Scripts and styles are not restricted by it. A
-  served file keeps its own stricter policy (`default-src 'none'; sandbox`).
+  served with a Content-Security-Policy that keeps scripts and stylesheets (plus inline ones),
+  images (plus inline `data:` and `blob:`), media and fonts to the app's origin, connections
+  to it too, and allows no frame, object, foreign `base` or form target, nor being framed
+  (`server/page-security.ts`). Text an agent wrote is shown in many places; whatever a
+  renderer makes of it, the browser can't be made to fetch from, or send to, another host. A
+  served file keeps its own stricter policy (`default-src 'none'; sandbox`). The one
+  exception is a generated artifact the owner chose to run (below).
 - **An agent's text is shown formatted, and loads nothing.** In the chat and in a Job's
   transcript on its run page, an agent's words go through one component (`components/chat/AgentText.tsx`): an image shows only when its
   address is one of the app's own files (`/files/<id>`, nothing else: no scheme, no host, no
@@ -290,6 +291,21 @@ changes it updates this file.
   for the card, format, size) or less. A tool message gets an artifact reference only from
   `artifact_show` run by `callPlatformTool`: an MCP or native tool's result shaped like one is
   never stored as one. No route serves artifact code as a page.
+- **An artifact runs only when its owner clicks Run, alone in an opaque frame.** Before Run,
+  the chat shows a card (title, format, size) and, on "Show code", the code as plain text:
+  nothing of it is rendered as HTML, so no frame, script or request exists
+  (`components/chat/ArtifactPart.tsx`). Run first says, in the app's own words, that the code
+  may then send anything it holds outside Dispand; the click is not remembered. The code then
+  runs in a `sandbox="allow-scripts"` `srcdoc` frame (Generative Frame, `opaqueOrigin`, pinned
+  to an exact version): an opaque origin, with no cookies, storage or access to the page. It
+  enforces Generative Frame's policy (no CDN, no connection, no nested frame, no `eval`) and
+  inherits the page policy above, which still blocks other hosts' scripts, stylesheets,
+  images, connections and navigation if the frame's own policy fails. WebRTC is the channel
+  no browser's CSP covers: a running artifact could use it to reach a STUN or TURN server.
+  That is why it runs only on a click. Its bridge to the chat gives it no tool; a prompt it
+  sends only goes into the draft, which the owner still sends; a link opens only if it is
+  `https:`, after the owner confirms its address, with `noopener`. Messages count only from
+  the frame's own window.
 - **A Job writes memory only where its agent's self-learning says, and only as itself.** The
   memory tools (`memory/tools.ts`) are the Job's own: `memory_read` reads the workspace's
   memory, its own agent's, its tables' (with `data`) and another agent's only with
