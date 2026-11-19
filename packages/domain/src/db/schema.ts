@@ -562,6 +562,43 @@ export const messages = pgTable(
   (t) => [index("messages_step_idx").on(t.stepRunId, t.position), index("messages_run_idx").on(t.runId, t.position)],
 );
 
+/** `pending` may change (edit, remove) or go (dispatch); every move out of it is a conditional update, so one of them wins. */
+export type ChatQueueState = "pending" | "dispatched" | "failed" | "removed";
+
+/**
+ * The owner's chat messages sent while the chat was busy (`Engine.sendChat`), sent one per turn
+ * in order once it is idle. Dispatch writes the message under the item's own id, so it can't be
+ * written twice. A dispatched one is acknowledged when a turn of its chat ends after it
+ * (`ackedAt`): until then the next one waits.
+ */
+export const chatQueue = pgTable(
+  "chat_queue",
+  {
+    id: text("id").primaryKey(),
+    position: integer("position").generatedAlwaysAsIdentity(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    stepRunId: text("step_run_id")
+      .notNull()
+      .references(() => stepRuns.id, { onDelete: "cascade" }),
+    state: text("state").$type<ChatQueueState>().notNull().default("pending"),
+    text: text("text").notNull(),
+    skillId: text("skill_id"),
+    /** Taken for the Job when queued, as a message's files are when sent. */
+    files: jsonb("files").$type<MessageFile[]>(),
+    /** Why a failed item wasn't sent, stored (`stored`). */
+    error: text("error"),
+    ackedAt: timestamp("acked_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [index("chat_queue_step_idx").on(t.stepRunId, t.position), index("chat_queue_run_idx").on(t.runId, t.position)],
+);
+
 /**
  * Cloud sessions (`cloud/runner.ts`): Dispand runs their tool loop itself, so their history is
  * here. One row per session (`id` is the step run's session id).

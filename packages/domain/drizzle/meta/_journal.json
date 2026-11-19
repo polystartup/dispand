@@ -624,6 +624,13 @@
       "when": 1795031174704,
       "tag": "0088_chat_record_result",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1795044590683,
+      "tag": "0089_chat_queue",
+      "breakpoints": true
     }
   ]
 }

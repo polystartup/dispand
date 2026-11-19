@@ -4,7 +4,7 @@ import { call } from "@orpc/server";
 import { type Answer, parseServerMessage, type ServerToRunner, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING, TEXT } from "@dispand/runner-protocol";
 import { and, eq, or } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { audit, agents as agentsTable, agentTools, agentConsults, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools } from "../db/schema.ts";
+import { audit, agents as agentsTable, agentTools, agentConsults, chatQueue, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { ArgValue } from "../tools/arguments.ts";
@@ -182,7 +182,8 @@ test("Codex lost-session resume preserves attachment order and does not repeat a
   await emit(session, { type: "turn-start", turnId: "completed", interruptible: true });
   await engine.sendChat(runId, "File input");
   const files = [{ id: "att_saved", name: "notes.txt" }];
-  await context.db.update(messages).set({ files }).where(and(eq(messages.runId, runId), eq(messages.text, "File input")));
+  // Sent during the turn, it is queued, and goes with its files at the turn's end.
+  await context.db.update(chatQueue).set({ files }).where(and(eq(chatQueue.runId, runId), eq(chatQueue.text, "File input")));
   await engine.sendChat(runId, "After file");
   // The completed input is acknowledged, while queued inputs survive a lost session.
   await emit(session, { type: "turn-end", turnId: "completed" });
@@ -268,6 +269,102 @@ async function runOf(engine: Engine, runId: string) {
   const steps = await engine.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
   return { run: run!, steps: Object.fromEntries(steps.map((s) => [s.nodeId, s])) };
 }
+
+/** A chat whose first turn is under way, on a Claude Code runner. */
+async function busyChat() {
+  const env = await setup(chatThenStep);
+  const runId = await env.engine.startRun(env.workflow.id);
+  const sessionId = env.adapter.starts[0]!.start.sessionId;
+  await env.emit(sessionId, { type: "turn-start", turnId: "first", interruptible: true });
+  const queue = () => env.engine.db.select().from(chatQueue).where(eq(chatQueue.runId, runId)).orderBy(chatQueue.position);
+  const userMessages = async () => (await env.engine.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.role, "user"))).orderBy(messages.position)).map((m) => m.text);
+  return { ...env, runId, sessionId, queue, userMessages };
+}
+
+test("a message sent during a turn is queued, then sent one per turn, under its own id", async () => {
+  const { context, adapter, engine, emit, runId, sessionId, runnerId, queue, userMessages } = await busyChat();
+  const first = await engine.sendChat(runId, "First queued");
+  const second = await engine.sendChat(runId, "Second queued");
+  expect(first.queuedId).toBeDefined();
+  expect(adapter.sent).toEqual([]);
+  expect(await userMessages()).toEqual([]);
+  expect((await call(router.runs.get, { runId }, { context })).queue.map((q) => [q.id, q.state, q.text])).toEqual([[first.queuedId, "pending", "First queued"], [second.queuedId, "pending", "Second queued"]]);
+  await emit(sessionId, { type: "turn-end", turnId: "first" });
+  await vi.waitFor(() => expect(adapter.sent).toEqual([[sessionId, "First queued"]]));
+  const [message] = await engine.db.select().from(messages).where(eq(messages.text, "First queued"));
+  expect(message!.id).toBe(first.queuedId);
+  expect((await queue()).map((q) => q.state)).toEqual(["dispatched", "pending"]);
+  // A replayed turn-end, and a send while the next item still waits, deliver nothing twice.
+  await engine.onHarnessEvent(sessionId, { type: "turn-end", turnId: "first" }, { runnerId, seq: 1 });
+  await engine.sendChat(runId, "Third queued");
+  expect(await userMessages()).toEqual(["First queued"]);
+  await emit(sessionId, { type: "turn-start", turnId: "second", interruptible: true });
+  await emit(sessionId, { type: "turn-end", turnId: "second" });
+  await vi.waitFor(() => expect(adapter.sent.map(([, text]) => text)).toEqual(["First queued", "Second queued"]));
+  await emit(sessionId, { type: "turn-start", turnId: "third", interruptible: true });
+  await emit(sessionId, { type: "turn-end", turnId: "third" });
+  await vi.waitFor(() => expect(adapter.sent.map(([, text]) => text)).toEqual(["First queued", "Second queued", "Third queued"]));
+  expect(await userMessages()).toEqual(["First queued", "Second queued", "Third queued"]);
+  expect((await call(router.runs.get, { runId }, { context })).queue).toEqual([]);
+});
+
+test("an edit or a removal and the dispatch of a queued message have one winner", async () => {
+  const { context, adapter, engine, emit, runId, sessionId, userMessages } = await busyChat();
+  const { queuedId: kept } = await engine.sendChat(runId, "Draft");
+  const { queuedId: dropped } = await engine.sendChat(runId, "Never mind");
+  await call(router.runs.editQueued, { runId, queuedId: kept!, text: "Edited" }, { context });
+  await call(router.runs.removeQueued, { runId, queuedId: dropped! }, { context });
+  await emit(sessionId, { type: "turn-end", turnId: "first" });
+  await vi.waitFor(() => expect(adapter.sent).toEqual([[sessionId, "Edited"]]));
+  // Once dispatched, it is the conversation's: neither changes it.
+  await expect(call(router.runs.editQueued, { runId, queuedId: kept!, text: "Too late" }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
+  await expect(call(router.runs.removeQueued, { runId, queuedId: kept! }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
+  await expect(call(router.runs.editQueued, { runId, queuedId: dropped!, text: "Back" }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
+  expect(await userMessages()).toEqual(["Edited"]);
+  // Racing the turn's end: the edit lands before the dispatch (sent edited) or loses to it (refused, sent as it was).
+  await emit(sessionId, { type: "turn-start", turnId: "second", interruptible: true });
+  const { queuedId: raced } = await engine.sendChat(runId, "Original");
+  const [edit] = await Promise.allSettled([call(router.runs.editQueued, { runId, queuedId: raced!, text: "Raced edit" }, { context }), emit(sessionId, { type: "turn-end", turnId: "second" })]);
+  await vi.waitFor(() => expect(adapter.sent).toHaveLength(2));
+  expect(adapter.sent[1]![1]).toBe(edit.status === "fulfilled" ? "Raced edit" : "Original");
+  expect(await userMessages()).toEqual(["Edited", adapter.sent[1]![1]]);
+});
+
+test("queued messages of a stopped chat fail, saying why; a failed one can be removed", async () => {
+  const { context, engine, runId } = await busyChat();
+  const { queuedId } = await engine.sendChat(runId, "Later");
+  await engine.stopRun(runId);
+  const [item] = (await call(router.runs.get, { runId }, { context })).queue;
+  expect(item).toMatchObject({ id: queuedId, state: "failed" });
+  expect(storedText(item!.error!)).toMatchObject({ key: "engine.chatOver" });
+  await call(router.runs.removeQueued, { runId, queuedId: queuedId! }, { context });
+  expect((await call(router.runs.get, { runId }, { context })).queue).toEqual([]);
+});
+
+test("a queued message survives a restart and goes once its chat is idle", async () => {
+  const { context, adapter, engine, runId, sessionId } = await busyChat();
+  const { queuedId } = await engine.sendChat(runId, "After restart");
+  // The turn ended before the process stopped, which then couldn't send it.
+  await engine.db.update(stepRuns).set({ turnStatus: "idle", turnId: null, working: false }).where(eq(stepRuns.sessionId, sessionId));
+  await engine.stop();
+  const after = new FakeAdapter();
+  const recovered = new Engine(context.db, after);
+  onTestFinished(() => recovered.stop());
+  await recovered.recover();
+  await vi.waitFor(() => expect(after.sent).toEqual([[sessionId, "After restart"]]));
+  expect((await engine.db.select().from(chatQueue).where(eq(chatQueue.id, queuedId!)))[0]!.state).toBe("dispatched");
+  expect(adapter.sent).toEqual([]);
+});
+
+test("a cloud chat queues during its turn and sends at the turn's end", async () => {
+  const { adapter, engine, runId, sessionId, queue } = await busyChat();
+  await engine.db.update(stepRuns).set({ runnerId: CLOUD_SOURCE }).where(eq(stepRuns.sessionId, sessionId));
+  await engine.sendChat(runId, "Cloud followup");
+  expect(adapter.sent).toEqual([]);
+  await engine.onHarnessEvent(sessionId, { type: "turn-end", turnId: "first" }, { runnerId: CLOUD_SOURCE, seq: 100 });
+  await vi.waitFor(() => expect(adapter.sent).toEqual([[sessionId, "Cloud followup"]]));
+  expect((await queue()).map((q) => q.state)).toEqual(["dispatched"]);
+});
 
 test("chat turn activity follows ordered execution events, not slot allocation or message submission", async () => {
   const { adapter, engine, emit, workflow, runnerId } = await setup(chatThenStep);

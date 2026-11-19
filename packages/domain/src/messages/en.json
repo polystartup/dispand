@@ -519,6 +519,7 @@
     "rootNotFound": "This root cause doesn't exist.",
     "runOver": "This run is over.",
     "chatOver": "The chat is over.",
+    "queuedGone": "This queued message was already sent or removed.",
     "chatRunnerGone": "The chat's runner is no longer available.",
     "skillChatOnly": "Skills can be invoked in Assistant chats only.",
     "skillWait": "Wait for the Assistant to finish its turn before loading another skill.",

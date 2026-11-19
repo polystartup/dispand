@@ -98,6 +98,7 @@ function snapshot(runId: string): RunSnapshot {
     steps: [{ id: `${runId}_chat`, runId, nodeId: "n_chat", iteration: 0, status: "running", turnStatus: "unknown", turnId: null, interruptible: false, outputs: null, error: null, startedAt: at, finishedAt: null, queuedAt: null, interactive: true, prompt: null }],
     messages: [],
     questions: [],
+    queue: [],
   };
 }
 

@@ -1921,6 +1921,25 @@ as part of that follow-up. The former token stays invalid.
 The browser keeps watching resumable chats after success, within its normal connection cap,
 so the same composer can send and receive a new turn without starting another Job.
 
+### Queued chat messages
+
+An owner message sent while the chat's turn is under way (`turn_status` `running`), or while
+messages wait before it, is not sent to the harness: `sendChat` records it in `chat_queue`
+(migration 0089), `pending`, under the chat step's lock, with its held files taken for the Job
+as a sent message's are. Once the chat is idle, `drainQueue` sends the oldest pending one, one
+per turn: after `turn-end` and the other events that can leave a chat idle, after an interrupt
+or a stop, and on boot. A dispatch locks the chat step, then the item (`FOR UPDATE`), checks it
+is still pending and that no dispatched item awaits its acknowledgement, marks it `dispatched`
+and writes the message under the item's own id in the same transaction, then sends it as any
+message. The next `turn-end` acknowledges it (`acked_at`); until then the next item waits.
+`runs.editQueued` and `runs.removeQueued` (the owner's only) change only a `pending` item (a
+failed one can be removed), so an edit or a removal and the dispatch have one winner, refused
+with `CONFLICT`; a removed item keeps no words. One that can't go (the chat stopped or can't be
+reopened) is `failed` with its reason. A message sent while the chat is idle goes at once, as
+before. `runs.get` and `runs.stream` carry the pending and failed items (`queue`, `queued`
+events). Telemetry: an `engine.queue` span event (action, step id) on each enqueue, edit,
+removal, dispatch and failure; no words.
+
 ## Assistant slash picker
 
 The Assistant composer requests `assistantCommands` while typing a leading `/` token. The

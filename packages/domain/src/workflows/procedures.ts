@@ -6,6 +6,7 @@ import type { Db } from "../db/client.ts";
 import type { Tx } from "../db/client.ts";
 import {
   agents,
+  chatQueue,
   messages,
   questions,
   runs as runsTable,
@@ -19,7 +20,7 @@ import {
 } from "../db/schema.ts";
 import { EngineError, passOn } from "../engine/errors.ts";
 import { runIssues } from "../engine/problems.ts";
-import { messageView, questionView, runView, stepView, type RunEvent } from "../engine/views.ts";
+import { messageView, questionView, queuedView, runView, stepView, type RunEvent } from "../engine/views.ts";
 import { proposalView } from "../platform/proposals.ts";
 import { loadToolSchemas } from "../tools/executor.ts";
 import { newId } from "../ids.ts";
@@ -282,16 +283,18 @@ export async function runQuestion(db: Db, ownerId: string, q: ReturnType<typeof 
 
 /** The run as it is now: every row read here, so a stream's snapshot can't be older than its subscription. */
 async function snapshot(db: Db, ownerId: string, runId: string) {
-  const [[run], steps, transcript, asked] = await Promise.all([
+  const [[run], steps, transcript, asked, queued] = await Promise.all([
     db.select().from(runsTable).where(eq(runsTable.id, runId)),
     db.select().from(stepRuns).where(eq(stepRuns.runId, runId)),
     db.select().from(messages).where(eq(messages.runId, runId)).orderBy(asc(messages.position)),
     db.select().from(questions).where(eq(questions.runId, runId)).orderBy(asc(questions.createdAt)),
+    db.select().from(chatQueue).where(and(eq(chatQueue.runId, runId), inArray(chatQueue.state, ["pending", "failed"]))).orderBy(asc(chatQueue.position)),
   ]);
   return {
     run: runView(run!),
     steps: steps.map(stepView),
     messages: transcript.map(messageView),
+    queue: queued.map(queuedView),
     questions: await Promise.all(asked.map((q) => runQuestion(db, ownerId, questionView(q)))),
   };
 }
@@ -324,8 +327,22 @@ const sendChat = owner
     if (context.job && input.skillId) throw new ORPCError("FORBIDDEN", message("workflows.ownerSkill"));
     // Files held for the owner (`files.hold`) go only with the owner's own message.
     if (context.job && input.attachmentIds?.length) throw new ORPCError("FORBIDDEN", message("data.file.agentOnly"));
-    await context.engine.sendChat(input.runId, input.text, input.skillId, input.attachmentIds ?? []).catch(engineError);
+    return context.engine.sendChat(input.runId, input.text, input.skillId, input.attachmentIds ?? []).catch(engineError);
   });
+
+/** The owner changes a message queued while the chat was busy, while it is still pending. */
+const editQueued = owner.input(z.object({ runId: z.string(), queuedId: z.string().max(64), text: StorableText(100_000).trim().min(1) })).handler(async ({ input, context }) => {
+  if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
+  await requireRun(context.db, context.ownerId, input.runId);
+  await context.engine.editQueued(input.runId, input.queuedId, input.text).catch(engineError);
+});
+
+/** The owner takes back a queued message not sent yet (pending, or failed). */
+const removeQueued = owner.input(z.object({ runId: z.string(), queuedId: z.string().max(64) })).handler(async ({ input, context }) => {
+  if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
+  await requireRun(context.db, context.ownerId, input.runId);
+  await context.engine.removeQueued(input.runId, input.queuedId).catch(engineError);
+});
 
 const interruptChat = owner.input(z.object({ runId: z.string(), turnId: z.string().min(1).max(256) })).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
@@ -446,4 +463,4 @@ const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agent
   return rows.map((r) => ({ ...runView(r), workflowName: r.workflowId ? (names.get(r.workflowId) ?? null) : null, queued: queued.has(r.id), title: titles.get(r.id) ?? null, ...marks.get(r.id)! }));
 });
 
-export const runs = { start, sendChat, interruptChat, stop, get: getRun, stream, list: listRuns };
+export const runs = { start, sendChat, editQueued, removeQueued, interruptChat, stop, get: getRun, stream, list: listRuns };

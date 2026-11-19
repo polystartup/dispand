@@ -299,7 +299,7 @@ test("engine interruption withdraws a cloud approval without ending the conversa
   await vi.waitFor(async () => expect((await stepOf(engine, runId, "n_chat")).turnStatus).toBe("idle"));
 });
 
-test("engine interruption keeps the slot for input already queued on the cloud session", async () => {
+test("engine interruption keeps the slot for input already queued for the chat", async () => {
   let releaseOld!: () => void;
   let releaseNext!: () => void;
   const old = new Promise<void>((resolve) => { releaseOld = resolve; });
@@ -309,8 +309,8 @@ test("engine interruption keeps the slot for input already queued on the cloud s
   const runId = await engine.startRun(workflow.id);
   await vi.waitFor(() => expect(model.inputs).toHaveLength(1));
   const before = await stepOf(engine, runId, "n_chat");
-  await engine.sendChat(runId, "Already queued");
-  await vi.waitFor(async () => expect((await engine.db.select().from(cloudSessions))[0]!.queued).toHaveLength(1));
+  // Sent during the turn, it waits in the chat's queue, and goes once the interrupted turn ends.
+  expect((await engine.sendChat(runId, "Already queued")).queuedId).toBeDefined();
   expect(await engine.interruptChat(runId, before.turnId!)).toEqual({ outcome: "requested" });
   await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
   expect(await stepOf(engine, runId, "n_chat")).toMatchObject({ working: true, turnStatus: "running", sessionId: before.sessionId });
@@ -331,8 +331,7 @@ test("interrupting an approval queues the cloud continuation behind an occupied 
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Chat", config: { kind: "manual", placement: "chat" } }, { context });
   const runId = await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(model.inputs).toHaveLength(1));
-  await engine.sendChat(runId, "Queued input");
-  await vi.waitFor(async () => expect((await engine.db.select().from(cloudSessions))[0]!.queued).toHaveLength(1));
+  expect((await engine.sendChat(runId, "Queued input")).queuedId).toBeDefined();
   ask();
   await pendingQuestion(engine, runId);
   const before = await stepOf(engine, runId, trigger.id);

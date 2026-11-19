@@ -40,6 +40,7 @@ function snapshot(questions: RunSnapshot["questions"] = []): RunSnapshot {
     ],
     messages: [],
     questions,
+    queue: [],
   };
 }
 

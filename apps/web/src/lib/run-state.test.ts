@@ -7,6 +7,7 @@ const snapshot: RunSnapshot = {
   steps: [],
   messages: [{ id: "m1", runId: "run_1", stepRunId: "s1", role: "assistant", text: "Hi", createdAt: at }],
   questions: [],
+  queue: [],
 };
 
 test("a snapshot replaces the state, later events upsert their row by id", () => {
@@ -41,4 +42,14 @@ test("a successful Job chat keeps listening for its next turn, while closed conv
   expect(afterStream({ ...chat, run: { ...chat.run, status: "failed" } }, 0)).toEqual({ stop: true });
   expect(afterStream({ ...chat, run: { ...chat.run, source: "workflow", workflowId: "wf_1" } }, 0)).toEqual({ stop: true });
   expect(afterStream({ ...chat, steps: [{ ...chat.steps[0]!, resumable: undefined }] }, 0)).toEqual({ stop: true });
+});
+
+test("a queued message stays while pending or failed, and leaves once dispatched or removed", () => {
+  const queued = { id: "msg_q", runId: "run_1", stepRunId: "s1", state: "pending" as const, text: "Later", skillId: null, error: null, createdAt: at };
+  let state = applyRunEvent(snapshot, { type: "queued", queued });
+  state = applyRunEvent(state, { type: "queued", queued: { ...queued, text: "Edited" } });
+  expect(state!.queue.map((q) => q.text)).toEqual(["Edited"]);
+  expect(applyRunEvent(state, { type: "queued", queued: { ...queued, state: "failed", error: "{}" } })!.queue.map((q) => q.state)).toEqual(["failed"]);
+  expect(applyRunEvent(state, { type: "queued", queued: { ...queued, state: "dispatched", text: "" } })!.queue).toEqual([]);
+  expect(applyRunEvent(state, { type: "queued", queued: { ...queued, state: "removed", text: "" } })!.queue).toEqual([]);
 });

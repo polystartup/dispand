@@ -16,6 +16,7 @@ import type { Db, Tx } from "../db/client.ts";
 import {
   agentConsults,
   agents,
+  chatQueue,
   eventFires,
   events,
   harnesses,
@@ -32,6 +33,7 @@ import {
   type AnsweredBy,
   type EventActor,
   type JobCause,
+  type MessageFile,
   type PendingAction,
   type QueueClass,
   type RootKind,
@@ -73,7 +75,7 @@ import { recordJobEvent } from "./jobs-events.ts";
 import { recordAudit, recordAuditAfter } from "../audit/record.ts";
 import type { AuditActor } from "../audit/model.ts";
 import { message, plainText, stored } from "../messages/index.ts";
-import { type MessageRow, messageView, type Out, type QuestionRow, questionView, type RunEvent, type RunRow, runView, type StepRow, stepView } from "./views.ts";
+import { type MessageRow, messageView, type Out, type QuestionRow, questionView, queuedView, type RunEvent, type RunRow, runView, type StepRow, stepView } from "./views.ts";
 import { answerText, resumePrompt } from "./answers.ts";
 import { EngineError, RUNNER_REVOKED, STOPPED, TOOL_RESTARTED } from "./errors.ts";
 import { runIssues, startProblem } from "./problems.ts";
@@ -99,11 +101,15 @@ function creatorOf(ownerId: string, cause: JobCause): AuditActor {
 const ACTIVE_STEP: StepStatus[] = ["running", "waiting"];
 const OPEN_STEP: StepStatus[] = ["pending", "running", "waiting"];
 
+/** Events after which a chat may be idle, its queue to drain. */
+const SETTLING = new Set<HarnessEvent["type"]>(["turn-end", "interrupt-result", "session-ended", "result", "outputs-accepted", "error"]);
+
 /** The run an event is about, which `publish` sends it to. */
 function runOf(e: RunEvent): string {
   if (e.type === "run") return e.run.id;
   if (e.type === "step") return e.step.runId;
   if (e.type === "message") return e.message.runId;
+  if (e.type === "queued") return e.queued.runId;
   return e.question.runId;
 }
 
@@ -429,6 +435,8 @@ export class Engine {
     });
     this.publish(out);
     this.endSessions(sessions);
+    // Its queued messages can't go any more: they fail, saying so.
+    for (const step of sessions) if (step.start?.interactive) await this.drainQueue(step.id);
   }
 
   /** Stops the reported turn, without ending its Job or treating a pending question as approved. */
@@ -458,6 +466,7 @@ export class Engine {
           await this.withdrawTurn(tx, step, turnId, out);
         });
         this.publish(out);
+        await this.drainQueue(step.id);
         return { outcome };
       } finally {
         span.end();
@@ -524,18 +533,55 @@ export class Engine {
     await this.advance(runId);
   }
 
-  /** The owner's next chat message to the run's chat session. */
-  async sendChat(runId: string, text: string, skillId?: string, attachmentIds: string[] = []): Promise<void> {
+  /**
+   * The owner's next chat message to the run's chat session. While the chat is busy (a turn under
+   * way or about to start, or messages queued before it) it is queued instead (`chat_queue`), and
+   * sent once the chat is idle (`drainQueue`); returns its id then.
+   */
+  async sendChat(runId: string, text: string, skillId?: string, attachmentIds: string[] = []): Promise<{ queuedId?: string }> {
+    return this.chatInput(runId, { text, skillId, attachmentIds });
+  }
+
+  /**
+   * Sends one message to the run's chat: the owner's (`text`), or a queued one (`queuedId`), which
+   * goes only while it is still pending and the chat is idle: its claim and its message are one
+   * transaction, under the chat step's lock, so an edit or removal and this dispatch have one
+   * winner, and a dispatched item is written once.
+   */
+  private async chatInput(runId: string, input: { text: string; skillId?: string; attachmentIds: string[] } | { queuedId: string }): Promise<{ queuedId?: string; sent?: boolean }> {
     const steps = await this.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
     const candidate = steps.find((s) => s.start?.interactive && s.sessionId) ?? (await this.queuedChat(runId, steps));
     if (!candidate) throw new EngineError("CLOSED", message("engine.chatOver"));
     const out: Out[] = [];
-    const { row, working, chat } = await this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx) => {
       // Lock the root before the chat step, as checkpoint answers do. Completion and this
       // message serialize on the step: a message racing completion either sends or reopens.
       let going = await rootGoingLocked(tx, runId);
       let [chat] = await tx.select().from(stepRuns).where(eq(stepRuns.id, candidate.id)).for("update");
       if (!chat) throw new EngineError("CLOSED", message("engine.chatOver"));
+      let text: string, skillId: string | undefined, files: MessageFile[] | undefined, id: string | undefined;
+      if ("queuedId" in input) {
+        if (await this.chatBusy(tx, chat, false)) return { skipped: true as const };
+        // Locked, read as an edit committed it: an edit or removal still to come finds it dispatched.
+        const [item] = await tx.select().from(chatQueue).where(and(eq(chatQueue.id, input.queuedId), eq(chatQueue.stepRunId, chat.id), eq(chatQueue.state, "pending"))).for("update");
+        if (!item) return { skipped: true as const };
+        // Its words and files are the message's now.
+        const [dispatched] = await tx.update(chatQueue).set({ state: "dispatched", text: "", files: null, updatedAt: new Date() }).where(eq(chatQueue.id, item.id)).returning();
+        out.push({ type: "queued", queued: queuedView(dispatched!) });
+        spanEvent("engine.queue", { "dispand.queue.action": "dispatch", "dispand.step.id": chat.id });
+        ({ id, text } = item);
+        skillId = item.skillId ?? undefined;
+        files = item.files ?? [];
+      } else {
+        ({ text, skillId } = input);
+        if (await this.chatBusy(tx, chat, true)) {
+          const taken = await takeChatFiles(tx, chat.ownerId, runId, input.attachmentIds);
+          const [item] = await tx.insert(chatQueue).values({ id: newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, text, skillId: skillId ?? null, ...(taken.length ? { files: taken } : {}) }).returning();
+          out.push({ type: "queued", queued: queuedView(item!) });
+          spanEvent("engine.queue", { "dispand.queue.action": "enqueue", "dispand.step.id": chat.id });
+          return { queuedId: item!.id };
+        }
+      }
       let refresh = false;
       if (skillId) {
         const [run] = await tx.select().from(runs).where(eq(runs.id, runId)).for("update");
@@ -560,8 +606,8 @@ export class Engine {
         chat = updated!;
       }
       // Files held for the owner become the Job's with the message that carries them.
-      const files = await takeChatFiles(tx, chat.ownerId, runId, attachmentIds);
-      const [row] = await tx.insert(messages).values({ id: newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text, ...(files.length ? { files } : {}) }).returning();
+      files ??= await takeChatFiles(tx, chat.ownerId, runId, "attachmentIds" in input ? input.attachmentIds : []);
+      const [row] = await tx.insert(messages).values({ id: id ?? newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text, ...(files.length ? { files } : {}) }).returning();
       out.push({ type: "message", message: messageView(row!) });
       if (chat.resumeAfterSession) return { row: row!, working: false, chat };
       if (!chat.sessionId) return { row: row!, working: true, chat };
@@ -576,16 +622,22 @@ export class Engine {
       return { row: row!, working: got === "working", chat };
     });
     this.publish(out);
-    if (chat.resumeAfterSession) return this.resume(chat);
+    if ("skipped" in result) return {};
+    if ("queuedId" in result) return result;
+    const { row, working, chat } = result;
+    if (chat.resumeAfterSession) {
+      await this.resume(chat);
+      return { sent: true };
+    }
     if (chat.sessionId) {
       if (working) this.deliverMessage(chat, row);
-      return;
+      return { sent: true };
     }
     // Queued for its start: the start sends what is stored by then. If it was written meanwhile,
     // this one goes as any message to a started chat (its first turn may be over by now), unless
     // the start's flush sent it already.
     const [now] = await this.db.select().from(stepRuns).where(eq(stepRuns.id, chat.id));
-    if (!now?.sessionId || !now.startDeliveredAt) return;
+    if (!now?.sessionId || !now.startDeliveredAt) return { sent: true };
     const late: Out[] = [];
     const going = await this.db.transaction(async (tx) => {
       if (!(await rootGoing(tx, runId))) {
@@ -596,6 +648,65 @@ export class Engine {
     });
     this.publish(late);
     if (going) await this.redeliverMessage(row.id);
+    return { sent: true };
+  }
+
+  /**
+   * Whether a message to the chat waits: its turn is under way, or a message sent to it hasn't seen
+   * a turn end since (not acknowledged); for the owner's new one, also when others are queued
+   * before it. A closed chat is no turn: what goes to it reopens it, or fails saying why.
+   */
+  private async chatBusy(tx: Tx, chat: StepRow, owner: boolean): Promise<boolean> {
+    const open = OPEN_STEP.includes(chat.status);
+    if (open && chat.turnStatus === "running") return true;
+    if (!open && !owner) return false;
+    const inFlight = and(eq(chatQueue.state, "dispatched"), isNull(chatQueue.ackedAt));
+    const waiting = open && owner ? or(eq(chatQueue.state, "pending"), inFlight) : open ? inFlight : eq(chatQueue.state, "pending");
+    const [row] = await tx.select({ id: chatQueue.id }).from(chatQueue).where(and(eq(chatQueue.stepRunId, chat.id), waiting)).limit(1);
+    return !!row;
+  }
+
+  /**
+   * Sends the chat's oldest queued message once it is idle: one per turn, the next at that turn's
+   * end. One it can't send (the chat is over, its skill can't be used) fails, and the next one is
+   * tried. Called wherever a chat may have become idle; a dispatch that finds it busy changes nothing.
+   */
+  private async drainQueue(stepId: string): Promise<void> {
+    for (;;) {
+      const [item] = await this.db.select({ id: chatQueue.id, runId: chatQueue.runId }).from(chatQueue)
+        .where(and(eq(chatQueue.stepRunId, stepId), eq(chatQueue.state, "pending"))).orderBy(asc(chatQueue.position)).limit(1);
+      if (!item) return;
+      try {
+        await this.chatInput(item.runId, { queuedId: item.id });
+        return;
+      } catch (err) {
+        if (!(err instanceof EngineError)) return logError("queued chat message dispatch failed", err, { ref: item.id });
+        const [failed] = await this.db.update(chatQueue).set({ state: "failed", error: JSON.stringify(err.data), updatedAt: new Date() })
+          .where(and(eq(chatQueue.id, item.id), eq(chatQueue.state, "pending"))).returning();
+        if (failed) {
+          spanEvent("engine.queue", { "dispand.queue.action": "fail", "dispand.step.id": stepId });
+          this.publish([{ type: "queued", queued: queuedView(failed) }]);
+        }
+      }
+    }
+  }
+
+  /** Changes a queued message's words, only while it is pending: once dispatched, it is the conversation's. */
+  async editQueued(runId: string, queuedId: string, text: string): Promise<void> {
+    const [item] = await this.db.update(chatQueue).set({ text, updatedAt: new Date() })
+      .where(and(eq(chatQueue.id, queuedId), eq(chatQueue.runId, runId), eq(chatQueue.state, "pending"))).returning();
+    if (!item) throw new EngineError("NOT_PENDING", message("engine.queuedGone"));
+    spanEvent("engine.queue", { "dispand.queue.action": "edit", "dispand.step.id": item.stepRunId });
+    this.publish([{ type: "queued", queued: queuedView(item) }]);
+  }
+
+  /** Takes a queued message back, pending or failed; its words are not kept. */
+  async removeQueued(runId: string, queuedId: string): Promise<void> {
+    const [item] = await this.db.update(chatQueue).set({ state: "removed", text: "", updatedAt: new Date() })
+      .where(and(eq(chatQueue.id, queuedId), eq(chatQueue.runId, runId), inArray(chatQueue.state, ["pending", "failed"]))).returning();
+    if (!item) throw new EngineError("NOT_PENDING", message("engine.queuedGone"));
+    spanEvent("engine.queue", { "dispand.queue.action": "remove", "dispand.step.id": item.stepRunId });
+    this.publish([{ type: "queued", queued: queuedView(item) }]);
   }
 
   /** A new turn in the same Job, keeping its transcript but replacing its session and token. */
@@ -1249,8 +1360,13 @@ export class Engine {
     // The runner lost the session: answers and chat messages wait until the resume has carried
     // what it missed, as during a reconcile, or they would go to the lost session (which the runner
     // reports only once) and be marked delivered.
-    if (event.type === "error" && event.message === SESSION_NOT_RUNNING) return this.holdingDeliveries(() => this.handleEvent(sessionId, event, from));
-    return this.handleEvent(sessionId, event, from);
+    if (event.type === "error" && event.message === SESSION_NOT_RUNNING) await this.holdingDeliveries(() => this.handleEvent(sessionId, event, from));
+    else await this.handleEvent(sessionId, event, from);
+    // The chat may be idle now (a replay too, if the process stopped before): its next queued message goes.
+    if (SETTLING.has(event.type)) {
+      const [step] = await this.db.select({ id: stepRuns.id }).from(stepRuns).where(and(eq(stepRuns.sessionId, sessionId), eq(stepRuns.runnerId, from.runnerId)));
+      if (step) await this.drainQueue(step.id);
+    }
   }
 
   /** Only the in-process cloud runner can supply authorized record snapshots. */
@@ -1346,6 +1462,8 @@ export class Engine {
    * Sessions are reconciled per runner.
    */
   async recover(): Promise<void> {
+    // Queued messages whose chat went idle before the process could send them: sent last, below.
+    const queued = await this.db.selectDistinct({ stepRunId: chatQueue.stepRunId }).from(chatQueue).where(eq(chatQueue.state, "pending"));
     // Free slots go to the queued steps first, in the queue's order. The steps handed one, now or
     // just before the process stopped (`pending_action`), start as their runs advance below.
     const queuedOn = await this.db.selectDistinct({ harnessId: stepRuns.harnessId }).from(stepRuns).where(isNotNull(stepRuns.queuedAt));
@@ -1394,6 +1512,7 @@ export class Engine {
     await this.openWaitingConsults(active.map((r) => r.id));
     // A cloud session of a paused root isn't run again here: reconciled as lost, it is held to resume.
     if (this.cloud) await this.reconcile(CLOUD_SOURCE, await this.cloud.recover((runId) => rootGoing(this.db, runId)));
+    for (const { stepRunId } of queued) await this.drainQueue(stepRunId);
   }
 
   /**
@@ -1838,6 +1957,8 @@ export class Engine {
       case "turn-end": {
         if (event.turnId ? event.turnId !== step.turnId : step.turnId !== null) return null;
         await this.turn(tx, step, "idle", out);
+        // The messages sent before it are acknowledged: the next queued one may go.
+        await tx.update(chatQueue).set({ ackedAt: new Date() }).where(and(eq(chatQueue.stepRunId, step.id), eq(chatQueue.state, "dispatched"), isNull(chatQueue.ackedAt)));
         if (step.start?.interactive && step.harness?.kind === "codex") {
           if (step.turnId && step.interruptAfterPosition !== null) await this.withdrawTurn(tx, step, step.turnId, out);
           else await release(tx, step, out);

@@ -519,6 +519,7 @@
     "rootNotFound": "Cette cause racine n’existe pas.",
     "runOver": "Cette exécution est terminée.",
     "chatOver": "La conversation est terminée.",
+    "queuedGone": "Ce message en attente a déjà été envoyé ou retiré.",
     "chatRunnerGone": "Le runner de la conversation n’est plus disponible.",
     "skillChatOnly": "Les compétences ne peuvent être invoquées que dans les conversations de l’Assistant.",
     "skillWait": "Attendez que l’Assistant ait fini son tour avant de charger une autre compétence.",

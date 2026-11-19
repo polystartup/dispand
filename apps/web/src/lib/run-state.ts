@@ -12,7 +12,7 @@ function upsert<T extends { id: string }>(list: T[], row: T): T[] {
 /** Applies one `runs.stream` event: a snapshot replaces everything, any other event upserts its row. */
 export function applyRunEvent(state: RunSnapshot | null, event: RunStreamEvent): RunSnapshot | null {
   if (event.type === "snapshot") {
-    return { run: event.run, steps: event.steps, messages: event.messages, questions: event.questions };
+    return { run: event.run, steps: event.steps, messages: event.messages, questions: event.questions, queue: event.queue };
   }
   if (!state) return state;
   switch (event.type) {
@@ -24,6 +24,11 @@ export function applyRunEvent(state: RunSnapshot | null, event: RunStreamEvent):
       return { ...state, messages: upsert(state.messages, event.message) };
     case "question":
       return { ...state, questions: upsert(state.questions, event.question) };
+    case "queued": {
+      // Dispatched (now the message of the same id) or removed, it leaves the queue.
+      const rest = state.queue.filter((q) => q.id !== event.queued.id);
+      return { ...state, queue: event.queued.state === "pending" || event.queued.state === "failed" ? upsert(state.queue, event.queued) : rest };
+    }
   }
 }
 

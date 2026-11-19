@@ -1,10 +1,11 @@
-import type { messages, questions, runs, stepRuns } from "../db/schema.ts";
+import type { chatQueue, messages, questions, runs, stepRuns } from "../db/schema.ts";
 import { deletedAgent } from "../jobs/agent-name.ts";
 
 export type RunRow = typeof runs.$inferSelect;
 export type StepRow = typeof stepRuns.$inferSelect;
 export type MessageRow = typeof messages.$inferSelect;
 export type QuestionRow = typeof questions.$inferSelect;
+export type QueuedRow = typeof chatQueue.$inferSelect;
 
 export function runView(r: RunRow) {
   const { id, source, workflowId, version, agentId, triggerId, status, trigger, error, createdAt, finishedAt } = r;
@@ -21,6 +22,11 @@ export function messageView(m: MessageRow) {
   const { id, runId, stepRunId, role, text, createdAt, files, result } = m;
   return { id, runId, stepRunId, role, text, createdAt, ...(files?.length ? { files } : {}), ...(result ? { result } : {}) };
 }
+/** A queued chat message; `removed` and `dispatched` tell a client to drop it (a dispatched one is now the message of the same id). */
+export function queuedView(q: QueuedRow) {
+  const { id, runId, stepRunId, state, text, skillId, files, error, createdAt } = q;
+  return { id, runId, stepRunId, state, text, skillId, error, createdAt, ...(files?.length ? { files } : {}) };
+}
 export function questionView(q: QuestionRow) {
   // `rootId`: a checkpoint's Approval (`roots.ts`), and `consultId` a consult's, each told apart by it and never by its tool name.
   const { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId, rootId, consultId } = q;
@@ -32,7 +38,8 @@ export type RunEvent =
   | { type: "run"; run: ReturnType<typeof runView> }
   | { type: "step"; step: ReturnType<typeof stepView> }
   | { type: "message"; message: ReturnType<typeof messageView> }
-  | { type: "question"; question: ReturnType<typeof questionView> };
+  | { type: "question"; question: ReturnType<typeof questionView> }
+  | { type: "queued"; queued: ReturnType<typeof queuedView> };
 
 /**
  * What a transaction leaves to do once it commits: its runs' events, the steps it handed a slot

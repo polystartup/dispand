@@ -79,6 +79,7 @@ function conversation(runId: string, said: string, answered: string): RunSnapsho
     steps: [{ id: `${runId}_s`, runId, nodeId: "trigger_chat", iteration: 0, status: "running", turnStatus: "unknown", turnId: null, interruptible: false, outputs: null, error: null, startedAt: at, finishedAt: null, queuedAt: null, interactive: true, prompt: null }],
     messages: [message("user", said, 1), message("assistant", answered, 2)],
     questions: [],
+    queue: [],
   } as RunSnapshot;
 }
 

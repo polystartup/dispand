@@ -19,6 +19,7 @@ const snap = (id: string): RunSnapshot => ({
   steps: [],
   messages: [],
   questions: [],
+  queue: [],
 });
 
 /** A stream that sends its run's snapshot, then stays open until aborted. */

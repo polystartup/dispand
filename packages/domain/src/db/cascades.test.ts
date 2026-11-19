@@ -4,7 +4,7 @@ import { ownerContext } from "../runners/test-support.ts";
 import type { Db } from "./client.ts";
 
 /** The owner's data: removing a plugin may never delete any of it. */
-const OWNER_DATA = ["tables", "fields", "rows", "agents", "runs", "messages", "questions", "triggers", "tools", "attachments"];
+const OWNER_DATA = ["tables", "fields", "rows", "agents", "runs", "messages", "chat_queue", "questions", "triggers", "tools", "attachments"];
 
 /**
  * Fails when deleting a `plugins` row would delete the owner's data: walks every `on delete
