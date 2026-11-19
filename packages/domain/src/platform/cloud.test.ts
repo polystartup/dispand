@@ -151,7 +151,7 @@ test("reused provider call ids in one turn keep independent record snapshots", a
   ids[1] = (await call(router.rows.create, { tableId: s.table.id, values: { [s.name.id]: "Second record" } }, { context: s.context })).id;
   const { runId } = await call(router.jobs.start, { triggerId: s.trigger.id }, { context: s.context });
   await s.until(runId, "succeeded");
-  const results = (await s.context.db.select().from(messages).where(eq(messages.runId, runId)).orderBy(messages.position)).flatMap((message) => message.result ? [message.result] : []);
+  const results = (await s.context.db.select().from(messages).where(eq(messages.runId, runId)).orderBy(messages.position)).flatMap((message) => message.result && "record" in message.result ? [message.result] : []);
   expect(results.map((result) => result.record.rowId)).toEqual(ids);
   expect(new Set(results.map((result) => result.toolCallId)).size).toBe(2);
   expect(lastTool(s.model.inputs[1]!.items).callId).toBe("reused");

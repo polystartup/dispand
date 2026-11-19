@@ -29,7 +29,8 @@ const converted = new WeakMap<object, ThreadMessageLike>();
 function ofMessage(m: Message): ThreadMessageLike {
   const createdAt = new Date(m.createdAt);
   if (m.role === "tool") {
-    if (m.result) return { id: m.id, role: "assistant", createdAt, content: [{ type: "tool-call", toolCallId: `${m.result.turnId}:${m.result.toolCallId}`, toolName: RECORD_TOOL, args: m.result.args, result: m.result.record }] };
+    // An artifact's reference shows as its trace line until the chat renders artifacts.
+    if (m.result && "record" in m.result) return { id: m.id, role: "assistant", createdAt, content: [{ type: "tool-call", toolCallId: `${m.result.turnId}:${m.result.toolCallId}`, toolName: RECORD_TOOL, args: m.result.args, result: m.result.record }] };
     return { id: m.id, role: "assistant", createdAt, content: [{ type: "tool-call", toolCallId: m.id, toolName: TRACE_TOOL, args: { text: m.text }, result: "done" }] };
   }
   // Only the stored server raster flag permits previews; older attachments remain downloads.

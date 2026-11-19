@@ -767,6 +767,13 @@
   the Job (`{ agentId, runId, configure }`); a write refused for its target is a `memory.write`
   span and counted like the store's own refusals, and a read is a `memory.read` span and
   `dispand.memory.reads` (scope, result).
+  `artifact_show` (`artifacts/show.ts`, `ARTIFACT_SHOW` in `platform/tools.ts`) is every Job's,
+  in the same way: it stores generated HTML or SVG in `artifacts` (cascading with the run) and,
+  in one transaction, a tool message whose `result` is a reference
+  (`{ kind: "artifact", artifactId, title, format, size }`), published to the open chat through
+  `engine.settled`, for cloud and CLI Jobs alike. Snapshots and events carry the reference only;
+  `artifacts.get` (owner checked) returns the code. Its Audit row and its `artifacts.show` span
+  hold ids, the format and the size in bytes, never the code or the title.
   Every start the engine sends for a Job (`launch`: the first, one sent again after its runner was
   away or its slot came, a resume) reads its memory again (`memory/read.ts`), and the stored
   start never holds it; a resumed cloud session keeps the new system prompt for its next calls.

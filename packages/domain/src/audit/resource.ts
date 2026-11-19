@@ -28,6 +28,8 @@ export const RESOURCE_OF: Record<string, AuditResource> = {
   memory: "memory",
   // `plugin_decide`: a Stem Job's decision on one of a plugin's fields.
   plugin: "plugin",
+  // `artifact_show`: the artifact it stored.
+  artifact: "artifact",
 };
 
 /** The key `RESOURCE_OF` holds for a tool. */
@@ -46,6 +48,6 @@ export function auditResource(tool: PlatformTool, input: unknown, output: unknow
   if (output === undefined) return { type, id: null };
   const created = tool.creates?.id(output) ?? null;
   // `proposal_apply` succeeded: the proposal it named is one of the Job's, approved.
-  const id = created ?? idIn(output, "id") ?? idIn(output, "proposalId") ?? (tool.name === "proposal_apply" ? idIn(input, "proposalId") : null);
+  const id = created ?? idIn(output, "id") ?? idIn(output, "proposalId") ?? idIn(output, "artifactId") ?? (tool.name === "proposal_apply" ? idIn(input, "proposalId") : null);
   return { type, id: id !== null && AuditId.safeParse(id).success ? id : null };
 }

@@ -54,6 +54,7 @@ export const AUDIT_RESOURCES = [
   "plugin",
   "marketplace",
   "memory",
+  "artifact",
   "workspace",
 ] as const;
 export type AuditResource = (typeof AUDIT_RESOURCES)[number];
@@ -109,12 +110,16 @@ export const AuditDetails = z.strictObject({
   scope: kind,
   status: kind,
   elementKind: kind,
+  /** A generated artifact's format (`html`, `svg`). */
+  format: kind,
   item: n,
   items: n,
   jobs: n,
   fields: n,
   events: n,
   found: n,
+  /** A size in bytes. */
+  bytes: n,
   /** A platform tool's name. */
   tool: kind,
   /** A tool's action name. */

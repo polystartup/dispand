@@ -284,6 +284,12 @@ changes it updates this file.
   and the asking session is told which agent answered in the answer itself, so it never resumes
   on an agent's words taken for the owner's. `inbox` is granted like any bundle: by
   a person, or by an approved proposal.
+- **A generated artifact's code reaches only its owner, and only `artifact_show` makes one.**
+  The code lives in `artifacts` and leaves the server only through `artifacts.get`, which checks
+  the owner; messages, snapshots, events, Audit rows and telemetry carry a reference (ids, title
+  for the card, format, size) or less. A tool message gets an artifact reference only from
+  `artifact_show` run by `callPlatformTool`: an MCP or native tool's result shaped like one is
+  never stored as one. No route serves artifact code as a page.
 - **A Job writes memory only where its agent's self-learning says, and only as itself.** The
   memory tools (`memory/tools.ts`) are the Job's own: `memory_read` reads the workspace's
   memory, its own agent's, its tables' (with `data`) and another agent's only with

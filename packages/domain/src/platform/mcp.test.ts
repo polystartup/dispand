@@ -58,7 +58,7 @@ test("the endpoint lists the Job's tools and runs one", async () => {
   const { table, token } = await job("Clients");
   const client = await connect(context, token);
   const { tools } = await client.listTools();
-  expect(tools.map((t) => t.name).sort()).toEqual(["memory_read", "rows_create", "rows_delete", "rows_get", "rows_list", "rows_update", "tables_get", "tables_list"]);
+  expect(tools.map((t) => t.name).sort()).toEqual(["artifact_show", "memory_read", "rows_create", "rows_delete", "rows_get", "rows_list", "rows_update", "tables_get", "tables_list"]);
   expect(tools.find((t) => t.name === "rows_create")).toMatchObject({ description: expect.stringContaining("row"), inputSchema: { type: "object" } });
   const created = await client.callTool({ name: "rows_create", arguments: { tableId: table.id } });
   expect(created.isError).toBeFalsy();
@@ -119,12 +119,12 @@ test("one Job's token never reaches another Job's tables", async () => {
   expect((await call(router.rows.list, { tableId: b.table.id }, { context })).rows).toEqual([]);
 });
 
-test("a Job whose agent has no bundle lists only memory_read, without an error", async () => {
+test("a Job whose agent has no bundle lists only memory_read and artifact_show, without an error", async () => {
   const { context, job } = await setup();
   const { agent, token } = await job("Clients");
   await call(router.agents.update, { name: agent.name, harnessId: agent.harnessId, systemPrompt: "", id: agent.id, bundles: [] }, { context });
   const client = await connect(context, token);
-  expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["memory_read"]);
+  expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["memory_read", "artifact_show"]);
 });
 
 test("a Job that learns gets the memory tools and writes its agent's memory through them", async () => {

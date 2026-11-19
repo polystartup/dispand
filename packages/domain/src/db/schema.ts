@@ -1,6 +1,6 @@
 import type { RememberedPermissions, RememberOffer } from "../agents/remember.ts";
 import type { Answer, QuestionPayload } from "@dispand/runner-protocol";
-import type { CloudEvent, RecordToolResult } from "../messages/record-result.ts";
+import type { CloudEvent, RecordToolResult, ToolMessageResult } from "../messages/record-result.ts";
 import type { ChatItem } from "../cloud/model-client.ts";
 import { sql } from "drizzle-orm";
 import { type AnyPgColumn, bigint, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uniqueIndex } from "drizzle-orm/pg-core";
@@ -553,13 +553,43 @@ export const messages = pgTable(
     files: jsonb("files").$type<MessageFile[]>(),
     /** Internal correlation for a trusted cloud tool's started message. */
     toolCall: jsonb("tool_call").$type<Pick<RecordToolResult, "toolCallId" | "turnId" | "args">>(),
-    /** Authorized display snapshot; legacy and unsuccessful tool messages have none. */
-    result: jsonb("result").$type<RecordToolResult>(),
+    /** Authorized display snapshot, or an artifact's reference; legacy and unsuccessful tool messages have none. */
+    result: jsonb("result").$type<ToolMessageResult>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     // User messages: when the hub wrote them to the runner (null: resent on recovery).
     deliveredAt: timestamp("delivered_at"),
   },
   (t) => [index("messages_step_idx").on(t.stepRunId, t.position), index("messages_run_idx").on(t.runId, t.position)],
+);
+
+/**
+ * A Job's generated artifacts (`artifact_show`): the code, kept here and read only through
+ * `artifacts.get`. The chat's message holds a reference (`ArtifactRef`), never the code.
+ */
+export const artifacts = pgTable(
+  "artifacts",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    stepRunId: text("step_run_id")
+      .notNull()
+      .references(() => stepRuns.id, { onDelete: "cascade" }),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    format: text("format").$type<"html" | "svg">().notNull(),
+    code: text("code").notNull(),
+    /** The earlier artifact of the same Job this one revises. */
+    replaces: text("replaces"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("artifacts_run_idx").on(t.runId)],
 );
 
 /**

@@ -12,7 +12,7 @@ import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
 import { approvedItems, createProposal, issues, recordInPlugin, recordOutcome, resolveRefs, takeItem, type ItemAt } from "./proposals.ts";
 import type { TableScope } from "./bundles.ts";
 import { rightsOf, type JobIdentity } from "./rights.ts";
-import { allowed, APPLY, INBOX_TOOLS, MEMORY_TOOLS, PLATFORM_TOOLS, procedureOf, PROPOSE, WHOLE_WORKSPACE, type PlatformTool, PLUGIN_DECIDE } from "./tools.ts";
+import { allowed, APPLY, ARTIFACT_SHOW, INBOX_TOOLS, MEMORY_TOOLS, PLATFORM_TOOLS, procedureOf, PROPOSE, WHOLE_WORKSPACE, type PlatformTool, PLUGIN_DECIDE } from "./tools.ts";
 
 // The one way a Job's session calls Dispand's own procedures, for a cloud session (in process)
 // and for the Job endpoint alike: every call is authorized here, against the Job and against
@@ -24,7 +24,7 @@ export type PlatformApp = Omit<InitialContext, "headers" | "resHeaders" | "job">
 export type ToolResult = { ok: true; output: unknown } | { ok: false; error: string };
 
 /** Every tool a Job may be given. */
-export const ALL_TOOLS = [...PLATFORM_TOOLS, PROPOSE, APPLY, ...INBOX_TOOLS, ...MEMORY_TOOLS, PLUGIN_DECIDE];
+export const ALL_TOOLS = [...PLATFORM_TOOLS, PROPOSE, APPLY, ...INBOX_TOOLS, ...MEMORY_TOOLS, PLUGIN_DECIDE, ARTIFACT_SHOW];
 const NEEDS_PROPOSAL =
   "This change needs the owner's approval: list it in a proposal (propose), ask for it (request_approval with the proposal's id), then have proposal_apply make it, or make the call exactly as listed, once.";
 const OVER = "This Job is over";
@@ -43,7 +43,7 @@ export async function toolsOf(db: Db, job: JobIdentity): Promise<PlatformTool[]>
 }
 
 /** What a call came to, for its Audit row: never its input or its output's content. */
-type Seen = { reason?: string; failed?: true; tableId?: string; taken?: ItemAt | null; output?: unknown };
+type Seen = { reason?: string; failed?: true; tableId?: string; taken?: ItemAt | null; output?: unknown; details?: { format?: string; bytes?: number } };
 
 /**
  * Calls one of Dispand's tools for a Job: the tool must be declared, the Job still going, the
@@ -83,6 +83,7 @@ function auditEntry(job: JobIdentity, tool: PlatformTool | undefined, input: unk
       ...(seen.tableId ? { tableId: seen.tableId } : {}),
       ...(seen.taken ? { proposalId: seen.taken.proposalId, item: seen.taken.index } : {}),
       ...(seen.reason ? { reason: seen.reason } : {}),
+      ...(ok ? seen.details : {}),
     },
   };
 }
@@ -142,6 +143,7 @@ async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, i
     if (!taken && at) return refuse("item-used", ITEM_USED);
     if (tool.run) {
       const result = await tool.run(app, job, parsed.data, rights);
+      seen.details = tool.details?.(parsed.data);
       if (taken) await recordOutcome(app.db, taken, result.ok ? {} : { failed: true });
       return done(result);
     }

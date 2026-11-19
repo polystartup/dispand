@@ -10,6 +10,7 @@ import { ApplyInput, CREATES, ProposeInput, type ProposalName } from "./proposal
 import type { JobIdentity, PlatformApp, ToolResult } from "./call.ts";
 import { signalsWithin } from "../assistant/review.ts";
 import { AnswerInput, answerQuestion, getQuestion, GetInput, listQuestions, ListInput } from "../questions/inbox.ts";
+import { SHOW_DESCRIPTION, showArtifact, showDetails, ShowInput } from "../artifacts/show.ts";
 import { readMemory, ReadInput, refuseProposedWrite, RemoveInput, removeMemoryTool, tablesOf, WriteInput, writeMemoryTool } from "../memory/tools.ts";
 import type { Rights } from "./rights.ts";
 import { isMessageKey, type Message, sentence, storedSentence, type Text } from "../messages/index.ts";
@@ -65,6 +66,8 @@ export type PlatformTool = {
   shown?(app: PlatformApp, job: JobIdentity, input: unknown): Promise<unknown>;
   /** A tool that works for the Job itself, not as its owner: no procedure of the router, run here instead. */
   run?(app: PlatformApp, job: JobIdentity, input: unknown, rights: Rights): Promise<ToolResult>;
+  /** What its Audit row tells of a call that went through, beyond the tool's name: kinds and counts read from the parsed input. */
+  details?(input: unknown): { format?: string; bytes?: number };
 };
 
 /** Whether the Job's rights give the tool: its bundle, or its own rule when it has one. */
@@ -502,6 +505,19 @@ export const MEMORY_TOOLS: PlatformTool[] = [
   },
 ];
 
+/** Every Job may show artifacts in its chat (`artifacts/show.ts`). */
+export const ARTIFACT_SHOW: PlatformTool = {
+  path: "",
+  name: "artifact_show",
+  bundle: null,
+  available: () => true,
+  description: SHOW_DESCRIPTION,
+  input: ShowInput,
+  tables: none,
+  details: showDetails,
+  run: (app, job, input) => showArtifact(app, job, input as never),
+};
+
 /** Every other procedure: not a tool. A new procedure goes here or above, or the walk test fails. */
 export const NOT_TOOLS: string[] = [
   "assistantCommands",
@@ -620,6 +636,8 @@ export const NOT_TOOLS: string[] = [
   "workspace.strictPermissions",
   "workspace.setStrictPermissions",
   // The owner's memory pages; agents have their own memory tools, gated by their targets.
+  // The chat reads an artifact's code; a Job shows one with `artifact_show`.
+  "artifacts.get",
   "memories.list",
   "memories.write",
   "memories.remove",

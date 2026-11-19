@@ -608,6 +608,9 @@
   "audit": {
     "badCursor": "This cursor isn't valid: start the list again."
   },
+  "artifacts": {
+    "notFound": "This artifact doesn't exist."
+  },
   "memory": {
     "notFound": "This memory doesn't exist.",
     "full": "This memory holds {{max}} entries already: remove one first.",

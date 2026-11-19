@@ -6,6 +6,7 @@ import { count, sql } from "drizzle-orm";
 import { account, user } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { agents } from "../agents/procedures.ts";
+import { artifacts } from "../artifacts/procedures.ts";
 import { audit } from "../audit/procedures.ts";
 import { files } from "../data/files.ts";
 import { rows } from "../data/rows.ts";
@@ -104,6 +105,7 @@ export const router = {
   workspace,
   audit,
   memories,
+  artifacts,
 };
 
 export type Router = typeof router;

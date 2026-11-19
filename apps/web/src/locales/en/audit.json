@@ -86,6 +86,7 @@
     "plugin": "Plugin",
     "marketplace": "Marketplace",
     "memory": "Memory",
+    "artifact": "Artifact",
     "workspace": "Workspace"
   },
   "detail": {
@@ -121,12 +122,14 @@
     "scope": "Scope",
     "status": "Status",
     "elementKind": "Element kind",
+    "format": "Format",
     "item": "Item",
     "items": "Items",
     "jobs": "Jobs",
     "fields": "Fields",
     "events": "Events",
     "found": "Found",
+    "bytes": "Bytes",
     "tool": "Dispand tool",
     "action": "Action"
   },
