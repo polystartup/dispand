@@ -4,7 +4,7 @@ import { call } from "@orpc/server";
 import { type Answer, parseServerMessage, type ServerToRunner, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING, TEXT } from "@dispand/runner-protocol";
 import { and, eq, or } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { audit, agents as agentsTable, agentTools, agentConsults, chatQueue, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools } from "../db/schema.ts";
+import { attachments, audit, agents as agentsTable, agentTools, agentConsults, chatQueue, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { ArgValue } from "../tools/arguments.ts";
@@ -328,6 +328,16 @@ test("an edit or a removal and the dispatch of a queued message have one winner"
   await vi.waitFor(() => expect(adapter.sent).toHaveLength(2));
   expect(adapter.sent[1]![1]).toBe(edit.status === "fulfilled" ? "Raced edit" : "Original");
   expect(await userMessages()).toEqual(["Edited", adapter.sent[1]![1]]);
+});
+
+test("a queued message takes its files for the Job, and gives them back when removed", async () => {
+  const { context, engine, runId } = await busyChat();
+  await engine.db.insert(attachments).values({ id: "att_q", ownerId: context.ownerId, name: "notes.txt", mime: "application/octet-stream", size: 3, image: false });
+  const { queuedId } = await engine.sendChat(runId, "With a file", undefined, ["att_q"]);
+  const file = async () => (await engine.db.select().from(attachments).where(eq(attachments.id, "att_q")))[0]!;
+  expect((await file()).jobId).toBe(runId);
+  await call(router.runs.removeQueued, { runId, queuedId: queuedId! }, { context });
+  expect((await file()).jobId).toBeNull();
 });
 
 test("queued messages of a stopped chat fail, saying why; a failed one can be removed", async () => {

@@ -1934,7 +1934,7 @@ and writes the message under the item's own id in the same transaction, then sen
 message. The next `turn-end` acknowledges it (`acked_at`); until then the next item waits.
 `runs.editQueued` and `runs.removeQueued` (the owner's only) change only a `pending` item (a
 failed one can be removed), so an edit or a removal and the dispatch have one winner, refused
-with `CONFLICT`; a removed item keeps no words. One that can't go (the chat stopped or can't be
+with `CONFLICT`; a removed item keeps no words, and its files go back to held (swept a day after they came). One that can't go (the chat stopped or can't be
 reopened) is `failed` with its reason. A message sent while the chat is idle goes at once, as
 before. `runs.get` and `runs.stream` carry the pending and failed items (`queue`, `queued`
 events). Telemetry: an `engine.queue` span event (action, step id) on each enqueue, edit,

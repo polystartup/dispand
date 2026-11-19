@@ -16,6 +16,7 @@ import type { Db, Tx } from "../db/client.ts";
 import {
   agentConsults,
   agents,
+  attachments,
   chatQueue,
   eventFires,
   events,
@@ -548,7 +549,7 @@ export class Engine {
    * transaction, under the chat step's lock, so an edit or removal and this dispatch have one
    * winner, and a dispatched item is written once.
    */
-  private async chatInput(runId: string, input: { text: string; skillId?: string; attachmentIds: string[] } | { queuedId: string }): Promise<{ queuedId?: string; sent?: boolean }> {
+  private async chatInput(runId: string, input: { text: string; skillId?: string; attachmentIds: string[] } | { queuedId: string }): Promise<{ queuedId?: string; sent?: boolean; skipped?: "busy" | "gone" }> {
     const steps = await this.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
     const candidate = steps.find((s) => s.start?.interactive && s.sessionId) ?? (await this.queuedChat(runId, steps));
     if (!candidate) throw new EngineError("CLOSED", message("engine.chatOver"));
@@ -561,10 +562,10 @@ export class Engine {
       if (!chat) throw new EngineError("CLOSED", message("engine.chatOver"));
       let text: string, skillId: string | undefined, files: MessageFile[] | undefined, id: string | undefined;
       if ("queuedId" in input) {
-        if (await this.chatBusy(tx, chat, false)) return { skipped: true as const };
+        if (await this.chatBusy(tx, chat, false)) return { skipped: "busy" as const };
         // Locked, read as an edit committed it: an edit or removal still to come finds it dispatched.
         const [item] = await tx.select().from(chatQueue).where(and(eq(chatQueue.id, input.queuedId), eq(chatQueue.stepRunId, chat.id), eq(chatQueue.state, "pending"))).for("update");
-        if (!item) return { skipped: true as const };
+        if (!item) return { skipped: "gone" as const };
         // Its words and files are the message's now.
         const [dispatched] = await tx.update(chatQueue).set({ state: "dispatched", text: "", files: null, updatedAt: new Date() }).where(eq(chatQueue.id, item.id)).returning();
         out.push({ type: "queued", queued: queuedView(dispatched!) });
@@ -622,7 +623,7 @@ export class Engine {
       return { row: row!, working: got === "working", chat };
     });
     this.publish(out);
-    if ("skipped" in result) return {};
+    if ("skipped" in result) return { skipped: result.skipped };
     if ("queuedId" in result) return result;
     const { row, working, chat } = result;
     if (chat.resumeAfterSession) {
@@ -672,13 +673,15 @@ export class Engine {
    * tried. Called wherever a chat may have become idle; a dispatch that finds it busy changes nothing.
    */
   private async drainQueue(stepId: string): Promise<void> {
+    const tried = new Set<string>();
     for (;;) {
       const [item] = await this.db.select({ id: chatQueue.id, runId: chatQueue.runId }).from(chatQueue)
         .where(and(eq(chatQueue.stepRunId, stepId), eq(chatQueue.state, "pending"))).orderBy(asc(chatQueue.position)).limit(1);
-      if (!item) return;
+      if (!item || tried.has(item.id)) return;
+      tried.add(item.id);
       try {
-        await this.chatInput(item.runId, { queuedId: item.id });
-        return;
+        // Removed meanwhile: the next one is tried.
+        if ((await this.chatInput(item.runId, { queuedId: item.id })).skipped !== "gone") return;
       } catch (err) {
         if (!(err instanceof EngineError)) return logError("queued chat message dispatch failed", err, { ref: item.id });
         const [failed] = await this.db.update(chatQueue).set({ state: "failed", error: JSON.stringify(err.data), updatedAt: new Date() })
@@ -700,10 +703,20 @@ export class Engine {
     this.publish([{ type: "queued", queued: queuedView(item) }]);
   }
 
-  /** Takes a queued message back, pending or failed; its words are not kept. */
+  /**
+   * Takes a queued message back, pending or failed; its words are not kept, and its files are the
+   * Job's no more: held again, the sweep removes them as it does a message's never sent.
+   */
   async removeQueued(runId: string, queuedId: string): Promise<void> {
-    const [item] = await this.db.update(chatQueue).set({ state: "removed", text: "", updatedAt: new Date() })
-      .where(and(eq(chatQueue.id, queuedId), eq(chatQueue.runId, runId), inArray(chatQueue.state, ["pending", "failed"]))).returning();
+    const item = await this.db.transaction(async (tx) => {
+      const [before] = await tx.select({ files: chatQueue.files }).from(chatQueue)
+        .where(and(eq(chatQueue.id, queuedId), eq(chatQueue.runId, runId), inArray(chatQueue.state, ["pending", "failed"]))).for("update");
+      if (!before) return undefined;
+      const ids = (before.files ?? []).map((f) => f.id);
+      if (ids.length) await tx.update(attachments).set({ jobId: null }).where(and(inArray(attachments.id, ids), eq(attachments.jobId, runId), isNull(attachments.tableId)));
+      const [removed] = await tx.update(chatQueue).set({ state: "removed", text: "", files: null, updatedAt: new Date() }).where(eq(chatQueue.id, queuedId)).returning();
+      return removed;
+    });
     if (!item) throw new EngineError("NOT_PENDING", message("engine.queuedGone"));
     spanEvent("engine.queue", { "dispand.queue.action": "remove", "dispand.step.id": item.stepRunId });
     this.publish([{ type: "queued", queued: queuedView(item) }]);
