@@ -1792,8 +1792,18 @@ export class Engine {
     this.publish(out);
   }
 
+  /**
+   * Steers whose session is gone, so no `steer-result` will settle them: ordinary messages now, in
+   * flight until a turn ends after them. Codex may not have taken one: it is sent again.
+   */
+  private async dropSteers(tx: Tx, step: StepRow) {
+    const dropped = await tx.update(chatQueue).set({ state: "dispatched", updatedAt: new Date() }).where(and(eq(chatQueue.stepRunId, step.id), eq(chatQueue.state, "steering"))).returning({ id: chatQueue.id });
+    if (dropped.length && step.harness?.kind === "codex") await tx.update(messages).set({ deliveredAt: null }).where(inArray(messages.id, dropped.map((d) => d.id)));
+  }
+
   private async unconfirm(tx: Tx, step: StepRow, out: Out[]) {
     await this.turn(tx, step, "unknown", out);
+    await this.dropSteers(tx, step);
     // A write under way went to the lost session: it won't mark its row delivered.
     this.losses.set(step.sessionId!, (this.losses.get(step.sessionId!) ?? 0) + 1);
     // The new session of a reopened chat has not received any old transcript messages.
@@ -1898,6 +1908,7 @@ export class Engine {
       }
       case "session-ended":
         await this.turn(tx, step, "unknown", out);
+        await this.dropSteers(tx, step);
         return null;
       case "turn-start":
         // Provider activity proves the admitted input arrived, even if its socket write is still settling.
@@ -1913,11 +1924,13 @@ export class Engine {
         return null;
       case "steer-result": {
         // It joined the turn: acknowledged (that turn's end may have come first). Went as the next
-        // message instead: still in flight, until the end of the turn it starts.
-        if (event.outcome === "steered") {
-          await tx.update(chatQueue).set({ state: "dispatched", ackedAt: new Date(), updatedAt: new Date() })
-            .where(and(eq(chatQueue.id, event.requestId), eq(chatQueue.stepRunId, step.id), or(eq(chatQueue.state, "steering"), and(eq(chatQueue.state, "dispatched"), isNull(chatQueue.ackedAt)))));
-        }
+        // message instead: in flight until the end of the turn it starts (the harness reports no end
+        // of the turn it missed while it waits), Codex's input of that turn like an admitted one.
+        const steered = event.outcome === "steered";
+        const [item] = await tx.update(chatQueue).set({ state: "dispatched", ...(steered ? { ackedAt: new Date() } : {}), updatedAt: new Date() })
+          .where(and(eq(chatQueue.id, event.requestId), eq(chatQueue.stepRunId, step.id), steered ? or(eq(chatQueue.state, "steering"), and(eq(chatQueue.state, "dispatched"), isNull(chatQueue.ackedAt))) : eq(chatQueue.state, "steering")))
+          .returning({ id: chatQueue.id });
+        if (item && !steered && step.harness?.kind === "codex") await tx.update(stepRuns).set({ codexInputId: item.id }).where(eq(stepRuns.id, step.id));
         spanEvent("engine.queue", { "dispand.queue.action": event.outcome === "steered" ? "steered" : "steer-queued", "dispand.step.id": step.id });
         return null;
       }
@@ -2012,8 +2025,6 @@ export class Engine {
         await this.turn(tx, step, "idle", out);
         // The messages sent before it are acknowledged: the next queued one may go.
         await tx.update(chatQueue).set({ ackedAt: new Date() }).where(and(eq(chatQueue.stepRunId, step.id), eq(chatQueue.state, "dispatched"), isNull(chatQueue.ackedAt)));
-        // A steer not known to have joined it is the harness's next message: in flight until that turn ends.
-        await tx.update(chatQueue).set({ state: "dispatched", updatedAt: new Date() }).where(and(eq(chatQueue.stepRunId, step.id), eq(chatQueue.state, "steering")));
         if (step.start?.interactive && step.harness?.kind === "codex") {
           if (step.turnId && step.interruptAfterPosition !== null) await this.withdrawTurn(tx, step, step.turnId, out);
           else await release(tx, step, out);
@@ -2379,6 +2390,9 @@ export class Engine {
       const delivered = steer && this.adapter.steer ? await this.adapter.steer(sessionId, steer, m.id, m.text, files) : await this.adapter.send(sessionId, m.text, files);
       if (delivered && (this.losses.get(sessionId) ?? 0) === losses) {
         await this.db.update(messages).set({ deliveredAt: new Date() }).where(eq(messages.id, m.id));
+      } else if (steer) {
+        // Never reached the harness: it goes again as any message, so no steer-result will come.
+        await this.db.update(chatQueue).set({ state: "dispatched", updatedAt: new Date() }).where(and(eq(chatQueue.id, m.id), eq(chatQueue.state, "steering")));
       }
     }).catch((err: unknown) => logError("chat message delivery failed", err, { ref: m.id }));
     this.keep(sent);

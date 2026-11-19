@@ -1965,10 +1965,12 @@ locks: the item must still be pending (else `CONFLICT`, as an edit's), and the c
 not being interrupted, with a live session; an item that invokes a skill waits for the turn's end,
 as its skill may replace the session. A refused one stays pending and goes at the turn's end. The
 claim marks it `steering` and writes the message under its id; the harness then delivers it once
-(every harness steers, attachments included). A `steer-result` `steered` acknowledges it; a
-`turn-end` makes a `steering` item `dispatched` but not acknowledged: the harness holds it as its
-next message, so the next item waits for that turn's end. A `steering` item counts as in flight,
-whichever event comes first. The step's view carries `steering` (`{ interruptsTools }`, from
+(every harness steers, attachments included). A `steering` item counts as in flight until its
+`steer-result`: `steered` acknowledges it (before or after that turn's end); `queued` makes it
+`dispatched`, the harness's next message (for Codex, the input of that turn, `codex_input_id`),
+acknowledged by the end of the turn it starts, as the harness reports no end of the turn it
+missed. One whose session is lost or ended, or whose write failed, is an ordinary message then:
+`dispatched`, and for Codex undelivered, so the resume carries it. The step's view carries `steering` (`{ interruptsTools }`, from
 `steering(harness)`) for an interactive step: the composer offers "Send now", or "Interrupt and
 send" where steering stops the running tool (Claude Code), only on a pending item without a skill
 while the turn runs; otherwise the item says it goes when the turn ends.

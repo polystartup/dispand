@@ -367,29 +367,66 @@ test.each(["claude-code", "codex"] as const)("send now steers a pending queued m
 });
 
 test.each([
-  ["queued", "before"],
-  ["queued", "after"],
+  ["steered", "before"],
   ["steered", "after"],
+  ["queued", "before"],
 ] as const)("a steer whose result is %s %s the turn's end is delivered once, and the next item waits for it", async (outcome, order) => {
   const { adapter, engine, emit, runId, sessionId, userMessages } = await busyChat();
   await engine.sendChat(runId, "Next");
   const { queuedId: now } = await engine.sendChat(runId, "Now");
   await engine.steerQueued(runId, now!);
   await vi.waitFor(() => expect(adapter.steers).toEqual([[sessionId, "first", now, "Now"]]));
-  const result = () => emit(sessionId, { type: "steer-result", turnId: "first", requestId: now!, outcome });
-  if (order === "before") await result();
-  await emit(sessionId, { type: "turn-end", turnId: "first" });
-  if (order === "after") await result();
-  if (outcome === "queued") {
-    // The harness holds it as its next message: that turn ends before the next item goes.
+  await emit(sessionId, { type: "steer-result", turnId: "first", requestId: now!, outcome });
+  if (outcome === "steered") {
+    if (order === "after") await emit(sessionId, { type: "steer-result", turnId: "first", requestId: now!, outcome });
+    await emit(sessionId, { type: "turn-end", turnId: "first" });
+  } else {
+    // The harness holds it as its next message and reports no end of the turn it missed: the
+    // next item waits for the end of the turn it starts.
+    await emit(sessionId, { type: "turn-start", turnId: "second", interruptible: true });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(adapter.sent).toEqual([]);
-    await emit(sessionId, { type: "turn-start", turnId: "second", interruptible: true });
     await emit(sessionId, { type: "turn-end", turnId: "second" });
   }
   await vi.waitFor(() => expect(adapter.sent).toEqual([[sessionId, "Next"]]));
   expect(adapter.steers).toHaveLength(1);
   expect(await userMessages()).toEqual(["Now", "Next"]);
+});
+
+test("a steer whose result arrives after the turn's end still lets the next item go", async () => {
+  const { adapter, engine, emit, runId, sessionId } = await busyChat();
+  await engine.sendChat(runId, "Next");
+  const { queuedId: now } = await engine.sendChat(runId, "Now");
+  await engine.steerQueued(runId, now!);
+  await emit(sessionId, { type: "turn-end", turnId: "first" });
+  // Not known yet whether it joined that turn: the next item waits.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(adapter.sent).toEqual([]);
+  await emit(sessionId, { type: "steer-result", turnId: "first", requestId: now!, outcome: "steered" });
+  await vi.waitFor(() => expect(adapter.sent).toEqual([[sessionId, "Next"]]));
+});
+
+test("a Codex steer its lost session never settled is sent again, as any message, once", async () => {
+  const { context, adapter, engine, emit, harness, workflow, runnerId } = await setup(chatThenStep);
+  await context.db.update(harnessesTable).set({ kind: "codex", permissionMode: "default" }).where(eq(harnessesTable.id, harness.id));
+  const runId = await engine.startRun(workflow.id);
+  const sessionId = adapter.starts[0]!.start.sessionId;
+  await emit(sessionId, { type: "cli-session", cliSessionId: "cli_saved" });
+  await emit(sessionId, { type: "turn-start", turnId: "first", interruptible: true });
+  const { queuedId: now } = await engine.sendChat(runId, "Now");
+  await engine.steerQueued(runId, now!);
+  await vi.waitFor(async () => expect((await engine.db.select().from(messages).where(eq(messages.id, now!)))[0]!.deliveredAt).not.toBeNull());
+  await engine.reconcile(runnerId, []);
+  const [item] = await engine.db.select().from(chatQueue).where(eq(chatQueue.id, now!));
+  expect(item).toMatchObject({ state: "dispatched", ackedAt: null });
+  // The resume carries what Codex may never have taken, and nothing sends it again after.
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(2));
+  expect(adapter.starts[1]!.start.prompt).toContain("The owner wrote: Now");
+  await emit(sessionId, { type: "turn-start", turnId: "resumed", interruptible: true });
+  await emit(sessionId, { type: "turn-end", turnId: "resumed" });
+  expect((await engine.db.select().from(chatQueue).where(eq(chatQueue.id, now!)))[0]!.ackedAt).not.toBeNull();
+  expect(adapter.sent).toEqual([]);
+  expect(adapter.steers).toHaveLength(1);
 });
 
 test.each([1, 2, 3])("send now, an edit, a removal and the turn's end have one winner (round %i)", async () => {
