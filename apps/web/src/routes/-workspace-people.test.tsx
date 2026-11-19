@@ -73,18 +73,17 @@ test("a denied refresh clears the directory, including an open confirmation", as
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 
-test("a pending removal dialog can be closed while the request completes", async () => {
+test("submitting closes the dialog and a later failure is announced in the directory", async () => {
   workspace.managed.mockResolvedValue([scope]);
   workspace.people.mockResolvedValue([owner, member]);
-  let finish!: () => void;
-  workspace.removePerson.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+  let fail!: () => void;
+  workspace.removePerson.mockImplementation(() => new Promise<void>((_, reject) => { fail = () => reject(new Error("Offline")); }));
   open();
   const user = userEvent.setup();
   await user.click(await screen.findByRole("button", { name: "Remove access for Sam" }));
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Remove access" }));
-  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+  expect(await screen.findByText("Removing access for Sam…")).toBeTruthy();
   expect(screen.queryByRole("dialog")).toBeNull();
-  workspace.people.mockResolvedValue([owner]);
-  finish();
-  expect(await screen.findByText("Access removed for Sam.")).toBeTruthy();
+  fail();
+  expect((await screen.findByRole("alert")).textContent).toContain("Could not remove access.");
 });

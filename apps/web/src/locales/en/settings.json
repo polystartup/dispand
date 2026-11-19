@@ -34,6 +34,7 @@
     "confirm": "Remove {{name}}’s workspace access?",
     "effect": "{{email}} will lose access to this workspace and its jobs.",
     "removeFailed": "Could not remove access. Try again.",
+    "removing": "Removing access for {{name}}…",
     "removed": "Access removed for {{name}}."
   }
 }

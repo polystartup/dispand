@@ -29,32 +29,39 @@ function Directory({ scope }: { scope: Scope }) {
   const people = useQuery(orpc.workspace.people.queryOptions({
     input: scope, gcTime: 0, refetchInterval: 5000, refetchIntervalInBackground: true, retry: false,
   }));
-  if (people.isError || people.fetchStatus === "paused") return <p role="alert">{t("people.loadFailed")}</p>;
-  if (!people.data || !people.isFetchedAfterMount) return <p role="status">{t("loading")}</p>;
-  return <PeopleList scope={scope} people={people.data} />;
-}
-
-function PeopleList({ scope, people }: { scope: Scope; people: Awaited<ReturnType<typeof api.workspace.people>> }) {
-  const { t } = useTranslation(["settings", "common"]);
   const client = useQueryClient();
   const status = useRef<HTMLParagraphElement>(null);
-  const [selected, setSelected] = useState<string>();
-  const [notice, setNotice] = useState("");
   const remove = useMutation(orpc.workspace.removePerson.mutationOptions({
-    onSuccess: async (_, input) => {
-      const name = people.find((p) => p.userId === input.userId)?.name;
-      setSelected(undefined);
+    onSuccess: async () => {
       await Promise.all([
         client.invalidateQueries({ queryKey: orpc.workspace.people.queryKey({ input: scope }) }),
         client.invalidateQueries({ queryKey: orpc.workspace.managed.key() }),
       ]);
-      if (name) setNotice(t("people.removed", { name }));
       if (document.activeElement === document.body) status.current?.focus();
     },
   }));
+  const [name, setName] = useState("");
+  if (people.isError || people.fetchStatus === "paused") return <p role="alert">{t("people.loadFailed")}</p>;
+  if (!people.data || !people.isFetchedAfterMount) return <p role="status">{t("loading")}</p>;
 
   return <>
-    <List>
+    <PeopleList people={people.data} busy={remove.isPending} onRemove={(person) => {
+      setName(person.name);
+      remove.mutate({ ...scope, userId: person.userId });
+    }} />
+    {remove.isError && <p role="alert" className="mt-3 text-sm text-danger">{t("people.removeFailed")}</p>}
+    <p ref={status} tabIndex={-1} role="status" className="mt-3 text-sm text-muted">
+      {remove.isPending ? t("people.removing", { name }) : remove.isSuccess && t("people.removed", { name })}
+    </p>
+  </>;
+}
+
+type People = Awaited<ReturnType<typeof api.workspace.people>>;
+
+function PeopleList({ people, busy, onRemove }: { people: People; busy: boolean; onRemove: (person: People[number]) => void }) {
+  const { t } = useTranslation(["settings", "common"]);
+  const [selected, setSelected] = useState<string>();
+  return <List>
       {people.map((person) => (
         <li key={person.userId} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4">
           <div className="min-w-0 flex-1 basis-40">
@@ -64,27 +71,22 @@ function PeopleList({ scope, people }: { scope: Scope; people: Awaited<ReturnTyp
           <span className="text-sm text-muted">{t(`people.role.${person.role}`)}</span>
           {person.role !== "owner" && (
             <Dialog open={selected === person.userId} onOpenChange={(open) => {
-              if (open) remove.reset();
-              setNotice("");
-              setSelected(open ? person.userId : undefined);
+              if (!open || !busy) setSelected(open ? person.userId : undefined);
             }}>
               <DialogTrigger asChild>
-                <Button size="sm" variant="outline" disabled={remove.isPending} aria-label={t("people.removePerson", { name: person.name })}>{t("people.remove")}</Button>
+                <Button size="sm" variant="outline" aria-disabled={busy} aria-label={t("people.removePerson", { name: person.name })}>{t("people.remove")}</Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogTitle>{t("people.confirm", { name: person.name })}</DialogTitle>
                 <DialogDescription>{t("people.effect", { email: person.email })}</DialogDescription>
-                {remove.isError && <p role="alert" className="text-sm text-danger">{t("people.removeFailed")}</p>}
                 <div className="flex justify-end gap-2">
-                  <DialogClose asChild><Button variant="outline">{t(remove.isPending ? "common:actions.close" : "common:actions.cancel")}</Button></DialogClose>
-                  <Button variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate({ ...scope, userId: person.userId })}>{t("people.remove")}</Button>
+                  <DialogClose asChild><Button variant="outline">{t("common:actions.cancel")}</Button></DialogClose>
+                  <Button variant="destructive" onClick={() => { setSelected(undefined); onRemove(person); }}>{t("people.remove")}</Button>
                 </div>
               </DialogContent>
             </Dialog>
           )}
         </li>
       ))}
-    </List>
-    <p ref={status} tabIndex={-1} role="status" className="mt-3 text-sm text-muted">{notice}</p>
-  </>;
+    </List>;
 }

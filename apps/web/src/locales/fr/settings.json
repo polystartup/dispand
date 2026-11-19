@@ -34,6 +34,7 @@
     "confirm": "Retirer à {{name}} l’accès à cet espace de travail ?",
     "effect": "{{email}} perdra l’accès à cet espace de travail et à ses Jobs.",
     "removeFailed": "Impossible de retirer l’accès. Réessayez.",
+    "removing": "Retrait de l’accès de {{name}}…",
     "removed": "Accès retiré pour {{name}}."
   }
 }
