@@ -1,7 +1,8 @@
 import { call, ORPCError } from "@orpc/server";
 import { expect, test, vi } from "vitest";
 import { createAuth } from "./auth.ts";
-import { user } from "./db/schema.ts";
+import { eq } from "drizzle-orm";
+import { organizationMembers, workspaces, user } from "./db/schema.ts";
 import { router } from "./rpc/router.ts";
 import { emptyContext, testDb } from "./runners/test-support.ts";
 
@@ -12,6 +13,9 @@ test("setup creates the owner when none exists", async () => {
   const context = await emptyContext();
   const out = await call(router.auth.setup, owner, { context });
   expect(out.ownerId).toBeTruthy();
+  const memberships = await context.db.select({ userId: organizationMembers.userId, role: organizationMembers.role, workspaceId: workspaces.id })
+    .from(organizationMembers).innerJoin(workspaces, eq(workspaces.organizationId, organizationMembers.organizationId));
+  expect(memberships).toEqual([{ userId: out.ownerId, role: "owner", workspaceId: expect.any(String) }]);
   const res = await context.auth.api.signInEmail({ body: { email: owner.email, password: owner.password } });
   expect(res.user.id).toBe(out.ownerId);
 });

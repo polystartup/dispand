@@ -638,6 +638,13 @@
       "when": 1795065650330,
       "tag": "0090_generated_artifacts",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1795089746531,
+      "tag": "0091_workspace_bootstrap",
+      "breakpoints": true
     }
   ]
 }

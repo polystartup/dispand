@@ -148,3 +148,34 @@ test("0072 takes a plugin's existing skill files as the plugin's own, and none o
   onTestFinished(() => closeDb(db));
   expect(rowsOf(await db.execute(sql`select package_id, path, convert_from(content, 'UTF8') as text from skill_file_upstream`))).toEqual([{ package_id: "pkg_p", path: "a/SKILL.md", text: "plugin" }]);
 });
+
+test("0091 gives the existing owner a workspace and preserves their job, file and paired runner", async () => {
+  const { cp, mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "dispand-0091-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const before = join(dir, "migrations");
+  await cp(new URL("../../drizzle", import.meta.url).pathname, before, { recursive: true });
+  const journalPath = join(before, "meta", "_journal.json");
+  const journal = JSON.parse(await readFile(journalPath, "utf8")) as { entries: { tag: string }[] };
+  journal.entries = journal.entries.filter((entry) => entry.tag < "0091");
+  await writeFile(journalPath, JSON.stringify(journal));
+  const url = `pglite://${join(dir, "db")}`;
+  const old = await createDb(url, before);
+  await old.execute(sql`insert into "user" (id, name, email) values ('u', 'Ada', 'ada@example.com')`);
+  await old.execute(sql`insert into workflows (id, owner_id, name, current_version) values ('w', 'u', 'Workflow', 1)`);
+  await old.execute(sql`insert into runs (id, owner_id, workflow_id, version, status) values ('j', 'u', 'w', 1, 'succeeded')`);
+  await old.execute(sql`insert into attachments (id, owner_id, job_id, name, mime, size, image)
+    values ('a', 'u', 'j', 'result.txt', 'application/octet-stream', 8, false)`);
+  await old.execute(sql`insert into runners (id, owner_id, name, token_hash) values ('r', 'u', 'Machine', 'paired')`);
+  await closeDb(old);
+
+  const db = await createDb(url);
+  onTestFinished(() => closeDb(db));
+  expect(rowsOf(await db.execute(sql`select m.user_id, m.role, w.id as workspace_id from organization_members m
+    join workspaces w using (organization_id)`))).toEqual([{ user_id: "u", role: "owner", workspace_id: expect.any(String) }]);
+  expect(rowsOf(await db.execute(sql`select j.id, a.id as file, r.token_hash from runs j
+    join attachments a on a.job_id = j.id and a.owner_id = j.owner_id
+    join runners r on r.owner_id = j.owner_id where j.owner_id = 'u'`))).toEqual([{ id: "j", file: "a", token_hash: "paired" }]);
+});

@@ -33,6 +33,24 @@ export const user = pgTable("user", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+export const organizations = pgTable("organizations", {
+  id: text("id").primaryKey(),
+});
+
+export const organizationMembers = pgTable("organization_members", {
+  organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  role: text("role").$type<"owner" | "member">().notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.organizationId, t.userId] }),
+  check("organization_members_role_check", sql`${t.role} in ('owner', 'member')`),
+]);
+
+export const workspaces = pgTable("workspaces", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+});
+
 export const session = pgTable("session", {
   id: text("id").primaryKey(),
   expiresAt: timestamp("expires_at").notNull(),

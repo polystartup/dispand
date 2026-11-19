@@ -3,7 +3,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { ORPCError } from "@orpc/server";
 import { count, sql } from "drizzle-orm";
-import { account, user } from "../db/schema.ts";
+import { account, organizationMembers, organizations, user, workspaces } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { agents } from "../agents/procedures.ts";
 import { artifacts } from "../artifacts/procedures.ts";
@@ -67,6 +67,10 @@ const setup = base
         userId: ownerId,
         password,
       });
+      const organizationId = newId("org");
+      await tx.insert(organizations).values({ id: organizationId });
+      await tx.insert(organizationMembers).values({ organizationId, userId: ownerId, role: "owner" });
+      await tx.insert(workspaces).values({ id: newId("ws"), organizationId });
       await seedMarketplaces(tx, ownerId);
     });
     return { ownerId };
