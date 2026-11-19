@@ -140,7 +140,9 @@ Status: Prototype
     or a server that runs on a machine or needs a setting, is listed, and the agent is made without it.
     Nothing else an agent says approves anything. In a chat, each proposal shows its scope and has its own
     decision controls. You can approve it, decline it, or request changes with feedback for
-    the agent. Requesting changes declines that version.
+    the agent. Requesting changes declines that version. When revisiting an answered proposal
+    in chat or the Inbox, expand the change count to read its recorded scope. Refused
+    changes are also counted beside the decision.
   - In a chat, the agent's words are shown formatted (headings, lists, code, emphasis). An
     image shows only when it is a file of the workspace, and a link says where it goes and
     opens only when clicked.

@@ -10,6 +10,7 @@ import { orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
 import { ARTIFACT_TOOL, CONSULT_TOOL, heldAttachments, QUESTION_TOOL, RECORD_TOOL, threadMessages, TRACE_TOOL, useRunThread, useTranscript } from "../../lib/assistant-runtime.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
+import { RecordedProposalScope } from "../questions/RecordedProposalScope.tsx";
 import { ProposalItems } from "../questions/ProposalItems.tsx";
 import { approvalWords, QuestionForm } from "../questions/QuestionForm.tsx";
 import { Button } from "../ui/button.tsx";
@@ -153,10 +154,12 @@ function ProposalCard({ question, children, ref }: { question: Question; childre
   const asked = approvalWords(question.payload);
   const answeredText = useAnsweredText();
   const answered = question.status === "answered";
+  // Keep the scope the reader was already inspecting when a live decision arrives.
+  const [wasPending] = useState(!answered);
   return (
     <section ref={ref} tabIndex={-1} aria-label={t("proposal")} className="mr-6 flex min-w-0 flex-col gap-3 [overflow-wrap:anywhere] rounded-2xl border border-line bg-surface p-4">
       <p className="text-[15px]">{answered ? answeredText(question) : t("questions:proposal.intro")}</p>
-      <ProposalItems proposal={question.proposal!} />
+      {answered ? <RecordedProposalScope proposal={question.proposal!} defaultOpen={wasPending} /> : <ProposalItems proposal={question.proposal!} />}
       {asked !== null && (
         <>
           <p className="text-[13px] text-muted">{t("questions:proposal.says")}</p>

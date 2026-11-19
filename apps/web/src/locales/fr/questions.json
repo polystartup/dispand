@@ -144,6 +144,10 @@
     "note": "Chaque outil que reçoivent ses agents demande avant chaque action ; ses serveurs et son installation native restent à vous d’ajouter. Un plugin modifié depuis sa proposition n’installe rien."
   },
   "proposal": {
+    "changeCount_one": "{{count}} modification proposée",
+    "changeCount_other": "{{count}} modifications proposées",
+    "refusedCount_one": "{{count}} modification a été refusée.",
+    "refusedCount_other": "{{count}} modifications ont été refusées.",
     "requestChanges": "Demander des modifications",
     "decline": "Refuser",
     "feedback": "Que faut-il modifier ?",

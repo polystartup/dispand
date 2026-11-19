@@ -279,7 +279,25 @@ test("the studio: a second conversation's setup stops at a name taken, goes on, 
   expect((await rpc<{ name: string }[]>(page, "agents/list")).map((a) => a.name)).not.toContain("Designer");
 
   // Applied again, it goes on from the first item not made: that one names the refused item, so it can't run.
+  await page.setViewportSize({ width: 390, height: 844 });
   await box.fill("Use the Features table I made.");
+  const history = chat.getByRole("region", { name: "Proposal" });
+  const scope = history.getByRole("button", { name: `${items.length} proposed changes`, exact: true });
+  const changes = history.getByRole("list", { name: "What is proposed" });
+  await expect(scope).toHaveAttribute("aria-expanded", "false");
+  await expect(changes).toBeHidden();
+  await scope.focus();
+  await scope.scrollIntoViewIfNeeded();
+  const position = () => scope.evaluate((button) => button.getBoundingClientRect().top);
+  const before = await position();
+  await scope.press("Enter");
+  await expect(changes.getByRole("listitem")).toHaveCount(items.length);
+  await expect(scope).toBeFocused();
+  expect(Math.abs(await position() - before)).toBeLessThanOrEqual(1);
+  await scope.press("Space");
+  await expect(changes).toBeHidden();
+  await expect(scope).toBeFocused();
+  await expect(box).toHaveValue("Use the Features table I made.");
   await box.press("Enter");
   await approve(page, 7, ["Pull request", "GitHub", "Designer", "Website reviewer", "New feature", "Monday review"]);
   const again = lastResult<Applied>(request(5));
@@ -811,8 +829,14 @@ test.describe("French browser", () => {
     }
 
     await page.goto("/inbox");
-    const proposal = page.getByRole("list", { name: "Ce qui est proposé" }).first();
-    await expect(proposal).toBeVisible();
+    const scopeButton = page.getByRole("button", { name: /^\d+ modifications? proposées?$/ });
+    const article = page.getByRole("article").filter({ has: scopeButton }).first();
+    const scope = article.locator(scopeButton);
+    await expect(scope).toHaveAttribute("aria-expanded", "false");
+    await scope.click();
+    await expect(scope).toBeFocused();
+    await expect(scope).toHaveAttribute("aria-expanded", "true");
+    await expect(article.getByRole("list", { name: "Ce qui est proposé" })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 });

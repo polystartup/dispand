@@ -153,7 +153,7 @@ test("a proposal answered says approved, or declined with the owner's words", ()
   expect(screen.getByText("You declined it: Only on Clients")).toBeTruthy();
 });
 
-test.each(["allow", "deny"])("an answered proposal retains scope and item outcomes: %s", (decision) => {
+test.each(["allow", "deny"])("a proposal answered while visible retains its expanded scope and item outcomes: %s", (decision) => {
   const payload = { kind: "permission", toolName: "request_approval", input: { message: "Add the clerks", proposal: "prop_1" }, canAlwaysAllow: false };
   const instructions = "Keep every original instruction.\n".repeat(100);
   const proposal = { id: "prop_1", status: "asked", items: [
@@ -176,7 +176,8 @@ test.each(["allow", "deny"])("an answered proposal retains scope and item outcom
   elsewhere.remove();
   expect(card.textContent).toContain(instructions.trim());
   expect(within(card).getByText(decision === "allow" ? "You approved it" : "You declined it: Only on Clients")).toBeTruthy();
-  expect(within(card).queryByRole("button")).toBeNull();
+  expect(within(card).getAllByRole("button")).toHaveLength(1);
+  expect(within(card).getByRole("button", { name: "3 proposed changes", expanded: true })).toBeTruthy();
   expect(within(card).getByText("Third")).toBeTruthy();
   if (decision === "allow") {
     expect(within(card).getByText("done")).toBeTruthy();
@@ -184,6 +185,24 @@ test.each(["allow", "deny"])("an answered proposal retains scope and item outcom
     const last = within(card).getAllByRole("listitem")[2]!;
     expect(last.textContent).not.toMatch(/done|refused/);
   }
+  expect(fake.questions.answer).not.toHaveBeenCalled();
+});
+
+test("historical proposal scope expands beneath the decision and leaves item failures visible while closed", async () => {
+  const payload = { kind: "permission", toolName: "request_approval", input: { message: "Add the clerk", proposal: "prop_1" }, canAlwaysAllow: false };
+  const proposal = { id: "prop_1", status: "approved", items: [{ tool: "agents_create", input: { name: "Clerk" }, used: true, failed: true, refs: [] }], names: {} };
+  const { user } = mount(run([], [question("q1", 1, { payload, proposalId: proposal.id, proposal, status: "answered", answer: { kind: "permission", decision: "allow" } })]));
+  const card = within(screen.getByRole("region", { name: "Proposal" }));
+  expect(card.getByText("You approved it")).toBeTruthy();
+  expect(card.getByText("1 change was refused.")).toBeTruthy();
+  expect(card.queryByText("Clerk")).toBeNull();
+  const toggle = card.getByRole("button", { name: "1 proposed change", expanded: false });
+  toggle.focus();
+  await user.keyboard("{Enter}");
+  expect(card.getByText("Clerk")).toBeTruthy();
+  expect(card.getByText("refused")).toBeTruthy();
+  expect(document.activeElement).toBe(toggle);
+  expect(card.getAllByRole("button")).toHaveLength(1);
   expect(fake.questions.answer).not.toHaveBeenCalled();
 });
 

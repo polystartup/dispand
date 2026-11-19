@@ -144,6 +144,10 @@
     "note": "Every tool its agents get asks before each action; its servers and native install are yours to add. A plugin changed since it was proposed installs nothing."
   },
   "proposal": {
+    "changeCount_one": "{{count}} proposed change",
+    "changeCount_other": "{{count}} proposed changes",
+    "refusedCount_one": "{{count}} change was refused.",
+    "refusedCount_other": "{{count}} changes were refused.",
     "requestChanges": "Request changes",
     "decline": "Decline",
     "feedback": "What should change?",

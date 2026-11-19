@@ -145,6 +145,14 @@ test("an approval of a proposal shows its writes from the server, then the agent
   expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
 });
 
+test("an answered proposal keeps the decision visible above its recorded scope", () => {
+  mount({ ...approval, payload: asking, proposalId: proposal.id, proposal, status: "answered", answer: { kind: "permission", decision: "allow" }, answeredAt: at });
+  expect(screen.getByText("Approved")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "1 proposed change" }).getAttribute("aria-expanded")).toBe("false");
+  expect(screen.queryByText("Intake desk")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+});
+
 test("a proposal is never approved where its writes aren't shown", () => {
   mount({ ...approval, payload: asking, proposalId: "prop_1", proposal: null });
   expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();

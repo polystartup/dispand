@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { type api, orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
 import { PluginUpdateItem } from "./PluginUpdateItem.tsx";
-import { ProposalItems } from "./ProposalItems.tsx";
+import { RecordedProposalScope } from "./RecordedProposalScope.tsx";
 import { type About, approvalWords, checkpointInput, checkpointKind, consultInput, QuestionForm } from "./QuestionForm.tsx";
 
 export type InboxEntry = Awaited<ReturnType<typeof api.questions.list>>[number];
@@ -121,7 +121,6 @@ export function InboxItem({ item, notices = [], onNotices }: { item: InboxEntry;
       ) : (
         <div className="space-y-2 text-[14px]">
           <p className="whitespace-pre-wrap break-words text-muted">{item.update ? updateAsked : askedText(item.payload, item.about, item.rootId, item.consultId)}</p>
-          {item.proposal && <ProposalItems proposal={item.proposal} />}
           {item.status === "answered" && item.answer ? (
             <>
               <p className="font-medium">{item.update ? t("update.answered") : answerLine(item.answer, item.payload, item.rootId)}</p>
@@ -142,6 +141,7 @@ export function InboxItem({ item, notices = [], onNotices }: { item: InboxEntry;
           ) : (
             <p className="text-[13px] text-faint">{item.update ? t("update.expired") : item.orphaned ? t("expiredRestarted") : t("expiredEnded")}</p>
           )}
+          {item.proposal && <RecordedProposalScope proposal={item.proposal} />}
         </div>
       )}
       {notices.map((n) => (
