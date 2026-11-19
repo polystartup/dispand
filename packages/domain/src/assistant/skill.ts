@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { and, eq, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { skillFiles, skillPackages, user } from "../db/schema.ts";
@@ -17,14 +20,16 @@ const traces = tracer("assistant");
 /** The package's name, and its one skill's. */
 export const PLATFORM_SKILL = "dispand-platform";
 
-/** Vite's `import.meta.glob` (vite and vitest bundle the domain's sources), as far as it is used here. */
-type Glob = { glob(pattern: string, options: { query: "?raw"; import: "default"; eager: true }): Record<string, string> };
-
-const bundled = (import.meta as unknown as Glob).glob("./skill/**/*", { query: "?raw", import: "default", eager: true });
+const skillDirectory = fileURLToPath(new URL("./skill/", import.meta.url));
 
 /** The build's files of the platform skill, as `<skill>/<path>`. */
-export const PLATFORM_SKILL_FILES: SkillFile[] = Object.entries(bundled)
-  .map(([path, text]) => ({ path: path.slice("./skill/".length), content: new TextEncoder().encode(text.replaceAll("{{assistant}}", ASSISTANT_NAME)) }))
+export const PLATFORM_SKILL_FILES: SkillFile[] = readdirSync(skillDirectory, { recursive: true, withFileTypes: true })
+  .filter((entry) => entry.isFile())
+  .map((entry) => {
+    const path = join(entry.parentPath, entry.name);
+    const text = readFileSync(path, "utf8").replaceAll("{{assistant}}", ASSISTANT_NAME);
+    return { path: relative(skillDirectory, path).split(sep).join("/"), content: new TextEncoder().encode(text) };
+  })
   .sort((a, b) => (a.path < b.path ? -1 : 1));
 
 const { skills: SKILLS } = validatePackage(PLATFORM_SKILL_FILES);

@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "noEmit": false,
+    "rewriteRelativeImportExtensions": true,
+    "declaration": true
+  },
+  "include": [
+    "./src/index.ts",
+    "./src/runners/upgrade.ts",
+    "./src/agents/tools.ts",
+    "./src/platform/bundles.ts",
+    "./src/memory/model.ts",
+    "./src/data/*.ts",
+    "./src/workflows/*.ts",
+    "./src/pages/*.ts",
+    "./src/audit/model.ts",
+    "./src/messages/*",
+    "./src/plugins/names.ts"
+  ],
+  "exclude": [
+    "src/**/*.test.ts"
+  ]
+}

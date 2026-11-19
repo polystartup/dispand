@@ -1,5 +1,6 @@
 {
   "name": "@dispand/domain",
+  "version": "0.1.0",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
@@ -21,7 +22,8 @@
     "typecheck": "tsc -p .",
     "test": "vitest run",
     "build": "tsc -p .",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "prepack": "tsc -p tsconfig.pack.json && node --input-type=module -e \"import { cpSync } from 'node:fs'; cpSync('src/assistant/skill', 'dist/assistant/skill', { recursive: true })\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",
@@ -61,5 +63,26 @@
     "@types/ws": "^8.18.2",
     "drizzle-kit": "^0.31.11",
     "vitest": "^5.1.0"
-  }
+  },
+  "publishConfig": {
+    "exports": {
+      ".": "./dist/index.js",
+      "./upgrade": "./dist/runners/upgrade.js",
+      "./agents/tools": "./dist/agents/tools.js",
+      "./platform/bundles": "./dist/platform/bundles.js",
+      "./memory/model": "./dist/memory/model.js",
+      "./data/*": "./dist/data/*.js",
+      "./workflows/*": "./dist/workflows/*.js",
+      "./pages/*": "./dist/pages/*.js",
+      "./audit/model": "./dist/audit/model.js",
+      "./plugins/names": "./dist/plugins/names.js",
+      "./messages/*.json": "./dist/messages/*.json",
+      "./messages/*.ts": "./dist/messages/*.js"
+    }
+  },
+  "files": [
+    "dist",
+    "drizzle/*.sql",
+    "drizzle/meta/_journal.json"
+  ]
 }

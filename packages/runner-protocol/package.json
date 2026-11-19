@@ -1,5 +1,6 @@
 {
   "name": "@dispand/runner-protocol",
+  "version": "0.1.0",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
@@ -10,7 +11,8 @@
   "scripts": {
     "typecheck": "tsc -p .",
     "test": "vitest run",
-    "build": "tsc -p ."
+    "build": "tsc -p .",
+    "prepack": "tsc -p tsconfig.pack.json"
   },
   "dependencies": {
     "zod": "^4.6.7"
@@ -18,5 +20,14 @@
   "devDependencies": {
     "@types/node": "^26.6.6",
     "vitest": "^5.1.0"
-  }
+  },
+  "publishConfig": {
+    "exports": {
+      ".": "./dist/index.js",
+      "./digest": "./dist/digest.js"
+    }
+  },
+  "files": [
+    "dist"
+  ]
 }

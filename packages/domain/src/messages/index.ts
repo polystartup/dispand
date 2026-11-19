@@ -1,5 +1,5 @@
-import en from "./en.json";
-import fr from "./fr.json";
+import en from "./en.json" with { type: "json" };
+import fr from "./fr.json" with { type: "json" };
 
 // What the server says to a person: a key of these resources and its values, which the page
 // translates (`apps/web/src/lib/api.ts`), never a sentence built here. The English sentence goes

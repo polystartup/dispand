@@ -1,4 +1,4 @@
-import messages from "../messages/en.json";
+import messages from "../messages/en.json" with { type: "json" };
 import type { AgentSnapshot } from "../db/schema.ts";
 import { INTERACTION, JOB, type TriggerConfig } from "../triggers/model.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
