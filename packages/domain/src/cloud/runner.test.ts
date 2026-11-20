@@ -300,6 +300,24 @@ test("ask_user becomes a choice question and the answer resumes the loop", async
   ]);
 });
 
+test("a failed cloud chat resumes its transcript on an explicit owner message", async () => {
+  const model = fakeModel(say("Before the failure"), () => { throw new Error("Provider offline"); }, say("Back online"));
+  const { context, engine, agent } = await setup(chat, { client: model.client });
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Say hello.", config: { kind: "manual", placement: "chat" } }, { context });
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(async () => expect((await stepOf(engine, runId, trigger.id)).turnStatus).toBe("idle"));
+  await engine.sendChat(runId, "Next turn");
+  await until(engine, runId, "failed");
+  const before = await stepOf(engine, runId, trigger.id);
+  const view = await call(router.runs.get, { runId }, { context });
+  expect(view.run.continuationNodeId).toBe(trigger.id);
+  await engine.sendChat(runId, "Try again", undefined, [], true);
+  await vi.waitFor(() => expect(model.inputs).toHaveLength(3));
+  expect(model.inputs[2]!.items).toContainEqual(expect.objectContaining({ role: "assistant", text: "Before the failure" }));
+  expect(model.inputs[2]!.items.at(-1)).toMatchObject({ role: "user", text: expect.stringContaining("Try again") });
+  expect((await stepOf(engine, runId, trigger.id)).sessionId).not.toBe(before.sessionId);
+});
+
 test("cloud chat activity starts with execution and returns to idle between turns", async () => {
   let finish!: () => void;
   const held = new Promise<void>((resolve) => { finish = resolve; });

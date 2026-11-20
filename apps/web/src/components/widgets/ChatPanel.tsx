@@ -73,7 +73,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   }).data;
   const runDef = workflowId ? versionDef : jobDef;
   const queryClient = useQueryClient();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | { closed: true } | null>(null);
   const [sending, setSending] = useState(false);
   const stopFilter = { mutationKey: turnActionKey(runId, "stop") };
   const proposalFilter = { mutationKey: turnActionKey(runId, "proposal") };
@@ -104,7 +104,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
     }
   }, [t, sessions, session]);
   const chatField = runDef?.trigger.field.type === "chat" ? runDef.trigger.field.id : undefined;
-  const chatStep = run?.steps.find((s) => s.interactive) ?? run?.steps.find((s) => s.nodeId === chatField && s.status === "pending");
+  const chatStep = run?.steps.find((s) => s.interactive) ?? run?.steps.find((s) => s.nodeId === (run.run.continuationNodeId ?? chatField));
   const open = !runId || !run || canReopen(run) || (!!chatStep && ["running", "waiting", "pending"].includes(chatStep.status));
   const pending = run?.questions.filter((q) => q.stepRunId === chatStep?.id && q.status === "pending") ?? [];
   const waiting = pending.some((q) => !q.proposalId || !q.proposal) ? "question" : pending.length ? "proposal" : undefined;
@@ -147,11 +147,11 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
       const attachmentIds = message.attachments?.map((file) => file.id) ?? [];
       const quote = message.metadata?.custom.quote as QuoteInfo | undefined;
       const words = quote ? `${text}\n\n${quote.text.split("\n").map((line) => `> ${line}`).join("\n")}` : text;
-      await api.runs.sendChat({ runId: id, text: words, ...(skillId ? { skillId } : {}), ...(attachmentIds.length ? { attachmentIds } : {}) });
+      await api.runs.sendChat({ runId: id, text: words, ...(canReopen(run) ? { continueChat: true } : {}), ...(skillId ? { skillId } : {}), ...(attachmentIds.length ? { attachmentIds } : {}) });
       void queryClient.invalidateQueries({ queryKey: orpc.runs.list.key() });
     } catch (err) {
       const reason = err instanceof Error ? err.message : t("sendFailed");
-      setError(reason);
+      setError((err as { data?: { key?: string } } | null)?.data?.key === "engine.chatOver" ? { closed: true } : reason);
       // The library returns the submitted draft, including files and quote, without losing newer typing.
       throw new MessageNotSentError(reason);
     } finally {
@@ -205,7 +205,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
     <ChatThread runtime={runtime} run={run} chatStepId={chatStep?.id} canSend={canSend && !sending && holding === 0} canDraft={open && waiting !== "question"} onSend={send} onAttach={hold}
       welcome={welcome} starterPrompts={!!assistantAgentId} centeredWelcome={!!composerTools}
       composer={<ChatComposer runId={runId} assistantAgentId={assistantAgentId} tools={composerTools} open={open} waiting={waiting}
-        busy={sending || stopping || deciding} error={error} queued={<QueuedMessages queued={new Map((run?.queue ?? []).map((q) => [q.id, q]))} onEdit={editQueued} steering={canSteer ? steering : null} />} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined} />}
+        busy={sending || stopping || deciding} error={typeof error === "string" ? error : error && !open ? t("over") : null} queued={<QueuedMessages queued={new Map((run?.queue ?? []).map((q) => [q.id, q]))} onEdit={editQueued} steering={canSteer ? steering : null} />} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined} />}
     >
       <AfterChat run={run} chatStepId={chatStep?.id} def={runDef} />
     </ChatThread>
@@ -224,7 +224,7 @@ function AfterChat({ run, chatStepId, def }: { run: RunSnapshot | null; chatStep
     <>
       {chatStep?.status === "failed" && (
         <p role="alert" className="mt-3 px-1 text-[13px] text-danger">
-          {(chatStep.error ?? run?.run.error) ? t("stopped", { error: stored(chatStep.error ?? run?.run.error) }) : t("stoppedAgent")}
+          {canReopen(run) ? t("retryChat", { error: stored(chatStep.error) }) : (chatStep.error ?? run?.run.error) ? t("stopped", { error: stored(chatStep.error ?? run?.run.error) }) : t("stoppedAgent")}
         </p>
       )}
       {chatStep?.status === "succeeded" && run && <Progress run={run} steps={followUps} def={def} />}

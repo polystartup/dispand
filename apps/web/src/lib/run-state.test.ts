@@ -37,11 +37,11 @@ test("the stream stops only once the run is over; otherwise it reconnects, backi
 });
 
 test("a successful Job chat keeps listening for its next turn, while closed conversations stop", () => {
-  const chat: RunSnapshot = { ...snapshot, run: { ...snapshot.run, source: "agent", workflowId: null, agentId: "agent_1", status: "succeeded" }, steps: [{ id: "s1", runId: "run_1", nodeId: "chat", iteration: 0, status: "succeeded", turnStatus: "idle", turnId: null, interruptible: false, outputs: {}, error: null, startedAt: at, finishedAt: at, queuedAt: null, interactive: true, prompt: "", resumable: true }] };
+  const chat: RunSnapshot = { ...snapshot, run: { ...snapshot.run, source: "agent", workflowId: null, agentId: "agent_1", status: "succeeded", continuationNodeId: "chat" }, steps: [{ id: "s1", runId: "run_1", nodeId: "chat", iteration: 0, status: "succeeded", turnStatus: "idle", turnId: null, interruptible: false, outputs: {}, error: null, startedAt: at, finishedAt: at, queuedAt: null, interactive: true, prompt: "", resumable: true }] };
   expect(afterStream(chat, 0)).toEqual({ stop: false, delayMs: 1000 });
-  expect(afterStream({ ...chat, run: { ...chat.run, status: "failed" } }, 0)).toEqual({ stop: true });
-  expect(afterStream({ ...chat, run: { ...chat.run, source: "workflow", workflowId: "wf_1" } }, 0)).toEqual({ stop: true });
-  expect(afterStream({ ...chat, steps: [{ ...chat.steps[0]!, resumable: undefined }] }, 0)).toEqual({ stop: true });
+  expect(afterStream({ ...chat, run: { ...chat.run, status: "failed", continuationNodeId: undefined } }, 0)).toEqual({ stop: true });
+  expect(afterStream({ ...chat, run: { ...chat.run, source: "workflow", workflowId: "wf_1", continuationNodeId: undefined } }, 0)).toEqual({ stop: true });
+  expect(afterStream({ ...chat, steps: [{ ...chat.steps[0]!, resumable: undefined }] }, 0)).toEqual({ stop: false, delayMs: 1000 });
 });
 
 test("a queued message stays while pending or failed, and leaves once dispatched or removed", () => {

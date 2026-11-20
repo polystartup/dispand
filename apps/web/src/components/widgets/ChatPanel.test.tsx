@@ -259,6 +259,24 @@ test("a first message that fails after the run started is kept and goes to that 
   await waitFor(() => expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe(""));
 });
 
+test("a refused first start leaves one actionable error and the draft can be resent in place", async () => {
+  const snap = snapshot();
+  Object.assign(snap.run, { source: "agent", agentId: "agent_1", status: "failed", continuationNodeId: "n_chat" });
+  Object.assign(snap.steps[0]!, { status: "failed", interactive: false, error: "Bypass refused" });
+  fake.runs.start.mockResolvedValue({ runId: "run_1" });
+  fake.runs.sendChat.mockRejectedValueOnce(Object.assign(new Error("Different localized wording"), { data: { key: "engine.chatOver" } })).mockResolvedValueOnce(undefined);
+  fake.runs.stream.mockImplementation(streamOf(snap));
+  const user = mount(null);
+  const input = await screen.findByLabelText<HTMLTextAreaElement>("Message");
+  await user.type(input, "Hello{Enter}");
+  await screen.findByText(/Bypass refused.*send another message here/);
+  expect(screen.queryByText("Different localized wording")).toBeNull();
+  expect(input.value).toBe("Hello");
+  await user.type(input, " again{Enter}");
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenLastCalledWith({ runId: "run_1", text: "Hello again", continueChat: true }));
+  expect(fake.runs.start).toHaveBeenCalledTimes(1);
+});
+
 test("what is typed while a message is sending stays in the composer", async () => {
   let finish!: () => void;
   fake.runs.sendChat.mockImplementation(() => new Promise<void>((resolve) => (finish = resolve)));
@@ -501,10 +519,10 @@ test("with two proposals waiting, the composer answers neither: each is answered
   expect(screen.getByRole<HTMLButtonElement>("button", { name: "Send" }).disabled).toBe(true);
 });
 
-test("a finished Job with a recorded transcript sends to the same conversation", async () => {
+test.each(["succeeded", "failed"] as const)("a %s Job chat sends to the same conversation", async (status) => {
   const snap = snapshot();
-  snap.run = { ...snap.run, source: "agent", workflowId: null, agentId: "agent_1", status: "succeeded", finishedAt: at };
-  snap.steps = snap.steps.map((s) => ({ ...s, status: "succeeded", finishedAt: at, resumable: true }));
+  snap.run = { ...snap.run, source: "agent", workflowId: null, agentId: "agent_1", status, continuationNodeId: "n_chat", finishedAt: at };
+  snap.steps = snap.steps.map((s) => ({ ...s, status, finishedAt: at, ...(status === "failed" ? { error: "Runner refused" } : { resumable: true as const }) }));
   fake.runs.stream.mockImplementation(streamOf(snap));
   fake.jobs.def.mockResolvedValue({ trigger: { type: "manual", field: { id: "n_chat", type: "chat" } }, steps: [], edges: [] });
   fake.runs.sendChat.mockResolvedValue(undefined);
@@ -514,7 +532,7 @@ test("a finished Job with a recorded transcript sends to the same conversation",
   await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false));
   await user.type(input, "One more thing.");
   await user.click(screen.getByRole("button", { name: /^Send$/ }));
-  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledWith({ runId: "run_1", text: "One more thing." }));
+  await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledWith({ runId: "run_1", text: "One more thing.", continueChat: true }));
   expect(fake.jobs.start).not.toHaveBeenCalled();
 });
 

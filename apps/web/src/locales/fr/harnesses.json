@@ -78,7 +78,7 @@
     "runnerOffline": "{{name}} (hors ligne)",
     "addRunnerOption": "Ajouter un runner…",
     "permissions": "Permissions",
-    "bypassHint": "Ne fonctionne que si la configuration du runner lui-même l’autorise.",
+    "bypassHint": "Sur la machine du runner, réglez allowBypass sur true dans ~/.config/dispand-runner/config.json, puis redémarrez dispand-runner.service.",
     "models": "Modèles disponibles",
     "pickModel": "Choisir un modèle",
     "modelsFailed": "Impossible de lister les modèles. Vous pouvez saisir un identifiant de modèle ci-dessous.",

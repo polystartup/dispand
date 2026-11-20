@@ -47,6 +47,7 @@
   "send": "Send",
   "hintSend": "Enter to send · Shift+Enter for a new line",
   "stopped": "The conversation stopped: {{error}}",
+  "retryChat": "{{error}} You can send another message here.",
   "stoppedAgent": "The conversation stopped: the agent failed.",
   "reconnecting": "Reconnecting to live updates…",
   "progress": "Progress",

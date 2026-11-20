@@ -8,11 +8,17 @@ export type MessageRow = typeof messages.$inferSelect;
 export type QuestionRow = typeof questions.$inferSelect;
 export type QueuedRow = typeof chatQueue.$inferSelect;
 
+/** The chat trigger an owner can continue after the Job ends, even if its first session never started. */
+export function continuationNode(run: RunRow) {
+  if (run.source === "agent" && run.agentId && !run.stopped && (run.status === "failed" || run.status === "succeeded") && run.def?.trigger.field.type === "chat") return run.def.trigger.field.id;
+}
+
 export function runView(r: RunRow) {
   const { id, source, workflowId, version, agentId, triggerId, status, trigger, error, createdAt, finishedAt } = r;
   // A Job whose agent was deleted names it as it kept it: "Order drafter (Deleted)".
   const deletedAgentName = agentId === null && r.agentName !== null ? deletedAgent(r.agentName) : null;
-  return { id, source, workflowId, version, agentId, deletedAgentName, triggerId, status, trigger, error, createdAt, finishedAt };
+  const chatNode = continuationNode(r);
+  return { ...(chatNode ? { continuationNodeId: chatNode } : {}), id, source, workflowId, version, agentId, deletedAgentName, triggerId, status, trigger, error, createdAt, finishedAt };
 }
 export function stepView(s: StepRow) {
   const { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, turnStatus, turnId, interruptible } = s;
