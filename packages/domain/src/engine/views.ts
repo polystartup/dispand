@@ -1,6 +1,7 @@
 import type { chatQueue, messages, questions, runs, stepRuns } from "../db/schema.ts";
 import { deletedAgent } from "../jobs/agent-name.ts";
-import { steering } from "./harness.ts";
+import { storedText } from "../messages/index.ts";
+import { isCloud, steering } from "./harness.ts";
 
 export type RunRow = typeof runs.$inferSelect;
 export type StepRow = typeof stepRuns.$inferSelect;
@@ -14,10 +15,14 @@ export function runView(r: RunRow) {
   const deletedAgentName = agentId === null && r.agentName !== null ? deletedAgent(r.agentName) : null;
   return { id, source, workflowId, version, agentId, deletedAgentName, triggerId, status, trigger, error, createdAt, finishedAt };
 }
+/** A runner error can be retried by the owner. Engine decisions such as Stop stay final. */
+export function retryableChat(s: StepRow) {
+  return s.status === "failed" && !!s.start?.interactive && !!s.sessionId && !!s.harness && !isCloud(s.harness) && !!s.error && "text" in storedText(s.error);
+}
 export function stepView(s: StepRow) {
   const { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, turnStatus, turnId, interruptible } = s;
   // prompt: as the step got it, values filled in (for the owner to debug a run); null until started.
-  return { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, turnStatus, turnId, interruptible, interactive: s.start?.interactive ?? false, prompt: s.start?.prompt ?? null, ...(s.cliSessionId ? { resumable: true as const } : {}), ...(s.start?.interactive && s.harness ? { steering: steering(s.harness) } : {}) };
+  return { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, turnStatus, turnId, interruptible, interactive: s.start?.interactive ?? false, prompt: s.start?.prompt ?? null, ...(retryableChat(s) ? { retryable: true as const } : {}), ...(s.cliSessionId ? { resumable: true as const } : {}), ...(s.start?.interactive && s.harness ? { steering: steering(s.harness) } : {}) };
 }
 export function messageView(m: MessageRow) {
   const { id, runId, stepRunId, role, text, createdAt, files, result } = m;

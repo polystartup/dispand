@@ -88,7 +88,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
     },
   });
   const [holding, setHolding] = useState(0);
-  const { t } = useTranslation("chat");
+  const { t } = useTranslation(["chat", "messages"]);
   const hold = useCallback(async (file: File) => {
     sessions.begin(session);
     setHolding((n) => n + 1);
@@ -147,7 +147,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
       const attachmentIds = message.attachments?.map((file) => file.id) ?? [];
       const quote = message.metadata?.custom.quote as QuoteInfo | undefined;
       const words = quote ? `${text}\n\n${quote.text.split("\n").map((line) => `> ${line}`).join("\n")}` : text;
-      await api.runs.sendChat({ runId: id, text: words, ...(skillId ? { skillId } : {}), ...(attachmentIds.length ? { attachmentIds } : {}) });
+      await api.runs.sendChat({ runId: id, text: words, ...(chatStep?.retryable ? { retryFailed: true } : {}), ...(skillId ? { skillId } : {}), ...(attachmentIds.length ? { attachmentIds } : {}) });
       void queryClient.invalidateQueries({ queryKey: orpc.runs.list.key() });
     } catch (err) {
       const reason = err instanceof Error ? err.message : t("sendFailed");
@@ -205,7 +205,7 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
     <ChatThread runtime={runtime} run={run} chatStepId={chatStep?.id} canSend={canSend && !sending && holding === 0} canDraft={open && waiting !== "question"} onSend={send} onAttach={hold}
       welcome={welcome} starterPrompts={!!assistantAgentId} centeredWelcome={!!composerTools}
       composer={<ChatComposer runId={runId} assistantAgentId={assistantAgentId} tools={composerTools} open={open} waiting={waiting}
-        busy={sending || stopping || deciding} error={error} queued={<QueuedMessages queued={new Map((run?.queue ?? []).map((q) => [q.id, q]))} onEdit={editQueued} steering={canSteer ? steering : null} />} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined} />}
+        busy={sending || stopping || deciding} error={chatStep?.retryable && error === t("messages:engine.chatOver") ? null : error} queued={<QueuedMessages queued={new Map((run?.queue ?? []).map((q) => [q.id, q]))} onEdit={editQueued} steering={canSteer ? steering : null} />} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined} />}
     >
       <AfterChat run={run} chatStepId={chatStep?.id} def={runDef} />
     </ChatThread>
@@ -224,7 +224,7 @@ function AfterChat({ run, chatStepId, def }: { run: RunSnapshot | null; chatStep
     <>
       {chatStep?.status === "failed" && (
         <p role="alert" className="mt-3 px-1 text-[13px] text-danger">
-          {(chatStep.error ?? run?.run.error) ? t("stopped", { error: stored(chatStep.error ?? run?.run.error) }) : t("stoppedAgent")}
+          {chatStep.retryable && canReopen(run) ? t("retryRunner", { error: stored(chatStep.error) }) : (chatStep.error ?? run?.run.error) ? t("stopped", { error: stored(chatStep.error ?? run?.run.error) }) : t("stoppedAgent")}
         </p>
       )}
       {chatStep?.status === "succeeded" && run && <Progress run={run} steps={followUps} def={def} />}

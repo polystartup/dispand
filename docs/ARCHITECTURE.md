@@ -1935,8 +1935,11 @@ I/O or content telemetry; the operational paths retain their existing session/qu
 A successful Job chat with a recorded CLI or cloud transcript accepts another owner message
 in the same Job. The existing chat step and its messages remain in that thread; the new turn
 gets a fresh session id, Job token and chat root cause, with completion timestamps cleared.
-The message and the `job.reopened` owner Audit row commit with that transition. Failed or
-stopped Jobs, workflow runs, deleted agents and chats without recorded history remain closed.
+The message and the `job.reopened` owner Audit row commit with that transition. After a CLI
+runner error, the owner can also resend in the same Job using the original runner and CLI
+with the current harness settings. A CLI that never created a transcript starts in a fresh
+folder. Sending before the failure reaches the browser does not request a retry.
+Stopped Jobs, workflow runs and deleted agents remain closed.
 A revoked historical runner is refused without reopening the Job. A new conversation still
 starts a separate Job.
 

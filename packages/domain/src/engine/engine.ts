@@ -76,7 +76,7 @@ import { recordJobEvent } from "./jobs-events.ts";
 import { recordAudit, recordAuditAfter } from "../audit/record.ts";
 import type { AuditActor } from "../audit/model.ts";
 import { message, plainText, stored } from "../messages/index.ts";
-import { type MessageRow, messageView, type Out, type QuestionRow, questionView, queuedView, type RunEvent, type RunRow, runView, type StepRow, stepView } from "./views.ts";
+import { type MessageRow, messageView, type Out, type QuestionRow, questionView, queuedView, retryableChat, type RunEvent, type RunRow, runView, type StepRow, stepView } from "./views.ts";
 import { answerText, resumePrompt } from "./answers.ts";
 import { EngineError, RUNNER_REVOKED, STOPPED, TOOL_RESTARTED } from "./errors.ts";
 import { runIssues, startProblem } from "./problems.ts";
@@ -540,8 +540,8 @@ export class Engine {
    * way or about to start, or messages queued before it) it is queued instead (`chat_queue`), and
    * sent once the chat is idle (`drainQueue`); returns its id then.
    */
-  async sendChat(runId: string, text: string, skillId?: string, attachmentIds: string[] = []): Promise<{ queuedId?: string }> {
-    return this.chatInput(runId, { text, skillId, attachmentIds });
+  async sendChat(runId: string, text: string, skillId?: string, attachmentIds: string[] = [], retryFailed = false): Promise<{ queuedId?: string }> {
+    return this.chatInput(runId, { text, skillId, attachmentIds, retryFailed });
   }
 
   /**
@@ -550,7 +550,7 @@ export class Engine {
    * transaction, under the chat step's lock, so an edit or removal and this dispatch have one
    * winner, and a dispatched item is written once.
    */
-  private async chatInput(runId: string, input: { text: string; skillId?: string; attachmentIds: string[] } | { queuedId: string }): Promise<{ queuedId?: string; sent?: boolean; skipped?: "busy" | "gone" }> {
+  private async chatInput(runId: string, input: { text: string; skillId?: string; attachmentIds: string[]; retryFailed: boolean } | { queuedId: string }): Promise<{ queuedId?: string; sent?: boolean; skipped?: "busy" | "gone" }> {
     const steps = await this.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
     const candidate = steps.find((s) => s.start?.interactive && s.sessionId) ?? (await this.queuedChat(runId, steps));
     if (!candidate) throw new EngineError("CLOSED", message("engine.chatOver"));
@@ -597,7 +597,7 @@ export class Engine {
         if (chat.runnerId === CLOUD_SOURCE) text = `Use the ${selected.invocation} skill.${args}`;
       }
       if (!OPEN_STEP.includes(chat.status)) {
-        chat = await this.reopen(tx, chat, out);
+        chat = await this.reopen(tx, chat, out, "retryFailed" in input && input.retryFailed);
         going = true;
       } else if (going) {
         await tx.update(runs).set({ rootId: await newRoot(tx, chat.ownerId, "chat", runId) }).where(eq(runs.id, runId));
@@ -754,18 +754,27 @@ export class Engine {
   }
 
   /** A new turn in the same Job, keeping its transcript but replacing its session and token. */
-  private async reopen(tx: Tx, step: StepRow, out: Out[]): Promise<StepRow> {
+  private async reopen(tx: Tx, step: StepRow, out: Out[], retryFailed: boolean): Promise<StepRow> {
     const [run] = await tx.select().from(runs).where(eq(runs.id, step.runId));
-    if (!run || run.source !== "agent" || !run.agentId || run.status !== "succeeded" || run.def?.trigger.field.type !== "chat" || step.status !== "succeeded" || !step.cliSessionId || !step.sessionId || !step.start?.interactive || !step.harness || (run.tokenSealed && !this.secrets)) throw new EngineError("CLOSED", message("engine.chatOver"));
+    const retry = retryFailed && run?.status === "failed" && retryableChat(step);
+    const resume = run?.status === "succeeded" && step.status === "succeeded" && !!step.cliSessionId;
+    if (!run || run.source !== "agent" || !run.agentId || (!retry && !resume) || run.def?.trigger.field.type !== "chat" || !step.sessionId || !step.start?.interactive || !step.harness || (run.tokenSealed && !this.secrets)) throw new EngineError("CLOSED", message("engine.chatOver"));
     if (step.runnerId !== CLOUD_SOURCE) {
       const [runner] = await tx.select({ revokedAt: runners.revokedAt }).from(runners).where(and(eq(runners.id, step.runnerId!), eq(runners.ownerId, run.ownerId))).for("share");
       if (!runner || runner.revokedAt) throw new EngineError("CLOSED", message("engine.chatRunnerGone"));
     }
+    let harness = step.harness;
+    if (retry) {
+      const node = nodesOf(run.def).find((n) => n.id === step.nodeId)!;
+      const current = await sessionHarness(tx, run, node, step);
+      if ("problem" in current || isCloud(current.harness) || current.harness.runnerId !== step.runnerId || current.harness.kind !== harness.kind) throw new EngineError("CLOSED", message("engine.chatRunnerGone"));
+      harness = current.harness;
+    }
     const token = this.secrets ? issueJobToken(this.secrets, run.id) : null;
-    const [reopened] = await tx.update(runs).set({ status: "running", finishedAt: null, rootId: await newRoot(tx, run.ownerId, "chat", run.id), ...(token ? { tokenHash: token.hash, tokenSealed: token.sealed } : {}) }).where(and(eq(runs.id, run.id), eq(runs.status, "succeeded"))).returning();
+    const [reopened] = await tx.update(runs).set({ status: "running", error: null, finishedAt: null, rootId: await newRoot(tx, run.ownerId, "chat", run.id), ...(token ? { tokenHash: token.hash, tokenSealed: token.sealed } : {}) }).where(and(eq(runs.id, run.id), eq(runs.status, run.status))).returning();
     if (!reopened) throw new EngineError("CLOSED", message("engine.chatOver"));
     const sessionId = newId("ses");
-    const [chat] = await tx.update(stepRuns).set({ status: "running", turnStatus: "unknown", turnId: null, interruptible: false, interruptAfterPosition: null, codexInputId: null, finishedAt: null, sessionId, start: { ...step.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: step.sessionId, ended: false } }).where(eq(stepRuns.id, step.id)).returning();
+    const [chat] = await tx.update(stepRuns).set({ status: "running", harness, error: null, turnStatus: "unknown", turnId: null, interruptible: false, interruptAfterPosition: null, codexInputId: null, finishedAt: null, sessionId, start: { ...step.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: step.sessionId, ended: false } }).where(eq(stepRuns.id, step.id)).returning();
     await recordAudit(tx, { ownerId: run.ownerId, actor: { type: "user", userId: run.ownerId }, agentId: run.agentId, jobId: run.id, action: "job.reopened", resource: { type: "job", id: run.id } });
     spanEvent("engine.reopen", { "dispand.job.id": run.id, "dispand.step.id": step.id, "dispand.session.id": sessionId });
     out.push({ type: "run", run: runView(reopened) }, { type: "step", step: stepView(chat!) });

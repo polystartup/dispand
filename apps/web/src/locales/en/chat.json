@@ -47,6 +47,7 @@
   "send": "Send",
   "hintSend": "Enter to send · Shift+Enter for a new line",
   "stopped": "The conversation stopped: {{error}}",
+  "retryRunner": "Runner error: {{error}}. Once resolved, send a message here to retry.",
   "stoppedAgent": "The conversation stopped: the agent failed.",
   "reconnecting": "Reconnecting to live updates…",
   "progress": "Progress",

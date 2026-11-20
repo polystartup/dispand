@@ -2468,6 +2468,28 @@ test.each([[["send.email"]], [["send_email"]], [["send.email", "send_email"]]])(
   else expect(ref).not.toHaveProperty("unasked");
 });
 
+test("retrying a refused Codex start uses the corrected harness in the same Job", async () => {
+  const { context, engine, adapter, emit, trigger, harness } = await jobSetup("chat");
+  await call(router.harnesses.update, { ...harness, kind: "codex", permissionMode: "bypassPermissions" }, { context });
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const old = adapter.starts[0]!.start;
+  await emit(old.sessionId, { type: "error", message: "Bypass refused" });
+  await expect(engine.sendChat(runId, "First send racing refusal")).rejects.toMatchObject({ code: "CLOSED" });
+  await call(router.harnesses.update, { ...harness, kind: "codex", permissionMode: "default" }, { context });
+  await engine.sendChat(runId, "Try again.", undefined, [], true);
+  await emit(old.sessionId, { type: "session-ended" });
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(2));
+  const retry = adapter.starts[1]!;
+  expect(retry.harness).toMatchObject({ permissionMode: "default" });
+  expect(retry.start.runKey).not.toBe(old.runKey);
+  expect(retry.start.prompt).toContain("Try again.");
+  const reopened = await runOf(engine, runId);
+  expect(reopened.run).toMatchObject({ status: "running", error: null });
+  expect(reopened.steps[trigger.id]).toMatchObject({ status: "running", error: null });
+  await engine.stopRun(runId);
+  await expect(engine.sendChat(runId, "Again?", undefined, [], true)).rejects.toMatchObject({ code: "CLOSED" });
+});
+
 test("a finished Job chat reopens with a new token and waits for the old process to exit", async () => {
   const { context, adapter, trigger, runnerId } = await jobSetup("chat");
   const engine = new Engine(context.db, adapter, undefined, undefined, undefined, context.secrets);
