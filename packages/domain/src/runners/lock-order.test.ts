@@ -8,6 +8,9 @@ import { recordingDb } from "./test-support.ts";
 async function ownerDb() {
   const recording = await recordingDb();
   await recording.db.insert(schema.user).values({ id: "user_1", name: "Ada", email: "ada@example.com" });
+  await recording.db.insert(schema.organizations).values({ id: "org" });
+  await recording.db.insert(schema.workspaces).values({ id: "ws", organizationId: "org" });
+  await recording.db.insert(schema.organizationMembers).values({ organizationId: "org", userId: "user_1", role: "owner" });
   return recording;
 }
 

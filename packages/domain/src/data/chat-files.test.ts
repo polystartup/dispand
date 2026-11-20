@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { fakeModel, say } from "../cloud/test-model.ts";
 import { fileInput } from "../cloud/model-client.ts";
-import { attachments, agents, messages, runs, stepRuns, user, workspaceSettings } from "../db/schema.ts";
+import { attachments, agents, messages, runs, stepRuns, user, workspaces, workspaceSettings } from "../db/schema.ts";
 import { chatFiles, CliHarnessAdapter, createEngine } from "../engine/cli-harness.ts";
 import { Engine } from "../engine/engine.ts";
 import { newId } from "../ids.ts";
@@ -96,6 +96,9 @@ test("a CLI message carries generated paths: a file named .mcp.json, CLAUDE.md o
   // A held file, given to no Job yet, isn't served to any runner.
   const held = await s.hold("later.png");
   expect((await fetch(held.id, s.token)).status).toBe(404);
+  await s.context.db.insert(workspaces).values({ id: "sibling", organizationId: s.context.organizationId });
+  await s.context.db.update(runs).set({ workspaceId: "sibling" }).where(eq(runs.id, runId));
+  expect((await fetch(ids[1]!, s.token)).status).toBe(404);
 });
 
 test("a crafted target path naming a control file is refused by the server before any runner is told", () => {

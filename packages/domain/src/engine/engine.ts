@@ -82,7 +82,7 @@ import { EngineError, RUNNER_REVOKED, STOPPED, TOOL_RESTARTED } from "./errors.t
 import { runIssues, startProblem } from "./problems.ts";
 import { agentHarnesses, defOf, expireApprovals, openIteration, pushStep, release, rootGoingLocked, skip, startLoop, undeliveredMessages } from "./step-rows.ts";
 import { lostScope, withMemory } from "./job-reads.ts";
-import { sessionHarness } from "./session-harness.ts";
+import { runnerForRun, sessionHarness, sessionSource } from "./session-harness.ts";
 
 const traces = tracer("engine");
 const counts = meter("engine");
@@ -758,7 +758,7 @@ export class Engine {
     const [run] = await tx.select().from(runs).where(eq(runs.id, step.runId));
     if (!run || run.source !== "agent" || !run.agentId || run.status !== "succeeded" || run.def?.trigger.field.type !== "chat" || step.status !== "succeeded" || !step.cliSessionId || !step.sessionId || !step.start?.interactive || !step.harness || (run.tokenSealed && !this.secrets)) throw new EngineError("CLOSED", message("engine.chatOver"));
     if (step.runnerId !== CLOUD_SOURCE) {
-      const [runner] = await tx.select({ revokedAt: runners.revokedAt }).from(runners).where(and(eq(runners.id, step.runnerId!), eq(runners.ownerId, run.ownerId))).for("share");
+      const [runner] = await tx.select({ revokedAt: runners.revokedAt }).from(runners).where(and(eq(runners.id, step.runnerId!), eq(runners.ownerId, run.ownerId), eq(runners.workspaceId, run.workspaceId))).for("share");
       if (!runner || runner.revokedAt) throw new EngineError("CLOSED", message("engine.chatRunnerGone"));
     }
     const token = this.secrets ? issueJobToken(this.secrets, run.id) : null;
@@ -774,7 +774,7 @@ export class Engine {
 
   /** A process-ended acknowledgement, or a hello without that process, releases its resume. */
   private async retired(sessionId: string, runnerId: string) {
-    const rows = await this.db.update(stepRuns).set({ resumeAfterSession: { sessionId, ended: true } }).where(and(eq(stepRuns.runnerId, runnerId), inArray(stepRuns.status, ACTIVE_STEP), sql`${stepRuns.resumeAfterSession}->>'sessionId' = ${sessionId}`, sql`${stepRuns.resumeAfterSession}->>'ended' = 'false'`)).returning();
+    const rows = await this.db.update(stepRuns).set({ resumeAfterSession: { sessionId, ended: true } }).where(and(sessionSource(this.db, runnerId), inArray(stepRuns.status, ACTIVE_STEP), sql`${stepRuns.resumeAfterSession}->>'sessionId' = ${sessionId}`, sql`${stepRuns.resumeAfterSession}->>'ended' = 'false'`)).returning();
     for (const step of rows) await this.resume(step);
   }
 
@@ -1408,7 +1408,7 @@ export class Engine {
     else await this.handleEvent(sessionId, event, from);
     // The chat may be idle now (a replay too, if the process stopped before): its next queued message goes.
     if (SETTLING.has(event.type)) {
-      const [step] = await this.db.select({ id: stepRuns.id }).from(stepRuns).where(and(eq(stepRuns.sessionId, sessionId), eq(stepRuns.runnerId, from.runnerId)));
+      const [step] = await this.db.select({ id: stepRuns.id }).from(stepRuns).where(and(eq(stepRuns.sessionId, sessionId), sessionSource(this.db, from.runnerId)));
       if (step) await this.drainQueue(step.id);
     }
   }
@@ -1452,13 +1452,13 @@ export class Engine {
           .from(stepRuns)
           .innerJoin(runs, eq(runs.id, stepRuns.runId))
           .innerJoin(roots, eq(roots.id, runs.rootId))
-          .where(and(eq(stepRuns.sessionId, sessionId), eq(stepRuns.runnerId, from.runnerId)))
+          .where(and(eq(stepRuns.sessionId, sessionId), sessionSource(tx, from.runnerId)))
           .for("update", { of: roots });
       }
       const [step] = await tx
         .update(stepRuns)
         .set({ eventSeq: from.seq, ...(event.type === "error" ? {} : { lastActivityAt: new Date() }) })
-        .where(and(eq(stepRuns.sessionId, sessionId), eq(stepRuns.runnerId, from.runnerId), lt(stepRuns.eventSeq, from.seq)))
+        .where(and(eq(stepRuns.sessionId, sessionId), sessionSource(tx, from.runnerId), lt(stepRuns.eventSeq, from.seq)))
         .returning();
       if (!step) return null;
       annotate({ "dispand.job.id": step.runId, "dispand.step.id": step.id });
@@ -1484,7 +1484,7 @@ export class Engine {
     const [row] = await this.db
       .select()
       .from(stepRuns)
-      .where(and(eq(stepRuns.sessionId, sessionId), eq(stepRuns.runnerId, runnerId)));
+      .where(and(eq(stepRuns.sessionId, sessionId), sessionSource(this.db, runnerId)));
     if (row?.status === "succeeded") await this.advance(row.runId);
     else if (row?.harness?.kind === "codex" && row.turnStatus === "idle" && !row.codexInputId) await this.wake(row);
   }
@@ -1593,11 +1593,15 @@ export class Engine {
   async reconcile(runnerId: string, liveSessions: string[]): Promise<void> {
     await this.holdingDeliveries(async () => {
       const steps = await this.db
-        .select({ step: stepRuns })
+        .select({ step: stepRuns, placed: runnerId === CLOUD_SOURCE ? sql<boolean>`true` : runnerForRun(this.db, runnerId) })
         .from(stepRuns)
         .innerJoin(runs, eq(runs.id, stepRuns.runId))
         .where(and(eq(stepRuns.runnerId, runnerId), inArray(runs.status, ACTIVE_RUN), inArray(stepRuns.status, ACTIVE_STEP)));
-      for (const { step: row } of steps) {
+      for (const { step: row, placed } of steps) {
+        if (!placed) {
+          await this.failNow(row, RUNNER_REVOKED);
+          continue;
+        }
         let step = row;
         const sessionId = step.sessionId!;
         if (this.inFlight.has(`start:${sessionId}`)) continue;
@@ -1648,7 +1652,7 @@ export class Engine {
       // Sessions it still runs that no step still going is waiting on are ended: a stop that
       // never reached it, or a run deleted since (with its workflow or its agent). Decided from
       // the steps as they are now, not from the rows of the finished ones, which may be gone.
-      const going = new Set(steps.map(({ step }) => step.sessionId));
+      const going = new Set(steps.filter(({ placed }) => placed).map(({ step }) => step.sessionId));
       for (const sessionId of liveSessions) {
         if (!going.has(sessionId) && !this.inFlight.has(`start:${sessionId}`)) this.stopSession(sessionId, runnerId);
       }
@@ -2347,7 +2351,7 @@ export class Engine {
    * Called right before each start of its session is sent; fails the step and says so when it must not go.
    */
   private async refusedForScope(step: StepRow): Promise<boolean> {
-    const problem = await lostScope(this.db, step.runId);
+    const problem = await lostScope(this.db, step.runId, step.runnerId);
     if (!problem) return false;
     await this.failNow(step, problem);
     return true;

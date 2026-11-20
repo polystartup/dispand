@@ -118,6 +118,8 @@ export const verification = pgTable("verification", {
 // Runners: machines that run CLI harnesses and dial out to the hub.
 export const runners = pgTable("runners", {
   id: text("id").primaryKey(),
+  // An already revoked legacy runner can have no identifiable workspace.
+  workspaceId: text("workspace_id").references(() => workspaces.id),
   ownerId: text("owner_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
@@ -134,7 +136,7 @@ export const runners = pgTable("runners", {
   lastSeenAt: timestamp("last_seen_at"),
   revokedAt: timestamp("revoked_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [check("runners_live_workspace", sql`${t.workspaceId} IS NOT NULL OR (${t.revokedAt} IS NOT NULL AND ${t.tokenHash} IS NULL)`)]);
 
 export const runnerPairings = pgTable("runner_pairings", {
   id: text("id").primaryKey(),

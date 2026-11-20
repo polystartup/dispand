@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
-import { attachments, messages, rows as rowsTable, runs, stepRuns, tables as tablesTable, workspaceSettings, type EventActor, type MessageFile } from "../db/schema.ts";
+import { attachments, messages, rows as rowsTable, runners, runs, stepRuns, tables as tablesTable, workspaceSettings, type EventActor, type MessageFile } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -301,6 +301,8 @@ export async function attachmentForRunner(db: Db, filesDir: string, runnerId: st
     .select({ file: attachments })
     .from(attachments)
     .innerJoin(stepRuns, and(eq(stepRuns.runId, attachments.jobId), eq(stepRuns.runnerId, runnerId), eq(stepRuns.ownerId, attachments.ownerId)))
+    .innerJoin(runs, eq(runs.id, stepRuns.runId))
+    .innerJoin(runners, and(eq(runners.id, stepRuns.runnerId), eq(runners.workspaceId, runs.workspaceId), eq(runners.ownerId, runs.ownerId)))
     .where(and(eq(attachments.id, id), inMessage))
     .limit(1);
   return found ? streamAttachment(filesDir, found.file) : null;

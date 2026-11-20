@@ -69,6 +69,8 @@
       "decided": "Modification de plugin décidée"
     },
     "workspace": {
+      "runnerRegistered": "Runner enregistré",
+      "runnerRevoked": "Runner révoqué",
       "invited": "Invitation à l’espace de travail créée",
       "invitationRevoked": "Invitation à l’espace de travail révoquée",
       "invitationAccepted": "Invitation à l’espace de travail acceptée",
