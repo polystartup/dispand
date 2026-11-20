@@ -195,22 +195,22 @@ test("0091 gives the existing owner a workspace and preserves their job, file an
   await beforePlacement.execute(sql`insert into step_runs (id, owner_id, run_id, runner_id, node_id, status) values ('s2', 'u', 'j', 'configured', 'n2', 'succeeded')`);
   const unusedToken = "pre-workspace-unused-token";
   await beforePlacement.execute(sql`insert into runners (id, owner_id, name, token_hash) values ('ambiguous', 'u', 'Unused', ${createHash("sha256").update(unusedToken).digest("hex")})`);
-  const migration = await readFile(new URL("../../drizzle/0095_runner_workspace.sql", import.meta.url), "utf8");
-  const attempt = () => beforePlacement.transaction(async (tx) => {
-    for (const statement of migration.split("--> statement-breakpoint")) await tx.execute(sql.raw(statement));
-  });
-  await expect(attempt()).rejects.toMatchObject({ cause: { message: expect.stringContaining("ambiguous, configured") } });
-  expect(rowsOf(await beforePlacement.execute(sql`select column_name from information_schema.columns where table_name = 'runners' and column_name = 'workspace_id'`))).toEqual([]);
-  await beforePlacement.execute(sql`create table dispand_runner_workspace_assignments (runner_id text primary key references runners(id), workspace_id text not null references workspaces(id))`);
-  await beforePlacement.execute(sql`insert into dispand_runner_workspace_assignments values ('ambiguous', 'ws_u'), ('configured', 'ws_other')`);
-  // An operator choice that would displace a live session also rolls back.
-  await beforePlacement.execute(sql`update runs set status = 'running' where id = 'j'`);
-  await beforePlacement.execute(sql`update step_runs set status = 'running' where id = 's2'`);
-  await expect(attempt()).rejects.toMatchObject({ cause: { message: expect.stringContaining("upgrading: configured") } });
-  expect(rowsOf(await beforePlacement.execute(sql`select status from step_runs where id = 's2'`))).toEqual([{ status: "running" }]);
-  await beforePlacement.execute(sql`update step_runs set status = 'succeeded' where id = 's2'`);
-  await beforePlacement.execute(sql`update runs set status = 'succeeded' where id = 'j'`);
   await closeDb(beforePlacement);
+  await expect(createDb(url)).rejects.toMatchObject({ cause: { message: expect.stringContaining("ambiguous, configured") } });
+  const choose = await createDb(url, before);
+  expect(rowsOf(await choose.execute(sql`select column_name from information_schema.columns where table_name = 'runners' and column_name = 'workspace_id'`))).toEqual([]);
+  await choose.execute(sql`create table dispand_runner_workspace_assignments (runner_id text primary key references runners(id), workspace_id text not null references workspaces(id))`);
+  await choose.execute(sql`insert into dispand_runner_workspace_assignments values ('ambiguous', 'ws_u'), ('configured', 'ws_other')`);
+  // An operator choice that would displace a live session also rolls back.
+  await choose.execute(sql`update runs set status = 'running' where id = 'j'`);
+  await choose.execute(sql`update step_runs set status = 'running' where id = 's2'`);
+  await closeDb(choose);
+  await expect(createDb(url)).rejects.toMatchObject({ cause: { message: expect.stringContaining("upgrading: configured") } });
+  const previous = await createDb(url, before);
+  expect(rowsOf(await previous.execute(sql`select status from step_runs where id = 's2'`))).toEqual([{ status: "running" }]);
+  await previous.execute(sql`update step_runs set status = 'succeeded' where id = 's2'`);
+  await previous.execute(sql`update runs set status = 'succeeded' where id = 'j'`);
+  await closeDb(previous);
 
   const db = await createDb(url);
   onTestFinished(() => closeDb(db));

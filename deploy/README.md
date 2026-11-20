@@ -38,7 +38,8 @@ the owner account with `DISPAND_SETUP_CODE`.
 The workspace migration preserves runner credentials. Installations with one workspace upgrade automatically.
 If existing agents and job history identify different workspaces for a runner, or several workspaces
 could own an unused runner, the migration rolls back and reports the affected runner IDs. The
-previous version can still use the database. In PostgreSQL, open the database shell with
+previous version can still use the database. For the reference deployment, `docker compose logs postgres`
+shows the database error and runner IDs. Open its database shell with
 `docker compose exec postgres psql -U dispand -d dispand`.
 
 Look up the runner and workspace names before assigning an ID.
